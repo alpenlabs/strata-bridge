@@ -69,7 +69,8 @@ impl PegOutGraph {
 
         info!(action = "registering claim txid for bitcoin watcher", %claim_txid, own_index = %operator_idx);
         db.register_claim_txid(claim_txid, operator_idx, deposit_txid)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         let assert_chain_data = AssertChainData {
             pre_assert_data: PreAssertData {
@@ -97,12 +98,14 @@ impl PegOutGraph {
             operator_idx,
             deposit_txid,
         )
-        .await;
+        .await
+        .unwrap(); // FIXME: Handle me
 
         info!(action = "registering assert data txids for bitcoin watcher", %claim_txid, own_index = %operator_idx);
         let assert_data_txids = assert_chain.assert_data.compute_txids();
         db.register_assert_data_txids(assert_data_txids, operator_idx, deposit_txid)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         let post_assert_txid = assert_chain.post_assert.compute_txid();
         let post_assert_out_stake = assert_chain.post_assert.remaining_stake();
@@ -111,7 +114,8 @@ impl PegOutGraph {
 
         info!(action = "registering post assert txid for bitcoin watcher", %post_assert_txid, own_index = %operator_idx);
         db.register_post_assert_txid(post_assert_txid, operator_idx, deposit_txid)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         let payout_data = PayoutData {
             post_assert_txid,
@@ -203,7 +207,10 @@ impl<Db: PublicDb> PegOutGraphConnectors<Db> {
             superblock_period_start_ts: _,
             groth16:
                 Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
-        } = db.get_wots_public_keys(operator_idx, deposit_txid).await;
+        } = db
+            .get_wots_public_keys(operator_idx, deposit_txid)
+            .await
+            .unwrap(); // FIXME:  Handle me
         let assert_data160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160> =
             ConnectorA160Factory {
                 network,

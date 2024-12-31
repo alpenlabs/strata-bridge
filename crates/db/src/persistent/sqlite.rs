@@ -6,15 +6,19 @@ use std::{
 use async_trait::async_trait;
 use bitcoin::{consensus, hex::DisplayHex, Amount, Network, OutPoint, Transaction, TxOut, Txid};
 use musig2::{BinaryEncoding, PartialSignature, PubNonce, SecNonce};
-use rkyv::{from_bytes, rancor::Error as RkyvError, to_bytes};
 use secp256k1::schnorr::Signature;
-use sqlx::SqlitePool;
+use sqlx::{Sqlite, SqlitePool};
 use strata_bridge_primitives::{
     bitcoin::BitcoinAddress, duties::BridgeDutyStatus, scripts::wots, types::OperatorIdx,
 };
 use tracing::trace;
 
+use super::{
+    errors::StorageError,
+    types::{DbOperatorId, DbSignature, DbTxid, DbWotsPublicKeys, DbWotsSignatures},
+};
 use crate::{
+    errors::DbResult,
     operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb},
     public::PublicDb,
     tracker::{BitcoinBlockTrackerDb, DutyTrackerDb},
@@ -33,22 +37,20 @@ impl SqliteDb {
 
 #[async_trait]
 impl PublicDb for SqliteDb {
-    async fn get_wots_public_keys(&self, operator_id: u32, deposit_txid: Txid) -> wots::PublicKeys {
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
-
-        let record = sqlx::query!(
-            "SELECT public_keys FROM wots_public_keys WHERE operator_id = ? AND deposit_txid = ?",
-            operator_id,
-            deposit_txid
+    async fn get_wots_public_keys(
+        &self,
+        operator_id: OperatorIdx,
+        deposit_txid: Txid,
+    ) -> DbResult<wots::PublicKeys> {
+        let (public_keys, ): (DbWotsPublicKeys, ) = sqlx::query_as(
+            r#"SELECT public_keys FROM wots_public_keys WHERE operator_id = $1 AND deposit_txid = $2"#,
         )
+        .bind(operator_id)
+        .bind(DbTxid::from(deposit_txid))
         .fetch_one(&self.pool)
-        .await
-        .expect(
-            "wots public keys should be present in database for given operator and deposit txid",
-        );
+        .await.map_err(StorageError::from)?;
 
-        from_bytes::<wots::PublicKeys, RkyvError>(&record.public_keys)
-            .expect("Failed to deserialize wots public keys")
+        Ok(*public_keys)
     }
 
     async fn set_wots_public_keys(
@@ -56,49 +58,38 @@ impl PublicDb for SqliteDb {
         operator_id: u32,
         deposit_txid: Txid,
         public_keys: &wots::PublicKeys,
-    ) {
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let serialized_keys =
-            to_bytes::<RkyvError>(public_keys).expect("Failed to serialize wots public keys");
-
-        let serialized_keys = serialized_keys.as_slice();
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
-        sqlx::query!(
-            "INSERT OR REPLACE INTO wots_public_keys (operator_id, deposit_txid, public_keys) VALUES (?, ?, ?)",
-            operator_id,
-            deposit_txid,
-            serialized_keys
+        sqlx::query(
+            "INSERT OR REPLACE INTO wots_public_keys (operator_id, deposit_txid, public_keys) VALUES ($1, $2, $3)",
         )
+        .bind(operator_id)
+        .bind(DbTxid::from(deposit_txid))
+        .bind(DbWotsPublicKeys::from(*public_keys))
         .execute(&mut *tx)
-        .await
-        .expect("wots public keys should be insertable into database");
+        .await.map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit wots public keys");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
-    async fn get_wots_signatures(&self, operator_id: u32, deposit_txid: Txid) -> wots::Signatures {
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
-
-        let record = sqlx::query!(
-            "SELECT signatures FROM wots_signatures WHERE operator_id = ? AND deposit_txid = ?",
-            operator_id,
-            deposit_txid
+    async fn get_wots_signatures(
+        &self,
+        operator_id: u32,
+        deposit_txid: Txid,
+    ) -> DbResult<wots::Signatures> {
+        let (wots_signatures, ): (DbWotsSignatures,) = sqlx::query_as(
+            r#"SELECT signatures FROM wots_signatures WHERE operator_id = $1 AND deposit_txid = $2"#,
         )
+        .bind(operator_id)
+        .bind(DbTxid::from(deposit_txid))
         .fetch_one(&self.pool)
         .await
-        .expect(
-            "wots signatures should be present in database for given operator and deposit txid",
-        );
+        .map_err(StorageError::from)?;
 
-        from_bytes::<wots::Signatures, RkyvError>(&record.signatures)
-            .expect("Failed to deserialize wots signatures")
+        Ok(*wots_signatures)
     }
 
     async fn set_wots_signatures(
@@ -106,31 +97,22 @@ impl PublicDb for SqliteDb {
         operator_id: u32,
         deposit_txid: Txid,
         signatures: &wots::Signatures,
-    ) {
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let serialized_signatures =
-            to_bytes::<RkyvError>(signatures).expect("Failed to serialize wots signatures");
-
-        let serialized_signatures = serialized_signatures.as_slice();
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start transaction");
-        sqlx::query!(
-            "INSERT OR REPLACE INTO wots_signatures (operator_id, deposit_txid, signatures) VALUES (?, ?, ?)",
-            operator_id,
-            deposit_txid,
-            serialized_signatures
+        sqlx::query(
+            "INSERT OR REPLACE INTO wots_signatures (operator_id, deposit_txid, signatures) VALUES ($1, $2, $3)",
         )
+        .bind(operator_id)
+        .bind(DbTxid::from(deposit_txid))
+        .bind(DbWotsSignatures::from(*signatures))
         .execute(&mut *tx)
         .await
-        .expect("wots signatures should be insertable into database");
+        .map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be abel to commit wots signatures");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
     async fn get_signature(
@@ -138,21 +120,17 @@ impl PublicDb for SqliteDb {
         operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
-    ) -> Signature {
-        let txid = consensus::encode::serialize_hex(&txid);
-
-        let record = sqlx::query!(
-            "SELECT signature FROM signatures WHERE operator_id = ? AND txid = ? AND input_index = ?",
-            operator_idx,
-            txid,
-            input_index
+    ) -> DbResult<Signature> {
+        let (signature,): (DbSignature,) = sqlx::query_as(
+            "SELECT signature FROM signatures WHERE operator_id = $1 AND txid = $2 AND input_index = $3",
         )
+        .bind(operator_idx)
+        .bind(DbTxid::from(txid))
+        .bind(input_index)
         .fetch_one(&self.pool)
-        .await
-        .expect("signature should be present in database for given operator, txid, and input index");
+        .await.map_err(StorageError::from)?;
 
-        Signature::from_str(&record.signature)
-            .expect("signature should be a valid hex-encoded value")
+        Ok(*signature)
     }
 
     async fn set_signature(
@@ -161,26 +139,22 @@ impl PublicDb for SqliteDb {
         txid: Txid,
         input_index: u32,
         signature: Signature,
-    ) {
-        let txid = consensus::encode::serialize_hex(&txid);
-        let signature = signature.to_string();
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start transaction");
-        sqlx::query!(
-            "INSERT OR REPLACE INTO signatures (signature, operator_id, txid, input_index) VALUES (?, ?, ?, ?)",
-            signature,
-            operator_id,
-            txid,
-            input_index
-        ).execute(&mut *tx).await.expect("signature should be insertable into the database");
+        sqlx::query(
+            "INSERT OR REPLACE INTO signatures (signature, operator_id, txid, input_index) VALUES ($1, $2, $3, $4)",
+        )
+        .bind(DbSignature::from(signature))
+        .bind(operator_id)
+        .bind(DbTxid::from(txid))
+        .bind(input_index)
+        .execute(&mut *tx)
+        .await.map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit signature");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
     async fn register_claim_txid(
@@ -188,49 +162,36 @@ impl PublicDb for SqliteDb {
         claim_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
-        let claim_txid = consensus::encode::serialize_hex(&claim_txid);
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start transaction");
-        sqlx::query!(
-            "INSERT OR REPLACE INTO claim_txid_to_operator_index_and_deposit_txid (claim_txid, operator_id, deposit_txid) VALUES (?, ?, ?)",
-            claim_txid,
-            operator_idx,
-            deposit_txid
+        sqlx::query(
+            "INSERT OR REPLACE INTO claim_txid_to_operator_index_and_deposit_txid (claim_txid, operator_id, deposit_txid) VALUES ($1, $2, $3)",
         )
+        .bind(DbTxid::from(claim_txid))
+        .bind(operator_idx)
+        .bind(DbTxid::from(deposit_txid))
         .execute(&mut *tx)
-        .await
-        .expect("claim txid should be insertable into database");
+        .await.map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit claim txid");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_claim(
         &self,
         claim_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        let claim_txid = consensus::encode::serialize_hex(claim_txid);
-
-        let record = sqlx::query!(
-            "SELECT operator_id, deposit_txid FROM claim_txid_to_operator_index_and_deposit_txid WHERE claim_txid = ?",
-            claim_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(
+            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
+            "SELECT operator_id, deposit_txid FROM claim_txid_to_operator_index_and_deposit_txid WHERE claim_txid = $1",
+            )
+            .bind(DbTxid::from(*claim_txid))
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?.map(|(id, txid)| (*id, *txid))
         )
-        .fetch_optional(&self.pool)
-        .await
-        .expect("database query for claim txid should succeed");
-
-        record.map(|rec| {
-            let deposit_txid = consensus::encode::deserialize_hex(&rec.deposit_txid)
-                .expect("deposit txid in db should be valid");
-            (rec.operator_id as OperatorIdx, deposit_txid)
-        })
     }
 
     async fn register_post_assert_txid(
@@ -238,49 +199,36 @@ impl PublicDb for SqliteDb {
         post_assert_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
-        let post_assert_txid = consensus::encode::serialize_hex(&post_assert_txid);
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
-        sqlx::query!(
-            "INSERT OR REPLACE INTO post_assert_txid_to_operator_index_and_deposit_txid (post_assert_txid, operator_id, deposit_txid) VALUES (?, ?, ?)",
-            post_assert_txid,
-            operator_idx,
-            deposit_txid
+        sqlx::query(
+            "INSERT OR REPLACE INTO post_assert_txid_to_operator_index_and_deposit_txid (post_assert_txid, operator_id, deposit_txid) VALUES ($1, $2, $3)",
         )
+        .bind(DbTxid::from(post_assert_txid))
+        .bind(operator_idx)
+        .bind(DbTxid::from(deposit_txid))
         .execute(&mut *tx)
-        .await
-        .expect("post assert txid should be insertable into database");
+        .await.map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit post assert txid");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_post_assert(
         &self,
         post_assert_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        let post_assert_txid = consensus::encode::serialize_hex(post_assert_txid);
-
-        let record = sqlx::query!(
-            "SELECT operator_id, deposit_txid FROM post_assert_txid_to_operator_index_and_deposit_txid WHERE post_assert_txid = ?",
-            post_assert_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(
+            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
+                "SELECT operator_id, deposit_txid FROM post_assert_txid_to_operator_index_and_deposit_txid WHERE post_assert_txid = $1",
+            )
+            .bind(DbTxid::from(*post_assert_txid))
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?.map(|(id, txid)| (*id, *txid))
         )
-        .fetch_optional(&self.pool)
-        .await
-        .expect("database query for post assert txid should succeed");
-
-        record.map(|rec| {
-            let deposit_txid = consensus::encode::deserialize_hex(&rec.deposit_txid)
-                .expect("deposit txid in db should be valid");
-            (rec.operator_id as OperatorIdx, deposit_txid)
-        })
     }
 
     async fn register_assert_data_txids(
@@ -288,52 +236,39 @@ impl PublicDb for SqliteDb {
         assert_data_txids: [Txid; 7],
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
         for txid in assert_data_txids.iter() {
-            let txid = consensus::encode::serialize_hex(txid);
-
-            sqlx::query!(
-                "INSERT OR REPLACE INTO assert_data_txid_to_operator_and_deposit (assert_data_txid, operator_id, deposit_txid) VALUES (?, ?, ?)",
-                txid,
-                operator_idx,
-                deposit_txid
+            sqlx::query(
+                "INSERT OR REPLACE INTO assert_data_txid_to_operator_and_deposit (assert_data_txid, operator_id, deposit_txid) VALUES ($1, $2, $3)",
             )
+                .bind(DbTxid::from(*txid))
+                .bind(operator_idx)
+                .bind(DbTxid::from(deposit_txid))
             .execute(&mut *tx)
-            .await
-            .expect("assert data txid should be insertable into database");
+            .await.map_err(StorageError::from)?;
         }
 
-        tx.commit()
-            .await
-            .expect("should be able to commit assert data txids");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_assert_data(
         &self,
         assert_data_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        let assert_data_txid = consensus::encode::serialize_hex(assert_data_txid);
-
-        let record = sqlx::query!(
-            "SELECT operator_id, deposit_txid FROM assert_data_txid_to_operator_and_deposit WHERE assert_data_txid = ?",
-            assert_data_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(
+            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
+                "SELECT operator_id, deposit_txid FROM assert_data_txid_to_operator_and_deposit WHERE assert_data_txid = ?",
+            )
+            .bind(DbTxid::from(*assert_data_txid))
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|(id, txid)| (*id, *txid))
         )
-        .fetch_optional(&self.pool)
-        .await
-        .expect("database query for assert data txid should succeed");
-
-        record.map(|rec| {
-            let deposit_txid = consensus::encode::deserialize_hex(&rec.deposit_txid)
-                .expect("deposit txid in db should be valid");
-            (rec.operator_id as OperatorIdx, deposit_txid)
-        })
     }
 
     async fn register_pre_assert_txid(
@@ -341,49 +276,38 @@ impl PublicDb for SqliteDb {
         pre_assert_data_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
-        let pre_assert_data_txid = consensus::encode::serialize_hex(&pre_assert_data_txid);
-        let deposit_txid = consensus::encode::serialize_hex(&deposit_txid);
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
-        sqlx::query!(
+        sqlx::query(
             "INSERT OR REPLACE INTO pre_assert_txid_to_operator_and_deposit (pre_assert_data_txid, operator_id, deposit_txid) VALUES (?, ?, ?)",
-            pre_assert_data_txid,
-            operator_idx,
-            deposit_txid
         )
+        .bind(DbTxid::from(pre_assert_data_txid))
+        .bind(operator_idx)
+        .bind(DbTxid::from(deposit_txid))
         .execute(&mut *tx)
         .await
-        .expect("pre assert txid should be insertable into database");
+        .map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit pre-assert txid");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_pre_assert(
         &self,
         pre_assert_data_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        let pre_assert_data_txid = consensus::encode::serialize_hex(pre_assert_data_txid);
-
-        let record = sqlx::query!(
-            "SELECT operator_id, deposit_txid FROM pre_assert_txid_to_operator_and_deposit WHERE pre_assert_data_txid = ?",
-            pre_assert_data_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(
+            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
+                "SELECT operator_id, deposit_txid FROM pre_assert_txid_to_operator_and_deposit WHERE pre_assert_data_txid = $1",
+            )
+            .bind(DbTxid::from(*pre_assert_data_txid))
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|(id, txid)| (*id, *txid))
         )
-        .fetch_optional(&self.pool)
-        .await
-        .expect("database query for pre assert txid should succeed");
-
-        record.map(|rec| {
-            let deposit_txid = consensus::encode::deserialize_hex(&rec.deposit_txid)
-                .expect("deposit txid in db should be valid");
-            (rec.operator_id as OperatorIdx, deposit_txid)
-        })
     }
 }
 

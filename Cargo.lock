@@ -9181,9 +9181,11 @@ dependencies = [
  "musig2",
  "rkyv",
  "secp256k1",
+ "serde",
  "serde_json",
  "sqlx",
  "strata-bridge-primitives",
+ "thiserror 2.0.3",
  "tokio",
  "tracing",
 ]

@@ -53,7 +53,8 @@ impl<Db: PublicDb> ConnectorK<Db> {
         } = self
             .db
             .get_wots_public_keys(self.operator_idx, deposit_txid)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         script! {
             // superblock_period_start_timestamp

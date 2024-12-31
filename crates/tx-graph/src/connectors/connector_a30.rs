@@ -87,7 +87,8 @@ impl<Db: PublicDb> ConnectorA30<Db> {
         let n_of_n_sig = self
             .db
             .get_signature(operator_idx, payout_txid, input_index)
-            .await;
+            .await
+            .unwrap(); // FIXME: handle me
 
         let sighash_type = match tapleaf {
             ConnectorA30Leaf::Payout => TapSighashType::Default,

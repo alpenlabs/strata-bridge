@@ -138,7 +138,8 @@ where
                 let public_keys = self
                     .public_db
                     .get_wots_public_keys(operator_id, deposit_txid)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 let connector_leaf = {
                     // 1. public input hash validation

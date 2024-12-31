@@ -42,7 +42,7 @@ impl DerefMut for Groth16PublicKeys {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct PublicKeys {
     pub bridge_out_txid: Wots256PublicKey,
 
@@ -62,7 +62,7 @@ pub struct Wots32Signature(wots32::Signature);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16Signatures(g16::Signatures);
 
-#[derive(Debug, Clone, Copy, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Signatures {
     pub bridge_out_txid: wots256::Signature,
     pub superblock_hash: wots256::Signature,

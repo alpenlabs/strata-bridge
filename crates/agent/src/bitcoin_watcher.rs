@@ -73,6 +73,8 @@ where
                     .public_db
                     .get_operator_and_deposit_for_claim(&txid)
                     .await
+                    .unwrap()
+                // FIXME: Handle me
                 {
                     info!(event = "noticed claim transaction", by_operator=%operator_idx, for_deposit_txid=%deposit_txid);
 
@@ -90,6 +92,8 @@ where
                     .public_db
                     .get_operator_and_deposit_for_post_assert(&txid)
                     .await
+                    .unwrap()
+                // FIXME: Handle me
                 {
                     info!(event = "noticed post-assert transaction", by_operator=%operator_idx, for_deposit_txid=%deposit_txid);
                     let duty = self.handle_assertion(tx, operator_idx, deposit_txid).await;
@@ -102,12 +106,16 @@ where
                     .public_db
                     .get_operator_and_deposit_for_assert_data(&txid)
                     .await
+                    .unwrap()
+                // FIXME: Handle me
                 {
                     self.db.add_relevant_tx(tx).await;
                 } else if let Some((_operator_idx, _deposit_txid)) = self
                     .public_db
                     .get_operator_and_deposit_for_pre_assert(&txid)
                     .await
+                    .unwrap()
+                // FIXME: Handle me
                 {
                     self.db.add_relevant_tx(tx).await;
                 }

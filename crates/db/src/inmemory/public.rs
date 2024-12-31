@@ -10,7 +10,8 @@ use strata_bridge_primitives::{
 use tokio::sync::RwLock;
 use tracing::trace;
 
-use crate::public::PublicDb;
+use super::errors::InMemoryError;
+use crate::{errors::DbResult, public::PublicDb};
 
 pub type TxInputToSignatureMap = HashMap<(Txid, u32), Signature>;
 pub type OperatorIdxToTxInputSigMap = HashMap<OperatorIdx, TxInputToSignatureMap>;
@@ -42,26 +43,34 @@ pub struct PublicDbInMemory {
 
 #[async_trait]
 impl PublicDb for PublicDbInMemory {
-    async fn get_wots_public_keys(&self, operator_id: u32, deposit_txid: Txid) -> wots::PublicKeys {
-        *self
+    async fn get_wots_public_keys(
+        &self,
+        operator_id: u32,
+        deposit_txid: Txid,
+    ) -> DbResult<wots::PublicKeys> {
+        Ok(*self
             .wots_public_keys
             .read()
             .await
             .get(&operator_id)
-            .unwrap()
+            .ok_or(InMemoryError::NotFound)?
             .get(&deposit_txid)
-            .unwrap()
+            .ok_or(InMemoryError::NotFound)?)
     }
 
-    async fn get_wots_signatures(&self, operator_id: u32, deposit_txid: Txid) -> wots::Signatures {
-        *self
+    async fn get_wots_signatures(
+        &self,
+        operator_id: u32,
+        deposit_txid: Txid,
+    ) -> DbResult<wots::Signatures> {
+        Ok(*self
             .wots_signatures
             .read()
             .await
             .get(&operator_id)
-            .unwrap()
+            .ok_or(InMemoryError::NotFound)?
             .get(&deposit_txid)
-            .unwrap()
+            .ok_or(InMemoryError::NotFound)?)
     }
 
     async fn set_wots_public_keys(
@@ -69,7 +78,7 @@ impl PublicDb for PublicDbInMemory {
         operator_id: u32,
         deposit_txid: Txid,
         public_keys: &wots::PublicKeys,
-    ) {
+    ) -> DbResult<()> {
         trace!(action = "trying to acquire wlock on wots public keys", %operator_id, %deposit_txid);
         let mut map = self.wots_public_keys.write().await;
         trace!(event = "wlock acquired on wots public keys", %operator_id, %deposit_txid);
@@ -82,6 +91,8 @@ impl PublicDb for PublicDbInMemory {
 
             map.insert(operator_id, keys);
         }
+
+        Ok(())
     }
 
     async fn get_signature(
@@ -89,19 +100,16 @@ impl PublicDb for PublicDbInMemory {
         operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
-    ) -> Signature {
-        self.signatures
+    ) -> DbResult<Signature> {
+        Ok(self
+            .signatures
             .read()
             .await
             .get(&operator_idx)
-            .unwrap_or_else(|| {
-                panic!("operator_idx: {operator_idx} must have a signature in the database")
-            })
+            .ok_or(InMemoryError::NotFound)?
             .get(&(txid, input_index))
             .copied()
-            .unwrap_or_else(|| {
-                panic!("txid: {txid} must have a signature in the database");
-            })
+            .ok_or(InMemoryError::NotFound)?)
     }
 
     async fn set_wots_signatures(
@@ -109,7 +117,7 @@ impl PublicDb for PublicDbInMemory {
         operator_id: u32,
         deposit_txid: Txid,
         signatures: &wots::Signatures,
-    ) {
+    ) -> DbResult<()> {
         trace!(action = "trying to acquire wlock on wots signatures", %operator_id, %deposit_txid);
         let mut map = self.wots_signatures.write().await;
         trace!(event = "wlock acquired on wots signatures", %operator_id, %deposit_txid);
@@ -122,6 +130,8 @@ impl PublicDb for PublicDbInMemory {
 
             map.insert(operator_id, sigs_map);
         }
+
+        Ok(())
     }
 
     async fn set_signature(
@@ -130,7 +140,7 @@ impl PublicDb for PublicDbInMemory {
         txid: Txid,
         input_index: u32,
         signature: Signature,
-    ) {
+    ) -> DbResult<()> {
         trace!(action = "trying to acquire wlock on schnorr signatures", %operator_idx, %txid);
         let mut signatures = self.signatures.write().await;
         trace!(event = "acquired wlock on schnorr signatures", %operator_idx, %txid);
@@ -143,6 +153,8 @@ impl PublicDb for PublicDbInMemory {
 
             signatures.insert(operator_idx, txid_and_input_index_to_signature);
         }
+
+        Ok(())
     }
 
     async fn register_claim_txid(
@@ -150,22 +162,25 @@ impl PublicDb for PublicDbInMemory {
         claim_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
+    ) -> DbResult<()> {
         self.claim_txid_to_operator_index_and_deposit_txid
             .write()
             .await
             .insert(claim_txid, (operator_idx, deposit_txid));
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_claim(
         &self,
         claim_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        self.claim_txid_to_operator_index_and_deposit_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(self
+            .claim_txid_to_operator_index_and_deposit_txid
             .read()
             .await
             .get(claim_txid)
-            .copied()
+            .copied())
     }
 
     async fn register_post_assert_txid(
@@ -173,22 +188,25 @@ impl PublicDb for PublicDbInMemory {
         post_assert_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
+    ) -> DbResult<()> {
         self.post_assert_txid_to_operator_index_and_deposit_txid
             .write()
             .await
             .insert(post_assert_txid, (operator_idx, deposit_txid));
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_post_assert(
         &self,
         post_assert_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        self.post_assert_txid_to_operator_index_and_deposit_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(self
+            .post_assert_txid_to_operator_index_and_deposit_txid
             .read()
             .await
             .get(post_assert_txid)
-            .copied()
+            .copied())
     }
 
     async fn register_assert_data_txids(
@@ -196,7 +214,7 @@ impl PublicDb for PublicDbInMemory {
         assert_data_txids: [Txid; 7],
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
+    ) -> DbResult<()> {
         let mut db = self
             .assert_data_txid_to_operator_index_and_deposit_txid
             .write()
@@ -205,17 +223,20 @@ impl PublicDb for PublicDbInMemory {
         for txid in assert_data_txids {
             db.insert(txid, (operator_idx, deposit_txid));
         }
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_assert_data(
         &self,
         assert_data_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        self.assert_data_txid_to_operator_index_and_deposit_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(self
+            .assert_data_txid_to_operator_index_and_deposit_txid
             .read()
             .await
             .get(assert_data_txid)
-            .copied()
+            .copied())
     }
 
     async fn register_pre_assert_txid(
@@ -223,21 +244,24 @@ impl PublicDb for PublicDbInMemory {
         pre_assert_data_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
-    ) {
+    ) -> DbResult<()> {
         self.pre_assert_txid_to_operator_index_and_deposit_txid
             .write()
             .await
             .insert(pre_assert_data_txid, (operator_idx, deposit_txid));
+
+        Ok(())
     }
 
     async fn get_operator_and_deposit_for_pre_assert(
         &self,
         pre_assert_data_txid: &Txid,
-    ) -> Option<(OperatorIdx, Txid)> {
-        self.pre_assert_txid_to_operator_index_and_deposit_txid
+    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+        Ok(self
+            .pre_assert_txid_to_operator_index_and_deposit_txid
             .read()
             .await
             .get(pre_assert_data_txid)
-            .copied()
+            .copied())
     }
 }

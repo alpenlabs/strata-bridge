@@ -175,7 +175,7 @@ impl<Db: PublicDb> ConnectorA31<Db> {
         tapleaf: ConnectorA31Leaf,
         deposit_txid: Txid,
     ) -> ScriptBuf {
-        let public_keys = self.db.get_wots_public_keys(0, deposit_txid).await;
+        let public_keys = self.db.get_wots_public_keys(0, deposit_txid).await.unwrap(); // FIXME: handle me
         tapleaf.generate_locking_script(public_keys).compile()
     }
 
@@ -221,7 +221,9 @@ impl<Db: PublicDb> ConnectorA31<Db> {
             .db
             .get_wots_public_keys(operator_idx, deposit_txid)
             .await
+            .unwrap() // FIXME: Handle me
             .groth16;
+
         trace!(action = "got public_keys from db", %operator_idx, %deposit_txid);
 
         trace!(action = "generating disprove scripts", %operator_idx);

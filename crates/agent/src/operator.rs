@@ -214,7 +214,8 @@ where
         let public_keys = generate_wots_public_keys(&self.msk, deposit_txid);
         self.public_db
             .set_wots_public_keys(self.build_context.own_index(), deposit_txid, &public_keys)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "generating kickoff", %deposit_txid, %own_index);
 
@@ -1376,7 +1377,8 @@ where
                     input_index as u32,
                     agg_sig,
                 )
-                .await;
+                .await
+                .unwrap(); // FIXME: Handle me
         }
     }
 
@@ -1495,7 +1497,8 @@ where
             let n_of_n_sig = self
                 .public_db
                 .get_signature(own_index, pre_assert_txid, 0)
-                .await;
+                .await
+                .unwrap(); // FIXME: Handle me
             let signed_pre_assert = pre_assert.finalize(n_of_n_sig, connectors.claim_out_0);
             let vsize = signed_pre_assert.vsize();
             let total_size = signed_pre_assert.total_size();
@@ -1564,7 +1567,8 @@ where
                 let public_keys = self
                     .public_db
                     .get_wots_public_keys(own_index, deposit_txid)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 let disprove = g16::verify_signed_assertions(
                     bridge_poc::GROTH16_VERIFICATION_KEY.clone(),
@@ -1644,7 +1648,8 @@ where
                 let n_of_n_sig = self
                     .public_db
                     .get_signature(own_index, post_assert_txid, input_index as u32)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 signatures.push(n_of_n_sig);
             }
@@ -1685,7 +1690,8 @@ where
             let deposit_signature = self
                 .public_db
                 .get_signature(own_index, payout_tx.compute_txid(), 0)
-                .await;
+                .await
+                .unwrap(); // FIXME: Handle me
             let signed_payout_tx = payout_tx
                 .finalize(connectors.post_assert_out_0, own_index, deposit_signature)
                 .await;
