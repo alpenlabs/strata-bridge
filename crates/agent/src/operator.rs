@@ -161,7 +161,8 @@ where
 
                 info!(action = "getting the latest checkpoint index");
                 let latest_checkpoint_idx = if let Some(checkpoint_idx) =
-                    self.db.get_checkpoint_index(deposit_txid).await
+                    self.db.get_checkpoint_index(deposit_txid).await.unwrap()
+                // FIXME: Handle me
                 {
                     info!(event = "found strata checkpoint index in db", %checkpoint_idx, %deposit_txid, %own_index);
 
@@ -180,7 +181,8 @@ where
 
                 self.db
                     .set_checkpoint_index(deposit_txid, latest_checkpoint_idx)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 let withdrawal_status = match latest_status {
                     BridgeDutyStatus::Withdrawal(withdrawal_status) => withdrawal_status,
@@ -219,7 +221,7 @@ where
 
         info!(action = "generating kickoff", %deposit_txid, %own_index);
 
-        let reserved_outpoints = self.db.selected_outpoints().await;
+        let reserved_outpoints = self.db.selected_outpoints().await.unwrap(); // FIXME: Handle me
         info!(event = "got reserved outpoints", ?reserved_outpoints);
 
         let (change_address, funding_input, total_amount, funding_utxo) = self
@@ -228,7 +230,7 @@ where
             .await
             .expect("should be able to get outpoints");
 
-        self.db.add_outpoint(funding_input).await;
+        self.db.add_outpoint(funding_input).await.unwrap(); // FIXME: Handle me
 
         let funding_inputs = vec![funding_input];
         let funding_utxos = vec![funding_utxo];
@@ -263,7 +265,8 @@ where
                     change_amt,
                 },
             )
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "composing pegout graph connectors", %deposit_txid, %own_index);
         let peg_out_graph_connectors = PegOutGraphConnectors::new(
@@ -585,12 +588,14 @@ where
                     for (txid, input_index, nonce) in txid_input_index_and_nonce {
                         self.db
                             .add_pubnonce(txid, input_index, sender_id, nonce)
-                            .await;
+                            .await
+                            .unwrap(); // FIXME: Handle me
 
                         all_done = self
                             .db
                             .collected_pubnonces(txid, input_index)
                             .await
+                            .unwrap() // FIXME: Handle me
                             .is_some_and(|v| v.len() == num_signers);
                     }
 
@@ -957,13 +962,15 @@ where
                                     sender_id,
                                     partial_sig,
                                 )
-                                .await;
+                                .await
+                                .unwrap(); // FIXME: Handle me
 
                             all_done = all_done
                                 && self
                                     .db
                                     .collected_signatures_per_msg(txid, input_index as u32)
                                     .await
+                                    .unwrap() // FIXME:  Handle me
                                     .is_some_and(|v| {
                                         let sig_count = v.1.len();
                                         debug!(event = "got sig count", %sig_count, %txid, %input_index, %own_index);
@@ -995,13 +1002,17 @@ where
             .expect("should be able to create key agg context");
 
         let secnonce = self.agent.generate_sec_nonce(&txid, &key_agg_ctx);
-        self.db.add_secnonce(txid, 0, secnonce.clone()).await;
+        self.db
+            .add_secnonce(txid, 0, secnonce.clone())
+            .await
+            .unwrap(); // FIXME: Handle me
 
         let pubnonce = secnonce.public_nonce();
 
         self.db
             .add_pubnonce(txid, 0, own_index, pubnonce.clone())
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "broadcasting one's own nonce for deposit sweeping", deposit_txid=%txid, %own_index);
         self.deposit_signal_sender
@@ -1023,9 +1034,14 @@ where
             } = deposit_signal
             {
                 info!(event = "received nonce for deposit sweeping", deposit_txid=%txid, %own_index, %sender_id);
-                self.db.add_pubnonce(txid, 0, sender_id, pubnonce).await;
+                self.db
+                    .add_pubnonce(txid, 0, sender_id, pubnonce)
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
-                if let Some(collected_nonces) = self.db.collected_pubnonces(txid, 0).await {
+                if let Some(collected_nonces) = self.db.collected_pubnonces(txid, 0).await.unwrap()
+                {
+                    // FIXME: Handle me
                     let nonce_count = collected_nonces.len();
                     if nonce_count != expected_nonce_count {
                         // NOTE: there is still some nonce to be received, so continuing to listen
@@ -1081,6 +1097,7 @@ where
             .db
             .get_secnonce(txid, 0)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("secnonce should exist before adding signatures");
 
         info!(action = "generating one's own signature for deposit sweeping", deposit_txid=%txid, operator_idx=%own_index);
@@ -1100,7 +1117,8 @@ where
             .expect("should be able to sign deposit");
         self.db
             .add_message_hash_and_signature(txid, 0, message.to_vec(), own_index, partial_signature)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "broadcasting one's own signature for deposit sweeping", deposit_txid=%txid, operator_idx=%own_index);
         self.deposit_signal_sender
@@ -1125,10 +1143,12 @@ where
                 // for now, this is fine because musig2 validates every signature during generation.
                 self.db
                     .add_partial_signature(txid, 0, sender_id, signature)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 if let Some((_, collected_signatures)) =
-                    self.db.collected_signatures_per_msg(txid, 0).await
+                    self.db.collected_signatures_per_msg(txid, 0).await.unwrap()
+                // FIXME: Handle me
                 {
                     let sig_count = collected_signatures.len();
                     if collected_signatures.len() != expected_signature_count {
@@ -1207,10 +1227,14 @@ where
 
         // add the secnonce and pubnonce to db even for txid from others as it is required for
         // partial signing later.
-        self.db.add_secnonce(txid, input_index, secnonce).await;
+        self.db
+            .add_secnonce(txid, input_index, secnonce)
+            .await
+            .unwrap(); // FIXME: Handle me
         self.db
             .add_pubnonce(txid, input_index, operator_idx, pubnonce.clone())
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         pubnonce
     }
@@ -1228,7 +1252,13 @@ where
         txid: Txid,
         input_index: u32,
     ) -> anyhow::Result<AggNonce> {
-        if let Some(collected_nonces) = self.db.collected_pubnonces(txid, input_index).await {
+        if let Some(collected_nonces) = self
+            .db
+            .collected_pubnonces(txid, input_index)
+            .await
+            // FIXME: Handle me
+            .unwrap()
+        {
             let expected_nonce_count = self.build_context.pubkey_table().0.len();
             if collected_nonces.len() != expected_nonce_count {
                 let collected: Vec<u32> = collected_nonces.keys().copied().collect();
@@ -1286,17 +1316,23 @@ where
             .expect("should be able to create a message hash");
             let message = message.as_ref();
 
-            let secnonce =
-                if let Some(secnonce) = self.db.get_secnonce(txid, input_index as u32).await {
-                    secnonce
-                } else {
-                    // use the first secnonce if the given input_index does not exist
-                    // this is the case for post_assert inputs (but not for payout)
-                    self.db
-                        .get_secnonce(txid, 0)
-                        .await
-                        .expect("first secnonce should exist")
-                };
+            let secnonce = if let Some(secnonce) = self
+                .db
+                .get_secnonce(txid, input_index as u32)
+                .await
+                // FIXME: Handle me
+                .unwrap()
+            {
+                secnonce
+            } else {
+                // use the first secnonce if the given input_index does not exist
+                // this is the case for post_assert inputs (but not for payout)
+                self.db
+                    .get_secnonce(txid, 0)
+                    .await
+                    .unwrap() // FIXME: Handle me
+                    .expect("first secnonce should exist")
+            };
 
             let seckey = self.agent.secret_key();
 
@@ -1324,7 +1360,8 @@ where
                         own_index,
                         partial_sig,
                     )
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
             }
         }
 
@@ -1361,6 +1398,7 @@ where
                 .db
                 .collected_signatures_per_msg(txid, input_index as u32)
                 .await
+                .unwrap() // FIXME: Handle me
                 .expect("partial signatures must be present");
             let message = collected_msgs_and_sigs.0;
             let partial_sigs: Vec<PartialSignature> =
@@ -1435,6 +1473,7 @@ where
             .db
             .get_kickoff_info(deposit_txid)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("kickoff data for the deposit must be present");
 
         let peg_out_graph_input = PegOutGraphInput {
@@ -1848,7 +1887,7 @@ where
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
         // don't use kickoff utxo for payment
-        let reserved_utxos = self.db.selected_outpoints().await;
+        let reserved_utxos = self.db.selected_outpoints().await.unwrap(); // FIXME: Handle me
 
         let (change_address, outpoint, total_amount, prevout) = self
             .agent
@@ -1909,6 +1948,7 @@ where
             .db
             .get_checkpoint_index(deposit_txid)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("checkpoint index must exist");
 
         info!(action = "getting the checkpoint info for the index", %latest_checkpoint_at_payout);

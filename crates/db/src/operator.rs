@@ -5,6 +5,8 @@ use bitcoin::{Amount, OutPoint, TxOut, Txid};
 use musig2::{PartialSignature, PubNonce, SecNonce};
 use strata_bridge_primitives::{bitcoin::BitcoinAddress, types::OperatorIdx};
 
+use crate::errors::DbResult;
+
 pub type MsgHashAndOpIdToSigMap = (Vec<u8>, BTreeMap<OperatorIdx, PartialSignature>);
 
 #[derive(Debug, Clone)]
@@ -23,17 +25,17 @@ pub trait OperatorDb {
         input_index: u32,
         operator_idx: OperatorIdx,
         pubnonce: PubNonce,
-    );
+    ) -> DbResult<()>;
 
     async fn collected_pubnonces(
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> Option<BTreeMap<OperatorIdx, PubNonce>>;
+    ) -> DbResult<Option<BTreeMap<OperatorIdx, PubNonce>>>;
 
-    async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce);
+    async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()>;
 
-    async fn get_secnonce(&self, txid: Txid, input_index: u32) -> Option<SecNonce>;
+    async fn get_secnonce(&self, txid: Txid, input_index: u32) -> DbResult<Option<SecNonce>>;
 
     async fn add_message_hash_and_signature(
         &self,
@@ -42,7 +44,7 @@ pub trait OperatorDb {
         message_sighash: Vec<u8>,
         operator_idx: OperatorIdx,
         signature: PartialSignature,
-    );
+    ) -> DbResult<()>;
 
     /// Adds a partial signature to the map if already present.
     async fn add_partial_signature(
@@ -51,23 +53,24 @@ pub trait OperatorDb {
         input_index: u32,
         operator_idx: OperatorIdx,
         signature: PartialSignature,
-    );
+    ) -> DbResult<()>;
 
     async fn collected_signatures_per_msg(
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> Option<MsgHashAndOpIdToSigMap>;
+    ) -> DbResult<Option<MsgHashAndOpIdToSigMap>>;
 
-    async fn add_outpoint(&self, outpoint: OutPoint) -> bool;
+    async fn add_outpoint(&self, outpoint: OutPoint) -> DbResult<bool>;
 
-    async fn selected_outpoints(&self) -> HashSet<OutPoint>;
+    async fn selected_outpoints(&self) -> DbResult<HashSet<OutPoint>>;
 
-    async fn add_kickoff_info(&self, deposit_txid: Txid, kickoff_info: KickoffInfo);
+    async fn add_kickoff_info(&self, deposit_txid: Txid, kickoff_info: KickoffInfo)
+        -> DbResult<()>;
 
-    async fn get_kickoff_info(&self, deposit_txid: Txid) -> Option<KickoffInfo>;
+    async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>>;
 
-    async fn get_checkpoint_index(&self, deposit_txid: Txid) -> Option<u64>;
+    async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>>;
 
-    async fn set_checkpoint_index(&self, deposit_txid: Txid, checkpoint_idx: u64);
+    async fn set_checkpoint_index(&self, deposit_txid: Txid, checkpoint_idx: u64) -> DbResult<()>;
 }
