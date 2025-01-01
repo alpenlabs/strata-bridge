@@ -1,3 +1,5 @@
+//! Public database interface for the Strata Bridge.
+
 use async_trait::async_trait;
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
@@ -5,6 +7,11 @@ use strata_bridge_primitives::{scripts::wots, types::OperatorIdx};
 
 use crate::errors::DbResult;
 
+/// Interface to expose data that should be publicly available.
+///
+/// This includes the WOTS public keys and signatures, as well as the Schnorr signatures for the
+/// operator's transactions. The interface also includes setters to allow the operator to update the
+/// database.
 #[async_trait]
 pub trait PublicDb {
     async fn get_wots_public_keys(

@@ -1,3 +1,5 @@
+//! SQLite implementation of the persistent storage layer.
+
 use std::{
     collections::{BTreeMap, HashSet},
     ops::Deref,

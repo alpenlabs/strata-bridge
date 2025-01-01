@@ -1,3 +1,7 @@
+//! This module contains the models for the database tables.
+//!
+//! These models rely on some common types in [`super::types`] module.
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 

@@ -1,3 +1,6 @@
+//! This module defines the OperatorDb trait, which is used to interact with the operator's
+//! database.
+
 use std::collections::{BTreeMap, HashSet};
 
 use async_trait::async_trait;
@@ -9,6 +12,9 @@ use crate::errors::DbResult;
 
 pub type MsgHashAndOpIdToSigMap = (Vec<u8>, BTreeMap<OperatorIdx, PartialSignature>);
 
+/// The data required to create the Kickoff Transaction.
+// NOTE: this type should ideally be part of the `tx-graph` crate but that leads to a cyclic
+// dependency as the `tx-graph` crate also depends on this crate.
 #[derive(Debug, Clone)]
 pub struct KickoffInfo {
     pub funding_inputs: Vec<OutPoint>,
@@ -17,6 +23,11 @@ pub struct KickoffInfo {
     pub change_amt: Amount,
 }
 
+/// Interface to operate on the data required by the operator.
+///
+/// This data includes the pubnonces, secnonces, and signatures required for the operator to perform
+/// its duties. This interface operates on data that is either sensitive or not required to be
+/// public.
 #[async_trait]
 pub trait OperatorDb {
     async fn add_pubnonce(

@@ -1,3 +1,8 @@
+//! This module contains the types used to interact with the SQLite database at a column-level.
+//!
+//! These types are used to map the custom Rust types to SQLite types by implementing the necesary
+//! serialization and deserialization logic.
+
 use std::{ops::Deref, str::FromStr};
 
 use bitcoin::{consensus, hex::DisplayHex, Amount, ScriptBuf, Transaction, Txid};
