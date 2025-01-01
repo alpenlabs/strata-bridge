@@ -32,6 +32,30 @@ impl From<i64> for DbOperatorId {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[sqlx(transparent)]
+pub struct DbInputIndex(u32);
+
+impl Deref for DbInputIndex {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<OperatorIdx> for DbInputIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl From<i64> for DbInputIndex {
+    fn from(value: i64) -> Self {
+        Self(value as u32)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DbTxid(Txid);
 

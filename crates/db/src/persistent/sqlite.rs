@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bitcoin::{consensus, Network, OutPoint, Transaction, TxOut, Txid};
 use musig2::{PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature;
-use sqlx::{Sqlite, SqlitePool};
+use sqlx::SqlitePool;
 use strata_bridge_primitives::{
     bitcoin::BitcoinAddress, duties::BridgeDutyStatus, scripts::wots, types::OperatorIdx,
 };
@@ -16,14 +16,14 @@ use strata_bridge_primitives::{
 use super::{
     errors::StorageError,
     types::{
-        DbAmount, DbOperatorId, DbPartialSig, DbScriptBuf, DbSecNonce, DbSignature, DbTxid,
-        DbWotsPublicKeys, DbWotsSignatures, JoinedKickoffInfo,
+        DbAmount, DbInputIndex, DbPartialSig, DbScriptBuf, DbSecNonce, DbSignature, DbTxid,
+        DbWotsPublicKeys, DbWotsSignatures,
     },
 };
 use crate::{
     errors::DbResult,
     operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb},
-    persistent::types::DbPubNonce,
+    persistent::{models, types::DbPubNonce},
     public::PublicDb,
     tracker::{BitcoinBlockTrackerDb, DutyTrackerDb},
 };
@@ -46,15 +46,23 @@ impl PublicDb for SqliteDb {
         operator_id: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<wots::PublicKeys> {
-        let (public_keys, ): (DbWotsPublicKeys, ) = sqlx::query_as(
-            r#"SELECT public_keys FROM wots_public_keys WHERE operator_id = $1 AND deposit_txid = $2"#,
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let result = sqlx::query_as!(
+            models::WotsPublicKey,
+            r#"SELECT
+                public_keys as "public_keys: DbWotsPublicKeys",
+                operator_id,
+                deposit_txid AS "deposit_txid: DbTxid"
+                FROM wots_public_keys
+                WHERE operator_id = $1 AND deposit_txid = $2"#,
+            operator_id,
+            deposit_txid,
         )
-        .bind(operator_id)
-        .bind(DbTxid::from(deposit_txid))
         .fetch_one(&self.pool)
-        .await.map_err(StorageError::from)?;
+        .await
+        .map_err(StorageError::from)?;
 
-        Ok(*public_keys)
+        Ok(*result.public_keys)
     }
 
     async fn set_wots_public_keys(
@@ -64,15 +72,20 @@ impl PublicDb for SqliteDb {
         public_keys: &wots::PublicKeys,
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let public_keys = DbWotsPublicKeys::from(*public_keys);
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO wots_public_keys (operator_id, deposit_txid, public_keys) VALUES ($1, $2, $3)",
+        sqlx::query!(
+            "INSERT OR REPLACE INTO wots_public_keys
+                (operator_id, deposit_txid, public_keys)
+                VALUES ($1, $2, $3)",
+            operator_id,
+            deposit_txid,
+            public_keys,
         )
-        .bind(operator_id)
-        .bind(DbTxid::from(deposit_txid))
-        .bind(DbWotsPublicKeys::from(*public_keys))
         .execute(&mut *tx)
-        .await.map_err(StorageError::from)?;
+        .await
+        .map_err(StorageError::from)?;
 
         tx.commit().await.map_err(StorageError::from)?;
 
@@ -84,16 +97,22 @@ impl PublicDb for SqliteDb {
         operator_id: u32,
         deposit_txid: Txid,
     ) -> DbResult<wots::Signatures> {
-        let (wots_signatures, ): (DbWotsSignatures,) = sqlx::query_as(
-            r#"SELECT signatures FROM wots_signatures WHERE operator_id = $1 AND deposit_txid = $2"#,
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let result = sqlx::query_as!(
+            models::WotsSignature,
+            r#"SELECT signatures AS "signatures: DbWotsSignatures",
+                operator_id,
+                deposit_txid AS "deposit_txid: DbTxid"
+                FROM wots_signatures
+                WHERE operator_id = $1 AND deposit_txid = $2"#,
+            operator_id,
+            deposit_txid,
         )
-        .bind(operator_id)
-        .bind(DbTxid::from(deposit_txid))
         .fetch_one(&self.pool)
         .await
         .map_err(StorageError::from)?;
 
-        Ok(*wots_signatures)
+        Ok(*result.signatures)
     }
 
     async fn set_wots_signatures(
@@ -104,12 +123,16 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO wots_signatures (operator_id, deposit_txid, signatures) VALUES ($1, $2, $3)",
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let db_signatures = DbWotsSignatures::from(*signatures);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO wots_signatures
+                (operator_id, deposit_txid, signatures)
+                VALUES ($1, $2, $3)",
+            operator_id,
+            deposit_txid,
+            db_signatures,
         )
-        .bind(operator_id)
-        .bind(DbTxid::from(deposit_txid))
-        .bind(DbWotsSignatures::from(*signatures))
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
@@ -125,16 +148,25 @@ impl PublicDb for SqliteDb {
         txid: Txid,
         input_index: u32,
     ) -> DbResult<Signature> {
-        let (signature,): (DbSignature,) = sqlx::query_as(
-            "SELECT signature FROM signatures WHERE operator_id = $1 AND txid = $2 AND input_index = $3",
+        let txid = DbTxid::from(txid);
+        let result = sqlx::query_as!(
+            models::Signature,
+            r#"SELECT
+                signature AS "signature: DbSignature",
+                operator_id,
+                txid AS "txid: DbTxid",
+                input_index
+                FROM signatures
+                WHERE operator_id = $1 AND txid = $2 AND input_index = $3"#,
+            operator_idx,
+            txid,
+            input_index,
         )
-        .bind(operator_idx)
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
         .fetch_one(&self.pool)
-        .await.map_err(StorageError::from)?;
+        .await
+        .map_err(StorageError::from)?;
 
-        Ok(*signature)
+        Ok(*result.signature)
     }
 
     async fn set_signature(
@@ -146,13 +178,15 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
+        let signature = DbSignature::from(signature);
+        let txid = DbTxid::from(txid);
+        sqlx::query!(
             "INSERT OR REPLACE INTO signatures (signature, operator_id, txid, input_index) VALUES ($1, $2, $3, $4)",
+            signature,
+            operator_id,
+            txid,
+            input_index
         )
-        .bind(DbSignature::from(signature))
-        .bind(operator_id)
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
         .execute(&mut *tx)
         .await.map_err(StorageError::from)?;
 
@@ -169,14 +203,19 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO claim_txid_to_operator_index_and_deposit_txid (claim_txid, operator_id, deposit_txid) VALUES ($1, $2, $3)",
+        let claim_txid = DbTxid::from(claim_txid);
+        let deposit_txid = DbTxid::from(deposit_txid);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO claim_txid_to_operator_index_and_deposit_txid
+                (claim_txid, operator_id, deposit_txid)
+                VALUES ($1, $2, $3)",
+            claim_txid,
+            operator_idx,
+            deposit_txid,
         )
-        .bind(DbTxid::from(claim_txid))
-        .bind(operator_idx)
-        .bind(DbTxid::from(deposit_txid))
         .execute(&mut *tx)
-        .await.map_err(StorageError::from)?;
+        .await
+        .map_err(StorageError::from)?;
 
         tx.commit().await.map_err(StorageError::from)?;
 
@@ -187,15 +226,21 @@ impl PublicDb for SqliteDb {
         &self,
         claim_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>> {
-        Ok(
-            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
-            "SELECT operator_id, deposit_txid FROM claim_txid_to_operator_index_and_deposit_txid WHERE claim_txid = $1",
-            )
-            .bind(DbTxid::from(*claim_txid))
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(StorageError::from)?.map(|(id, txid)| (*id, *txid))
+        let claim_txid = DbTxid::from(*claim_txid);
+        Ok(sqlx::query_as!(
+            models::ClaimToOperatorAndDeposit,
+            r#"SELECT
+                    operator_id,
+                    deposit_txid AS "deposit_txid!: DbTxid",
+                    claim_txid AS "claim_txid!: DbTxid"
+                    FROM claim_txid_to_operator_index_and_deposit_txid
+                    WHERE claim_txid = $1"#,
+            claim_txid,
         )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|row| (*row.operator_id, *row.deposit_txid)))
     }
 
     async fn register_post_assert_txid(
@@ -206,14 +251,19 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO post_assert_txid_to_operator_index_and_deposit_txid (post_assert_txid, operator_id, deposit_txid) VALUES ($1, $2, $3)",
+        let post_assert_txid = DbTxid::from(post_assert_txid);
+        let deposit_txid = DbTxid::from(deposit_txid);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO post_assert_txid_to_operator_index_and_deposit_txid
+                (post_assert_txid, operator_id, deposit_txid)
+                VALUES ($1, $2, $3)",
+            post_assert_txid,
+            operator_idx,
+            deposit_txid,
         )
-        .bind(DbTxid::from(post_assert_txid))
-        .bind(operator_idx)
-        .bind(DbTxid::from(deposit_txid))
         .execute(&mut *tx)
-        .await.map_err(StorageError::from)?;
+        .await
+        .map_err(StorageError::from)?;
 
         tx.commit().await.map_err(StorageError::from)?;
 
@@ -224,15 +274,21 @@ impl PublicDb for SqliteDb {
         &self,
         post_assert_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>> {
-        Ok(
-            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
-                "SELECT operator_id, deposit_txid FROM post_assert_txid_to_operator_index_and_deposit_txid WHERE post_assert_txid = $1",
-            )
-            .bind(DbTxid::from(*post_assert_txid))
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(StorageError::from)?.map(|(id, txid)| (*id, *txid))
+        let post_assert_txid = DbTxid::from(*post_assert_txid);
+        Ok(sqlx::query_as!(
+            models::PostAssertToOperatorAndDeposit,
+            r#"SELECT
+                post_assert_txid AS "post_assert_txid!: DbTxid",
+                operator_id,
+                deposit_txid AS "deposit_txid!: DbTxid"
+                FROM post_assert_txid_to_operator_index_and_deposit_txid
+                WHERE post_assert_txid = $1"#,
+            post_assert_txid
         )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|row| (*row.operator_id, *row.deposit_txid)))
     }
 
     async fn register_assert_data_txids(
@@ -243,15 +299,20 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        for txid in assert_data_txids.iter() {
-            sqlx::query(
-                "INSERT OR REPLACE INTO assert_data_txid_to_operator_and_deposit (assert_data_txid, operator_id, deposit_txid) VALUES ($1, $2, $3)",
+        let deposit_txid = DbTxid::from(deposit_txid);
+        for txid in assert_data_txids {
+            let assert_data_txid = DbTxid::from(txid);
+            sqlx::query!(
+                "INSERT OR REPLACE INTO assert_data_txid_to_operator_and_deposit
+                    (assert_data_txid, operator_id, deposit_txid)
+                    VALUES ($1, $2, $3)",
+                assert_data_txid,
+                operator_idx,
+                deposit_txid,
             )
-                .bind(DbTxid::from(*txid))
-                .bind(operator_idx)
-                .bind(DbTxid::from(deposit_txid))
             .execute(&mut *tx)
-            .await.map_err(StorageError::from)?;
+            .await
+            .map_err(StorageError::from)?;
         }
 
         tx.commit().await.map_err(StorageError::from)?;
@@ -263,16 +324,21 @@ impl PublicDb for SqliteDb {
         &self,
         assert_data_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>> {
-        Ok(
-            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
-                "SELECT operator_id, deposit_txid FROM assert_data_txid_to_operator_and_deposit WHERE assert_data_txid = ?",
-            )
-            .bind(DbTxid::from(*assert_data_txid))
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .map(|(id, txid)| (*id, *txid))
+        let assert_data_txid = DbTxid::from(*assert_data_txid);
+        Ok(sqlx::query_as!(
+            models::AssertDataToOperatorAndDeposit,
+            r#"SELECT
+                assert_data_txid AS "assert_data_txid!: DbTxid",
+                operator_id,
+                deposit_txid AS "deposit_txid!: DbTxid"
+                FROM assert_data_txid_to_operator_and_deposit
+                WHERE assert_data_txid = ?"#,
+            assert_data_txid,
         )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|record| (*record.operator_id, *record.deposit_txid)))
     }
 
     async fn register_pre_assert_txid(
@@ -283,12 +349,16 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO pre_assert_txid_to_operator_and_deposit (pre_assert_data_txid, operator_id, deposit_txid) VALUES (?, ?, ?)",
+        let pre_assert_data_txid = DbTxid::from(pre_assert_data_txid);
+        let deposit_txid = DbTxid::from(deposit_txid);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO pre_assert_txid_to_operator_and_deposit
+                (pre_assert_data_txid, operator_id, deposit_txid)
+                VALUES ($1, $2, $3)",
+            pre_assert_data_txid,
+            operator_idx,
+            deposit_txid,
         )
-        .bind(DbTxid::from(pre_assert_data_txid))
-        .bind(operator_idx)
-        .bind(DbTxid::from(deposit_txid))
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
@@ -302,16 +372,21 @@ impl PublicDb for SqliteDb {
         &self,
         pre_assert_data_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>> {
-        Ok(
-            sqlx::query_as::<Sqlite, (DbOperatorId, DbTxid)>(
-                "SELECT operator_id, deposit_txid FROM pre_assert_txid_to_operator_and_deposit WHERE pre_assert_data_txid = $1",
-            )
-            .bind(DbTxid::from(*pre_assert_data_txid))
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .map(|(id, txid)| (*id, *txid))
+        let pre_assert_data_txid = DbTxid::from(*pre_assert_data_txid);
+        Ok(sqlx::query_as!(
+            models::PreAssertToOperatorAndDeposit,
+            r#"SELECT
+                pre_assert_data_txid AS "pre_assert_txid!: DbTxid",
+                operator_id,
+                deposit_txid AS "deposit_txid!: DbTxid"
+                FROM pre_assert_txid_to_operator_and_deposit
+                WHERE pre_assert_data_txid = $1"#,
+            pre_assert_data_txid,
         )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|record| (*record.operator_id, *record.deposit_txid)))
     }
 }
 
@@ -326,15 +401,20 @@ impl OperatorDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO collected_pubnonces (txid, input_index, operator_id, pubnonce) VALUES ($1, $2, $3, $4)",
+        let txid = DbTxid::from(txid);
+        let pubnonce = DbPubNonce::from(pubnonce);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO collected_pubnonces
+                (txid, input_index, operator_id, pubnonce)
+                VALUES ($1, $2, $3, $4)",
+            txid,
+            input_index,
+            operator_idx,
+            pubnonce,
         )
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
-        .bind(DbOperatorId::from(operator_idx))
-        .bind(DbPubNonce::from(pubnonce))
         .execute(&mut *tx)
-        .await.map_err(StorageError::from)?;
+        .await
+        .map_err(StorageError::from)?;
 
         tx.commit().await.map_err(StorageError::from)?;
 
@@ -346,30 +426,39 @@ impl OperatorDb for SqliteDb {
         txid: Txid,
         input_index: u32,
     ) -> DbResult<Option<BTreeMap<OperatorIdx, PubNonce>>> {
-        Ok(
-            sqlx::query_as::<Sqlite, (DbOperatorId, DbPubNonce)>(
-            "SELECT operator_id, pubnonce FROM collected_pubnonces WHERE txid = $1 AND input_index = $2",
-            )
-            .bind(DbTxid::from(txid))
-            .bind(input_index)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .into_iter()
-            .map(|(id, pubnonce)| Some((*id, pubnonce.deref().clone())))
-            .collect()
+        let txid = DbTxid::from(txid);
+        Ok(sqlx::query_as!(
+            models::CollectedPubnonces,
+            r#"SELECT
+                operator_id,
+                pubnonce AS "pubnonce: DbPubNonce",
+                txid AS "txid: DbTxid",
+                input_index AS "input_index: DbInputIndex"
+                FROM collected_pubnonces WHERE txid = $1 AND input_index = $2"#,
+            txid,
+            input_index
         )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .into_iter()
+        .map(|row| Some((*row.operator_id, row.pubnonce.deref().clone())))
+        .collect())
     }
 
     async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+        let txid = DbTxid::from(txid);
+        let secnonce = DbSecNonce::from(secnonce);
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO sec_nonces (txid, input_index, sec_nonce) VALUES ($1, $2, $3)",
+        sqlx::query!(
+            "INSERT OR REPLACE INTO sec_nonces
+                (txid, input_index, sec_nonce)
+                VALUES ($1, $2, $3)",
+            txid,
+            input_index,
+            secnonce,
         )
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
-        .bind(DbSecNonce::from(secnonce))
         .execute(&mut *tx)
         .await
         .expect("should be able to add secnonce to db");
@@ -380,18 +469,25 @@ impl OperatorDb for SqliteDb {
     }
 
     async fn get_secnonce(&self, txid: Txid, input_index: u32) -> DbResult<Option<SecNonce>> {
-        Ok(sqlx::query_as::<Sqlite, (DbSecNonce,)>(
-            "SELECT sec_nonce FROM sec_nonces WHERE txid = $1 AND input_index = $2",
+        let txid = DbTxid::from(txid);
+        Ok(sqlx::query_as!(
+            models::Secnonces,
+            r#"SELECT
+                txid AS "txid!: DbTxid",
+                input_index,
+                sec_nonce AS "secnonce!: DbSecNonce"
+                FROM sec_nonces
+                WHERE txid = $1 AND input_index = $2"#,
+            txid,
+            input_index
         )
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
         .fetch_optional(&self.pool)
         .await
         .map_err(StorageError::from)?
-        .map(|(secnonce,)| secnonce.deref().clone()))
+        .map(|row| row.secnonce.deref().clone()))
     }
 
-    // Add or update a message hash and associated partial signature
+    // Add or update a message hash and associated partial signature.
     async fn add_message_hash_and_signature(
         &self,
         txid: Txid,
@@ -403,25 +499,30 @@ impl OperatorDb for SqliteDb {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
         // Insert or ignore into `collected_messages` to avoid overwriting `msg_hash`
-        sqlx::query(
-            "INSERT OR IGNORE INTO collected_messages (txid, input_index, msg_hash) VALUES ($1, $2, $3)",
+        let txid = DbTxid::from(txid);
+        sqlx::query!(
+            "INSERT OR IGNORE INTO collected_messages
+                (txid, input_index, msg_hash)
+                VALUES ($1, $2, $3)",
+            txid,
+            input_index,
+            message_sighash
         )
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
-        .bind(message_sighash)
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
 
         // Insert or replace the partial signature in `collected_signatures`
-        sqlx::query(
-            "INSERT OR REPLACE INTO collected_signatures (txid, input_index, operator_id, partial_signature)
-            VALUES ($1, $2, $3, $4)",
+        let partial_signature = DbPartialSig::from(signature);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO collected_signatures
+                (txid, input_index, operator_id, partial_signature)
+                VALUES ($1, $2, $3, $4)",
+            txid,
+            input_index,
+            operator_idx,
+            partial_signature,
         )
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
-        .bind(operator_idx)
-        .bind(DbPartialSig::from(signature))
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
@@ -439,14 +540,17 @@ impl OperatorDb for SqliteDb {
         operator_idx: OperatorIdx,
         signature: PartialSignature,
     ) -> DbResult<()> {
-        sqlx::query(
-            "INSERT OR REPLACE INTO collected_signatures (txid, input_index, operator_id, partial_signature)
-            VALUES ($1, $2, $3, $4)",
+        let txid = DbTxid::from(txid);
+        let partial_signature = DbPartialSig::from(signature);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO collected_signatures
+                (txid, input_index, operator_id, partial_signature)
+                VALUES ($1, $2, $3, $4)",
+            txid,
+            input_index,
+            operator_idx,
+            partial_signature,
         )
-        .bind(DbTxid::from(txid))
-        .bind(input_index)
-        .bind(operator_idx)
-        .bind(DbPartialSig::from(signature))
         .execute(&self.pool)
         .await
         .map_err(StorageError::from)?;
@@ -462,42 +566,48 @@ impl OperatorDb for SqliteDb {
     ) -> DbResult<Option<MsgHashAndOpIdToSigMap>> {
         // Fetch `msg_hash` from `collected_messages` and associated signatures from
         // `collected_signatures`
-        Ok(
-            sqlx::query_as::<Sqlite, (Vec<u8>, DbOperatorId, DbPartialSig)>(
-                "SELECT m.msg_hash, s.operator_id, s.partial_signature
-                FROM collected_messages m
-                JOIN collected_signatures s ON m.txid = s.txid AND m.input_index = s.input_index
-                WHERE m.txid = $1 AND m.input_index = $2",
-            )
-            .bind(DbTxid::from(txid))
-            .bind(input_index)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .chunk_by(|a, b| a.0 == b.0)
-            .map(|v| {
-                let msg_hash = v[0].0.clone();
-                let op_id_to_sig_map = v
-                    .iter()
-                    .map(|(_, operator_id, signature)| (**operator_id, **signature))
-                    .collect();
-
-                (msg_hash, op_id_to_sig_map)
-            })
-            .next(),
+        let txid = DbTxid::from(txid);
+        Ok(sqlx::query_as!(
+            models::CollectedSigsPerMsg,
+            r#"SELECT
+                    m.msg_hash,
+                    s.operator_id,
+                    s.partial_signature AS "partial_signature: DbPartialSig"
+                    FROM collected_messages m
+                    JOIN collected_signatures s ON m.txid = s.txid AND m.input_index = s.input_index
+                    WHERE m.txid = $1 AND m.input_index = $2"#,
+            txid,
+            input_index
         )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .chunk_by(|a, b| a.msg_hash == b.msg_hash)
+        .map(|v| {
+            let msg_hash = v[0].msg_hash.clone();
+            let op_id_to_sig_map = v
+                .iter()
+                .map(|row| (*row.operator_id, *row.partial_signature))
+                .collect();
+
+            (msg_hash, op_id_to_sig_map)
+        })
+        .next())
     }
 
     async fn add_outpoint(&self, outpoint: OutPoint) -> DbResult<bool> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        let result =
-            sqlx::query("INSERT OR IGNORE INTO selected_outpoints (txid, vout) VALUES (?, ?)")
-                .bind(DbTxid::from(outpoint.txid))
-                .bind(outpoint.vout)
-                .execute(&mut *tx)
-                .await
-                .map_err(StorageError::from)?;
+        let txid = DbTxid::from(outpoint.txid);
+        let result = sqlx::query!(
+            "INSERT OR IGNORE INTO selected_outpoints
+                    (txid, vout) VALUES ($1, $2)",
+            txid,
+            outpoint.vout
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(StorageError::from)?;
 
         tx.commit().await.map_err(StorageError::from)?;
 
@@ -505,15 +615,22 @@ impl OperatorDb for SqliteDb {
     }
 
     async fn selected_outpoints(&self) -> DbResult<HashSet<OutPoint>> {
-        Ok(
-            sqlx::query_as::<Sqlite, (DbTxid, u32)>("SELECT txid, vout FROM selected_outpoints")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(StorageError::from)?
-                .into_iter()
-                .map(|(txid, vout)| OutPoint { txid: *txid, vout })
-                .collect(),
+        Ok(sqlx::query_as!(
+            models::DbOutPoint,
+            r#"SELECT
+                txid AS "txid: DbTxid",
+                vout AS "vout: DbInputIndex"
+                FROM selected_outpoints"#
         )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .into_iter()
+        .map(|row| OutPoint {
+            txid: *row.txid,
+            vout: *row.vout,
+        })
+        .collect())
     }
 
     async fn add_kickoff_info(
@@ -526,36 +643,47 @@ impl OperatorDb for SqliteDb {
 
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO kickoff_info (txid, change_address, change_address_network, change_amount) VALUES ($1, $2, $3, $4)",
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let db_amount = DbAmount::from(kickoff_info.change_amt);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO kickoff_info
+                (txid, change_address, change_address_network, change_amount)
+                VALUES ($1, $2, $3, $4)",
+            deposit_txid,
+            change_address,
+            change_address_network,
+            db_amount,
         )
-            .bind(DbTxid::from(deposit_txid))
-            .bind(change_address)
-            .bind(change_address_network)
-            .bind(DbAmount::from(kickoff_info.change_amt))
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
 
         for input in kickoff_info.funding_inputs {
-            sqlx::query(
-                "INSERT INTO funding_inputs (kickoff_txid, input_txid, vout) VALUES ($1, $2, $3)",
+            let input_txid = DbTxid::from(input.txid);
+            sqlx::query!(
+                "INSERT INTO funding_inputs
+                    (kickoff_txid, input_txid, vout)
+                    VALUES ($1, $2, $3)",
+                deposit_txid,
+                input_txid,
+                input.vout
             )
-            .bind(DbTxid::from(deposit_txid))
-            .bind(DbTxid::from(input.txid))
-            .bind(input.vout)
             .execute(&mut *tx)
             .await
             .map_err(StorageError::from)?;
         }
 
         for utxo in kickoff_info.funding_utxos {
-            sqlx::query(
-                "INSERT INTO funding_utxos (kickoff_txid, value, script_pubkey) VALUES ($1, $2, $3)",
+            let amount = DbAmount::from(utxo.value);
+            let script_pubkey = DbScriptBuf::from(utxo.script_pubkey);
+            sqlx::query!(
+                "INSERT INTO funding_utxos
+                    (kickoff_txid, value, script_pubkey)
+                    VALUES ($1, $2, $3)",
+                deposit_txid,
+                amount,
+                script_pubkey
             )
-            .bind(DbTxid::from(deposit_txid))
-            .bind(DbAmount::from(utxo.value))
-            .bind(DbScriptBuf::from(utxo.script_pubkey))
             .execute(&mut *tx)
             .await
             .map_err(StorageError::from)?;
@@ -568,24 +696,27 @@ impl OperatorDb for SqliteDb {
 
     async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>> {
         // Query to retrieve KickoffInfo, funding inputs, and funding UTXOs in a single query
-        let rows = sqlx::query_as::<Sqlite, JoinedKickoffInfo>(
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let rows = sqlx::query_as!(
+            models::JoinedKickoffInfo,
             r#"
         SELECT
-            ki.txid AS "ki_txid!",
+            ki.txid AS "ki_txid!: DbTxid",
             ki.change_address AS "ki_change_address!",
             ki.change_address_network AS "ki_change_address_network!",
-            ki.change_amount AS "ki_change_amount!",
-            fi.input_txid AS "fi_input_txid?",
-            fi.vout AS "fi_vout?",
-            fu.value AS "fu_value?",
-            fu.script_pubkey AS "fu_script_pubkey?"
-        FROM kickoff_info ki
-        LEFT JOIN funding_inputs fi ON fi.kickoff_txid = ki.txid
-        LEFT JOIN funding_utxos fu ON fu.kickoff_txid = ki.txid
-        WHERE ki.txid = $1
-        "#,
+            ki.change_amount AS "ki_change_amount!: DbAmount",
+            fi.input_txid AS "fi_input_txid!: DbTxid",
+            fi.vout AS "fi_vout!: DbInputIndex",
+            fu.value AS "fu_value!: DbAmount",
+            fu.script_pubkey AS "fu_script_pubkey!: DbScriptBuf"
+
+            FROM kickoff_info ki
+            LEFT JOIN funding_inputs fi ON fi.kickoff_txid = ki.txid
+            LEFT JOIN funding_utxos fu ON fu.kickoff_txid = ki.txid
+            WHERE ki.txid = $1
+            "#,
+            deposit_txid
         )
-        .bind(DbTxid::from(deposit_txid))
         .fetch_all(&self.pool)
         .await
         .map_err(StorageError::from)?;
@@ -607,28 +738,19 @@ impl OperatorDb for SqliteDb {
         // Iterate through all rows to populate funding_inputs and funding_utxos
         let (funding_utxos, funding_inputs) = rows
             .into_iter()
-            .filter_map(|row| {
-                match (
-                    row.fi_input_txid,
-                    row.fi_vout,
-                    row.fu_value,
-                    row.fu_script_pubkey,
-                ) {
-                    (Some(input_txid), Some(vout), Some(value), Some(script_pubkey)) => {
-                        let txid = *input_txid;
-                        let value = *value;
-                        let script_pubkey = script_pubkey.deref().clone();
+            .map(|row| {
+                let vout = *row.fi_vout;
+                let txid = *row.fi_input_txid;
+                let value = *row.fu_value;
+                let script_pubkey = row.fu_script_pubkey.deref().clone();
 
-                        Some((
-                            TxOut {
-                                value,
-                                script_pubkey,
-                            },
-                            OutPoint { txid, vout },
-                        ))
-                    }
-                    _ => None,
-                }
+                (
+                    TxOut {
+                        value,
+                        script_pubkey,
+                    },
+                    OutPoint { txid, vout },
+                )
             })
             .unzip();
 
@@ -641,14 +763,19 @@ impl OperatorDb for SqliteDb {
     }
 
     async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>> {
-        Ok(sqlx::query_as::<Sqlite, (u64,)>(
-            "SELECT checkpoint_idx FROM strata_checkpoint WHERE txid = $1",
+        let deposit_txid = DbTxid::from(deposit_txid);
+        Ok(sqlx::query_as!(
+            models::CheckPointIdx,
+            r#"SELECT
+                checkpoint_idx AS "value: u64"
+                FROM strata_checkpoint
+                WHERE txid = $1"#,
+            deposit_txid,
         )
-        .bind(DbTxid::from(deposit_txid))
         .fetch_optional(&self.pool)
         .await
         .map_err(StorageError::from)?
-        .map(|v| v.0))
+        .map(|v| v.value))
     }
 
     async fn set_checkpoint_index(
@@ -658,11 +785,15 @@ impl OperatorDb for SqliteDb {
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-        sqlx::query(
-            "INSERT OR REPLACE INTO strata_checkpoint (txid, checkpoint_idx) VALUES (?, ?)",
+        let deposit_txid = DbTxid::from(deposit_txid);
+        let checkpoint_index = checkpoint_index as i64;
+        sqlx::query!(
+            "INSERT OR REPLACE INTO strata_checkpoint
+                (txid, checkpoint_idx)
+                VALUES ($1, $2)",
+            deposit_txid,
+            checkpoint_index,
         )
-        .bind(DbTxid::from(deposit_txid))
-        .bind(checkpoint_index as i64)
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
