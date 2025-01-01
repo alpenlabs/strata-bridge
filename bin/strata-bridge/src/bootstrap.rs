@@ -219,9 +219,7 @@ pub(crate) async fn generate_operator_set(
             keypair,
             format!(
                 "{}/wallet/{}_{}",
-                &args.btc_url,
-                &args.wallet_prefix,
-                operator_idx + 1,
+                &args.btc_url, &args.wallet_prefix, operator_idx,
             )
             .as_str(),
             &args.btc_user,
