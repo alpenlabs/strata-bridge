@@ -80,14 +80,14 @@ where
 
                     warn!(action = "not dispatching challenge duty for now as it is unimplemented");
 
-                    self.db.add_relevant_tx(tx).await;
+                    self.db.add_relevant_tx(tx).await.unwrap(); // FIXME: Handle me
 
-                    // FIXME: uncomment when `handle_claim()` is updated
-                    // let duty = self.handle_claim().await;
-                    // debug!(action = "dispatching challenge duty for verifier", claim_txid=%txid);
-                    // notifier
-                    //     .send(duty)
-                    //     .expect("should be able to send challenge duty to the verifier");
+                // FIXME: uncomment when `handle_claim()` is updated
+                // let duty = self.handle_claim().await;
+                // debug!(action = "dispatching challenge duty for verifier", claim_txid=%txid);
+                // notifier
+                //     .send(duty)
+                //     .expect("should be able to send challenge duty to the verifier");
                 } else if let Some((operator_idx, deposit_txid)) = self
                     .public_db
                     .get_operator_and_deposit_for_post_assert(&txid)
@@ -109,7 +109,7 @@ where
                     .unwrap()
                 // FIXME: Handle me
                 {
-                    self.db.add_relevant_tx(tx).await;
+                    self.db.add_relevant_tx(tx).await.unwrap(); // FIXME: Handle me
                 } else if let Some((_operator_idx, _deposit_txid)) = self
                     .public_db
                     .get_operator_and_deposit_for_pre_assert(&txid)
@@ -117,7 +117,7 @@ where
                     .unwrap()
                 // FIXME: Handle me
                 {
-                    self.db.add_relevant_tx(tx).await;
+                    self.db.add_relevant_tx(tx).await.unwrap(); // FIXME: Handle me
                 }
             }
 
@@ -150,6 +150,7 @@ where
                 .db
                 .get_relevant_tx(txid)
                 .await
+                .unwrap() // FIXME: Handle me
                 .expect("assert data tx must be in db");
 
             assert_data_txs.push(tx.clone());
@@ -169,12 +170,14 @@ where
             .db
             .get_relevant_tx(&assert_data_txs[0].input[0].previous_output.txid)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("pre-assert tx must exist");
 
         let claim_tx = self
             .db
             .get_relevant_tx(&pre_assert_tx.input[0].previous_output.txid)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("claim tx must exist");
 
         VerifierDuty::VerifyAssertions {

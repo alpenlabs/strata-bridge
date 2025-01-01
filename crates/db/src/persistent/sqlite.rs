@@ -5,7 +5,7 @@ use std::{
 };
 
 use async_trait::async_trait;
-use bitcoin::{consensus, Network, OutPoint, Transaction, TxOut, Txid};
+use bitcoin::{Network, OutPoint, Transaction, TxOut, Txid};
 use musig2::{PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature;
 use sqlx::SqlitePool;
@@ -16,8 +16,8 @@ use strata_bridge_primitives::{
 use super::{
     errors::StorageError,
     types::{
-        DbAmount, DbInputIndex, DbPartialSig, DbScriptBuf, DbSecNonce, DbSignature, DbTxid,
-        DbWotsPublicKeys, DbWotsSignatures,
+        DbAmount, DbDutyStatus, DbInputIndex, DbPartialSig, DbScriptBuf, DbSecNonce, DbSignature,
+        DbTransaction, DbTxid, DbWotsPublicKeys, DbWotsSignatures,
     },
 };
 use crate::{
@@ -806,144 +806,141 @@ impl OperatorDb for SqliteDb {
 
 #[async_trait]
 impl DutyTrackerDb for SqliteDb {
-    async fn get_last_fetched_duty_index(&self) -> u64 {
+    async fn get_last_fetched_duty_index(&self) -> DbResult<u64> {
         // Retrieve last fetched duty index from duty_index_tracker table
         let row =
             sqlx::query!("SELECT last_fetched_duty_index FROM duty_index_tracker WHERE id = 1")
                 .fetch_optional(&self.pool)
                 .await
-                .expect("Failed to fetch last fetched duty index");
+                .map_err(StorageError::from)?;
 
-        row.map(|r| r.last_fetched_duty_index as u64).unwrap_or(0) // Default to 0 if no record
+        Ok(row.map(|r| r.last_fetched_duty_index as u64).unwrap_or(0)) // Default to 0 if no record
     }
 
-    async fn set_last_fetched_duty_index(&self, duty_index: u64) {
+    async fn set_last_fetched_duty_index(&self, duty_index: u64) -> DbResult<()> {
         let duty_index = duty_index as i64;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
         sqlx::query!(
-            "INSERT OR REPLACE INTO duty_index_tracker (id, last_fetched_duty_index) VALUES (1, ?)",
+            "INSERT OR REPLACE INTO duty_index_tracker (id, last_fetched_duty_index) VALUES (1, $1)",
             duty_index
         )
         .execute(&mut *tx)
         .await
-        .expect("should be able to set the last fetched duty index");
+        .map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit last fetch duty index");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
-    async fn fetch_duty_status(&self, duty_id: Txid) -> Option<BridgeDutyStatus> {
-        let duty_id = consensus::encode::serialize_hex(&duty_id);
-        let row = sqlx::query!("SELECT status FROM duty_tracker WHERE duty_id = ?", duty_id)
-            .fetch_optional(&self.pool)
-            .await
-            .expect("Failed to fetch duty status");
+    async fn fetch_duty_status(&self, duty_id: Txid) -> DbResult<Option<BridgeDutyStatus>> {
+        let duty_id = DbTxid::from(duty_id);
 
-        row.map(|r| serde_json::from_str(&r.status).expect("Failed to parse duty status JSON"))
+        Ok(sqlx::query_as!(
+            models::DutyTracker,
+            r#"SELECT
+                duty_id AS "duty_id!: DbTxid",
+                status AS "status!: DbDutyStatus"
+                FROM duty_tracker WHERE duty_id = $1"#,
+            duty_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|r| r.status.deref().clone()))
     }
 
-    async fn update_duty_status(&self, duty_id: Txid, status: BridgeDutyStatus) {
-        let duty_id = consensus::encode::serialize_hex(&duty_id);
-        let status_json =
-            serde_json::to_string(&status).expect("Failed to serialize duty status to JSON");
+    async fn update_duty_status(&self, duty_id: Txid, status: BridgeDutyStatus) -> DbResult<()> {
+        let duty_id = DbTxid::from(duty_id);
+        let status = DbDutyStatus::from(status);
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
         sqlx::query!(
-            "INSERT OR REPLACE INTO duty_tracker (duty_id, status) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO duty_tracker (duty_id, status) VALUES ($1, $2)",
             duty_id,
-            status_json
+            status,
         )
         .execute(&mut *tx)
         .await
-        .expect("should be able to update duty status");
+        .map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit duty status");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 }
 
 #[async_trait]
 impl BitcoinBlockTrackerDb for SqliteDb {
-    async fn get_last_scanned_block_height(&self) -> u64 {
+    async fn get_last_scanned_block_height(&self) -> DbResult<u64> {
         let row = sqlx::query!("SELECT block_height FROM bitcoin_block_index_tracker WHERE id = 1")
             .fetch_optional(&self.pool)
             .await
             .expect("Failed to fetch last scanned block height");
 
-        row.map(|r| r.block_height as u64).unwrap_or(0) // Default to 0 if no record
+        Ok(row.map(|r| r.block_height as u64).unwrap_or(0)) // Default to 0 if no record
     }
 
-    async fn set_last_scanned_block_height(&self, block_height: u64) {
+    async fn set_last_scanned_block_height(&self, block_height: u64) -> DbResult<()> {
         let block_height = block_height as i64;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
         sqlx::query!(
-            "INSERT OR REPLACE INTO bitcoin_block_index_tracker (id, block_height) VALUES (1, ?)",
+            "INSERT OR REPLACE INTO bitcoin_block_index_tracker
+                (id, block_height)
+                VALUES (1, $1)",
             block_height
         )
         .execute(&mut *tx)
         .await
-        .expect("should be able to insert last scanned block height");
+        .map_err(StorageError::from)?;
 
-        tx.commit()
-            .await
-            .expect("should be able to commit last scanned block height");
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 
-    async fn get_relevant_tx(&self, txid: &Txid) -> Option<Transaction> {
-        let txid = consensus::encode::serialize_hex(txid);
+    async fn get_relevant_tx(&self, txid: &Txid) -> DbResult<Option<Transaction>> {
+        let txid = DbTxid::from(*txid);
 
-        let row = sqlx::query!("SELECT tx FROM bitcoin_tx_index WHERE txid = ?", txid)
-            .fetch_optional(&self.pool)
-            .await
-            .expect("should be able to fetch tx from db");
-
-        row.map(|btc_tx| {
-            consensus::encode::deserialize_hex(&btc_tx.tx)
-                .expect("should be able to deserialize transaction")
-        })
+        Ok(sqlx::query_as!(
+            models::RelevantTxIndex,
+            r#"SELECT
+                tx as "tx!: DbTransaction",
+                txid as "txid!: DbTxid"
+                FROM bitcoin_tx_index
+                WHERE txid = $1"#,
+            txid
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|row| row.tx.deref().clone()))
     }
 
-    async fn add_relevant_tx(&self, tx: Transaction) {
-        let txid = tx.compute_txid();
-        let txid = consensus::encode::serialize_hex(&txid);
-        let tx = consensus::encode::serialize_hex(&tx);
+    async fn add_relevant_tx(&self, tx: Transaction) -> DbResult<()> {
+        let txid = DbTxid::from(tx.compute_txid());
+        let tx = DbTransaction::from(tx);
 
-        let mut sqlx_tx = self
-            .pool
-            .begin()
-            .await
-            .expect("should be able to start a transaction");
+        let mut sqlx_tx = self.pool.begin().await.map_err(StorageError::from)?;
+
         sqlx::query!(
-            "INSERT OR REPLACE INTO bitcoin_tx_index (txid, tx) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO bitcoin_tx_index
+                (txid, tx)
+                VALUES ($1, $2)",
             txid,
             tx
         )
         .execute(&mut *sqlx_tx)
         .await
-        .expect("should be able to insert relevant tx to db");
+        .map_err(StorageError::from)?;
 
-        sqlx_tx
-            .commit()
-            .await
-            .expect("should be able to commit relevant tx to db");
+        sqlx_tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
     }
 }

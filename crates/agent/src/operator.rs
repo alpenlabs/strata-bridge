@@ -118,7 +118,10 @@ where
         let own_index = self.build_context.own_index();
         let duty_id = duty.get_id();
 
-        let latest_status = if let Some(status) = self.duty_db.fetch_duty_status(duty_id).await {
+        let latest_status = if let Some(status) =
+            self.duty_db.fetch_duty_status(duty_id).await.unwrap()
+        // FIXME: Handle me
+        {
             status
         } else {
             let status: BridgeDutyStatus = match &duty {

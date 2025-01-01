@@ -1,6 +1,6 @@
 use std::{ops::Deref, str::FromStr};
 
-use bitcoin::{consensus, hex::DisplayHex, Amount, ScriptBuf, Txid};
+use bitcoin::{consensus, hex::DisplayHex, Amount, ScriptBuf, Transaction, Txid};
 use musig2::{BinaryEncoding, PartialSignature, PubNonce, SecNonce};
 use rkyv::rancor::Error as RkyvError;
 use secp256k1::schnorr::Signature;
@@ -10,7 +10,7 @@ use strata_bridge_primitives::{duties::BridgeDutyStatus, scripts::wots, types::O
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(transparent)]
-pub struct DbOperatorId(OperatorIdx);
+pub(super) struct DbOperatorId(OperatorIdx);
 
 impl Deref for DbOperatorId {
     type Target = OperatorIdx;
@@ -34,7 +34,7 @@ impl From<i64> for DbOperatorId {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(transparent)]
-pub struct DbInputIndex(u32);
+pub(super) struct DbInputIndex(u32);
 
 impl Deref for DbInputIndex {
     type Target = u32;
@@ -57,7 +57,7 @@ impl From<i64> for DbInputIndex {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbTxid(Txid);
+pub(super) struct DbTxid(Txid);
 
 impl Deref for DbTxid {
     type Target = Txid;
@@ -104,7 +104,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbTxid {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct DbWotsPublicKeys(wots::PublicKeys);
+pub(super) struct DbWotsPublicKeys(wots::PublicKeys);
 
 impl Deref for DbWotsPublicKeys {
     type Target = wots::PublicKeys;
@@ -150,7 +150,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbWotsPublicKeys {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct DbWotsSignatures(wots::Signatures);
+pub(super) struct DbWotsSignatures(wots::Signatures);
 
 impl Deref for DbWotsSignatures {
     type Target = wots::Signatures;
@@ -196,7 +196,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbWotsSignatures {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbSignature(Signature);
+pub(super) struct DbSignature(Signature);
 
 impl Deref for DbSignature {
     type Target = Signature;
@@ -238,13 +238,19 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbSignature {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DbDutyStatus(BridgeDutyStatus);
+pub(super) struct DbDutyStatus(BridgeDutyStatus);
 
 impl Deref for DbDutyStatus {
     type Target = BridgeDutyStatus;
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<BridgeDutyStatus> for DbDutyStatus {
+    fn from(value: BridgeDutyStatus) -> Self {
+        Self(value)
     }
 }
 
@@ -275,7 +281,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbDutyStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbPubNonce(PubNonce);
+pub(super) struct DbPubNonce(PubNonce);
 
 impl Deref for DbPubNonce {
     type Target = PubNonce;
@@ -318,7 +324,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbPubNonce {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbSecNonce(SecNonce);
+pub(super) struct DbSecNonce(SecNonce);
 
 impl Deref for DbSecNonce {
     type Target = SecNonce;
@@ -361,7 +367,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbSecNonce {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbPartialSig(PartialSignature);
+pub(super) struct DbPartialSig(PartialSignature);
 
 impl Deref for DbPartialSig {
     type Target = PartialSignature;
@@ -404,7 +410,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbPartialSig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbScriptBuf(ScriptBuf);
+pub(super) struct DbScriptBuf(ScriptBuf);
 
 impl Deref for DbScriptBuf {
     type Target = ScriptBuf;
@@ -447,7 +453,7 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbScriptBuf {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DbAmount(Amount);
+pub(super) struct DbAmount(Amount);
 
 impl Deref for DbAmount {
     type Target = Amount;
@@ -488,13 +494,44 @@ impl sqlx::Encode<'_, Sqlite> for DbAmount {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, PartialEq, Serialize, Deserialize)]
-pub struct JoinedKickoffInfo {
-    pub ki_txid: DbTxid,
-    pub ki_change_address: String,
-    pub ki_change_address_network: String,
-    pub ki_change_amount: DbAmount,
-    pub fi_input_txid: Option<DbTxid>,
-    pub fi_vout: Option<u32>,
-    pub fu_value: Option<DbAmount>,
-    pub fu_script_pubkey: Option<DbScriptBuf>,
+pub(super) struct DbTransaction(Transaction);
+
+impl Deref for DbTransaction {
+    type Target = Transaction;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Transaction> for DbTransaction {
+    fn from(value: Transaction) -> Self {
+        Self(value)
+    }
+}
+
+impl sqlx::Type<Sqlite> for DbTransaction {
+    fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
+        <String as sqlx::Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, Sqlite> for DbTransaction {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let tx_hex: String = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
+        let tx = consensus::encode::deserialize_hex(&tx_hex)
+            .map_err(|_| sqlx::Error::Decode("Failed to decode Transaction".into()))?;
+        Ok(Self(tx))
+    }
+}
+
+impl<'q> sqlx::Encode<'q, Sqlite> for DbTransaction {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let tx_hex = consensus::encode::serialize_hex(&self.0);
+
+        sqlx::Encode::<'q, Sqlite>::encode_by_ref(&tx_hex, buf)
+    }
 }

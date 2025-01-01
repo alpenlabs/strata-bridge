@@ -3,7 +3,7 @@ use sqlx::FromRow;
 
 use super::types::{
     DbAmount, DbDutyStatus, DbInputIndex, DbOperatorId, DbPartialSig, DbPubNonce, DbScriptBuf,
-    DbSecNonce, DbSignature, DbTxid, DbWotsPublicKeys, DbWotsSignatures,
+    DbSecNonce, DbSignature, DbTransaction, DbTxid, DbWotsPublicKeys, DbWotsSignatures,
 };
 
 /// The model for WOTS public keys stored in the database.
@@ -52,22 +52,6 @@ pub(super) struct Signature {
     pub(super) signature: DbSignature,
 }
 
-/// The model for an operator's duty.
-#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub(super) struct OperatorDuty {
-    /// The ID of the oeprator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
-
-    /// The ID of the duty stored as `TEXT`.
-    pub(super) duty_id: DbTxid,
-
-    /// The status of the duty stored as a JSON string.
-    pub(super) status: DbDutyStatus,
-
-    /// The data corresponding to the duty.
-    pub(super) data: Vec<u8>,
-}
-
 /// The model for tracking duty statuses.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub(super) struct DutyTracker {
@@ -76,22 +60,16 @@ pub(super) struct DutyTracker {
 
     /// The status of the duty stored as a JSON string.
     pub(super) status: DbDutyStatus,
-
-    /// The timestamp when the status was last updated (in secs) stored as `INTEGER`.
-    pub(super) last_updated: i64,
 }
 
-/// The model to track bitcoin blocks.
+/// The model to track relevant transactions.
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
-pub(super) struct BitcoinBlock {
-    /// The height of the block stored as `INTEGER`.
-    pub(super) height: i64,
+pub(super) struct RelevantTxIndex {
+    /// The hex-serialized transaction ID.
+    pub(super) txid: DbTxid,
 
     /// The hex-serialized block hash.
-    pub(super) hash: String,
-
-    /// The bincode-serialized block.
-    pub(super) data: Vec<u8>,
+    pub(super) tx: DbTransaction,
 }
 
 /// The model to map claims to operators and deposit.
