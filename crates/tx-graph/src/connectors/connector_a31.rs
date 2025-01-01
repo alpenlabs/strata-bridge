@@ -17,8 +17,9 @@ use bitvm::{
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     params::prelude::*,
-    scripts::{prelude::*, wots},
+    scripts::prelude::*,
     types::OperatorIdx,
+    wots::{self, Groth16PublicKeys},
 };
 use tracing::trace;
 

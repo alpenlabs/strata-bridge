@@ -24,6 +24,7 @@ fn split_digit(window: u32, index: u32) -> Script {
 
 pub fn ts_from_nibbles() -> Script {
     script! {
+        // [a]
         for _ in 1..8 { OP_TOALTSTACK }
         for _ in 1..8 {
             { NMUL(1 << 4) } OP_FROMALTSTACK OP_ADD
@@ -127,6 +128,32 @@ pub fn flip_byte_nibbles() -> Script {
         }
         { NMUL(1 << 4) }
         for _ in 0..4 { OP_FROMALTSTACK OP_ADD }
+    }
+}
+
+pub fn hash_to_bn254_fq() -> Script {
+    script! {
+        for i in 1..=3 {
+            { 1 << (8 - i) }
+            OP_2DUP
+            OP_GREATERTHAN
+            OP_IF OP_SUB
+            OP_ELSE OP_DROP
+            OP_ENDIF
+        }
+    }
+}
+
+pub fn extract_superblock_ts_from_header() -> Script {
+    script! {
+        for i in 0..4 { { 80 - 12 + 2 * i } OP_PICK }
+        for _ in 1..4 {  { NMUL(1 << 8) } OP_ADD }
+    }
+}
+
+pub fn add_bincode_padding_bytes32() -> Script {
+    script! {
+        for b in [0; 7] { {b} } 32
     }
 }
 

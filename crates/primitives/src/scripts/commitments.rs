@@ -1,5 +1,10 @@
+use bitcoin::Txid;
 use bitvm::signatures::wots::{wots256, wots32};
 use sha2::Digest;
+
+pub fn get_deposit_master_secret_key(msk: &str, deposit_txid: Txid) -> String {
+    format!("{}:{}", msk, deposit_txid)
+}
 
 fn secret_key_from_msk(msk: &str, var: &str) -> String {
     let mut hasher = sha2::Sha256::new();

@@ -9139,6 +9139,7 @@ dependencies = [
  "rand",
  "secp256k1",
  "serde",
+ "sha2",
  "strata-bridge-btcio",
  "strata-bridge-db",
  "strata-bridge-primitives",

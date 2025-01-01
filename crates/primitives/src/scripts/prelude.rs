@@ -1,1 +1,1 @@
-pub use super::{commitments::*, general::*, taproot::*, transform::*, wots::*};
+pub use super::{commitments::*, general::*, taproot::*, transform::*};

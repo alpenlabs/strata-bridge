@@ -34,5 +34,6 @@ musig2 = { workspace = true, features = ["serde"] }
 rand.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 tracing.workspace = true

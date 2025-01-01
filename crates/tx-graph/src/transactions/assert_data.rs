@@ -7,7 +7,8 @@ use strata_bridge_primitives::{
         },
         prelude::*,
     },
-    scripts::{prelude::*, wots},
+    scripts::prelude::*,
+    wots,
 };
 
 use crate::connectors::prelude::*;

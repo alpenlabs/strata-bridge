@@ -12,10 +12,7 @@ use bitvm::{
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::{
-    scripts::{prelude::*, wots},
-    types::OperatorIdx,
-};
+use strata_bridge_primitives::{scripts::prelude::*, types::OperatorIdx, wots};
 use tracing::trace;
 
 #[derive(Debug, Clone)]

@@ -12,7 +12,7 @@ use musig2::{PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature;
 use sqlx::SqlitePool;
 use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, scripts::wots, types::OperatorIdx,
+    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, types::OperatorIdx, wots,
 };
 
 use super::{

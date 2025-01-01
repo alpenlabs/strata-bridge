@@ -1,10 +1,29 @@
-use bitcoin::Txid;
+use bitcoin::{Transaction, Txid};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     deposit::DepositInfo, params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx,
     withdrawal::WithdrawalInfo,
 };
+
+#[derive(Clone, Debug)]
+#[expect(clippy::large_enum_variant)]
+pub enum VerifierDuty {
+    VerifyClaim {
+        operator_id: OperatorIdx,
+        deposit_txid: Txid,
+
+        claim_tx: Transaction,
+    },
+    VerifyAssertions {
+        operator_id: OperatorIdx,
+        deposit_txid: Txid,
+
+        post_assert_tx: Transaction,
+        claim_tx: Transaction,
+        assert_data_txs: [Transaction; NUM_ASSERT_DATA_TX],
+    },
+}
 
 /// The various duties that can be assigned to an operator.
 #[derive(Debug, Clone, Serialize, Deserialize)]

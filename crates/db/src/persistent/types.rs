@@ -11,7 +11,7 @@ use rkyv::rancor::Error as RkyvError;
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use sqlx::{sqlite::SqliteValueRef, Sqlite};
-use strata_bridge_primitives::{duties::BridgeDutyStatus, scripts::wots, types::OperatorIdx};
+use strata_bridge_primitives::{duties::BridgeDutyStatus, types::OperatorIdx, wots};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
 #[sqlx(transparent)]

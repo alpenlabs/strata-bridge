@@ -1,21 +1,22 @@
 use std::sync::Arc;
 
-use bitcoin::{hashes::Hash, Transaction, TxOut, Txid};
+use bitcoin::{hashes::Hash, Transaction, TxOut};
 use bitvm::{
     groth16::g16,
     signatures::wots::{wots256, wots32, SignatureImpl},
     treepp::*,
 };
+use sha2::{Digest, Sha256};
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
-    helpers::hash_to_bn254_fq,
+    duties::VerifierDuty,
     params::{
         prelude::*,
         tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
     },
-    scripts::{parse_witness::parse_assertion_witnesses, wots::Signatures},
-    types::OperatorIdx,
+    scripts::parse_witness::parse_assertion_witnesses,
+    wots::Signatures,
 };
 use strata_bridge_proof_protocol::BridgeProofPublicParams;
 use strata_bridge_proof_snark::bridge_poc;
@@ -28,25 +29,6 @@ use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, trace, warn};
 
 use crate::base::Agent;
-
-#[derive(Clone, Debug)]
-#[expect(clippy::large_enum_variant)]
-pub enum VerifierDuty {
-    VerifyClaim {
-        operator_id: OperatorIdx,
-        deposit_txid: Txid,
-
-        claim_tx: Transaction,
-    },
-    VerifyAssertions {
-        operator_id: OperatorIdx,
-        deposit_txid: Txid,
-
-        post_assert_tx: Transaction,
-        claim_tx: Transaction,
-        assert_data_txs: [Transaction; NUM_ASSERT_DATA_TX],
-    },
-}
 
 pub type VerifierIdx = u32;
 
@@ -154,7 +136,14 @@ where
                         ),
                     };
                     let serialized_public_inputs = bincode::serialize(&public_inputs).unwrap();
-                    let public_inputs_hash = hash_to_bn254_fq(&serialized_public_inputs);
+                    let public_inputs_hash = {
+                        let data: &[u8] = &serialized_public_inputs;
+                        let mut hasher = Sha256::new();
+                        hasher.update(data);
+                        let mut hash: [u8; 32] = hasher.finalize().into();
+                        hash[0] &= 0b00011111; // mask 3 most significant bits
+                        hash
+                    };
                     let committed_public_inputs_hash = groth16.0[0].parse();
 
                     // TODO: remove this: fix nibble flipping

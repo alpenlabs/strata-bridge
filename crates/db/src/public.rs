@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{scripts::wots, types::OperatorIdx};
+use strata_bridge_primitives::{types::OperatorIdx, wots};
 
 use crate::errors::DbResult;
 

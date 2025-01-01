@@ -27,12 +27,10 @@ use strata_bridge_primitives::{
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
     params::{prelude::*, strata::STRATA_BTC_GENESIS_HEIGHT},
-    scripts::{
-        taproot::{create_message_hash, finalize_input, TaprootWitness},
-        wots::{generate_wots_public_keys, generate_wots_signatures, Assertions},
-    },
+    scripts::taproot::{create_message_hash, finalize_input, TaprootWitness},
     types::{OperatorIdx, TxSigningData},
     withdrawal::WithdrawalInfo,
+    wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
 use strata_bridge_proof_protocol::{
     run_process_bridge_proof, BridgeProofPublicParams, StrataBridgeState,
@@ -216,7 +214,7 @@ where
         let deposit_txid = deposit_tx.psbt.unsigned_tx.compute_txid();
 
         info!(action = "generating wots public keys", %deposit_txid, %own_index);
-        let public_keys = generate_wots_public_keys(&self.msk, deposit_txid);
+        let public_keys = WotsPublicKeys::new(&self.msk, deposit_txid);
         self.public_db
             .set_wots_public_keys(self.build_context.own_index(), deposit_txid, &public_keys)
             .await
@@ -1599,7 +1597,7 @@ where
                         }
                     }
                 }
-                generate_wots_signatures(&self.msk, deposit_txid, assertions)
+                WotsSignatures::new(&self.msk, deposit_txid, assertions)
             };
 
             // TODO: remove this

@@ -9,8 +9,8 @@ use strata_bridge_primitives::{
     params::connectors::{
         NUM_PKS_A160, NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A256, NUM_PKS_A256_PER_CONNECTOR,
     },
-    scripts::wots::{self, Groth16PublicKeys},
     types::OperatorIdx,
+    wots::{self, Groth16PublicKeys},
 };
 use tracing::{debug, info};
 

@@ -3,11 +3,9 @@ use std::{sync::Arc, time::Duration};
 use bitcoin::{Transaction, Txid};
 use strata_bridge_btcio::traits::Reader;
 use strata_bridge_db::{public::PublicDb, tracker::BitcoinBlockTrackerDb};
-use strata_bridge_primitives::{params::prelude::*, types::OperatorIdx};
+use strata_bridge_primitives::{duties::VerifierDuty, params::prelude::*, types::OperatorIdx};
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
-
-use crate::verifier::VerifierDuty;
 
 #[derive(Debug, Clone)]
 pub struct BitcoinWatcher<D: BitcoinBlockTrackerDb, P: PublicDb, R: Reader> {
