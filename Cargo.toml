@@ -51,7 +51,7 @@ strata-zkvm = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm
 
 # external deps
 anyhow = "1.0.86"
-arbitrary = { version = "1.3.2", features = ["derive"] }
+arbitrary = { version = "1.4.1", features = ["derive"] }
 ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
 ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
@@ -76,15 +76,15 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default
 ] }
 ethnum = "1.5.0"
 hex = { version = "0.4", features = ["serde"] }
-jsonrpsee = "0.23"
-jsonrpsee-types = "0.23"
+jsonrpsee = "0.24.7"
+jsonrpsee-types = "0.24.7"
 lazy_static = "1.5.0"
 musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
 ] } # can't be updated without updating bitcoin
 rand = "0.8.5"
-reqwest = { version = "0.12.7", default-features = false, features = [
+reqwest = { version = "0.12.12", default-features = false, features = [
   "http2",
   "rustls-tls",
   "charset",
