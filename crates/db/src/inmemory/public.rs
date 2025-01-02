@@ -7,7 +7,6 @@ use strata_bridge_primitives::{types::OperatorIdx, wots};
 use tokio::sync::RwLock;
 use tracing::trace;
 
-use super::errors::InMemoryError;
 use crate::{errors::DbResult, public::PublicDb};
 
 pub type TxInputToSignatureMap = HashMap<(Txid, u32), Signature>;
@@ -44,30 +43,28 @@ impl PublicDb for PublicDbInMemory {
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-    ) -> DbResult<wots::PublicKeys> {
-        Ok(*self
+    ) -> DbResult<Option<wots::PublicKeys>> {
+        Ok(self
             .wots_public_keys
             .read()
             .await
             .get(&operator_id)
-            .ok_or(InMemoryError::NotFound)?
-            .get(&deposit_txid)
-            .ok_or(InMemoryError::NotFound)?)
+            .and_then(|m| m.get(&deposit_txid))
+            .copied())
     }
 
     async fn get_wots_signatures(
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-    ) -> DbResult<wots::Signatures> {
-        Ok(*self
+    ) -> DbResult<Option<wots::Signatures>> {
+        Ok(self
             .wots_signatures
             .read()
             .await
             .get(&operator_id)
-            .ok_or(InMemoryError::NotFound)?
-            .get(&deposit_txid)
-            .ok_or(InMemoryError::NotFound)?)
+            .and_then(|m| m.get(&deposit_txid))
+            .copied())
     }
 
     async fn set_wots_public_keys(
@@ -97,16 +94,14 @@ impl PublicDb for PublicDbInMemory {
         operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Signature> {
+    ) -> DbResult<Option<Signature>> {
         Ok(self
             .signatures
             .read()
             .await
             .get(&operator_idx)
-            .ok_or(InMemoryError::NotFound)?
-            .get(&(txid, input_index))
-            .copied()
-            .ok_or(InMemoryError::NotFound)?)
+            .and_then(|m| m.get(&(txid, input_index)))
+            .copied())
     }
 
     async fn set_wots_signatures(

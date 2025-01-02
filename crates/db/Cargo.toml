@@ -13,6 +13,7 @@ rust.unused_must_use = "deny"
 [dependencies]
 strata-bridge-primitives.workspace = true
 
+arbitrary.workspace = true
 async-trait.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 musig2 = { workspace = true, features = ["serde"] }
@@ -24,3 +25,6 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true

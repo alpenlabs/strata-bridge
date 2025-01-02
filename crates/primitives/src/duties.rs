@@ -67,7 +67,7 @@ pub struct BridgeDuties {
     pub stop_index: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BridgeDutyStatus {
     Deposit(DepositStatus),
 
@@ -95,7 +95,7 @@ impl BridgeDutyStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum DepositStatus {
     /// The duty has been received.
     ///
@@ -166,7 +166,7 @@ impl DepositStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum WithdrawalStatus {
     Received,
 

@@ -25,12 +25,6 @@ impl Deref for DbOperatorId {
     }
 }
 
-impl From<OperatorIdx> for DbOperatorId {
-    fn from(value: OperatorIdx) -> Self {
-        Self(value)
-    }
-}
-
 impl From<i64> for DbOperatorId {
     fn from(value: i64) -> Self {
         Self(value as u32)
@@ -46,12 +40,6 @@ impl Deref for DbInputIndex {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl From<OperatorIdx> for DbInputIndex {
-    fn from(value: u32) -> Self {
-        Self(value)
     }
 }
 

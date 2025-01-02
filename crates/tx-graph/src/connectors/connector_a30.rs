@@ -88,6 +88,7 @@ impl<Db: PublicDb> ConnectorA30<Db> {
             .db
             .get_signature(operator_idx, payout_txid, input_index)
             .await
+            .unwrap()
             .unwrap(); // FIXME: handle me
 
         let sighash_type = match tapleaf {

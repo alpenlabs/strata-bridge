@@ -1,17 +1,48 @@
-use bitcoin::{address::NetworkUnchecked, Address, Network};
+use arbitrary::{Arbitrary, Unstructured};
+use bitcoin::{address::NetworkUnchecked, hashes::Hash, Address, Network, ScriptHash};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
 /// A wrapper around the [`bitcoin::Address<NetworkChecked>`] type created in order to implement
 /// some useful traits on it such as [`serde::Deserialize`], [`borsh::BorshSerialize`] and
 /// [`borsh::BorshDeserialize`].
 // TODO: implement [`arbitrary::Arbitrary`]?
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BitcoinAddress {
     /// The [`bitcoin::Network`] that this address is valid in.
     network: Network,
 
     /// The actual [`Address`] that this type wraps.
     address: Address,
+}
+
+impl<'a> Arbitrary<'a> for BitcoinAddress {
+    fn arbitrary(u: &mut Unstructured<'a>) -> arbitrary::Result<Self> {
+        // Generate an arbitrary `Network`
+        let network = *u
+            .choose(&[
+                Network::Bitcoin,
+                Network::Testnet,
+                Network::Regtest,
+                Network::Signet,
+            ])
+            .map_err(|_| arbitrary::Error::NotEnoughData)?;
+
+        // Generate an arbitrary `Address`
+        // Create a random hash to use for the address payload
+        let hash: [u8; 20] = u.arbitrary()?;
+        let address = match network {
+            Network::Bitcoin | Network::Testnet | Network::Signet | Network::Regtest => {
+                // TODO: find ways to support other types of addresses
+                Address::p2sh_from_hash(
+                    ScriptHash::from_slice(&hash).expect("must have right number of bytes"),
+                    network,
+                )
+            }
+            new_network => unimplemented!("{new_network} not supported"),
+        };
+
+        Ok(Self { network, address })
+    }
 }
 
 impl BitcoinAddress {

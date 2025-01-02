@@ -18,7 +18,7 @@ pub trait PublicDb {
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-    ) -> DbResult<wots::PublicKeys>;
+    ) -> DbResult<Option<wots::PublicKeys>>;
 
     async fn set_wots_public_keys(
         &self,
@@ -31,7 +31,7 @@ pub trait PublicDb {
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-    ) -> DbResult<wots::Signatures>;
+    ) -> DbResult<Option<wots::Signatures>>;
 
     async fn set_wots_signatures(
         &self,
@@ -45,7 +45,7 @@ pub trait PublicDb {
         operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Signature>;
+    ) -> DbResult<Option<Signature>>;
 
     async fn set_signature(
         &self,

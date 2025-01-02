@@ -51,6 +51,7 @@ impl<Db: PublicDb> ConnectorK<Db> {
             .db
             .get_wots_public_keys(self.operator_idx, deposit_txid)
             .await
+            .unwrap()
             .unwrap(); // FIXME: Handle me
 
         script! {

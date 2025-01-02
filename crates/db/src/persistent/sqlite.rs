@@ -47,7 +47,7 @@ impl PublicDb for SqliteDb {
         &self,
         operator_id: OperatorIdx,
         deposit_txid: Txid,
-    ) -> DbResult<wots::PublicKeys> {
+    ) -> DbResult<Option<wots::PublicKeys>> {
         let deposit_txid = DbTxid::from(deposit_txid);
         let result = sqlx::query_as!(
             models::WotsPublicKey,
@@ -60,11 +60,12 @@ impl PublicDb for SqliteDb {
             operator_id,
             deposit_txid,
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::from)?;
+        .map_err(StorageError::from)?
+        .map(|v| *v.public_keys);
 
-        Ok(*result.public_keys)
+        Ok(result)
     }
 
     async fn set_wots_public_keys(
@@ -98,7 +99,7 @@ impl PublicDb for SqliteDb {
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-    ) -> DbResult<wots::Signatures> {
+    ) -> DbResult<Option<wots::Signatures>> {
         let deposit_txid = DbTxid::from(deposit_txid);
         let result = sqlx::query_as!(
             models::WotsSignature,
@@ -110,11 +111,12 @@ impl PublicDb for SqliteDb {
             operator_id,
             deposit_txid,
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::from)?;
+        .map_err(StorageError::from)?
+        .map(|v| *v.signatures);
 
-        Ok(*result.signatures)
+        Ok(result)
     }
 
     async fn set_wots_signatures(
@@ -149,7 +151,7 @@ impl PublicDb for SqliteDb {
         operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Signature> {
+    ) -> DbResult<Option<Signature>> {
         let txid = DbTxid::from(txid);
         let result = sqlx::query_as!(
             models::Signature,
@@ -164,11 +166,12 @@ impl PublicDb for SqliteDb {
             txid,
             input_index,
         )
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
-        .map_err(StorageError::from)?;
+        .map_err(StorageError::from)?
+        .map(|v| *v.signature);
 
-        Ok(*result.signature)
+        Ok(result)
     }
 
     async fn set_signature(
@@ -427,7 +430,7 @@ impl OperatorDb for SqliteDb {
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Option<BTreeMap<OperatorIdx, PubNonce>>> {
+    ) -> DbResult<BTreeMap<OperatorIdx, PubNonce>> {
         let txid = DbTxid::from(txid);
         Ok(sqlx::query_as!(
             models::CollectedPubnonces,
@@ -444,7 +447,7 @@ impl OperatorDb for SqliteDb {
         .await
         .map_err(StorageError::from)?
         .into_iter()
-        .map(|row| Some((*row.operator_id, row.pubnonce.deref().clone())))
+        .map(|row| (*row.operator_id, row.pubnonce.deref().clone()))
         .collect())
     }
 
@@ -544,6 +547,23 @@ impl OperatorDb for SqliteDb {
     ) -> DbResult<()> {
         let txid = DbTxid::from(txid);
         let partial_signature = DbPartialSig::from(signature);
+
+        if sqlx::query!(
+            "SELECT txid FROM collected_messages
+                WHERE txid = $1 AND input_index = $2",
+            txid,
+            input_index,
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .is_none()
+        {
+            return Err(StorageError::InvalidData(
+                "message hash not found".to_string(),
+            ))?;
+        }
+
         sqlx::query!(
             "INSERT OR REPLACE INTO collected_signatures
                 (txid, input_index, operator_id, partial_signature)
@@ -944,5 +964,378 @@ impl BitcoinBlockTrackerDb for SqliteDb {
         sqlx_tx.commit().await.map_err(StorageError::from)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use arbitrary::{Arbitrary, Unstructured};
+    use bitcoin::key::rand::{self, Rng};
+    use secp256k1::rand::rngs::OsRng;
+    use strata_bridge_primitives::{duties::WithdrawalStatus, params::prelude::NUM_ASSERT_DATA_TX};
+    use strata_bridge_test_utils::prelude::*;
+
+    use super::*;
+    use crate::errors::DbError;
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_public_db(pool: SqlitePool) {
+        let operator_id: u32 = rand::thread_rng().gen();
+        let deposit_txid = generate_txid();
+        let db = SqliteDb::new(pool);
+
+        let wots_public_keys = generate_wots_public_keys();
+        assert!(
+            db.get_wots_public_keys(operator_id, deposit_txid)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "wots public keys must not exist initially"
+        );
+        db.set_wots_public_keys(operator_id, deposit_txid, &wots_public_keys)
+            .await
+            .expect("must be able to set wots public keys");
+        assert!(
+            db.get_wots_public_keys(operator_id, deposit_txid)
+                .await
+                .is_ok_and(|v| v == Some(wots_public_keys)),
+            "wots public keys must exist after setting"
+        );
+
+        let wots_signatures = generate_wots_signatures();
+        assert!(
+            db.get_wots_signatures(operator_id, deposit_txid)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "wots signatures must not exist initially"
+        );
+        db.set_wots_signatures(operator_id, deposit_txid, &wots_signatures)
+            .await
+            .expect("must be able to set wots signatures");
+        assert!(
+            db.get_wots_signatures(operator_id, deposit_txid)
+                .await
+                .is_ok_and(|v| v == Some(wots_signatures)),
+            "wots signatures must exist after setting"
+        );
+
+        let signature = generate_signature();
+        assert!(
+            db.get_signature(operator_id, deposit_txid, 0)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "signature must not exist initially"
+        );
+        db.set_signature(operator_id, deposit_txid, 0, signature)
+            .await
+            .expect("must be able to set signature");
+        assert!(
+            db.get_signature(operator_id, deposit_txid, 0)
+                .await
+                .is_ok_and(|v| v == Some(signature)),
+            "signature must exist after setting"
+        );
+
+        let claim_txid = generate_txid();
+        assert!(
+            db.get_operator_and_deposit_for_claim(&claim_txid)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "claim txid must not exist initially"
+        );
+        db.register_claim_txid(claim_txid, operator_id, deposit_txid)
+            .await
+            .expect("must be able to register claim txid");
+        assert!(
+            db.get_operator_and_deposit_for_claim(&claim_txid)
+                .await
+                .is_ok_and(|v| v == Some((operator_id, deposit_txid))),
+            "claim txid must exist after registering"
+        );
+
+        let pre_assert_txid = generate_txid();
+        assert!(
+            db.get_operator_and_deposit_for_pre_assert(&pre_assert_txid)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "pre assert txid must not exist initially"
+        );
+        db.register_pre_assert_txid(pre_assert_txid, operator_id, deposit_txid)
+            .await
+            .expect("must be able to register pre assert txid");
+        assert!(
+            db.get_operator_and_deposit_for_pre_assert(&pre_assert_txid)
+                .await
+                .is_ok_and(|v| v == Some((operator_id, deposit_txid))),
+            "pre assert txid must exist after registering",
+        );
+
+        let assert_data_txids: [Txid; NUM_ASSERT_DATA_TX] =
+            std::array::from_fn(|_| generate_txid());
+        assert!(
+            db.get_operator_and_deposit_for_assert_data(&assert_data_txids[0])
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "assert data txid must not exist initially"
+        );
+        db.register_assert_data_txids(assert_data_txids, operator_id, deposit_txid)
+            .await
+            .expect("must be able to register assert data txids");
+        assert!(
+            db.get_operator_and_deposit_for_assert_data(
+                &assert_data_txids[rand::thread_rng().gen_range(0..NUM_ASSERT_DATA_TX)]
+            )
+            .await
+            .is_ok_and(|v| v == Some((operator_id, deposit_txid))),
+            "assert data txid must exist after registering"
+        );
+
+        let post_assert_txid = generate_txid();
+        assert!(
+            db.get_operator_and_deposit_for_post_assert(&post_assert_txid)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "post assert txid must not exist initially"
+        );
+        db.register_post_assert_txid(post_assert_txid, operator_id, deposit_txid)
+            .await
+            .expect("must be able to register post assert txid");
+        assert!(
+            db.get_operator_and_deposit_for_post_assert(&post_assert_txid)
+                .await
+                .is_ok_and(|v| v == Some((operator_id, deposit_txid))),
+            "post assert txid must exist after registering"
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_operator_db(pool: SqlitePool) {
+        let outpoint = generate_outpoint();
+        let pubnonce = generate_pubnonce();
+        let secnonce = generate_secnonce();
+        let message_sighash: [u8; 32] = rand::thread_rng().gen();
+        let partial_signature = generate_partial_signature();
+        let mut u = Unstructured::new(&[0; 1024]);
+        let kickoff_info = KickoffInfo::arbitrary(&mut u).expect("must generate kickoff info");
+        let txid = generate_txid();
+
+        let db = SqliteDb::new(pool);
+
+        assert!(
+            db.collected_pubnonces(txid, 0)
+                .await
+                .is_ok_and(|v| v.is_empty()),
+            "pubnonce must not exist initially"
+        );
+        db.add_pubnonce(txid, 0, 0, pubnonce.clone())
+            .await
+            .expect("must be able to add pubnonce");
+        db.add_pubnonce(txid, 0, 1, pubnonce.clone())
+            .await
+            .expect("must be able to add pubnonce");
+        assert!(
+            db.collected_pubnonces(txid, 0)
+                .await
+                .is_ok_and(|v| v == BTreeMap::from([(0, pubnonce.clone()), (1, pubnonce.clone())])),
+            "pubnonce must exist after adding"
+        );
+
+        assert!(
+            db.get_secnonce(txid, 0).await.is_ok_and(|v| v.is_none()),
+            "secnonce must not exist initially"
+        );
+        db.add_secnonce(txid, 0, secnonce.clone())
+            .await
+            .expect("must be able to add secnonce");
+        assert!(
+            db.get_secnonce(txid, 0)
+                .await
+                .is_ok_and(|v| v == Some(secnonce.clone())),
+            "secnonce must exist after adding"
+        );
+
+        assert!(
+            db.add_partial_signature(txid, 0, 0, partial_signature)
+                .await
+                .is_err_and(|e| matches!(e, DbError::Storage(StorageError::InvalidData(_)))),
+            "must error if message hash is not present before adding partial sig"
+        );
+
+        assert!(
+            db.collected_signatures_per_msg(txid, 0)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "message hash and signature must not exist initially"
+        );
+        db.add_message_hash_and_signature(txid, 0, message_sighash.to_vec(), 0, partial_signature)
+            .await
+            .expect("must be able to add message hash and signature");
+        assert!(
+            db.collected_signatures_per_msg(txid, 0)
+                .await
+                .is_ok_and(|v| v
+                    == Some((
+                        message_sighash.to_vec(),
+                        BTreeMap::from([(0, partial_signature)])
+                    ))),
+            "message hash and signature must exist after adding"
+        );
+
+        assert!(
+            db.add_partial_signature(txid, 0, 0, partial_signature)
+                .await
+                .is_ok(),
+            "must be able to add partial signature if message hash is present"
+        );
+
+        assert!(
+            db.selected_outpoints().await.is_ok_and(|v| v.is_empty()),
+            "outpoint must not exist initially"
+        );
+        assert!(
+            db.add_outpoint(outpoint).await.is_ok_and(|v| v),
+            "must be able to add outpoint"
+        );
+        assert!(
+            db.selected_outpoints()
+                .await
+                .is_ok_and(|v| v == std::iter::once(outpoint).collect::<HashSet<OutPoint>>()),
+            "outpoint must exist after adding"
+        );
+
+        assert!(
+            db.get_kickoff_info(txid).await.is_ok_and(|v| v.is_none()),
+            "kickoff info must not exist initially"
+        );
+        db.add_kickoff_info(txid, kickoff_info.clone())
+            .await
+            .expect("must be able to add kickoff info");
+        assert!(
+            db.get_kickoff_info(txid)
+                .await
+                .is_ok_and(|v| v == Some(kickoff_info.clone())),
+            "kickoff info must exist after adding"
+        );
+
+        assert!(
+            db.get_checkpoint_index(txid)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "checkpoint index must not exist initially"
+        );
+        db.set_checkpoint_index(txid, 0)
+            .await
+            .expect("must be able to set checkpoint index");
+        assert!(
+            db.get_checkpoint_index(txid)
+                .await
+                .is_ok_and(|v| v == Some(0)),
+            "checkpoint index must exist after setting"
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_duty_tracker_db(pool: SqlitePool) {
+        let db = SqliteDb::new(pool);
+
+        let duty_id = generate_txid();
+        let block_height: u64 = rand::thread_rng().gen();
+
+        let bridge_out_txid = generate_txid();
+        let claim_txid = generate_txid();
+        let superblock_start_ts = OsRng.gen();
+        // This might change later after [STR-821](https://alpenlabs.atlassian.net/browse/STR-754).
+        // So, hardcoding the value for now.
+        let bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
+            bridge_out_txid,
+            superblock_start_ts,
+            claim_txid,
+        });
+
+        assert!(
+            db.fetch_duty_status(duty_id)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "duty status must not exist initially"
+        );
+        db.update_duty_status(duty_id, bridge_duty_status.clone())
+            .await
+            .expect("must be able to update duty status");
+        assert!(
+            db.fetch_duty_status(duty_id)
+                .await
+                .is_ok_and(|v| v == Some(bridge_duty_status)),
+            "duty status must exist after updating"
+        );
+
+        let new_bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Kickoff {
+            bridge_out_txid: generate_txid(),
+            kickoff_txid: generate_txid(),
+        });
+        assert!(
+            db.update_duty_status(duty_id, new_bridge_duty_status.clone())
+                .await
+                .is_ok(),
+            "should be able to update duty status"
+        );
+        assert!(
+            db.fetch_duty_status(duty_id)
+                .await
+                .is_ok_and(|v| v == Some(new_bridge_duty_status)),
+            "duty status must change after updating"
+        );
+
+        assert!(
+            db.get_last_fetched_duty_index().await.is_ok_and(|v| v == 0),
+            "last fetched duty index must not exist initially"
+        );
+        db.set_last_fetched_duty_index(block_height)
+            .await
+            .expect("must be able to set last fetched duty index");
+        assert!(
+            db.get_last_fetched_duty_index()
+                .await
+                .is_ok_and(|v| v == block_height),
+            "last fetched duty index must exist after setting"
+        );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    fn test_bitcoin_block_tracker_db(pool: SqlitePool) {
+        let db = SqliteDb::new(pool);
+
+        let tx = generate_tx(2, 1);
+        let block_height: u64 = OsRng.gen();
+
+        assert!(
+            db.get_last_scanned_block_height()
+                .await
+                .is_ok_and(|v| v == 0),
+            "last scanned block height must not exist initially"
+        );
+        db.set_last_scanned_block_height(block_height)
+            .await
+            .expect("must be able to set last scanned block height");
+        assert!(
+            db.get_last_scanned_block_height()
+                .await
+                .is_ok_and(|v| v == block_height),
+            "last scanned block height must exist after setting"
+        );
+
+        assert!(
+            db.get_relevant_tx(&tx.compute_txid())
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "relevant tx must not exist initially"
+        );
+        db.add_relevant_tx(tx.clone())
+            .await
+            .expect("must be able to add relevant tx");
+        assert!(
+            db.get_relevant_tx(&tx.compute_txid())
+                .await
+                .is_ok_and(|v| v == Some(tx)),
+            "relevant tx must exist after adding"
+        );
     }
 }

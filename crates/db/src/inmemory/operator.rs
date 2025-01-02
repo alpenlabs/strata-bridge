@@ -59,13 +59,14 @@ impl OperatorDb for OperatorDbInMemory {
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Option<BTreeMap<OperatorIdx, PubNonce>>> {
+    ) -> DbResult<BTreeMap<OperatorIdx, PubNonce>> {
         Ok(self
             .collected_pubnonces
             .read()
             .await
             .get(&(txid, input_index))
-            .cloned())
+            .unwrap_or(&BTreeMap::new())
+            .clone())
     }
 
     async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()> {

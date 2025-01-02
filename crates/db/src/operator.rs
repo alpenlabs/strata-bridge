@@ -3,8 +3,9 @@
 
 use std::collections::{BTreeMap, HashSet};
 
+use arbitrary::Arbitrary;
 use async_trait::async_trait;
-use bitcoin::{Amount, OutPoint, TxOut, Txid};
+use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
 use musig2::{PartialSignature, PubNonce, SecNonce};
 use strata_bridge_primitives::{bitcoin::BitcoinAddress, types::OperatorIdx};
 
@@ -15,12 +16,38 @@ pub type MsgHashAndOpIdToSigMap = (Vec<u8>, BTreeMap<OperatorIdx, PartialSignatu
 /// The data required to create the Kickoff Transaction.
 // NOTE: this type should ideally be part of the `tx-graph` crate but that leads to a cyclic
 // dependency as the `tx-graph` crate also depends on this crate.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct KickoffInfo {
     pub funding_inputs: Vec<OutPoint>,
     pub funding_utxos: Vec<TxOut>,
     pub change_address: BitcoinAddress,
     pub change_amt: Amount,
+}
+
+impl<'a> Arbitrary<'a> for KickoffInfo {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let value = Amount::from_sat(u.int_in_range(0..=10_000_000_000)?);
+        let txid = {
+            let mut txid = [0; 32];
+            u.fill_buffer(&mut txid)?;
+            Txid::from_slice(&txid).map_err(|_| arbitrary::Error::IncorrectFormat)?
+        };
+
+        Ok(Self {
+            funding_inputs: vec![OutPoint {
+                txid,
+                vout: u.arbitrary()?,
+            }],
+            funding_utxos: vec![TxOut {
+                value,
+                script_pubkey: ScriptBuf::new(),
+            }],
+            change_address: BitcoinAddress::arbitrary(u)?,
+            change_amt: value
+                .checked_div(10)
+                .ok_or(arbitrary::Error::IncorrectFormat)?,
+        })
+    }
 }
 
 /// Interface to operate on the data required by the operator.
@@ -42,7 +69,7 @@ pub trait OperatorDb {
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Option<BTreeMap<OperatorIdx, PubNonce>>>;
+    ) -> DbResult<BTreeMap<OperatorIdx, PubNonce>>;
 
     async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()>;
 

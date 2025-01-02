@@ -7,4 +7,7 @@ pub enum StorageError {
 
     #[error("conversion: {0}")]
     MismatchedTypes(String),
+
+    #[error("data: {0}")]
+    InvalidData(String),
 }

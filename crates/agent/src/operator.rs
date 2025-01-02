@@ -596,8 +596,7 @@ where
                             .db
                             .collected_pubnonces(txid, input_index)
                             .await
-                            .unwrap() // FIXME: Handle me
-                            .is_some_and(|v| v.len() == num_signers);
+                            .is_ok_and(|v| v.len() == num_signers);
                     }
 
                     self_requests_fulfilled = all_done;
@@ -1040,8 +1039,7 @@ where
                     .await
                     .unwrap(); // FIXME: Handle me
 
-                if let Some(collected_nonces) = self.db.collected_pubnonces(txid, 0).await.unwrap()
-                {
+                if let Ok(collected_nonces) = self.db.collected_pubnonces(txid, 0).await {
                     // FIXME: Handle me
                     let nonce_count = collected_nonces.len();
                     if nonce_count != expected_nonce_count {
@@ -1253,13 +1251,7 @@ where
         txid: Txid,
         input_index: u32,
     ) -> anyhow::Result<AggNonce> {
-        if let Some(collected_nonces) = self
-            .db
-            .collected_pubnonces(txid, input_index)
-            .await
-            // FIXME: Handle me
-            .unwrap()
-        {
+        if let Ok(collected_nonces) = self.db.collected_pubnonces(txid, input_index).await {
             let expected_nonce_count = self.build_context.pubkey_table().0.len();
             if collected_nonces.len() != expected_nonce_count {
                 let collected: Vec<u32> = collected_nonces.keys().copied().collect();
@@ -1538,6 +1530,7 @@ where
                 .public_db
                 .get_signature(own_index, pre_assert_txid, 0)
                 .await
+                .unwrap()
                 .unwrap(); // FIXME: Handle me
             let signed_pre_assert = pre_assert.finalize(n_of_n_sig, connectors.claim_out_0);
             let vsize = signed_pre_assert.vsize();
@@ -1608,6 +1601,7 @@ where
                     .public_db
                     .get_wots_public_keys(own_index, deposit_txid)
                     .await
+                    .unwrap()
                     .unwrap(); // FIXME: Handle me
 
                 let disprove = g16::verify_signed_assertions(
@@ -1689,6 +1683,7 @@ where
                     .public_db
                     .get_signature(own_index, post_assert_txid, input_index as u32)
                     .await
+                    .unwrap()
                     .unwrap(); // FIXME: Handle me
 
                 signatures.push(n_of_n_sig);
@@ -1731,6 +1726,7 @@ where
                 .public_db
                 .get_signature(own_index, payout_tx.compute_txid(), 0)
                 .await
+                .unwrap()
                 .unwrap(); // FIXME: Handle me
             let signed_payout_tx = payout_tx
                 .finalize(connectors.post_assert_out_0, own_index, deposit_signature)

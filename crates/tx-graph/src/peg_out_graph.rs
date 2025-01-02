@@ -210,6 +210,7 @@ impl<Db: PublicDb> PegOutGraphConnectors<Db> {
         } = db
             .get_wots_public_keys(operator_idx, deposit_txid)
             .await
+            .unwrap()
             .unwrap(); // FIXME:  Handle me
         let assert_data160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160> =
             ConnectorA160Factory {
