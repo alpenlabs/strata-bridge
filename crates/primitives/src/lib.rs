@@ -8,8 +8,12 @@ pub mod bitcoin;
 pub mod build_context;
 pub mod deposit;
 pub mod duties;
+pub mod errors;
 pub mod params;
 pub mod scripts;
 pub mod types;
 pub mod withdrawal;
 pub mod wots;
+
+#[cfg(test)]
+mod test_utils;

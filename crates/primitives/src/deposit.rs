@@ -3,7 +3,6 @@
 //! Contains types, traits and implementations related to creating various transactions used in the
 //! bridge-in dataflow.
 
-use anyhow::{bail, Context};
 use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
@@ -15,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     bitcoin::BitcoinAddress,
     build_context::{BuildContext, TxKind},
+    errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
     params::prelude::{BRIDGE_DENOMINATION, UNSPENDABLE_INTERNAL_KEY},
     scripts::{
         general::{create_tx, create_tx_ins, create_tx_outs},
@@ -55,7 +55,7 @@ impl TxKind for DepositInfo {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
-    ) -> anyhow::Result<TxSigningData> {
+    ) -> BridgeTxBuilderResult<TxSigningData> {
         let prevouts = self.compute_prevouts();
         let spend_info = self.compute_spend_infos(build_context)?;
         let unsigned_tx = self.create_unsigned_tx(build_context)?;
@@ -117,7 +117,7 @@ impl DepositInfo {
     fn compute_spend_infos(
         &self,
         build_context: &impl BuildContext,
-    ) -> anyhow::Result<TaprootWitness> {
+    ) -> BridgeTxBuilderResult<TaprootWitness> {
         // The Deposit Request (DT) spends the n-of-n multisig leaf
         let spend_script = n_of_n_script(&build_context.aggregated_pubkey());
         let spend_script_hash =
@@ -137,7 +137,9 @@ impl DepositInfo {
         let expected_addr = self.original_taproot_addr.address();
 
         if address != *expected_addr {
-            bail!("address mismatch");
+            return Err(BridgeTxBuilderError::DepositTransaction(
+                DepositTransactionError::InvalidTapLeafHash,
+            ));
         }
 
         let (output_key, parity) = UNSPENDABLE_INTERNAL_KEY.tap_tweak(SECP256K1, Some(merkle_root));
@@ -145,14 +147,18 @@ impl DepositInfo {
         let control_block = ControlBlock {
             leaf_version: taproot::LeafVersion::TapScript,
             internal_key: *UNSPENDABLE_INTERNAL_KEY,
-            merkle_branch: vec![*takeback_script_hash]
-                .try_into()
-                .context("invalid script hash")?,
+            merkle_branch: vec![*takeback_script_hash].try_into().map_err(|_| {
+                BridgeTxBuilderError::DepositTransaction(
+                    DepositTransactionError::InvalidTapLeafHash,
+                )
+            })?,
             output_key_parity: parity,
         };
 
         if !control_block.verify_taproot_commitment(SECP256K1, output_key.into(), &spend_script) {
-            bail!("control block verification");
+            return Err(BridgeTxBuilderError::DepositTransaction(
+                DepositTransactionError::InvalidTapLeafHash,
+            ));
         }
 
         let spend_info = TaprootWitness::Script {
@@ -172,7 +178,10 @@ impl DepositInfo {
         }]
     }
 
-    fn create_unsigned_tx(&self, build_context: &impl BuildContext) -> anyhow::Result<Transaction> {
+    fn create_unsigned_tx(
+        &self,
+        build_context: &impl BuildContext,
+    ) -> BridgeTxBuilderResult<Transaction> {
         // First, create the inputs
         let outpoint = self.deposit_request_outpoint();
         let tx_ins = create_tx_ins([*outpoint]);
@@ -181,7 +190,11 @@ impl DepositInfo {
 
         // First, create the `OP_RETURN <el_address>` output
         let el_addr = self.el_address();
-        let el_addr: &[u8; 20] = el_addr.try_into().context("invalid el address")?;
+        let el_addr: &[u8; 20] = el_addr.try_into().map_err(|_| {
+            BridgeTxBuilderError::DepositTransaction(DepositTransactionError::InvalidElAddressSize(
+                el_addr.len(),
+            ))
+        })?;
 
         let metadata_script = metadata_script(el_addr);
         let metadata_amount = Amount::from_int_btc(0);
@@ -203,5 +216,189 @@ impl DepositInfo {
         let unsigned_tx = create_tx(tx_ins, tx_outs);
 
         Ok(unsigned_tx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use bitcoin::{
+        hashes::{sha256, Hash},
+        hex::{Case, DisplayHex},
+        Network,
+    };
+
+    use super::*;
+    use crate::{
+        build_context::TxBuildContext,
+        errors::{BridgeTxBuilderError, DepositTransactionError},
+        test_utils::{create_drt_taproot_output, generate_keypairs, generate_pubkey_table},
+    };
+
+    #[test]
+    fn test_create_spend_infos() {
+        let (operator_pubkeys, _) = generate_keypairs(10);
+        let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
+
+        let deposit_request_outpoint = OutPoint::null();
+
+        let (drt_output_address, take_back_leaf_hash) =
+            create_drt_taproot_output(operator_pubkeys.clone());
+        let self_index = 0;
+
+        let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+
+        // Correct merkle proof
+        let deposit_info = DepositInfo::new(
+            deposit_request_outpoint,
+            [0u8; 20].to_vec(),
+            BRIDGE_DENOMINATION,
+            take_back_leaf_hash,
+            drt_output_address.clone(),
+        );
+
+        let result = deposit_info.compute_spend_infos(&tx_builder);
+        assert!(
+            result.is_ok(),
+            "should build the prevout for DT from the deposit info, error: {:?}",
+            result.err().unwrap()
+        );
+
+        // Handles incorrect merkle proof
+        let random_hash = sha256::Hash::hash(b"random_hash")
+            .to_byte_array()
+            .to_hex_string(Case::Lower);
+        let deposit_info = DepositInfo::new(
+            deposit_request_outpoint,
+            [0u8; 20].to_vec(),
+            BRIDGE_DENOMINATION,
+            TapNodeHash::from_str(&random_hash).unwrap(),
+            drt_output_address.clone(),
+        );
+
+        let result = deposit_info.compute_spend_infos(&tx_builder);
+
+        assert!(result.as_ref().err().is_some());
+        assert!(
+            matches!(
+                result.unwrap_err(),
+                BridgeTxBuilderError::DepositTransaction(
+                    DepositTransactionError::InvalidTapLeafHash
+                ),
+            ),
+            "should handle the case where the supplied merkle proof is wrong"
+        );
+    }
+
+    #[test]
+    fn test_create_unsigned_tx() {
+        let (operator_pubkeys, _) = generate_keypairs(10);
+        let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
+
+        let deposit_request_outpoint = OutPoint::null();
+
+        let (drt_output_address, take_back_leaf_hash) =
+            create_drt_taproot_output(operator_pubkeys.clone());
+        let self_index = 0;
+
+        let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+
+        let deposit_info = DepositInfo::new(
+            deposit_request_outpoint,
+            [0u8; 20].to_vec(),
+            BRIDGE_DENOMINATION,
+            take_back_leaf_hash,
+            drt_output_address.clone(),
+        );
+
+        let result = deposit_info.create_unsigned_tx(&tx_builder);
+        assert!(
+            result.is_ok(),
+            "should build the prevout for DT from the deposit info, error: {:?}",
+            result.err().unwrap()
+        );
+
+        let unsigned_tx = result.unwrap();
+        assert_eq!(unsigned_tx.input.len(), 1);
+        assert_eq!(unsigned_tx.output.len(), 2);
+    }
+
+    #[test]
+    fn test_construct_signing_data() {
+        let (operator_pubkeys, _) = generate_keypairs(10);
+        let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
+
+        let deposit_request_outpoint = OutPoint::null();
+
+        let (drt_output_address, take_back_leaf_hash) =
+            create_drt_taproot_output(operator_pubkeys.clone());
+        let self_index = 0;
+
+        let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+
+        let deposit_info = DepositInfo::new(
+            deposit_request_outpoint,
+            [0u8; 20].to_vec(),
+            BRIDGE_DENOMINATION,
+            take_back_leaf_hash,
+            drt_output_address.clone(),
+        );
+
+        let result = deposit_info.construct_signing_data(&tx_builder);
+        assert!(
+            result.is_ok(),
+            "should build the prevout for DT from the deposit info, error: {:?}",
+            result.err().unwrap()
+        );
+
+        let signing_data = result.unwrap();
+        assert_eq!(signing_data.psbt.unsigned_tx.input.len(), 1);
+        assert_eq!(signing_data.psbt.unsigned_tx.output.len(), 2);
+
+        // test with invalid EL address
+        const INVALID_LENGTH: usize = 21;
+        let deposit_info = DepositInfo::new(
+            deposit_request_outpoint,
+            [0u8; 21].to_vec(),
+            BRIDGE_DENOMINATION,
+            take_back_leaf_hash,
+            drt_output_address.clone(),
+        );
+
+        let result = deposit_info.construct_signing_data(&tx_builder);
+        assert!(
+            result.is_err_and(|e| matches!(
+                e,
+                BridgeTxBuilderError::DepositTransaction(
+                    DepositTransactionError::InvalidElAddressSize(INVALID_LENGTH)
+                )
+            )),
+            "should handle the case where the EL address is invalid"
+        );
+
+        // test with invalid tapleaf hash
+        let random_hash = sha256::Hash::hash(b"random_hash")
+            .to_byte_array()
+            .to_hex_string(Case::Lower);
+
+        let deposit_info = DepositInfo::new(
+            deposit_request_outpoint,
+            [0u8; 20].to_vec(),
+            BRIDGE_DENOMINATION,
+            TapNodeHash::from_str(&random_hash).unwrap(),
+            drt_output_address.clone(),
+        );
+
+        let result = deposit_info.construct_signing_data(&tx_builder);
+        assert!(
+            result.is_err_and(|e| matches!(
+                e,
+                BridgeTxBuilderError::DepositTransaction(
+                    DepositTransactionError::InvalidTapLeafHash
+                )
+            )),
+            "should handle the case where the supplied merkle proof is wrong"
+        );
     }
 }

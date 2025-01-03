@@ -32,6 +32,7 @@ pub struct WithdrawalInfo {
     /// considered stale and must be ignored.
     exec_deadline: BitcoinBlockHeight,
 }
+
 fn deserialize_hex_xonly_pubkey<'de, D>(deserializer: D) -> Result<XOnlyPublicKey, D::Error>
 where
     D: Deserializer<'de>,
