@@ -5,7 +5,6 @@
 //! everything).
 
 pub mod bitcoin;
-pub mod bitcoind;
 pub mod musig2;
 pub mod prelude;
 pub mod wots;

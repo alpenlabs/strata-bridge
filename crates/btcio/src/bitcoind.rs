@@ -510,9 +510,9 @@ mod test {
     use std::env::set_var;
 
     use bitcoin::{consensus, hashes::Hash, NetworkKind};
-    use strata_bridge_test_utils::bitcoind::BitcoinD;
+    use corepc_node::Node;
     use strata_common::logging;
-    use tracing::trace;
+    use tracing::{debug, trace};
 
     use super::*;
 
@@ -535,19 +535,25 @@ mod test {
         Ok(block_hashes)
     }
 
-    // #[tokio::test()]
-    #[allow(unused)] // FIXME: remove when these tests work in CI
+    #[tokio::test]
     async fn client_works() {
         logging::init();
 
-        let bitcoind = BitcoinD::default();
-        let url = bitcoind.url;
-        let user = bitcoind.user;
-        let password = bitcoind.password;
+        let bitcoind = Node::from_downloaded().expect("must be able to start up bitcoind node");
+        let url = format!("http://{}", bitcoind.params.rpc_socket);
+        let cookie_values = bitcoind
+            .params
+            .get_cookie_values()
+            .expect("must be able to get cookie values")
+            .expect("cookie values must exist");
+
+        let user = &cookie_values.user;
+        let password = &cookie_values.password;
+        debug!(%url, %user, %password, "connecting to bitcoind");
 
         // setting the ENV variable `BITCOIN_XPRIV_RETRIEVABLE` to retrieve the xpriv
         set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
-        let client = BitcoinClient::new(url, user, password).unwrap();
+        let client = BitcoinClient::new(&url, user, password).unwrap();
         // wait for the client to be ready
         sleep(Duration::from_secs(1)).await;
 
@@ -679,7 +685,5 @@ mod test {
         assert!(got <= block_hash_first);
         assert!(got <= block_hash_mid);
         assert!(got <= block_hash_last);
-
-        drop(bitcoind);
     }
 }
