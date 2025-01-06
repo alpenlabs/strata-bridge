@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bitcoin::{
     hashes::Hash,
     psbt::Input,
@@ -11,48 +9,38 @@ use bitvm::{
     treepp::*,
 };
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::{scripts::prelude::*, types::OperatorIdx, wots};
+use strata_bridge_primitives::{scripts::prelude::*, wots};
 use tracing::trace;
 
-#[derive(Debug, Clone)]
-pub struct ConnectorK<Db: PublicDb> {
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectorK {
     pub n_of_n_agg_pubkey: XOnlyPublicKey,
 
     pub network: Network,
 
-    pub operator_idx: OperatorIdx,
-
-    pub db: Arc<Db>,
+    pub wots_public_keys: wots::PublicKeys,
 }
 
-impl<Db: PublicDb> ConnectorK<Db> {
+impl ConnectorK {
     pub fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         network: Network,
-        operator_idx: OperatorIdx,
-        db: Arc<Db>,
+        wots_public_keys: wots::PublicKeys,
     ) -> Self {
         Self {
             n_of_n_agg_pubkey,
-            operator_idx,
             network,
-            db,
+            wots_public_keys,
         }
     }
 
-    async fn create_locking_script(&self, deposit_txid: Txid) -> ScriptBuf {
+    fn create_locking_script(&self) -> ScriptBuf {
         let wots::PublicKeys {
             bridge_out_txid: bridge_out_txid_public_key,
             superblock_hash: _,
             superblock_period_start_ts: superblock_period_start_ts_public_key,
             groth16: _,
-        } = self
-            .db
-            .get_wots_public_keys(self.operator_idx, deposit_txid)
-            .await
-            .unwrap()
-            .unwrap(); // FIXME: Handle me
+        } = self.wots_public_keys;
 
         script! {
             // superblock_period_start_timestamp
@@ -68,8 +56,8 @@ impl<Db: PublicDb> ConnectorK<Db> {
         .compile()
     }
 
-    pub async fn create_taproot_address(&self, deposit_txid: Txid) -> Address {
-        let scripts = &[self.create_locking_script(deposit_txid).await];
+    pub fn create_taproot_address(&self) -> Address {
+        let scripts = &[self.create_locking_script()];
 
         let (taproot_address, _) =
             create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts })
@@ -78,8 +66,8 @@ impl<Db: PublicDb> ConnectorK<Db> {
         taproot_address
     }
 
-    pub async fn generate_spend_info(&self, deposit_txid: Txid) -> (ScriptBuf, ControlBlock) {
-        let script = self.create_locking_script(deposit_txid).await;
+    pub async fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
+        let script = self.create_locking_script();
 
         let (_, spend_info) = create_taproot_addr(
             &self.network,
@@ -102,7 +90,7 @@ impl<Db: PublicDb> ConnectorK<Db> {
         &self,
         input: &mut Input,
         msk: &str,
-        bridge_out_txid: Txid, // starts with 0x0..
+        bridge_out_txid: Txid,
         superblock_period_start_ts: u32,
         deposit_txid: Txid,
         script: ScriptBuf,

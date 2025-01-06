@@ -31,10 +31,10 @@ pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -
     .compile()
 }
 
-pub fn op_return_nonce(data: Vec<u8>) -> ScriptBuf {
+pub fn op_return_nonce(data: &[u8]) -> ScriptBuf {
     let mut push_data = PushBytesBuf::new();
     push_data
-        .extend_from_slice(&data[..])
+        .extend_from_slice(data)
         .expect("data should be within limit");
 
     Builder::new()

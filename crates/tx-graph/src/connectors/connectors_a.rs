@@ -15,7 +15,7 @@ use bitvm::{
 };
 use strata_bridge_primitives::scripts::prelude::*;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ConnectorA256Factory<
     const N_PUBLIC_KEYS_PER_CONNECTOR: usize,
     const N_PUBLIC_KEYS: usize,
@@ -131,7 +131,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ConnectorA160Factory<
     const N_PUBLIC_KEYS_PER_CONNECTOR: usize,
     const N_PUBLIC_KEYS: usize,

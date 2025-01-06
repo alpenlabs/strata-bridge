@@ -3,8 +3,11 @@
 use bitcoin::{
     absolute::LockTime,
     hashes::Hash,
-    key::rand::{rngs::OsRng, Rng},
-    secp256k1::schnorr::Signature,
+    key::{
+        rand::{rngs::OsRng, Rng},
+        XOnlyPublicKey,
+    },
+    secp256k1::{schnorr::Signature, SECP256K1},
     transaction::Version,
     Amount, ScriptBuf, Sequence, Transaction, TxIn, Txid, Witness,
 };
@@ -30,6 +33,11 @@ pub fn generate_signature() -> Signature {
     OsRng.fill(&mut sig);
 
     Signature::from_slice(&sig).expect("should be able to generate arbitary signature")
+}
+
+pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
+    let keypair = bitcoin::key::Keypair::new(SECP256K1, &mut OsRng);
+    XOnlyPublicKey::from_keypair(&keypair).0
 }
 
 pub fn generate_tx(num_inputs: usize, num_outputs: usize) -> Transaction {

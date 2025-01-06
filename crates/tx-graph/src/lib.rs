@@ -6,6 +6,7 @@ use bitcoin::{hashes::Hash, Txid};
 
 pub mod connectors;
 pub mod db;
+pub mod errors;
 pub mod partial_verification_scripts;
 pub mod peg_out_graph;
 pub mod transactions;

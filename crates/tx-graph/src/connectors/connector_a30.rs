@@ -1,22 +1,18 @@
-use std::sync::Arc;
-
 use bitcoin::{
     psbt::Input,
-    taproot::{ControlBlock, LeafVersion, Signature, TaprootSpendInfo},
-    Address, Network, ScriptBuf, TapSighashType, Txid, XOnlyPublicKey,
+    taproot::{self, ControlBlock, LeafVersion, TaprootSpendInfo},
+    Address, Network, ScriptBuf, TapSighashType, XOnlyPublicKey,
 };
-use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::{scripts::prelude::*, types::OperatorIdx};
+use secp256k1::schnorr;
+use strata_bridge_primitives::scripts::prelude::*;
 
 use super::params::PAYOUT_TIMELOCK;
 
-#[derive(Debug, Clone)]
-pub struct ConnectorA30<Db: PublicDb> {
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectorA30 {
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
     network: Network,
-
-    db: Arc<Db>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -25,12 +21,31 @@ pub enum ConnectorA30Leaf {
     Disprove,
 }
 
-impl<Db: PublicDb> ConnectorA30<Db> {
-    pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network, db: Arc<Db>) -> Self {
+impl ConnectorA30Leaf {
+    /// Returns the input index for the leaf.
+    ///
+    /// The `Payout` leaf is spent in the second input of the `Payout` transaction,
+    /// wherease the `Disprove` leaf is spent in the first input of the `Disprove` transaction.
+    pub fn to_input_index(&self) -> u32 {
+        match self {
+            ConnectorA30Leaf::Payout => 1,
+            ConnectorA30Leaf::Disprove => 0,
+        }
+    }
+
+    pub fn to_sighash_type(&self) -> TapSighashType {
+        match self {
+            ConnectorA30Leaf::Payout => TapSighashType::Default,
+            ConnectorA30Leaf::Disprove => TapSighashType::Single,
+        }
+    }
+}
+
+impl ConnectorA30 {
+    pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
         Self {
             n_of_n_agg_pubkey,
             network,
-            db,
         }
     }
 
@@ -73,30 +88,14 @@ impl<Db: PublicDb> ConnectorA30<Db> {
     pub async fn finalize_input(
         &self,
         input: &mut Input,
-        operator_idx: OperatorIdx,
-        payout_txid: Txid,
         tapleaf: ConnectorA30Leaf,
+        n_of_n_sig: schnorr::Signature,
     ) {
         let (script, control_block) = self.generate_spend_info(tapleaf);
 
-        let input_index = match tapleaf {
-            ConnectorA30Leaf::Payout => 1,
-            ConnectorA30Leaf::Disprove => 0,
-        };
+        let sighash_type = tapleaf.to_sighash_type();
 
-        let n_of_n_sig = self
-            .db
-            .get_signature(operator_idx, payout_txid, input_index)
-            .await
-            .unwrap()
-            .unwrap(); // FIXME: handle me
-
-        let sighash_type = match tapleaf {
-            ConnectorA30Leaf::Payout => TapSighashType::Default,
-            ConnectorA30Leaf::Disprove => TapSighashType::Single,
-        };
-
-        let signature = Signature {
+        let signature = taproot::Signature {
             signature: n_of_n_sig,
             sighash_type,
         };

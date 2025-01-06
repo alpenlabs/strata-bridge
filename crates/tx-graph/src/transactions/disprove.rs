@@ -2,7 +2,7 @@ use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, Amount, Network, OutPoint, Psbt, TapSighashType,
     Transaction, TxOut, Txid,
 };
-use strata_bridge_db::public::PublicDb;
+use secp256k1::schnorr;
 use strata_bridge_primitives::{
     params::prelude::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*, types::OperatorIdx,
 };
@@ -19,6 +19,8 @@ pub struct DisproveData {
     pub input_stake: Amount,
 
     pub network: Network,
+
+    pub operator_idx: OperatorIdx,
 }
 
 #[derive(Debug, Clone)]
@@ -31,11 +33,10 @@ pub struct DisproveTx {
 }
 
 impl DisproveTx {
-    pub async fn new<Db: PublicDb>(
+    pub fn new(
         data: DisproveData,
-        operator_idx: OperatorIdx,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
     ) -> Self {
         let utxos = [
             OutPoint {
@@ -66,9 +67,7 @@ impl DisproveTx {
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("should be able to create psbt");
 
-        let connector_a31_script = connector_a31
-            .generate_locking_script(data.deposit_txid, operator_idx)
-            .await;
+        let connector_a31_script = connector_a31.generate_locking_script(data.deposit_txid);
         let connector_a31_value = connector_a31_script.minimal_non_dust();
 
         let prevouts = vec![
@@ -105,37 +104,24 @@ impl DisproveTx {
         }
     }
 
-    pub async fn finalize<Db>(
+    pub async fn finalize(
         mut self,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
         reward: TxOut,
         deposit_txid: Txid,
-        operator_idx: OperatorIdx,
         disprove_leaf: ConnectorA31Leaf,
-    ) -> Transaction
-    where
-        Db: PublicDb + Clone,
-    {
-        let original_txid = self.compute_txid();
-
+        n_of_n_sig: schnorr::Signature,
+    ) -> Transaction {
         connector_a30
             .finalize_input(
                 &mut self.psbt.inputs[0],
-                operator_idx,
-                original_txid,
                 ConnectorA30Leaf::Disprove,
+                n_of_n_sig,
             )
             .await;
 
-        connector_a31
-            .finalize_input(
-                &mut self.psbt.inputs[1],
-                disprove_leaf,
-                deposit_txid,
-                operator_idx,
-            )
-            .await;
+        connector_a31.finalize_input(&mut self.psbt.inputs[1], disprove_leaf, deposit_txid);
 
         let mut tx = self
             .psbt

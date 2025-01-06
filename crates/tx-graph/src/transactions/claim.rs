@@ -1,5 +1,4 @@
 use bitcoin::{Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     params::prelude::{MIN_RELAY_FEE, OPERATOR_STAKE},
     scripts::prelude::*,
@@ -22,9 +21,9 @@ pub struct ClaimTx {
 }
 
 impl ClaimTx {
-    pub async fn new<Db: PublicDb + Clone>(
+    pub fn new(
         data: ClaimData,
-        connector_k: ConnectorK<Db>,
+        connector_k: ConnectorK,
         connector_c0: ConnectorC0,
         connector_c1: ConnectorC1,
     ) -> Self {
@@ -51,10 +50,7 @@ impl ClaimTx {
 
         psbt.inputs[0].witness_utxo = Some(TxOut {
             value: OPERATOR_STAKE,
-            script_pubkey: connector_k
-                .create_taproot_address(data.deposit_txid)
-                .await
-                .script_pubkey(),
+            script_pubkey: connector_k.create_taproot_address().script_pubkey(),
         });
 
         Self {
@@ -79,15 +75,15 @@ impl ClaimTx {
         self.psbt.unsigned_tx.compute_txid()
     }
 
-    pub async fn finalize<Db: PublicDb>(
+    pub async fn finalize(
         mut self,
         deposit_txid: Txid,
-        connector_k: &ConnectorK<Db>,
+        connector_k: &ConnectorK,
         msk: &str,
         bridge_out_txid: Txid,
         superblock_period_start_ts: u32,
     ) -> Transaction {
-        let (script, control_block) = connector_k.generate_spend_info(deposit_txid).await;
+        let (script, control_block) = connector_k.generate_spend_info().await;
 
         connector_k.create_tx_input(
             &mut self.psbt.inputs[0],

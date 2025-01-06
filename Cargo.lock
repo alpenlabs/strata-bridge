@@ -7067,7 +7067,6 @@ dependencies = [
  "strata-state",
  "strata-tx-parser",
  "strata-zkvm",
- "substrate-bn 0.7.0",
  "tokio",
  "tower 0.4.13",
 ]
@@ -9497,12 +9496,13 @@ dependencies = [
  "bitcoin-script 0.3.0",
  "bitvm",
  "lazy_static",
- "rand",
  "secp256k1",
  "serde",
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-proof-snark",
+ "strata-bridge-test-utils",
+ "thiserror 2.0.3",
  "tracing",
 ]
 

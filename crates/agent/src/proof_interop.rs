@@ -135,8 +135,8 @@ pub struct BridgeProofInput {
     /// Block height of checkpoint tx, and it's inclusion proof
     pub checkpoint: (u32, TransactionWithInclusionProof),
 
-    /// Block height of bridge_out tx, and it's inclusion proof
-    pub bridge_out: (u32, TransactionWithInclusionProof),
+    /// Block height of withdrawal_fulfillment tx, and it's inclusion proof
+    pub withdrawal_fulfillment: (u32, TransactionWithInclusionProof),
 
     /// superblock period start ts
     pub superblock_period_start_ts: u32,

@@ -16,6 +16,8 @@ base64.workspace = true
 bitcoin.workspace = true
 esplora-client = { workspace = true, default-features = false, features = [
   "async-https-rustls",
+  "async",
+  "tokio",
 ] }
 reqwest.workspace = true
 serde.workspace = true

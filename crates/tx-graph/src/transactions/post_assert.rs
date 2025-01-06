@@ -1,7 +1,6 @@
 use bitcoin::{sighash::Prevouts, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*, types::OperatorIdx};
 use tracing::trace;
 
@@ -31,12 +30,12 @@ pub struct PostAssertTx {
 }
 
 impl PostAssertTx {
-    pub async fn new<Db: PublicDb>(
+    pub fn new(
         data: PostAssertTxData,
         operator_idx: OperatorIdx,
         connector_a2: ConnectorS,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
     ) -> Self {
         // +1 for stake
         let total_inputs = NUM_ASSERT_DATA_TX + 1;
@@ -55,9 +54,7 @@ impl PostAssertTx {
 
         trace!(event = "created tx ins", count = tx_ins.len(), %operator_idx);
 
-        let connector_a31_script = connector_a31
-            .generate_locking_script(data.deposit_txid, operator_idx)
-            .await;
+        let connector_a31_script = connector_a31.generate_locking_script(data.deposit_txid);
         trace!(
             event = "generated a31 locking script",
             size = connector_a31_script.len(), %operator_idx,

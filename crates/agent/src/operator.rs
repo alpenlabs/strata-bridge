@@ -17,6 +17,7 @@ use rand::Rng;
 use secp256k1::{schnorr::Signature, XOnlyPublicKey};
 use strata_bridge_btcio::traits::{Broadcaster, Reader, Signer};
 use strata_bridge_db::{
+    errors::DbError,
     operator::{KickoffInfo, OperatorDb},
     public::PublicDb,
     tracker::DutyTrackerDb,
@@ -37,7 +38,10 @@ use strata_bridge_proof_protocol::{
 };
 use strata_bridge_proof_snark::{bridge_poc, prover};
 use strata_bridge_tx_graph::{
-    connectors::params::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
+    connectors::{
+        params::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
+        prelude::ConnectorA30Leaf,
+    },
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
@@ -269,24 +273,21 @@ where
             .await
             .unwrap(); // FIXME: Handle me
 
-        info!(action = "composing pegout graph connectors", %deposit_txid, %own_index);
-        let peg_out_graph_connectors = PegOutGraphConnectors::new(
-            self.public_db.clone(),
+        info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
+        let (peg_out_graph, _connectors) = PegOutGraph::generate(
+            peg_out_graph_input.clone(),
+            &self.public_db,
             &self.build_context,
             deposit_txid,
-            self.build_context.own_index(),
-        )
-        .await;
-
-        info!(action = "generating pegout graph", %deposit_txid, %own_index);
-        let peg_out_graph = PegOutGraph::generate(
-            peg_out_graph_input.clone(),
-            deposit_txid,
-            peg_out_graph_connectors,
             own_index,
-            self.public_db.clone(),
         )
-        .await;
+        .await
+        .expect("must be able to generate tx graph");
+
+        info!(action = "registering txids on the watcher", %deposit_txid, %own_index);
+        self.register_graph(&peg_out_graph, own_index, deposit_txid)
+            .await
+            .expect("must be able to register graph");
 
         // 2. Aggregate nonces for peg out graph txs that require covenant.
         info!(action = "aggregating nonces for emulated covenant", %deposit_txid, %own_index);
@@ -493,27 +494,26 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
-                    let connectors = PegOutGraphConnectors::new(
-                        self.public_db.clone(),
+
+                    let (
+                        PegOutGraph {
+                            kickoff_tx: _,
+                            claim_tx: _,
+                            assert_chain,
+                            disprove_tx,
+                            payout_tx,
+                        },
+                        _connectors,
+                    ) = PegOutGraph::generate(
+                        peg_out_graph_input,
+                        &self.public_db,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
                     )
-                    .await;
-                    let PegOutGraph {
-                        kickoff_tx: _,
-                        claim_tx: _,
-                        assert_chain,
-                        disprove_tx,
-                        payout_tx,
-                    } = PegOutGraph::generate(
-                        peg_out_graph_input,
-                        deposit_txid,
-                        connectors,
-                        sender_id,
-                        self.public_db.clone(),
-                    )
-                    .await;
+                    .await
+                    .expect("should be able to generate tx graph");
+
                     let AssertChain {
                         pre_assert,
                         assert_data: _,
@@ -744,7 +744,6 @@ where
         debug!(event = "computed aggregate signature for disprove", deposit_txid = %deposit_txid, %own_index);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn generate_covenant_signatures(
         &self,
         agg_nonces: AggNonces,
@@ -863,27 +862,28 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
-                    let connectors = PegOutGraphConnectors::new(
-                        self.public_db.clone(),
+                    let (peg_out_graph, _connectors) = PegOutGraph::generate(
+                        peg_out_graph_input,
+                        &self.public_db,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
                     )
-                    .await;
+                    .await
+                    .expect("should be able to generate tx graph");
+
+                    self.register_graph(&peg_out_graph, sender_id, deposit_txid)
+                        .await
+                        .expect("should be able to register graph");
+
                     let PegOutGraph {
                         kickoff_tx: _,
                         claim_tx: _,
                         assert_chain,
                         disprove_tx,
                         payout_tx,
-                    } = PegOutGraph::generate(
-                        peg_out_graph_input,
-                        deposit_txid,
-                        connectors,
-                        sender_id,
-                        self.public_db.clone(),
-                    )
-                    .await;
+                    } = peg_out_graph;
+
                     let AssertChain {
                         pre_assert,
                         assert_data: _,
@@ -1441,7 +1441,7 @@ where
 
             let duty_status = WithdrawalStatus::PaidUser(bridge_out_txid).into();
             info!(
-                action = "sending out duty update status for bridge out",
+                action = "sending out duty update status for withdrawal fulfillment",
                 ?duty_status
             );
 
@@ -1482,13 +1482,19 @@ where
             },
         };
 
-        let connectors = PegOutGraphConnectors::new(
-            self.public_db.clone(),
+        let (peg_out_graph, connectors) = PegOutGraph::generate(
+            peg_out_graph_input,
+            &self.public_db,
             &self.build_context,
             deposit_txid,
             own_index,
         )
-        .await;
+        .await
+        .expect("should be able to generate tx graph");
+
+        self.register_graph(&peg_out_graph, own_index, deposit_txid)
+            .await
+            .expect("should be able to register graph");
 
         let PegOutGraph {
             kickoff_tx,
@@ -1496,15 +1502,7 @@ where
             assert_chain,
             payout_tx,
             disprove_tx: _,
-        } = PegOutGraph::generate(
-            peg_out_graph_input,
-            deposit_txid,
-            connectors.clone(),
-            own_index,
-            self.public_db.clone(),
-        )
-        .await;
-
+        } = peg_out_graph;
         // 3. publish kickoff -> claim
         self.broadcast_kickoff_and_claim(
             &connectors,
@@ -1728,8 +1726,18 @@ where
                 .await
                 .unwrap()
                 .unwrap(); // FIXME: Handle me
+            let n_of_n_sig = self
+                .public_db
+                .get_signature(
+                    own_index,
+                    payout_tx.compute_txid(),
+                    ConnectorA30Leaf::Payout.to_input_index(),
+                )
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:  Handle me
             let signed_payout_tx = payout_tx
-                .finalize(connectors.post_assert_out_0, own_index, deposit_signature)
+                .finalize(connectors.post_assert_out_0, deposit_signature, n_of_n_sig)
                 .await;
 
             info!(action = "trying to get reimbursement", payout_txid=%signed_payout_tx.compute_txid(), %own_index);
@@ -1777,7 +1785,7 @@ where
 
     async fn broadcast_kickoff_and_claim(
         &self,
-        connectors: &PegOutGraphConnectors<P>,
+        connectors: &PegOutGraphConnectors,
         own_index: u32,
         deposit_txid: Txid,
         kickoff_tx: KickOffTx,
@@ -1893,9 +1901,9 @@ where
             .expect("at least one funding utxo must be present in wallet");
 
         let change_amount = total_amount - net_payment - MIN_RELAY_FEE;
-        debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for bridge out");
+        debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
-        let bridge_out = BridgeOut::new(
+        let withdrawal_fulfillment = WithdrawalFulfillment::new(
             network,
             own_index,
             vec![outpoint],
@@ -1908,13 +1916,13 @@ where
         let signed_tx_result = self
             .agent
             .btc_client
-            .sign_raw_transaction_with_wallet(&bridge_out.tx())
+            .sign_raw_transaction_with_wallet(&withdrawal_fulfillment.tx())
             .await
-            .expect("must be able to sign bridge out transaction");
+            .expect("must be able to sign withdrawal fulfillment transaction");
 
         assert!(
             signed_tx_result.complete,
-            "bridge out tx must be completely signed"
+            "withdrawal fulfillment tx must be completely signed"
         );
 
         let signed_tx: Transaction = consensus::encode::deserialize_hex(&signed_tx_result.hex)
@@ -1927,7 +1935,7 @@ where
                 Ok(txid)
             }
             Err(e) => {
-                error!(?e, "could not broadcast bridge out tx");
+                error!(?e, "could not broadcast withdrawal fulfillment tx");
 
                 bail!(e.to_string());
             }
@@ -1995,7 +2003,7 @@ where
 
         let mut height = l1_start_height as u32;
         let mut headers: Vec<Header> = vec![];
-        let mut bridge_out = None;
+        let mut withdrawal_fulfillment = None;
         let mut checkpoint = None;
 
         info!(action = "scanning blocks...", %deposit_txid, %bridge_out_txid, %superblock_period_start_ts, start_height=%height);
@@ -2022,16 +2030,16 @@ where
                 }
             }
 
-            if bridge_out.is_none() {
-                // check and get bridge out txid with proof
+            if withdrawal_fulfillment.is_none() {
+                // check and get withdrawal fulfillment txid with proof
                 if let Some(tx) = block
                     .txdata
                     .iter()
                     .find(|tx| tx.compute_txid() == bridge_out_txid)
                 {
                     let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found bridge out", %height);
-                    bridge_out = Some((height, tx.with_inclusion_proof(&block)));
+                    info!(event = "found withdrawal fulfillment", %height);
+                    withdrawal_fulfillment = Some((height, tx.with_inclusion_proof(&block)));
                 }
             }
 
@@ -2054,7 +2062,8 @@ where
             headers,
             deposit_txid: deposit_txid.to_byte_array(),
             checkpoint: checkpoint.expect("must be able to find checkpoint"),
-            bridge_out: bridge_out.expect("must be able to find bridge out txid"),
+            withdrawal_fulfillment: withdrawal_fulfillment
+                .expect("must be able to find withdrawal fulfillment txid"),
             superblock_period_start_ts,
         };
 
@@ -2090,5 +2099,38 @@ where
                 public_inputs,
             ),
         }
+    }
+
+    async fn register_graph(
+        &self,
+        peg_out_graph: &PegOutGraph,
+        operator_idx: OperatorIdx,
+        deposit_txid: Txid,
+    ) -> Result<(), DbError> {
+        let claim_txid = peg_out_graph.claim_tx.compute_txid();
+        info!(action = "registering claim", %claim_txid, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_claim_txid(claim_txid, operator_idx, deposit_txid)
+            .await?;
+
+        let pre_assert_txid = peg_out_graph.assert_chain.pre_assert.compute_txid();
+        info!(action = "registering pre-assert", %pre_assert_txid, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_pre_assert_txid(pre_assert_txid, operator_idx, deposit_txid)
+            .await?;
+
+        let assert_data_txids = peg_out_graph.assert_chain.assert_data.compute_txids();
+        info!(action = "registering assert data txids", ?assert_data_txids, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_assert_data_txids(assert_data_txids, operator_idx, deposit_txid)
+            .await?;
+
+        let post_assert_txid = peg_out_graph.assert_chain.post_assert.compute_txid();
+        info!(action = "registering post-assert txid", %post_assert_txid, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_post_assert_txid(post_assert_txid, operator_idx, deposit_txid)
+            .await?;
+
+        Ok(())
     }
 }

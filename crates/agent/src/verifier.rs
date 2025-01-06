@@ -21,9 +21,9 @@ use strata_bridge_primitives::{
 use strata_bridge_proof_protocol::BridgeProofPublicParams;
 use strata_bridge_proof_snark::bridge_poc;
 use strata_bridge_tx_graph::{
-    connectors::prelude::{ConnectorA30, ConnectorA31, ConnectorA31Leaf},
+    connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf},
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
-    transactions::prelude::{DisproveData, DisproveTx},
+    transactions::prelude::{CovenantTx, DisproveData, DisproveTx},
 };
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, trace, warn};
@@ -199,6 +199,7 @@ where
                     let disprove_tx_data = DisproveData {
                         post_assert_txid: post_assert_tx.compute_txid(),
                         deposit_txid,
+                        operator_idx: operator_id,
                         input_stake: post_assert_tx
                             .tx_out(STAKE_OUTPUT_INDEX)
                             .expect("stake output must exist in post-assert tx")
@@ -209,18 +210,12 @@ where
                     let connector_a30 = ConnectorA30::new(
                         self.build_context.aggregated_pubkey(),
                         self.build_context.network(),
-                        self.public_db.clone(),
                     );
                     let connector_a31 =
-                        ConnectorA31::new(self.build_context.network(), self.public_db.clone());
+                        ConnectorA31::new(self.build_context.network(), public_keys);
 
-                    let disprove_tx = DisproveTx::new(
-                        disprove_tx_data,
-                        operator_id,
-                        connector_a30.clone(),
-                        connector_a31.clone(),
-                    )
-                    .await;
+                    let disprove_tx =
+                        DisproveTx::new(disprove_tx_data, connector_a30, connector_a31);
 
                     let reward_out = TxOut {
                         value: DISPROVER_REWARD,
@@ -229,14 +224,25 @@ where
                             .taproot_address(self.build_context.network())
                             .script_pubkey(),
                     };
+                    let disprove_n_of_n_sig = self
+                        .public_db
+                        .get_signature(
+                            operator_id,
+                            disprove_tx.compute_txid(),
+                            ConnectorA30Leaf::Disprove.to_input_index(),
+                        )
+                        .await
+                        .unwrap()
+                        .unwrap(); // FIXME: Handle me
+
                     let signed_disprove_tx = disprove_tx
                         .finalize(
                             connector_a30,
                             connector_a31,
                             reward_out,
                             deposit_txid,
-                            operator_id,
                             disprove_leaf,
+                            disprove_n_of_n_sig,
                         )
                         .await;
 

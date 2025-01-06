@@ -1,12 +1,12 @@
 use bitcoin::{
     sighash::Prevouts, Amount, Network, OutPoint, Psbt, Sequence, Transaction, TxOut, Txid,
 };
-use secp256k1::{schnorr::Signature, XOnlyPublicKey};
-use serde::{Deserialize, Serialize};
-use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::{
-    params::prelude::MIN_RELAY_FEE, scripts::prelude::*, types::OperatorIdx,
+use secp256k1::{
+    schnorr::{self, Signature},
+    XOnlyPublicKey,
 };
+use serde::{Deserialize, Serialize};
+use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
 use crate::connectors::{
@@ -39,11 +39,7 @@ pub struct PayoutTx {
 }
 
 impl PayoutTx {
-    pub fn new<Db: PublicDb>(
-        data: PayoutData,
-        connector_a30: ConnectorA30<Db>,
-        connector_b: ConnectorS,
-    ) -> Self {
+    pub fn new(data: PayoutData, connector_a30: ConnectorA30, connector_b: ConnectorS) -> Self {
         let utxos = [
             OutPoint {
                 txid: data.deposit_txid,
@@ -114,23 +110,19 @@ impl PayoutTx {
         }
     }
 
-    pub async fn finalize<Db: PublicDb>(
+    pub async fn finalize(
         mut self,
-        connector_a30: ConnectorA30<Db>,
-        operator_idx: OperatorIdx,
-        // FIXME: create a connector for the deposit and remove the `deposit_signature` param
+        connector_a30: ConnectorA30,
         deposit_signature: Signature,
+        n_of_n_sig: schnorr::Signature,
     ) -> Transaction {
-        let payout_txid = self.compute_txid();
-
         finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
 
         connector_a30
             .finalize_input(
                 &mut self.psbt.inputs[1],
-                operator_idx,
-                payout_txid,
                 ConnectorA30Leaf::Payout,
+                n_of_n_sig,
             )
             .await;
 
