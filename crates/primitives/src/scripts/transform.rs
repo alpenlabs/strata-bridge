@@ -35,7 +35,7 @@ pub fn ts_from_nibbles() -> Script {
 pub fn fq_from_nibbles() -> Script {
     const WINDOW: u32 = 4;
     const LIMB_SIZE: u32 = 29;
-    const N_DIGITS: u32 = (U254::N_BITS + WINDOW - 1) / WINDOW;
+    const N_DIGITS: u32 = U254::N_BITS.div_ceil(WINDOW);
 
     script! {
         for i in (1..=N_DIGITS).rev() {
@@ -62,7 +62,7 @@ pub fn fq_from_nibbles() -> Script {
 pub fn sb_hash_from_nibbles() -> Script {
     const WINDOW: u32 = 4;
     const LIMB_SIZE: u32 = 30;
-    const N_DIGITS: u32 = (H256::N_BITS + WINDOW - 1) / WINDOW;
+    const N_DIGITS: u32 = H256::N_BITS.div_ceil(WINDOW);
 
     script! {
         for i in 1..64 { { i } OP_ROLL }
@@ -90,7 +90,7 @@ pub fn sb_hash_from_nibbles() -> Script {
 pub fn sb_hash_from_bytes() -> Script {
     const WINDOW: u32 = 8;
     const LIMB_SIZE: u32 = 30;
-    const N_DIGITS: u32 = (H256::N_BITS + WINDOW - 1) / WINDOW;
+    const N_DIGITS: u32 = H256::N_BITS.div_ceil(WINDOW);
 
     script! {
         for i in 1..32 { { i } OP_ROLL }
