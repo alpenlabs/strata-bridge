@@ -9,7 +9,7 @@ bitcoin.workspace = true
 borsh.workspace = true
 hex.workspace = true
 serde = { workspace = true, features = ["derive"] }
-sp1-verifier = { version = "=4.0.0-rc.8" } # Note: On new SP1 version, this will be available via SDK
+sp1-verifier = { version = "=4.0.0-rc.8" }          # Note: On new SP1 version, this will be available via SDK
 strata-primitives.workspace = true
 strata-proofimpl-btc-blockspace.workspace = true
 strata-state.workspace = true
