@@ -20,6 +20,10 @@ members = [
 
   # test utilities
   "crates/test-utils",
+  "crates/mi6",
+  "crates/mi6-proto",
+  "crates/mi6-client",
+  "crates/mi6-server",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
@@ -90,10 +94,12 @@ futures = "0.3.31"
 hex = { version = "0.4", features = ["serde"] }
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"
+kanal = "0.1.0-pre8"
 musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
 ] } # can't be updated without updating bitcoin
+quinn = "0.11.6"
 rand = "0.8.5"
 reqwest = { version = "0.12.12", default-features = false, features = [
   "http2",
@@ -120,6 +126,7 @@ sqlx = { version = "0.8.2", features = [
   "migrate",
 ] }
 tempfile = "3.10.1"
+terrors = "0.3.2"
 thiserror = "2.0.3"
 tokio = { version = "1.37", features = ["full"] }
 tracing = "0.1.40"
