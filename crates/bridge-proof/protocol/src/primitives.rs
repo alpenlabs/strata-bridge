@@ -7,9 +7,9 @@ use bitcoin::{
     Transaction, Txid, WitnessCommitment, WitnessMerkleNode, Wtxid,
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-use strata_primitives::{buf::Buf32, hash::compute_borsh_hash};
+use strata_primitives::buf::Buf32;
 use strata_state::{
-    bridge_state::DepositsTable, chain_state::HashedChainState, l1::HeaderVerificationState,
+    bridge_state::DepositsTable, chain_state::Chainstate, l1::HeaderVerificationState,
 };
 
 #[derive(Debug, Clone)]
@@ -198,11 +198,8 @@ pub struct BridgeProofInput {
 
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone)]
 pub struct StrataBridgeState {
-    /// ChainState's deposit record table
-    pub deposits_table: DepositsTable,
-
-    // Hashed ChainState for state root verification
-    pub hashed_chain_state: HashedChainState,
+    // ChainState for state root verification
+    pub chain_state: Chainstate,
 
     /// Header verification state until last verified l1 block
     pub initial_header_state: HeaderVerificationState,
@@ -210,9 +207,11 @@ pub struct StrataBridgeState {
 
 impl StrataBridgeState {
     pub fn compute_state_root(&self) -> Buf32 {
-        let mut hashed_chain_state = self.hashed_chain_state;
-        hashed_chain_state.deposits_hash = compute_borsh_hash(&self.deposits_table);
-        compute_borsh_hash(&hashed_chain_state)
+        self.chain_state.compute_state_root()
+    }
+
+    pub fn deposits_table(&self) -> &DepositsTable {
+        self.chain_state.deposits_table()
     }
 }
 
@@ -250,12 +249,12 @@ mod tests {
         use strata_state::{
             batch::{BatchCheckpoint, SignedBatchCheckpoint},
             block::L2Block,
-            chain_state::ChainState,
+            chain_state::Chainstate,
             l1::{HeaderVerificationState, L1BlockId, TimestampStore},
         };
         use strata_tx_parser::inscription::parse_inscription_data;
 
-        pub fn chain_state() -> ChainState {
+        pub fn chain_state() -> Chainstate {
             let data = [
                 58, 78, 73, 160, 24, 209, 94, 159, 81, 194, 179, 114, 193, 119, 165, 127, 22, 129,
                 57, 170, 2, 63, 34, 196, 110, 239, 47, 250, 85, 121, 216, 26, 100, 0, 0, 0, 0, 0,
@@ -393,7 +392,7 @@ mod tests {
                 232, 225, 88, 59, 133, 171, 26, 135, 174, 3, 163, 90, 62, 89, 21, 174, 225, 199,
                 145, 206, 23, 32, 192, 54, 78, 51, 147, 16, 79, 0, 0, 0, 0, 0, 0, 0, 0,
             ];
-            borsh::from_slice::<(ChainState, L2Block)>(&data).unwrap().0
+            borsh::from_slice::<(Chainstate, L2Block)>(&data).unwrap().0
         }
 
         pub fn header_verification_state() -> HeaderVerificationState {
@@ -528,8 +527,7 @@ mod tests {
         };
 
         let strata_bridge_state = StrataBridgeState {
-            deposits_table: data::chain_state().deposits_table().clone(),
-            hashed_chain_state: data::chain_state().hashed_chain_state(),
+            chain_state: data::chain_state(),
             initial_header_state,
         };
 

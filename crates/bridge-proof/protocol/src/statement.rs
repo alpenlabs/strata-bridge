@@ -127,7 +127,7 @@ pub fn process_bridge_proof(
         }
 
         let entry = state
-            .deposits_table
+            .deposits_table()
             .deposits()
             .find(|&el| el.output().outpoint().txid.to_byte_array() == deposit_txid)
             .ok_or("checkpoint: deposit_txid does not exist in deposits_table")?;

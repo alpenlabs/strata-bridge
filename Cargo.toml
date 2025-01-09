@@ -40,17 +40,20 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-rpc = { path = "crates/rpc/strata" }
 
 # deps from original strata repo
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-common = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-primitives = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-sp1-adapter = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-state = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-tx-parser = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
-strata-zkvm = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
+strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git" }
+strata-common = { git = "https://github.com/alpenlabs/strata.git" }
+strata-primitives = { git = "https://github.com/alpenlabs/strata.git" }
+strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
+strata-sp1-adapter = { git = "https://github.com/alpenlabs/strata.git" }
+strata-btcio = { git = "https://github.com/alpenlabs/strata.git" }
+strata-state = { git = "https://github.com/alpenlabs/strata.git" }
+strata-tx-parser = { git = "https://github.com/alpenlabs/strata.git" }
+strata-zkvm = { git = "https://github.com/alpenlabs/strata.git" }
+strata-config = { git = "https://github.com/alpenlabs/strata.git" }
+strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.git" }
 
 # external deps
-anyhow = "1.0.86"
+anyhow = "1.0.95"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }

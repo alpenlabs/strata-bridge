@@ -9,11 +9,11 @@ borsh.workspace = true
 serde = { workspace = true, features = ["derive"] }
 snark-bn254-verifier = { git = "https://github.com/succinctlabs/snark-bn254-verifier.git", rev = "96bce2079584b68597f3241551e4b97300fd92c6" } # Note: This is unstable
 sp1-core-machine = "3.0.0"
-strata-btcio = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
+strata-btcio.workspace = true
 strata-primitives.workspace = true
-strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
+strata-proofimpl-btc-blockspace.workspace = true
 strata-state.workspace = true
-strata-tx-parser = { git = "https://github.com/alpenlabs/strata.git", branch = "bitvm2" }
+strata-tx-parser.workspace = true
 strata-zkvm.workspace = true
 tokio.workspace = true
 tower = { version = "0.4.13", features = ["util"] }

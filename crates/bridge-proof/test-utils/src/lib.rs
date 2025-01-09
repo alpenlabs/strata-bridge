@@ -6,7 +6,7 @@ use strata_btcio::{
 use strata_primitives::{buf::Buf32, l1::OutputRef};
 use strata_state::{
     block::L2Block,
-    chain_state::ChainState,
+    chain_state::Chainstate,
     l1::{compute_block_hash, get_btc_params, HeaderVerificationState},
 };
 
@@ -19,7 +19,7 @@ pub fn get_bitcoin_client() -> BitcoinClient {
     .expect("failed to connect to the btc client")
 }
 
-pub fn get_chain_state() -> (ChainState, OutputRef) {
+pub fn get_chain_state() -> (Chainstate, OutputRef) {
     let witness_buf: Vec<u8> = vec![
         24, 209, 229, 234, 210, 142, 168, 76, 60, 64, 27, 194, 13, 147, 87, 209, 247, 5, 96, 69,
         53, 201, 76, 9, 52, 90, 161, 64, 214, 223, 248, 146, 213, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
@@ -110,7 +110,7 @@ pub fn get_chain_state() -> (ChainState, OutputRef) {
         157, 50, 243, 30, 22, 216, 118, 172, 209, 249, 55, 72, 165, 52, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
 
-    let (chain_state, _): (ChainState, L2Block) = borsh::from_slice(&witness_buf).unwrap();
+    let (chain_state, _): (Chainstate, L2Block) = borsh::from_slice(&witness_buf).unwrap();
 
     // Get the output ref
     let deposit_idx = 0;
@@ -126,12 +126,11 @@ pub fn get_chain_state() -> (ChainState, OutputRef) {
 pub async fn get_header_verification_data(
     start_block: u64,
     end_block: u64,
-    genesis_block_num: u64,
 ) -> (HeaderVerificationState, Vec<Header>) {
     let btc_client = get_bitcoin_client();
     let params = get_btc_params();
 
-    let block_hvs = get_verification_state(&btc_client, start_block, genesis_block_num, &params)
+    let block_hvs = get_verification_state(&btc_client, start_block, &params)
         .await
         .unwrap();
 

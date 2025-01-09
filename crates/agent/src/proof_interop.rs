@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bitcoin::{
     block::Header,
     blockdata::block::Block,
@@ -10,7 +8,6 @@ use bitcoin::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use strata_bridge_btcio::traits::Reader;
-use strata_primitives::buf::Buf32;
 use strata_state::{
     batch::{BatchCheckpoint, SignedBatchCheckpoint},
     l1::{
@@ -144,9 +141,8 @@ pub struct BridgeProofInput {
 
 /// Gets the [`HeaderVerificationState`] for the particular block
 pub async fn get_verification_state(
-    client: Arc<impl Reader>,
+    client: &impl Reader,
     height: u64,
-    genesis_height: u64,
     params: &BtcParams,
 ) -> anyhow::Result<HeaderVerificationState> {
     // Get the difficulty adjustment block just before `block_height`
@@ -175,22 +171,10 @@ pub async fn get_verification_state(
 
     // Calculate the 'head' index for the ring buffer based on the current block height.
     // The 'head' represents the position in the buffer where the next timestamp will be inserted.
+    let head = height as usize % N;
+    let last_11_blocks_timestamps = TimestampStore::new_with_head(timestamps, head);
 
-    // If the current height is less than the genesis height, we haven't started processing blocks
-    // yet. In this case, set 'head' to 0.
-    let head = if height <= genesis_height {
-        0
-    } else {
-        // Calculate the 'head' index using the formula:
-        // (current height + buffer size - 1 - genesis height) % buffer size
-        // This ensures the 'head' points to the correct position in the ring buffer.
-        (height + N as u64 - 1 - genesis_height) % N as u64
-    };
-
-    let last_11_blocks_timestamps = TimestampStore::new_with_head(timestamps, head as usize);
-
-    let l1_blkid: Buf32 = (*vb.header.block_hash().as_byte_array()).into();
-    let l1_blkid: L1BlockId = l1_blkid.into();
+    let l1_blkid: L1BlockId = vb.header.block_hash().into();
 
     let header_vs = HeaderVerificationState {
         last_verified_block_num: vh as u32,

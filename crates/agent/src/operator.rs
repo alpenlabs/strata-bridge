@@ -27,7 +27,7 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::{prelude::*, strata::STRATA_BTC_GENESIS_HEIGHT},
+    params::prelude::*,
     scripts::taproot::{create_message_hash, finalize_input, TaprootWitness},
     types::{OperatorIdx, TxSigningData},
     withdrawal::WithdrawalInfo,
@@ -45,8 +45,9 @@ use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
+use strata_primitives::buf::Buf32;
 use strata_rpc::StrataApiClient;
-use strata_state::{block::L2Block, chain_state::ChainState, l1::get_btc_params};
+use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
     broadcast::{self, error::RecvError},
     mpsc,
@@ -1967,22 +1968,32 @@ where
 
         let l1_range = checkpoint_info.l1_range;
         let l2_range = checkpoint_info.l2_range;
-        let l1_block_id = checkpoint_info.l1_blockid;
-        let l2_block_id = checkpoint_info.l2_blockid;
 
-        info!(event = "got checkpoint info", %latest_checkpoint_at_payout, ?l1_range, ?l2_range, %l1_block_id, %l2_block_id);
+        info!(event = "got checkpoint info", %latest_checkpoint_at_payout, ?l1_range, ?l2_range);
 
-        let l2_height_to_query = l2_range.1 + 1;
-        info!(action = "getting chain state", %l2_height_to_query);
+        let next_l2_block = l2_range.1 + 1;
+        info!(action = "getting block id for the next L2 Block", %next_l2_block);
+        let l2_block_id = self
+            .agent
+            .strata_client
+            .get_headers_at_idx(next_l2_block)
+            .await
+            .expect("should be able to get L2 block headers")
+            .expect("L2 block headers must be present")
+            .first()
+            .expect("L2 block headers must not be empty")
+            .block_id;
+
+        info!(action = "getting chain state", %next_l2_block);
         let cl_block_witness = self
             .agent
             .strata_client
-            .get_cl_block_witness_raw(l2_height_to_query)
+            .get_cl_block_witness_raw(L2BlockId::from(Buf32(l2_block_id)))
             .await
             .expect("should be able to query for CL block witness")
             .expect("cl block witness must exist");
 
-        let chain_state = borsh::from_slice::<(ChainState, L2Block)>(&cl_block_witness)
+        let chain_state = borsh::from_slice::<(Chainstate, L2Block)>(&cl_block_witness)
             .expect("should be able to deserialize CL block witness")
             .0;
 
@@ -1993,9 +2004,8 @@ where
 
         // FIXME: bring `get_verification_state` impl into the loop below
         let initial_header_state = get_verification_state(
-            self.agent.btc_client.clone(),
+            self.agent.btc_client.as_ref(),
             l1_start_height as u64,
-            STRATA_BTC_GENESIS_HEIGHT,
             &btc_params,
         )
         .await
@@ -2068,8 +2078,7 @@ where
         };
 
         let strata_bridge_state = StrataBridgeState {
-            deposits_table: chain_state.deposits_table().clone(),
-            hashed_chain_state: chain_state.hashed_chain_state(),
+            chain_state,
             initial_header_state,
         };
 

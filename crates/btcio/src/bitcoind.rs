@@ -511,7 +511,7 @@ mod test {
 
     use bitcoin::{consensus, hashes::Hash, NetworkKind};
     use corepc_node::Node;
-    use strata_common::logging;
+    use strata_common::logging::{self, LoggerConfig};
     use tracing::{debug, trace};
 
     use super::*;
@@ -537,7 +537,7 @@ mod test {
 
     #[tokio::test]
     async fn client_works() {
-        logging::init();
+        logging::init(LoggerConfig::new("btcio-test".to_string()));
 
         let bitcoind = Node::from_downloaded().expect("must be able to start up bitcoind node");
         let url = format!("http://{}", bitcoind.params.rpc_socket);

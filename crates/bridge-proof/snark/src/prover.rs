@@ -9,7 +9,7 @@ use sp1_verifier::Groth16Verifier;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 use strata_bridge_proof_protocol::{BridgeProofInput, BridgeProofPublicParams, StrataBridgeState};
 use strata_sp1_adapter::SP1ProofInputBuilder;
-use strata_zkvm::ZKVMInputBuilder;
+use strata_zkvm::ZkVmInputBuilder;
 
 use crate::sp1;
 
@@ -46,7 +46,7 @@ pub fn default_prove(
 ) -> anyhow::Result<(SP1ProofWithPublicValues, SP1VerifyingKey)> {
     let input = {
         let mut input_builder = SP1ProofInputBuilder::new();
-        input_builder.write(&bridge_proof_input)?;
+        input_builder.write_serde(&bridge_proof_input)?;
         input_builder.write_borsh(strata_bridge_state)?;
         input_builder.build()?
     };

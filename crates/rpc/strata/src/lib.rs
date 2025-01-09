@@ -5,19 +5,20 @@ use strata_bridge_primitives::{
     duties::BridgeDuties,
     types::{OperatorIdx, PublickeyTable},
 };
-use strata_rpc_types::{ClientStatus, L1Status, RpcCheckpointInfo};
+use strata_rpc_types::{RpcBlockHeader, RpcCheckpointInfo, RpcClientStatus, RpcL1Status};
+use strata_state::id::L2BlockId;
 
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata"))]
 pub trait StrataApi {
     #[method(name = "l1status")]
-    async fn get_l1_status(&self) -> RpcResult<L1Status>;
+    async fn get_l1_status(&self) -> RpcResult<RpcL1Status>;
 
     #[method(name = "getL1blockHash")]
     async fn get_l1_block_hash(&self, height: u64) -> RpcResult<Option<String>>;
 
     #[method(name = "clientStatus")]
-    async fn get_client_status(&self) -> RpcResult<ClientStatus>;
+    async fn get_client_status(&self) -> RpcResult<RpcClientStatus>;
 
     /// Get the [`BridgeDuties`] from a certain `start_index` for a given [`OperatorIdx`].
     ///
@@ -49,6 +50,10 @@ pub trait StrataApi {
     #[method(name = "getCheckpointInfo")]
     async fn get_checkpoint_info(&self, idx: u64) -> RpcResult<Option<RpcCheckpointInfo>>;
 
+    #[method(name = "getHeadersAtIdx")]
+    async fn get_headers_at_idx(&self, index: u64) -> RpcResult<Option<Vec<RpcBlockHeader>>>;
+
+    /// Get the chain state corresponding to the L2 block before the provided one.
     #[method(name = "getCLBlockWitness")]
-    async fn get_cl_block_witness_raw(&self, index: u64) -> RpcResult<Option<Vec<u8>>>;
+    async fn get_cl_block_witness_raw(&self, block_id: L2BlockId) -> RpcResult<Option<Vec<u8>>>;
 }
