@@ -3,14 +3,14 @@ use ark_ec::CurveGroup;
 use ark_ff::{Field, PrimeField};
 use bitvm::groth16::g16;
 use lazy_static::lazy_static;
-use sp1_sdk::{HashableKey, ProverClient};
+use sp1_sdk::{HashableKey, Prover, ProverClient};
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 
 use crate::sp1;
 
 lazy_static! {
     pub static ref GROTH16_VERIFICATION_KEY: g16::VerifyingKey = {
-        let pc = ProverClient::new();
+        let pc = ProverClient::builder().network().build();
         let (_, sp1vk) = pc.setup(GUEST_BRIDGE_ELF);
 
         let vkey_hash = hex::decode(sp1vk.bytes32().strip_prefix("0x").unwrap()).unwrap();

@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 borsh = { version = "1.5.0", features = ["derive"] }
-sp1-zkvm = { version = "3.0.0", features = ["verify"] }
+sp1-zkvm = { version = "=4.0.0-rc.8", features = ["verify"] }
 strata-bridge-proof-protocol = { path = "../../crates/bridge-proof/protocol" }
 
 

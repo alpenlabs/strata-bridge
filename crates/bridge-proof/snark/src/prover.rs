@@ -4,12 +4,16 @@ use anyhow::Context;
 use ark_bn254::Fr;
 use ark_ff::{BigInt, PrimeField};
 use bitvm::groth16::g16;
-use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1VerifyingKey};
+use sp1_sdk::{
+    network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues,
+    SP1VerifyingKey,
+};
 use sp1_verifier::Groth16Verifier;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 use strata_bridge_proof_protocol::{BridgeProofInput, BridgeProofPublicParams, StrataBridgeState};
 use strata_sp1_adapter::SP1ProofInputBuilder;
-use strata_zkvm::ZkVmInputBuilder;
+use strata_zkvm::{ZkVmError, ZkVmInputBuilder};
+use tracing::info;
 
 use crate::sp1;
 
@@ -23,6 +27,7 @@ pub fn prove(
     let (mut sp1prf, sp1vk) =
         default_prove(bridge_proof_input, strata_bridge_state).context("cannot generate proof")?;
 
+    info!(action = "verifying proof");
     Groth16Verifier::verify(
         &sp1prf.bytes(),
         sp1prf.public_values.as_slice(),
@@ -51,14 +56,25 @@ pub fn default_prove(
         input_builder.build()?
     };
 
-    let prover_client = ProverClient::new();
-    let (sp1pk, sp1vk) = prover_client.setup(GUEST_BRIDGE_ELF);
+    if std::env::var("SP1_PROVER").is_err() {
+        panic!("Only network prover is supported");
+    }
 
-    let prover = prover_client.prove(&sp1pk, input).compressed().groth16();
+    // Prover network
+    let prover_client = ProverClient::builder().network().build();
+    let (proving_key, verifying_key) = prover_client.setup(GUEST_BRIDGE_ELF);
 
-    let proof = prover.run()?;
+    let network_prover_builder = prover_client
+        .prove(&proving_key, &input)
+        .strategy(FulfillmentStrategy::Reserved);
 
-    anyhow::Ok((proof, sp1vk))
+    let network_prover = network_prover_builder.groth16().skip_simulation(true);
+
+    let proof = network_prover
+        .run()
+        .map_err(|e| ZkVmError::ProofGenerationError(e.to_string()))?;
+
+    anyhow::Ok((proof, verifying_key))
 }
 
 // #[cfg(test)]
