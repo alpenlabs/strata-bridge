@@ -23,5 +23,5 @@ pub fn generate_partial_signature() -> PartialSignature {
     let secret_key = SecretKey::new(&mut OsRng);
 
     PartialSignature::from_slice(secret_key.as_ref())
-        .expect("should be able to generate arbitary partial signature")
+        .expect("should be able to generate arbitrary partial signature")
 }

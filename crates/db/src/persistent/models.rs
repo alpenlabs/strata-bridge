@@ -42,7 +42,7 @@ pub(super) struct WotsSignature {
 /// The model for Schnorr signature.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(super) struct Signature {
-    /// The ID of the oeprator stored as `INTEGER`.
+    /// The ID of the operator stored as `INTEGER`.
     #[expect(dead_code)]
     pub(super) operator_id: DbOperatorId,
 

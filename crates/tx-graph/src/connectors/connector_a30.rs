@@ -25,7 +25,7 @@ impl ConnectorA30Leaf {
     /// Returns the input index for the leaf.
     ///
     /// The `Payout` leaf is spent in the second input of the `Payout` transaction,
-    /// wherease the `Disprove` leaf is spent in the first input of the `Disprove` transaction.
+    /// whereas the `Disprove` leaf is spent in the first input of the `Disprove` transaction.
     pub fn to_input_index(&self) -> u32 {
         match self {
             ConnectorA30Leaf::Payout => 1,

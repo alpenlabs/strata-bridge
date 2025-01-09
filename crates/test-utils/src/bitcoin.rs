@@ -16,7 +16,7 @@ pub fn generate_txid() -> Txid {
     let mut txid = [0u8; 32];
     OsRng.fill(&mut txid);
 
-    Txid::from_slice(&txid).expect("should be able to generate arbitary txid")
+    Txid::from_slice(&txid).expect("should be able to generate arbitrary txid")
 }
 
 pub fn generate_outpoint() -> bitcoin::OutPoint {
@@ -32,7 +32,7 @@ pub fn generate_signature() -> Signature {
     let mut sig = [0u8; 64];
     OsRng.fill(&mut sig);
 
-    Signature::from_slice(&sig).expect("should be able to generate arbitary signature")
+    Signature::from_slice(&sig).expect("should be able to generate arbitrary signature")
 }
 
 pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
