@@ -2,9 +2,10 @@ use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::{address::NetworkUnchecked, hashes::Hash, Address, Network, ScriptHash};
 use serde::{de, Deserialize, Deserializer, Serialize};
 
-/// A wrapper around the [`bitcoin::Address<NetworkChecked>`] type created in order to implement
-/// some useful traits on it such as [`serde::Deserialize`], [`borsh::BorshSerialize`] and
-/// [`borsh::BorshDeserialize`].
+/// A wrapper around the [`bitcoin::Address<NetworkChecked>`] type.
+///
+/// This is created in order to implement some useful traits on it such as [`serde::Deserialize`],
+/// [`borsh::BorshSerialize`] and [`borsh::BorshDeserialize`].
 // TODO: implement [`arbitrary::Arbitrary`]?
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BitcoinAddress {
