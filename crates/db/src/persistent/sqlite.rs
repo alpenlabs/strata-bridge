@@ -1240,13 +1240,13 @@ mod tests {
         let duty_id = generate_txid();
         let block_height: u64 = rand::thread_rng().gen();
 
-        let bridge_out_txid = generate_txid();
+        let withdrawal_fulfillment_txid = generate_txid();
         let claim_txid = generate_txid();
         let superblock_start_ts = OsRng.gen();
         // This might change later after [STR-821](https://alpenlabs.atlassian.net/browse/STR-754).
         // So, hardcoding the value for now.
         let bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
-            bridge_out_txid,
+            withdrawal_fulfillment_txid,
             superblock_start_ts,
             claim_txid,
         });
@@ -1268,7 +1268,7 @@ mod tests {
         );
 
         let new_bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Kickoff {
-            bridge_out_txid: generate_txid(),
+            withdrawal_fulfillment_txid: generate_txid(),
             kickoff_txid: generate_txid(),
         });
         assert!(

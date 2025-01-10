@@ -1,11 +1,12 @@
 use core::fmt;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, fs, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bitcoin::{
     block::Header,
     consensus,
     hashes::Hash,
+    hex::DisplayHex,
     sighash::{Prevouts, SighashCache},
     TapSighashType, Transaction, TxOut, Txid,
 };
@@ -1435,12 +1436,12 @@ where
 
             info!(action = "paying out the user", %user_pk, %own_index);
 
-            let bridge_out_txid = self
+            let withdrawal_fulfillment_txid = self
                 .pay_user(user_pk, network, own_index)
                 .await
                 .expect("must be able to pay user");
 
-            let duty_status = WithdrawalStatus::PaidUser(bridge_out_txid).into();
+            let duty_status = WithdrawalStatus::PaidUser(withdrawal_fulfillment_txid).into();
             info!(
                 action = "sending out duty update status for withdrawal fulfillment",
                 ?duty_status
@@ -1451,7 +1452,7 @@ where
                 .await
                 .expect("should be able to send duty status");
 
-            status.next(bridge_out_txid, None);
+            status.next(withdrawal_fulfillment_txid, None);
         } else {
             info!(action = "already paid user, so skipping");
         }
@@ -1521,7 +1522,8 @@ where
             post_assert,
         } = assert_chain;
 
-        if let Some((bridge_out_txid, superblock_start_ts)) = status.should_pre_assert() {
+        if let Some((withdrawal_fulfillment_txid, superblock_start_ts)) = status.should_pre_assert()
+        {
             // 5. Publish pre-assert tx
             info!(event = "challenge received, broadcasting pre-assert tx");
             let pre_assert_txid = pre_assert.compute_txid();
@@ -1548,7 +1550,7 @@ where
                 .send((
                     deposit_txid,
                     WithdrawalStatus::PreAssert {
-                        bridge_out_txid,
+                        withdrawal_fulfillment_txid,
                         superblock_start_ts,
                         pre_assert_txid,
                     }
@@ -1557,7 +1559,7 @@ where
                 .await
                 .expect("should be able to send duty status");
 
-            status.next(bridge_out_txid, Some(superblock_start_ts));
+            status.next(withdrawal_fulfillment_txid, Some(superblock_start_ts));
         } else {
             info!(action = "already broadcasted pre-assert, so skipping");
         }
@@ -1637,7 +1639,7 @@ where
             let mut broadcasted_assert_data_txids = Vec::with_capacity(TOTAL_CONNECTORS);
 
             for (index, signed_assert_data_tx) in signed_assert_data_txs.iter().enumerate() {
-                if let Some((bridge_out_txid, superblock_start_ts)) =
+                if let Some((withdrawal_fulfillment_txid, superblock_start_ts)) =
                     status.should_assert_data(index)
                 {
                     info!(event = "broadcasting signed assert data tx", %index, %num_assert_data_txs);
@@ -1653,7 +1655,7 @@ where
                         .send((
                             deposit_txid,
                             BridgeDutyStatus::Withdrawal(WithdrawalStatus::AssertData {
-                                bridge_out_txid,
+                                withdrawal_fulfillment_txid,
                                 superblock_start_ts,
                                 assert_data_txids: broadcasted_assert_data_txids.clone(),
                             }),
@@ -1793,7 +1795,7 @@ where
         claim_tx: ClaimTx,
         status: &mut WithdrawalStatus,
     ) {
-        if let Some(bridge_out_txid) = status.should_kickoff() {
+        if let Some(withdrawal_fulfillment_txid) = status.should_kickoff() {
             let unsigned_kickoff = &kickoff_tx.psbt().unsigned_tx;
             info!(action = "funding kickoff tx with wallet", ?unsigned_kickoff);
             let funded_kickoff = self
@@ -1817,7 +1819,7 @@ where
                 .expect("should be able to broadcast signed kickoff tx");
 
             let duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Kickoff {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 kickoff_txid,
             });
             info!(action = "sending out duty status", ?duty_status);
@@ -1828,12 +1830,12 @@ where
 
             info!(event = "broadcasted kickoff tx", %deposit_txid, %kickoff_txid, %own_index);
 
-            status.next(bridge_out_txid, None);
+            status.next(withdrawal_fulfillment_txid, None);
         } else {
             info!(action = "already broadcasted kickoff, so skipping");
         }
 
-        if let Some(bridge_out_txid) = status.should_claim() {
+        if let Some(withdrawal_fulfillment_txid) = status.should_claim() {
             let superblock_start_ts = self
                 .agent
                 .btc_client
@@ -1847,7 +1849,7 @@ where
                     deposit_txid,
                     &connectors.kickoff,
                     &self.msk,
-                    bridge_out_txid,
+                    withdrawal_fulfillment_txid,
                     superblock_start_ts,
                 )
                 .await;
@@ -1863,7 +1865,7 @@ where
                 .expect("should be able to publish claim tx with commitment to bridge_out_txid and superblock period start_ts");
 
             let duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 claim_txid,
             });
@@ -1878,7 +1880,7 @@ where
 
             info!(event = "broadcasted claim tx", %deposit_txid, %claim_txid, %own_index);
 
-            status.next(bridge_out_txid, Some(superblock_start_ts));
+            status.next(withdrawal_fulfillment_txid, Some(superblock_start_ts));
         } else {
             info!(action = "already broadcasted claim tx, so skipping");
         }
@@ -1946,7 +1948,7 @@ where
     async fn prove_and_generate_assertions(
         &self,
         deposit_txid: Txid,
-        bridge_out_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
         superblock_period_start_ts: u32,
     ) -> Assertions {
         info!(action = "getting latest checkpoint at the time of withdrawal duty reception");
@@ -1984,7 +1986,10 @@ where
             .expect("L2 block headers must not be empty")
             .block_id;
 
-        info!(action = "getting chain state", %next_l2_block);
+        info!(
+            action = "getting chain state",
+            l2_block_id = l2_block_id.to_lower_hex_string()
+        );
         let cl_block_witness = self
             .agent
             .strata_client
@@ -1992,6 +1997,9 @@ where
             .await
             .expect("should be able to query for CL block witness")
             .expect("cl block witness must exist");
+
+        fs::write("cl_block_witness.bin", &cl_block_witness)
+            .expect("should write cl block witness");
 
         let chain_state = borsh::from_slice::<(Chainstate, L2Block)>(&cl_block_witness)
             .expect("should be able to deserialize CL block witness")
@@ -2010,13 +2018,14 @@ where
         )
         .await
         .expect("should be able to initial header state");
+        info!(event = "got initial header state", %l1_start_height, ?initial_header_state);
 
         let mut height = l1_start_height as u32;
         let mut headers: Vec<Header> = vec![];
         let mut withdrawal_fulfillment = None;
         let mut checkpoint = None;
 
-        info!(action = "scanning blocks...", %deposit_txid, %bridge_out_txid, %superblock_period_start_ts, start_height=%height);
+        info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, %superblock_period_start_ts, start_height=%height);
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
             let block = self.agent.btc_client.get_block_at(height).await;
@@ -2035,7 +2044,7 @@ where
                         .is_some_and(|h| h == initial_header_state.last_verified_block_num)
                 }) {
                     let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found checkpoint", %height);
+                    info!(event = "found checkpoint", %height, checkpoint_txid=%tx.compute_txid());
                     checkpoint = Some((height, tx.with_inclusion_proof(&block)));
                 }
             }
@@ -2045,10 +2054,10 @@ where
                 if let Some(tx) = block
                     .txdata
                     .iter()
-                    .find(|tx| tx.compute_txid() == bridge_out_txid)
+                    .find(|tx| tx.compute_txid() == withdrawal_fulfillment_txid)
                 {
                     let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found withdrawal fulfillment", %height);
+                    info!(event = "found withdrawal fulfillment", %height, %withdrawal_fulfillment_txid);
                     withdrawal_fulfillment = Some((height, tx.with_inclusion_proof(&block)));
                 }
             }
