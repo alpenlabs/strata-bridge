@@ -220,7 +220,6 @@ mod tests {
     use std::{fs, str::FromStr};
 
     use bitcoin::{Block, Txid};
-    use prover_test_utils::get_header_verification_data;
 
     use super::*;
     use crate::{process_bridge_proof, statement::SUPERBLOCK_PERIOD_BLOCK_INTERVAL};
