@@ -35,6 +35,7 @@ jobs:
         env:
           RUSTFLAGS: -D warnings
           DATABASE_URL: sqlite://./operator.db
+          SKIP_GUEST_BUILD: 1
 
   fmt:
     name: Check code formatting
