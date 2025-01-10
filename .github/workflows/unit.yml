@@ -75,9 +75,11 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          SKIP_GUEST_BUILD=1 cargo llvm-cov --workspace --locked nextest --profile ci --lcov --output-path lcov.info
+          cargo llvm-cov --workspace --locked nextest --profile ci --lcov --output-path lcov.info
         env:
           DATABASE_URL: sqlite://./operator.db
+          RUST_BACKTRACE: 1
+          SKIP_GUEST_BUILD: 1
 
       - name: Test Summary
         uses: test-summary/action@v2
