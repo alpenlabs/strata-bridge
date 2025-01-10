@@ -19,7 +19,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2024-07-27
+          toolchain: nightly-2024-11-01
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -46,7 +46,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
-          toolchain: nightly-2024-07-27
+          toolchain: nightly-2024-11-01
       - run: cargo fmt --all --check
 
   codespell:

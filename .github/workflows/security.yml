@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2024-07-27
+          toolchain: nightly-2024-11-01
 
         #  HACK: not denying warnings as we depend on `yaml-rust` via `format-serde-error` which is unmaintained
       - name: Check for audit warnings

@@ -79,7 +79,7 @@ jobs:
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2024-07-27
+          toolchain: nightly-2024-11-01
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
