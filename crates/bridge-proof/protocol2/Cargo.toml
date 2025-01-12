@@ -4,11 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+anyhow.workspace = true
 bitcoin.workspace = true
+borsh.workspace = true
 secp256k1.workspace = true
 strata-primitives = { git = "https://github.com/alpenlabs/strata" }
 strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata" }
 strata-state = { git = "https://github.com/alpenlabs/strata" }
+strata-tx-parser = { git = "https://github.com/alpenlabs/strata" }
 strata-zkvm = { git = "https://github.com/alpenlabs/zkvm" }
 
 [dev-dependencies]

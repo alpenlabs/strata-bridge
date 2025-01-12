@@ -52,12 +52,15 @@ pub struct L1TxWithProofBundle {
 }
 
 impl L1TxWithProofBundle {
-    pub fn get_base_tx(&self) -> &L1TxWithIdProof<TxIdMarker> {
-        &self.base_tx
-    }
-
     pub fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
         &self.witness_tx
+    }
+
+    pub fn transaction(&self) -> &Transaction {
+        match &self.witness_tx {
+            Some(tx) => &tx.tx,
+            None => &self.base_tx.tx,
+        }
     }
 }
 
