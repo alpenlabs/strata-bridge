@@ -72,7 +72,7 @@ impl WithdrawalInfo {
         self.assigned_operator_idx
     }
 
-    /// Get the recipient's [`XOnlyPk`].
+    /// Get the recipient's [`XOnlyPublicKey`].
     pub fn user_pk(&self) -> XOnlyPublicKey {
         self.user_pk
     }

@@ -4,8 +4,8 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 
 /// A wrapper around the [`bitcoin::Address<NetworkChecked>`] type.
 ///
-/// This is created in order to implement some useful traits on it such as [`serde::Deserialize`],
-/// [`borsh::BorshSerialize`] and [`borsh::BorshDeserialize`].
+/// This is created in order to couple addresses with the corresponding network and to preserve that
+/// information across serialization/deserialization.
 // TODO: implement [`arbitrary::Arbitrary`]?
 #[derive(Debug, Clone, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BitcoinAddress {

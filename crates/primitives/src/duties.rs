@@ -37,13 +37,7 @@ pub enum BridgeDuty {
 
     /// The duty to fulfill a withdrawal request that is assigned to a particular operator.
     ///
-    /// This duty is created when a user requests a withdrawal by calling a precompile in the EL
-    /// and the [`crate::bridge_state::DepositState`] transitions to
-    /// [`crate::bridge_state::DepositState::Dispatched`].
-    ///
-    /// This kicks off the withdrawal process which involves cooperative signing by the operator
-    /// set, or a more involved unilateral withdrawal process (in the future) if not all operators
-    /// cooperate in the process.
+    /// This kicks off the BitVM2-based withdrawal process involving unilateral withdrawal process.
     FulfillWithdrawal(WithdrawalInfo),
 }
 

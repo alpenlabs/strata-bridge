@@ -42,7 +42,7 @@ where
     Ok(())
 }
 
-/// Struct to implement the [`strata_bridge_rpc_api::StrataBridgeNetworkApiServer`] on. Contains
+/// Struct to implement the [`strata_bridge_rpc::StrataBridgeControlApiServer`] on. Contains
 /// fields corresponding the global context for the RPC.
 #[derive(Clone)]
 pub(crate) struct BridgeRpc {
