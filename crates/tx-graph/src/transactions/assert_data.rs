@@ -22,7 +22,7 @@ pub struct AssertDataTxInput {
                                                                                       * residual, 1 => stake */
 }
 
-/// A batch of transactions in the Assert chain that spend ouptuts of the pre-assert transaction by
+/// A batch of transactions in the Assert chain that spend outputs of the pre-assert transaction by
 /// bitcommitting to the assertion data.
 #[derive(Debug, Clone)]
 pub struct AssertDataTxBatch([Psbt; NUM_ASSERT_DATA_TX]);

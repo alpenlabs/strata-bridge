@@ -43,7 +43,7 @@ pub struct PegOutGraphInput {
 
 /// A container for the transactions in the peg-out graph.
 ///
-/// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxillary data required to
+/// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxiliary data required to
 /// construct the fully signed transaction provided a signature.
 #[derive(Debug, Clone)]
 pub struct PegOutGraph {

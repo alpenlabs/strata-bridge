@@ -44,8 +44,8 @@ impl ConnectorC0 {
             ConnectorC0Leaf::PayoutOptimistic => {
                 n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK)
             }
-            ConnectorC0Leaf::Assert => n_of_n_script(&self.n_of_n_agg_pubkey), /* FIXME: use
-                                                                                 * timelock */
+            ConnectorC0Leaf::Assert => n_of_n_script(&self.n_of_n_agg_pubkey), /* FIXME: use */
+            // timelock
             ConnectorC0Leaf::InvalidateTs => {
                 n_of_n_with_timelock(&self.n_of_n_agg_pubkey, SUPERBLOCK_MEASUREMENT_PERIOD)
             }

@@ -120,7 +120,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
         (script, control_block)
     }
 
-    /// Finalizes the iput for the psbt that spends this connector.
+    /// Finalizes the input for the psbt that spends this connector.
     pub fn create_tx_input(
         &self,
         input: &mut Input,

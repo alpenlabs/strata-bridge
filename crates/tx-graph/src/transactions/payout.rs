@@ -29,7 +29,7 @@ pub struct PayoutData {
     /// operator.
     pub deposit_amount: Amount,
 
-    /// The operator's public key correspoding to the address that the operator wants to be paid
+    /// The operator's public key corresponding to the address that the operator wants to be paid
     /// to.
     pub operator_key: XOnlyPublicKey,
 
