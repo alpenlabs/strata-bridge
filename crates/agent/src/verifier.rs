@@ -19,7 +19,7 @@ use strata_bridge_primitives::{
     wots::Signatures,
 };
 use strata_bridge_proof_protocol::BridgeProofPublicParams;
-use strata_bridge_proof_snark::bridge_poc;
+use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_tx_graph::{
     connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf},
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
@@ -172,7 +172,7 @@ where
                             // 3. groth16 proof validation
                             if let Some((tapleaf_index, witness_script)) =
                                 g16::verify_signed_assertions(
-                                    bridge_poc::GROTH16_VERIFICATION_KEY.clone(),
+                                    bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                                     *public_keys.groth16,
                                     signatures.groth16,
                                 )
@@ -229,7 +229,7 @@ where
                         .get_signature(
                             operator_id,
                             disprove_tx.compute_txid(),
-                            ConnectorA30Leaf::Disprove.to_input_index(),
+                            ConnectorA30Leaf::Disprove.get_input_index(),
                         )
                         .await
                         .unwrap()

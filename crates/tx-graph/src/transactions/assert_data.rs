@@ -106,7 +106,6 @@ impl AssertDataTxBatch {
         mut self,
         connector_a160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
         connector_a256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
-        msk: &str,
         signatures: wots::Signatures,
     ) -> [Transaction; NUM_ASSERT_DATA_TX] {
         let (connector160_batch, connector160_remainder): (
@@ -138,7 +137,6 @@ impl AssertDataTxBatch {
                 let range_e = range_s + NUM_PKS_A256_PER_CONNECTOR;
                 conn.create_tx_input(
                     &mut self.0[psbt_index].inputs[input_index],
-                    msk,
                     signatures_256[range_s..range_e].try_into().unwrap(),
                 );
             });
@@ -162,7 +160,6 @@ impl AssertDataTxBatch {
                         conn.create_tx_input(
                             // +1 for earlier psbt
                             &mut self.0[psbt_index + 1].inputs[input_index],
-                            msk,
                             signatures.groth16.2[range_s..range_e].try_into().unwrap(),
                         );
                     });
@@ -178,7 +175,6 @@ impl AssertDataTxBatch {
         let residual_a160_input = &mut self.0[psbt_index].inputs[NUM_ASSERT_DATA_TX3_A160_PK11];
         connector160_remainder.create_tx_input(
             residual_a160_input,
-            msk,
             signatures.groth16.2[range_s..range_e].try_into().unwrap(),
         );
 
@@ -197,25 +193,5 @@ impl AssertDataTxBatch {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
-
-        // // FOR TEST
-        // self.0
-        //     .into_iter()
-        //     .map(|psbt| Transaction {
-        //         version: bitcoin::transaction::Version::TWO,
-        //         lock_time: bitcoin::absolute::LockTime::ZERO,
-        //         output: vec![],
-        //         input: psbt
-        //             .inputs
-        //             .iter()
-        //             .map(|input| bitcoin::transaction::TxIn {
-        //                 witness: input.final_script_witness.clone().unwrap(),
-        //                 ..Default::default()
-        //             })
-        //             .collect(),
-        //     })
-        //     .collect::<Vec<_>>()
-        //     .try_into()
-        //     .unwrap()
     }
 }

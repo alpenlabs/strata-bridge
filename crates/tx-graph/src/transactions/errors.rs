@@ -1,23 +1,11 @@
-use bitcoin::taproot::TaprootBuilderError;
+use strata_bridge_primitives::errors::BridgeTxBuilderError;
 use thiserror::Error;
 
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum TxError {
-    /// Error due to there being no script provided to create a taproot address.
-    #[error("noscript taproot address for only script path spend is not possible")]
-    EmptyTapscript,
-
-    /// Error while building the taproot address.
-    #[error("could not build taproot address: {0}")]
-    BuildFailed(#[from] TaprootBuilderError),
-
-    /// Error while adding a leaf to to a [`TaprootBuilder`].
-    #[error("could not add leaf to the taproot tree")]
-    CouldNotAddLeaf,
-
-    /// Could not create psbt from the unsigned transaction.
-    #[error("problem with psbt due to: {0}")]
-    PsbtCreate(String),
+    /// Error building the tx.
+    #[error("build: {0}")]
+    BuildTx(#[from] BridgeTxBuilderError),
 
     /// An unexpected error occurred.
     // HACK: This should only be used while developing, testing or bikeshedding the right variant

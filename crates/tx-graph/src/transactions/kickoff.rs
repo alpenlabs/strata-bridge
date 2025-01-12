@@ -1,8 +1,10 @@
 use bitcoin::{Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{bitcoin::BitcoinAddress, params::prelude::*, scripts::prelude::*};
+use strata_bridge_primitives::{
+    bitcoin::BitcoinAddress, errors::BridgeTxBuilderError, params::prelude::*, scripts::prelude::*,
+};
 
-use super::errors::{TxError, TxResult};
+use super::errors::TxResult;
 use crate::connectors::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,8 +39,8 @@ impl KickOffTx {
 
         let tx = create_tx(tx_ins, tx_outs);
 
-        let mut psbt =
-            Psbt::from_unsigned_tx(tx).map_err(|e| TxError::PsbtCreate(e.to_string()))?;
+        let mut psbt = Psbt::from_unsigned_tx(tx)
+            .map_err(|e| BridgeTxBuilderError::PsbtCreate(e.to_string()))?;
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(data.funding_utxos) {
             input.witness_utxo = Some(utxo);

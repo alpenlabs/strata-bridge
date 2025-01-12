@@ -28,7 +28,10 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::prelude::*,
+    params::{
+        connectors::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
+        prelude::*,
+    },
     scripts::taproot::{create_message_hash, finalize_input, TaprootWitness},
     types::{OperatorIdx, TxSigningData},
     withdrawal::WithdrawalInfo,
@@ -37,12 +40,9 @@ use strata_bridge_primitives::{
 use strata_bridge_proof_protocol::{
     run_process_bridge_proof, BridgeProofPublicParams, StrataBridgeState,
 };
-use strata_bridge_proof_snark::{bridge_poc, prover};
+use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_tx_graph::{
-    connectors::{
-        params::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
-        prelude::ConnectorA30Leaf,
-    },
+    connectors::prelude::ConnectorA30Leaf,
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
@@ -1606,7 +1606,7 @@ where
                     .unwrap(); // FIXME: Handle me
 
                 let disprove = g16::verify_signed_assertions(
-                    bridge_poc::GROTH16_VERIFICATION_KEY.clone(),
+                    bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                     public_keys.groth16.0,
                     assert_data_signatures.groth16,
                 );
@@ -1616,7 +1616,6 @@ where
             let signed_assert_data_txs = assert_data.finalize(
                 connectors.assert_data160_factory,
                 connectors.assert_data256_factory,
-                &self.msk,
                 assert_data_signatures,
             );
 
@@ -1734,7 +1733,7 @@ where
                 .get_signature(
                     own_index,
                     payout_tx.compute_txid(),
-                    ConnectorA30Leaf::Payout.to_input_index(),
+                    ConnectorA30Leaf::Payout.get_input_index(),
                 )
                 .await
                 .unwrap()
@@ -2112,7 +2111,7 @@ where
             superblock_hash,
             superblock_period_start_ts: superblock_period_start_ts.to_le_bytes(),
             groth16: g16::generate_proof_assertions(
-                bridge_poc::GROTH16_VERIFICATION_KEY.clone(),
+                bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,
                 public_inputs,
             ),

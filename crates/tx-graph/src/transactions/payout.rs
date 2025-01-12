@@ -6,13 +6,13 @@ use secp256k1::{
     XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
+use strata_bridge_primitives::{
+    params::{connectors::PAYOUT_TIMELOCK, prelude::MIN_RELAY_FEE},
+    scripts::prelude::*,
+};
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::{
-    params::PAYOUT_TIMELOCK,
-    prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorS},
-};
+use crate::connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorS};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayoutData {
