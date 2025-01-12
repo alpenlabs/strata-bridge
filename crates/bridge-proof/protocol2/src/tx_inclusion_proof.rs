@@ -1,4 +1,5 @@
 use bitcoin::{block::Header, hashes::Hash, Transaction};
+use borsh::{BorshDeserialize, BorshSerialize};
 use strata_primitives::{
     buf::Buf32,
     hash::sha256d,
@@ -7,27 +8,30 @@ use strata_primitives::{
 use strata_proofimpl_btc_blockspace::block::witness_commitment_from_coinbase;
 use strata_state::l1::{L1TxInclusionProof, L1TxProof, L1WtxProof};
 
+use crate::tx::BitcoinTx;
+
 /// A transaction along with its [L1TxInclusionProof], parameterized by a `Marker` type
 /// (either [`TxIdMarker`] or [`WtxIdMarker`]).
 ///
 /// This struct pairs the actual Bitcoin [`Transaction`] with its corresponding proof that
 /// its `txid` or `wtxid` is included in a given Merkle root. The proof data is carried
 /// by the [`L1TxInclusionProof`].
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct L1TxWithIdProof<T> {
     /// The transaction in question.
-    tx: Transaction,
+    tx: BitcoinTx,
     /// The Merkle inclusion proof associated with the transaction’s [`Txid`](bitcoin::Txid) or
     /// [`Wtxid`](bitcoin::Wtxid).
     proof: L1TxInclusionProof<T>,
 }
 
 impl<T: TxIdComputable> L1TxWithIdProof<T> {
-    pub fn new(tx: Transaction, proof: L1TxInclusionProof<T>) -> Self {
+    pub fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
         Self { tx, proof }
     }
 
     pub fn verify(&self, root: Buf32) -> bool {
-        self.proof.verify(&self.tx, root)
+        self.proof.verify(self.tx.as_ref(), root)
     }
 }
 
@@ -40,6 +44,7 @@ impl<T: TxIdComputable> L1TxWithIdProof<T> {
 /// 1. **Proving a transaction without witness data:** we only need a [`txid`] Merkle proof.
 /// 2. **Proving a transaction with witness data:** we provide a [`wtxid`] Merkle proof, plus a
 ///    coinbase transaction (the “base” transaction) that commits to the witness Merkle root.
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct L1TxWithProofBundle {
     /// If `witness_tx` is `None`, this is the actual transaction we want to prove.
     /// If `witness_tx` is `Some`, this becomes the coinbase transaction that commits
@@ -58,8 +63,8 @@ impl L1TxWithProofBundle {
 
     pub fn transaction(&self) -> &Transaction {
         match &self.witness_tx {
-            Some(tx) => &tx.tx,
-            None => &self.base_tx.tx,
+            Some(tx) => &tx.tx.as_ref(),
+            None => &self.base_tx.tx.as_ref(),
         }
     }
 }
@@ -83,7 +88,7 @@ impl L1TxWithProofBundle {
         if witness_empty {
             // Build a txid-based proof.
             let tx_proof = L1TxProof::generate(txs, idx);
-            let base_tx = L1TxWithIdProof::new(tx, tx_proof);
+            let base_tx = L1TxWithIdProof::new(tx.into(), tx_proof);
             Self {
                 base_tx,
                 witness_tx: None,
@@ -91,12 +96,12 @@ impl L1TxWithProofBundle {
         } else {
             // Build a wtxid-based proof for the actual transaction.
             let tx_proof = L1WtxProof::generate(txs, idx);
-            let witness_tx = Some(L1TxWithIdProof::new(tx, tx_proof));
+            let witness_tx = Some(L1TxWithIdProof::new(tx.into(), tx_proof));
 
             // Use the coinbase transaction (index 0) as the “base” transaction.
             let coinbase = txs[0].clone();
             let coinbase_proof = L1TxProof::generate(txs, 0);
-            let base_tx = L1TxWithIdProof::new(coinbase, coinbase_proof);
+            let base_tx = L1TxWithIdProof::new(coinbase.into(), coinbase_proof);
 
             Self {
                 base_tx,
@@ -121,7 +126,7 @@ impl L1TxWithProofBundle {
 
         match &self.witness_tx {
             Some(witness) => {
-                let coinbase = &self.base_tx.tx;
+                let coinbase = self.base_tx.tx.as_ref();
                 // The base transaction must indeed be a coinbase if we are committing
                 // to witness data.
                 if !coinbase.is_coinbase() {
@@ -130,7 +135,7 @@ impl L1TxWithProofBundle {
 
                 // Compute the witness Merkle root for the transaction in question.
                 let L1TxWithIdProof { tx, proof } = witness;
-                let mut witness_root = proof.compute_root(tx).as_bytes().to_vec();
+                let mut witness_root = proof.compute_root(tx.as_ref()).as_bytes().to_vec();
 
                 // The coinbase input’s witness must have exactly one element of length 32,
                 // which should be the “wtxid” commitment.

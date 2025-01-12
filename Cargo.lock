@@ -10417,6 +10417,7 @@ name = "strata-bridge-proof-protocol2"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "arbitrary",
  "bitcoin",
  "borsh",
  "rand",
@@ -10426,7 +10427,7 @@ dependencies = [
  "strata-state 0.1.0 (git+https://github.com/alpenlabs/strata)",
  "strata-test-utils",
  "strata-tx-parser 0.1.0 (git+https://github.com/alpenlabs/strata)",
- "strata-zkvm 0.1.0 (git+https://github.com/alpenlabs/zkvm)",
+ "strata-zkvm 0.1.0 (git+https://github.com/alpenlabs/strata)",
 ]
 
 [[package]]
@@ -11231,18 +11232,6 @@ dependencies = [
  "serde",
  "thiserror 1.0.65",
  "tracing",
-]
-
-[[package]]
-name = "strata-zkvm"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkvm#a87aaa9e5fb04e2458e4c9644593f0ea72b63f48"
-dependencies = [
- "arbitrary",
- "bincode",
- "borsh",
- "serde",
- "thiserror 1.0.65",
 ]
 
 [[package]]

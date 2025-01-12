@@ -1,7 +1,8 @@
+use borsh::{BorshDeserialize, BorshSerialize};
 use secp256k1::{SecretKey, SECP256K1};
 use strata_primitives::{buf::Buf32, hash::sha256d, utils::get_cohashes};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct AnchorPublicKeyMerkleProof {
     position: usize,
     cohashes: Vec<Buf32>,
