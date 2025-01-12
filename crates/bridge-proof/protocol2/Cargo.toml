@@ -9,6 +9,8 @@ arbitrary.workspace = true
 bitcoin.workspace = true
 borsh.workspace = true
 secp256k1.workspace = true
+thiserror.workspace = true
+
 strata-primitives = { git = "https://github.com/alpenlabs/strata" }
 strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata" }
 strata-state = { git = "https://github.com/alpenlabs/strata" }

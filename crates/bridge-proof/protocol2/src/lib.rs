@@ -1,8 +1,9 @@
-mod protocol_op;
+mod error;
 mod signing_key_proof;
 mod statement;
-mod tx;
+mod bitcoin_tx;
 mod tx_inclusion_proof;
+mod tx_info;
 
 use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
@@ -15,16 +16,35 @@ use tx_inclusion_proof::L1TxWithProofBundle;
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct BridgeProofInput {
-    /// Chainstate that can be verified by the strata checkpoint proof
+    /// The [Chainstate] that can be verified by the strata checkpoint proof.
     chain_state: Chainstate,
+
+    /// The [HeaderVerificationState] used to validate the chain of headers.  
+    /// The proof that this HeaderVerificationState is valid must be done extracted from the
+    /// `strata_checkpoint_tx`.
     header_vs: HeaderVerificationState,
+
+    /// The index of the deposit within the [Chainstate] deposit table.  
+    /// Must match the corresponding information in the withdrawal fulfillment transaction.
     deposit_idx: usize,
-    /// inclusion proof of the transaction that contains the strata checkpoint proof.
-    /// the second usize represents where the transaction is placed in the header chain.
+
+    /// Transaction (and its inclusion proof) containing the strata checkpoint proof.  
+    /// The `usize` represents the position of this transaction in the header chain.
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
+
+    /// Transaction (and its inclusion proof) containing the claim.  
+    /// The `usize` represents the position of this transaction in the header chain.
     claim_tx: (L1TxWithProofBundle, usize),
+
+    /// Transaction (and its inclusion proof) fulfilling the withdrawal.  
+    /// The `usize` represents the position of this transaction in the header chain.
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
+
+    /// The [AnchorPublicKeyMerkleProof] demonstrating knowledge of the group signing key
+    /// for a particular anchor.
     anchor_key_proof: AnchorPublicKeyMerkleProof,
+
+    /// The Merkle root of all group signing keys. Used to verify `anchor_key_proof`.
     anchor_key_root: Buf32,
 }
 
@@ -34,6 +54,7 @@ pub struct BridgeProofOutput {
     anchor_key_root: Buf32,
     deposit_txid: Buf32,
     claim_ts: u32,
+    headers_after_claim_tx: usize,
 }
 
 pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
