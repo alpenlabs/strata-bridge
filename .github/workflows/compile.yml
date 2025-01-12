@@ -1,6 +1,10 @@
 name: Compile
 
 on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 env:
@@ -39,3 +43,4 @@ jobs:
       - run: cargo hack check --locked
         env:
           DATABASE_URL: sqlite://./operator.db
+          SKIP_GUEST_BUILD: 1
