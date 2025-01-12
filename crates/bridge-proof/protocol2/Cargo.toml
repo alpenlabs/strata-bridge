@@ -1,0 +1,14 @@
+[package]
+name = "strata-bridge-proof-protocol2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin.workspace = true
+strata-primitives = { git = "https://github.com/alpenlabs/strata" }
+strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata" }
+strata-state = { git = "https://github.com/alpenlabs/strata" }
+strata-zkvm = { git = "https://github.com/alpenlabs/zkvm" }
+
+[dev-dependencies]
+strata-test-utils = { git = "https://github.com/alpenlabs/strata" }

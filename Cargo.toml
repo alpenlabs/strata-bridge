@@ -4,6 +4,7 @@ members = [
   "crates/db",
   "crates/primitives",
   "crates/bridge-proof/protocol",
+  "crates/bridge-proof/protocol2",
   "crates/bridge-proof/snark",
   "crates/rpc/bridge",
   "crates/rpc/strata",
