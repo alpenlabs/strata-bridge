@@ -10416,13 +10416,16 @@ dependencies = [
 name = "strata-bridge-proof-protocol2"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bitcoin",
+ "borsh",
  "rand",
  "secp256k1",
  "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata)",
  "strata-proofimpl-btc-blockspace 0.1.0 (git+https://github.com/alpenlabs/strata)",
  "strata-state 0.1.0 (git+https://github.com/alpenlabs/strata)",
  "strata-test-utils",
+ "strata-tx-parser 0.1.0 (git+https://github.com/alpenlabs/strata)",
  "strata-zkvm 0.1.0 (git+https://github.com/alpenlabs/zkvm)",
 ]
 
