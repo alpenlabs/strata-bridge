@@ -63,8 +63,8 @@ impl L1TxWithProofBundle {
 
     pub fn transaction(&self) -> &Transaction {
         match &self.witness_tx {
-            Some(tx) => &tx.tx.as_ref(),
-            None => &self.base_tx.tx.as_ref(),
+            Some(tx) => tx.tx.as_ref(),
+            None => self.base_tx.tx.as_ref(),
         }
     }
 }
