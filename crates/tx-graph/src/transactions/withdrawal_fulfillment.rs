@@ -5,10 +5,15 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
 };
 
+/// The transaction by which an operator fronts payments to a user requesting a withdrawal.
 #[derive(Debug, Clone)]
 pub struct WithdrawalFulfillment(Transaction);
 
 impl WithdrawalFulfillment {
+    /// Constructs a new instance of the withdrawal transaction.
+    ///
+    /// NOTE: This transaction is not signed and must be done so before broadcasting by calling
+    /// `signrawtransaction` on the Bitcoin Core RPC, for example.
     pub fn new(
         network: Network,
         operator_idx: OperatorIdx,
@@ -44,6 +49,7 @@ impl WithdrawalFulfillment {
         Self(tx)
     }
 
+    /// Getter for the underlying transaction.
     pub fn tx(self) -> Transaction {
         self.0
     }

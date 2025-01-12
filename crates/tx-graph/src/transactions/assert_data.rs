@@ -13,6 +13,7 @@ use strata_bridge_primitives::{
 
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`AssertDataTxBatch`].
 #[derive(Debug, Clone)]
 pub struct AssertDataTxInput {
     pub pre_assert_txid: Txid,
@@ -21,10 +22,16 @@ pub struct AssertDataTxInput {
                                                                                       * residual, 1 => stake */
 }
 
+/// A batch of transactions in the Assert chain that spend ouptuts of the pre-assert transaction by
+/// bitcommitting to the assertion data.
 #[derive(Debug, Clone)]
 pub struct AssertDataTxBatch([Psbt; NUM_ASSERT_DATA_TX]);
 
 impl AssertDataTxBatch {
+    /// Constructs a new instance of the assert data transaction batch.
+    ///
+    /// The batch is constructed by taking the pre-assert transaction outputs and spending them in
+    /// order.
     pub fn new(input: AssertDataTxInput, connector_a2: ConnectorS) -> Self {
         Self(std::array::from_fn(|i| {
             let (utxos, prevouts): (Vec<OutPoint>, Vec<TxOut>) = {
@@ -77,22 +84,27 @@ impl AssertDataTxBatch {
         }))
     }
 
+    /// Get the PSBTs in the batch.
     pub fn psbts(&self) -> &[Psbt; NUM_ASSERT_DATA_TX] {
         &self.0
     }
 
+    /// Get a PSBT at a given index.
     pub fn psbt_at_index(&self, index: usize) -> Option<&Psbt> {
         self.0.get(index)
     }
 
+    /// Get a mutable reference to a PSBT at a given index.
     pub fn psbt_at_index_mut(&mut self, index: usize) -> Option<&mut Psbt> {
         self.0.get_mut(index)
     }
 
+    /// Get the number of transactions in the batch.
     pub const fn num_txs_in_batch(&self) -> usize {
         NUM_ASSERT_DATA_TX
     }
 
+    /// Compute the transaction IDs of the PSBTs in the batch.
     pub fn compute_txids(&self) -> [Txid; NUM_ASSERT_DATA_TX] {
         self.0
             .iter()
@@ -102,6 +114,9 @@ impl AssertDataTxBatch {
             .unwrap()
     }
 
+    /// Finalize the batch by adding the connector outputs and corresponding WOTS signatures.
+    ///
+    /// This method adds bitcommitments to the assertions corresponding to the Groth16 proof.
     pub fn finalize(
         mut self,
         connector_a160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,

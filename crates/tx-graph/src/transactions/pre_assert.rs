@@ -7,12 +7,18 @@ use tracing::trace;
 use super::covenant_tx::CovenantTx;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`PreAssertTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PreAssertData {
+    /// The transaction ID of the claim transaction.
     pub claim_txid: Txid,
+
+    /// The stake that remains after paying off the transaction fees in the preceding transactions.
     pub input_stake: Amount,
 }
 
+/// A transaction in the Assert chain that contains output scripts used for bitcomitting to the
+/// assertion data.
 #[derive(Debug, Clone)]
 pub struct PreAssertTx {
     psbt: Psbt,
@@ -21,15 +27,24 @@ pub struct PreAssertTx {
 
     prevouts: Vec<TxOut>,
 
-    /// The ordering of these is pretty complicated.
-    ///
-    /// This field is so that we don't have to recompute this order in other places.
+    // The ordering of these is pretty complicated.
+    // This field is so that we don't have to recompute this order in other places.
     tx_outs: [TxOut; TOTAL_CONNECTORS + 1], // +1 for stake
 
     witnesses: Vec<TaprootWitness>,
 }
 
 impl PreAssertTx {
+    /// Constructs a new instance of the pre-assert transaction.
+    ///
+    /// This involves constructing the output scripts for the bitcommitment connectors
+    /// ([`ConnectorA256`], [`ConnectorA160`]) and the stake connector [`ConnectorS`] as well as the
+    /// input from the connector [`ConnectorC0`].
+    ///
+    /// The bitcommitment connectors are constructed in such a way that when spending the outputs,
+    /// the stack size stays under the bitcoin consensus limit of 1000 elements, and such that when
+    /// these UTXOs are sequentially chunked into transactions, the size of these transactions do
+    /// not exceed the standard transaction size limit of 100,000 vbytes.
     pub fn new(
         data: PreAssertData,
         connector_c0: ConnectorC0,
@@ -153,14 +168,17 @@ impl PreAssertTx {
         }
     }
 
+    /// Gets for the remaining stake.
     pub fn remaining_stake(&self) -> Amount {
         self.remaining_stake
     }
 
+    /// Gets the transaction outputs arranged in a specific order.
     pub fn tx_outs(&self) -> [TxOut; NUM_CONNECTOR_A256 + NUM_CONNECTOR_A160 + 1 + 1] {
         self.tx_outs.clone()
     }
 
+    /// Finalizes the transaction by adding the n-of-n signature to the [`ConnectorC0`] witness.
     pub fn finalize(mut self, n_of_n_sig: Signature, connector_c0: ConnectorC0) -> Transaction {
         connector_c0.finalize_input_with_n_of_n(
             &mut self.psbt_mut().inputs[0],

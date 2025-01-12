@@ -18,17 +18,33 @@ use crate::{
     transactions::prelude::*,
 };
 
+/// The input data required to generate a peg-out graph.
+///
+/// This data is shared between various operators and verifiers and is used to construct the peg out
+/// graph deterministically. This assumes that the WOTS public keys have already been shared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
+    /// The bitcoin network on which the peg-out graph is being constructed.
     pub network: Network,
 
+    /// The deposit amount for the peg-out graph.
+    ///
+    /// This is kept as an input instead of a constant to allow for flexibility in the future.
     pub deposit_amount: Amount,
 
+    /// The public key of the operator.
     pub operator_pubkey: XOnlyPublicKey,
 
+    /// The data required to construct the kickoff transaction.
+    ///
+    /// This data is generated uniquely by each operator and shared with others.
     pub kickoff_data: KickoffTxData,
 }
 
+/// A container for the transactions in the peg-out graph.
+///
+/// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxillary data required to
+/// construct the fully signed transaction provided a signature.
 #[derive(Debug, Clone)]
 pub struct PegOutGraph {
     pub kickoff_tx: KickOffTx,
@@ -43,6 +59,11 @@ pub struct PegOutGraph {
 }
 
 impl PegOutGraph {
+    /// Generate the peg-out graph for a given operator.
+    ///
+    /// Each graph can be generated deterministically provided that the WOTS public keys are
+    /// available for the operator for the given deposit transaction, and the input data is
+    /// available.
     pub async fn generate<Db, DbRef, Context>(
         input: PegOutGraphInput,
         public_db: DbRef,
@@ -126,7 +147,6 @@ impl PegOutGraph {
         let disprove_data = DisproveData {
             post_assert_txid,
             deposit_txid,
-            operator_idx,
             input_stake: post_assert_out_stake,
             network: input.network,
         };
@@ -152,7 +172,10 @@ impl PegOutGraph {
     }
 }
 
-#[derive(Debug, Clone)]
+/// Connectors represent UTXOs in the peg-out graph.
+///
+/// These UTXOs have specific spending conditions to emulate covenants.
+#[derive(Debug, Clone, Copy)]
 pub struct PegOutGraphConnectors {
     pub kickoff: ConnectorK,
 
@@ -172,6 +195,7 @@ pub struct PegOutGraphConnectors {
 }
 
 impl PegOutGraphConnectors {
+    /// Create a new set of connectors for the peg-out graph.
     pub(crate) fn new(
         build_context: &impl BuildContext,
         wots_public_keys: wots::PublicKeys,

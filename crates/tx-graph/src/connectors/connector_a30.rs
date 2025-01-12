@@ -4,10 +4,12 @@ use bitcoin::{
     Address, Network, ScriptBuf, TapSighashType, XOnlyPublicKey,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{params::connectors::PAYOUT_TIMELOCK, scripts::prelude::*};
 
-use super::params::PAYOUT_TIMELOCK;
-
+/// Connector from the PostAssert transaction.
+///
+/// This connector is spent either by the Payout transaction to recover the stake or by the Disprove
+/// transaction to slash the stake.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorA30 {
     n_of_n_agg_pubkey: XOnlyPublicKey,
@@ -15,25 +17,37 @@ pub struct ConnectorA30 {
     network: Network,
 }
 
+/// Possible spending paths for the [`ConnectorA30`].
 #[derive(Debug, Clone, Copy)]
 pub enum ConnectorA30Leaf {
     Payout,
     Disprove,
 }
 
+impl ConnectorA30Leaf {}
+
 impl ConnectorA30Leaf {
+    /// Generates the locking script for this leaf.
+    pub fn generate_locking_script(&self, n_of_n_agg_pubkey: &XOnlyPublicKey) -> ScriptBuf {
+        match self {
+            ConnectorA30Leaf::Payout => n_of_n_with_timelock(n_of_n_agg_pubkey, PAYOUT_TIMELOCK),
+            ConnectorA30Leaf::Disprove => n_of_n_script(n_of_n_agg_pubkey),
+        }
+    }
+
     /// Returns the input index for the leaf.
     ///
     /// The `Payout` leaf is spent in the second input of the `Payout` transaction,
     /// whereas the `Disprove` leaf is spent in the first input of the `Disprove` transaction.
-    pub fn to_input_index(&self) -> u32 {
+    pub fn get_input_index(&self) -> u32 {
         match self {
             ConnectorA30Leaf::Payout => 1,
             ConnectorA30Leaf::Disprove => 0,
         }
     }
 
-    pub fn to_sighash_type(&self) -> TapSighashType {
+    /// Returns the sighash type for each of the connector leaves.
+    pub fn get_sighash_type(&self) -> TapSighashType {
         match self {
             ConnectorA30Leaf::Payout => TapSighashType::Default,
             ConnectorA30Leaf::Disprove => TapSighashType::Single,
@@ -42,6 +56,7 @@ impl ConnectorA30Leaf {
 }
 
 impl ConnectorA30 {
+    /// Constructs a new instance of this connector.
     pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
         Self {
             n_of_n_agg_pubkey,
@@ -49,21 +64,19 @@ impl ConnectorA30 {
         }
     }
 
+    /// Creates the taproot script for the given tapleaf.
     pub fn generate_tapleaf(&self, tapleaf: ConnectorA30Leaf) -> ScriptBuf {
-        match tapleaf {
-            ConnectorA30Leaf::Payout => {
-                n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_TIMELOCK)
-            }
-            ConnectorA30Leaf::Disprove => n_of_n_script(&self.n_of_n_agg_pubkey),
-        }
+        tapleaf.generate_locking_script(&self.n_of_n_agg_pubkey)
     }
 
+    /// Creates the locking script for this connector.
     pub fn generate_locking_script(&self) -> ScriptBuf {
         let (address, _) = self.generate_taproot_address();
 
         address.script_pubkey()
     }
 
+    /// Creates the tapoot spend info for the given leaf.
     pub fn generate_spend_info(&self, tapleaf: ConnectorA30Leaf) -> (ScriptBuf, ControlBlock) {
         let (_, taproot_spend_info) = self.generate_taproot_address();
 
@@ -85,7 +98,8 @@ impl ConnectorA30 {
             .expect("should be able to create taproot address")
     }
 
-    pub async fn finalize_input(
+    /// Finalizes the input for the psbt that spends this connector.
+    pub fn finalize_input(
         &self,
         input: &mut Input,
         tapleaf: ConnectorA30Leaf,
@@ -93,7 +107,7 @@ impl ConnectorA30 {
     ) {
         let (script, control_block) = self.generate_spend_info(tapleaf);
 
-        let sighash_type = tapleaf.to_sighash_type();
+        let sighash_type = tapleaf.get_sighash_type();
 
         let signature = taproot::Signature {
             signature: n_of_n_sig,

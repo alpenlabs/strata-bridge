@@ -20,6 +20,7 @@ use strata_bridge_primitives::{
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
 
+/// Connector from the PostAssert transaction to the Disprove transaction.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorA31 {
     network: Network,
@@ -27,6 +28,7 @@ pub struct ConnectorA31 {
     wots_public_keys: wots::PublicKeys,
 }
 
+/// Possible spending paths for the [`ConnectorA31`].
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum ConnectorA31Leaf {
@@ -44,7 +46,8 @@ pub enum ConnectorA31Leaf {
 }
 
 impl ConnectorA31Leaf {
-    pub fn generate_locking_script(self, public_keys: wots::PublicKeys) -> Script {
+    /// Generate the locking script for the leaf.
+    pub(crate) fn generate_locking_script(self, public_keys: wots::PublicKeys) -> Script {
         let wots::PublicKeys {
             bridge_out_txid: bridge_out_txid_public_key,
             superblock_hash: superblock_hash_public_key,
@@ -72,7 +75,6 @@ impl ConnectorA31Leaf {
                     0 OP_GREATERTHAN OP_VERIFY
                     { SUPERBLOCK_PERIOD } OP_LESSTHAN OP_VERIFY
 
-                    // sbv.hash()
                     { sha256(80) }
                     { sha256(32) }
                     { sb_hash_from_bytes() }
@@ -126,6 +128,7 @@ impl ConnectorA31Leaf {
         }
     }
 
+    /// Generate the witness script for the leaf.
     pub fn generate_witness_script(self) -> Script {
         match self {
             ConnectorA31Leaf::DisproveSuperblockCommitment(Some((
@@ -162,6 +165,7 @@ impl ConnectorA31Leaf {
 }
 
 impl ConnectorA31 {
+    /// Constructs a new instance of the connector.
     pub fn new(network: Network, wots_public_keys: wots::PublicKeys) -> Self {
         Self {
             network,
@@ -169,12 +173,14 @@ impl ConnectorA31 {
         }
     }
 
+    /// Generates the locking script for this connector.
     pub fn generate_locking_script(&self, deposit_txid: Txid) -> ScriptBuf {
         let (address, _) = self.generate_taproot_address(deposit_txid);
 
         address.script_pubkey()
     }
 
+    /// Generates the taproot spend info for this connector.
     pub fn generate_spend_info(
         &self,
         tapleaf: ConnectorA31Leaf,
@@ -192,6 +198,7 @@ impl ConnectorA31 {
         (script, control_block)
     }
 
+    /// Generates the disprove scripts for this connector.
     pub fn generate_disprove_scripts(&self) -> [Script; N_TAPLEAVES] {
         let partial_disprove_scripts = &PARTIAL_VERIFIER_SCRIPTS;
 
@@ -227,6 +234,7 @@ impl ConnectorA31 {
             .expect("should be able to create taproot address")
     }
 
+    /// Finalizes the input for the psbt that spends this connector.
     pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorA31Leaf, deposit_txid: Txid) {
         let (script, control_block) = self.generate_spend_info(tapleaf.clone(), deposit_txid);
 

@@ -1738,9 +1738,8 @@ where
                 .await
                 .unwrap()
                 .unwrap(); // FIXME:  Handle me
-            let signed_payout_tx = payout_tx
-                .finalize(connectors.post_assert_out_0, deposit_signature, n_of_n_sig)
-                .await;
+            let signed_payout_tx =
+                payout_tx.finalize(connectors.post_assert_out_0, deposit_signature, n_of_n_sig);
 
             info!(action = "trying to get reimbursement", payout_txid=%signed_payout_tx.compute_txid(), %own_index);
 

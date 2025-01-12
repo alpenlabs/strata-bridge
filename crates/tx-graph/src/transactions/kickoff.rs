@@ -24,6 +24,7 @@ pub struct KickoffTxData {
 pub struct KickOffTx(Psbt);
 
 impl KickOffTx {
+    /// Constructs a new instance of the kickoff transaction.
     pub fn new(data: KickoffTxData, connector_k: ConnectorK) -> TxResult<Self> {
         let tx_ins = create_tx_ins(data.funding_inputs);
 
@@ -49,18 +50,26 @@ impl KickOffTx {
         Ok(Self(psbt))
     }
 
+    /// Gets the underlying Psbt.
     pub fn psbt(&self) -> &Psbt {
         &self.0
     }
 
+    /// Gets a mutable reference to the underlying Psbt.
     pub fn mut_psbt(&mut self) -> &mut Psbt {
         &mut self.0
     }
 
+    /// Computes the transaction ID of the underlying transaction.
     pub fn compute_txid(&self) -> Txid {
         self.0.unsigned_tx.compute_txid()
     }
 
+    /// Finalizes the transaction by signing it with the wallet.
+    ///
+    /// # Warning
+    ///
+    /// This is unimplemented.
     pub fn finalize(&self /* , signer: Signer */) -> Transaction {
         unimplemented!("implement signing with bitcoin wallet");
     }

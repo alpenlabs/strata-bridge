@@ -199,7 +199,6 @@ where
                     let disprove_tx_data = DisproveData {
                         post_assert_txid: post_assert_tx.compute_txid(),
                         deposit_txid,
-                        operator_idx: operator_id,
                         input_stake: post_assert_tx
                             .tx_out(STAKE_OUTPUT_INDEX)
                             .expect("stake output must exist in post-assert tx")
@@ -235,16 +234,14 @@ where
                         .unwrap()
                         .unwrap(); // FIXME: Handle me
 
-                    let signed_disprove_tx = disprove_tx
-                        .finalize(
-                            connector_a30,
-                            connector_a31,
-                            reward_out,
-                            deposit_txid,
-                            disprove_leaf,
-                            disprove_n_of_n_sig,
-                        )
-                        .await;
+                    let signed_disprove_tx = disprove_tx.finalize(
+                        connector_a30,
+                        connector_a31,
+                        reward_out,
+                        deposit_txid,
+                        disprove_leaf,
+                        disprove_n_of_n_sig,
+                    );
 
                     {
                         let vsize = signed_disprove_tx.vsize();

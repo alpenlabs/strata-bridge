@@ -10,20 +10,31 @@ use tracing::trace;
 use super::prelude::*;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct an [`AssertChain`].
 #[derive(Debug, Clone)]
 pub struct AssertChainData {
     pub pre_assert_data: PreAssertData,
     pub deposit_txid: Txid,
 }
 
+/// A chain of transactions that asserts the operator's claim.
 #[derive(Debug, Clone)]
 pub struct AssertChain {
+    /// The pre-assert transaction, the first transaction in the chain.
     pub pre_assert: PreAssertTx,
+
+    /// The set of assert data transactions that contain bitcommitments to the intermediate values
+    /// in the proof.
     pub assert_data: AssertDataTxBatch,
+
+    /// The post-assert transaction, the last transaction in the chain.
     pub post_assert: PostAssertTx,
 }
 
 impl AssertChain {
+    /// Constructs a new instance of the assert chain.
+    ///
+    /// This method constructs the pre-assert, assert data, and post-assert transactions in order.
     #[expect(clippy::too_many_arguments)]
     pub fn new(
         data: AssertChainData,

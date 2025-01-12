@@ -7,17 +7,26 @@ use tracing::trace;
 use super::covenant_tx::CovenantTx;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`PostAssertTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostAssertTxData {
+    /// The transaction IDs of the assert data transactions in order.
     pub assert_data_txids: Vec<Txid>,
 
+    /// The transaction ID of the pre-assert transaction used to carry the stake over.
     pub pre_assert_txid: Txid,
 
+    /// The amount of the stake that was carried over after paying transaction fees.
     pub input_amount: Amount,
 
+    /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 }
 
+/// A transaction in the Assert chain that combines the outputs of the assert data transactions.
+///
+/// This is used for creating a single transaction that can then be connected to a payout or
+/// disprove transaction.
 #[derive(Debug, Clone)]
 pub struct PostAssertTx {
     psbt: Psbt,
@@ -30,6 +39,7 @@ pub struct PostAssertTx {
 }
 
 impl PostAssertTx {
+    /// Constructs a new instance of the post-assert transaction.
     pub fn new(
         data: PostAssertTxData,
         operator_idx: OperatorIdx,
@@ -112,10 +122,12 @@ impl PostAssertTx {
         }
     }
 
+    /// Returns the remaining stake after the post-assert transaction.
     pub fn remaining_stake(&self) -> Amount {
         self.remaining_stake
     }
 
+    /// Finalizes the transaction by adding the required n-of-n signatures.
     pub fn finalize(mut self, signatures: &[Signature]) -> Transaction {
         // skip the stake
         for (index, input) in self.psbt.inputs.iter_mut().enumerate() {

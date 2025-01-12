@@ -1,33 +1,39 @@
-#![allow(unused)]
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf,
 };
 use bitvm::{
-    bigint::U254,
-    bn254::{fp254impl::Fp254Impl, fq::Fq},
-    signatures::{
-        self,
-        wots::{wots160, wots256, SignatureImpl},
-    },
+    signatures::wots::{wots160, wots256, SignatureImpl},
     treepp::*,
 };
 use strata_bridge_primitives::scripts::prelude::*;
 
+/// Factory for crafting connectors with 256-bit WOTS public keys.
+///
+/// The layout is based on the number of public keys per connector and the total number of public
+/// keys. The value of `N_PUBLIC_KEYS_PER_CONNECTOR` must be chosen such that the stack size when
+/// spending any of these connectors does not exceed the maximum stack size supported by Bitcoin's
+/// consensus rules.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorA256Factory<
     const N_PUBLIC_KEYS_PER_CONNECTOR: usize,
     const N_PUBLIC_KEYS: usize,
 > {
+    /// The bitcoin network for which to generate output addresses.
     pub network: Network,
 
+    /// The 256-bit WOTS public keys used for bitcommitments.
     pub public_keys: [wots256::PublicKey; N_PUBLIC_KEYS],
 }
 
 impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
     ConnectorA256Factory<N_PUBLIC_KEYS_PER_CONNECTOR, N_PUBLIC_KEYS>
 {
+    /// Constructs connectors from the public keys.
+    ///
+    /// The public keys are split into chunks of `N_PUBLIC_KEYS_PER_CONNECTOR` and the remaining
+    /// ones are put into a separate connector.
     pub fn create_connectors(
         &self,
     ) -> (
@@ -59,22 +65,24 @@ impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
     }
 }
 
+/// A connector with 256-bit WOTS public keys.
 #[derive(Debug, Clone)]
 pub struct ConnectorA256<const N_PUBLIC_KEYS: usize> {
+    /// The bitcoin network for which to generate output addresses.
     pub network: Network,
+
+    /// The 256-bit WOTS public keys used for bitcommitments.
     pub public_keys: [wots256::PublicKey; N_PUBLIC_KEYS],
 }
 
 impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
+    /// Creates the locking script for the connector.
+    ///
+    /// This script verifies the WOTS signatures for the public keys and returns `OP_TRUE`.
     pub fn create_locking_script(&self) -> ScriptBuf {
         script! {
             for &public_key in self.public_keys.iter().rev() {
                 { wots256::checksig_verify(public_key, true) }
-                // { wots256::checksig_verify(public_key, false) }
-                // for _ in 0..32 { { 62 } OP_ROLL { 63 } OP_ROLL }
-                // { fq_from_nibbles() }
-                // { U254::push_hex(Fq::MODULUS) }
-                // { U254::greaterthan(0, 1) } OP_VERIFY
             }
 
             OP_TRUE
@@ -82,6 +90,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
         .compile()
     }
 
+    /// Creates the taproot address for this connector composed of all the locking scripts.
     pub fn create_taproot_address(&self) -> Address {
         let scripts = &[self.create_locking_script()];
 
@@ -92,6 +101,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
         taproot_address
     }
 
+    /// Creates the spend info for the connector.
     pub fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
         let script = self.create_locking_script();
 
@@ -110,10 +120,10 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
         (script, control_block)
     }
 
+    /// Finalizes the iput for the psbt that spends this connector.
     pub fn create_tx_input(
         &self,
         input: &mut Input,
-        msk: &str,
         signatures: [wots256::Signature; N_PUBLIC_KEYS],
     ) {
         let witness = script! {
@@ -131,19 +141,26 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     }
 }
 
+/// Factory for crafting connectors with 160-bit WOTS public keys.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorA160Factory<
     const N_PUBLIC_KEYS_PER_CONNECTOR: usize,
     const N_PUBLIC_KEYS: usize,
 > {
+    /// The bitcoin network for which to generate output addresses.
     pub network: Network,
 
+    /// The 160-bit WOTS public keys used for bitcommitments.
     pub public_keys: [wots160::PublicKey; N_PUBLIC_KEYS],
 }
 
 impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
     ConnectorA160Factory<N_PUBLIC_KEYS_PER_CONNECTOR, N_PUBLIC_KEYS>
 {
+    /// Constructs connectors from the public keys.
+    ///
+    /// The public keys are split into chunks of `N_PUBLIC_KEYS_PER_CONNECTOR` and the remaining
+    /// ones are put into a separate connector.
     pub fn create_connectors(
         &self,
     ) -> (
@@ -174,28 +191,31 @@ impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
     }
 }
 
+/// Connector with 160-bit WOTS public keys.
 #[derive(Debug, Clone)]
 pub struct ConnectorA160<const N_PUBLIC_KEYS: usize> {
+    /// The bitcoin network for which to generate output addresses.
     pub network: Network,
+
+    /// The 160-bit WOTS public keys used for bitcommitments.
     pub public_keys: [wots160::PublicKey; N_PUBLIC_KEYS],
 }
 
 impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
+    /// Creates the locking script for the connector.
+    ///
+    /// This script verifies the WOTS signatures for the public keys and returns `OP_TRUE`.
     pub fn create_locking_script(&self) -> ScriptBuf {
         script! {
             for &public_key in self.public_keys.iter().rev() {
                 { wots160::checksig_verify(public_key, true) }
             }
-            // for _ in 0..self.public_keys.len() {
-            //     for _ in 0..self.public_keys[0].len() {
-            //         OP_2DROP
-            //     }
-            // }
             OP_TRUE
         }
         .compile()
     }
 
+    /// Creates the taproot address for this connector composed of all the locking scripts.
     pub fn create_taproot_address(&self) -> Address {
         let scripts = &[self.create_locking_script()];
 
@@ -206,6 +226,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
         taproot_address
     }
 
+    /// Creates the taproot spend info for this connector.
     pub fn create_spend_info(&self) -> (ScriptBuf, ControlBlock) {
         let script = self.create_locking_script();
 
@@ -224,10 +245,10 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
         (script, control_block)
     }
 
+    /// Finalizes the input for the psbt that spends this connector.
     pub fn create_tx_input(
         &self,
         input: &mut Input,
-        msk: &str,
         signatures: [wots160::Signature; N_PUBLIC_KEYS],
     ) {
         let witness = script! {

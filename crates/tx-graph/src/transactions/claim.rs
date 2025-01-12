@@ -6,6 +6,7 @@ use strata_bridge_primitives::{
 
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`ClaimTx`].
 #[derive(Debug, Clone)]
 pub struct ClaimData {
     pub kickoff_txid: Txid,

@@ -3,26 +3,28 @@ use bitcoin::{
     Transaction, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::{
-    params::prelude::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*, types::OperatorIdx,
-};
+use strata_bridge_primitives::{params::prelude::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`DisproveTx`].
 #[derive(Debug, Clone)]
 pub struct DisproveData {
+    /// The transaction ID of the post-assert transaction.
     pub post_assert_txid: Txid,
 
+    /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 
+    /// The stake that remains after paying off the transaction fees in the preceding transactions.
     pub input_stake: Amount,
 
+    /// The bitcoin network on which the transaction is to be constructed.
     pub network: Network,
-
-    pub operator_idx: OperatorIdx,
 }
 
+/// The transaction used to disprove an operator's claim and slash their stake.
 #[derive(Debug, Clone)]
 pub struct DisproveTx {
     psbt: Psbt,
@@ -33,6 +35,7 @@ pub struct DisproveTx {
 }
 
 impl DisproveTx {
+    /// Constructs a new instance of the disprove transaction.
     pub fn new(
         data: DisproveData,
         connector_a30: ConnectorA30,
@@ -104,7 +107,8 @@ impl DisproveTx {
         }
     }
 
-    pub async fn finalize(
+    /// Finalizes the disprove transaction by adding the required witness and output data.
+    pub fn finalize(
         mut self,
         connector_a30: ConnectorA30,
         connector_a31: ConnectorA31,
@@ -113,13 +117,11 @@ impl DisproveTx {
         disprove_leaf: ConnectorA31Leaf,
         n_of_n_sig: schnorr::Signature,
     ) -> Transaction {
-        connector_a30
-            .finalize_input(
-                &mut self.psbt.inputs[0],
-                ConnectorA30Leaf::Disprove,
-                n_of_n_sig,
-            )
-            .await;
+        connector_a30.finalize_input(
+            &mut self.psbt.inputs[0],
+            ConnectorA30Leaf::Disprove,
+            n_of_n_sig,
+        );
 
         connector_a31.finalize_input(&mut self.psbt.inputs[1], disprove_leaf, deposit_txid);
 

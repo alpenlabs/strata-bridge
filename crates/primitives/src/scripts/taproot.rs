@@ -160,6 +160,10 @@ pub fn taproot_witness_signatures(script: Script) -> Vec<Vec<u8>> {
         .collect::<Vec<_>>()
 }
 
+/// Finalizes a [`bitcoin::Psbt`] input.
+///
+/// This done as per
+/// <https://github.com/rust-bitcoin/rust-bitcoin/blob/bitcoin-0.32.1/bitcoin/examples/taproot-psbt.rs#L315-L327>.
 pub fn finalize_input<D>(input: &mut Input, witnesses: impl IntoIterator<Item = D>)
 where
     D: AsRef<[u8]>,

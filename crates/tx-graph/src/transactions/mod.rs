@@ -1,3 +1,5 @@
+//! Constructs and finalizes transactions in the tx graph.
+
 pub mod assert_chain;
 pub mod assert_data;
 pub mod claim;
