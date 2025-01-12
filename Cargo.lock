@@ -10185,6 +10185,7 @@ dependencies = [
  "strata-test-utils",
  "strata-tx-parser 0.1.0 (git+https://github.com/alpenlabs/strata)",
  "strata-zkvm 0.1.0 (git+https://github.com/alpenlabs/strata)",
+ "thiserror 2.0.3",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@ use strata_primitives::{
 use strata_proofimpl_btc_blockspace::block::witness_commitment_from_coinbase;
 use strata_state::l1::{L1TxInclusionProof, L1TxProof, L1WtxProof};
 
-use crate::tx::BitcoinTx;
+use crate::bitcoin_tx::BitcoinTx;
 
 /// A transaction along with its [L1TxInclusionProof], parameterized by a `Marker` type
 /// (either [`TxIdMarker`] or [`WtxIdMarker`]).
