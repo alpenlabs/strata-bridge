@@ -228,7 +228,7 @@ where
                         .get_signature(
                             operator_id,
                             disprove_tx.compute_txid(),
-                            ConnectorA30Leaf::Disprove.get_input_index(),
+                            ConnectorA30Leaf::Disprove(()).get_input_index(),
                         )
                         .await
                         .unwrap()

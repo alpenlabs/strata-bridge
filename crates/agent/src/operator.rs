@@ -1733,7 +1733,7 @@ where
                 .get_signature(
                     own_index,
                     payout_tx.compute_txid(),
-                    ConnectorA30Leaf::Payout.get_input_index(),
+                    ConnectorA30Leaf::Payout(()).get_input_index(),
                 )
                 .await
                 .unwrap()

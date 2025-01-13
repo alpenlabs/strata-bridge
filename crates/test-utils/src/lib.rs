@@ -7,4 +7,5 @@
 pub mod bitcoin;
 pub mod musig2;
 pub mod prelude;
+pub mod tx;
 pub mod wots;

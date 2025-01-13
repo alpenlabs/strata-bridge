@@ -85,7 +85,7 @@ impl DisproveTx {
         ];
 
         let (script_buf, control_block) =
-            connector_a30.generate_spend_info(ConnectorA30Leaf::Disprove);
+            connector_a30.generate_spend_info(ConnectorA30Leaf::Disprove(()));
         let witness = TaprootWitness::Script {
             script_buf,
             control_block,
@@ -119,8 +119,7 @@ impl DisproveTx {
     ) -> Transaction {
         connector_a30.finalize_input(
             &mut self.psbt.inputs[0],
-            ConnectorA30Leaf::Disprove,
-            n_of_n_sig,
+            ConnectorA30Leaf::Disprove(n_of_n_sig),
         );
 
         connector_a31.finalize_input(&mut self.psbt.inputs[1], disprove_leaf, deposit_txid);

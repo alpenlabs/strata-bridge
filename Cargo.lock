@@ -9831,7 +9831,9 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "bitvm",
+ "corepc-node",
  "musig2",
+ "strata-bridge-btcio",
  "strata-bridge-primitives",
 ]
 
@@ -9855,6 +9857,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-script 0.3.0",
  "bitvm",
+ "corepc-node",
  "lazy_static",
  "secp256k1",
  "serde",
@@ -9862,6 +9865,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-proof-snark",
  "strata-bridge-test-utils",
+ "strata-common",
  "thiserror 2.0.9",
  "tracing",
 ]

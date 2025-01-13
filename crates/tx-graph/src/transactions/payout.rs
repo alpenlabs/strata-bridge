@@ -103,7 +103,7 @@ impl PayoutTx {
         }
 
         let (connector_a30_script, connector_a30_control_block) =
-            connector_a30.generate_spend_info(ConnectorA30Leaf::Payout);
+            connector_a30.generate_spend_info(ConnectorA30Leaf::Payout(()));
         let witnesses = vec![
             TaprootWitness::Key,
             TaprootWitness::Script {
@@ -133,8 +133,7 @@ impl PayoutTx {
 
         connector_a30.finalize_input(
             &mut self.psbt.inputs[1],
-            ConnectorA30Leaf::Payout,
-            n_of_n_sig,
+            ConnectorA30Leaf::Payout(n_of_n_sig),
         );
 
         self.psbt
