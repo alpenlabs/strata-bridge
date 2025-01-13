@@ -11,10 +11,10 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
-strata-bridge-primitives.workspace = true
 strata-bridge-btcio.workspace = true
+strata-bridge-primitives.workspace = true
 
 bitcoin.workspace = true
 bitvm.workspace = true
-musig2.workspace = true
 corepc-node.workspace = true
+musig2.workspace = true

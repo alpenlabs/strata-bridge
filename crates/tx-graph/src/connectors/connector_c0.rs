@@ -62,7 +62,7 @@ impl ConnectorC0 {
     /// Generates the tapleaf script for the given leaf.
     ///
     /// The witness data is not required to generate this information. So, a unit type can be
-    /// passsed in place of the witness parameter.
+    /// passed in place of the witness parameter.
     pub fn generate_tapleaf<W: Sized>(&self, tapleaf: ConnectorC0Leaf<W>) -> ScriptBuf {
         match tapleaf {
             ConnectorC0Leaf::PayoutOptimistic(_) => {
@@ -86,7 +86,7 @@ impl ConnectorC0 {
     /// Generates the taproot spend info for the given leaf.
     ///
     /// The witness data is not required to generate this information. So, a unit type can be
-    /// passsed in place of the witness parameter.
+    /// passed in place of the witness parameter.
     pub fn generate_spend_info<W: Sized>(
         &self,
         tapleaf: ConnectorC0Leaf<W>,

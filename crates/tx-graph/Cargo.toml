@@ -29,3 +29,4 @@ strata-bridge-test-utils.workspace = true
 strata-common.workspace = true
 
 corepc-node.workspace = true
+tokio.workspace = true

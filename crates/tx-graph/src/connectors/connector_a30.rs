@@ -88,7 +88,7 @@ impl ConnectorA30 {
     /// Creates the taproot script for the given tapleaf.
     ///
     /// The witness data is not required to generate this information. So, a unit type can be
-    /// passsed in place of the witness parameter.
+    /// passed in place of the witness parameter.
     pub fn generate_tapleaf<W: Sized>(&self, tapleaf: ConnectorA30Leaf<W>) -> ScriptBuf {
         tapleaf.generate_locking_script(&self.n_of_n_agg_pubkey)
     }
@@ -103,7 +103,7 @@ impl ConnectorA30 {
     /// Creates the tapoot spend info for the given leaf.
     ///
     /// The witness data is not required to generate this information. So, a unit type can be
-    /// passsed in place of the witness parameter.
+    /// passed in place of the witness parameter.
     pub fn generate_spend_info<W: Sized>(
         &self,
         tapleaf: ConnectorA30Leaf<W>,
