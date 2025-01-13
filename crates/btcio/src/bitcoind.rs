@@ -562,7 +562,7 @@ mod test {
             .build()
             .unwrap();
 
-        rt.spawn(async move {
+        rt.block_on(async move {
             // wait for the client to be ready
             sleep(Duration::from_secs(1)).await;
 
