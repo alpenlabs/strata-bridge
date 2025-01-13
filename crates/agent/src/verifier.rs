@@ -21,7 +21,10 @@ use strata_bridge_primitives::{
 use strata_bridge_proof_protocol::BridgeProofPublicParams;
 use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_tx_graph::{
-    connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf},
+    connectors::prelude::{
+        ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf,
+        DisprovePublicInputsCommitmentWitness,
+    },
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
     transactions::prelude::{CovenantTx, DisproveData, DisproveTx},
 };
@@ -153,15 +156,15 @@ where
 
                     if public_inputs_hash != committed_public_inputs_hash {
                         warn!(msg = "public inputs hash mismatch");
-                        Some(ConnectorA31Leaf::DisprovePublicInputsCommitment(
+                        Some(ConnectorA31Leaf::DisprovePublicInputsCommitment {
                             deposit_txid,
-                            Some((
-                                superblock_hash,
-                                bridge_out_txid,
-                                superblock_period_start_ts,
-                                groth16.0[0],
-                            )),
-                        ))
+                            witness: Some(DisprovePublicInputsCommitmentWitness {
+                                sig_superblock_hash: superblock_hash,
+                                sig_bridge_out_txid: bridge_out_txid,
+                                sig_superblock_period_start_ts: superblock_period_start_ts,
+                                sig_public_inputs_hash: groth16.0[0],
+                            }),
+                        })
                     } else {
                         // 2. do superblock validation
                         let is_superblock_invalid = false;
@@ -182,10 +185,10 @@ where
                                     &PARTIAL_VERIFIER_SCRIPTS,
                                 )[tapleaf_index]
                                     .clone();
-                                Some(ConnectorA31Leaf::DisproveProof((
+                                Some(ConnectorA31Leaf::DisproveProof {
                                     disprove_script,
-                                    Some(witness_script),
-                                )))
+                                    witness_script: Some(witness_script),
+                                })
                             } else {
                                 None
                             }

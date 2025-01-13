@@ -1430,7 +1430,7 @@ where
 
         let own_pubkey = self.agent.public_key().x_only_public_key().0;
 
-        // 1. pay the user with PoW transaction
+        // 1. pay the user
         if status.should_pay() {
             let user_pk = withdrawal_info.user_pk();
 
@@ -1593,25 +1593,6 @@ where
                 }
                 WotsSignatures::new(&self.msk, deposit_txid, assertions)
             };
-
-            // TODO: remove this
-            // verify groth16 assertions
-            {
-                info!(action = "verifying groth16 assertions");
-                let public_keys = self
-                    .public_db
-                    .get_wots_public_keys(own_index, deposit_txid)
-                    .await
-                    .unwrap()
-                    .unwrap(); // FIXME: Handle me
-
-                let disprove = g16::verify_signed_assertions(
-                    bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
-                    public_keys.groth16.0,
-                    assert_data_signatures.groth16,
-                );
-                dbg!(&disprove);
-            }
 
             let signed_assert_data_txs = assert_data.finalize(
                 connectors.assert_data160_factory,
@@ -1842,15 +1823,13 @@ where
                 .expect("should be able to get the latest timestamp from the best block");
             debug!(event = "got current timestamp (T_s)", %superblock_start_ts, %own_index);
 
-            let claim_tx_with_commitment = claim_tx
-                .finalize(
-                    deposit_txid,
-                    &connectors.kickoff,
-                    &self.msk,
-                    withdrawal_fulfillment_txid,
-                    superblock_start_ts,
-                )
-                .await;
+            let claim_tx_with_commitment = claim_tx.finalize(
+                deposit_txid,
+                &connectors.kickoff,
+                &self.msk,
+                withdrawal_fulfillment_txid,
+                superblock_start_ts,
+            );
 
             let raw_claim_tx: String = consensus::encode::serialize_hex(&claim_tx_with_commitment);
             trace!(event = "finalized claim tx", %deposit_txid, ?claim_tx_with_commitment, %raw_claim_tx, %own_index);

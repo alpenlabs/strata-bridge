@@ -74,7 +74,7 @@ impl ConnectorK {
     }
 
     /// Generates the taproot spend info for the connector.
-    pub async fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
+    pub fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
         let script = self.create_locking_script();
 
         let (_, spend_info) = create_taproot_addr(

@@ -76,7 +76,7 @@ impl ClaimTx {
         self.psbt.unsigned_tx.compute_txid()
     }
 
-    pub async fn finalize(
+    pub fn finalize(
         mut self,
         deposit_txid: Txid,
         connector_k: &ConnectorK,
@@ -84,7 +84,7 @@ impl ClaimTx {
         bridge_out_txid: Txid,
         superblock_period_start_ts: u32,
     ) -> Transaction {
-        let (script, control_block) = connector_k.generate_spend_info().await;
+        let (script, control_block) = connector_k.generate_spend_info();
 
         connector_k.create_tx_input(
             &mut self.psbt.inputs[0],

@@ -32,17 +32,25 @@ pub struct ConnectorA31 {
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum ConnectorA31Leaf {
-    DisproveProof((Script, Option<Script>)),
+    DisproveProof {
+        disprove_script: Script,
+        witness_script: Option<Script>,
+    },
+
     DisproveSuperblockCommitment(Option<(wots256::Signature, wots32::Signature, [u8; 80])>),
-    DisprovePublicInputsCommitment(
-        Txid,
-        Option<(
-            wots256::Signature,
-            wots256::Signature,
-            wots32::Signature,
-            wots256::Signature,
-        )>,
-    ),
+
+    DisprovePublicInputsCommitment {
+        deposit_txid: Txid,
+        witness: Option<DisprovePublicInputsCommitmentWitness>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DisprovePublicInputsCommitmentWitness {
+    pub sig_superblock_hash: wots256::Signature,
+    pub sig_bridge_out_txid: wots256::Signature,
+    pub sig_superblock_period_start_ts: wots32::Signature,
+    pub sig_public_inputs_hash: wots256::Signature,
 }
 
 impl ConnectorA31Leaf {
@@ -88,7 +96,7 @@ impl ConnectorA31Leaf {
                 }
             }
 
-            ConnectorA31Leaf::DisprovePublicInputsCommitment(deposit_txid, _) => {
+            ConnectorA31Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
                     { wots256::compact::checksig_verify(superblock_hash_public_key.0) }
                     for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
@@ -124,7 +132,9 @@ impl ConnectorA31Leaf {
                     OP_NOT
                 }
             }
-            ConnectorA31Leaf::DisproveProof((disprove_script, _)) => disprove_script,
+            ConnectorA31Leaf::DisproveProof {
+                disprove_script, ..
+            } => disprove_script,
         }
     }
 
@@ -142,15 +152,16 @@ impl ConnectorA31Leaf {
                     { sig_superblock_hash.to_compact_script() }
                 }
             }
-            ConnectorA31Leaf::DisprovePublicInputsCommitment(
-                _,
-                Some((
-                    sig_superblock_hash,
-                    sig_bridge_out_txid,
-                    sig_superblock_period_start_ts,
-                    sig_public_inputs_hash,
-                )),
-            ) => {
+            ConnectorA31Leaf::DisprovePublicInputsCommitment {
+                witness:
+                    Some(DisprovePublicInputsCommitmentWitness {
+                        sig_superblock_hash,
+                        sig_bridge_out_txid,
+                        sig_superblock_period_start_ts,
+                        sig_public_inputs_hash,
+                    }),
+                ..
+            } => {
                 script! {
                     { sig_public_inputs_hash.to_compact_script() }
                     { sig_superblock_period_start_ts.to_compact_script() }
@@ -158,7 +169,10 @@ impl ConnectorA31Leaf {
                     { sig_superblock_hash.to_compact_script() }
                 }
             }
-            ConnectorA31Leaf::DisproveProof((_, Some(witness_script))) => witness_script,
+            ConnectorA31Leaf::DisproveProof {
+                witness_script: Some(witness_script),
+                ..
+            } => witness_script,
             _ => panic!("no data provided to finalize input"),
         }
     }
@@ -214,17 +228,23 @@ impl ConnectorA31 {
             ConnectorA31Leaf::DisproveSuperblockCommitment(None)
                 .generate_locking_script(self.wots_public_keys)
                 .compile(),
-            ConnectorA31Leaf::DisprovePublicInputsCommitment(deposit_txid, None)
-                .generate_locking_script(self.wots_public_keys)
-                .compile(),
+            ConnectorA31Leaf::DisprovePublicInputsCommitment {
+                deposit_txid,
+                witness: None,
+            }
+            .generate_locking_script(self.wots_public_keys)
+            .compile(),
         ];
 
         let mut invalidate_proof_tapleaves = Vec::with_capacity(N_TAPLEAVES);
         for disprove_script in disprove_scripts.into_iter() {
             invalidate_proof_tapleaves.push(
-                ConnectorA31Leaf::DisproveProof((disprove_script, None))
-                    .generate_locking_script(self.wots_public_keys)
-                    .compile(),
+                ConnectorA31Leaf::DisproveProof {
+                    disprove_script,
+                    witness_script: None,
+                }
+                .generate_locking_script(self.wots_public_keys)
+                .compile(),
             );
         }
 
