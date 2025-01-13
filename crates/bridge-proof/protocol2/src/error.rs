@@ -1,27 +1,28 @@
-/// Represents all errors that can occur during verification of a bridge proof.
-#[derive(Debug, thiserror::Error)]
-pub enum BridgeProofError {
-    /// The checkpoint extraction failed or was missing.
-    #[error("Could not extract checkpoint: {0}")]
-    CheckpointExtractionError(String),
+use thiserror::Error;
 
-    /// The checkpoint transaction proof is invalid or missing from the headers.
-    #[error("Invalid checkpoint transaction inclusion proof.")]
-    InvalidCheckpointTxInclusion,
+/// Represents all possible errors that can occur during the verification of a bridge proof.
+#[derive(Debug, Error)]
+pub enum BridgeProofError {
+    /// Error extracting transaction-related information.
+    /// Contains the specific transaction type that triggered the error.
+    #[error("Could not extract info from tx: {0:?}")]
+    TxInfoExtractionError(BridgeRelatedTx),
+
+    /// The merkle proof for the transaction is invalid.
+    /// Contains the specific transaction type that triggered the error.
+    #[error("Merkle inclusion proof invalid for tx: {0:?}")]
+    InvalidMerkleProof(BridgeRelatedTx),
 
     /// The chain state root does not match the checkpoint's state root.
-    #[error("Mismatch between chain state root and checkpoint state root.")]
-    InvalidChainStateRoot,
+    #[error("Mismatch between input ChainState and CheckpointTx ChainState")]
+    ChainStateMismatch,
 
-    /// A header in the provided list of headers is invalid or out of continuity.
-    #[error("Failed to verify continuity for one or more headers.")]
-    InvalidHeaderContinuity,
+    /// The chain state has encountered an internal error that is derived from `ChainStateError`.
+    #[error("Mismatch between input ChainState and CheckpointTx ChainState")]
+    ChainStateError(#[from] ChainStateError),
 
-    /// The withdrawal fulfillment transaction proof is invalid or missing from the headers.
-    #[error("Invalid withdrawal fulfillment transaction inclusion proof.")]
-    InvalidWithdrawalFulfillmentInclusion,
-
-    /// The chain state does not match the expected deposit or withdrawal data.
+    /// The chain state does not match the expected deposit or withdrawal data,
+    /// such as operator index, withdrawal address, or amount.
     #[error("Mismatch in operator index, withdrawal address, or amount.")]
     InvalidWithdrawalData,
 
@@ -29,19 +30,46 @@ pub enum BridgeProofError {
     #[error("Invalid anchor public key merkle proof.")]
     InvalidAnchorProof,
 
-    /// The claim transaction proof is invalid or missing from the headers.
-    #[error("Invalid claim transaction inclusion proof.")]
-    InvalidClaimTxInclusion,
+    /// The claim transaction's information is invalid, for instance a withdrawal commitment
+    /// mismatch.
+    #[error("Claim info is invalid")]
+    InvalidClaimInfo(#[from] InvalidClaimInfo),
+}
 
-    /// The claim transaction does not commit to the correct withdrawal fulfillment TxID.
-    #[error("Invalid claim transaction: withdrawal fulfillment TxID mismatch.")]
-    InvalidClaimTxFulfillment,
+/// Represents all errors that can occur specifically during the verification of a claim's
+/// information.
+#[derive(Debug, Error)]
+pub enum InvalidClaimInfo {
+    /// Indicates that the withdrawal fulfillment transaction ID committed on-chain
+    /// was not found or did not match the expected one in the provided header chain.
+    #[error("Committed withdrawal fulfillment transaction ID not found in the header chain")]
+    InvalidWithdrawalCommitment,
 
-    /// The claim transaction does not commit to the correct anchor public key index.
-    #[error("Invalid claim transaction: anchor index mismatch.")]
-    InvalidClaimTxAnchorIndex,
+    /// Indicates a mismatch between the committed anchor index and the anchor index
+    /// used in the claim.
+    #[error("Committed anchor was: {0}. But the given anchor is of index {1}")]
+    InvalidAnchorCommitment(usize, usize),
+}
 
-    /// A generic error occurred (wraps a string message).
-    #[error("{0}")]
-    Generic(String),
+/// Represents errors that occur during the verification of chain state.
+#[derive(Debug, Error)]
+pub enum ChainStateError {
+    /// Indicates that the deposit could not be found for the specified index.
+    #[error("Deposit not found for idx {0}")]
+    DepositNotFound(usize),
+
+    /// Indicates that the deposit state is invalid or unexpected for the operation in question.
+    #[error("Deposit state is expected to be Dispatched")]
+    InvalidDepositState,
+}
+
+/// Identifies the type of a transaction relevant to the bridge proof process.
+#[derive(Debug, Clone)]
+pub enum BridgeRelatedTx {
+    /// A Strata checkpoint transaction.
+    StrataCheckpoint,
+    /// A withdrawal fulfillment transaction.
+    WithdrawalFulfillment,
+    /// A claim transaction.
+    Claim,
 }
