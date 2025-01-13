@@ -9861,14 +9861,12 @@ dependencies = [
  "lazy_static",
  "secp256k1",
  "serde",
- "strata-bridge-btcio",
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-proof-snark",
  "strata-bridge-test-utils",
  "strata-common",
  "thiserror 2.0.9",
- "tokio",
  "tracing",
 ]
 
