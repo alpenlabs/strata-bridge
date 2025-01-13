@@ -1,7 +1,8 @@
+mod bitcoin_tx;
 mod error;
+mod prover;
 mod signing_key_proof;
 mod statement;
-mod bitcoin_tx;
 mod tx_inclusion_proof;
 mod tx_info;
 
@@ -14,8 +15,14 @@ use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
 use strata_zkvm::ZkVmEnv;
 use tx_inclusion_proof::L1TxWithProofBundle;
 
-#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+#[derive(Debug, Clone)]
 pub struct BridgeProofInput {
+    /// The [RollupParams] of the strata rollup
+    rollup_params: RollupParams,
+
+    /// Vector of Bitcoin headers starting after the one that has been verified by the `header_vs`
+    headers: Vec<Header>,
+
     /// The [Chainstate] that can be verified by the strata checkpoint proof.
     chain_state: Chainstate,
 
@@ -48,6 +55,35 @@ pub struct BridgeProofInput {
     anchor_key_root: Buf32,
 }
 
+/// Subset of [`BridgeProofInput`] that is [borsh]-serializable
+#[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
+pub(crate) struct BridgeProofInputBorsh {
+    chain_state: Chainstate,
+    header_vs: HeaderVerificationState,
+    deposit_idx: usize,
+    strata_checkpoint_tx: (L1TxWithProofBundle, usize),
+    claim_tx: (L1TxWithProofBundle, usize),
+    withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
+    anchor_key_proof: AnchorPublicKeyMerkleProof,
+    anchor_key_root: Buf32,
+}
+
+// Implement `From<&BridgeProofInput>` to create a `BridgeProofInputBorsh`.
+impl From<BridgeProofInput> for BridgeProofInputBorsh {
+    fn from(input: BridgeProofInput) -> Self {
+        Self {
+            chain_state: input.chain_state,
+            header_vs: input.header_vs,
+            deposit_idx: input.deposit_idx,
+            strata_checkpoint_tx: input.strata_checkpoint_tx,
+            claim_tx: input.claim_tx,
+            withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,
+            anchor_key_proof: input.anchor_key_proof,
+            anchor_key_root: input.anchor_key_root,
+        }
+    }
+}
+
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct BridgeProofOutput {
     anchor_idx: usize,
@@ -69,16 +105,22 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
         })
         .collect();
 
-    // TODO: update the primitives
+    // TODO: update the strata_primitives?
     let rollup_vk = match rollup_params.rollup_vk() {
         RollupVerifyingKey::SP1VerifyingKey(sp1_vk) => sp1_vk,
         RollupVerifyingKey::Risc0VerifyingKey(risc0_vk) => risc0_vk,
         RollupVerifyingKey::NativeVerifyingKey(native_vk) => native_vk,
     };
 
-    let input: BridgeProofInput = zkvm.read_borsh();
+    let input: BridgeProofInputBorsh = zkvm.read_borsh();
 
-    let output = process_bridge_proof(input, headers, rollup_params);
+    let (output, checkpoint) =
+        process_bridge_proof(input, headers, rollup_params).expect("expect output");
+
+    // Verify the strata checkpoint proof
+    let public_params_raw =
+        borsh::to_vec(&checkpoint.get_proof_output()).expect("borsh serialization must not fail");
+    zkvm.verify_groth16_proof(checkpoint.proof(), &rollup_vk.0, &public_params_raw);
 
     zkvm.commit_borsh(&output);
 }
