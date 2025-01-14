@@ -129,3 +129,63 @@ pub fn create_tx_outs(
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use musig2::{
+        aggregate_partial_signatures, sign_partial, AggNonce, PartialSignature, SecNonce,
+    };
+    use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
+
+    use super::*;
+
+    #[test]
+    fn test_agg_pubkey_single() {
+        let (secret_key, public_key) = generate_keypair(&mut OsRng);
+        let keypair = secret_key.keypair(SECP256K1);
+        let key_agg_ctx =
+            KeyAggContext::new([public_key]).expect("must be able to aggregate a single pubkey");
+
+        let agg_pubkey: XOnlyPublicKey = get_aggregated_pubkey(vec![public_key]);
+
+        assert_ne!(agg_pubkey, public_key.x_only_public_key().0);
+
+        let data = [0u8; 32];
+        let message = Message::from_digest_slice(&data).expect("must be valid");
+
+        let signature = SECP256K1.sign_schnorr(&message, &keypair);
+        assert!(SECP256K1
+            .verify_schnorr(&signature, &message, &public_key.x_only_public_key().0)
+            .is_ok());
+
+        let signature = SECP256K1.sign_schnorr(&message, &keypair);
+        assert!(SECP256K1
+            .verify_schnorr(&signature, &message, &agg_pubkey)
+            .is_err());
+
+        let public_key: PublicKey = key_agg_ctx.aggregated_pubkey();
+        let secnonce = SecNonce::build(data)
+            .with_seckey(secret_key)
+            .with_message(&data)
+            .with_aggregated_pubkey(public_key)
+            .build();
+        let pubnonce = secnonce.public_nonce();
+        let agg_nonce: AggNonce = [pubnonce].iter().cloned().sum();
+
+        let partial_sig: PartialSignature = sign_partial(
+            &key_agg_ctx,
+            secret_key,
+            secnonce,
+            &agg_nonce,
+            message.as_ref(),
+        )
+        .expect("must be able to sign with partial signature");
+
+        let agg_sig =
+            aggregate_partial_signatures(&key_agg_ctx, &agg_nonce, [partial_sig], message.as_ref())
+                .expect("must be able to aggregate partial signatures");
+        assert!(SECP256K1
+            .verify_schnorr(&agg_sig, &message, &agg_pubkey)
+            .is_ok());
+    }
+}

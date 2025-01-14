@@ -7,7 +7,7 @@ pub const FEES: Amount = Amount::from_sat(1_000);
 
 pub fn get_connector_txs<const NUM_LEAVES: usize>(
     btc_client: &Client,
-    output_amount: Amount,
+    input_amount: Amount,
     output_address: Address,
 ) -> [Transaction; NUM_LEAVES] {
     let src = btc_client.new_address().expect("must generate new address");
@@ -26,7 +26,7 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
             vout: utxo.vout,
         }]),
         create_tx_outs(vec![
-            (output_address.script_pubkey(), output_amount,);
+            (output_address.script_pubkey(), input_amount,);
             NUM_LEAVES
         ]),
     );
@@ -70,7 +70,7 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
 
     let tx_outs = create_tx_outs([(
         src.script_pubkey(),
-        output_amount.checked_sub(FEES).expect("fees must be valid"),
+        input_amount.checked_sub(FEES).expect("fees must be valid"),
     )]);
 
     let locking_script = output_address.script_pubkey();
@@ -94,4 +94,60 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
         .collect::<Vec<_>>()
         .try_into()
         .expect("transaction count must match")
+}
+
+pub fn get_mock_deposit(
+    btc_client: &Client,
+    deposit_amount: Amount,
+    bridge_address: &Address,
+) -> Transaction {
+    let src = btc_client.new_address().expect("must generate new address");
+    btc_client
+        .generate_to_address(101, &src)
+        .expect("must be able to mine blocks");
+
+    let utxos = btc_client
+        .call::<Vec<ListUnspent>>("listunspent", &[])
+        .expect("must be able to get utxos");
+    let utxo = utxos
+        .iter()
+        .find(|utxo| utxo.amount >= deposit_amount + FEES)
+        .expect("must have at least one valid utxo");
+
+    let mut tx = create_tx(
+        create_tx_ins([OutPoint {
+            txid: utxo.txid,
+            vout: utxo.vout,
+        }]),
+        create_tx_outs(vec![(bridge_address.script_pubkey(), deposit_amount)]),
+    );
+
+    let change_amount = utxo.amount.checked_sub(deposit_amount + FEES);
+
+    tx.output.push(TxOut {
+        script_pubkey: src.script_pubkey(),
+        value: change_amount.expect("amount must be valid"),
+    });
+
+    let signed_tx = btc_client
+        .call::<SignRawTransactionWithWallet>(
+            "signrawtransactionwithwallet",
+            &[serde_json::Value::String(consensus::encode::serialize_hex(
+                &tx,
+            ))],
+        )
+        .expect("must be able to fund tx");
+
+    let signed_deposit_tx: Transaction = consensus::encode::deserialize_hex(&signed_tx.hex)
+        .expect("must be able to deserialize raw tx");
+
+    btc_client
+        .send_raw_transaction(&signed_deposit_tx)
+        .expect("must be able to send deposit tx");
+
+    btc_client
+        .generate_to_address(6, &src)
+        .expect("must be able to confirm deposit");
+
+    signed_deposit_tx
 }

@@ -128,6 +128,8 @@ impl PostAssertTx {
     }
 
     /// Finalizes the transaction by adding the required n-of-n signatures.
+    ///
+    /// The signatures must be specified in the order of the inputs.
     pub fn finalize(mut self, signatures: &[Signature]) -> Transaction {
         // skip the stake
         for (index, input) in self.psbt.inputs.iter_mut().enumerate() {
