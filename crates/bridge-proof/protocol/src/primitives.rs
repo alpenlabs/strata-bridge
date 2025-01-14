@@ -441,7 +441,7 @@ mod tests {
 
     #[test]
     fn test_dump_proof_inputs() {
-        let blocks_bytes = include_bytes!("../inputs/blocks.bin");
+        let blocks_bytes = include_bytes!("../../../../test-data/blocks.bin");
         let blocks: Vec<Block> = bincode::deserialize(blocks_bytes).unwrap();
 
         let initial_header_state = data::header_verification_state();
