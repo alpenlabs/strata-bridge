@@ -245,6 +245,47 @@ impl GetTransaction {
     }
 }
 
+/// Result of JSON-RPC method `gettxout`.
+///
+/// > gettxout "txid" n ( include_mempool )
+/// >
+/// > Returns details about an unspent transaction output.
+/// >
+/// > Arguments:
+/// > 1. txid               (string, required) The transaction id
+/// > 2. n                  (numeric, required) vout number
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct GetTxOut {
+    /// The hash of the block at the tip of the chain.
+    #[serde(rename = "bestblock")]
+    pub best_block: String,
+    /// The number of confirmations.
+    pub confirmations: u32, // TODO: Change this to an i64.
+    /// The transaction value in BTC.
+    pub value: f64,
+    /// The script pubkey.
+    #[serde(rename = "scriptPubKey")]
+    pub script_pubkey: ScriptPubKey,
+    /// Coinbase or not.
+    pub coinbase: bool,
+}
+
+/// A script pubkey.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ScriptPubKey {
+    /// Script assembly.
+    pub asm: String,
+    /// Descriptor.
+    pub desc: String,
+    /// Script hex.
+    pub hex: String,
+    /// The type, eg pubkeyhash.
+    #[serde(rename = "type")]
+    pub type_: String,
+    /// Bitcoin address.
+    pub address: String,
+}
+
 /// Models the result of JSON-RPC method `listunspent`.
 ///
 /// # Note
