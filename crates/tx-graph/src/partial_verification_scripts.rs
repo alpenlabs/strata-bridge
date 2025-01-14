@@ -14,6 +14,12 @@ lazy_static! {
 
 /// Loads tapscripts for the groth16 verifier program.
 pub fn load_or_create_verifier_scripts() -> [Script; 579] {
+    if cfg!(feature = "mock") {
+        warn!("Detected mock feature, returning empty verifier scripts");
+
+        return vec![script!(); 579].try_into().expect("size must match");
+    }
+
     let verifier_scripts: [Script; g16::N_TAPLEAVES] = if fs::exists(PARTIAL_VERIFIER_SCRIPTS_PATH)
         .expect("should be able to check for existence of verifier scripts file")
     {

@@ -34,3 +34,4 @@ tracing.workspace = true
 
 [features]
 prover = ["strata-sp1-adapter/prover", "strata-bridge-guest-builder/prover"]
+mock = []

@@ -3,17 +3,27 @@ use ark_ec::CurveGroup;
 use ark_ff::{Field, PrimeField};
 use bitvm::groth16::g16;
 use lazy_static::lazy_static;
-use sp1_sdk::{HashableKey, Prover, ProverClient};
-use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 
 use crate::sp1;
 
 lazy_static! {
     pub static ref GROTH16_VERIFICATION_KEY: g16::VerifyingKey = {
-        let pc = ProverClient::builder().network().build();
-        let (_, sp1vk) = pc.setup(GUEST_BRIDGE_ELF);
+        let vkey_hash = if cfg!(feature = "mock") {
+            println!("Detected mock environment, using mock vk");
 
-        let vkey_hash = hex::decode(sp1vk.bytes32().strip_prefix("0x").unwrap()).unwrap();
+            const MOCK_KEY: &str = "f11a13dc16284374ad770eb12246bbcd2931cf02e76e0bc4046156cb2cd7d8f4";
+            hex::decode(MOCK_KEY).unwrap()
+        } else {
+            println!("Detected non-mock environment, fetching vk from the network");
+
+            use sp1_sdk::{HashableKey, Prover, ProverClient};
+            use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
+
+            let pc = ProverClient::builder().network().build();
+            let (_, sp1vk) = pc.setup(GUEST_BRIDGE_ELF);
+
+            hex::decode(sp1vk.bytes32().strip_prefix("0x").unwrap()).unwrap()
+        };
 
         let compile_time_public_inputs = [Fr::from_be_bytes_mod_order(&vkey_hash)];
 

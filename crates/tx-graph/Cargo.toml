@@ -26,6 +26,12 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
+strata-bridge-btcio.workspace = true
 strata-common.workspace = true
 
 corepc-node.workspace = true
+rkyv.workspace = true
+tokio.workspace = true
+
+[features]
+mock = ["strata-bridge-proof-snark/mock"]
