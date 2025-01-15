@@ -9,6 +9,7 @@ members = [
   "crates/rpc/strata",
   "crates/bridge-proof/test-utils",
   "crates/tx-graph",
+  "crates/btc-notify",
   "bridge-guest-builder",
 
   # binaries listed separately
