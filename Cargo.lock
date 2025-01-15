@@ -9678,7 +9678,6 @@ dependencies = [
  "anyhow",
  "bincode",
  "bitcoin",
- "bitcoin-script 0.3.0",
  "bitvm",
  "borsh",
  "jsonrpsee",
@@ -9841,7 +9840,7 @@ dependencies = [
 [[package]]
 name = "strata-bridge-tx-builder"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "bitcoin",
  "musig2",
@@ -9877,7 +9876,7 @@ dependencies = [
 [[package]]
 name = "strata-btcio"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9910,7 +9909,7 @@ dependencies = [
 [[package]]
 name = "strata-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "bitcoin",
  "opentelemetry",
@@ -9926,7 +9925,7 @@ dependencies = [
 [[package]]
 name = "strata-config"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "bitcoin",
  "serde",
@@ -9935,7 +9934,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -9945,7 +9944,7 @@ dependencies = [
 [[package]]
 name = "strata-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -9966,7 +9965,7 @@ dependencies = [
 [[package]]
 name = "strata-l1tx"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -9984,7 +9983,7 @@ dependencies = [
 [[package]]
 name = "strata-mmr"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -9997,7 +9996,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -10022,7 +10021,7 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -10048,7 +10047,7 @@ dependencies = [
 [[package]]
 name = "strata-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10065,7 +10064,7 @@ dependencies = [
 [[package]]
 name = "strata-sp1-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "bincode",
  "borsh",
@@ -10083,7 +10082,7 @@ dependencies = [
 [[package]]
 name = "strata-state"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -10103,7 +10102,7 @@ dependencies = [
 [[package]]
 name = "strata-status"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "strata-primitives",
  "strata-rpc-types",
@@ -10116,7 +10115,7 @@ dependencies = [
 [[package]]
 name = "strata-storage"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -10135,7 +10134,7 @@ dependencies = [
 [[package]]
 name = "strata-tasks"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -10147,7 +10146,7 @@ dependencies = [
 [[package]]
 name = "strata-zkvm"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
 dependencies = [
  "arbitrary",
  "bincode",
