@@ -4,17 +4,18 @@ name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 
 [dependencies]
+strata-primitives.workspace = true
+strata-proofimpl-btc-blockspace.workspace = true
+strata-state.workspace = true
+strata-l1tx.workspace = true
+strata-zkvm.workspace = true
+
 bincode.workspace = true
 bitcoin.workspace = true
 borsh.workspace = true
 hex.workspace = true
 serde = { workspace = true, features = ["derive"] }
-sp1-verifier = { version = "=4.0.0-rc.8" }          # Note: On new SP1 version, this will be available via SDK
-strata-primitives.workspace = true
-strata-proofimpl-btc-blockspace.workspace = true
-strata-state.workspace = true
-strata-tx-parser.workspace = true
-strata-zkvm.workspace = true
+sp1-verifier = { version = "4.0.0" }          # Note: On new SP1 version, this will be available via SDK
 
 [dev-dependencies]
 bincode.workspace = true

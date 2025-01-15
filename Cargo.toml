@@ -49,7 +49,7 @@ strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.g
 strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
 strata-sp1-adapter = { git = "https://github.com/alpenlabs/strata.git" }
 strata-state = { git = "https://github.com/alpenlabs/strata.git" }
-strata-tx-parser = { git = "https://github.com/alpenlabs/strata.git" }
+strata-l1tx = { git = "https://github.com/alpenlabs/strata.git" }
 strata-zkvm = { git = "https://github.com/alpenlabs/strata.git" }
 
 # external deps

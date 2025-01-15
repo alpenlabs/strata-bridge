@@ -1,7 +1,7 @@
 use bitcoin::block::Header;
 use strata_btcio::{
     reader::query::get_verification_state,
-    rpc::{traits::Reader, BitcoinClient},
+    rpc::{traits::ReaderRpc, BitcoinClient},
 };
 use strata_primitives::{buf::Buf32, l1::OutputRef};
 use strata_state::{

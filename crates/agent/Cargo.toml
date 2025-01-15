@@ -17,11 +17,11 @@ strata-bridge-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
 strata-bridge-tx-graph.workspace = true
-strata-rpc = { workspace = true, features = ["client"] }
 
+strata-rpc = { workspace = true, features = ["client"] }
 strata-primitives.workspace = true
 strata-state.workspace = true
-strata-tx-parser.workspace = true
+strata-l1tx.workspace = true
 
 anyhow.workspace = true
 bincode.workspace = true

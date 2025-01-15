@@ -245,6 +245,7 @@ mod tests {
     mod data {
         use bitcoin::Transaction;
         use borsh::BorshDeserialize;
+        use strata_l1tx::envelope::parser::parse_envelope_data;
         use strata_primitives::buf::Buf32;
         use strata_state::{
             batch::{BatchCheckpoint, SignedBatchCheckpoint},
@@ -252,7 +253,6 @@ mod tests {
             chain_state::Chainstate,
             l1::{HeaderVerificationState, L1BlockId, TimestampStore},
         };
-        use strata_tx_parser::inscription::parse_inscription_data;
 
         pub fn chain_state() -> Chainstate {
             let data = [
@@ -422,9 +422,9 @@ mod tests {
 
         pub fn checkpoint_last_verified_l1_height(tx: &Transaction) -> Option<u32> {
             if let Some(script) = tx.input[0].witness.tapscript() {
-                if let Ok(inscription) = parse_inscription_data(&script.into(), "alpenstrata") {
+                if let Ok(inscription) = parse_envelope_data(&script.into(), "alpenstrata") {
                     if let Ok(signed_batch_checkpoint) =
-                        borsh::from_slice::<SignedBatchCheckpoint>(inscription.batch_data())
+                        borsh::from_slice::<SignedBatchCheckpoint>(inscription.data())
                     {
                         let batch_checkpoint: BatchCheckpoint = signed_batch_checkpoint.into();
                         return Some(batch_checkpoint.batch_info().l1_range.1 as u32);

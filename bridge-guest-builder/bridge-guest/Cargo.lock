@@ -2012,16 +2012,6 @@ dependencies = [
 
 [[package]]
 name = "sp1-lib"
-version = "3.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c8744af050832df5ca44fcd63979a83b93ca3010b2d5a5ce2a2b91f7438065c"
-dependencies = [
- "bincode",
- "serde",
-]
-
-[[package]]
-name = "sp1-lib"
 version = "4.0.0-rc.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4d273fe1c97fd68a63850f65baa7c5a3baaf8ea5c857e661d28c01af06c3d12"
@@ -2051,9 +2041,9 @@ dependencies = [
 
 [[package]]
 name = "sp1-verifier"
-version = "4.0.0-rc.8"
+version = "4.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9b4e33b7cb6da3a9a19a91c2615e7a08d8806fd0cc1ca01fb9e05ed8dcae09c"
+checksum = "613b9d79e1dd8d1b584654710a462340ff6b4b1ad8762830c4c9f772892467f8"
 dependencies = [
  "hex",
  "lazy_static",
@@ -2076,7 +2066,7 @@ dependencies = [
  "p3-field",
  "rand",
  "sha2",
- "sp1-lib 4.0.0-rc.9",
+ "sp1-lib",
  "sp1-primitives",
 ]
 
@@ -2121,17 +2111,17 @@ dependencies = [
  "hex",
  "serde",
  "sp1-verifier",
+ "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
- "strata-tx-parser",
  "strata-zkvm",
 ]
 
 [[package]]
 name = "strata-bridge-tx-builder"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
 dependencies = [
  "bitcoin",
  "musig2",
@@ -2143,7 +2133,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -2151,9 +2141,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-l1tx"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
+dependencies = [
+ "anyhow",
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "hex",
+ "musig2",
+ "strata-bridge-tx-builder",
+ "strata-primitives",
+ "strata-state",
+ "thiserror 1.0.67",
+ "tracing",
+]
+
+[[package]]
 name = "strata-primitives"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -2163,6 +2171,7 @@ dependencies = [
  "digest 0.10.7",
  "hex",
  "musig2",
+ "num_enum",
  "rand",
  "reth-primitives",
  "secp256k1",
@@ -2177,23 +2186,23 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
 dependencies = [
  "bitcoin",
  "borsh",
  "serde",
  "sha2",
  "strata-bridge-tx-builder",
+ "strata-l1tx",
  "strata-primitives",
  "strata-state",
- "strata-tx-parser",
  "strata-zkvm",
 ]
 
 [[package]]
 name = "strata-state"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -2201,7 +2210,6 @@ dependencies = [
  "digest 0.10.7",
  "ethnum",
  "hex",
- "num_enum",
  "serde",
  "sha2",
  "strata-bridge-tx-builder",
@@ -2212,27 +2220,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-tx-parser"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
-dependencies = [
- "anyhow",
- "arbitrary",
- "bitcoin",
- "borsh",
- "hex",
- "musig2",
- "strata-bridge-tx-builder",
- "strata-primitives",
- "strata-state",
- "thiserror 1.0.67",
- "tracing",
-]
-
-[[package]]
 name = "strata-zkvm"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#ed2aba3f241187af513062c74041e72400ddfb8f"
+source = "git+https://github.com/alpenlabs/strata.git#1323644689c3809d69f00032626765c346b68008"
 dependencies = [
  "arbitrary",
  "bincode",
@@ -2266,9 +2256,9 @@ dependencies = [
 
 [[package]]
 name = "substrate-bn-succinct"
-version = "0.6.0"
+version = "0.6.0-v4-rc.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "114c855c26ad0594c830129cb868552fb41415603a6133276c2ecdd9e5ef4255"
+checksum = "4b9a33ccd271a0ad4cc5ddef11ca419fe8d22c669920965be1cecbbe7d866ae1"
 dependencies = [
  "bytemuck",
  "byteorder",
@@ -2278,7 +2268,7 @@ dependencies = [
  "num-bigint",
  "rand",
  "rustc-hex",
- "sp1-lib 3.2.1",
+ "sp1-lib",
 ]
 
 [[package]]
