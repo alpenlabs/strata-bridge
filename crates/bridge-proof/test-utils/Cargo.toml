@@ -5,10 +5,10 @@ version = "0.1.0"
 
 [dependencies]
 strata-btcio.workspace = true
+strata-l1tx.workspace = true
 strata-primitives.workspace = true
 strata-proofimpl-btc-blockspace.workspace = true
 strata-state.workspace = true
-strata-l1tx.workspace = true
 strata-zkvm.workspace = true
 
 bitcoin.workspace = true
