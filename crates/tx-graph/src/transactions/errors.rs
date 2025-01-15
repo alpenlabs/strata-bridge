@@ -7,6 +7,10 @@ pub enum TxError {
     #[error("build: {0}")]
     BuildTx(#[from] BridgeTxBuilderError),
 
+    /// Witness format is invalid.
+    #[error("could not parse: {0}")]
+    Witness(String),
+
     /// An unexpected error occurred.
     // HACK: This should only be used while developing, testing or bikeshedding the right variant
     // for a particular error.

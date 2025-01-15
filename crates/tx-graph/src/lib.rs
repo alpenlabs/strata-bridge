@@ -1,8 +1,9 @@
 //! This crate enables creating and verifying a transaction graph for a pegouts.
 
 #![feature(duration_constructors)] // for constructing `Duration::from_days`
-#![allow(incomplete_features)] // the feature below is used in size computations
-#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)] // this feature is used in size computations
+#![feature(array_try_from_fn)] // this feature is used to generate arrays in a fallible way
 
 pub mod connectors;
 pub mod errors;

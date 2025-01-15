@@ -1,5 +1,5 @@
 use bitcoin::{OutPoint, Psbt, Transaction, TxOut, Txid};
-use bitvm::signatures::wots::wots256;
+use bitvm::{groth16::g16, signatures::wots::wots256, treepp::*};
 use strata_bridge_primitives::{
     params::{
         connectors::{
@@ -7,10 +7,11 @@ use strata_bridge_primitives::{
         },
         prelude::*,
     },
-    scripts::prelude::*,
+    scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
     wots,
 };
 
+use super::errors::{TxError, TxResult};
 use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`AssertDataTxBatch`].
@@ -208,5 +209,140 @@ impl AssertDataTxBatch {
             .collect::<Vec<_>>()
             .try_into()
             .unwrap()
+    }
+
+    /// Parse the assertion data from the signed transactions in the batch.
+    pub fn parse_witnesses(
+        assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
+    ) -> TxResult<Option<(wots256::Signature, g16::Signatures)>> {
+        let witnesses = assert_data_txs
+            .iter()
+            .flat_map(|tx| {
+                tx.input.iter().map(|txin| {
+                    script! {
+                        for w in txin.witness.into_iter().take(txin.witness.len() - 2) {
+                            if w.len() == 1 { { w[0] } } else { { w.to_vec() } }
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+
+        let witness256 = witnesses
+            .get(0..NUM_CONNECTOR_A256)
+            .ok_or(TxError::Witness("invalid 256-bit witness size".to_string()))?
+            .to_vec()
+            .try_into()
+            .or(Err(TxError::Witness(
+                "invalid 256-bit witness size".to_string(),
+            )))?;
+
+        let witness160 = witnesses
+            .get(NUM_ASSERT_DATA_TX1_A256_PK7..NUM_CONNECTOR_A256 + NUM_CONNECTOR_A160)
+            .ok_or(TxError::Witness("invalid 256-bit witness size".to_string()))?
+            .to_vec()
+            .try_into()
+            .or(Err(TxError::Witness(
+                "invalid 160-bit witness size".to_string(),
+            )))?;
+
+        let witness160_residual = witnesses.last().cloned();
+
+        Ok(Some(
+            parse_assertion_witnesses(witness256, witness160, witness160_residual)
+                .map_err(|e| TxError::Witness(e.to_string()))?,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use bitcoin::{key::TapTweak, Address, Amount, Network, Witness};
+    use rkyv::rancor::Error;
+    use strata_bridge_primitives::wots::{
+        Assertions as WotsAssertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures,
+    };
+    use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
+    use wots::Groth16PublicKeys;
+
+    use super::*;
+
+    #[test]
+    fn test_parse_witnesses() {
+        let network = Network::Regtest;
+        let pre_assert_txout = TxOut {
+            value: Amount::from_sat(1_000_000),
+            script_pubkey: Address::p2tr_tweaked(
+                generate_keypair()
+                    .x_only_public_key()
+                    .0
+                    .dangerous_assume_tweaked(),
+                network,
+            )
+            .script_pubkey(),
+        };
+
+        let input = AssertDataTxInput {
+            pre_assert_txid: generate_txid(),
+            pre_assert_txouts: std::array::from_fn(|_| pre_assert_txout.clone()),
+        };
+
+        let connector_a2 = ConnectorS::new(generate_keypair().x_only_public_key().0, network);
+        let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2);
+
+        let msk = "test-assert-data-parse-witnesses";
+        let wots_public_keys = WotsPublicKeys::new(msk, generate_txid());
+
+        let wots::PublicKeys {
+            bridge_out_txid: _,
+            superblock_hash: superblock_hash_public_key,
+            superblock_period_start_ts: _,
+            groth16:
+                Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
+        } = wots_public_keys;
+
+        let public_keys_256 = std::array::from_fn(|i| match i {
+            0 => superblock_hash_public_key.0,
+            1 => public_inputs_hash_public_key,
+            _ => public_keys_256[i - 2],
+        });
+
+        let connector_a160_factory = ConnectorA160Factory {
+            network,
+            public_keys: public_keys_160,
+        };
+        let connector_a256_factory = ConnectorA256Factory {
+            network,
+            public_keys: public_keys_256,
+        };
+
+        let assertions =
+            fs::read("../../test-data/assertions.bin").expect("test data must be readable");
+        let assertions = rkyv::from_bytes::<WotsAssertions, Error>(&assertions)
+            .expect("assertion data must be valid");
+        let deposit_txid = generate_txid();
+        let signatures = WotsSignatures::new(msk, deposit_txid, assertions);
+
+        let mut signed_assert_data_txs = assert_data_tx_batch.finalize(
+            connector_a160_factory,
+            connector_a256_factory,
+            signatures,
+        );
+
+        AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs)
+            .expect("must parse witnesses")
+            .expect("must have witnesses");
+
+        signed_assert_data_txs[0].input[0].witness =
+            Witness::from_slice(&[[0u8; 32]; NUM_CONNECTOR_A256 - 1]);
+
+        assert!(
+            AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs).is_err_and(|e| {
+                dbg!(e.to_string());
+                e.to_string().contains("invalid witness")
+            })
+        );
     }
 }

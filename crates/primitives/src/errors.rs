@@ -109,4 +109,9 @@ pub enum ParseError {
 
     #[error("not a valid point on the curve: {0:?}")]
     InvalidPoint(Vec<u8>),
+
+    #[error("invalid witness: {0}")]
+    InvalidWitness(String),
 }
+
+pub type ParseResult<T> = Result<T, ParseError>;
