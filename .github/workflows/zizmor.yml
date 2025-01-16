@@ -26,5 +26,5 @@ jobs:
           # but this flag should not be abused.
           pip install uvenv --break-system-packages
           uv tool install zizmor
-          uvenv zizmor .
+          zizmor .
 
