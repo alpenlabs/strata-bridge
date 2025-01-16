@@ -2,6 +2,7 @@ use bitcoin::Network;
 use secp256k1::XOnlyPublicKey;
 
 use crate::{
+    errors::BridgeTxBuilderResult,
     scripts::general::get_aggregated_pubkey,
     types::{OperatorIdx, PublickeyTable, TxSigningData},
 };
@@ -50,7 +51,7 @@ pub struct TxBuildContext {
 
 impl TxBuildContext {
     /// Create a new [`TxBuildContext`] with the context required to build transactions of various
-    /// [`TxKind`](super::TxKind).
+    /// [`TxKind`].
     pub fn new(network: Network, operator_pubkeys: PublickeyTable, own_index: OperatorIdx) -> Self {
         let aggregated_pubkey = get_aggregated_pubkey(operator_pubkeys.0.values().cloned());
 
@@ -95,5 +96,5 @@ pub trait TxKind {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
-    ) -> anyhow::Result<TxSigningData>;
+    ) -> BridgeTxBuilderResult<TxSigningData>;
 }

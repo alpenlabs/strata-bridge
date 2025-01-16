@@ -1,10 +1,29 @@
-use bitcoin::Txid;
+use bitcoin::{Transaction, Txid};
 use serde::{Deserialize, Serialize};
 
 use crate::{
     deposit::DepositInfo, params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx,
     withdrawal::WithdrawalInfo,
 };
+
+#[derive(Clone, Debug)]
+#[expect(clippy::large_enum_variant)]
+pub enum VerifierDuty {
+    VerifyClaim {
+        operator_id: OperatorIdx,
+        deposit_txid: Txid,
+
+        claim_tx: Transaction,
+    },
+    VerifyAssertions {
+        operator_id: OperatorIdx,
+        deposit_txid: Txid,
+
+        post_assert_tx: Transaction,
+        claim_tx: Transaction,
+        assert_data_txs: [Transaction; NUM_ASSERT_DATA_TX],
+    },
+}
 
 /// The various duties that can be assigned to an operator.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,13 +37,7 @@ pub enum BridgeDuty {
 
     /// The duty to fulfill a withdrawal request that is assigned to a particular operator.
     ///
-    /// This duty is created when a user requests a withdrawal by calling a precompile in the EL
-    /// and the [`crate::bridge_state::DepositState`] transitions to
-    /// [`crate::bridge_state::DepositState::Dispatched`].
-    ///
-    /// This kicks off the withdrawal process which involves cooperative signing by the operator
-    /// set, or a more involved unilateral withdrawal process (in the future) if not all operators
-    /// cooperate in the process.
+    /// This kicks off the BitVM2-based withdrawal process involving unilateral withdrawal process.
     FulfillWithdrawal(WithdrawalInfo),
 }
 
@@ -48,7 +61,7 @@ pub struct BridgeDuties {
     pub stop_index: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BridgeDutyStatus {
     Deposit(DepositStatus),
 
@@ -76,7 +89,7 @@ impl BridgeDutyStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum DepositStatus {
     /// The duty has been received.
     ///
@@ -147,31 +160,31 @@ impl DepositStatus {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum WithdrawalStatus {
     Received,
 
     PaidUser(Txid),
 
     Kickoff {
-        bridge_out_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
         kickoff_txid: Txid,
     },
 
     Claim {
-        bridge_out_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
         superblock_start_ts: u32,
         claim_txid: Txid,
     },
 
     PreAssert {
-        bridge_out_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
         superblock_start_ts: u32,
         pre_assert_txid: Txid,
     },
 
     AssertData {
-        bridge_out_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
         superblock_start_ts: u32,
         assert_data_txids: Vec<Txid>, // dynamic for assert data txs that have been broadcasted
     },
@@ -197,47 +210,47 @@ impl WithdrawalStatus {
     pub fn next(&mut self, txid: Txid, superblock_start_ts: Option<u32>) {
         match self {
             Self::Received => *self = Self::PaidUser(txid),
-            Self::PaidUser(bridge_out_txid) => {
+            Self::PaidUser(withdrawal_fulfillment_txid) => {
                 *self = Self::Kickoff {
-                    bridge_out_txid: *bridge_out_txid,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     kickoff_txid: txid,
                 }
             }
             Self::Kickoff {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 kickoff_txid: _,
             } => {
                 *self = Self::Claim {
-                    bridge_out_txid: *bridge_out_txid,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     superblock_start_ts: superblock_start_ts.unwrap_or(0),
                     claim_txid: txid,
                 }
             }
             Self::Claim {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 claim_txid: _,
             } => {
                 *self = Self::PreAssert {
-                    bridge_out_txid: *bridge_out_txid,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     superblock_start_ts: *superblock_start_ts,
                     pre_assert_txid: txid,
                 }
             }
             Self::PreAssert {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 pre_assert_txid: _,
             } => {
                 *self = Self::AssertData {
-                    bridge_out_txid: *bridge_out_txid,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     superblock_start_ts: *superblock_start_ts,
                     assert_data_txids: vec![txid],
                 }
             }
 
             Self::AssertData {
-                bridge_out_txid: _,
+                withdrawal_fulfillment_txid: _,
                 superblock_start_ts: _,
                 assert_data_txids,
             } => {
@@ -268,9 +281,9 @@ impl WithdrawalStatus {
     pub fn should_claim(&self) -> Option<Txid> {
         match self {
             WithdrawalStatus::Kickoff {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 kickoff_txid: _,
-            } => Some(*bridge_out_txid),
+            } => Some(*withdrawal_fulfillment_txid),
             _ => None,
         }
     }
@@ -278,10 +291,10 @@ impl WithdrawalStatus {
     pub fn should_pre_assert(&self) -> Option<(Txid, u32)> {
         match self {
             WithdrawalStatus::Claim {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 claim_txid: _,
-            } => Some((*bridge_out_txid, *superblock_start_ts)),
+            } => Some((*withdrawal_fulfillment_txid, *superblock_start_ts)),
             _ => None,
         }
     }
@@ -289,18 +302,18 @@ impl WithdrawalStatus {
     pub fn should_assert_data(&self, assert_data_index: usize) -> Option<(Txid, u32)> {
         match self {
             WithdrawalStatus::PreAssert {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 pre_assert_txid: _,
-            } => Some((*bridge_out_txid, *superblock_start_ts)),
+            } => Some((*withdrawal_fulfillment_txid, *superblock_start_ts)),
             WithdrawalStatus::AssertData {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 assert_data_txids,
             } if assert_data_txids.len() < assert_data_index + 1
                 && assert_data_txids.len() < NUM_ASSERT_DATA_TX =>
             {
-                Some((*bridge_out_txid, *superblock_start_ts))
+                Some((*withdrawal_fulfillment_txid, *superblock_start_ts))
             }
             _ => None,
         }
@@ -341,7 +354,7 @@ mod tests {
         assert!(matches!(
             status,
             WithdrawalStatus::Kickoff {
-                bridge_out_txid: _,
+                withdrawal_fulfillment_txid: _,
                 kickoff_txid: _
             }
         ));
@@ -351,7 +364,7 @@ mod tests {
         assert!(matches!(
             status,
             WithdrawalStatus::Claim {
-                bridge_out_txid: _,
+                withdrawal_fulfillment_txid: _,
                 superblock_start_ts: _,
                 claim_txid: _
             }
@@ -362,7 +375,7 @@ mod tests {
         assert!(matches!(
             status,
             WithdrawalStatus::PreAssert {
-                bridge_out_txid: _,
+                withdrawal_fulfillment_txid: _,
                 superblock_start_ts: _,
                 pre_assert_txid: _
             },
@@ -377,7 +390,7 @@ mod tests {
             assert!(matches!(
                 status,
                 WithdrawalStatus::AssertData {
-                    bridge_out_txid: _,
+                    withdrawal_fulfillment_txid: _,
                     superblock_start_ts: _,
                     assert_data_txids: _
                 }

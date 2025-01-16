@@ -2,7 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache-blue.svg)](https://opensource.org/licenses/apache-2-0)
-[![ci](https://github.com/alpenlabs/strata-bridge-poc/actions/workflows/lint.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge-poc/actions)
+[![codecov](https://codecov.io/github/alpenlabs/strata-bridge/graph/badge.svg?token=UYZ5YPKGL2)](https://codecov.io/github/alpenlabs/strata-bridge)
+[![build](https://github.com/alpenlabs/strata-bridge/actions/workflows/build.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
+[![lint](https://github.com/alpenlabs/strata-bridge/actions/workflows/lint.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
 
 A research implementation of Strata Bridge by your friends at [Alpen Labs](https://www.alpenlabs.io/).
 

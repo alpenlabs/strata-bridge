@@ -1,0 +1,52 @@
+name: build
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  crate-checks:
+    name: Check that crates compile on their own
+    runs-on: ubuntu-latest
+    timeout-minutes: 90 # cold run takes a lot of time as each crate is compiled separately
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: nightly-2024-11-01
+
+      - uses: taiki-e/install-action@cargo-hack
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Configure sccache
+        run: |
+          echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+          echo  "SCCACHE_GHA_ENABLED=true" >> "$GITHUB_ENV"
+
+      - name: Run sccache-cache
+        uses: mozilla-actions/sccache-action@v0.0.6
+        with:
+          version: "v0.8.1" # sccache version
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --locked
+
+      - name: Run db migrations
+        run: make migrate
+
+      - run: cargo hack check --locked
+        env:
+          DATABASE_URL: sqlite://./operator.db
+          SKIP_GUEST_BUILD: 1

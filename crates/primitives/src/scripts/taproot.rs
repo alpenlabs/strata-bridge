@@ -3,21 +3,25 @@
 
 use std::collections::BTreeMap;
 
-use anyhow::{anyhow, bail, Context};
+use arbitrary::Arbitrary;
 use bitcoin::{
     hashes::Hash,
     key::UntweakedPublicKey,
     psbt::Input,
     secp256k1::SECP256K1,
     sighash::{Prevouts, SighashCache},
-    taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootSpendInfo},
-    Address, Network, ScriptBuf, TapLeafHash, TapSighashType, Transaction, TxOut, Witness,
+    taproot::{ControlBlock, LeafVersion, TaprootBuilder, TaprootMerkleBranch, TaprootSpendInfo},
+    Address, Network, ScriptBuf, TapLeafHash, TapNodeHash, TapSighashType, Transaction, TxOut,
+    Witness, XOnlyPublicKey,
 };
 use bitvm::treepp::*;
-use secp256k1::Message;
+use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 
 // use secp256k1::SECP256K1;
-use crate::params::prelude::UNSPENDABLE_INTERNAL_KEY;
+use crate::{
+    errors::{BridgeTxBuilderError, BridgeTxBuilderResult},
+    params::prelude::UNSPENDABLE_INTERNAL_KEY,
+};
 
 /// Different spending paths for a taproot.
 ///
@@ -53,12 +57,12 @@ pub enum SpendPath<'path> {
 pub fn create_taproot_addr<'creator>(
     network: &'creator Network,
     spend_path: SpendPath<'creator>,
-) -> anyhow::Result<(Address, TaprootSpendInfo)> {
+) -> BridgeTxBuilderResult<(Address, TaprootSpendInfo)> {
     match spend_path {
         SpendPath::KeySpend { internal_key } => build_taptree(internal_key, *network, &[]),
         SpendPath::ScriptSpend { scripts } => {
             if scripts.is_empty() {
-                bail!("empty tapscript");
+                return Err(BridgeTxBuilderError::EmptyTapscript);
             }
 
             build_taptree(*UNSPENDABLE_INTERNAL_KEY, *network, scripts)
@@ -82,7 +86,7 @@ fn build_taptree(
     internal_key: UntweakedPublicKey,
     network: Network,
     scripts: &[ScriptBuf],
-) -> anyhow::Result<(Address, TaprootSpendInfo)> {
+) -> BridgeTxBuilderResult<(Address, TaprootSpendInfo)> {
     let mut taproot_builder = TaprootBuilder::new();
 
     let num_scripts = scripts.len();
@@ -135,14 +139,10 @@ fn build_taptree(
             (max_depth - 1) as u8
         };
 
-        taproot_builder = taproot_builder
-            .add_leaf(depth, script.clone())
-            .context("add leaf")?;
+        taproot_builder = taproot_builder.add_leaf(depth, script.clone())?;
     }
 
-    let spend_info = taproot_builder
-        .finalize(SECP256K1, internal_key)
-        .map_err(|_e| anyhow!("taproot finalization".to_string()))?;
+    let spend_info = taproot_builder.finalize(SECP256K1, internal_key)?;
 
     let merkle_root = spend_info.merkle_root();
 
@@ -160,6 +160,10 @@ pub fn taproot_witness_signatures(script: Script) -> Vec<Vec<u8>> {
         .collect::<Vec<_>>()
 }
 
+/// Finalizes a [`bitcoin::Psbt`] input.
+///
+/// This done as per
+/// <https://github.com/rust-bitcoin/rust-bitcoin/blob/bitcoin-0.32.1/bitcoin/examples/taproot-psbt.rs#L315-L327>.
 pub fn finalize_input<D>(input: &mut Input, witnesses: impl IntoIterator<Item = D>)
 where
     D: AsRef<[u8]>,
@@ -190,7 +194,7 @@ where
 /// If a script-path path is being used, the witness stack needs the script being spent and the
 /// control block in addition to the signature.
 /// See [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaprootWitness {
     /// Use the keypath spend.
     ///
@@ -205,6 +209,66 @@ pub enum TaprootWitness {
         script_buf: ScriptBuf,
         control_block: ControlBlock,
     },
+}
+
+impl<'a> Arbitrary<'a> for TaprootWitness {
+    fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
+        let choice = u.int_in_range(0..=1)?;
+
+        match choice {
+            0 => Ok(TaprootWitness::Key),
+            1 => {
+                let script_len = usize::arbitrary(u)? % 100; // Limit the length of the script for practicality
+                let script_bytes = u.bytes(script_len)?; // Generate random bytes for the script
+                let script_buf = ScriptBuf::from(script_bytes.to_vec());
+
+                // Now we will manually generate the fields of the ControlBlock struct
+
+                // Leaf version
+                let leaf_version = bitcoin::taproot::LeafVersion::TapScript;
+
+                // Output key parity (Even or Odd)
+                let output_key_parity = if bool::arbitrary(u)? {
+                    Parity::Even
+                } else {
+                    Parity::Odd
+                };
+
+                // Generate a random secret key and derive the internal key
+                let secret_key = SecretKey::new(&mut OsRng);
+                let keypair = Keypair::from_secret_key(SECP256K1, &secret_key);
+                let (internal_key, _) = XOnlyPublicKey::from_keypair(&keypair);
+
+                // Arbitrary Taproot merkle branch (vector of 32-byte hashes)
+                const BRANCH_LENGTH: usize = 10;
+                let mut tapnode_hashes: Vec<TapNodeHash> = Vec::with_capacity(BRANCH_LENGTH);
+                for _ in 0..BRANCH_LENGTH {
+                    let hash = TapNodeHash::from_slice(&<[u8; 32]>::arbitrary(u)?)
+                        .map_err(|_e| arbitrary::Error::IncorrectFormat)?;
+                    tapnode_hashes.push(hash);
+                }
+
+                let tapnode_hashes: &[TapNodeHash; BRANCH_LENGTH] =
+                    &tapnode_hashes[..BRANCH_LENGTH].try_into().unwrap();
+
+                let merkle_branch = TaprootMerkleBranch::from(*tapnode_hashes);
+
+                // Construct the ControlBlock manually
+                let control_block = ControlBlock {
+                    leaf_version,
+                    output_key_parity,
+                    internal_key,
+                    merkle_branch,
+                };
+
+                Ok(TaprootWitness::Script {
+                    script_buf,
+                    control_block,
+                })
+            }
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// Get the message hash for signing.

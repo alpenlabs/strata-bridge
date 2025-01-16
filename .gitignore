@@ -285,3 +285,4 @@ provers/sp1/proofs/
 # test data
 !blocks.bin
 !proof.bin
+!test-data/*.bin

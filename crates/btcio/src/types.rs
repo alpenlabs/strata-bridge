@@ -245,6 +245,47 @@ impl GetTransaction {
     }
 }
 
+/// Result of JSON-RPC method `gettxout`.
+///
+/// > gettxout "txid" n ( include_mempool )
+/// >
+/// > Returns details about an unspent transaction output.
+/// >
+/// > Arguments:
+/// > 1. txid               (string, required) The transaction id
+/// > 2. n                  (numeric, required) vout number
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+pub struct GetTxOut {
+    /// The hash of the block at the tip of the chain.
+    #[serde(rename = "bestblock")]
+    pub best_block: String,
+    /// The number of confirmations.
+    pub confirmations: u32, // TODO: Change this to an i64.
+    /// The transaction value in BTC.
+    pub value: f64,
+    /// The script pubkey.
+    #[serde(rename = "scriptPubKey")]
+    pub script_pubkey: ScriptPubKey,
+    /// Coinbase or not.
+    pub coinbase: bool,
+}
+
+/// A script pubkey.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ScriptPubKey {
+    /// Script assembly.
+    pub asm: String,
+    /// Descriptor.
+    pub desc: String,
+    /// Script hex.
+    pub hex: String,
+    /// The type, eg pubkeyhash.
+    #[serde(rename = "type")]
+    pub type_: String,
+    /// Bitcoin address.
+    pub address: String,
+}
+
 /// Models the result of JSON-RPC method `listunspent`.
 ///
 /// # Note
@@ -403,7 +444,7 @@ where
 {
     struct SatVisitor;
 
-    impl<'d> Visitor<'d> for SatVisitor {
+    impl Visitor<'_> for SatVisitor {
         type Value = Amount;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -428,7 +469,7 @@ where
 {
     struct SatVisitor;
 
-    impl<'d> Visitor<'d> for SatVisitor {
+    impl Visitor<'_> for SatVisitor {
         type Value = SignedAmount;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -467,7 +508,7 @@ where
 {
     struct TxidVisitor;
 
-    impl<'d> Visitor<'d> for TxidVisitor {
+    impl Visitor<'_> for TxidVisitor {
         type Value = Txid;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -493,7 +534,7 @@ where
 {
     struct TxVisitor;
 
-    impl<'d> Visitor<'d> for TxVisitor {
+    impl Visitor<'_> for TxVisitor {
         type Value = Transaction;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -523,7 +564,7 @@ where
     D: Deserializer<'d>,
 {
     struct AddressVisitor;
-    impl<'d> Visitor<'d> for AddressVisitor {
+    impl Visitor<'_> for AddressVisitor {
         type Value = Address<NetworkUnchecked>;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -551,7 +592,7 @@ where
 {
     struct BlockHashVisitor;
 
-    impl<'d> Visitor<'d> for BlockHashVisitor {
+    impl Visitor<'_> for BlockHashVisitor {
         type Value = BlockHash;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -578,7 +619,7 @@ where
 {
     struct HeightVisitor;
 
-    impl<'d> Visitor<'d> for HeightVisitor {
+    impl Visitor<'_> for HeightVisitor {
         type Value = Height;
 
         fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

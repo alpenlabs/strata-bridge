@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bitcoin::{
     hashes::Hash,
     psbt::Input,
@@ -14,41 +12,50 @@ use bitvm::{
     signatures::wots::{wots256, wots32, SignatureImpl},
     treepp::*,
 };
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     params::prelude::*,
-    scripts::{prelude::*, wots},
-    types::OperatorIdx,
+    scripts::prelude::*,
+    wots::{self, Groth16PublicKeys},
 };
-use tracing::trace;
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
 
-#[derive(Debug, Clone)]
-pub struct ConnectorA31<DB: PublicDb> {
+/// Connector from the PostAssert transaction to the Disprove transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectorA31 {
     network: Network,
 
-    db: Arc<DB>,
+    wots_public_keys: wots::PublicKeys,
 }
 
+/// Possible spending paths for the [`ConnectorA31`].
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum ConnectorA31Leaf {
-    DisproveProof((Script, Option<Script>)),
+    DisproveProof {
+        disprove_script: Script,
+        witness_script: Option<Script>,
+    },
+
     DisproveSuperblockCommitment(Option<(wots256::Signature, wots32::Signature, [u8; 80])>),
-    DisprovePublicInputsCommitment(
-        Txid,
-        Option<(
-            wots256::Signature,
-            wots256::Signature,
-            wots32::Signature,
-            wots256::Signature,
-        )>,
-    ),
+
+    DisprovePublicInputsCommitment {
+        deposit_txid: Txid,
+        witness: Option<DisprovePublicInputsCommitmentWitness>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct DisprovePublicInputsCommitmentWitness {
+    pub sig_superblock_hash: wots256::Signature,
+    pub sig_bridge_out_txid: wots256::Signature,
+    pub sig_superblock_period_start_ts: wots32::Signature,
+    pub sig_public_inputs_hash: wots256::Signature,
 }
 
 impl ConnectorA31Leaf {
-    pub fn generate_locking_script(self, public_keys: wots::PublicKeys) -> Script {
+    /// Generate the locking script for the leaf.
+    pub(crate) fn generate_locking_script(self, public_keys: wots::PublicKeys) -> Script {
         let wots::PublicKeys {
             bridge_out_txid: bridge_out_txid_public_key,
             superblock_hash: superblock_hash_public_key,
@@ -76,7 +83,6 @@ impl ConnectorA31Leaf {
                     0 OP_GREATERTHAN OP_VERIFY
                     { SUPERBLOCK_PERIOD } OP_LESSTHAN OP_VERIFY
 
-                    // sbv.hash()
                     { sha256(80) }
                     { sha256(32) }
                     { sb_hash_from_bytes() }
@@ -90,7 +96,7 @@ impl ConnectorA31Leaf {
                 }
             }
 
-            ConnectorA31Leaf::DisprovePublicInputsCommitment(deposit_txid, _) => {
+            ConnectorA31Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
                     { wots256::compact::checksig_verify(superblock_hash_public_key.0) }
                     for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
@@ -126,10 +132,13 @@ impl ConnectorA31Leaf {
                     OP_NOT
                 }
             }
-            ConnectorA31Leaf::DisproveProof((disprove_script, _)) => disprove_script,
+            ConnectorA31Leaf::DisproveProof {
+                disprove_script, ..
+            } => disprove_script,
         }
     }
 
+    /// Generate the witness script for the leaf.
     pub fn generate_witness_script(self) -> Script {
         match self {
             ConnectorA31Leaf::DisproveSuperblockCommitment(Some((
@@ -143,15 +152,16 @@ impl ConnectorA31Leaf {
                     { sig_superblock_hash.to_compact_script() }
                 }
             }
-            ConnectorA31Leaf::DisprovePublicInputsCommitment(
-                _,
-                Some((
-                    sig_superblock_hash,
-                    sig_bridge_out_txid,
-                    sig_superblock_period_start_ts,
-                    sig_public_inputs_hash,
-                )),
-            ) => {
+            ConnectorA31Leaf::DisprovePublicInputsCommitment {
+                witness:
+                    Some(DisprovePublicInputsCommitmentWitness {
+                        sig_superblock_hash,
+                        sig_bridge_out_txid,
+                        sig_superblock_period_start_ts,
+                        sig_public_inputs_hash,
+                    }),
+                ..
+            } => {
                 script! {
                     { sig_public_inputs_hash.to_compact_script() }
                     { sig_superblock_period_start_ts.to_compact_script() }
@@ -159,49 +169,42 @@ impl ConnectorA31Leaf {
                     { sig_superblock_hash.to_compact_script() }
                 }
             }
-            ConnectorA31Leaf::DisproveProof((_, Some(witness_script))) => witness_script,
+            ConnectorA31Leaf::DisproveProof {
+                witness_script: Some(witness_script),
+                ..
+            } => witness_script,
             _ => panic!("no data provided to finalize input"),
         }
     }
 }
 
-impl<Db: PublicDb> ConnectorA31<Db> {
-    pub fn new(network: Network, db: Arc<Db>) -> Self {
-        Self { network, db }
+impl ConnectorA31 {
+    /// Constructs a new instance of the connector.
+    pub fn new(network: Network, wots_public_keys: wots::PublicKeys) -> Self {
+        Self {
+            network,
+            wots_public_keys,
+        }
     }
 
-    pub async fn generate_tapleaf(
-        &self,
-        tapleaf: ConnectorA31Leaf,
-        deposit_txid: Txid,
-    ) -> ScriptBuf {
-        let public_keys = self.db.get_wots_public_keys(0, deposit_txid).await;
-        tapleaf.generate_locking_script(public_keys).compile()
-    }
-
-    pub async fn generate_locking_script(
-        &self,
-        deposit_txid: Txid,
-        operator_idx: OperatorIdx,
-    ) -> ScriptBuf {
-        let (address, _) = self
-            .generate_taproot_address(deposit_txid, operator_idx)
-            .await;
+    /// Generates the locking script for this connector.
+    pub fn generate_locking_script(&self, deposit_txid: Txid) -> ScriptBuf {
+        let (address, _) = self.generate_taproot_address(deposit_txid);
 
         address.script_pubkey()
     }
 
-    pub async fn generate_spend_info(
+    /// Generates the taproot spend info for this connector.
+    pub fn generate_spend_info(
         &self,
         tapleaf: ConnectorA31Leaf,
         deposit_txid: Txid,
-        operator_idx: OperatorIdx,
     ) -> (ScriptBuf, ControlBlock) {
-        let (_, taproot_spend_info) = self
-            .generate_taproot_address(deposit_txid, operator_idx)
-            .await;
+        let (_, taproot_spend_info) = self.generate_taproot_address(deposit_txid);
 
-        let script = self.generate_tapleaf(tapleaf, deposit_txid).await;
+        let script = tapleaf
+            .generate_locking_script(self.wots_public_keys)
+            .compile();
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -209,84 +212,51 @@ impl<Db: PublicDb> ConnectorA31<Db> {
         (script, control_block)
     }
 
-    pub async fn generate_disprove_scripts(
-        &self,
-        deposit_txid: Txid,
-        operator_idx: OperatorIdx,
-    ) -> [Script; N_TAPLEAVES] {
+    /// Generates the disprove scripts for this connector.
+    pub fn generate_disprove_scripts(&self) -> [Script; N_TAPLEAVES] {
         let partial_disprove_scripts = &PARTIAL_VERIFIER_SCRIPTS;
 
-        trace!(action = "getting public_keys from db", %operator_idx, %deposit_txid);
-        let public_keys = self
-            .db
-            .get_wots_public_keys(operator_idx, deposit_txid)
-            .await
-            .groth16;
-        trace!(action = "got public_keys from db", %operator_idx, %deposit_txid);
+        let groth16_pks = self.wots_public_keys.groth16.0;
 
-        trace!(action = "generating disprove scripts", %operator_idx);
-        let disprove_scripts =
-            g16::generate_disprove_scripts(public_keys.0, partial_disprove_scripts);
-        trace!(action = "generated disprove scripts", %operator_idx, num_disprove_scripts=%disprove_scripts.len());
-
-        disprove_scripts
+        g16::generate_disprove_scripts(groth16_pks, partial_disprove_scripts)
     }
 
-    async fn generate_taproot_address(
-        &self,
-        deposit_txid: Txid,
-        operator_idx: OperatorIdx,
-    ) -> (Address, TaprootSpendInfo) {
-        trace!(action = "generating disprove chain and invalidate public data leaves", %operator_idx);
-        let disprove_scripts = self
-            .generate_disprove_scripts(deposit_txid, operator_idx)
-            .await;
+    fn generate_taproot_address(&self, deposit_txid: Txid) -> (Address, TaprootSpendInfo) {
+        let disprove_scripts = self.generate_disprove_scripts();
 
         let mut scripts = vec![
-            self.generate_tapleaf(
-                ConnectorA31Leaf::DisproveSuperblockCommitment(None),
+            ConnectorA31Leaf::DisproveSuperblockCommitment(None)
+                .generate_locking_script(self.wots_public_keys)
+                .compile(),
+            ConnectorA31Leaf::DisprovePublicInputsCommitment {
                 deposit_txid,
-            )
-            .await,
-            self.generate_tapleaf(
-                ConnectorA31Leaf::DisprovePublicInputsCommitment(deposit_txid, None),
-                deposit_txid,
-            )
-            .await,
+                witness: None,
+            }
+            .generate_locking_script(self.wots_public_keys)
+            .compile(),
         ];
-        trace!(event = "generated disprove chain and invalidate public data leaves", %operator_idx);
-
-        trace!(action = "generating invalidate proof leaves", %N_TAPLEAVES, %operator_idx);
 
         let mut invalidate_proof_tapleaves = Vec::with_capacity(N_TAPLEAVES);
         for disprove_script in disprove_scripts.into_iter() {
             invalidate_proof_tapleaves.push(
-                self.generate_tapleaf(
-                    ConnectorA31Leaf::DisproveProof((disprove_script, None)),
-                    deposit_txid,
-                )
-                .await,
+                ConnectorA31Leaf::DisproveProof {
+                    disprove_script,
+                    witness_script: None,
+                }
+                .generate_locking_script(self.wots_public_keys)
+                .compile(),
             );
         }
-        trace!(event = "generated invalidate proof leaves", %operator_idx);
 
-        scripts.extend(invalidate_proof_tapleaves.into_iter());
+        scripts.extend(invalidate_proof_tapleaves);
 
-        trace!(action = "creating taproot address", %operator_idx);
         create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts: &scripts })
             .expect("should be able to create taproot address")
     }
 
-    pub async fn finalize_input(
-        &self,
-        input: &mut Input,
-        tapleaf: ConnectorA31Leaf,
-        deposit_txid: Txid,
-        operator_idx: OperatorIdx,
-    ) {
-        let (script, control_block) = self
-            .generate_spend_info(tapleaf.clone(), deposit_txid, operator_idx)
-            .await;
+    /// Finalizes the input for the psbt that spends this connector.
+    pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorA31Leaf, deposit_txid: Txid) {
+        let (script, control_block) = self.generate_spend_info(tapleaf.clone(), deposit_txid);
 
         let witness_script = tapleaf.generate_witness_script();
 

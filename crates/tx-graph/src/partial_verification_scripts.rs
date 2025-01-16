@@ -3,7 +3,7 @@ use std::fs;
 use bitcoin::ScriptBuf;
 use bitvm::{groth16::g16, treepp::*};
 use lazy_static::lazy_static;
-use strata_bridge_proof_snark::bridge_poc;
+use strata_bridge_proof_snark::bridge_vk;
 use tracing::{info, warn};
 
 const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-poc-vk.scripts";
@@ -12,7 +12,14 @@ lazy_static! {
     pub static ref PARTIAL_VERIFIER_SCRIPTS: [Script; 579] = load_or_create_verifier_scripts();
 }
 
+/// Loads tapscripts for the groth16 verifier program.
 pub fn load_or_create_verifier_scripts() -> [Script; 579] {
+    if cfg!(feature = "mock") {
+        warn!("Detected mock feature, returning empty verifier scripts");
+
+        return vec![script!(); 579].try_into().expect("size must match");
+    }
+
     let verifier_scripts: [Script; g16::N_TAPLEAVES] = if fs::exists(PARTIAL_VERIFIER_SCRIPTS_PATH)
         .expect("should be able to check for existence of verifier scripts file")
     {
@@ -46,7 +53,7 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
             estimated_time = "3 mins"
         );
 
-        let verifier_scripts = g16::compile_verifier(bridge_poc::GROTH16_VERIFICATION_KEY.clone());
+        let verifier_scripts = g16::compile_verifier(bridge_vk::GROTH16_VERIFICATION_KEY.clone());
 
         let serialized: Vec<Vec<u8>> = verifier_scripts
             .clone()
@@ -67,6 +74,9 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
     verifier_scripts
 }
 
+/// Get the verifier scripts for the groth16 verifier program.
+///
+/// This returns a memoized version of the verifier scripts.
 pub fn get_verifier_scripts() -> &'static [Script; 579] {
     &PARTIAL_VERIFIER_SCRIPTS
 }

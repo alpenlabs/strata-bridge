@@ -6,7 +6,8 @@ use std::{
 use sp1_helper::build_program;
 
 const RISC_V_COMPILER: &str = "/opt/riscv/bin/riscv-none-elf-gcc";
-const ELF_FILE_PATH: &str = "bridge-guest/elf/riscv32im-succinct-zkvm-elf";
+const ELF_FILE_PATH: &str =
+    "bridge-guest/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/strata-bridge-guest";
 const MOCK_ELF_CONTENT: &str = r#"
     pub const GUEST_BRIDGE_ELF: &[u8] = &[];
 "#;

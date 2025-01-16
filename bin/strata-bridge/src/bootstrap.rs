@@ -12,13 +12,13 @@ use strata_bridge_agent::{
     duty_watcher::{DutyWatcher, DutyWatcherConfig},
     operator::Operator,
     signal::{CovenantNonceSignal, CovenantSignatureSignal, DepositSignal},
-    verifier::{Verifier, VerifierDuty},
+    verifier::Verifier,
 };
 use strata_bridge_btcio::{traits::Reader, BitcoinClient};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
-    duties::{BridgeDuty, BridgeDutyStatus},
+    duties::{BridgeDuty, BridgeDutyStatus, VerifierDuty},
     types::PublickeyTable,
 };
 use strata_rpc::StrataApiClient;
@@ -219,9 +219,7 @@ pub(crate) async fn generate_operator_set(
             keypair,
             format!(
                 "{}/wallet/{}_{}",
-                &args.btc_url,
-                &args.wallet_prefix,
-                operator_idx + 1,
+                &args.btc_url, &args.wallet_prefix, operator_idx,
             )
             .as_str(),
             &args.btc_user,

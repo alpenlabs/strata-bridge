@@ -1,34 +1,43 @@
 use bitcoin::{
     sighash::Prevouts, Amount, Network, OutPoint, Psbt, Sequence, Transaction, TxOut, Txid,
 };
-use secp256k1::{schnorr::Signature, XOnlyPublicKey};
+use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
-    params::prelude::MIN_RELAY_FEE, scripts::prelude::*, types::OperatorIdx,
+    params::{connectors::PAYOUT_TIMELOCK, prelude::MIN_RELAY_FEE},
+    scripts::prelude::*,
 };
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::{
-    params::PAYOUT_TIMELOCK,
-    prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorS},
-};
+use crate::connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorS};
 
+/// Data needed to construct a [`PayoutTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PayoutData {
+    /// The transaction ID of the post-assert transaction.
     pub post_assert_txid: Txid,
 
+    /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 
+    /// The stake that remains after paying off the transaction fees in the preceding transactions.
     pub input_stake: Amount,
 
+    /// The amount of the deposit.
+    ///
+    /// This is the amount held in a particular UTXO in the Bridge Address used to reimburse the
+    /// operator.
     pub deposit_amount: Amount,
 
+    /// The operator's public key corresponding to the address that the operator wants to be paid
+    /// to.
     pub operator_key: XOnlyPublicKey,
 
+    /// The bitcoin network on which the transaction is to be constructed.
     pub network: Network,
 }
 
+/// A transaction that reimburses a *functional* operator.
 #[derive(Debug, Clone)]
 pub struct PayoutTx {
     psbt: Psbt,
@@ -39,11 +48,8 @@ pub struct PayoutTx {
 }
 
 impl PayoutTx {
-    pub fn new<Db: PublicDb>(
-        data: PayoutData,
-        connector_a30: ConnectorA30<Db>,
-        connector_b: ConnectorS,
-    ) -> Self {
+    /// Constructs a new instance of the payout transaction.
+    pub fn new(data: PayoutData, connector_a30: ConnectorA30, connector_b: ConnectorS) -> Self {
         let utxos = [
             OutPoint {
                 txid: data.deposit_txid,
@@ -97,7 +103,7 @@ impl PayoutTx {
         }
 
         let (connector_a30_script, connector_a30_control_block) =
-            connector_a30.generate_spend_info(ConnectorA30Leaf::Payout);
+            connector_a30.generate_spend_info(ConnectorA30Leaf::Payout(()));
         let witnesses = vec![
             TaprootWitness::Key,
             TaprootWitness::Script {
@@ -114,25 +120,21 @@ impl PayoutTx {
         }
     }
 
-    pub async fn finalize<Db: PublicDb>(
+    /// Finalizes the payout transaction.
+    ///
+    /// Note that the `deposit_signature` is also an n-of-n signature.
+    pub fn finalize(
         mut self,
-        connector_a30: ConnectorA30<Db>,
-        operator_idx: OperatorIdx,
-        // FIXME: create a connector for the deposit and remove the `deposit_signature` param
-        deposit_signature: Signature,
+        connector_a30: ConnectorA30,
+        deposit_signature: schnorr::Signature,
+        n_of_n_sig: schnorr::Signature,
     ) -> Transaction {
-        let payout_txid = self.compute_txid();
-
         finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
 
-        connector_a30
-            .finalize_input(
-                &mut self.psbt.inputs[1],
-                operator_idx,
-                payout_txid,
-                ConnectorA30Leaf::Payout,
-            )
-            .await;
+        connector_a30.finalize_input(
+            &mut self.psbt.inputs[1],
+            ConnectorA30Leaf::Payout(n_of_n_sig),
+        );
 
         self.psbt
             .extract_tx()

@@ -6,7 +6,10 @@ use musig2::{PartialSignature, PubNonce, SecNonce};
 use strata_bridge_primitives::types::OperatorIdx;
 use tokio::sync::RwLock;
 
-use crate::operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb};
+use crate::{
+    errors::DbResult,
+    operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb},
+};
 
 #[derive(Debug, Default)]
 pub struct OperatorDbInMemory {
@@ -37,7 +40,7 @@ impl OperatorDb for OperatorDbInMemory {
         input_index: u32,
         operator_idx: OperatorIdx,
         pubnonce: PubNonce,
-    ) {
+    ) -> DbResult<()> {
         let mut collected_pubnonces = self.collected_pubnonces.write().await;
 
         if let Some(pubnonce_table) = collected_pubnonces.get_mut(&(txid, input_index)) {
@@ -48,31 +51,39 @@ impl OperatorDb for OperatorDbInMemory {
 
             collected_pubnonces.insert((txid, input_index), new_entry);
         }
+
+        Ok(())
     }
+
     async fn collected_pubnonces(
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> Option<BTreeMap<OperatorIdx, PubNonce>> {
-        self.collected_pubnonces
+    ) -> DbResult<BTreeMap<OperatorIdx, PubNonce>> {
+        Ok(self
+            .collected_pubnonces
             .read()
             .await
             .get(&(txid, input_index))
-            .cloned()
+            .unwrap_or(&BTreeMap::new())
+            .clone())
     }
 
-    async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) {
+    async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()> {
         let mut sec_nonces = self.sec_nonces.write().await;
 
         sec_nonces.insert((txid, input_index), secnonce);
+
+        Ok(())
     }
 
-    async fn get_secnonce(&self, txid: Txid, input_index: u32) -> Option<SecNonce> {
-        self.sec_nonces
+    async fn get_secnonce(&self, txid: Txid, input_index: u32) -> DbResult<Option<SecNonce>> {
+        Ok(self
+            .sec_nonces
             .read()
             .await
             .get(&(txid, input_index))
-            .cloned()
+            .cloned())
     }
 
     async fn add_message_hash_and_signature(
@@ -82,7 +93,7 @@ impl OperatorDb for OperatorDbInMemory {
         message_sighash: Vec<u8>,
         operator_idx: OperatorIdx,
         signature: PartialSignature,
-    ) {
+    ) -> DbResult<()> {
         let mut collected_sigs = self.collected_signatures.write().await;
 
         if let Some(sig_entry) = collected_sigs.get_mut(&(txid, input_index)) {
@@ -94,6 +105,8 @@ impl OperatorDb for OperatorDbInMemory {
 
             collected_sigs.insert((txid, input_index), new_entry);
         }
+
+        Ok(())
     }
 
     /// Adds a partial signature to the map if already present.
@@ -103,58 +116,74 @@ impl OperatorDb for OperatorDbInMemory {
         input_index: u32,
         operator_idx: OperatorIdx,
         signature: PartialSignature,
-    ) {
+    ) -> DbResult<()> {
         let mut collected_sigs = self.collected_signatures.write().await;
 
         if let Some(sig_entry) = collected_sigs.get_mut(&(txid, input_index)) {
             sig_entry.1.insert(operator_idx, signature);
         }
+
+        Ok(())
     }
 
     async fn collected_signatures_per_msg(
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> Option<MsgHashAndOpIdToSigMap> {
-        self.collected_signatures
+    ) -> DbResult<Option<MsgHashAndOpIdToSigMap>> {
+        Ok(self
+            .collected_signatures
             .read()
             .await
             .get(&(txid, input_index))
-            .cloned()
+            .cloned())
     }
 
-    async fn add_outpoint(&self, outpoint: OutPoint) -> bool {
+    async fn add_outpoint(&self, outpoint: OutPoint) -> DbResult<bool> {
         let mut selected_outpoints = self.selected_outpoints.write().await;
 
-        selected_outpoints.insert(outpoint)
+        Ok(selected_outpoints.insert(outpoint))
     }
 
-    async fn selected_outpoints(&self) -> HashSet<OutPoint> {
-        self.selected_outpoints.read().await.clone()
+    async fn selected_outpoints(&self) -> DbResult<HashSet<OutPoint>> {
+        Ok(self.selected_outpoints.read().await.clone())
     }
 
-    async fn add_kickoff_info(&self, deposit_txid: Txid, kickoff_info: KickoffInfo) {
+    async fn add_kickoff_info(
+        &self,
+        deposit_txid: Txid,
+        kickoff_info: KickoffInfo,
+    ) -> DbResult<()> {
         let mut peg_out_graph = self.peg_out_graphs.write().await;
 
         peg_out_graph.insert(deposit_txid, kickoff_info);
+
+        Ok(())
     }
 
-    async fn get_kickoff_info(&self, deposit_txid: Txid) -> Option<KickoffInfo> {
-        self.peg_out_graphs.read().await.get(&deposit_txid).cloned()
+    async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>> {
+        Ok(self.peg_out_graphs.read().await.get(&deposit_txid).cloned())
     }
 
-    async fn get_checkpoint_index(&self, deposit_txid: Txid) -> Option<u64> {
-        self.checkpoint_table
+    async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>> {
+        Ok(self
+            .checkpoint_table
             .read()
             .await
             .get(&deposit_txid)
-            .copied()
+            .copied())
     }
 
-    async fn set_checkpoint_index(&self, deposit_txid: Txid, checkpoint_index: u64) {
+    async fn set_checkpoint_index(
+        &self,
+        deposit_txid: Txid,
+        checkpoint_index: u64,
+    ) -> DbResult<()> {
         self.checkpoint_table
             .write()
             .await
             .insert(deposit_txid, checkpoint_index);
+
+        Ok(())
     }
 }

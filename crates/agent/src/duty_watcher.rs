@@ -54,7 +54,9 @@ where
         handles.spawn(async move {
             while let Some((duty_id, status)) = status_receiver.recv().await {
                 info!(event = "received duty report", %duty_id, ?status);
-                db.update_duty_status(duty_id, status.clone()).await;
+                db.update_duty_status(duty_id, status.clone())
+                    .await
+                    .unwrap(); // FIXME: Handle me
                 info!(event = "updated duty status in db", %duty_id, ?status);
             }
         });
@@ -66,7 +68,8 @@ where
         handles.spawn(async move {
             loop {
                 let operator_idx = u32::MAX; // doesn't really matter in the current impl
-                let last_fetched_duty_index = db.get_last_fetched_duty_index().await;
+                let last_fetched_duty_index = db.get_last_fetched_duty_index().await.unwrap(); // FIXME:
+                                                                                               // Handle me
 
                 match strata_rpc_client
                     .get_bridge_duties(operator_idx, last_fetched_duty_index)
@@ -85,7 +88,8 @@ where
                             duty_sender.send(duty).expect("should be able to send duty");
                         }
 
-                        db.set_last_fetched_duty_index(stop_index).await;
+                        db.set_last_fetched_duty_index(stop_index).await.unwrap(); // FIXME: Handle
+                                                                                   // me
                     }
                     Err(e) => {
                         error!(?e, "could not get duties from strata");

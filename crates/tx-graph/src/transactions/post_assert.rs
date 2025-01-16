@@ -1,24 +1,32 @@
 use bitcoin::{sighash::Prevouts, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*, types::OperatorIdx};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`PostAssertTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PostAssertTxData {
+    /// The transaction IDs of the assert data transactions in order.
     pub assert_data_txids: Vec<Txid>,
 
+    /// The transaction ID of the pre-assert transaction used to carry the stake over.
     pub pre_assert_txid: Txid,
 
+    /// The amount of the stake that was carried over after paying transaction fees.
     pub input_amount: Amount,
 
+    /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 }
 
+/// A transaction in the Assert chain that combines the outputs of the assert data transactions.
+///
+/// This is used for creating a single transaction that can then be connected to a payout or
+/// disprove transaction.
 #[derive(Debug, Clone)]
 pub struct PostAssertTx {
     psbt: Psbt,
@@ -31,12 +39,13 @@ pub struct PostAssertTx {
 }
 
 impl PostAssertTx {
-    pub async fn new<Db: PublicDb>(
+    /// Constructs a new instance of the post-assert transaction.
+    pub fn new(
         data: PostAssertTxData,
         operator_idx: OperatorIdx,
         connector_a2: ConnectorS,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
     ) -> Self {
         // +1 for stake
         let total_inputs = NUM_ASSERT_DATA_TX + 1;
@@ -55,9 +64,7 @@ impl PostAssertTx {
 
         trace!(event = "created tx ins", count = tx_ins.len(), %operator_idx);
 
-        let connector_a31_script = connector_a31
-            .generate_locking_script(data.deposit_txid, operator_idx)
-            .await;
+        let connector_a31_script = connector_a31.generate_locking_script(data.deposit_txid);
         trace!(
             event = "generated a31 locking script",
             size = connector_a31_script.len(), %operator_idx,
@@ -115,10 +122,14 @@ impl PostAssertTx {
         }
     }
 
+    /// Returns the remaining stake after the post-assert transaction.
     pub fn remaining_stake(&self) -> Amount {
         self.remaining_stake
     }
 
+    /// Finalizes the transaction by adding the required n-of-n signatures.
+    ///
+    /// The signatures must be specified in the order of the inputs.
     pub fn finalize(mut self, signatures: &[Signature]) -> Transaction {
         // skip the stake
         for (index, input) in self.psbt.inputs.iter_mut().enumerate() {

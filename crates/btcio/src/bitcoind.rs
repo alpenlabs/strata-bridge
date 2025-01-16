@@ -507,12 +507,12 @@ impl BlockGenerator for BitcoinClient {
 
 #[cfg(test)]
 mod test {
-    use std::env::set_var;
+    use std::env::{self, set_var};
 
     use bitcoin::{consensus, hashes::Hash, NetworkKind};
-    use strata_bridge_test_utils::bitcoind::BitcoinD;
-    use strata_common::logging;
-    use tracing::trace;
+    use corepc_node::Node;
+    use strata_common::logging::{self, LoggerConfig};
+    use tracing::{debug, trace};
 
     use super::*;
 
@@ -535,117 +535,194 @@ mod test {
         Ok(block_hashes)
     }
 
-    // #[tokio::test()]
-    #[allow(unused)] // FIXME: remove when these tests work in CI
+    #[tokio::test]
     async fn client_works() {
-        logging::init();
+        logging::init(LoggerConfig::new("btcio-test".to_string()));
 
-        let bitcoind = BitcoinD::default();
-        let url = bitcoind.url;
-        let user = bitcoind.user;
-        let password = bitcoind.password;
+        if env::var("CI").is_ok() {
+            // Skip this test in CI
+            // FIXME: this test fails in CI due to excessive memory allocation.
+            eprintln!("Skipping test since CI is detected");
+            return;
+        }
+
+        let bitcoind = Node::from_downloaded().expect("must be able to start up bitcoind node");
+        let url = format!("http://{}", bitcoind.params.rpc_socket);
+        let cookie_values = bitcoind
+            .params
+            .get_cookie_values()
+            .expect("must be able to get cookie values")
+            .expect("cookie values must exist");
+
+        let user = &cookie_values.user;
+        let password = &cookie_values.password;
+        debug!(%url, %user, %password, "connecting to bitcoind");
 
         // setting the ENV variable `BITCOIN_XPRIV_RETRIEVABLE` to retrieve the xpriv
         set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
-        let client = BitcoinClient::new(url, user, password).unwrap();
+        let client = BitcoinClient::new(&url, user, password).unwrap();
+
         // wait for the client to be ready
         sleep(Duration::from_secs(1)).await;
 
         // network
-        let got = client.network().await.unwrap();
+        let got = client.network().await.expect("must be able to get network");
         let expected = Network::Regtest;
-        assert_eq!(expected, got);
+        assert_eq!(expected, got, "network must match");
 
         // get_blockchain_info
-        let get_blockchain_info = client.get_blockchain_info().await.unwrap();
-        assert_eq!(get_blockchain_info.blocks, 0);
+        let get_blockchain_info = client
+            .get_blockchain_info()
+            .await
+            .expect("must be able to get blockchain info");
+        assert_eq!(get_blockchain_info.blocks, 0, "blocks must be 0");
 
         // get_current_timestamp
-        let start_time = client.get_current_timestamp().await.unwrap();
-        let blocks = mine_blocks(&client, 101, None).await.unwrap();
+        let start_time = client
+            .get_current_timestamp()
+            .await
+            .expect("must be able to get current timestamp");
+        let blocks = mine_blocks(&client, 101, None)
+            .await
+            .expect("must be able to mine blocks");
 
         // get_block
-        let expected = blocks.last().unwrap();
-        let got = client.get_block(expected).await.unwrap().block_hash();
-        assert_eq!(*expected, got);
+        let expected = blocks.last().expect("there must be at least one block");
+        let got = client
+            .get_block(expected)
+            .await
+            .expect("must be able to get last block")
+            .block_hash();
+        assert_eq!(*expected, got, "block hashes must match");
 
         // get_block_at
         let target_height = blocks.len() as u32;
-        let expected = blocks.last().unwrap();
+        let expected = blocks.last().expect("there must be at least one block");
         let got = client
             .get_block_at(target_height)
             .await
-            .unwrap()
+            .expect("must be able to get block at height")
             .block_hash();
-        assert_eq!(*expected, got);
+        assert_eq!(*expected, got, "block hashes must match");
 
         // get_block_count
         let expected = blocks.len() as u32;
-        let got = client.get_block_count().await.unwrap();
-        assert_eq!(expected, got);
+        let got = client
+            .get_block_count()
+            .await
+            .expect("must be able to get block count");
+        assert_eq!(expected, got, "block counts must match");
 
         // get_block_hash
         let target_height = blocks.len() as u32;
-        let expected = blocks.last().unwrap();
-        let got = client.get_block_hash(target_height).await.unwrap();
-        assert_eq!(*expected, got);
+        let expected = blocks.last().expect("there must be at least one block");
+        let got = client
+            .get_block_hash(target_height)
+            .await
+            .expect("must be able to get block hash");
+        assert_eq!(*expected, got, "block hashes must match");
 
         // get_new_address
-        let address = client.get_new_address().await.unwrap();
+        let address = client
+            .get_new_address()
+            .await
+            .expect("must be able to get new address");
         let txid = client
             .call::<String>(
                 "sendtoaddress",
-                &[to_value(address.to_string()).unwrap(), to_value(1).unwrap()],
+                &[
+                    to_value(address.to_string()).unwrap(),
+                    to_value(1).expect("must be able to convert 1 to value"),
+                ],
             )
             .await
-            .unwrap()
+            .expect("must be able to send to address")
             .parse::<Txid>()
-            .unwrap();
+            .expect("must be able to parse txid");
 
         // get_transaction
-        let tx = client.get_transaction(&txid).await.unwrap().hex;
-        let got = client.send_raw_transaction(&tx).await.unwrap();
+        let tx = client
+            .get_transaction(&txid)
+            .await
+            .expect("must be able to get transaction")
+            .hex;
+        let got = client
+            .send_raw_transaction(&tx)
+            .await
+            .expect("must be able to send raw transaction");
         let expected = txid;
-        assert_eq!(expected, got);
+        assert_eq!(expected, got, "txids must match");
 
         // get_raw_mempool
-        let got = client.get_raw_mempool().await.unwrap();
+        let got = client
+            .get_raw_mempool()
+            .await
+            .expect("must be able to get raw mempool");
         let expected = vec![txid];
-        assert_eq!(expected, got);
+        assert_eq!(expected, got, "txids must match in the mempool");
 
         // estimate_smart_fee
-        let got = client.estimate_smart_fee(1).await.unwrap();
+        let got = client
+            .estimate_smart_fee(1)
+            .await
+            .expect("must be able to estimate smart fee");
         let expected = 1; // 1 sat/vB
-        assert_eq!(expected, got);
+        assert_eq!(expected, got, "fees must match");
 
         // sign_raw_transaction_with_wallet
-        let got = client.sign_raw_transaction_with_wallet(&tx).await.unwrap();
+        let got = client
+            .sign_raw_transaction_with_wallet(&tx)
+            .await
+            .expect("must be able to sign raw transaction with wallet");
         assert!(got.complete);
-        assert!(consensus::encode::deserialize_hex::<Transaction>(&got.hex).is_ok());
+        assert!(
+            consensus::encode::deserialize_hex::<Transaction>(&got.hex).is_ok(),
+            "must be able to deserialize hex into transaction"
+        );
 
         // test_mempool_accept
-        let txids = client.test_mempool_accept(&tx).await.unwrap();
-        let got = txids.first().unwrap();
-        assert_eq!(got.txid, tx.compute_txid());
+        let txids = client
+            .test_mempool_accept(&tx)
+            .await
+            .expect("must be able to test mempool accept");
+        let got = txids.first().expect("there must be at least one txid");
+        assert_eq!(
+            got.txid,
+            tx.compute_txid(),
+            "txids must match in the mempool"
+        );
 
         // send_raw_transaction
-        let got = client.send_raw_transaction(&tx).await.unwrap();
-        assert!(got.as_byte_array().len() == 32);
+        let got = client
+            .send_raw_transaction(&tx)
+            .await
+            .expect("must be able to send raw transaction");
+        assert!(got.as_byte_array().len() == 32, "txid must be 32 bytes");
 
         // list_transactions
-        let got = client.list_transactions(None).await.unwrap();
-        assert_eq!(got.len(), 10);
+        let got = client
+            .list_transactions(None)
+            .await
+            .expect("must be able to list transactions");
+        assert_eq!(got.len(), 10, "there must be 10 transactions");
 
         // get_utxos
         // let's mine one more block
-        mine_blocks(&client, 1, None).await.unwrap();
-        let got = client.get_utxos().await.unwrap();
-        assert_eq!(got.len(), 3);
+        mine_blocks(&client, 1, None)
+            .await
+            .expect("must be able to mine blocks");
+        let got = client.get_utxos().await.expect("must be able to get utxos");
+        assert_eq!(got.len(), 3, "there must be 3 utxos");
 
         // listdescriptors
-        let got = client.get_xpriv().await.unwrap().unwrap().network;
+        let got = client
+            .get_xpriv()
+            .await
+            .unwrap()
+            .expect("must be able to extract xpriv")
+            .network;
         let expected = NetworkKind::Test;
-        assert_eq!(expected, got);
+        assert_eq!(expected, got, "network must match");
 
         // importdescriptors
         // taken from https://github.com/rust-bitcoin/rust-bitcoin/blob/bb38aeb786f408247d5bbc88b9fa13616c74c009/bitcoin/examples/taproot-psbt.rs#L18C38-L18C149
@@ -659,27 +736,46 @@ mod test {
         let got = client
             .import_descriptors(list_descriptors, "strata".to_owned())
             .await
-            .unwrap();
+            .expect("must be able to import descriptors");
         let expected = vec![ImportDescriptorResult { success: true }];
-        assert_eq!(expected, got);
+        assert_eq!(expected, got, "imported descriptors must match");
 
         // superblock
         let end_time = client.get_current_timestamp().await.unwrap();
         let got = client
             .get_superblock(start_time, end_time, Some(1))
             .await
-            .unwrap()
+            .expect("must be able to get superblock")
             .block_hash();
-        let block_hash_first = client.get_block_hash(1).await.unwrap();
-        let block_hash_mid = client.get_block_hash(50).await.unwrap();
+        let block_hash_first = client
+            .get_block_hash(1)
+            .await
+            .expect("must be able to get first block hash");
+        let block_hash_mid = client
+            .get_block_hash(50)
+            .await
+            .expect("must be able to get mid block hash");
         let block_hash_last = {
-            let height = client.get_block_count().await.unwrap();
-            client.get_block_hash(height).await.unwrap()
+            let height = client
+                .get_block_count()
+                .await
+                .expect("must be able to get block count");
+            client
+                .get_block_hash(height)
+                .await
+                .expect("must be able to get last block hash")
         };
-        assert!(got <= block_hash_first);
-        assert!(got <= block_hash_mid);
-        assert!(got <= block_hash_last);
-
-        drop(bitcoind);
+        assert!(
+            got <= block_hash_first,
+            "block hash must be less than or equal to first block hash"
+        );
+        assert!(
+            got <= block_hash_mid,
+            "block hash must be less than or equal to mid block hash"
+        );
+        assert!(
+            got <= block_hash_last,
+            "block hash must be less than or equal to last block hash"
+        );
     }
 }

@@ -1,11 +1,12 @@
 use core::fmt;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, fs, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bitcoin::{
     block::Header,
     consensus,
     hashes::Hash,
+    hex::DisplayHex,
     sighash::{Prevouts, SighashCache},
     TapSighashType, Transaction, TxOut, Txid,
 };
@@ -17,6 +18,7 @@ use rand::Rng;
 use secp256k1::{schnorr::Signature, XOnlyPublicKey};
 use strata_bridge_btcio::traits::{Broadcaster, Reader, Signer};
 use strata_bridge_db::{
+    errors::DbError,
     operator::{KickoffInfo, OperatorDb},
     public::PublicDb,
     tracker::DutyTrackerDb,
@@ -26,25 +28,27 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::{prelude::*, strata::STRATA_BTC_GENESIS_HEIGHT},
-    scripts::{
-        taproot::{create_message_hash, finalize_input, TaprootWitness},
-        wots::{generate_wots_public_keys, generate_wots_signatures, Assertions},
+    params::{
+        connectors::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
+        prelude::*,
     },
+    scripts::taproot::{create_message_hash, finalize_input, TaprootWitness},
     types::{OperatorIdx, TxSigningData},
     withdrawal::WithdrawalInfo,
+    wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
 use strata_bridge_proof_protocol::{
     run_process_bridge_proof, BridgeProofPublicParams, StrataBridgeState,
 };
-use strata_bridge_proof_snark::{bridge_poc, prover};
+use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_tx_graph::{
-    connectors::params::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
+    connectors::prelude::ConnectorA30Leaf,
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
+use strata_primitives::buf::Buf32;
 use strata_rpc::StrataApiClient;
-use strata_state::{block::L2Block, chain_state::ChainState, l1::get_btc_params};
+use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
     broadcast::{self, error::RecvError},
     mpsc,
@@ -118,7 +122,10 @@ where
         let own_index = self.build_context.own_index();
         let duty_id = duty.get_id();
 
-        let latest_status = if let Some(status) = self.duty_db.fetch_duty_status(duty_id).await {
+        let latest_status = if let Some(status) =
+            self.duty_db.fetch_duty_status(duty_id).await.unwrap()
+        // FIXME: Handle me
+        {
             status
         } else {
             let status: BridgeDutyStatus = match &duty {
@@ -161,7 +168,8 @@ where
 
                 info!(action = "getting the latest checkpoint index");
                 let latest_checkpoint_idx = if let Some(checkpoint_idx) =
-                    self.db.get_checkpoint_index(deposit_txid).await
+                    self.db.get_checkpoint_index(deposit_txid).await.unwrap()
+                // FIXME: Handle me
                 {
                     info!(event = "found strata checkpoint index in db", %checkpoint_idx, %deposit_txid, %own_index);
 
@@ -180,7 +188,8 @@ where
 
                 self.db
                     .set_checkpoint_index(deposit_txid, latest_checkpoint_idx)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 let withdrawal_status = match latest_status {
                     BridgeDutyStatus::Withdrawal(withdrawal_status) => withdrawal_status,
@@ -211,14 +220,15 @@ where
         let deposit_txid = deposit_tx.psbt.unsigned_tx.compute_txid();
 
         info!(action = "generating wots public keys", %deposit_txid, %own_index);
-        let public_keys = generate_wots_public_keys(&self.msk, deposit_txid);
+        let public_keys = WotsPublicKeys::new(&self.msk, deposit_txid);
         self.public_db
             .set_wots_public_keys(self.build_context.own_index(), deposit_txid, &public_keys)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "generating kickoff", %deposit_txid, %own_index);
 
-        let reserved_outpoints = self.db.selected_outpoints().await;
+        let reserved_outpoints = self.db.selected_outpoints().await.unwrap(); // FIXME: Handle me
         info!(event = "got reserved outpoints", ?reserved_outpoints);
 
         let (change_address, funding_input, total_amount, funding_utxo) = self
@@ -227,7 +237,7 @@ where
             .await
             .expect("should be able to get outpoints");
 
-        self.db.add_outpoint(funding_input).await;
+        self.db.add_outpoint(funding_input).await.unwrap(); // FIXME: Handle me
 
         let funding_inputs = vec![funding_input];
         let funding_utxos = vec![funding_utxo];
@@ -262,26 +272,24 @@ where
                     change_amt,
                 },
             )
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
-        info!(action = "composing pegout graph connectors", %deposit_txid, %own_index);
-        let peg_out_graph_connectors = PegOutGraphConnectors::new(
-            self.public_db.clone(),
+        info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
+        let (peg_out_graph, _connectors) = PegOutGraph::generate(
+            peg_out_graph_input.clone(),
+            &self.public_db,
             &self.build_context,
             deposit_txid,
-            self.build_context.own_index(),
-        )
-        .await;
-
-        info!(action = "generating pegout graph", %deposit_txid, %own_index);
-        let peg_out_graph = PegOutGraph::generate(
-            peg_out_graph_input.clone(),
-            deposit_txid,
-            peg_out_graph_connectors,
             own_index,
-            self.public_db.clone(),
         )
-        .await;
+        .await
+        .expect("must be able to generate tx graph");
+
+        info!(action = "registering txids on the watcher", %deposit_txid, %own_index);
+        self.register_graph(&peg_out_graph, own_index, deposit_txid)
+            .await
+            .expect("must be able to register graph");
 
         // 2. Aggregate nonces for peg out graph txs that require covenant.
         info!(action = "aggregating nonces for emulated covenant", %deposit_txid, %own_index);
@@ -488,27 +496,26 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
-                    let connectors = PegOutGraphConnectors::new(
-                        self.public_db.clone(),
+
+                    let (
+                        PegOutGraph {
+                            kickoff_tx: _,
+                            claim_tx: _,
+                            assert_chain,
+                            disprove_tx,
+                            payout_tx,
+                        },
+                        _connectors,
+                    ) = PegOutGraph::generate(
+                        peg_out_graph_input,
+                        &self.public_db,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
                     )
-                    .await;
-                    let PegOutGraph {
-                        kickoff_tx: _,
-                        claim_tx: _,
-                        assert_chain,
-                        disprove_tx,
-                        payout_tx,
-                    } = PegOutGraph::generate(
-                        peg_out_graph_input,
-                        deposit_txid,
-                        connectors,
-                        sender_id,
-                        self.public_db.clone(),
-                    )
-                    .await;
+                    .await
+                    .expect("should be able to generate tx graph");
+
                     let AssertChain {
                         pre_assert,
                         assert_data: _,
@@ -584,13 +591,14 @@ where
                     for (txid, input_index, nonce) in txid_input_index_and_nonce {
                         self.db
                             .add_pubnonce(txid, input_index, sender_id, nonce)
-                            .await;
+                            .await
+                            .unwrap(); // FIXME: Handle me
 
                         all_done = self
                             .db
                             .collected_pubnonces(txid, input_index)
                             .await
-                            .is_some_and(|v| v.len() == num_signers);
+                            .is_ok_and(|v| v.len() == num_signers);
                     }
 
                     self_requests_fulfilled = all_done;
@@ -738,7 +746,6 @@ where
         debug!(event = "computed aggregate signature for disprove", deposit_txid = %deposit_txid, %own_index);
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn generate_covenant_signatures(
         &self,
         agg_nonces: AggNonces,
@@ -857,27 +864,28 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
-                    let connectors = PegOutGraphConnectors::new(
-                        self.public_db.clone(),
+                    let (peg_out_graph, _connectors) = PegOutGraph::generate(
+                        peg_out_graph_input,
+                        &self.public_db,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
                     )
-                    .await;
+                    .await
+                    .expect("should be able to generate tx graph");
+
+                    self.register_graph(&peg_out_graph, sender_id, deposit_txid)
+                        .await
+                        .expect("should be able to register graph");
+
                     let PegOutGraph {
                         kickoff_tx: _,
                         claim_tx: _,
                         assert_chain,
                         disprove_tx,
                         payout_tx,
-                    } = PegOutGraph::generate(
-                        peg_out_graph_input,
-                        deposit_txid,
-                        connectors,
-                        sender_id,
-                        self.public_db.clone(),
-                    )
-                    .await;
+                    } = peg_out_graph;
+
                     let AssertChain {
                         pre_assert,
                         assert_data: _,
@@ -956,13 +964,15 @@ where
                                     sender_id,
                                     partial_sig,
                                 )
-                                .await;
+                                .await
+                                .unwrap(); // FIXME: Handle me
 
                             all_done = all_done
                                 && self
                                     .db
                                     .collected_signatures_per_msg(txid, input_index as u32)
                                     .await
+                                    .unwrap() // FIXME:  Handle me
                                     .is_some_and(|v| {
                                         let sig_count = v.1.len();
                                         debug!(event = "got sig count", %sig_count, %txid, %input_index, %own_index);
@@ -994,13 +1004,17 @@ where
             .expect("should be able to create key agg context");
 
         let secnonce = self.agent.generate_sec_nonce(&txid, &key_agg_ctx);
-        self.db.add_secnonce(txid, 0, secnonce.clone()).await;
+        self.db
+            .add_secnonce(txid, 0, secnonce.clone())
+            .await
+            .unwrap(); // FIXME: Handle me
 
         let pubnonce = secnonce.public_nonce();
 
         self.db
             .add_pubnonce(txid, 0, own_index, pubnonce.clone())
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "broadcasting one's own nonce for deposit sweeping", deposit_txid=%txid, %own_index);
         self.deposit_signal_sender
@@ -1022,9 +1036,13 @@ where
             } = deposit_signal
             {
                 info!(event = "received nonce for deposit sweeping", deposit_txid=%txid, %own_index, %sender_id);
-                self.db.add_pubnonce(txid, 0, sender_id, pubnonce).await;
+                self.db
+                    .add_pubnonce(txid, 0, sender_id, pubnonce)
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
-                if let Some(collected_nonces) = self.db.collected_pubnonces(txid, 0).await {
+                if let Ok(collected_nonces) = self.db.collected_pubnonces(txid, 0).await {
+                    // FIXME: Handle me
                     let nonce_count = collected_nonces.len();
                     if nonce_count != expected_nonce_count {
                         // NOTE: there is still some nonce to be received, so continuing to listen
@@ -1080,6 +1098,7 @@ where
             .db
             .get_secnonce(txid, 0)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("secnonce should exist before adding signatures");
 
         info!(action = "generating one's own signature for deposit sweeping", deposit_txid=%txid, operator_idx=%own_index);
@@ -1099,7 +1118,8 @@ where
             .expect("should be able to sign deposit");
         self.db
             .add_message_hash_and_signature(txid, 0, message.to_vec(), own_index, partial_signature)
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         info!(action = "broadcasting one's own signature for deposit sweeping", deposit_txid=%txid, operator_idx=%own_index);
         self.deposit_signal_sender
@@ -1124,10 +1144,12 @@ where
                 // for now, this is fine because musig2 validates every signature during generation.
                 self.db
                     .add_partial_signature(txid, 0, sender_id, signature)
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
 
                 if let Some((_, collected_signatures)) =
-                    self.db.collected_signatures_per_msg(txid, 0).await
+                    self.db.collected_signatures_per_msg(txid, 0).await.unwrap()
+                // FIXME: Handle me
                 {
                     let sig_count = collected_signatures.len();
                     if collected_signatures.len() != expected_signature_count {
@@ -1206,10 +1228,14 @@ where
 
         // add the secnonce and pubnonce to db even for txid from others as it is required for
         // partial signing later.
-        self.db.add_secnonce(txid, input_index, secnonce).await;
+        self.db
+            .add_secnonce(txid, input_index, secnonce)
+            .await
+            .unwrap(); // FIXME: Handle me
         self.db
             .add_pubnonce(txid, input_index, operator_idx, pubnonce.clone())
-            .await;
+            .await
+            .unwrap(); // FIXME: Handle me
 
         pubnonce
     }
@@ -1227,7 +1253,7 @@ where
         txid: Txid,
         input_index: u32,
     ) -> anyhow::Result<AggNonce> {
-        if let Some(collected_nonces) = self.db.collected_pubnonces(txid, input_index).await {
+        if let Ok(collected_nonces) = self.db.collected_pubnonces(txid, input_index).await {
             let expected_nonce_count = self.build_context.pubkey_table().0.len();
             if collected_nonces.len() != expected_nonce_count {
                 let collected: Vec<u32> = collected_nonces.keys().copied().collect();
@@ -1285,17 +1311,23 @@ where
             .expect("should be able to create a message hash");
             let message = message.as_ref();
 
-            let secnonce =
-                if let Some(secnonce) = self.db.get_secnonce(txid, input_index as u32).await {
-                    secnonce
-                } else {
-                    // use the first secnonce if the given input_index does not exist
-                    // this is the case for post_assert inputs (but not for payout)
-                    self.db
-                        .get_secnonce(txid, 0)
-                        .await
-                        .expect("first secnonce should exist")
-                };
+            let secnonce = if let Some(secnonce) = self
+                .db
+                .get_secnonce(txid, input_index as u32)
+                .await
+                // FIXME: Handle me
+                .unwrap()
+            {
+                secnonce
+            } else {
+                // use the first secnonce if the given input_index does not exist
+                // this is the case for post_assert inputs (but not for payout)
+                self.db
+                    .get_secnonce(txid, 0)
+                    .await
+                    .unwrap() // FIXME: Handle me
+                    .expect("first secnonce should exist")
+            };
 
             let seckey = self.agent.secret_key();
 
@@ -1323,7 +1355,8 @@ where
                         own_index,
                         partial_sig,
                     )
-                    .await;
+                    .await
+                    .unwrap(); // FIXME: Handle me
             }
         }
 
@@ -1360,6 +1393,7 @@ where
                 .db
                 .collected_signatures_per_msg(txid, input_index as u32)
                 .await
+                .unwrap() // FIXME: Handle me
                 .expect("partial signatures must be present");
             let message = collected_msgs_and_sigs.0;
             let partial_sigs: Vec<PartialSignature> =
@@ -1376,7 +1410,8 @@ where
                     input_index as u32,
                     agg_sig,
                 )
-                .await;
+                .await
+                .unwrap(); // FIXME: Handle me
         }
     }
 
@@ -1395,20 +1430,20 @@ where
 
         let own_pubkey = self.agent.public_key().x_only_public_key().0;
 
-        // 1. pay the user with PoW transaction
+        // 1. pay the user
         if status.should_pay() {
             let user_pk = withdrawal_info.user_pk();
 
             info!(action = "paying out the user", %user_pk, %own_index);
 
-            let bridge_out_txid = self
+            let withdrawal_fulfillment_txid = self
                 .pay_user(user_pk, network, own_index)
                 .await
                 .expect("must be able to pay user");
 
-            let duty_status = WithdrawalStatus::PaidUser(bridge_out_txid).into();
+            let duty_status = WithdrawalStatus::PaidUser(withdrawal_fulfillment_txid).into();
             info!(
-                action = "sending out duty update status for bridge out",
+                action = "sending out duty update status for withdrawal fulfillment",
                 ?duty_status
             );
 
@@ -1417,7 +1452,7 @@ where
                 .await
                 .expect("should be able to send duty status");
 
-            status.next(bridge_out_txid, None);
+            status.next(withdrawal_fulfillment_txid, None);
         } else {
             info!(action = "already paid user, so skipping");
         }
@@ -1433,6 +1468,7 @@ where
             .db
             .get_kickoff_info(deposit_txid)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("kickoff data for the deposit must be present");
 
         let peg_out_graph_input = PegOutGraphInput {
@@ -1448,13 +1484,19 @@ where
             },
         };
 
-        let connectors = PegOutGraphConnectors::new(
-            self.public_db.clone(),
+        let (peg_out_graph, connectors) = PegOutGraph::generate(
+            peg_out_graph_input,
+            &self.public_db,
             &self.build_context,
             deposit_txid,
             own_index,
         )
-        .await;
+        .await
+        .expect("should be able to generate tx graph");
+
+        self.register_graph(&peg_out_graph, own_index, deposit_txid)
+            .await
+            .expect("should be able to register graph");
 
         let PegOutGraph {
             kickoff_tx,
@@ -1462,15 +1504,7 @@ where
             assert_chain,
             payout_tx,
             disprove_tx: _,
-        } = PegOutGraph::generate(
-            peg_out_graph_input,
-            deposit_txid,
-            connectors.clone(),
-            own_index,
-            self.public_db.clone(),
-        )
-        .await;
-
+        } = peg_out_graph;
         // 3. publish kickoff -> claim
         self.broadcast_kickoff_and_claim(
             &connectors,
@@ -1488,14 +1522,17 @@ where
             post_assert,
         } = assert_chain;
 
-        if let Some((bridge_out_txid, superblock_start_ts)) = status.should_pre_assert() {
+        if let Some((withdrawal_fulfillment_txid, superblock_start_ts)) = status.should_pre_assert()
+        {
             // 5. Publish pre-assert tx
             info!(event = "challenge received, broadcasting pre-assert tx");
             let pre_assert_txid = pre_assert.compute_txid();
             let n_of_n_sig = self
                 .public_db
                 .get_signature(own_index, pre_assert_txid, 0)
-                .await;
+                .await
+                .unwrap()
+                .unwrap(); // FIXME: Handle me
             let signed_pre_assert = pre_assert.finalize(n_of_n_sig, connectors.claim_out_0);
             let vsize = signed_pre_assert.vsize();
             let total_size = signed_pre_assert.total_size();
@@ -1513,7 +1550,7 @@ where
                 .send((
                     deposit_txid,
                     WithdrawalStatus::PreAssert {
-                        bridge_out_txid,
+                        withdrawal_fulfillment_txid,
                         superblock_start_ts,
                         pre_assert_txid,
                     }
@@ -1522,7 +1559,7 @@ where
                 .await
                 .expect("should be able to send duty status");
 
-            status.next(bridge_out_txid, Some(superblock_start_ts));
+            status.next(withdrawal_fulfillment_txid, Some(superblock_start_ts));
         } else {
             info!(action = "already broadcasted pre-assert, so skipping");
         }
@@ -1554,30 +1591,12 @@ where
                         }
                     }
                 }
-                generate_wots_signatures(&self.msk, deposit_txid, assertions)
+                WotsSignatures::new(&self.msk, deposit_txid, assertions)
             };
-
-            // TODO: remove this
-            // verify groth16 assertions
-            {
-                info!(action = "verifying groth16 assertions");
-                let public_keys = self
-                    .public_db
-                    .get_wots_public_keys(own_index, deposit_txid)
-                    .await;
-
-                let disprove = g16::verify_signed_assertions(
-                    bridge_poc::GROTH16_VERIFICATION_KEY.clone(),
-                    public_keys.groth16.0,
-                    assert_data_signatures.groth16,
-                );
-                dbg!(&disprove);
-            }
 
             let signed_assert_data_txs = assert_data.finalize(
                 connectors.assert_data160_factory,
                 connectors.assert_data256_factory,
-                &self.msk,
                 assert_data_signatures,
             );
 
@@ -1600,7 +1619,7 @@ where
             let mut broadcasted_assert_data_txids = Vec::with_capacity(TOTAL_CONNECTORS);
 
             for (index, signed_assert_data_tx) in signed_assert_data_txs.iter().enumerate() {
-                if let Some((bridge_out_txid, superblock_start_ts)) =
+                if let Some((withdrawal_fulfillment_txid, superblock_start_ts)) =
                     status.should_assert_data(index)
                 {
                     info!(event = "broadcasting signed assert data tx", %index, %num_assert_data_txs);
@@ -1616,7 +1635,7 @@ where
                         .send((
                             deposit_txid,
                             BridgeDutyStatus::Withdrawal(WithdrawalStatus::AssertData {
-                                bridge_out_txid,
+                                withdrawal_fulfillment_txid,
                                 superblock_start_ts,
                                 assert_data_txids: broadcasted_assert_data_txids.clone(),
                             }),
@@ -1644,7 +1663,9 @@ where
                 let n_of_n_sig = self
                     .public_db
                     .get_signature(own_index, post_assert_txid, input_index as u32)
-                    .await;
+                    .await
+                    .unwrap()
+                    .unwrap(); // FIXME: Handle me
 
                 signatures.push(n_of_n_sig);
             }
@@ -1685,10 +1706,21 @@ where
             let deposit_signature = self
                 .public_db
                 .get_signature(own_index, payout_tx.compute_txid(), 0)
-                .await;
-            let signed_payout_tx = payout_tx
-                .finalize(connectors.post_assert_out_0, own_index, deposit_signature)
-                .await;
+                .await
+                .unwrap()
+                .unwrap(); // FIXME: Handle me
+            let n_of_n_sig = self
+                .public_db
+                .get_signature(
+                    own_index,
+                    payout_tx.compute_txid(),
+                    ConnectorA30Leaf::Payout(()).get_input_index(),
+                )
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:  Handle me
+            let signed_payout_tx =
+                payout_tx.finalize(connectors.post_assert_out_0, deposit_signature, n_of_n_sig);
 
             info!(action = "trying to get reimbursement", payout_txid=%signed_payout_tx.compute_txid(), %own_index);
 
@@ -1735,14 +1767,14 @@ where
 
     async fn broadcast_kickoff_and_claim(
         &self,
-        connectors: &PegOutGraphConnectors<P>,
+        connectors: &PegOutGraphConnectors,
         own_index: u32,
         deposit_txid: Txid,
         kickoff_tx: KickOffTx,
         claim_tx: ClaimTx,
         status: &mut WithdrawalStatus,
     ) {
-        if let Some(bridge_out_txid) = status.should_kickoff() {
+        if let Some(withdrawal_fulfillment_txid) = status.should_kickoff() {
             let unsigned_kickoff = &kickoff_tx.psbt().unsigned_tx;
             info!(action = "funding kickoff tx with wallet", ?unsigned_kickoff);
             let funded_kickoff = self
@@ -1766,7 +1798,7 @@ where
                 .expect("should be able to broadcast signed kickoff tx");
 
             let duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Kickoff {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 kickoff_txid,
             });
             info!(action = "sending out duty status", ?duty_status);
@@ -1777,12 +1809,12 @@ where
 
             info!(event = "broadcasted kickoff tx", %deposit_txid, %kickoff_txid, %own_index);
 
-            status.next(bridge_out_txid, None);
+            status.next(withdrawal_fulfillment_txid, None);
         } else {
             info!(action = "already broadcasted kickoff, so skipping");
         }
 
-        if let Some(bridge_out_txid) = status.should_claim() {
+        if let Some(withdrawal_fulfillment_txid) = status.should_claim() {
             let superblock_start_ts = self
                 .agent
                 .btc_client
@@ -1791,15 +1823,13 @@ where
                 .expect("should be able to get the latest timestamp from the best block");
             debug!(event = "got current timestamp (T_s)", %superblock_start_ts, %own_index);
 
-            let claim_tx_with_commitment = claim_tx
-                .finalize(
-                    deposit_txid,
-                    &connectors.kickoff,
-                    &self.msk,
-                    bridge_out_txid,
-                    superblock_start_ts,
-                )
-                .await;
+            let claim_tx_with_commitment = claim_tx.finalize(
+                deposit_txid,
+                &connectors.kickoff,
+                &self.msk,
+                withdrawal_fulfillment_txid,
+                superblock_start_ts,
+            );
 
             let raw_claim_tx: String = consensus::encode::serialize_hex(&claim_tx_with_commitment);
             trace!(event = "finalized claim tx", %deposit_txid, ?claim_tx_with_commitment, %raw_claim_tx, %own_index);
@@ -1812,7 +1842,7 @@ where
                 .expect("should be able to publish claim tx with commitment to bridge_out_txid and superblock period start_ts");
 
             let duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
-                bridge_out_txid,
+                withdrawal_fulfillment_txid,
                 superblock_start_ts,
                 claim_txid,
             });
@@ -1827,7 +1857,7 @@ where
 
             info!(event = "broadcasted claim tx", %deposit_txid, %claim_txid, %own_index);
 
-            status.next(bridge_out_txid, Some(superblock_start_ts));
+            status.next(withdrawal_fulfillment_txid, Some(superblock_start_ts));
         } else {
             info!(action = "already broadcasted claim tx, so skipping");
         }
@@ -1842,7 +1872,7 @@ where
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
         // don't use kickoff utxo for payment
-        let reserved_utxos = self.db.selected_outpoints().await;
+        let reserved_utxos = self.db.selected_outpoints().await.unwrap(); // FIXME: Handle me
 
         let (change_address, outpoint, total_amount, prevout) = self
             .agent
@@ -1851,9 +1881,9 @@ where
             .expect("at least one funding utxo must be present in wallet");
 
         let change_amount = total_amount - net_payment - MIN_RELAY_FEE;
-        debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for bridge out");
+        debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
-        let bridge_out = BridgeOut::new(
+        let withdrawal_fulfillment = WithdrawalFulfillment::new(
             network,
             own_index,
             vec![outpoint],
@@ -1866,13 +1896,13 @@ where
         let signed_tx_result = self
             .agent
             .btc_client
-            .sign_raw_transaction_with_wallet(&bridge_out.tx())
+            .sign_raw_transaction_with_wallet(&withdrawal_fulfillment.tx())
             .await
-            .expect("must be able to sign bridge out transaction");
+            .expect("must be able to sign withdrawal fulfillment transaction");
 
         assert!(
             signed_tx_result.complete,
-            "bridge out tx must be completely signed"
+            "withdrawal fulfillment tx must be completely signed"
         );
 
         let signed_tx: Transaction = consensus::encode::deserialize_hex(&signed_tx_result.hex)
@@ -1885,7 +1915,7 @@ where
                 Ok(txid)
             }
             Err(e) => {
-                error!(?e, "could not broadcast bridge out tx");
+                error!(?e, "could not broadcast withdrawal fulfillment tx");
 
                 bail!(e.to_string());
             }
@@ -1895,7 +1925,7 @@ where
     async fn prove_and_generate_assertions(
         &self,
         deposit_txid: Txid,
-        bridge_out_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
         superblock_period_start_ts: u32,
     ) -> Assertions {
         info!(action = "getting latest checkpoint at the time of withdrawal duty reception");
@@ -1903,6 +1933,7 @@ where
             .db
             .get_checkpoint_index(deposit_txid)
             .await
+            .unwrap() // FIXME: Handle me
             .expect("checkpoint index must exist");
 
         info!(action = "getting the checkpoint info for the index", %latest_checkpoint_at_payout);
@@ -1916,22 +1947,38 @@ where
 
         let l1_range = checkpoint_info.l1_range;
         let l2_range = checkpoint_info.l2_range;
-        let l1_block_id = checkpoint_info.l1_blockid;
-        let l2_block_id = checkpoint_info.l2_blockid;
 
-        info!(event = "got checkpoint info", %latest_checkpoint_at_payout, ?l1_range, ?l2_range, %l1_block_id, %l2_block_id);
+        info!(event = "got checkpoint info", %latest_checkpoint_at_payout, ?l1_range, ?l2_range);
 
-        let l2_height_to_query = l2_range.1 + 1;
-        info!(action = "getting chain state", %l2_height_to_query);
+        let next_l2_block = l2_range.1 + 1;
+        info!(action = "getting block id for the next L2 Block", %next_l2_block);
+        let l2_block_id = self
+            .agent
+            .strata_client
+            .get_headers_at_idx(next_l2_block)
+            .await
+            .expect("should be able to get L2 block headers")
+            .expect("L2 block headers must be present")
+            .first()
+            .expect("L2 block headers must not be empty")
+            .block_id;
+
+        info!(
+            action = "getting chain state",
+            l2_block_id = l2_block_id.to_lower_hex_string()
+        );
         let cl_block_witness = self
             .agent
             .strata_client
-            .get_cl_block_witness_raw(l2_height_to_query)
+            .get_cl_block_witness_raw(L2BlockId::from(Buf32(l2_block_id)))
             .await
             .expect("should be able to query for CL block witness")
             .expect("cl block witness must exist");
 
-        let chain_state = borsh::from_slice::<(ChainState, L2Block)>(&cl_block_witness)
+        fs::write("cl_block_witness.bin", &cl_block_witness)
+            .expect("should write cl block witness");
+
+        let chain_state = borsh::from_slice::<(Chainstate, L2Block)>(&cl_block_witness)
             .expect("should be able to deserialize CL block witness")
             .0;
 
@@ -1942,20 +1989,20 @@ where
 
         // FIXME: bring `get_verification_state` impl into the loop below
         let initial_header_state = get_verification_state(
-            self.agent.btc_client.clone(),
+            self.agent.btc_client.as_ref(),
             l1_start_height as u64,
-            STRATA_BTC_GENESIS_HEIGHT,
             &btc_params,
         )
         .await
         .expect("should be able to initial header state");
+        info!(event = "got initial header state", %l1_start_height, ?initial_header_state);
 
         let mut height = l1_start_height as u32;
         let mut headers: Vec<Header> = vec![];
-        let mut bridge_out = None;
+        let mut withdrawal_fulfillment = None;
         let mut checkpoint = None;
 
-        info!(action = "scanning blocks...", %deposit_txid, %bridge_out_txid, %superblock_period_start_ts, start_height=%height);
+        info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, %superblock_period_start_ts, start_height=%height);
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
             let block = self.agent.btc_client.get_block_at(height).await;
@@ -1974,21 +2021,21 @@ where
                         .is_some_and(|h| h == initial_header_state.last_verified_block_num)
                 }) {
                     let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found checkpoint", %height);
+                    info!(event = "found checkpoint", %height, checkpoint_txid=%tx.compute_txid());
                     checkpoint = Some((height, tx.with_inclusion_proof(&block)));
                 }
             }
 
-            if bridge_out.is_none() {
-                // check and get bridge out txid with proof
+            if withdrawal_fulfillment.is_none() {
+                // check and get withdrawal fulfillment txid with proof
                 if let Some(tx) = block
                     .txdata
                     .iter()
-                    .find(|tx| tx.compute_txid() == bridge_out_txid)
+                    .find(|tx| tx.compute_txid() == withdrawal_fulfillment_txid)
                 {
                     let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found bridge out", %height);
-                    bridge_out = Some((height, tx.with_inclusion_proof(&block)));
+                    info!(event = "found withdrawal fulfillment", %height, %withdrawal_fulfillment_txid);
+                    withdrawal_fulfillment = Some((height, tx.with_inclusion_proof(&block)));
                 }
             }
 
@@ -2011,13 +2058,13 @@ where
             headers,
             deposit_txid: deposit_txid.to_byte_array(),
             checkpoint: checkpoint.expect("must be able to find checkpoint"),
-            bridge_out: bridge_out.expect("must be able to find bridge out txid"),
+            withdrawal_fulfillment: withdrawal_fulfillment
+                .expect("must be able to find withdrawal fulfillment txid"),
             superblock_period_start_ts,
         };
 
         let strata_bridge_state = StrataBridgeState {
-            deposits_table: chain_state.deposits_table().clone(),
-            hashed_chain_state: chain_state.hashed_chain_state(),
+            chain_state,
             initial_header_state,
         };
 
@@ -2042,10 +2089,43 @@ where
             superblock_hash,
             superblock_period_start_ts: superblock_period_start_ts.to_le_bytes(),
             groth16: g16::generate_proof_assertions(
-                bridge_poc::GROTH16_VERIFICATION_KEY.clone(),
+                bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,
                 public_inputs,
             ),
         }
+    }
+
+    async fn register_graph(
+        &self,
+        peg_out_graph: &PegOutGraph,
+        operator_idx: OperatorIdx,
+        deposit_txid: Txid,
+    ) -> Result<(), DbError> {
+        let claim_txid = peg_out_graph.claim_tx.compute_txid();
+        info!(action = "registering claim", %claim_txid, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_claim_txid(claim_txid, operator_idx, deposit_txid)
+            .await?;
+
+        let pre_assert_txid = peg_out_graph.assert_chain.pre_assert.compute_txid();
+        info!(action = "registering pre-assert", %pre_assert_txid, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_pre_assert_txid(pre_assert_txid, operator_idx, deposit_txid)
+            .await?;
+
+        let assert_data_txids = peg_out_graph.assert_chain.assert_data.compute_txids();
+        info!(action = "registering assert data txids", ?assert_data_txids, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_assert_data_txids(assert_data_txids, operator_idx, deposit_txid)
+            .await?;
+
+        let post_assert_txid = peg_out_graph.assert_chain.post_assert.compute_txid();
+        info!(action = "registering post-assert txid", %post_assert_txid, %deposit_txid, %operator_idx);
+        self.public_db
+            .register_post_assert_txid(post_assert_txid, operator_idx, deposit_txid)
+            .await?;
+
+        Ok(())
     }
 }

@@ -1,4 +1,4 @@
-pub mod bridge_poc;
+pub mod bridge_vk;
 #[cfg(feature = "prover")]
 pub mod prover;
 pub mod sp1;

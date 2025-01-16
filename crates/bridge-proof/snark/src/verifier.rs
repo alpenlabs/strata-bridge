@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use num_traits::Num;
-use strata_sp1_adapter::SP1Verifier;
-use strata_zkvm::{Proof, ZKVMVerifier};
+use strata_sp1_adapter::verify_groth16;
+use strata_zkvm::Proof;
 
 pub fn verify_proof(proof: Proof, vkey: String, comitted_values: &[u8]) -> anyhow::Result<()> {
     let vkey_hash = BigUint::from_str_radix(
@@ -12,7 +12,7 @@ pub fn verify_proof(proof: Proof, vkey: String, comitted_values: &[u8]) -> anyho
     .expect("Failed to parse vkey hash")
     .to_bytes_be();
 
-    SP1Verifier::verify_groth16_raw(&proof, &vkey_hash, comitted_values)?;
+    verify_groth16(&proof, &vkey_hash.try_into().unwrap(), comitted_values)?;
 
     anyhow::Ok(())
 }

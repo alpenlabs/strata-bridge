@@ -1,0 +1,6 @@
+[env]
+# The [default](https://github.com/rust-lang/rust/blob/c528b8c67895bfe7fdcdfeb56ec5bf6ef928dcd7/compiler/rustc_interface/src/util.rs#L52) stack size of 8 MB is too
+# small for the large arrays in the `wots` primitives that are passed by value.
+# This leads to a stack overflow when running the tests.
+# HACK: Increase it to ~50 MB.
+RUST_MIN_STACK = "50000000"

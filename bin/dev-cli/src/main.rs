@@ -13,7 +13,7 @@ use anyhow::{Context, Error, Result};
 use bitcoin::secp256k1::Secp256k1;
 use bridge_in::{deposit_request, wallet};
 use clap::Parser;
-use strata_common::logging;
+use strata_common::logging::{self, LoggerConfig};
 use tracing::info;
 
 use crate::bridge_in::wallet::PsbtWallet;
@@ -23,7 +23,7 @@ mod constants;
 mod cli;
 
 fn main() -> Result<(), Error> {
-    logging::init();
+    logging::init(LoggerConfig::new("dev-cli".to_string()));
 
     let cli = cli::Cli::parse();
     match cli.command {

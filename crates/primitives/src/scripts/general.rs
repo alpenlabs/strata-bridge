@@ -5,7 +5,6 @@ use bitcoin::{
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
 use bitcoin_script::script;
-use bitvm::{pseudo::NMUL, treepp::*};
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
 
@@ -32,10 +31,10 @@ pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -
     .compile()
 }
 
-pub fn op_return_nonce(data: Vec<u8>) -> ScriptBuf {
+pub fn op_return_nonce(data: &[u8]) -> ScriptBuf {
     let mut push_data = PushBytesBuf::new();
     push_data
-        .extend_from_slice(&data[..])
+        .extend_from_slice(data)
         .expect("data should be within limit");
 
     Builder::new()
@@ -131,28 +130,62 @@ pub fn create_tx_outs(
         .collect()
 }
 
-pub fn extract_superblock_ts_from_header() -> Script {
-    script! {
-        for i in 0..4 { { 80 - 12 + 2 * i } OP_PICK }
-        for _ in 1..4 {  { NMUL(1 << 8) } OP_ADD }
-    }
-}
+#[cfg(test)]
+mod tests {
+    use musig2::{
+        aggregate_partial_signatures, sign_partial, AggNonce, PartialSignature, SecNonce,
+    };
+    use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
 
-pub fn add_bincode_padding_bytes32() -> Script {
-    script! {
-        for b in [0; 7] { {b} } 32
-    }
-}
+    use super::*;
 
-pub fn hash_to_bn254_fq() -> Script {
-    script! {
-        for i in 1..=3 {
-            { 1 << (8 - i) }
-            OP_2DUP
-            OP_GREATERTHAN
-            OP_IF OP_SUB
-            OP_ELSE OP_DROP
-            OP_ENDIF
-        }
+    #[test]
+    fn test_agg_pubkey_single() {
+        let (secret_key, public_key) = generate_keypair(&mut OsRng);
+        let keypair = secret_key.keypair(SECP256K1);
+        let key_agg_ctx =
+            KeyAggContext::new([public_key]).expect("must be able to aggregate a single pubkey");
+
+        let agg_pubkey: XOnlyPublicKey = get_aggregated_pubkey(vec![public_key]);
+
+        assert_ne!(agg_pubkey, public_key.x_only_public_key().0);
+
+        let data = [0u8; 32];
+        let message = Message::from_digest_slice(&data).expect("must be valid");
+
+        let signature = SECP256K1.sign_schnorr(&message, &keypair);
+        assert!(SECP256K1
+            .verify_schnorr(&signature, &message, &public_key.x_only_public_key().0)
+            .is_ok());
+
+        let signature = SECP256K1.sign_schnorr(&message, &keypair);
+        assert!(SECP256K1
+            .verify_schnorr(&signature, &message, &agg_pubkey)
+            .is_err());
+
+        let public_key: PublicKey = key_agg_ctx.aggregated_pubkey();
+        let secnonce = SecNonce::build(data)
+            .with_seckey(secret_key)
+            .with_message(&data)
+            .with_aggregated_pubkey(public_key)
+            .build();
+        let pubnonce = secnonce.public_nonce();
+        let agg_nonce: AggNonce = [pubnonce].iter().cloned().sum();
+
+        let partial_sig: PartialSignature = sign_partial(
+            &key_agg_ctx,
+            secret_key,
+            secnonce,
+            &agg_nonce,
+            message.as_ref(),
+        )
+        .expect("must be able to sign with partial signature");
+
+        let agg_sig =
+            aggregate_partial_signatures(&key_agg_ctx, &agg_nonce, [partial_sig], message.as_ref())
+                .expect("must be able to aggregate partial signatures");
+        assert!(SECP256K1
+            .verify_schnorr(&agg_sig, &message, &agg_pubkey)
+            .is_ok());
     }
 }

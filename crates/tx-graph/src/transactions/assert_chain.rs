@@ -1,5 +1,4 @@
 use bitcoin::Txid;
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     params::connectors::{
         NUM_PKS_A160, NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A256, NUM_PKS_A256_PER_CONNECTOR,
@@ -11,28 +10,39 @@ use tracing::trace;
 use super::prelude::*;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct an [`AssertChain`].
 #[derive(Debug, Clone)]
 pub struct AssertChainData {
     pub pre_assert_data: PreAssertData,
     pub deposit_txid: Txid,
 }
 
+/// A chain of transactions that asserts the operator's claim.
 #[derive(Debug, Clone)]
 pub struct AssertChain {
+    /// The pre-assert transaction, the first transaction in the chain.
     pub pre_assert: PreAssertTx,
+
+    /// The set of assert data transactions that contain bitcommitments to the intermediate values
+    /// in the proof.
     pub assert_data: AssertDataTxBatch,
+
+    /// The post-assert transaction, the last transaction in the chain.
     pub post_assert: PostAssertTx,
 }
 
 impl AssertChain {
+    /// Constructs a new instance of the assert chain.
+    ///
+    /// This method constructs the pre-assert, assert data, and post-assert transactions in order.
     #[expect(clippy::too_many_arguments)]
-    pub async fn new<Db: PublicDb>(
+    pub fn new(
         data: AssertChainData,
         operator_idx: OperatorIdx,
         connector_c0: ConnectorC0,
         connector_s: ConnectorS,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
         connector_a160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
         connector_a256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
     ) -> Self {
@@ -72,8 +82,7 @@ impl AssertChain {
             connector_s,
             connector_a30,
             connector_a31,
-        )
-        .await;
+        );
 
         trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid(), %operator_idx);
 

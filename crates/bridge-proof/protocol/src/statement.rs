@@ -1,12 +1,12 @@
 use bitcoin::hashes::Hash;
 use borsh::BorshDeserialize;
+use strata_l1tx::envelope::parser::parse_envelope_data;
 use strata_primitives::l1::{BitcoinAmount, XOnlyPk};
 use strata_state::{
     batch::{BatchCheckpoint, SignedBatchCheckpoint},
     bridge_state::DepositState,
     l1::get_btc_params,
 };
-use strata_tx_parser::inscription::parse_inscription_data;
 
 use crate::{
     primitives::{BridgeProofPublicParams, StrataBridgeState},
@@ -100,9 +100,9 @@ pub fn process_bridge_proof(
     {
         // extract batch checkpoint from checkpoint tx
         let script = checkpoint.tx.0.input[0].witness.tapscript().unwrap();
-        let inscription = parse_inscription_data(&script.into(), ROLLUP_NAME).unwrap();
+        let inscription = parse_envelope_data(&script.into(), ROLLUP_NAME).unwrap();
         let batch_checkpoint: BatchCheckpoint =
-            borsh::from_slice::<SignedBatchCheckpoint>(inscription.batch_data())
+            borsh::from_slice::<SignedBatchCheckpoint>(inscription.data())
                 .unwrap()
                 .into();
 
@@ -127,7 +127,7 @@ pub fn process_bridge_proof(
         }
 
         let entry = state
-            .deposits_table
+            .deposits_table()
             .deposits()
             .find(|&el| el.output().outpoint().txid.to_byte_array() == deposit_txid)
             .ok_or("checkpoint: deposit_txid does not exist in deposits_table")?;

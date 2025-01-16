@@ -11,8 +11,10 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
-tempfile = "3.13.0"
-tracing.workspace = true
+strata-bridge-btcio.workspace = true
+strata-bridge-primitives.workspace = true
 
-[dev-dependencies]
-strata-common.workspace = true
+bitcoin.workspace = true
+bitvm.workspace = true
+corepc-node.workspace = true
+musig2.workspace = true

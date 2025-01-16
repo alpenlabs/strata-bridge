@@ -2,25 +2,29 @@ use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, Amount, Network, OutPoint, Psbt, TapSighashType,
     Transaction, TxOut, Txid,
 };
-use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::{
-    params::prelude::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*, types::OperatorIdx,
-};
+use secp256k1::schnorr;
+use strata_bridge_primitives::{params::prelude::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
 use crate::connectors::prelude::*;
 
+/// Data needed to construct a [`DisproveTx`].
 #[derive(Debug, Clone)]
 pub struct DisproveData {
+    /// The transaction ID of the post-assert transaction.
     pub post_assert_txid: Txid,
 
+    /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 
+    /// The stake that remains after paying off the transaction fees in the preceding transactions.
     pub input_stake: Amount,
 
+    /// The bitcoin network on which the transaction is to be constructed.
     pub network: Network,
 }
 
+/// The transaction used to disprove an operator's claim and slash their stake.
 #[derive(Debug, Clone)]
 pub struct DisproveTx {
     psbt: Psbt,
@@ -31,11 +35,11 @@ pub struct DisproveTx {
 }
 
 impl DisproveTx {
-    pub async fn new<Db: PublicDb>(
+    /// Constructs a new instance of the disprove transaction.
+    pub fn new(
         data: DisproveData,
-        operator_idx: OperatorIdx,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
     ) -> Self {
         let utxos = [
             OutPoint {
@@ -66,9 +70,7 @@ impl DisproveTx {
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("should be able to create psbt");
 
-        let connector_a31_script = connector_a31
-            .generate_locking_script(data.deposit_txid, operator_idx)
-            .await;
+        let connector_a31_script = connector_a31.generate_locking_script(data.deposit_txid);
         let connector_a31_value = connector_a31_script.minimal_non_dust();
 
         let prevouts = vec![
@@ -83,7 +85,7 @@ impl DisproveTx {
         ];
 
         let (script_buf, control_block) =
-            connector_a30.generate_spend_info(ConnectorA30Leaf::Disprove);
+            connector_a30.generate_spend_info(ConnectorA30Leaf::Disprove(()));
         let witness = TaprootWitness::Script {
             script_buf,
             control_block,
@@ -105,37 +107,22 @@ impl DisproveTx {
         }
     }
 
-    pub async fn finalize<Db>(
+    /// Finalizes the disprove transaction by adding the required witness and output data.
+    pub fn finalize(
         mut self,
-        connector_a30: ConnectorA30<Db>,
-        connector_a31: ConnectorA31<Db>,
+        connector_a30: ConnectorA30,
+        connector_a31: ConnectorA31,
         reward: TxOut,
         deposit_txid: Txid,
-        operator_idx: OperatorIdx,
         disprove_leaf: ConnectorA31Leaf,
-    ) -> Transaction
-    where
-        Db: PublicDb + Clone,
-    {
-        let original_txid = self.compute_txid();
+        n_of_n_sig: schnorr::Signature,
+    ) -> Transaction {
+        connector_a30.finalize_input(
+            &mut self.psbt.inputs[0],
+            ConnectorA30Leaf::Disprove(n_of_n_sig),
+        );
 
-        connector_a30
-            .finalize_input(
-                &mut self.psbt.inputs[0],
-                operator_idx,
-                original_txid,
-                ConnectorA30Leaf::Disprove,
-            )
-            .await;
-
-        connector_a31
-            .finalize_input(
-                &mut self.psbt.inputs[1],
-                disprove_leaf,
-                deposit_txid,
-                operator_idx,
-            )
-            .await;
+        connector_a31.finalize_input(&mut self.psbt.inputs[1], disprove_leaf, deposit_txid);
 
         let mut tx = self
             .psbt

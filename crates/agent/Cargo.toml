@@ -17,16 +17,15 @@ strata-bridge-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
 strata-bridge-tx-graph.workspace = true
-strata-rpc = { workspace = true, features = ["client"] }
 
+strata-l1tx.workspace = true
 strata-primitives.workspace = true
+strata-rpc = { workspace = true, features = ["client"] }
 strata-state.workspace = true
-strata-tx-parser.workspace = true
 
 anyhow.workspace = true
 bincode.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
-bitcoin-script = { workspace = true }
 bitvm = { workspace = true }
 borsh = { workspace = true }
 jsonrpsee.workspace = true
@@ -34,5 +33,6 @@ musig2 = { workspace = true, features = ["serde"] }
 rand.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
+sha2.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -13,11 +13,11 @@ pub mod xpriv;
 use bootstrap::bootstrap;
 use clap::Parser;
 use cli::Cli;
-use strata_common::logging;
+use strata_common::logging::{self, LoggerConfig};
 use tracing::{info, trace};
 
 fn main() {
-    logging::init();
+    logging::init(LoggerConfig::new("bridge-node".to_string()));
 
     let cli_args: Cli = Cli::parse();
 

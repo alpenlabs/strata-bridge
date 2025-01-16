@@ -16,6 +16,8 @@ base64.workspace = true
 bitcoin.workspace = true
 esplora-client = { workspace = true, default-features = false, features = [
   "async-https-rustls",
+  "async",
+  "tokio",
 ] }
 reqwest.workspace = true
 serde.workspace = true
@@ -27,4 +29,4 @@ tracing.workspace = true
 [dev-dependencies]
 anyhow.workspace = true
 strata-common.workspace = true
-strata-bridge-test-utils.workspace = true
+corepc-node.workspace = true
