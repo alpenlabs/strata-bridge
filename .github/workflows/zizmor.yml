@@ -14,8 +14,17 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
 
       - name: Run zizmor 🌈
-        run: uvenv zizmor .
+        run: |
+          # Install uvenv globally
+          # Ubuntu 24.04 does not allow to install packages globally
+          # and results in an `externally-management-environment error`.
+          # The `--break-system-packages` flag is used to bypass this error,
+          # but this flag should not be abused.
+          pip install uvenv --break-system-packages
+          uv tool install zizmor
+          uvenv zizmor .
+
