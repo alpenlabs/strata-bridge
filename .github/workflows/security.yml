@@ -11,24 +11,15 @@ env:
 
 jobs:
   supply-chain:
-    name: Run `cargo-audit`
     runs-on: ubuntu-latest
-    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2024-11-01
+          persist-credentials: false
 
-        #  HACK: not denying warnings as we depend on `yaml-rust` via `format-serde-error` which is unmaintained
-      - name: Check for audit warnings
-        run: cargo audit -D warnings
-        continue-on-error: true
+      - uses: rustsec/audit-check@v1.4.1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true # don't fail the build if there are vulnerabilities.
+                                # because of a false-positive on `sqlx-mysql` which is not being used in this repo.
 
-        # HACK: re-run without denying warnings so that we don't miss any vulnerabilities
-      - name: Check for vulnerabilities
-        run: cargo audit
-        # there is a vulnerability in `sqlx-mysql` due to its dependency on rsa,
-        # which we're not even using but still ends up in the `Cargo.lock` file.
-        # remove this once this `cargo` issue is fixed: https://github.com/rust-lang/cargo/issues/10801.
-        continue-on-error: true
