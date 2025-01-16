@@ -17,6 +17,8 @@ jobs:
     timeout-minutes: 90 # cold run takes a lot of time as each crate is compiled separately
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
