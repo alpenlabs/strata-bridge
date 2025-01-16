@@ -257,7 +257,8 @@ mod tests {
     use std::{collections::BTreeMap, fs, str::FromStr, sync::Arc};
 
     use bitcoin::{
-        consensus, sighash::SighashCache, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
+        consensus, policy::MAX_STANDARD_TX_WEIGHT, sighash::SighashCache, OutPoint, ScriptBuf,
+        TapSighashType, Transaction, TxOut,
     };
     use corepc_node::{
         serde_json::{self, json},
@@ -714,16 +715,24 @@ mod tests {
             "number of assert data transactions must match"
         );
 
-        signed_assert_data_txs.iter().for_each(|tx| {
-            btc_client
-                .send_raw_transaction(tx)
-                .expect("must be able to send assert data tx");
+        signed_assert_data_txs
+            .iter()
+            .enumerate()
+            .for_each(|(i, tx)| {
+                assert!(
+                    tx.weight().to_wu() < MAX_STANDARD_TX_WEIGHT as u64,
+                    "assert data tx {i} must be within standardness limit"
+                );
 
-            // generate a block so that the mempool size limit is not hit
-            btc_client
-                .generate_to_address(1, &btc_addr)
-                .expect("must be able to mine assert data tx");
-        });
+                btc_client
+                    .send_raw_transaction(tx)
+                    .expect("must be able to send assert data tx");
+
+                // generate a block so that the mempool size limit is not hit
+                btc_client
+                    .generate_to_address(1, &btc_addr)
+                    .expect("must be able to mine assert data tx");
+            });
 
         btc_client
             .generate_to_address(5, &btc_addr)
