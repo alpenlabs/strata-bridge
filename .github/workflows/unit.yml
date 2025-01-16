@@ -66,9 +66,6 @@ jobs:
         with:
           cache-on-failure: true
 
-      - name: Set RUST_LOG
-        run: echo "RUST_LOG=${{ github.event.inputs.RUST_LOG }}" >> $GITHUB_ENV
-
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked
 
@@ -82,6 +79,7 @@ jobs:
           DATABASE_URL: sqlite://./operator.db
           RUST_BACKTRACE: 1
           SKIP_GUEST_BUILD: 1
+          RUST_LOG: ${{ github.event.inputs.RUST_LOG || 'warn' }}
 
       - name: Test Summary
         uses: test-summary/action@v2
