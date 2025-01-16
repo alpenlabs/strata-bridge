@@ -11,6 +11,10 @@ env:
 
 jobs:
   supply-chain:
+    permissions:
+        # Needed to post the security report comment.
+        pull-requests: write
+
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
