@@ -156,7 +156,6 @@ struct TxSubscriptionDetails {
 }
 
 pub struct BtcZmqClient {
-    cfg: BtcZmqConfig,
     block_subs: Arc<Mutex<Vec<mpsc::Sender<Block>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
@@ -204,7 +203,7 @@ impl BtcZmqClient {
                             futures::future::join_all(block_subs.iter().map(|sub| sub.send(block.clone()))).await;
 
                             // Now we process the block to understand what the relevant transaction diff is
-                            let diff = sm.process_block(block);
+                            let diff = BtcZmqSM::describe_diff(sm.process_block(block));
 
                             let send_jobs = diff.into_iter()
                                 .cartesian_product(tx_subs.iter())
@@ -218,7 +217,7 @@ impl BtcZmqClient {
                             let subs = tx_subs_thread.lock().await;
                             let mut sm = state_machine_thread.lock().await;
 
-                            let diff = sm.process_tx(tx);
+                            let diff = BtcZmqSM::describe_diff(sm.process_tx(tx));
 
                             let send_jobs = diff.into_iter()
                                 .cartesian_product(subs.iter())
@@ -232,7 +231,7 @@ impl BtcZmqClient {
                             let subs = tx_subs_thread.lock().await;
                             let mut sm = state_machine_thread.lock().await;
 
-                            let diff = sm.process_sequence(seq);
+                            let diff = BtcZmqSM::describe_diff(sm.process_sequence(seq));
 
                             let send_jobs = diff.into_iter()
                                 .cartesian_product(subs.iter())
@@ -249,7 +248,6 @@ impl BtcZmqClient {
         });
 
         Ok(BtcZmqClient {
-            cfg,
             block_subs,
             tx_subs,
             state_machine,
@@ -260,6 +258,7 @@ impl BtcZmqClient {
     pub async fn subscribe_transactions(&mut self, f: impl Fn(&Transaction) -> bool + Sync + Send + 'static) ->
         Subscription<(Transaction, TxStatus)> {
 
+        // TODO(proofofkeags): review the correctness of this magic number and provide rationale and possible extraction
         let (send, recv) = mpsc::channel(4);
 
         let details = TxSubscriptionDetails {
@@ -276,11 +275,20 @@ impl BtcZmqClient {
     }
 
     pub async fn subscribe_blocks(&mut self) -> Subscription<Block> {
+        // TODO(proofofkeags): review the correctness of this magic number and provide rationale and possible extraction
         let (send, recv) = mpsc::channel(10);
 
         self.block_subs.lock().await.push(send);
 
         Subscription::from_receiver(recv)
+    }
+
+    pub async fn num_tx_subscriptions(&self) -> usize {
+        self.tx_subs.lock().await.len()
+    }
+
+    pub async fn num_block_subscriptions(&self) -> usize {
+        self.block_subs.lock().await.len()
     }
 }
 
@@ -329,6 +337,13 @@ impl BtcZmqSM {
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, &pred)) {
             self.tx_filters.swap_remove(idx);
         }
+    }
+
+    fn describe_diff(diff: Vec<(Transaction, TxStatus)>) -> Vec<(Transaction, TxStatus)> {
+        for (tx, status) in diff.iter() {
+            eprintln!("{:?}: {}", status, tx.compute_txid())
+        }
+        diff
     }
 
     fn process_block(&mut self, block: Block) -> Vec<(Transaction, TxStatus)> {
@@ -494,30 +509,40 @@ impl BtcZmqSM {
             SequenceMessage::BlockDisconnect { blockhash } => {
                 // If the block is disconnected we reset all transactions that currently have that blockhash as their
                 // containing block.
-                for lifecycle in self.tx_lifecycles.values_mut() {
-                    if lifecycle.block == Some(blockhash) {
-                        lifecycle.block = None;
-                        if let Some(raw) = &lifecycle.raw {
-                            diff.push((raw.clone(), TxStatus::Mempool));
+                if let Some(block) = self.unburied_blocks.front() {
+                    if block.block_hash() == blockhash {
+                        self.unburied_blocks.pop_front();
+                    } else {
+                        panic!("invariant violated: out of order block disconnect");
+                    }
+                }
+
+                self.tx_lifecycles.retain(|_, v| {
+                    if v.block != Some(blockhash) {
+                        true
+                    } else {
+                        if let Some(raw) = &v.raw {
+                            diff.push((raw.clone(), TxStatus::Unknown));
                         } else {
                             // TODO(proofofkeags): it occurs to me that we can simplify the lifecycle structure and make
                             // it CBC, but I'll hold off on that until the next revision.
-                            panic!("invariant violated")
+                            panic!("invariant violated: block known when raw transaction unknown")
                         }
+                        false
                     }
-                }
+                });
             }
             SequenceMessage::MempoolAcceptance { txid, .. } => {
                 match self.tx_lifecycles.get_mut(&txid) {
                     Some(lifecycle) => {
                         match (&lifecycle.raw, &lifecycle.block, &lifecycle.seq_received) {
-                            (None, None, true) => panic!("invariant violated"),
-                            (None, None, false) => panic!("invariant violated"),
-                            (None, Some(_), true) => panic!("invariant violated"),
-                            (None, Some(_), false) => panic!("invariant violated"),
-                            (Some(_), None, true) => panic!("invariant violated"),
+                            (None, None, true) => panic!("invariant violated: duplicate mempool acceptance"),
+                            (None, None, false) => panic!("invariant violated: empty tx lifecycle record"),
+                            (None, Some(_), true) => panic!("invariant violated: block known without raw tx"),
+                            (None, Some(_), false) => panic!("invariant violated: block known without raw tx"),
+                            (Some(_), None, true) => panic!("invariant violated: duplicate mempool acceptance"),
                             (Some(raw), None, false) => { diff = vec![(raw.clone(), TxStatus::Mempool)]; },
-                            (Some(_), Some(_), true) => panic!("invariant violated"),
+                            (Some(_), Some(_), true) => panic!("invariant violated: duplicate mempool acceptance"),
                             (Some(_), Some(_), false) => { lifecycle.seq_received = true; }
                         }
                     }
@@ -551,8 +576,9 @@ mod tests {
 
     fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
-        bitcoin_conf.view_stdout = true;
+        bitcoin_conf.view_stdout = false;
         bitcoin_conf.enable_zmq = true;
+        // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
         bitcoin_conf.args.extend(vec![
             "-zmqpubhashblock=tcp://127.0.0.1:23882",
             "-zmqpubhashtx=tcp://127.0.0.1:23883",
@@ -575,9 +601,10 @@ mod tests {
         Ok((client, bitcoind))
     }
 
+    #[tokio::test]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
+        // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
-
         let mut block_sub = client.subscribe_blocks().await;
         let newly_mined = bitcoind.client.generate_to_address(1, &bitcoind.client.new_address()?)?.into_model()?;
         let blk = block_sub.next().await.map(|b|b.block_hash());
@@ -589,22 +616,161 @@ mod tests {
 
     #[tokio::test]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>> {
+        // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
-        let bitcoind = Arc::new(std::sync::Mutex::new(bitcoind));
         let mut tx_sub = client.subscribe_transactions(|_|true).await;
-        let b = bitcoind.clone();
-        let new_address = tokio::task::spawn_blocking(move || { b.lock().unwrap().client.new_address() }).await.unwrap()?;
-        let b = bitcoind.clone();
-        let newly_mined = tokio::task::spawn_blocking(move || { b.lock().unwrap().client.generate_to_address(1, &new_address) }).await.unwrap()?.into_model()?;
-        let tx = tx_sub.next().await.map(|(tx, status)|tx.compute_txid());
-        let b = bitcoind.clone();
-        let best_hash = tokio::task::spawn_blocking(move || b.lock().unwrap().client.best_block_hash()).await.unwrap()?;
-        let b = bitcoind.clone();
-        let best_block = tokio::task::spawn_blocking(move || b.lock().unwrap().client.get_block(best_hash)).await.unwrap()?;
-        let cb = best_block.coinbase().map(|cb|cb.compute_txid());
-        assert_eq!(tx, cb);
+        let new_address = bitcoind.client.new_address()?;
+        let newly_mined = bitcoind.client.generate_to_address(1, &new_address)?.into_model()?;
+        let tx = tx_sub.next().await.map(|(tx, _)|tx.compute_txid());
+        let best_block = bitcoind.client.get_block(*newly_mined.0.first().unwrap())?;
+        let cb = best_block.coinbase();
+        assert_eq!(tx, cb.map(|cb|cb.compute_txid()));
         drop(client);
-        bitcoind.lock().unwrap().stop()?;
+        bitcoind.stop()?;
+        Ok(())
+    }
+
+    // Only transactions that match the predicate are delivered (Consistency)
+    #[tokio::test]
+    async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
+        // TODO(proofofkeags): line-by-line commentary
+        let (mut client, mut bitcoind) = setup()?;
+        let new_address = bitcoind.client.new_address()?;
+        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
+
+        let pred = |tx: &Transaction| !tx.is_coinbase();
+        let mut tx_sub = client.subscribe_transactions(pred).await;
+
+        let mine_task = tokio::task::spawn_blocking(move || {
+            for _ in 0..20 {
+                bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap();
+            }
+            bitcoind.client.generate_to_address(1, &new_address).unwrap();
+            drop(client);
+            bitcoind.stop().unwrap();
+        });
+
+        while let Some((tx, _)) = tx_sub.next().await {
+            assert!(pred(&tx))
+        }
+
+        mine_task.await?;
+
+        Ok(())
+    }
+
+    // All transactions that match the predicate are delivered (Completeness)
+    #[tokio::test]
+    async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
+        // TODO(proofofkeags): line-by-line commentary
+        let (mut client, mut bitcoind) = setup()?;
+        let new_address = bitcoind.client.new_address()?;
+        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
+
+        let pred = |tx: &Transaction| !tx.is_coinbase();
+        let mut tx_sub = client.subscribe_transactions(pred).await;
+
+        let mine_task = tokio::task::spawn_blocking(move || {
+            for _ in 0..20 {
+                bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap();
+            }
+            bitcoind.client.generate_to_address(1, &new_address).unwrap();
+            drop(client);
+            bitcoind.stop().unwrap();
+        });
+
+        let mut n_tx = 0;
+        while let Some((tx, _)) = tx_sub.next().await {
+            n_tx += 1;
+        }
+
+        mine_task.await?;
+        assert_eq!(n_tx, 20);
+
+        Ok(())
+    }
+
+    // Exactly one Mined status is delivered per (transaction, block) pair
+    #[tokio::test]
+    async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
+        // TODO(proofofkeags): line-by-line commentary
+        let (mut client, mut bitcoind) = setup()?;
+        let new_address = bitcoind.client.new_address()?;
+        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        let pred = |tx: &Transaction| !tx.is_coinbase();
+        let mut tx_sub = client.subscribe_transactions(pred).await;
+
+        // TODO(proofofkeags): tease apart the essential aspects of this linear sequence of actions.
+        let txid = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
+        eprintln!("candidate: {}", txid);
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.0.compute_txid(), txid);
+        assert_eq!(observed.1, TxStatus::Mempool);
+        let blockhash = bitcoind.client.generate_to_address(1, &new_address).unwrap().into_model().unwrap().0.remove(0);
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.0.compute_txid(), txid);
+        assert_eq!(observed.1, TxStatus::Mined);
+        bitcoind.client.call::<()>("invalidateblock", &[corepc_node::serde_json::Value::String(blockhash.to_string())]).unwrap();
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.0.compute_txid(), txid);
+        assert_eq!(observed.1, TxStatus::Unknown);
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.0.compute_txid(), txid);
+        assert_eq!(observed.1, TxStatus::Mempool);
+        let txid2 = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.0.compute_txid(), txid2);
+        assert_eq!(observed.1, TxStatus::Mempool);
+        bitcoind.client.generate_to_address(1, &new_address).unwrap().into_model().unwrap().0.remove(0);
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.1, TxStatus::Mined);
+        let observed = tx_sub.next().await.unwrap();
+        assert_eq!(observed.1, TxStatus::Mined);
+        drop(client);
+        assert!(tx_sub.next().await.is_none());
+        bitcoind.stop().unwrap();
+        Ok(())
+    }
+
+    // Assuming there are no reorgs, Mined transactions are eventually buried
+    #[tokio::test]
+    async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
+        // TODO(proofofkeags): line-by-line commentary
+        let (mut client, mut bitcoind) = setup()?;
+        let new_address = bitcoind.client.new_address()?;
+        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        let pred = |tx: &Transaction| !tx.is_coinbase();
+        let mut tx_sub = client.subscribe_transactions(pred).await;
+
+        let txid = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
+
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let stop_thread = stop.clone();
+        let mine_task = tokio::task::spawn_blocking(move || {
+            while stop_thread.load(std::sync::atomic::Ordering::SeqCst) {
+                bitcoind.client.generate_to_address(1, &new_address).unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+            drop(client);
+            bitcoind.stop().unwrap();
+        });
+
+        loop {
+            if let Poll::Ready(Some((tx, status))) = futures::poll!(tx_sub.next()) {
+                if tx.compute_txid() == txid && status == TxStatus::Buried {
+                    stop.store(false, std::sync::atomic::Ordering::SeqCst);
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+
+        tokio::time::timeout(std::time::Duration::from_secs(10), mine_task).await??;
+
         Ok(())
     }
 }
