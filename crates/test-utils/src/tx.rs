@@ -5,6 +5,10 @@ use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, creat
 
 pub const FEES: Amount = Amount::from_sat(1_000);
 
+/// Creates `NUM_LEAVES` transactions that send funds to the given output address.
+///
+/// Each such transaction has a single output that sends `input_amount` - [`FEES`] to the given
+/// output address. To create a zero-amount output, simply set `input_amount` to [`FEES`].
 pub fn get_connector_txs<const NUM_LEAVES: usize>(
     btc_client: &Client,
     input_amount: Amount,
