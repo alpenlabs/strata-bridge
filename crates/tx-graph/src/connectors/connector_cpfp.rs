@@ -54,7 +54,6 @@ mod tests {
         consensus,
         hashes::Hash,
         key::TapTweak,
-        policy::DUST_RELAY_TX_FEE,
         sighash::{Prevouts, SighashCache},
         transaction::Version,
         Address, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
@@ -122,8 +121,9 @@ mod tests {
         ]);
         let mut starting_tx = create_tx(starting_tx_ins, starting_tx_outs);
 
-        let dust_amount =
-            Amount::from_sat(starting_tx.vsize() as u64 * DUST_RELAY_TX_FEE as u64 / 1000);
+        // TRUC policy does not allow outputs less than the dust amount.
+        let dust_amount = Amount::from_sat(500);
+
         starting_tx.output[0].value = dust_amount;
         starting_tx.output[1].value = unspent.amount - starting_tx.output[0].value - FEES;
 

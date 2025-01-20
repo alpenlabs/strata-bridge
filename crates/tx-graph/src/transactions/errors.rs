@@ -1,3 +1,4 @@
+use bitcoin::FeeRate;
 use strata_bridge_primitives::errors::BridgeTxBuilderError;
 use thiserror::Error;
 
@@ -10,6 +11,14 @@ pub enum TxError {
     /// Witness format is invalid.
     #[error("could not parse: {0}")]
     Witness(String),
+
+    /// Provided signatures are not enough.
+    #[error("not enough signatures: expected: {0}, got: {1}")]
+    NotEnoughSignatures(usize, usize),
+
+    /// Supplied fee rate is invalid.
+    #[error("invalid fee rate: {0}")]
+    InvalidFeeRate(FeeRate),
 
     /// An unexpected error occurred.
     // HACK: This should only be used while developing, testing or bikeshedding the right variant
