@@ -51,10 +51,6 @@ impl<Status> Cpfp<Status> {
         &self.psbt
     }
 
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
-        &mut self.psbt
-    }
-
     pub fn estimate_package_fee(&self, fee_rate: FeeRate) -> TxResult<Amount> {
         let weight = self.psbt.unsigned_tx.weight() + self.parent_weight;
 
@@ -110,6 +106,10 @@ impl Cpfp<Unfunded> {
 
             status: PhantomData,
         }
+    }
+
+    pub fn psbt_mut(&mut self) -> &mut Psbt {
+        &mut self.psbt
     }
 
     pub fn add_funding(
@@ -315,7 +315,7 @@ mod tests {
             )
             .expect("fee rate must be reasonable");
 
-        let unsigned_child_tx = cpfp.psbt().unsigned_tx.clone();
+        let mut unsigned_child_tx = cpfp.psbt().unsigned_tx.clone();
         let signed_child_tx = btc_client
             .call::<SignRawTransactionWithWallet>(
                 "signrawtransactionwithwallet",
@@ -345,7 +345,7 @@ mod tests {
             .collect::<Vec<_>>();
         let prevouts = Prevouts::All(&prevouts);
 
-        let mut sighasher = SighashCache::new(&mut cpfp.psbt_mut().unsigned_tx);
+        let mut sighasher = SighashCache::new(&mut unsigned_child_tx);
         let child_tx_hash = sighasher
             .taproot_key_spend_signature_hash(
                 Cpfp::PARENT_INPUT_INDEX,
