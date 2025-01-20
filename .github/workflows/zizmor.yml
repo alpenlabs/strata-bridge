@@ -4,6 +4,8 @@ on:
   pull_request:
     branches: ["**"]
 
+permissions: {}
+
 jobs:
   zizmor:
     name: zizmor latest via PyPI
@@ -27,4 +29,3 @@ jobs:
           pip install uvenv --break-system-packages
           uv tool install zizmor
           zizmor .
-

@@ -8,6 +8,8 @@ on:
     paths:
       - ".github/**"
 
+permissions: {}
+
 jobs:
   actionlint:
     runs-on: ubuntu-latest
