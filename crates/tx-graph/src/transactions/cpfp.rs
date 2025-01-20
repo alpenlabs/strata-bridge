@@ -16,15 +16,27 @@ use crate::connectors::prelude::ConnectorCpfp;
 /// fund the 1P1C package.
 #[derive(Debug, Clone)]
 pub struct CpfpInput {
+    /// Amount from the parent transaction that is being spent.
+    ///
+    /// This is required for setting output amounts.
     pub parent_prevout_amount: Amount,
+
+    /// The outpoint of the parent transaction.
     pub parent_utxo: OutPoint,
+
+    /// The weight of the parent transaction.
+    ///
+    /// This is used in fee esimation and is known at the time of CPFP creation.
     pub parent_weight: Weight,
 }
 
 /// Marker for when the child transaction has not been funded.
 #[derive(Debug, Clone)]
 pub struct Unfunded;
+
 /// Marker for when the child transaction has been funded.
+///
+/// This is to ensure at compile-time that only funded psbts are signed and broadcasted.
 #[derive(Debug, Clone)]
 pub struct Funded;
 
@@ -61,6 +73,9 @@ impl<Status> Cpfp<Status> {
 }
 
 impl Cpfp<Unfunded> {
+    /// Creates a new instance of the CPFP transaction.
+    ///
+    /// NOTE: The created CPFP transaction is not yet funded and cannot be settled.
     pub fn new(details: CpfpInput, connector_cpfp: ConnectorCpfp) -> Self {
         // set dummy funding input for fee calculation
         let dummy_funding_outpoint = OutPoint {
@@ -112,6 +127,12 @@ impl Cpfp<Unfunded> {
         &mut self.psbt
     }
 
+    /// Adds inputs/utxos used to fund the 1P1C package.
+    ///
+    /// NOTE: The funding input is the second input in the child transaction.
+    // FIXME: Support multiple funding inputs in the future. This is to support cases where a single
+    // available UTXO is not enough to fund the package. This is unlikely to happen in practice in
+    // the present as operators are assumed to have high-liquidity.
     pub fn add_funding(
         mut self,
         funding_prevout: TxOut,
@@ -146,6 +167,7 @@ impl Cpfp<Unfunded> {
 }
 
 impl Cpfp<Funded> {
+    /// Finalizes the CPFP transaction by populating the witness fields.
     pub fn finalize(
         mut self,
         connector_cpfp: ConnectorCpfp,
@@ -162,16 +184,20 @@ impl Cpfp<Funded> {
         funding_input.witness_script = None;
         funding_input.bip32_derivation = BTreeMap::new();
 
-        connector_cpfp.finalize_input(
+        // Not having an input at this index is unexpected because
+        // the underlying psbt cannot be mutated once it is `Funded`.
+        // It is assumed that the programmer has correctly implemented the logic to populate the
+        // inputs in the `add_funding_inputs` and `new` methods.
+        let parent_input =
             self.psbt
                 .inputs
                 .get_mut(Cpfp::PARENT_INPUT_INDEX)
                 .ok_or(TxError::Unexpected(format!(
                     "missing input index {} for the parent",
                     Cpfp::PARENT_INPUT_INDEX
-                )))?,
-            parent_signature,
-        );
+                )))?;
+
+        connector_cpfp.finalize_input(parent_input, parent_signature);
 
         self.psbt
             .extract_tx()
@@ -306,7 +332,7 @@ mod tests {
             })
             .expect("must have a utxo with enough funds");
 
-        let mut cpfp = cpfp
+        let cpfp = cpfp
             .add_funding(
                 funding_prevout,
                 funding_outpoint,
