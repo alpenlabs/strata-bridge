@@ -173,7 +173,7 @@ impl AssertDataTxBatch {
                         * NUM_PKS_A160_PER_CONNECTOR;
                         let range_e = range_s + NUM_PKS_A160_PER_CONNECTOR;
 
-                        conn.create_tx_input(
+                        conn.finalize_input(
                             // +1 for earlier psbt
                             &mut self.0[psbt_index + 1].inputs[input_index],
                             signatures.groth16.2[range_s..range_e].try_into().unwrap(),
@@ -189,7 +189,7 @@ impl AssertDataTxBatch {
             * NUM_PKS_A160_PER_CONNECTOR;
         let range_e = range_s + NUM_PKS_A160_RESIDUAL;
         let residual_a160_input = &mut self.0[psbt_index].inputs[NUM_ASSERT_DATA_TX3_A160_PK11];
-        connector160_remainder.create_tx_input(
+        connector160_remainder.finalize_input(
             residual_a160_input,
             signatures.groth16.2[range_s..range_e].try_into().unwrap(),
         );

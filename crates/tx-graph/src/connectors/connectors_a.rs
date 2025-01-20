@@ -246,7 +246,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
     }
 
     /// Finalizes the input for the psbt that spends this connector.
-    pub fn create_tx_input(
+    pub fn finalize_input(
         &self,
         input: &mut Input,
         signatures: [wots160::Signature; N_PUBLIC_KEYS],
