@@ -13,7 +13,6 @@ use tokio::task::JoinHandle;
 use std::collections::BTreeMap;
 use std::collections::VecDeque;
 use std::error::Error;
-use std::ops::Sub;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::Context;
@@ -191,9 +190,9 @@ impl BtcZmqClient {
             loop {
                 while let Some(res) = stream.next().await {
                     match res {
-                        Ok(Message::HashBlock(bh, n)) => { /* NOOP */ }
-                        Ok(Message::HashTx(txid, n)) => { /* NOOP */ }
-                        Ok(Message::Block(block, n)) => {
+                        Ok(Message::HashBlock(_, _)) => { /* NOOP */ }
+                        Ok(Message::HashTx(_, _)) => { /* NOOP */ }
+                        Ok(Message::Block(block, _)) => {
                             let block_subs = block_subs_thread.lock().await;
                             let tx_subs = tx_subs_thread.lock().await;
                             let mut sm = state_machine_thread.lock().await;
@@ -213,7 +212,7 @@ impl BtcZmqClient {
                             // TODO: handle dropped subscriptions
                             futures::future::join_all(send_jobs).await;
                         },
-                        Ok(Message::Tx(tx, n)) => {
+                        Ok(Message::Tx(tx, _)) => {
                             let subs = tx_subs_thread.lock().await;
                             let mut sm = state_machine_thread.lock().await;
 
@@ -221,13 +220,13 @@ impl BtcZmqClient {
 
                             let send_jobs = diff.into_iter()
                                 .cartesian_product(subs.iter())
-                                .filter(|((tx,_), sub)|(sub.predicate)(tx))
-                                .map(|((tx,status), sub)| sub.outbox.send((tx, status)));
+                                .filter(|((tx, _), sub)|(sub.predicate)(tx))
+                                .map(|((tx, status), sub)| sub.outbox.send((tx, status)));
 
                             // TODO: handle dropped subscriptions
                             futures::future::join_all(send_jobs).await;
                         },
-                        Ok(Message::Sequence(seq, n)) => {
+                        Ok(Message::Sequence(seq, _)) => {
                             let subs = tx_subs_thread.lock().await;
                             let mut sm = state_machine_thread.lock().await;
 
@@ -505,7 +504,7 @@ impl BtcZmqSM {
     fn process_sequence(&mut self, seq: SequenceMessage) -> Vec<(Transaction, TxStatus)> {
         let mut diff = Vec::new();
         match seq {
-            SequenceMessage::BlockConnect { blockhash } => { /* NOOP */ },
+            SequenceMessage::BlockConnect { .. } => { /* NOOP */ },
             SequenceMessage::BlockDisconnect { blockhash } => {
                 // If the block is disconnected we reset all transactions that currently have that blockhash as their
                 // containing block.
@@ -572,6 +571,9 @@ impl BtcZmqSM {
 
 #[cfg(test)]
 mod tests {
+    use corepc_node::serde_json;
+    use serial_test::serial;
+
     use super::*;
 
     fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
@@ -602,6 +604,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
         // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
@@ -615,6 +618,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[serial]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>> {
         // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
@@ -632,6 +636,7 @@ mod tests {
 
     // Only transactions that match the predicate are delivered (Consistency)
     #[tokio::test]
+    #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
         // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
@@ -661,6 +666,7 @@ mod tests {
 
     // All transactions that match the predicate are delivered (Completeness)
     #[tokio::test]
+    #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
         // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
@@ -680,7 +686,7 @@ mod tests {
         });
 
         let mut n_tx = 0;
-        while let Some((tx, _)) = tx_sub.next().await {
+        while tx_sub.next().await.is_some() {
             n_tx += 1;
         }
 
@@ -692,6 +698,7 @@ mod tests {
 
     // Exactly one Mined status is delivered per (transaction, block) pair
     #[tokio::test]
+    #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
         // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;
@@ -712,7 +719,7 @@ mod tests {
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Mined);
-        bitcoind.client.call::<()>("invalidateblock", &[corepc_node::serde_json::Value::String(blockhash.to_string())]).unwrap();
+        bitcoind.client.call::<()>("invalidateblock", &[serde_json::Value::String(blockhash.to_string())]).unwrap();
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Unknown);
@@ -736,6 +743,7 @@ mod tests {
 
     // Assuming there are no reorgs, Mined transactions are eventually buried
     #[tokio::test]
+    #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
         // TODO(proofofkeags): line-by-line commentary
         let (mut client, mut bitcoind) = setup()?;

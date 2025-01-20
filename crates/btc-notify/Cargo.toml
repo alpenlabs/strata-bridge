@@ -13,3 +13,4 @@ zmq = "0.10.0"
 
 [dev-dependencies]
 corepc-node = "0.5.0"
+serial_test = "3.2.0"
