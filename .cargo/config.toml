@@ -4,3 +4,4 @@
 # This leads to a stack overflow when running the tests.
 # HACK: Increase it to ~50 MB.
 RUST_MIN_STACK = "50000000"
+DATABASE_URL = { value = "sqlite://./operator.db", force = false }
