@@ -62,9 +62,8 @@ pub fn extract_withdrawal_info(
 
 /// Returns:
 ///
-/// 1. commit anchor idx
 /// 2. committed witdrawal fulfillment tx id
-pub fn extract_claim_info(tx: &Transaction) -> Result<(usize, Txid), BridgeProofError> {
+pub fn extract_claim_info(tx: &Transaction) -> Result<Txid, BridgeProofError> {
     // TODO: FIXME
-    Ok((1, compute_txid(tx).into()))
+    Ok(compute_txid(tx).into())
 }

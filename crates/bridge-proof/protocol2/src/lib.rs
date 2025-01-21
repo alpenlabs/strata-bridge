@@ -1,14 +1,12 @@
 mod bitcoin_tx;
 mod error;
 mod prover;
-mod signing_key_proof;
 mod statement;
 mod tx_inclusion_proof;
 mod tx_info;
 
 use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
-use signing_key_proof::AnchorPublicKeyMerkleProof;
 use statement::process_bridge_proof;
 use strata_primitives::{buf::Buf32, params::RollupParams, proof::RollupVerifyingKey};
 use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
@@ -46,13 +44,6 @@ pub struct BridgeProofInput {
     /// Transaction (and its inclusion proof) fulfilling the withdrawal.  
     /// The `usize` represents the position of this transaction in the header chain.
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
-
-    /// The [AnchorPublicKeyMerkleProof] demonstrating knowledge of the group signing key
-    /// for a particular anchor.
-    anchor_key_proof: AnchorPublicKeyMerkleProof,
-
-    /// The Merkle root of all group signing keys. Used to verify `anchor_key_proof`.
-    anchor_key_root: Buf32,
 }
 
 /// Subset of [`BridgeProofInput`] that is [borsh]-serializable
@@ -64,8 +55,6 @@ pub(crate) struct BridgeProofInputBorsh {
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
     claim_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
-    anchor_key_proof: AnchorPublicKeyMerkleProof,
-    anchor_key_root: Buf32,
 }
 
 // Implement `From<&BridgeProofInput>` to create a `BridgeProofInputBorsh`.
@@ -78,16 +67,12 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
             strata_checkpoint_tx: input.strata_checkpoint_tx,
             claim_tx: input.claim_tx,
             withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,
-            anchor_key_proof: input.anchor_key_proof,
-            anchor_key_root: input.anchor_key_root,
         }
     }
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct BridgeProofOutput {
-    anchor_idx: usize,
-    anchor_key_root: Buf32,
     deposit_txid: Buf32,
     claim_ts: u32,
     headers_after_claim_tx: usize,

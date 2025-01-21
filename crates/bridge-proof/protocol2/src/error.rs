@@ -26,10 +26,6 @@ pub enum BridgeProofError {
     #[error("Mismatch in operator index, withdrawal address, or amount.")]
     InvalidWithdrawalData,
 
-    /// The anchor public key merkle proof is invalid or missing.
-    #[error("Invalid anchor public key merkle proof.")]
-    InvalidAnchorProof,
-
     /// The claim transaction's information is invalid, for instance a withdrawal commitment
     /// mismatch.
     #[error("Claim info is invalid")]
@@ -44,11 +40,6 @@ pub enum InvalidClaimInfo {
     /// was not found or did not match the expected one in the provided header chain.
     #[error("Committed withdrawal fulfillment transaction ID not found in the header chain")]
     InvalidWithdrawalCommitment,
-
-    /// Indicates a mismatch between the committed anchor index and the anchor index
-    /// used in the claim.
-    #[error("Committed anchor was: {0}. But the given anchor is of index {1}")]
-    InvalidAnchorCommitment(usize, usize),
 }
 
 /// Represents errors that occur during the verification of chain state.

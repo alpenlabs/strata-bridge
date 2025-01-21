@@ -130,44 +130,26 @@ pub fn process_bridge_proof(
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
 
-    // 5. Verify the group signing key by computing its group public key and checking its inclusion
-    //    via a merkle proof.
-    if !input.anchor_key_proof.verify(input.anchor_key_root) {
-        return Err(BridgeProofError::InvalidAnchorProof);
-    }
-
-    // 6a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
+    // 5a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
     let (claim_tx, claim_tx_idx) = &input.claim_tx;
-    let (anchor_idx, withdrawal_fullfillment_txid) = extract_claim_info(claim_tx.transaction())?;
+    let withdrawal_fullfillment_txid = extract_claim_info(claim_tx.transaction())?;
 
-    // 6b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
+    // 5b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
     // witness data, so we expect witness to be present.
     let claim_header = headers[*claim_tx_idx];
     verify_tx_inclusion(claim_tx, BridgeRelatedTx::Claim, claim_header, true)?;
 
-    // 6c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
+    // 5c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
     // the withdrawal fulfillment transaction.
     if withdrawal_fullfillment_txid != compute_txid(withdrawal_fulfillment_tx.transaction()).into()
     {
         return Err(InvalidClaimInfo::InvalidWithdrawalCommitment.into());
     }
 
-    // 6d. Confirm that the anchor index in the claim matches the anchor index from the anchor
-    // proof.
-    if anchor_idx != input.anchor_key_proof.position() {
-        return Err(InvalidClaimInfo::InvalidAnchorCommitment(
-            anchor_idx,
-            input.anchor_key_proof.position(),
-        )
-        .into());
-    }
-
-    // 7. Construct the proof output.
+    // 6. Construct the proof output.
     let headers_after_claim_tx = headers.len() - claim_tx_idx;
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        anchor_key_root: input.anchor_key_root,
-        anchor_idx,
         claim_ts: claim_header.time,
         headers_after_claim_tx,
     };
