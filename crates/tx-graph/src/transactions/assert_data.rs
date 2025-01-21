@@ -1,4 +1,4 @@
-use bitcoin::{OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{transaction, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::{groth16::g16, signatures::wots::wots256, treepp::*};
 use strata_bridge_primitives::{
     params::{
@@ -19,8 +19,8 @@ use crate::connectors::prelude::*;
 pub struct AssertDataTxInput {
     pub pre_assert_txid: Txid,
 
-    pub pre_assert_txouts: [TxOut; NUM_CONNECTOR_A160 + NUM_CONNECTOR_A256 + 1 + 1], /* 1 =>
-                                                                                      * residual, 1 => stake */
+    pub pre_assert_txouts: [TxOut; NUM_CONNECTOR_A160 + NUM_CONNECTOR_A256 + 1 + 1 + 1], /* 1 =>
+                                                                                          * residual, 1 => stake, 1 => cpfp */
 }
 
 /// A batch of transactions in the Assert chain that spend outputs of the pre-assert transaction by
@@ -33,7 +33,11 @@ impl AssertDataTxBatch {
     ///
     /// The batch is constructed by taking the pre-assert transaction outputs and spending them in
     /// order.
-    pub fn new(input: AssertDataTxInput, connector_a2: ConnectorS) -> Self {
+    pub fn new(
+        input: AssertDataTxInput,
+        connector_a2: ConnectorS,
+        connector_cpfp: ConnectorCpfp,
+    ) -> Self {
         Self(std::array::from_fn(|i| {
             let (utxos, prevouts): (Vec<OutPoint>, Vec<TxOut>) = {
                 let (skip, take) = match i {
@@ -72,9 +76,19 @@ impl AssertDataTxBatch {
 
             let output_script = connector_a2.create_taproot_address().script_pubkey();
             let output_amt = output_script.minimal_non_dust();
-            let tx_outs = create_tx_outs([(output_script, output_amt)]);
 
-            let tx = create_tx(tx_ins, tx_outs);
+            let connector_cpfp_output_script =
+                connector_cpfp.generate_taproot_address().script_pubkey();
+            let connector_cpfp_output_amt = connector_cpfp_output_script.minimal_non_dust();
+
+            let tx_outs = create_tx_outs([
+                (output_script, output_amt),
+                (connector_cpfp_output_script, connector_cpfp_output_amt),
+            ]);
+
+            let mut tx = create_tx(tx_ins, tx_outs);
+            tx.version = transaction::Version(3);
+
             let mut psbt = Psbt::from_unsigned_tx(tx).expect("must have an empty witness");
 
             for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts) {
@@ -290,7 +304,9 @@ mod tests {
         };
 
         let connector_a2 = ConnectorS::new(generate_keypair().x_only_public_key().0, network);
-        let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2);
+        let connector_cpfp = ConnectorCpfp::new(generate_keypair().x_only_public_key().0, network);
+
+        let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2, connector_cpfp);
 
         let msk = "test-assert-data-parse-witnesses";
         let wots_public_keys = WotsPublicKeys::new(msk, generate_txid());

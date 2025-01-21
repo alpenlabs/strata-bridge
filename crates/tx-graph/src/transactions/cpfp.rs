@@ -54,8 +54,8 @@ pub struct Cpfp<Status = Unfunded> {
 }
 
 impl Cpfp {
-    const PARENT_INPUT_INDEX: usize = 0;
-    const FUNDING_INPUT_INDEX: usize = 1;
+    pub const PARENT_INPUT_INDEX: usize = 0;
+    pub const FUNDING_INPUT_INDEX: usize = 1;
 }
 
 impl<Status> Cpfp<Status> {
@@ -207,18 +207,12 @@ impl Cpfp<Funded> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{collections::HashSet, str::FromStr};
 
-    use bitcoin::{
-        consensus,
-        hashes::Hash,
-        sighash::{Prevouts, SighashCache},
-        Network, TapSighashType,
-    };
+    use bitcoin::{consensus, Network};
     use corepc_node::{serde_json::json, Conf, Node};
-    use secp256k1::{Message, SECP256K1};
     use strata_bridge_btcio::types::{ListUnspent, SignRawTransactionWithWallet};
-    use strata_bridge_test_utils::prelude::generate_keypair;
+    use strata_bridge_test_utils::prelude::{find_funding_utxo, generate_keypair, sign_cpfp_child};
     use strata_common::logging::{self, LoggerConfig};
 
     use super::*;
@@ -248,7 +242,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let pubkey = keypair.x_only_public_key().0;
-        let connector_cpfp = ConnectorCpfp::new(network, pubkey);
+        let connector_cpfp = ConnectorCpfp::new(pubkey, network);
 
         let unspent = btc_client
             .call::<Vec<ListUnspent>>("listunspent", &[])
@@ -260,14 +254,13 @@ mod tests {
             vout: unspent.vout,
         };
 
-        let parent_prevout_amount = Amount::from_sat(500);
+        let connector_cpfp_out = connector_cpfp.generate_taproot_address().script_pubkey();
+        let parent_prevout_amount = connector_cpfp_out.minimal_non_dust();
+        dbg!(parent_prevout_amount);
 
         let tx_ins = create_tx_ins([parent_input_utxo]);
         let tx_outs = create_tx_outs([
-            (
-                connector_cpfp.generate_taproot_address().script_pubkey(),
-                parent_prevout_amount,
-            ),
+            (connector_cpfp_out, parent_prevout_amount),
             (
                 wallet_addr.script_pubkey(),
                 unspent.amount - parent_prevout_amount,
@@ -307,30 +300,8 @@ mod tests {
             .estimate_package_fee(fee_rate)
             .expect("fee rate must be reasonable");
 
-        let list_unspent = btc_client
-            .call::<Vec<ListUnspent>>("listunspent", &[])
-            .expect("must be able to list unspent");
-
-        let (funding_prevout, funding_outpoint) = list_unspent
-            .iter()
-            .find_map(|utxo| {
-                if utxo.amount > total_fee && utxo.txid != parent_input_utxo.txid {
-                    Some((
-                        TxOut {
-                            value: utxo.amount,
-                            script_pubkey: ScriptBuf::from_hex(&utxo.script_pubkey)
-                                .expect("must be able to parse script pubkey"),
-                        },
-                        OutPoint {
-                            txid: utxo.txid,
-                            vout: utxo.vout,
-                        },
-                    ))
-                } else {
-                    None
-                }
-            })
-            .expect("must have a utxo with enough funds");
+        let (funding_prevout, funding_outpoint) =
+            find_funding_utxo(btc_client, HashSet::from([parent_input_utxo]), total_fee);
 
         let cpfp = cpfp
             .add_funding(
@@ -342,51 +313,25 @@ mod tests {
             .expect("fee rate must be reasonable");
 
         let mut unsigned_child_tx = cpfp.psbt().unsigned_tx.clone();
-        let signed_child_tx = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(consensus::encode::serialize_hex(&unsigned_child_tx))],
-            )
-            .expect("must be able to sign child tx");
-        let signed_child_tx =
-            consensus::encode::deserialize_hex::<Transaction>(&signed_child_tx.hex)
-                .expect("must be able to deserialize signed child tx");
-        assert!(
-            signed_child_tx.version == transaction::Version(3),
-            "signed child tx must have version 3"
-        );
-
-        let funding_witness = signed_child_tx
-            .input
-            .get(Cpfp::FUNDING_INPUT_INDEX)
-            .expect("must have funding input")
-            .witness
-            .clone();
-
         let prevouts = cpfp
             .psbt()
             .inputs
             .iter()
             .filter_map(|input| input.witness_utxo.clone())
             .collect::<Vec<_>>();
-        let prevouts = Prevouts::All(&prevouts);
 
-        let mut sighasher = SighashCache::new(&mut unsigned_child_tx);
-        let child_tx_hash = sighasher
-            .taproot_key_spend_signature_hash(
-                Cpfp::PARENT_INPUT_INDEX,
-                &prevouts,
-                TapSighashType::Default,
-            )
-            .expect("sighash must be valid");
-
-        let child_tx_msg = Message::from_digest_slice(child_tx_hash.as_byte_array())
-            .expect("must be able to create tx message");
-        let parent_signature = SECP256K1.sign_schnorr(&child_tx_msg, &keypair);
+        let (funding_witness, parent_signature) = sign_cpfp_child(
+            btc_client,
+            &keypair,
+            &prevouts,
+            &mut unsigned_child_tx,
+            Cpfp::FUNDING_INPUT_INDEX,
+            Cpfp::PARENT_INPUT_INDEX,
+        );
 
         let signed_child_tx = cpfp
             .finalize(connector_cpfp, funding_witness, parent_signature)
-            .expect("must be able to create signed tx");
+            .expect("must be able to finalize cpfp tx");
 
         // settle any unsettled transactions
         btc_client

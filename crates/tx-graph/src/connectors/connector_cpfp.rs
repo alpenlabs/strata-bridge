@@ -14,7 +14,7 @@ pub struct ConnectorCpfp {
 
 impl ConnectorCpfp {
     /// Constructs a new CPFP connector.
-    pub fn new(network: Network, public_key: XOnlyPublicKey) -> Self {
+    pub fn new(public_key: XOnlyPublicKey, network: Network) -> Self {
         Self {
             network,
             public_key,
@@ -93,7 +93,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let xonly_pubkey = keypair.x_only_public_key().0;
-        let connector = ConnectorCpfp::new(network, xonly_pubkey);
+        let connector = ConnectorCpfp::new(xonly_pubkey, network);
 
         let output_address =
             Address::p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked(), network);

@@ -1,3 +1,5 @@
+//! This module contains utility to load or create verifier scripts for the groth16 verifier
+//! program.
 use std::fs;
 
 use bitcoin::ScriptBuf;
@@ -9,6 +11,7 @@ use tracing::{info, warn};
 const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-poc-vk.scripts";
 
 lazy_static! {
+    /// The verifier scripts for the groth16 verifier program.
     pub static ref PARTIAL_VERIFIER_SCRIPTS: [Script; 579] = load_or_create_verifier_scripts();
 }
 

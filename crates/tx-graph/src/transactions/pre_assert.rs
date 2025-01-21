@@ -1,4 +1,4 @@
-use bitcoin::{sighash::Prevouts, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*};
@@ -29,7 +29,7 @@ pub struct PreAssertTx {
 
     // The ordering of these is pretty complicated.
     // This field is so that we don't have to recompute this order in other places.
-    tx_outs: [TxOut; TOTAL_CONNECTORS + 1], // +1 for stake
+    tx_outs: [TxOut; TOTAL_CONNECTORS + 1 + 1], // +1 for stake, +1 for cpfp
 
     witnesses: Vec<TaprootWitness>,
 }
@@ -45,10 +45,13 @@ impl PreAssertTx {
     /// the stack size stays under the bitcoin consensus limit of 1000 elements, and such that when
     /// these UTXOs are sequentially chunked into transactions, the size of these transactions do
     /// not exceed the standard transaction size limit of 100,000 vbytes.
+    ///
+    /// A CPFP connector is required to pay the transaction fees.
     pub fn new(
         data: PreAssertData,
         connector_c0: ConnectorC0,
         connector_s: ConnectorS,
+        connector_cpfp: ConnectorCpfp,
         connector_a256: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
         connector_a160: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
     ) -> Self {
@@ -94,7 +97,7 @@ impl PreAssertTx {
                 .take(NUM_ASSERT_DATA_TX1_A256_PK7)
                 .map(|conn| {
                     let script = conn.create_taproot_address().script_pubkey();
-                    let amount = script.minimal_non_dust_custom(ASSERT_DATA_FEE_RATE);
+                    let amount = script.minimal_non_dust();
 
                     (script, amount)
                 }),
@@ -111,7 +114,7 @@ impl PreAssertTx {
                 conn_batch.iter().for_each(|conn| {
                     scripts_and_amounts.push({
                         let script = conn.create_taproot_address().script_pubkey();
-                        let amount = script.minimal_non_dust_custom(ASSERT_DATA_FEE_RATE);
+                        let amount = script.minimal_non_dust();
 
                         (script, amount)
                     });
@@ -123,14 +126,18 @@ impl PreAssertTx {
             .create_taproot_address()
             .script_pubkey();
 
-        let connector160_remainder_amt =
-            connector160_remainder_script.minimal_non_dust_custom(ASSERT_DATA_FEE_RATE);
+        let connector160_remainder_amt = connector160_remainder_script.minimal_non_dust();
         scripts_and_amounts.push((connector160_remainder_script, connector160_remainder_amt));
 
         trace!(num_scripts=%scripts_and_amounts.len(), event = "added connnector_160 residual");
 
+        let cpfp_script = connector_cpfp.generate_taproot_address().script_pubkey();
+        let cpfp_amount = cpfp_script.minimal_non_dust();
+        scripts_and_amounts.push((cpfp_script, cpfp_amount));
+        trace!(event = "added cpfp connector");
+
         let total_assertion_amount = scripts_and_amounts.iter().map(|(_, amt)| *amt).sum();
-        let net_stake = data.input_stake - total_assertion_amount - MIN_RELAY_FEE;
+        let net_stake = data.input_stake - total_assertion_amount;
 
         trace!(event = "calculated net remaining stake", %net_stake);
 
@@ -138,7 +145,8 @@ impl PreAssertTx {
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
-        let tx = create_tx(tx_ins, tx_outs.clone());
+        let mut tx = create_tx(tx_ins, tx_outs.clone());
+        tx.version = transaction::Version(3);
 
         let mut psbt =
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");
@@ -175,7 +183,7 @@ impl PreAssertTx {
     }
 
     /// Gets the transaction outputs arranged in a specific order.
-    pub fn tx_outs(&self) -> [TxOut; NUM_CONNECTOR_A256 + NUM_CONNECTOR_A160 + 1 + 1] {
+    pub fn tx_outs(&self) -> [TxOut; NUM_CONNECTOR_A256 + NUM_CONNECTOR_A160 + 1 + 1 + 1] {
         self.tx_outs.clone()
     }
 
