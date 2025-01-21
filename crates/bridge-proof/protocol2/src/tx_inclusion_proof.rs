@@ -26,6 +26,9 @@ pub struct L1TxWithIdProof<T> {
 }
 
 impl<T: TxIdComputable> L1TxWithIdProof<T> {
+    // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
+    // used by the prover
+    #[allow(dead_code)]
     pub fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
         Self { tx, proof }
     }
@@ -79,6 +82,9 @@ impl L1TxWithProofBundle {
     ///
     /// # Panics
     /// Panics if `idx` is out of bounds for the `txs` array (e.g., `idx as usize >= txs.len()`).
+    // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
+    // used by the prover
+    #[allow(dead_code)]
     pub fn generate(txs: &[Transaction], idx: u32) -> Self {
         // Clone the transaction we want to prove.
         let tx = txs[idx as usize].clone();
