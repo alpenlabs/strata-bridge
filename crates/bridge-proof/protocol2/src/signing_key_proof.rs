@@ -18,6 +18,9 @@ impl AnchorPublicKeyMerkleProof {
         &self.cohashes
     }
 
+    // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
+    // used by the prover
+    #[allow(dead_code)]
     pub fn new(position: usize, cohashes: Vec<Buf32>, sk: Buf32) -> Self {
         Self {
             position,
@@ -26,6 +29,9 @@ impl AnchorPublicKeyMerkleProof {
         }
     }
 
+    // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
+    // used by the prover
+    #[allow(dead_code)]
     pub fn generate(keys: &[Buf32], idx: usize, sk: Buf32) -> Self {
         let (cohashes, _root) = get_cohashes(keys, idx as u32);
         AnchorPublicKeyMerkleProof::new(idx, cohashes, sk)
