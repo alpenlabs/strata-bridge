@@ -1,24 +1,16 @@
 {
     "editor.formatOnSave": true,
     "rust-analyzer.checkOnSave": true,
-    "rust-analyzer.check.overrideCommand": [
-        "cargo",
-        "clippy",
-        "--workspace",
+    "rust-analyzer.check.command": "clippy",
+    "rust-analyzer.check.extraArgs": [
         "--all-features",
-        "--benches",
         "--tests",
+        "--benches",
         "--examples",
-        "--message-format=json"
+        "--no-deps"
     ],
     "rust-analyzer.linkedProjects": [
         "Cargo.toml",
-        // "provers/sp1/guest-btc-blockspace/Cargo.toml",
-        // "provers/sp1/guest-evm-ee-stf/Cargo.toml",
-        // "provers/sp1/guest-cl-stf/Cargo.toml",
-        // "provers/sp1/guest-l1-batch/Cargo.toml",
-        // "provers/sp1/guest-checkpoint/Cargo.toml",
-        // "provers/sp1/guest-cl-agg/Cargo.toml",
     ],
     "rust-analyzer.diagnostics.enable": true,
     "rust-analyzer.cargo.features": [
@@ -66,5 +58,5 @@
         "**/target/**",
         "**/.vscode/**"
     ],
-    "todohighlight.maxFilesForSearch": 5120
+    "todohighlight.maxFilesForSearch": 5120,
 }
