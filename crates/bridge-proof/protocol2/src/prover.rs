@@ -3,7 +3,7 @@ use strata_zkvm::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResu
 
 use crate::{BridgeProofInput, BridgeProofInputBorsh, BridgeProofOutput};
 
-pub struct BridgeProver;
+pub(crate) struct BridgeProver;
 
 impl ZkVmProver for BridgeProver {
     type Input = BridgeProofInput;

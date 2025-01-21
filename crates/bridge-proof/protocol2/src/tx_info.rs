@@ -12,9 +12,9 @@ use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
 use crate::error::{BridgeProofError, BridgeRelatedTx};
 
 // TODO: maybe read this from params or somewhere.
-pub const ROLLUP_NAME: &str = "alpenstrata";
+pub(crate) const ROLLUP_NAME: &str = "alpenstrata";
 
-pub fn extract_checkpoint(
+pub(crate) fn extract_checkpoint(
     tx: &Transaction,
     cred_rule: &CredRule,
 ) -> Result<BatchCheckpoint, BridgeProofError> {
@@ -42,7 +42,7 @@ pub fn extract_checkpoint(
 // TODO: make this standard
 // FIX: slicing without properly checking the info causes panic
 // TODO: maybe turn the output into a struct
-pub fn extract_withdrawal_info(
+pub(crate) fn extract_withdrawal_info(
     tx: &Transaction,
 ) -> Result<(OperatorIdx, XOnlyPk, BitcoinAmount), BridgeProofError> {
     let operator_id = u32::from_be_bytes(
@@ -63,7 +63,7 @@ pub fn extract_withdrawal_info(
 /// Returns:
 ///
 /// 2. committed witdrawal fulfillment tx id
-pub fn extract_claim_info(tx: &Transaction) -> Result<Txid, BridgeProofError> {
+pub(crate) fn extract_claim_info(tx: &Transaction) -> Result<Txid, BridgeProofError> {
     // TODO: FIXME
     Ok(compute_txid(tx).into())
 }

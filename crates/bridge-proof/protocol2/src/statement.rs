@@ -57,7 +57,7 @@ fn verify_tx_inclusion(
 /// If successful, returns a tuple consisting of:
 /// - `BridgeProofOutput` containing essential proof-related output data.
 /// - `BatchCheckpoint` representing the Strata checkpoint.
-pub fn process_bridge_proof(
+pub(crate) fn process_bridge_proof(
     input: BridgeProofInputBorsh,
     headers: Vec<Header>,
     rollup_params: RollupParams,

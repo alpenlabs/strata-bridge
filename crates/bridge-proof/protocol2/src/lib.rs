@@ -1,3 +1,13 @@
+//! # Bridge Proof Crate
+//!
+//! This crate provides the functionality necessary to prove the inclusion and validity of specific
+//! Bitcoin transactions as part of the Strata rollup bridge. It contains data structures and logic
+//! to:
+//!
+//! - Verify sequences of Bitcoin block headers and their corresponding transactions.
+//! - Validate checkpoints for the Strata rollup via zero-knowledge proofs.
+//! - Prove deposits, claims, and withdrawals between Bitcoin and the Strata rollup.
+
 mod bitcoin_tx;
 mod error;
 mod prover;
@@ -13,6 +23,7 @@ use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
 use strata_zkvm::ZkVmEnv;
 use tx_inclusion_proof::L1TxWithProofBundle;
 
+/// Inputs that is required for the BridgeProver to prove the statements
 #[derive(Debug, Clone)]
 pub struct BridgeProofInput {
     /// The [RollupParams] of the strata rollup
@@ -72,12 +83,17 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
 }
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct BridgeProofOutput {
+pub(crate) struct BridgeProofOutput {
     deposit_txid: Buf32,
     claim_ts: u32,
     headers_after_claim_tx: usize,
 }
 
+/// Processes the bridge proof by reading necessary data from the provided ZkVM environment,
+/// verifying the included Strata checkpoint proof, and committing the resulting proof output.
+///
+/// This function is designed for use inside a guest ZkVM program and will **panic** if any
+/// errors occur during deserialization, proof verification, or output commitment.
 pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
     let rollup_params: RollupParams = zkvm.read_serde();
 

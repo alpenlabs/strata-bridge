@@ -10165,12 +10165,9 @@ dependencies = [
 name = "strata-bridge-proof-protocol2"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "arbitrary",
  "bitcoin",
  "borsh",
- "rand",
- "secp256k1",
  "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",

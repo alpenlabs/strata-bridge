@@ -1,8 +1,8 @@
 use thiserror::Error;
 
 /// Represents all possible errors that can occur during the verification of a bridge proof.
-#[derive(Debug, Error)]
-pub enum BridgeProofError {
+#[derive(Error, Debug)]
+pub(crate) enum BridgeProofError {
     /// Error extracting transaction-related information.
     /// Contains the specific transaction type that triggered the error.
     #[error("Could not extract info from tx: {0:?}")]
@@ -35,7 +35,7 @@ pub enum BridgeProofError {
 /// Represents all errors that can occur specifically during the verification of a claim's
 /// information.
 #[derive(Debug, Error)]
-pub enum InvalidClaimInfo {
+pub(crate) enum InvalidClaimInfo {
     /// Indicates that the withdrawal fulfillment transaction ID committed on-chain
     /// was not found or did not match the expected one in the provided header chain.
     #[error("Committed withdrawal fulfillment transaction ID not found in the header chain")]
@@ -44,7 +44,7 @@ pub enum InvalidClaimInfo {
 
 /// Represents errors that occur during the verification of chain state.
 #[derive(Debug, Error)]
-pub enum ChainStateError {
+pub(crate) enum ChainStateError {
     /// Indicates that the deposit could not be found for the specified index.
     #[error("Deposit not found for idx {0}")]
     DepositNotFound(usize),
@@ -56,7 +56,7 @@ pub enum ChainStateError {
 
 /// Identifies the type of a transaction relevant to the bridge proof process.
 #[derive(Debug, Clone)]
-pub enum BridgeRelatedTx {
+pub(crate) enum BridgeRelatedTx {
     /// A Strata checkpoint transaction.
     StrataCheckpoint,
     /// A withdrawal fulfillment transaction.

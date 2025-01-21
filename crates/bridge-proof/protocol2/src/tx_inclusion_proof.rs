@@ -17,7 +17,7 @@ use crate::bitcoin_tx::BitcoinTx;
 /// its `txid` or `wtxid` is included in a given Merkle root. The proof data is carried
 /// by the [`L1TxInclusionProof`].
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct L1TxWithIdProof<T> {
+pub(crate) struct L1TxWithIdProof<T> {
     /// The transaction in question.
     tx: BitcoinTx,
     /// The Merkle inclusion proof associated with the transaction’s [`Txid`](bitcoin::Txid) or
@@ -29,11 +29,11 @@ impl<T: TxIdComputable> L1TxWithIdProof<T> {
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
     #[allow(dead_code)]
-    pub fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
+    pub(crate) fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
         Self { tx, proof }
     }
 
-    pub fn verify(&self, root: Buf32) -> bool {
+    pub(crate) fn verify(&self, root: Buf32) -> bool {
         self.proof.verify(self.tx.as_ref(), root)
     }
 }
@@ -48,7 +48,7 @@ impl<T: TxIdComputable> L1TxWithIdProof<T> {
 /// 2. **Proving a transaction with witness data:** we provide a [`wtxid`] Merkle proof, plus a
 ///    coinbase transaction (the “base” transaction) that commits to the witness Merkle root.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct L1TxWithProofBundle {
+pub(crate) struct L1TxWithProofBundle {
     /// If `witness_tx` is `None`, this is the actual transaction we want to prove.
     /// If `witness_tx` is `Some`, this becomes the coinbase transaction that commits
     /// to the witness transaction’s `wtxid` in its witness Merkle root.
@@ -60,11 +60,11 @@ pub struct L1TxWithProofBundle {
 }
 
 impl L1TxWithProofBundle {
-    pub fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
+    pub(crate) fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
         &self.witness_tx
     }
 
-    pub fn transaction(&self) -> &Transaction {
+    pub(crate) fn transaction(&self) -> &Transaction {
         match &self.witness_tx {
             Some(tx) => tx.tx.as_ref(),
             None => self.base_tx.tx.as_ref(),
@@ -85,7 +85,7 @@ impl L1TxWithProofBundle {
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
     #[allow(dead_code)]
-    pub fn generate(txs: &[Transaction], idx: u32) -> Self {
+    pub(crate) fn generate(txs: &[Transaction], idx: u32) -> Self {
         // Clone the transaction we want to prove.
         let tx = txs[idx as usize].clone();
 
@@ -123,7 +123,7 @@ impl L1TxWithProofBundle {
     /// - If `witness_tx` is `Some`, this checks that the coinbase transaction (the “base_tx”) is
     ///   correctly included in `header.merkle_root`, and that the coinbase commits to the witness
     ///   transaction’s `wtxid` in its witness Merkle root.
-    pub fn verify(&self, header: Header) -> bool {
+    pub(crate) fn verify(&self, header: Header) -> bool {
         // First, verify that the `base_tx` is in the Merkle tree given by `header.merkle_root`.
         let merkle_root: Buf32 = header.merkle_root.to_byte_array().into();
         if !self.base_tx.verify(merkle_root) {
