@@ -1,5 +1,6 @@
 use bitcoin::{Transaction, Txid};
 use borsh::BorshDeserialize;
+use strata_l1tx::envelope::parser::parse_envelope_data;
 use strata_primitives::{
     block_credential::CredRule,
     bridge::OperatorIdx,
@@ -7,7 +8,6 @@ use strata_primitives::{
 };
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
-use strata_tx_parser::inscription::parse_inscription_data;
 
 use crate::error::{BridgeProofError, BridgeRelatedTx};
 
@@ -20,10 +20,8 @@ pub fn extract_checkpoint(
 ) -> Result<BatchCheckpoint, BridgeProofError> {
     for inp in &tx.input {
         if let Some(scr) = inp.witness.tapscript() {
-            if let Ok(data) = parse_inscription_data(&scr.into(), ROLLUP_NAME) {
-                if let Ok(checkpoint) =
-                    borsh::from_slice::<SignedBatchCheckpoint>(data.batch_data())
-                {
+            if let Ok(payload) = parse_envelope_data(&scr.into(), ROLLUP_NAME) {
+                if let Ok(checkpoint) = borsh::from_slice::<SignedBatchCheckpoint>(payload.data()) {
                     if let CredRule::SchnorrKey(seq_pubkey) = cred_rule {
                         assert!(
                             checkpoint.verify_sig(seq_pubkey),

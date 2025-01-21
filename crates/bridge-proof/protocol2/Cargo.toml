@@ -11,11 +11,11 @@ borsh.workspace = true
 secp256k1.workspace = true
 thiserror.workspace = true
 
-strata-primitives = { git = "https://github.com/alpenlabs/strata" }
-strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata" }
-strata-state = { git = "https://github.com/alpenlabs/strata" }
-strata-tx-parser = { git = "https://github.com/alpenlabs/strata" }
-strata-zkvm = { git = "https://github.com/alpenlabs/strata" }
+strata-l1tx.workspace = true
+strata-primitives.workspace = true
+strata-proofimpl-btc-blockspace.workspace = true
+strata-state.workspace = true
+strata-zkvm.workspace = true
 
 [dev-dependencies]
 strata-test-utils = { git = "https://github.com/alpenlabs/strata" }
