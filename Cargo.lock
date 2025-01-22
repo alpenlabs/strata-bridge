@@ -2901,6 +2901,7 @@ dependencies = [
  "corepc-node",
  "futures",
  "itertools 0.14.0",
+ "proptest",
  "serial_test",
  "tokio",
  "zmq",

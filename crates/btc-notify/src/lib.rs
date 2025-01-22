@@ -384,6 +384,7 @@ impl BtcZmqSM {
                         seq_received: false,
                     };
                     self.tx_lifecycles.insert(matched_tx.compute_txid(), lifecycle);
+                    diff.push((matched_tx.clone(), TxStatus::Mined));
                 }
                 Some(lifecycle) => {
                     match (&lifecycle.raw, lifecycle.block, lifecycle.seq_received) {
@@ -570,7 +571,7 @@ impl BtcZmqSM {
 }
 
 #[cfg(test)]
-mod tests {
+mod e2e_tests {
     use corepc_node::serde_json;
     use serial_test::serial;
 
@@ -780,5 +781,235 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(10), mine_task).await??;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod prop_tests {
+    use std::collections::{BTreeSet, VecDeque};
+
+    use bitcoin::block;
+    use bitcoin::hashes::{sha256d, Hash};
+    use bitcoin::transaction;
+    use bitcoin::absolute::{Height, LockTime};
+    use bitcoin::{Amount, Block, BlockHash, CompactTarget, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+    use prop::array::uniform32;
+    use proptest::prelude::*;
+    use bitcoincore_zmq::SequenceMessage;
+
+    use crate::{BtcZmqSM, TxPredicate, TxStatus};
+
+    struct DebuggablePredicate {
+        pred: TxPredicate,
+        description: String,
+    }
+    impl std::fmt::Debug for DebuggablePredicate {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.description)
+        }
+    }
+
+    prop_compose! {
+        fn arb_amount()(sats in 1..2100000000000000u64) -> Amount {
+            Amount::from_sat(sats)
+        }
+    }
+
+    prop_compose! {
+        fn arb_txid()(bs in uniform32(any::<u8>())) -> Txid {
+            Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
+        }
+    }
+
+    prop_compose! {
+        fn arb_outpoint()(txid in arb_txid(), vout in 0..100u32) -> OutPoint {
+            OutPoint { txid, vout }
+        }
+    }
+
+    prop_compose! {
+        fn arb_input()(
+            previous_output in arb_outpoint(),
+            script_sig in uniform32(any::<u8>()).prop_map(|b| ScriptBuf::from_bytes(b.to_vec())),
+            sequence in any::<u32>().prop_map(Sequence::from_consensus),
+        ) -> TxIn {
+            TxIn {
+                previous_output,
+                script_sig,
+                sequence,
+                witness: Witness::new(),
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arb_output()(
+            value in arb_amount(),
+            script_pubkey in uniform32(any::<u8>()).prop_map(|b| ScriptBuf::from_bytes(b.to_vec()))
+        ) -> TxOut {
+            TxOut {
+                value,
+                script_pubkey,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arb_transaction()(
+            max_num_ins in 2..100u32,
+            max_num_outs in 2..100u32
+        )(
+            ins in prop::collection::vec(arb_input(), (1, max_num_ins as usize)),
+            outs in prop::collection::vec(arb_output(), (1, max_num_outs as usize))
+        ) -> Transaction {
+            Transaction {
+                version: transaction::Version::TWO,
+                lock_time: LockTime::Blocks(Height::ZERO),
+                input: ins,
+                output: outs,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arb_block(prev_blockhash: BlockHash)(txdata in uniform32(arb_transaction()), time in any::<u32>()) -> Block {
+            let header = block::Header {
+                version: block::Version::TWO,
+                prev_blockhash,
+                merkle_root: bitcoin::TxMerkleNode::all_zeros(),
+                time,
+                bits: CompactTarget::from_consensus(u32::MAX),
+                nonce: 0,
+            };
+
+            let mut blk = Block {
+                header,
+                txdata: txdata.to_vec(),
+            };
+
+            blk.header.merkle_root = blk.compute_merkle_root().unwrap();
+            blk
+        }
+    }
+
+    fn arb_chain(prev_blockhash: BlockHash, length: usize) -> BoxedStrategy<VecDeque<Block>> {
+        if length == 0 {
+            return Just(VecDeque::new()).boxed();
+        }
+
+        if length == 1 {
+            return arb_block(prev_blockhash).prop_map(|b| VecDeque::from([b])).boxed();
+        }
+
+        let tail = arb_chain(prev_blockhash, length - 1);
+        return tail.prop_flat_map(move |t| {
+            let prev = t.front().unwrap().block_hash();
+            arb_block(prev).prop_map(move |b| {
+                let mut v = t.clone();
+                v.push_front(b);
+                v
+            })
+        }).boxed()
+    }
+
+    prop_compose! {
+        fn arb_predicate()(modsize in 1..255u8) -> DebuggablePredicate {
+            let pred = move |tx: &Transaction| tx.compute_txid().to_raw_hash().to_byte_array()[31] % modsize == 0;
+            DebuggablePredicate {
+                pred: std::sync::Arc::new(pred),
+                description: format!("txid mod {} == 0", modsize),
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
+            let mut sm = BtcZmqSM::init(6);
+            sm.add_filter(pred.pred.clone());
+            let diff = sm.process_block(block);
+            for (tx, _) in diff.iter() {
+                assert!((pred.pred)(tx))
+            }
+        }
+
+        #[test]
+        fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
+            let mut sm = BtcZmqSM::init(6);
+            sm.add_filter(pred.pred.clone());
+            let diff = sm.process_block(block.clone());
+            assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
+        }
+
+        #[test]
+        fn lone_process_tx_yields_empty_diff(tx in arb_transaction()) {
+            let mut sm = BtcZmqSM::init(6);
+            sm.add_filter(std::sync::Arc::new(|_|true));
+            let diff = sm.process_tx(tx);
+            assert_eq!(diff, Vec::new());
+        }
+
+        #[test]
+        fn process_seq_process_tx_order_indifference(tx in arb_transaction()) {
+            let txid = tx.compute_txid();
+            let mempool_sequence = 0u64;
+
+            let mut sm1 = BtcZmqSM::init(6);
+            sm1.add_filter(std::sync::Arc::new(|_|true));
+
+            let diff_tx_1 = sm1.process_tx(tx.clone());
+            let diff_seq_1 = sm1.process_sequence(SequenceMessage::MempoolAcceptance{ txid, mempool_sequence });
+
+            let diff_tx_1_set = BTreeSet::from_iter(diff_tx_1.into_iter());
+            let diff_seq_1_set = BTreeSet::from_iter(diff_seq_1.into_iter());
+            let diff_1 = diff_tx_1_set.union(&diff_seq_1_set).cloned().collect::<BTreeSet<(Transaction, TxStatus)>>();
+
+            let mut sm2 = BtcZmqSM::init(6);
+            sm2.add_filter(std::sync::Arc::new(|_|true));
+
+            let diff_seq_2 = sm1.process_sequence(SequenceMessage::MempoolAcceptance{ txid, mempool_sequence });
+            let diff_tx_2 = sm1.process_tx(tx);
+
+            let diff_tx_2_set = BTreeSet::from_iter(diff_tx_2.into_iter());
+            let diff_seq_2_set = BTreeSet::from_iter(diff_seq_2.into_iter());
+            let diff_2 = diff_tx_2_set.union(&diff_seq_2_set).cloned().collect::<BTreeSet<(Transaction, TxStatus)>>();
+
+            assert_eq!(diff_1, diff_2);
+        }
+
+        #[test]
+        fn block_disconnect_drops_all_transactions(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
+            let blockhash = block.block_hash();
+
+            let mut sm = BtcZmqSM::init(6);
+            sm.add_filter(pred.pred);
+            let diff_mined = sm.process_block(block);
+            assert!(diff_mined.iter().map(|(_, status)| status).all(|s| *s == TxStatus::Mined));
+
+            let diff_dropped = sm.process_sequence(SequenceMessage::BlockDisconnect{ blockhash});
+            assert!(diff_dropped.iter().map(|(_, status)| status).all(|s| *s == TxStatus::Unknown));
+        }
+
+        #[test]
+        fn transactions_eventually_buried(mut chain in arb_chain(Hash::all_zeros(), 7)) {
+            let mut sm = BtcZmqSM::init(6);
+
+            let oldest = chain.pop_back().unwrap();
+            let diff = sm.process_block(oldest);
+
+            let mut diff_last = Vec::new();
+            for block in chain.into_iter().rev() {
+                diff_last = sm.process_block(block);
+            }
+
+            let to_be_buried = diff.into_iter().map(|(tx, _)| tx.compute_txid()).collect::<BTreeSet<Txid>>();
+            let is_buried = diff_last.into_iter().filter_map(|(tx, status)| if status == TxStatus::Buried {
+                Some(tx.compute_txid())
+            } else {
+                None
+            }).collect::<BTreeSet<Txid>>();
+
+            assert_eq!(to_be_buried, is_buried);
+        }
     }
 }
