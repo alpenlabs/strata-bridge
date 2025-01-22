@@ -188,8 +188,7 @@ impl AssertDataTxBatch {
                         let range_e = range_s + NUM_PKS_A160_PER_CONNECTOR;
 
                         conn.finalize_input(
-                            // +1 for earlier psbt
-                            &mut self.0[psbt_index + 1].inputs[input_index],
+                            &mut self.0[psbt_index + NUM_ASSERT_DATA_TX1].inputs[input_index],
                             signatures.groth16.2[range_s..range_e].try_into().unwrap(),
                         );
                     });

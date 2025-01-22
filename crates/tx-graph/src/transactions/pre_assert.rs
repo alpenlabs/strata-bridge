@@ -17,6 +17,8 @@ pub struct PreAssertData {
     pub input_stake: Amount,
 }
 
+const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1 + 1; // +1 for stake, // +1 for cpfp
+
 /// A transaction in the Assert chain that contains output scripts used for bitcomitting to the
 /// assertion data.
 #[derive(Debug, Clone)]
@@ -29,7 +31,7 @@ pub struct PreAssertTx {
 
     // The ordering of these is pretty complicated.
     // This field is so that we don't have to recompute this order in other places.
-    tx_outs: [TxOut; TOTAL_CONNECTORS + 1 + 1], // +1 for stake, +1 for cpfp
+    tx_outs: [TxOut; PRE_ASSERT_OUTS], // +1 for stake, +1 for cpfp
 
     witnesses: Vec<TaprootWitness>,
 }
@@ -183,7 +185,7 @@ impl PreAssertTx {
     }
 
     /// Gets the transaction outputs arranged in a specific order.
-    pub fn tx_outs(&self) -> [TxOut; NUM_CONNECTOR_A256 + NUM_CONNECTOR_A160 + 1 + 1 + 1] {
+    pub fn tx_outs(&self) -> [TxOut; PRE_ASSERT_OUTS] {
         self.tx_outs.clone()
     }
 
