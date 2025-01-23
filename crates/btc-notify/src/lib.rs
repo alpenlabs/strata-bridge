@@ -371,6 +371,11 @@ impl BtcZmqSM {
                 if block.header.prev_blockhash == tip.block_hash() {
                     self.unburied_blocks.push_front(block)
                 } else {
+                    // This implies that we missed a block.
+                    //
+                    // TODO(proofofkeags): It's also possible that race conditions in the concurrent stream processing
+                    // would cause this to fire during a reorg. Race conditions MUST NOT cause this to fire. This MUST
+                    // be fixed.
                     panic!("invariant violated: blocks received out of order");
                 }
             }
@@ -510,9 +515,13 @@ impl BtcZmqSM {
                     }
                     // This should be impossible because we will only ever add something to the tx lifecycle map when
                     // we have some sort of associated data with it. As such one of the fields must be filled.
+                    //
+                    // TODO(proofofkeags): CBC encode to eliminate this
                     (None, None, false) => panic!("invariant violated"),
                     // We always populate the transaction data during block events so we shouldn't ever have a situation
                     // where we don't have the transaction data but we do have a blockhash for this transaction.
+                    //
+                    // TODO(proofofkeags): CBC encode to eliminate this
                     (None, Some(_), _) => panic!("invariant violated"),
                     // In all of the remaining cases, we already have the transaction data, and we have no new
                     // information about it and so we leave the diff empty.
@@ -533,6 +542,10 @@ impl BtcZmqSM {
                     if block.block_hash() == blockhash {
                         self.unburied_blocks.pop_front();
                     } else {
+                        // As far as I can tell, the block connect and diconnect events are done in "stack order". This
+                        // means that block connects happen in chronological order and disconnects happen in reverse
+                        // chronological order. If we get a block disconnect event that doesn't match our current tip
+                        // then this assumption has broken down.
                         panic!("invariant violated: out of order block disconnect");
                     }
                 }
@@ -556,13 +569,15 @@ impl BtcZmqSM {
                 match self.tx_lifecycles.get_mut(&txid) {
                     Some(lifecycle) => {
                         match (&lifecycle.raw, &lifecycle.block, &lifecycle.seq_received) {
-                            (None, None, true) => panic!("invariant violated: duplicate mempool acceptance"),
+                            // TODO(proofofkeags): relax this. In theory it should never happen but I don't think it
+                            // is a material issue if we do. This is currently a panic to allow us to quickly discover
+                            // if this assumption doesn't hold and what it means
+                            (_, _, true) => panic!("invariant violated: duplicate mempool acceptance"),
+                            // TODO(proofofkeags): CBC encode the lifecycle to eliminate this
+                            (None, Some(_), _) => panic!("invariant violated: block known without raw tx"),
+                            // TODO(proofofkeags): CBC encode the lifecycle map to eliminate this
                             (None, None, false) => panic!("invariant violated: empty tx lifecycle record"),
-                            (None, Some(_), true) => panic!("invariant violated: block known without raw tx"),
-                            (None, Some(_), false) => panic!("invariant violated: block known without raw tx"),
-                            (Some(_), None, true) => panic!("invariant violated: duplicate mempool acceptance"),
                             (Some(raw), None, false) => { diff = vec![(raw.clone(), TxStatus::Mempool)]; },
-                            (Some(_), Some(_), true) => panic!("invariant violated: duplicate mempool acceptance"),
                             (Some(_), Some(_), false) => { lifecycle.seq_received = true; }
                         }
                     }
@@ -570,14 +585,25 @@ impl BtcZmqSM {
                         // We insert a placeholder because we expect the rawtx event to fill in the remainder of the
                         // details.
                         //
-                        // TODO(proofofkeags): since we don't have the raw tx yet we can't check for predicate matches
-                        // so this will actually leak memory until we clear out these placeholders.
+                        // NOTE(proofofkeags): since we don't have the raw tx yet we can't check for predicate matches
+                        // so this will actually leak memory until we clear out these placeholders. However, for every
+                        // MempoolAcceptance event we are guaranteed to have a corresponding rawtx event. So this
+                        // shouldn't cause a memory leak unless we miss ZMQ events entirely.
                         self.tx_lifecycles.insert(txid, TxLifecycle { raw: None, block: None, seq_received: true });
                     }
                 }
             }
             SequenceMessage::MempoolRemoval { txid, .. } => {
                 match self.tx_lifecycles.remove(&txid) {
+                    // There is an edge case here that will leak memory. The scenario that can cause this is
+                    // when we receive a MempoolAcceptance, MempoolRemoval, then the rawtx. The only scenario where I
+                    // can picture this happening is during mempool replacement cycling attacks. Even then though it
+                    // relies on a specific ordering of events to leak memory. This order of events is possible given
+                    // the guarantees of Bitcoin Core's ZMQ interface, but seems unlikely due to real world timings
+                    // and the behavior of the ZMQ streams.
+                    //
+                    // For now I think we can leave this alone, but if we notice memory leaks in a live deployment
+                    // this will be one of the places to look.
                     Some(lifecycle) => if let Some(raw) = lifecycle.raw {
                         diff = vec![(raw, TxStatus::Unknown)];
                     }
