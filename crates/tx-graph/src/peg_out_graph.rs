@@ -7,9 +7,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::BuildContext,
-    params::connectors::{
-        NUM_PKS_A160, NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A256, NUM_PKS_A256_PER_CONNECTOR,
-    },
+    params::connectors::*,
     types::OperatorIdx,
     wots::{self, Groth16PublicKeys},
 };
@@ -208,10 +206,20 @@ pub struct PegOutGraphConnectors {
     pub post_assert_out_1: ConnectorA31,
 
     /// The factory for the 160-bit assertion data connectors.
-    pub assert_data160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
+    pub assert_data160_factory: ConnectorA160Factory<
+        NUM_HASH_CONNECTORS_BATCH_1,
+        NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
+        NUM_HASH_CONNECTORS_BATCH_2,
+        NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
+    >,
 
     /// The factory for the 256-bit assertion data connectors.
-    pub assert_data256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
+    pub assert_data256_factory: ConnectorA256Factory<
+        NUM_FIELD_CONNECTORS_BATCH_1,
+        NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1,
+        NUM_FIELD_CONNECTORS_BATCH_2,
+        NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
+    >,
 }
 
 impl PegOutGraphConnectors {
@@ -250,11 +258,11 @@ impl PegOutGraphConnectors {
             groth16:
                 Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
         } = wots_public_keys;
-        let assert_data160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160> =
-            ConnectorA160Factory {
-                network,
-                public_keys: public_keys_160,
-            };
+
+        let assert_data160_factory = ConnectorA160Factory {
+            network,
+            public_keys: public_keys_160,
+        };
 
         let public_keys_256 = std::array::from_fn(|i| match i {
             0 => superblock_hash_public_key.0,
@@ -262,11 +270,10 @@ impl PegOutGraphConnectors {
             _ => public_keys_256[i - 2],
         });
 
-        let assert_data256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256> =
-            ConnectorA256Factory {
-                network,
-                public_keys: public_keys_256,
-            };
+        let assert_data256_factory = ConnectorA256Factory {
+            network,
+            public_keys: public_keys_256,
+        };
 
         Self {
             kickoff,
@@ -727,6 +734,7 @@ mod tests {
         let mut sighash_cache = SighashCache::new(&pre_assert.psbt().unsigned_tx);
         let prevouts = pre_assert.prevouts();
         let witnesses = pre_assert.witnesses();
+        let pre_assert_input_amount = pre_assert.input_amount();
         let tx_hash = create_message_hash(
             &mut sighash_cache,
             prevouts,
@@ -749,6 +757,7 @@ mod tests {
             &btc_addr,
             connector_cpfp,
             &signed_pre_assert,
+            pre_assert_input_amount,
             signed_pre_assert.output.len() - 1,
         );
 
@@ -774,15 +783,11 @@ mod tests {
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine blocks");
 
-        // let pre_assert_raw = btc_client
-        //     .call::<GetRawTransactionResult>(
-        //         "getrawtransaction",
-        //         &[json!(pre_assert_txid.to_string()), json!(true)],
-        //     )
-        //     .expect("must be able to get pre-assert tx");
-        // dbg!(pre_assert_raw);
-
         let wots_signatures = WotsSignatures::new(MSK, deposit_txid, assertions);
+        let assert_data_input_amounts = (0..assert_data.num_txs_in_batch())
+            .map(|i| assert_data.total_input_amount(i).expect("input must exist"))
+            .collect::<Vec<_>>();
+
         let signed_assert_data_txs = assert_data.finalize(
             assert_data160_factory,
             assert_data256_factory,
@@ -796,10 +801,13 @@ mod tests {
         );
 
         let num_signed_assert_data_txs = signed_assert_data_txs.len();
-        signed_assert_data_txs
-            .into_iter()
+        let mut total_assert_vsize = 0;
+        let mut total_assert_with_child_vsize = 0;
+
+        assert_data_input_amounts.into_iter().zip(signed_assert_data_txs
+            .into_iter())
             .enumerate()
-            .for_each(|(i, tx)| {
+            .for_each(|(i, (input_amount, tx))| {
                 assert!(
                     tx.weight().to_wu() < MAX_STANDARD_TX_WEIGHT as u64,
                     "assert data tx {i} must be within standardness limit"
@@ -808,23 +816,25 @@ mod tests {
                 assert_eq!(tx.output.len(), 2, "assert data tx {i} must have 2 outputs -- one to consolidate, the other to CPFP");
                 let assert_data_txid = tx.compute_txid();
 
-                // dbg!(&tx.output);
-                // dbg!(assert_data_txid);
-
                 let signed_child_tx = create_cpfp_child(
                     btc_client,
                     keypair,
                     &btc_addr,
                     connector_cpfp,
                     &tx,
+                    input_amount,
                     tx.output.len() - 1,
                 );
 
-                // dbg!(&signed_child_tx);
+                let vsize = tx.vsize();
+                total_assert_vsize += vsize;
+                total_assert_with_child_vsize += vsize + signed_child_tx.vsize();
 
                 info!(
-                    vsize = tx.vsize(),
-                    "broadcasting assert data tx {i}"
+                    %vsize,
+                    txid = tx.compute_txid().to_string(),
+                    index = i,
+                    "broadcasting assert data tx"
                 );
                 let result = btc_client
                     .submit_package(&[tx, signed_child_tx], None, None)
@@ -845,7 +855,7 @@ mod tests {
             .generate_to_address(5, &btc_addr)
             .expect("must be able to mine blocks");
 
-        // dbg!(post_assert.psbt());
+        info!(%total_assert_vsize, %total_assert_with_child_vsize, "submitted all assert data txs");
 
         let mut sighash_cache = SighashCache::new(&post_assert.psbt().unsigned_tx);
 
@@ -909,17 +919,12 @@ mod tests {
         btc_addr: &bitcoin::Address,
         connector_cpfp: ConnectorCpfp,
         parent_tx: &Transaction,
+        parent_input_amount: Amount,
         parent_output_index: usize,
     ) -> Transaction {
-        let cpfp_details = CpfpInput {
-            parent_prevout_amount: parent_tx.output[parent_output_index].value,
-            parent_utxo: OutPoint {
-                txid: parent_tx.compute_txid(),
-                vout: parent_output_index as u32,
-            },
-            parent_weight: parent_tx.weight(),
-        };
-
+        let cpfp_details =
+            CpfpInput::new(parent_tx, parent_input_amount, parent_output_index as u32)
+                .expect("inputs must be valid");
         let assert_data_cpfp = Cpfp::new(cpfp_details, connector_cpfp);
 
         let funding_amount = assert_data_cpfp

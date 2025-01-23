@@ -162,4 +162,18 @@ impl CovenantTx for PostAssertTx {
     fn compute_txid(&self) -> Txid {
         self.psbt.unsigned_tx.compute_txid()
     }
+
+    fn input_amount(&self) -> Amount {
+        self.psbt
+            .inputs
+            .iter()
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .as_ref()
+                    .expect("witness utxo must exist")
+                    .value
+            })
+            .sum()
+    }
 }

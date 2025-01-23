@@ -11,23 +11,53 @@ use super::errors::{TxError, TxResult};
 use crate::connectors::prelude::ConnectorCpfp;
 
 /// The data required to create a child transaction in CPFP.
-///
-/// The generic parameter `INPUTS` is the number of inputs in the child transaction that are used to
-/// fund the 1P1C package.
 #[derive(Debug, Clone)]
-pub struct CpfpInput {
-    /// Amount from the parent transaction that is being spent.
-    ///
-    /// This is required for setting output amounts.
-    pub parent_prevout_amount: Amount,
+pub struct CpfpInput<'input> {
+    /// The parent transaction that is being CPFP'd.
+    parent_tx: &'input Transaction,
 
-    /// The outpoint of the parent transaction.
-    pub parent_utxo: OutPoint,
-
-    /// The weight of the parent transaction.
+    /// The input amount of the parent transaction that is being spent.
     ///
-    /// This is used in fee esimation and is known at the time of CPFP creation.
-    pub parent_weight: Weight,
+    /// This is used to calculate the fees already paid in the parent transaction.
+    parent_input_amount: Amount,
+
+    /// The output index of the parent transaction that is being spent.
+    vout: u32,
+}
+
+impl<'input> CpfpInput<'input> {
+    /// Creates a new instance of the CPFP input data.
+    ///
+    /// # Parameters
+    ///
+    /// - `parent_tx`: The signed parent transaction that is being CPFP'd.
+    /// - `parent_input_amount`: The input amount of the parent transaction that is being spent,
+    ///   used to compute the transaction fees in the parent transaction.
+    /// - `vout`: The output index of the parent transaction that is being spent.
+    ///
+    /// # Errors
+    ///
+    /// If the output at index `vout` is not present in the parent transaction or if any witness
+    /// field in the parent transaction is empty.
+    pub fn new(
+        parent_tx: &'input Transaction,
+        parent_input_amount: Amount,
+        vout: u32,
+    ) -> TxResult<Self> {
+        if vout >= parent_tx.output.len() as u32 {
+            return Err(TxError::InvalidVout(vout));
+        }
+
+        if parent_tx.input.iter().any(|input| input.witness.is_empty()) {
+            return Err(TxError::EmptyWitness(parent_tx.compute_txid()));
+        }
+
+        Ok(Self {
+            parent_tx,
+            parent_input_amount,
+            vout,
+        })
+    }
 }
 
 /// Marker for when the child transaction has not been funded.
@@ -46,10 +76,16 @@ pub struct Funded;
 /// spends the parent utxo.
 #[derive(Debug, Clone)]
 pub struct Cpfp<Status = Unfunded> {
+    /// The underlying PSBT of the child transaction.
     psbt: Psbt,
 
+    /// The weight of the parent transaction.
     parent_weight: Weight,
 
+    /// The transaction fees paid by the parent transaction.
+    parent_fees: Amount,
+
+    /// Marker for the status of the child transaction to indicate whether it has been funded.
     status: PhantomData<Status>,
 }
 
@@ -66,9 +102,11 @@ impl<Status> Cpfp<Status> {
     pub fn estimate_package_fee(&self, fee_rate: FeeRate) -> TxResult<Amount> {
         let weight = self.psbt.unsigned_tx.weight() + self.parent_weight;
 
-        fee_rate
+        let child_fees = fee_rate
             .checked_mul_by_weight(weight)
-            .ok_or(TxError::InvalidFeeRate(fee_rate))
+            .ok_or(TxError::InvalidFeeRate(fee_rate))?;
+
+        Ok(child_fees - self.parent_fees)
     }
 }
 
@@ -76,7 +114,7 @@ impl Cpfp<Unfunded> {
     /// Creates a new instance of the CPFP transaction.
     ///
     /// NOTE: The created CPFP transaction is not yet funded and cannot be settled.
-    pub fn new(details: CpfpInput, connector_cpfp: ConnectorCpfp) -> Self {
+    pub fn new(details: CpfpInput<'_>, connector_cpfp: ConnectorCpfp) -> Self {
         // set dummy funding input for fee calculation
         let dummy_funding_outpoint = OutPoint {
             txid: Txid::from_slice(&[0u8; 32]).expect("must be able to create txid"),
@@ -84,20 +122,27 @@ impl Cpfp<Unfunded> {
         };
 
         let mut utxos = vec![OutPoint::null(); 2];
-        utxos[Self::PARENT_INPUT_INDEX] = details.parent_utxo;
+        utxos[Self::PARENT_INPUT_INDEX] = OutPoint {
+            txid: details.parent_tx.compute_txid(),
+            vout: details.vout,
+        };
         utxos[Self::FUNDING_INPUT_INDEX] = dummy_funding_outpoint;
 
         let tx_ins = create_tx_ins(utxos);
         let tx_outs = create_tx_outs([(ScriptBuf::new(), Amount::from_int_btc(0))]);
 
         let mut unsigned_child_tx = create_tx(tx_ins, tx_outs);
-        unsigned_child_tx.version = transaction::Version(3);
+
+        // An unconfirmed TRUC transaction can only be spent by a TRUC transaction.
+        if details.parent_tx.version == transaction::Version(3) {
+            unsigned_child_tx.version = transaction::Version(3);
+        }
 
         let mut psbt =
             Psbt::from_unsigned_tx(unsigned_child_tx).expect("must be able to create psbt");
 
         let parent_prevout = TxOut {
-            value: details.parent_prevout_amount,
+            value: details.parent_tx.output[details.vout as usize].value,
             script_pubkey: connector_cpfp.generate_taproot_address().script_pubkey(),
         };
 
@@ -115,9 +160,23 @@ impl Cpfp<Unfunded> {
                 psbt_in.witness_utxo = Some(prevout);
             });
 
+        let parent_output_amount: Amount = details
+            .parent_tx
+            .output
+            .iter()
+            .map(|output| output.value)
+            .sum();
+
+        let parent_input_amount: Amount = details.parent_input_amount;
+
+        let parent_fees = parent_input_amount
+            .checked_sub(parent_output_amount)
+            .expect("BUG: input amount must be at least equal to output amount");
+
         Self {
             psbt,
-            parent_weight: details.parent_weight,
+            parent_weight: details.parent_tx.weight(),
+            parent_fees,
 
             status: PhantomData,
         }
@@ -154,12 +213,14 @@ impl Cpfp<Unfunded> {
         let Self {
             psbt,
             parent_weight,
+            parent_fees,
             status: _,
         } = self;
 
         Ok(Cpfp::<Funded> {
             psbt,
             parent_weight,
+            parent_fees,
 
             status: PhantomData,
         })
@@ -256,7 +317,6 @@ mod tests {
 
         let connector_cpfp_out = connector_cpfp.generate_taproot_address().script_pubkey();
         let parent_prevout_amount = connector_cpfp_out.minimal_non_dust();
-        dbg!(parent_prevout_amount);
 
         let tx_ins = create_tx_ins([parent_input_utxo]);
         let tx_outs = create_tx_outs([
@@ -279,19 +339,9 @@ mod tests {
         let signed_parent_tx =
             consensus::encode::deserialize_hex::<Transaction>(&signed_parent_tx.hex)
                 .expect("must be able to deserialize signed parent tx");
-        assert!(
-            signed_parent_tx.version == transaction::Version(3),
-            "signed parent tx must have version 3"
-        );
 
-        let details = CpfpInput {
-            parent_prevout_amount,
-            parent_utxo: OutPoint {
-                txid: unsigned_parent_tx.compute_txid(),
-                vout: 0,
-            },
-            parent_weight: unsigned_parent_tx.weight(),
-        };
+        let details =
+            CpfpInput::new(&signed_parent_tx, unspent.amount, 0).expect("values must be valid");
 
         let cpfp = Cpfp::new(details, connector_cpfp);
 

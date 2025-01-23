@@ -1,4 +1,4 @@
-use bitcoin::FeeRate;
+use bitcoin::{FeeRate, Txid};
 use strata_bridge_primitives::errors::BridgeTxBuilderError;
 use thiserror::Error;
 
@@ -7,6 +7,14 @@ pub enum TxError {
     /// Error building the tx.
     #[error("build: {0}")]
     BuildTx(#[from] BridgeTxBuilderError),
+
+    /// Provided output index is invalid for a transaction.
+    #[error("invalid vout: {0}")]
+    InvalidVout(u32),
+
+    /// Provided transaction is unsigned.
+    #[error("unsigned tx: {0}")]
+    EmptyWitness(Txid),
 
     /// Witness format is invalid.
     #[error("could not parse: {0}")]
