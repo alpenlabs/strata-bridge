@@ -294,6 +294,7 @@ impl BtcZmqClient {
 /// This structure is here so that we can keep track of messages coming in on parallel streams that are all
 /// tracking the same underlying event. Depending on the messages we receive and in what order we track the transaction
 /// all the way to block inclusion, inferring other states depending on the messages we have received.
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TxLifecycle {
     raw: Option<Transaction>,
     block: Option<BlockHash>,
@@ -302,6 +303,7 @@ struct TxLifecycle {
 
 /// This is the pure state machine that processes all the relevant messages. From there it will emit diffs that describe
 /// the new states of transactions.
+#[derive(Clone)]
 struct BtcZmqSM {
     /// This is the number of subsequent blocks that must be built on top of a given block for that block to be
     /// considered "buried": the transactions will never be reversed.
@@ -317,6 +319,24 @@ struct BtcZmqSM {
     // "unburied" block
     unburied_blocks: VecDeque<Block>,
 }
+impl std::fmt::Debug for BtcZmqSM {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BtcZmqSM")
+            .field("bury_depth", &self.bury_depth)
+            .field("tx_filters", &self.tx_filters.iter().map(|f| format!("{:?}", Arc::as_ptr(f))).collect::<Vec<String>>())
+            .field("tx_lifecycles", &self.tx_lifecycles)
+            .field("unburied_blocks", &self.unburied_blocks)
+            .finish()
+    }
+}
+impl PartialEq for BtcZmqSM {
+    fn eq(&self, other: &Self) -> bool {
+        let filter_eq = self.tx_filters.len() == other.tx_filters.len() &&
+            self.tx_filters.iter().zip(other.tx_filters.iter()).all(|(a, b)| Arc::ptr_eq(a, b));
+        self.bury_depth == other.bury_depth && filter_eq && self.tx_lifecycles == other.tx_lifecycles && self.unburied_blocks == other.unburied_blocks
+    }
+}
+impl Eq for BtcZmqSM {}
 
 impl BtcZmqSM {
     fn init(bury_depth: usize) -> Self {
@@ -351,7 +371,7 @@ impl BtcZmqSM {
                 if block.header.prev_blockhash == tip.block_hash() {
                     self.unburied_blocks.push_front(block)
                 } else {
-                    unimplemented!()
+                    panic!("invariant violated: blocks received out of order");
                 }
             }
             // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup time
@@ -486,7 +506,7 @@ impl BtcZmqSM {
                     // transaction data for it. Now that we do we can construct the full event.
                     (None, None, true) => {
                         lifecycle.raw = Some(tx.clone());
-                        vec![(tx, TxStatus::Mined)]
+                        vec![(tx, TxStatus::Mempool)]
                     }
                     // This should be impossible because we will only ever add something to the tx lifecycle map when
                     // we have some sort of associated data with it. As such one of the fields must be filled.
@@ -787,6 +807,7 @@ mod e2e_tests {
 #[cfg(test)]
 mod prop_tests {
     use std::collections::{BTreeSet, VecDeque};
+    use std::sync::Arc;
 
     use bitcoin::block;
     use bitcoin::hashes::{sha256d, Hash};
@@ -950,7 +971,7 @@ mod prop_tests {
         }
 
         #[test]
-        fn process_seq_process_tx_order_indifference(tx in arb_transaction()) {
+        fn seq_tx_commutativity(tx in arb_transaction()) {
             let txid = tx.compute_txid();
             let mempool_sequence = 0u64;
 
@@ -1010,6 +1031,92 @@ mod prop_tests {
             }).collect::<BTreeSet<Txid>>();
 
             assert_eq!(to_be_buried, is_buried);
+        }
+
+        #[test]
+        fn seq_and_tx_make_mempool(tx in arb_transaction()) {
+            let mut sm = BtcZmqSM::init(6);
+
+            sm.add_filter(Arc::new(|_|true));
+
+            let diff = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid: tx.compute_txid(), mempool_sequence: 0 });
+            assert!(diff.is_empty());
+
+            let diff = sm.process_tx(tx.clone());
+            assert_eq!(diff, vec![(tx, TxStatus::Mempool)]);
+        }
+
+        #[test]
+        fn filter_rm_inverts_add(pred in arb_predicate()) {
+            let sm_ref = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(6);
+
+            sm.add_filter(pred.pred.clone());
+            sm.rm_filter(pred.pred);
+
+            assert_eq!(sm, sm_ref);
+        }
+
+        #[test]
+        fn mempool_removal_inverts_acceptance(tx in arb_transaction(), include_raw in any::<bool>()) {
+            let mut sm_ref = BtcZmqSM::init(6);
+            sm_ref.add_filter(Arc::new(|_|true));
+            let mut sm = sm_ref.clone();
+
+            let txid = tx.compute_txid();
+            sm.process_sequence(SequenceMessage::MempoolAcceptance { txid, mempool_sequence: 0 });
+            if include_raw {
+                sm.process_tx(tx);
+            }
+            sm.process_sequence(SequenceMessage::MempoolRemoval { txid, mempool_sequence: 0 });
+
+            assert_eq!(sm, sm_ref);
+        }
+
+        #[test]
+        fn block_disconnect_inverts_block(block in arb_block(Hash::all_zeros())) {
+            let mut sm_ref = BtcZmqSM::init(6);
+            sm_ref.add_filter(Arc::new(|_|true));
+            let mut sm = sm_ref.clone();
+
+            let blockhash = block.block_hash();
+            sm.process_block(block);
+            sm.process_sequence(SequenceMessage::BlockDisconnect { blockhash });
+
+            assert_eq!(sm, sm_ref);
+        }
+
+        #[test]
+        fn tx_after_block_idempotence(block in arb_block(Hash::all_zeros())) {
+            let mut sm_ref = BtcZmqSM::init(6);
+            sm_ref.add_filter(Arc::new(|_|true));
+            sm_ref.process_block(block.clone());
+            let mut sm = sm_ref.clone();
+
+            for tx in block.txdata {
+                sm.process_tx(tx);
+                assert_eq!(sm, sm_ref);
+            }
+        }
+
+        #[test]
+        fn tx_block_commutativity(block in arb_block(Hash::all_zeros())) {
+            let mut sm_base = BtcZmqSM::init(6);
+            sm_base.add_filter(Arc::new(|_|true));
+            let mut sm_block_first = sm_base.clone();
+            let mut sm_tx_first = sm_base;
+
+            sm_block_first.process_block(block.clone());
+            for tx in block.clone().txdata {
+                sm_block_first.process_tx(tx);
+            }
+
+            for tx in block.clone().txdata {
+                sm_tx_first.process_tx(tx);
+            }
+            sm_tx_first.process_block(block);
+
+            assert_eq!(sm_tx_first, sm_block_first);
         }
     }
 }
