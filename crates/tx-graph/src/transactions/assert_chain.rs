@@ -1,10 +1,5 @@
 use bitcoin::Txid;
-use strata_bridge_primitives::{
-    params::connectors::{
-        NUM_PKS_A160, NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A256, NUM_PKS_A256_PER_CONNECTOR,
-    },
-    types::OperatorIdx,
-};
+use strata_bridge_primitives::{params::connectors::*, types::OperatorIdx};
 use tracing::trace;
 
 use super::prelude::*;
@@ -44,8 +39,18 @@ impl AssertChain {
         connector_a30: ConnectorA30,
         connector_a31: ConnectorA31,
         connector_cpfp: ConnectorCpfp,
-        connector_a160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
-        connector_a256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
+        connector_a160_factory: ConnectorA160Factory<
+            NUM_HASH_CONNECTORS_BATCH_1,
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
+            NUM_HASH_CONNECTORS_BATCH_2,
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
+        >,
+        connector_a256_factory: ConnectorA256Factory<
+            NUM_FIELD_CONNECTORS_BATCH_1,
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1,
+            NUM_FIELD_CONNECTORS_BATCH_2,
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
+        >,
     ) -> Self {
         let pre_assert = PreAssertTx::new(
             data.pre_assert_data,

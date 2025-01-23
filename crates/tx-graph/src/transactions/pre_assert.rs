@@ -17,7 +17,7 @@ pub struct PreAssertData {
     pub input_stake: Amount,
 }
 
-const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1 + 1; // +1 for stake, // +1 for cpfp
+pub(super) const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1 + 1; // +1 for stake, // +1 for cpfp
 
 /// A transaction in the Assert chain that contains output scripts used for bitcomitting to the
 /// assertion data.
@@ -31,7 +31,7 @@ pub struct PreAssertTx {
 
     // The ordering of these is pretty complicated.
     // This field is so that we don't have to recompute this order in other places.
-    tx_outs: [TxOut; PRE_ASSERT_OUTS], // +1 for stake, +1 for cpfp
+    tx_outs: [TxOut; PRE_ASSERT_OUTS],
 
     witnesses: Vec<TaprootWitness>,
 }
@@ -46,7 +46,10 @@ impl PreAssertTx {
     /// The bitcommitment connectors are constructed in such a way that when spending the outputs,
     /// the stack size stays under the bitcoin consensus limit of 1000 elements, and such that when
     /// these UTXOs are sequentially chunked into transactions, the size of these transactions do
-    /// not exceed the standard transaction size limit of 100,000 vbytes.
+    /// not exceed the standard transaction size limit of 10,000 vbytes for v3 transactions.
+    ///
+    /// Refer to the documentation in [`strata_bridge_primitives::params::connectors`] for more
+    /// details.
     ///
     /// A CPFP connector is required to pay the transaction fees.
     pub fn new(
@@ -54,34 +57,25 @@ impl PreAssertTx {
         connector_c0: ConnectorC0,
         connector_s: ConnectorS,
         connector_cpfp: ConnectorCpfp,
-        connector_a256: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
-        connector_a160: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
+        connector_a256: ConnectorA256Factory<
+            NUM_FIELD_CONNECTORS_BATCH_1,
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1,
+            NUM_FIELD_CONNECTORS_BATCH_2,
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
+        >,
+        connector_a160: ConnectorA160Factory<
+            NUM_HASH_CONNECTORS_BATCH_1,
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
+            NUM_HASH_CONNECTORS_BATCH_2,
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
+        >,
     ) -> Self {
-        let (connector160_batch, connector160_remainder): (
-            Vec<ConnectorA160<NUM_PKS_A160_PER_CONNECTOR>>,
-            ConnectorA160<NUM_PKS_A160_RESIDUAL>,
-        ) = connector_a160.create_connectors();
-
-        let (connector256_batch, _connector256_remainder): (
-            Vec<ConnectorA256<NUM_PKS_A256_PER_CONNECTOR>>,
-            ConnectorA256<NUM_PKS_A256_RESIDUAL>,
-        ) = connector_a256.create_connectors();
-
         let outpoints = [OutPoint {
             txid: data.claim_txid,
             vout: 0,
         }];
         let tx_ins = create_tx_ins(outpoints);
 
-        /* arrange locking scripts to make it easier to construct minimal number of spending
-         * transactions. As of this writing, the following configuration yields the lowest
-         * number of transactions:
-         *
-         * First, `AssertDataTx` take 7 A256<7> connectors.
-         * Second, 5 * `AssertDataTx` takes 9 A160<11> connector each.
-         * Third, `AssertDataTx` takes  7 A160<11> and 1 A160<2> connector.
-         * connector.
-         */
         let mut scripts_and_amounts = vec![];
 
         let connector_s_script = connector_s.create_taproot_address().script_pubkey();
@@ -91,47 +85,53 @@ impl PreAssertTx {
         scripts_and_amounts.push((connector_s_script, connector_s_amt));
         trace!(num_scripts=%scripts_and_amounts.len(), event = "added connnector_s");
 
-        // add connector 6_7x_256
-        scripts_and_amounts.extend(
-            connector256_batch
-                .iter()
-                .by_ref()
-                .take(NUM_ASSERT_DATA_TX1_A256_PK7)
-                .map(|conn| {
-                    let script = conn.create_taproot_address().script_pubkey();
-                    let amount = script.minimal_non_dust();
+        let (connector256_batch1, connector256_batch2): (
+            [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_FIELD_CONNECTORS_BATCH_1],
+            [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_FIELD_CONNECTORS_BATCH_2],
+        ) = connector_a256.create_connectors();
 
-                    (script, amount)
-                }),
-        );
-        trace!(num_scripts=%scripts_and_amounts.len(), event = "added connnector_a256");
+        let (connector160_batch1, connector160_batch2): (
+            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
+            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_HASH_CONNECTORS_BATCH_2],
+        ) = connector_a160.create_connectors();
 
-        trace!(num_connector_a160_batch=%connector160_batch.len(), event = "a160 batch length");
+        connector256_batch1.iter().for_each(|conn| {
+            let script = conn.create_taproot_address().script_pubkey();
+            // x2 accounts for the two dust outputs in the assert-data tx one of which will be used
+            // for CPFP.
+            let amount = script.minimal_non_dust() * 2;
 
-        // add 5 * connector 9_11x_160 + 1 * 7_11x_160
-        // the last iteration accounts for the 7_11x_160
-        connector160_batch
-            .chunks(NUM_ASSERT_DATA_TX2_A160_PK11)
-            .for_each(|conn_batch| {
-                conn_batch.iter().for_each(|conn| {
-                    scripts_and_amounts.push({
-                        let script = conn.create_taproot_address().script_pubkey();
-                        let amount = script.minimal_non_dust();
+            scripts_and_amounts.push((script, amount));
+        });
 
-                        (script, amount)
-                    });
-                });
-            });
+        connector256_batch2.iter().for_each(|conn| {
+            let script = conn.create_taproot_address().script_pubkey();
+            // x2 accounts for the two dust outputs in the assert-data tx one of which will be used
+            // for CPFP.
+            let amount = script.minimal_non_dust() * 2;
 
-        // add connector 1_2x_160
-        let connector160_remainder_script = connector160_remainder
-            .create_taproot_address()
-            .script_pubkey();
+            scripts_and_amounts.push((script, amount));
+        });
 
-        let connector160_remainder_amt = connector160_remainder_script.minimal_non_dust();
-        scripts_and_amounts.push((connector160_remainder_script, connector160_remainder_amt));
+        connector160_batch1.iter().for_each(|conn| {
+            let script = conn.create_taproot_address().script_pubkey();
+            // x2 accounts for the two dust outputs in the assert-data tx one of which will be used
+            // for CPFP.
+            let amount = script.minimal_non_dust() * 2;
 
-        trace!(num_scripts=%scripts_and_amounts.len(), event = "added connnector_160 residual");
+            scripts_and_amounts.push((script, amount));
+        });
+
+        connector160_batch2.iter().for_each(|conn| {
+            let script = conn.create_taproot_address().script_pubkey();
+            // x2 accounts for the two dust outputs in the assert-data tx one of which will be used
+            // for CPFP.
+            let amount = script.minimal_non_dust() * 2;
+
+            scripts_and_amounts.push((script, amount));
+        });
+
+        trace!(num_scripts=%scripts_and_amounts.len(), event = "added all bitcommitment connectors");
 
         let cpfp_script = connector_cpfp.generate_taproot_address().script_pubkey();
         let cpfp_amount = cpfp_script.minimal_non_dust();
@@ -139,6 +139,8 @@ impl PreAssertTx {
         trace!(event = "added cpfp connector");
 
         let total_assertion_amount = scripts_and_amounts.iter().map(|(_, amt)| *amt).sum();
+        // No additional transaction fees are deducted from the stake.
+        // Transaction fees are expected to come via CPFP.
         let net_stake = data.input_stake - total_assertion_amount;
 
         trace!(event = "calculated net remaining stake", %net_stake);
@@ -148,7 +150,7 @@ impl PreAssertTx {
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
         let mut tx = create_tx(tx_ins, tx_outs.clone());
-        tx.version = transaction::Version(3);
+        tx.version = transaction::Version(3); // for 0-fee TRUC transactions
 
         let mut psbt =
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");
@@ -169,12 +171,23 @@ impl PreAssertTx {
             control_block,
         }];
 
+        // This cannot be ensured at compile-time due to the need to create the
+        // `scripts_and_amounts` vector.
+        // Violation of this assertion is a logical error.
+        assert_eq!(
+            tx_outs.len(),
+            PRE_ASSERT_OUTS,
+            "BUG: the number of tx_outs in the pre-assert must match"
+        );
+
         Self {
             psbt,
             remaining_stake: net_stake,
 
             prevouts,
-            tx_outs: tx_outs.try_into().unwrap(),
+            tx_outs: tx_outs
+                .try_into()
+                .expect("cannot fail due to the assertion above"),
             witnesses: witness,
         }
     }
@@ -221,5 +234,19 @@ impl CovenantTx for PreAssertTx {
 
     fn compute_txid(&self) -> Txid {
         self.psbt.unsigned_tx.compute_txid()
+    }
+
+    fn input_amount(&self) -> Amount {
+        self.psbt
+            .inputs
+            .iter()
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .as_ref()
+                    .expect("witness utxo must exist")
+                    .value
+            })
+            .sum()
     }
 }

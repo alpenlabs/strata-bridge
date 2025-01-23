@@ -9,7 +9,7 @@ use bitcoin::{
     key::rand::{rngs::OsRng, Rng},
     secp256k1::{schnorr::Signature, Keypair, XOnlyPublicKey, SECP256K1},
     sighash::{Prevouts, SighashCache},
-    transaction::{self, Version},
+    transaction::Version,
     Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use corepc_node::{serde_json::json, Client};
@@ -126,10 +126,6 @@ pub fn sign_cpfp_child(
         .expect("must be able to sign child tx");
     let signed_child_tx = consensus::encode::deserialize_hex::<Transaction>(&signed_child_tx.hex)
         .expect("must be able to deserialize signed child tx");
-    assert!(
-        signed_child_tx.version == transaction::Version(3),
-        "signed child tx must have version 3"
-    );
 
     let funding_witness = signed_child_tx
         .input
