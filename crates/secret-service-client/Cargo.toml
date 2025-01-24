@@ -1,13 +1,14 @@
 [package]
-name = "mi6-server"
+name = "secret-service-client"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 kanal.workspace = true
-mi6-proto = { version = "0.1.0", path = "../mi6-proto" }
+musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true
+secret-service-proto = { version = "0.1.0", path = "../secret-service-proto" }
 terrors.workspace = true
 tokio.workspace = true
 tracing.workspace = true
