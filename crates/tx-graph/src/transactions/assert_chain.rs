@@ -89,6 +89,7 @@ impl AssertChain {
             connector_s,
             connector_a30,
             connector_a31,
+            connector_cpfp,
         );
 
         trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid(), %operator_idx);

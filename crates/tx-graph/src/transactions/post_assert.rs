@@ -1,4 +1,4 @@
-use bitcoin::{sighash::Prevouts, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*, types::OperatorIdx};
@@ -46,6 +46,7 @@ impl PostAssertTx {
         connector_a2: ConnectorS,
         connector_a30: ConnectorA30,
         connector_a31: ConnectorA31,
+        connector_cpfp: ConnectorCpfp,
     ) -> Self {
         // +1 for stake
         let total_inputs = NUM_ASSERT_DATA_TX + 1;
@@ -70,6 +71,9 @@ impl PostAssertTx {
             size = connector_a31_script.len(), %operator_idx,
         );
 
+        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_amount = cpfp_script.minimal_non_dust();
+
         let mut scripts_and_amounts = [
             (
                 connector_a30.generate_locking_script(),
@@ -79,18 +83,18 @@ impl PostAssertTx {
                 connector_a31_script.clone(),
                 connector_a31_script.minimal_non_dust(),
             ),
+            (cpfp_script, cpfp_amount),
         ];
 
-        let net_stake = data.input_amount
-            - scripts_and_amounts.iter().map(|(_, amt)| *amt).sum()
-            - MIN_RELAY_FEE;
+        let net_stake = data.input_amount - scripts_and_amounts.iter().map(|(_, amt)| *amt).sum();
         trace!(%net_stake, %operator_idx, event = "calculated net stake for post-assert");
         scripts_and_amounts[0].1 = net_stake;
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
         trace!(event = "created tx outs", count = tx_outs.len(), %operator_idx);
 
-        let tx = create_tx(tx_ins, tx_outs);
+        let mut tx = create_tx(tx_ins, tx_outs);
+        tx.version = transaction::Version(3);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("witness should be empty");
 
@@ -125,6 +129,10 @@ impl PostAssertTx {
     /// Returns the remaining stake after the post-assert transaction.
     pub fn remaining_stake(&self) -> Amount {
         self.remaining_stake
+    }
+
+    pub fn cpfp_vout(&self) -> u32 {
+        self.psbt.outputs.len() as u32 - 1
     }
 
     /// Finalizes the transaction by adding the required n-of-n signatures.

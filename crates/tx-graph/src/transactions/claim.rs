@@ -85,6 +85,10 @@ impl ClaimTx {
         self.remaining_stake
     }
 
+    pub fn cpfp_vout(&self) -> u32 {
+        self.psbt.outputs.len() as u32 - 1
+    }
+
     pub fn finalize(
         mut self,
         deposit_txid: Txid,

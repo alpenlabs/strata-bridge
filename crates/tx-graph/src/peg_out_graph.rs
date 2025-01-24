@@ -148,7 +148,12 @@ impl PegOutGraph {
             network: input.network,
         };
 
-        let payout_tx = PayoutTx::new(payout_data, connectors.post_assert_out_0, connectors.stake);
+        let payout_tx = PayoutTx::new(
+            payout_data,
+            connectors.post_assert_out_0,
+            connectors.stake,
+            connectors.connector_cpfp,
+        );
         let payout_txid = payout_tx.compute_txid();
         debug!(event = "created payout tx", %operator_idx, %payout_txid);
 
@@ -351,6 +356,7 @@ mod tests {
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
         let network = context.network();
         let btc_client = &bitcoind.client;
+        let btc_addr = btc_client.new_address().expect("must generate new address");
 
         let input = create_tx_graph_input(btc_client, network, operator_pubkey, deposit_txid);
 
@@ -390,22 +396,67 @@ mod tests {
 
         let deposit_signature = signatures.next().expect("must have deposit signature");
         let n_of_n_sig = signatures.next().expect("must have n-of-n signature");
+        let payout_input_amount = payout_tx.input_amount();
+        let payout_cpfp_vout = payout_tx.cpfp_vout();
         let signed_payout_tx = payout_tx.finalize(post_assert_out_0, deposit_signature, n_of_n_sig);
-        assert!(
-            btc_client
-                .send_raw_transaction(&signed_payout_tx)
-                .is_err_and(|e| { e.to_string().contains("non-BIP68-final") }),
-            "must not be able to send payout tx immediately"
+        let payout_amount = signed_payout_tx.output[0].value;
+        let payout_txid = signed_payout_tx.compute_txid().to_string();
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
+        let signed_payout_cpfp_child = create_cpfp_child(
+            btc_client,
+            &n_of_n_keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_payout_tx,
+            payout_input_amount,
+            payout_cpfp_vout,
         );
 
-        let btc_addr = btc_client.new_address().expect("must generate new address");
+        info!(
+            txid = payout_txid,
+            "trying to submit payout before timelock"
+        );
+        let result = btc_client
+            .submit_package(
+                &[signed_payout_tx.clone(), signed_payout_cpfp_child.clone()],
+                None,
+                None,
+            )
+            .expect("must be able to submit package");
+        assert_ne!(
+            result.package_msg, "success",
+            "submit package message must not be success"
+        );
+        info!(
+            txid = payout_txid,
+            "could not submit payout before timelock"
+        );
+
         btc_client
             .generate_to_address(PAYOUT_TIMELOCK as usize + 6, &btc_addr)
             .expect("must be able to mine blocks");
 
-        btc_client
-            .send_raw_transaction(&signed_payout_tx)
-            .expect("must be able to send payout tx after timelock");
+        info!(txid = payout_txid, "trying to submit payout after timelock");
+        let result = btc_client
+            .submit_package(&[signed_payout_tx, signed_payout_cpfp_child], None, None)
+            .expect("must be able to send payout package");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "submit package message must be success"
+        );
+        assert_eq!(result.tx_results.len(), 2, "must have two tx results");
+
+        let total_cpfp_amount = OPERATOR_STAKE + DEPOSIT_AMOUNT - payout_amount;
+        let total_cpfp_amount = total_cpfp_amount.to_sat();
+        info!(
+            ?payout_amount,
+            stake = OPERATOR_STAKE.to_sat(),
+            deposit = DEPOSIT_AMOUNT.to_sat(),
+            %total_cpfp_amount,
+            "received_payout"
+        );
     }
 
     #[tokio::test]
@@ -714,6 +765,7 @@ mod tests {
             .time;
 
         let claim_input_amount = claim_tx.input_amount();
+        let claim_cpfp_vout = claim_tx.cpfp_vout();
         let signed_claim_tx = claim_tx.finalize(
             deposit_txid,
             &kickoff,
@@ -730,7 +782,7 @@ mod tests {
             connector_cpfp,
             &signed_claim_tx,
             claim_input_amount,
-            signed_claim_tx.output.len() - 1,
+            claim_cpfp_vout,
         );
 
         let result = btc_client
@@ -762,6 +814,7 @@ mod tests {
         let prevouts = pre_assert.prevouts();
         let witnesses = pre_assert.witnesses();
         let pre_assert_input_amount = pre_assert.input_amount();
+        let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
         let tx_hash = create_message_hash(
             &mut sighash_cache,
             prevouts,
@@ -785,7 +838,7 @@ mod tests {
             connector_cpfp,
             &signed_pre_assert,
             pre_assert_input_amount,
-            signed_pre_assert.output.len() - 1,
+            pre_assert_cpfp_vout,
         );
 
         info!(
@@ -814,6 +867,7 @@ mod tests {
         let assert_data_input_amounts = (0..assert_data.num_txs_in_batch())
             .map(|i| assert_data.total_input_amount(i).expect("input must exist"))
             .collect::<Vec<_>>();
+        let assert_data_cpfp_vout = assert_data.cpfp_vout();
 
         let signed_assert_data_txs = assert_data.finalize(
             assert_data160_factory,
@@ -850,7 +904,7 @@ mod tests {
                     connector_cpfp,
                     &tx,
                     input_amount,
-                    tx.output.len() - 1,
+                    assert_data_cpfp_vout,
                 );
 
                 let vsize = tx.vsize();
@@ -903,29 +957,43 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
+        let post_assert_input_amount = post_assert.input_amount();
+        let post_assert_cpf_vout = post_assert.cpfp_vout();
         let signed_post_assert = post_assert.finalize(&post_assert_sigs);
 
-        signed_post_assert
-            .input
-            .iter()
-            .enumerate()
-            .for_each(|(i, input)| {
-                let prevout = input.previous_output;
-                let result = btc_client.call::<GetTxOut>(
-                    "gettxout",
-                    &[json!(prevout.txid.to_string()), json!(prevout.vout)],
-                );
+        let signed_post_assert_child_tx = create_cpfp_child(
+            btc_client,
+            keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_post_assert,
+            post_assert_input_amount,
+            post_assert_cpf_vout,
+        );
 
-                assert!(
-                    result.is_ok(),
-                    "post-assert tx input {prevout:?} at index {i} must exist but got: {:?}",
-                    result.unwrap_err()
-                );
-            });
-
-        btc_client
-            .send_raw_transaction(&signed_post_assert)
+        info!(
+            txid = signed_post_assert.compute_txid().to_string(),
+            "broadcasting post-assert tx"
+        );
+        let result = btc_client
+            .submit_package(
+                &[signed_post_assert.clone(), signed_post_assert_child_tx],
+                None,
+                None,
+            )
             .expect("must be able to send post-assert tx");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must have successful package submission but got: {:?}",
+            result
+        );
+        assert_eq!(
+            result.tx_results.len(),
+            2,
+            "must have two transactions in package"
+        );
+
         btc_client
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine post-assert tx");
@@ -948,11 +1016,10 @@ mod tests {
         connector_cpfp: ConnectorCpfp,
         parent_tx: &Transaction,
         parent_input_amount: Amount,
-        parent_output_index: usize,
+        parent_output_index: u32,
     ) -> Transaction {
-        let cpfp_details =
-            CpfpInput::new(parent_tx, parent_input_amount, parent_output_index as u32)
-                .expect("inputs must be valid");
+        let cpfp_details = CpfpInput::new(parent_tx, parent_input_amount, parent_output_index)
+            .expect("inputs must be valid");
         let assert_data_cpfp = Cpfp::new(cpfp_details, connector_cpfp);
 
         let funding_amount = assert_data_cpfp

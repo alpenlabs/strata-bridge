@@ -96,6 +96,11 @@ impl AssertDataTxBatch {
         NUM_ASSERT_DATA_TX
     }
 
+    /// Gets the vout for CPFP in each PSBT in the batch.
+    pub fn cpfp_vout(&self) -> u32 {
+        self.0[0].outputs.len() as u32 - 1
+    }
+
     /// Gets the total input amount of the psbt at the given index if present.
     pub fn total_input_amount(&self, index: usize) -> Option<Amount> {
         self.0.get(index).map(|psbt| {

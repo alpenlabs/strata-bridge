@@ -202,6 +202,11 @@ impl PreAssertTx {
         self.tx_outs.clone()
     }
 
+    /// Gets the CPFP output index.
+    pub fn cpfp_vout(&self) -> u32 {
+        self.psbt.outputs.len() as u32 - 1
+    }
+
     /// Finalizes the transaction by adding the n-of-n signature to the [`ConnectorC0`] witness.
     pub fn finalize(mut self, n_of_n_sig: Signature, connector_c0: ConnectorC0) -> Transaction {
         connector_c0.finalize_input(
