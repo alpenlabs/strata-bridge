@@ -18,9 +18,9 @@ trait WireMessageMarker:
 }
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-pub enum ServerMessage<S, SecondRound, FirstRound>
+pub enum ServerMessage<S, FirstRound, SecondRound>
 where
-    S: SecretService<Server, SecondRound, FirstRound>,
+    S: SecretService<Server, FirstRound, SecondRound>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
 {
     InvalidClientMessage,
@@ -56,6 +56,13 @@ where
     Musig2SecondRoundFinalize(Musig2SessionResult),
 
     WotsGetKey([u8; 64]),
+}
+
+impl<S, FirstRound, SecondRound> WireMessageMarker for ServerMessage<S, FirstRound, SecondRound>
+where
+    S: SecretService<Server, FirstRound, SecondRound>,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+{
 }
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -151,15 +158,17 @@ pub trait WireMessage {
 impl<T: WireMessageMarker> WireMessage for T {
     fn serialize(&self) -> Result<AlignedVec, rancor::Error> {
         let mut aligned_buf = AlignedVec::new();
-        // write a default length
         aligned_buf.extend_from_slice(&u32::MAX.to_le_bytes());
         let mut aligned_buf = to_bytes_in(self, aligned_buf)?;
-        let len = aligned_buf.len() - 4;
-        debug_assert!(len <= u32::MAX as usize);
-        let len_as_le_bytes = (len as u32).to_le_bytes();
-        for i in 0..4 {
-            aligned_buf[i] = len_as_le_bytes[i]
-        }
+        let len = aligned_buf.len() - size_of::<u32>();
+        assert!(len <= u32::MAX as usize);
+        (len as u32)
+            .to_le_bytes()
+            .into_iter()
+            .enumerate()
+            .for_each(|byte| {
+                aligned_buf[byte.0] = byte.1;
+            });
         Ok(aligned_buf)
     }
 }
