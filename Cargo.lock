@@ -8157,6 +8157,7 @@ dependencies = [
 name = "secret-service-client"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "kanal",
  "musig2",
  "quinn",

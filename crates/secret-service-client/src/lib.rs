@@ -5,6 +5,7 @@ use std::{
     sync::Arc,
 };
 
+use bitcoin::Psbt;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::PublicKey,
@@ -15,8 +16,8 @@ use quinn::{
     rustls, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
 };
 use secret_service_proto::v1::traits::{
-    self, Client, Musig2SessionId, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin,
-    SecretService,
+    Client, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound,
+    OperatorSigner, Origin, P2PSigner, SecretService, WotsSigner,
 };
 use terrors::OneOf;
 
@@ -76,6 +77,7 @@ impl SecretServiceClient {
 
 struct Musig2FirstRound {
     session_id: Musig2SessionId,
+    connection: Connection,
 }
 
 impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
@@ -114,6 +116,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
 
 struct Musig2SecondRound {
     session_id: Musig2SessionId,
+    connection: Connection,
 }
 
 impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
@@ -157,28 +160,84 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
     }
 }
 
-// impl SecretService<Client, Musig2SecondRound, Musig2FirstRound> for SecretServiceClient {
-//     type OperatorSigner;
+impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServiceClient {
+    type OperatorSigner = OperatorClient;
 
-//     type P2PSigner;
+    type P2PSigner = P2PClient;
 
-//     type Musig2Signer;
+    type Musig2Signer = Musig2Client;
 
-//     type WotsSigner;
+    type WotsSigner = WotsClient;
 
-//     fn operator_signer(&self) -> &Self::OperatorSigner {
-//         todo!()
-//     }
+    fn operator_signer(&self) -> Self::OperatorSigner {
+        OperatorClient(self.conn.as_ref().unwrap().clone())
+    }
 
-//     fn p2p_signer(&self) -> &Self::P2PSigner {
-//         todo!()
-//     }
+    fn p2p_signer(&self) -> Self::P2PSigner {
+        todo!()
+    }
 
-//     fn musig2_signer(&self) -> &Self::Musig2Signer {
-//         todo!()
-//     }
+    fn musig2_signer(&self) -> Self::Musig2Signer {
+        todo!()
+    }
 
-//     fn wots_signer(&self) -> &Self::WotsSigner {
-//         todo!()
-//     }
-// }
+    fn wots_signer(&self) -> Self::WotsSigner {
+        todo!()
+    }
+}
+
+struct OperatorClient(Connection);
+
+impl OperatorSigner<Client> for OperatorClient {
+    type OperatorSigningError = ();
+
+    fn sign_psbt(
+        &self,
+        psbt: Psbt,
+    ) -> impl Future<Output = <Client as Origin>::Container<Result<Psbt, Self::OperatorSigningError>>>
+           + Send {
+        async move { todo!() }
+    }
+}
+
+struct P2PClient(Connection);
+
+impl P2PSigner<Client> for P2PClient {
+    type P2PSigningError = ();
+
+    fn sign_p2p(
+        &self,
+        hash: [u8; 32],
+    ) -> impl Future<Output = <Client as Origin>::Container<Result<[u8; 64], Self::P2PSigningError>>>
+           + Send {
+        async move { todo!() }
+    }
+
+    fn p2p_pubkey(&self) -> impl Future<Output = [u8; 32]> + Send {
+        async move { todo!() }
+    }
+}
+
+struct Musig2Client(Connection);
+
+impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
+    fn new_session(
+        &self,
+    ) -> impl Future<Output = <Client as Origin>::Container<Musig2FirstRound>> + Send {
+        async move {
+            // self.0.open_bi();
+            todo!()
+        }
+    }
+}
+
+struct WotsClient(Connection);
+
+impl WotsSigner<Client> for WotsClient {
+    fn get_key(
+        &self,
+        index: u64,
+    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 64]>> + Send {
+        async move { todo!() }
+    }
+}
