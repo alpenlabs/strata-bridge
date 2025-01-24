@@ -107,6 +107,7 @@ impl PegOutGraph {
             connectors.kickoff,
             connectors.claim_out_0,
             connectors.claim_out_1,
+            connectors.connector_cpfp,
         );
         let claim_txid = claim_tx.compute_txid();
         debug!(event = "created claim tx", %operator_idx, %claim_txid);
@@ -685,6 +686,9 @@ mod tests {
         btc_client
             .send_raw_transaction(signed_kickoff_tx)
             .expect("must be able to send kickoff tx");
+        btc_client
+            .generate_to_address(1, &btc_addr)
+            .expect("must be able to mine blocks");
 
         let PegOutGraphConnectors {
             kickoff,
@@ -709,6 +713,7 @@ mod tests {
             .expect("must get block")
             .time;
 
+        let claim_input_amount = claim_tx.input_amount();
         let signed_claim_tx = claim_tx.finalize(
             deposit_txid,
             &kickoff,
@@ -717,9 +722,31 @@ mod tests {
             start_ts as u32,
         );
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
-        btc_client
-            .send_raw_transaction(&signed_claim_tx)
+
+        let claim_child_tx = create_cpfp_child(
+            btc_client,
+            keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_claim_tx,
+            claim_input_amount,
+            signed_claim_tx.output.len() - 1,
+        );
+
+        let result = btc_client
+            .submit_package(&[signed_claim_tx.clone(), claim_child_tx], None, None)
             .expect("must be able to send claim tx");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must have successful package submission but got: {:?}",
+            result
+        );
+        assert_eq!(
+            result.tx_results.len(),
+            2,
+            "must have two transactions in package"
+        );
 
         btc_client
             .generate_to_address(6, &btc_addr)
@@ -913,6 +940,7 @@ mod tests {
         }
     }
 
+    /// Creates a funded child transaction for CPFP.
     fn create_cpfp_child(
         btc_client: &Client,
         operator_keypair: &Keypair,

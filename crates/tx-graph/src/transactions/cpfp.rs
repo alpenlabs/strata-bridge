@@ -99,6 +99,16 @@ impl<Status> Cpfp<Status> {
         &self.psbt
     }
 
+    /// Esimate the package fee required to settle the package at the given [`FeeRate`].
+    ///
+    /// # Errors
+    ///
+    /// If the `fee_rate` is too high.
+    ///
+    /// # NOTE:
+    ///
+    /// The fee calculation does not take into account the witness field in the child transaction
+    /// i.e., estimate assumes that the witness field in the child transaction is empty.
     pub fn estimate_package_fee(&self, fee_rate: FeeRate) -> TxResult<Amount> {
         let weight = self.psbt.unsigned_tx.weight() + self.parent_weight;
 
@@ -113,7 +123,8 @@ impl<Status> Cpfp<Status> {
 impl Cpfp<Unfunded> {
     /// Creates a new instance of the CPFP transaction.
     ///
-    /// NOTE: The created CPFP transaction is not yet funded and cannot be settled.
+    /// # NOTE:
+    /// The created CPFP transaction is not yet funded and cannot be settled.
     pub fn new(details: CpfpInput<'_>, connector_cpfp: ConnectorCpfp) -> Self {
         // set dummy funding input for fee calculation
         let dummy_funding_outpoint = OutPoint {

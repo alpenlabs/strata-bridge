@@ -1,4 +1,4 @@
-use bitcoin::{key::TapTweak, psbt::Input, Address, Network};
+use bitcoin::{key::TapTweak, psbt::Input, Address, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::taproot::finalize_input;
 
@@ -31,14 +31,19 @@ impl ConnectorCpfp {
         self.network
     }
 
-    /// Generate a taproot address for the child transaction.
+    /// Generates a taproot address for the child transaction.
     ///
     /// This taproot address uses a key-spend path with the public key of the connector.
     pub fn generate_taproot_address(&self) -> bitcoin::Address {
         Address::p2tr_tweaked(self.public_key.dangerous_assume_tweaked(), self.network)
     }
 
-    /// Finalize the connector using a schnorr signature.
+    /// Generates the locking script for the child transaction.
+    pub fn generate_locking_script(&self) -> ScriptBuf {
+        self.generate_taproot_address().script_pubkey()
+    }
+
+    /// Finalizes the connector using a schnorr signature.
     pub fn finalize_input(&self, input: &mut Input, signature: schnorr::Signature) {
         let witnesses = [signature.serialize()];
 

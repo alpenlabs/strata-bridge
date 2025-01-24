@@ -1,11 +1,11 @@
-use bitcoin::{Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::signatures::wots::{wots256, wots32};
-use strata_bridge_primitives::{
-    params::prelude::{MIN_RELAY_FEE, OPERATOR_STAKE},
-    scripts::prelude::*,
-};
+use strata_bridge_primitives::{params::prelude::OPERATOR_STAKE, scripts::prelude::*};
 
-use super::errors::{TxError, TxResult};
+use super::{
+    errors::{TxError, TxResult},
+    prelude::CovenantTx,
+};
 use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`ClaimTx`].
@@ -21,6 +21,9 @@ pub struct ClaimTx {
     psbt: Psbt,
 
     remaining_stake: Amount,
+
+    prevouts: Vec<TxOut>,
+    witnesses: Vec<TaprootWitness>,
 }
 
 impl ClaimTx {
@@ -29,6 +32,7 @@ impl ClaimTx {
         connector_k: ConnectorK,
         connector_c0: ConnectorC0,
         connector_c1: ConnectorC1,
+        connector_cpfp: ConnectorCpfp,
     ) -> Self {
         let tx_ins = create_tx_ins([OutPoint {
             txid: data.kickoff_txid,
@@ -38,44 +42,47 @@ impl ClaimTx {
         let c1_out = connector_c1.generate_locking_script();
         let c1_amt = c1_out.minimal_non_dust();
 
-        let c0_amt = OPERATOR_STAKE - c1_amt - MIN_RELAY_FEE; // use stake for intermediate fees
+        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_amt = cpfp_script.minimal_non_dust();
+
+        let c0_amt = OPERATOR_STAKE - c1_amt - cpfp_amt;
 
         let scripts_and_amounts = [
             (connector_c0.generate_locking_script(), c0_amt),
             (connector_c1.generate_locking_script(), c1_amt),
+            (cpfp_script, cpfp_amt),
         ];
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
-        let tx = create_tx(tx_ins, tx_outs);
+        let mut tx = create_tx(tx_ins, tx_outs);
+        tx.version = transaction::Version(3);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("tx should have an empty witness");
 
-        psbt.inputs[0].witness_utxo = Some(TxOut {
+        let prevout = TxOut {
             value: OPERATOR_STAKE,
             script_pubkey: connector_k.create_taproot_address().script_pubkey(),
-        });
+        };
+
+        psbt.inputs[0].witness_utxo = Some(prevout.clone());
+
+        let (input_script, control_block) = connector_k.generate_spend_info();
+        let witnesses = vec![TaprootWitness::Script {
+            script_buf: input_script,
+            control_block,
+        }];
 
         Self {
             psbt,
             remaining_stake: c0_amt,
+            prevouts: vec![prevout],
+            witnesses,
         }
-    }
-
-    pub fn psbt(&self) -> &Psbt {
-        &self.psbt
-    }
-
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
-        &mut self.psbt
     }
 
     pub fn remaining_stake(&self) -> Amount {
         self.remaining_stake
-    }
-
-    pub fn compute_txid(&self) -> Txid {
-        self.psbt.unsigned_tx.compute_txid()
     }
 
     pub fn finalize(
@@ -158,6 +165,41 @@ impl ClaimTx {
     }
 }
 
+impl CovenantTx for ClaimTx {
+    fn psbt(&self) -> &Psbt {
+        &self.psbt
+    }
+
+    fn psbt_mut(&mut self) -> &mut Psbt {
+        &mut self.psbt
+    }
+
+    fn prevouts(&self) -> Prevouts<'_, TxOut> {
+        Prevouts::All(&self.prevouts)
+    }
+
+    fn witnesses(&self) -> &[TaprootWitness] {
+        &self.witnesses
+    }
+
+    fn input_amount(&self) -> Amount {
+        self.psbt
+            .inputs
+            .iter()
+            .map(|out| {
+                out.witness_utxo
+                    .as_ref()
+                    .expect("psbt must have witness")
+                    .value
+            })
+            .sum()
+    }
+
+    fn compute_txid(&self) -> Txid {
+        self.psbt.unsigned_tx.compute_txid()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{self, UNIX_EPOCH};
@@ -186,6 +228,7 @@ mod tests {
             ConnectorK::new(pubkey, network, wots_public_keys),
             ConnectorC0::new(pubkey, network),
             ConnectorC1::new(pubkey, network),
+            ConnectorCpfp::new(pubkey, network),
         );
 
         let connector_k = ConnectorK::new(pubkey, network, wots_public_keys);
