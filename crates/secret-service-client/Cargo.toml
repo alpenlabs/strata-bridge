@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bitcoin.workspace = true
 kanal.workspace = true
 musig2.workspace = true
 quinn.workspace = true

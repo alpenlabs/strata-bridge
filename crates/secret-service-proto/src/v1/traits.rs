@@ -10,20 +10,20 @@ use rkyv::{
     api::high::HighSerializer, rancor, ser::allocator::ArenaHandle, util::AlignedVec, Serialize,
 };
 
-pub trait SecretServiceFactory<SecondRound, FirstRound>: Send + Clone
+pub trait SecretServiceFactory<FirstRound, SecondRound>: Send + Clone
 where
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
     SecondRound: Musig2SignerSecondRound<Server>,
 {
     type Context: Send + Clone;
-    type Service: SecretService<Server, SecondRound, FirstRound> + Send;
+    type Service: SecretService<Server, FirstRound, SecondRound> + Send;
     fn produce(ctx: Self::Context) -> Self::Service;
 }
 
 // possible when https://github.com/rust-lang/rust/issues/63063 is stabliized
 // pub type AsyncResult<T, E = ()> = impl Future<Output = Result<T, E>>;
 
-pub trait SecretService<O, SecondRound, FirstRound>: Send
+pub trait SecretService<O, FirstRound, SecondRound>: Send
 where
     O: Origin,
     FirstRound: Musig2SignerFirstRound<O, SecondRound>,
@@ -33,10 +33,10 @@ where
     type Musig2Signer: Musig2Signer<O, FirstRound>;
     type WotsSigner: WotsSigner<O>;
 
-    fn operator_signer(&self) -> &Self::OperatorSigner;
-    fn p2p_signer(&self) -> &Self::P2PSigner;
-    fn musig2_signer(&self) -> &Self::Musig2Signer;
-    fn wots_signer(&self) -> &Self::WotsSigner;
+    fn operator_signer(&self) -> Self::OperatorSigner;
+    fn p2p_signer(&self) -> Self::P2PSigner;
+    fn musig2_signer(&self) -> Self::Musig2Signer;
+    fn wots_signer(&self) -> Self::WotsSigner;
 }
 
 pub trait OperatorSigner<O: Origin>: Send {
