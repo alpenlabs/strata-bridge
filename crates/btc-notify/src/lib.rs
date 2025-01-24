@@ -296,9 +296,8 @@ impl BtcZmqClient {
 /// all the way to block inclusion, inferring other states depending on the messages we have received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TxLifecycle {
-    raw: Option<Transaction>,
+    raw: Transaction,
     block: Option<BlockHash>,
-    seq_received: bool,
 }
 
 /// This is the pure state machine that processes all the relevant messages. From there it will emit diffs that describe
@@ -312,8 +311,11 @@ struct BtcZmqSM {
     /// This is the set of predicates that are selecting for transactions, the disjunction of which we care about.
     tx_filters: Vec<TxPredicate>,
 
-    /// This is the core data structure that holds TxLifecycles indexed by txid.
-    tx_lifecycles: BTreeMap<Txid, TxLifecycle>,
+    /// This is the core data structure that holds TxLifecycles indexed by txid. The encoding should be understood as
+    /// follows: If the entry is in the map but the value is None, then it means we have only received the
+    /// MempoolAcceptance event. If it's present then we will definitely have the rawtx event, and if it has been mined
+    /// into a block, we will also have that blockhash as well.
+    tx_lifecycles: BTreeMap<Txid, Option<TxLifecycle>>,
 
     // We track the list of unburied blocks in a queue where the front is the newest block and the back is the oldest
     // "unburied" block
@@ -333,7 +335,11 @@ impl PartialEq for BtcZmqSM {
     fn eq(&self, other: &Self) -> bool {
         let filter_eq = self.tx_filters.len() == other.tx_filters.len() &&
             self.tx_filters.iter().zip(other.tx_filters.iter()).all(|(a, b)| Arc::ptr_eq(a, b));
-        self.bury_depth == other.bury_depth && filter_eq && self.tx_lifecycles == other.tx_lifecycles && self.unburied_blocks == other.unburied_blocks
+
+        filter_eq &&
+            self.bury_depth == other.bury_depth &&
+            self.tx_lifecycles == other.tx_lifecycles &&
+            self.unburied_blocks == other.unburied_blocks
     }
 }
 impl Eq for BtcZmqSM {}
@@ -400,62 +406,26 @@ impl BtcZmqSM {
         // 3. Mined -> Buried
         for matched_tx in block.txdata.iter().filter(|tx| self.tx_filters.iter().any(|f| f(tx))) {
             match self.tx_lifecycles.get_mut(&matched_tx.compute_txid()) {
-                None => {
+                None | Some(None) => {
                     let lifecycle = TxLifecycle {
                         // TODO(proofofkeags): figure out how to make this a reference into the block we save to avoid
                         // duplicating transaction data.
-                        raw: Some(matched_tx.clone()),
+                        raw: matched_tx.clone(),
                         block: Some(block.block_hash()),
-                        seq_received: false,
                     };
-                    self.tx_lifecycles.insert(matched_tx.compute_txid(), lifecycle);
+                    self.tx_lifecycles.insert(matched_tx.compute_txid(), Some(lifecycle));
                     diff.push((matched_tx.clone(), TxStatus::Mined));
                 }
-                Some(lifecycle) => {
-                    match (&lifecycle.raw, lifecycle.block, lifecycle.seq_received) {
-                        // This should be impossible since we wouldn't have an entry for this transaction if none of
-                        // these messages have been received.
-                        (None, None, false) => panic!("invariant violated"),
-                        // This case should be unlikely as we would expect the rawtx message to populate the first field
-                        // if we have already received a seq. Nonetheless we'll handle this. Nondeterminism in the order
-                        // that the different ZMQ streams are processed can also land us in this case.
-                        (None, None, true) => {
-                            // TODO(proofofkeags): figure out how to make this a reference into the block we save to
-                            // avoid duplicating transaction data.
-                            lifecycle.raw = Some(matched_tx.clone());
-                            lifecycle.block = Some(block.block_hash());
+                Some(Some(lifecycle)) => {
+                    match lifecycle.block {
+                        Some(prior_blockhash) => {
+                            let blockhash = block.block_hash();
+                            debug_assert!(*matched_tx == lifecycle.raw, "transaction data mismatch");
+                            debug_assert!(prior_blockhash != blockhash, "duplicate block message");
+                            lifecycle.block = Some(blockhash);
                             diff.push((matched_tx.clone(), TxStatus::Mined));
                         }
-                        // This should be impossible since we will always populate the full transaction data if we know
-                        // the block it was in.
-                        (None, Some(_), _) => panic!("invariant violated"),
-                        // This case will happen if we receive a rawtx message prior to the block inclusion and sequence
-                        // messages.
-                        (Some(raw), None, false) => {
-                            debug_assert!(raw == matched_tx, "raw transaction data mismatch when processing block");
-                            lifecycle.block = Some(block.block_hash());
-                            diff.push((matched_tx.clone(), TxStatus::Mined));
-                        }
-                        // This means that we've seen the rawtx and seq messages that got it into the mempool, and it is
-                        // moving from the mempool to a block.
-                        (Some(raw), None, true) => {
-                            debug_assert!(raw == matched_tx, "raw transaction data mismatch when processing block");
-                            lifecycle.block = Some(block.block_hash());
-                            diff.push((matched_tx.clone(), TxStatus::Mined));
-                        }
-                        // This can happen if a transaction is reorged out of one block and into another without ever
-                        // hitting the mempool.
-                        (Some(raw), Some(prior_inclusion), false) => {
-                            debug_assert!(raw == matched_tx, "raw transaction data mismatch when processing block");
-                            debug_assert!(prior_inclusion != block.block_hash(), "block processed more than once");
-                            lifecycle.block = Some(block.block_hash());
-                            diff.push((matched_tx.clone(), TxStatus::Mined));
-                        }
-                        // This means that the transaction hit the mempool, was mined, reorged, and included in a new
-                        // block.
-                        (Some(raw), Some(prior_inclusion), true) => {
-                            debug_assert!(raw == matched_tx, "raw transaction data mismatch when processing block");
-                            debug_assert!(prior_inclusion != block.block_hash(), "block processed more than once");
+                        None => {
                             lifecycle.block = Some(block.block_hash());
                             diff.push((matched_tx.clone(), TxStatus::Mined));
                         }
@@ -491,42 +461,31 @@ impl BtcZmqSM {
         match lifecycle {
             None => {
                 let lifecycle = TxLifecycle {
-                    raw: Some(tx),
+                    raw: tx,
                     block: None,
-                    seq_received: false,
                 };
 
-                self.tx_lifecycles.insert(txid, lifecycle);
+                self.tx_lifecycles.insert(txid, Some(lifecycle));
 
                 // We intentionally DO NOT return the transaction here in the diff because we are unsure of what the
                 // status is. We will either immediately get a followup block or a followup sequence which will cause us
                 // to emit a new state change.
                 Vec::new()
             }
-            Some(lifecycle) => {
-                match (&lifecycle.raw, &lifecycle.block, &lifecycle.seq_received) {
-                    // This is really the only case that will cause a new event. This is because for the most part we
-                    // rely on the Sequence or Block messages to "confirm" an event. This case indicates we have
-                    // received a mempool acceptance event from the Sequence stream but we don't yet have the raw
-                    // transaction data for it. Now that we do we can construct the full event.
-                    (None, None, true) => {
-                        lifecycle.raw = Some(tx.clone());
-                        vec![(tx, TxStatus::Mempool)]
-                    }
-                    // This should be impossible because we will only ever add something to the tx lifecycle map when
-                    // we have some sort of associated data with it. As such one of the fields must be filled.
-                    //
-                    // TODO(proofofkeags): CBC encode to eliminate this
-                    (None, None, false) => panic!("invariant violated"),
-                    // We always populate the transaction data during block events so we shouldn't ever have a situation
-                    // where we don't have the transaction data but we do have a blockhash for this transaction.
-                    //
-                    // TODO(proofofkeags): CBC encode to eliminate this
-                    (None, Some(_), _) => panic!("invariant violated"),
-                    // In all of the remaining cases, we already have the transaction data, and we have no new
-                    // information about it and so we leave the diff empty.
-                    (Some(_), _, _) => Vec::new(),
-                }
+            Some(None) => {
+                let lifecycle = TxLifecycle {
+                    raw: tx.clone(),
+                    block: None,
+                };
+
+                self.tx_lifecycles.insert(txid, Some(lifecycle));
+
+                // Presence within the map indicates we have already received the sequence message for this but don't
+                // yet have any other information, indicating that this rawtx event can generate the Mempool event.
+                vec![(tx, TxStatus::Mempool)]
+            }
+            Some(Some(_)) => {
+                Vec::new()
             }
         }
     }
@@ -551,36 +510,30 @@ impl BtcZmqSM {
                 }
 
                 self.tx_lifecycles.retain(|_, v| {
-                    if v.block != Some(blockhash) {
-                        true
-                    } else {
-                        if let Some(raw) = &v.raw {
-                            diff.push((raw.clone(), TxStatus::Unknown));
-                        } else {
-                            // TODO(proofofkeags): it occurs to me that we can simplify the lifecycle structure and make
-                            // it CBC, but I'll hold off on that until the next revision.
-                            panic!("invariant violated: block known when raw transaction unknown")
+                    match v {
+                        Some(lifecycle) => match lifecycle.block {
+                            Some(blk) if blk == blockhash => {
+                                diff.push((lifecycle.raw.clone(), TxStatus::Unknown));
+                                false
+                            }
+                            _ => true,
                         }
-                        false
+                        None => todo!(),
                     }
                 });
             }
             SequenceMessage::MempoolAcceptance { txid, .. } => {
                 match self.tx_lifecycles.get_mut(&txid) {
-                    Some(lifecycle) => {
-                        match (&lifecycle.raw, &lifecycle.block, &lifecycle.seq_received) {
-                            // TODO(proofofkeags): relax this. In theory it should never happen but I don't think it
-                            // is a material issue if we do. This is currently a panic to allow us to quickly discover
-                            // if this assumption doesn't hold and what it means
-                            (_, _, true) => panic!("invariant violated: duplicate mempool acceptance"),
-                            // TODO(proofofkeags): CBC encode the lifecycle to eliminate this
-                            (None, Some(_), _) => panic!("invariant violated: block known without raw tx"),
-                            // TODO(proofofkeags): CBC encode the lifecycle map to eliminate this
-                            (None, None, false) => panic!("invariant violated: empty tx lifecycle record"),
-                            (Some(raw), None, false) => { diff = vec![(raw.clone(), TxStatus::Mempool)]; },
-                            (Some(_), Some(_), false) => { lifecycle.seq_received = true; }
+                    Some(Some(lifecycle)) => {
+                        match lifecycle.block {
+                            None => { diff = vec![(lifecycle.raw.clone(), TxStatus::Mempool)]; },
+                            Some(_) => panic!("invariant violated: mempool acceptance after mining"),
                         }
                     }
+                    // TODO(proofofkeags): relax this. In theory it should never happen but I don't think it
+                    // is a material issue if we do. This is currently a panic to allow us to quickly discover
+                    // if this assumption doesn't hold and what it means
+                    Some(None) => panic!("invariant violated: duplicate mempool acceptance"),
                     None => {
                         // We insert a placeholder because we expect the rawtx event to fill in the remainder of the
                         // details.
@@ -589,7 +542,7 @@ impl BtcZmqSM {
                         // so this will actually leak memory until we clear out these placeholders. However, for every
                         // MempoolAcceptance event we are guaranteed to have a corresponding rawtx event. So this
                         // shouldn't cause a memory leak unless we miss ZMQ events entirely.
-                        self.tx_lifecycles.insert(txid, TxLifecycle { raw: None, block: None, seq_received: true });
+                        self.tx_lifecycles.insert(txid, None);
                     }
                 }
             }
@@ -604,9 +557,10 @@ impl BtcZmqSM {
                     //
                     // For now I think we can leave this alone, but if we notice memory leaks in a live deployment
                     // this will be one of the places to look.
-                    Some(lifecycle) => if let Some(raw) = lifecycle.raw {
-                        diff = vec![(raw, TxStatus::Unknown)];
+                    Some(Some(lifecycle)) => {
+                        diff = vec![(lifecycle.raw, TxStatus::Unknown)];
                     }
+                    Some(None) => { /* NOOP */ }
                     None => { /* NOOP */ }
                 }
             }
