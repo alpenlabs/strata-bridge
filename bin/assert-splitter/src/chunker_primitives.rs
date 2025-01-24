@@ -1,6 +1,6 @@
 //! This module contains primitive operations for chunking and hashing field elements.
 //!
-//! Source: <https://github.com/alpenlabs/BitVM/blob/feat/fp12_squaring_tap/src/chunk/primitves.rs>
+//! Source: https://github.com/alpenlabs/BitVM/blob/feat/fp12_squaring_tap/src/chunk/primitves.rs
 use ark_ff::BigInt;
 
 pub(super) fn extern_hash_fps(fqs: Vec<ark_bn254::Fq>, mode: bool) -> [u8; 64] {

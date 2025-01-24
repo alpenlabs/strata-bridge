@@ -14,7 +14,7 @@ use crate::params::prelude::MAGIC_BYTES;
 /// the pubkey set must be provided.
 ///
 /// NOTE: This script only requires an [`XOnlyPublicKey`] which may or may not be be a musig2
-/// aggregated public key. No additional validation is peformed on the key.
+/// aggregated public key. No additional validation is performed on the key.
 pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> ScriptBuf {
     script! {
         { *aggregated_pubkey }

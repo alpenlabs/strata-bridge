@@ -99,7 +99,7 @@ impl<Status> Cpfp<Status> {
         &self.psbt
     }
 
-    /// Esimate the package fee required to settle the package at the given [`FeeRate`].
+    /// Estimate the package fee required to settle the package at the given [`FeeRate`].
     ///
     /// # Errors
     ///
