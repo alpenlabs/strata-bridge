@@ -383,7 +383,7 @@ mod tests {
             .expect("must have witnesses");
 
         signed_assert_data_txs[0].input[0].witness =
-            Witness::from_slice(&[[0u8; 32]; NUM_CONNECTOR_A256 - 1]);
+            Witness::from_slice(&[[0u8; 32]; NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1]);
 
         assert!(AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs)
             .is_err_and(|e| e.to_string().contains("invalid witness")));

@@ -40,9 +40,6 @@
 use std::time::Duration;
 
 /// The maximum number of field elements that are bitcommitted per UTXO.
-pub const NUM_PKS256_BATCH_1: usize = 5;
-
-/// The maximum number of field elements that are bitcommitted per UTXO.
 pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 5;
 
 /// The number of UTXOs necessary to commit all the required field elements evenly.
@@ -68,65 +65,14 @@ pub const NUM_HASH_CONNECTORS_BATCH_2: usize = 6;
 
 /// The total number of field elements that need to be committed.
 pub const NUM_PKS_A256: usize = 42;
-/// The number of UTXOs necessary to commit all the required field elements evenly.
-pub const NUM_CONNECTOR_A256: usize = NUM_PKS_A256 / NUM_PKS256_BATCH_1;
-/// The number of any remaining field elements.
-pub const NUM_PKS_A256_RESIDUAL: usize = NUM_PKS_A256 % NUM_PKS256_BATCH_1;
-
-/// The maximum number of hashes that are bitcommitted per UTXO.
-pub const NUM_PKS_A160_PER_CONNECTOR: usize = 8;
 /// The total number of hashes that need to be committed.
 pub const NUM_PKS_A160: usize = 574;
-/// The number of UTXOs necessary to commit all the required hashes evenly.
-pub const NUM_CONNECTOR_A160: usize = NUM_PKS_A160 / NUM_PKS_A160_PER_CONNECTOR;
-/// The number of any remaining hash elements.
-pub const NUM_PKS_A160_RESIDUAL: usize = NUM_PKS_A160 % NUM_PKS_A160_PER_CONNECTOR;
 
 /// The total number of connectors that contain the bitcommitment locking scripts for assertion.
 pub const TOTAL_CONNECTORS: usize = NUM_FIELD_CONNECTORS_BATCH_1
     + NUM_FIELD_CONNECTORS_BATCH_2
     + NUM_HASH_CONNECTORS_BATCH_1
     + NUM_HASH_CONNECTORS_BATCH_2;
-
-/// The number of first batch of assert-data transactions.
-///
-/// Each transaction in this batch has [`NUM_ASSERT_DATA_TX1_A256`] UTXOs each of which can commit
-/// to [`NUM_PKS_A256_PER_CONNECTOR`] field elements.
-pub const NUM_ASSERT_DATA_TX1: usize = 8;
-/// The number of UTXOs that commit to [`NUM_PKS_A256_PER_CONNECTOR`] field elements.
-///
-/// Each such UTXO is used in the first batch of assert-data transactions.
-pub const NUM_ASSERT_DATA_TX1_A256: usize = 1;
-
-/// The number of second batch of assert-data transactions.
-///
-/// Each transaction in this batch has [`NUM_ASSERT_DATA_TX2_A160`] UTXOs each of which can commit
-/// to [`NUM_PKS_A160_PER_CONNECTOR`] hashes.
-pub const NUM_ASSERT_DATA_TX2: usize = 71;
-/// The number of UTXOs that commit to [`NUM_PKS_A160_PER_CONNECTOR`] hashes.
-///
-/// Each such UTXO is used in the second batch of assert-data transactions.
-pub const NUM_ASSERT_DATA_TX2_A160: usize = 1;
-
-/// The number of third batch of assert-data transactions.
-///
-/// Each transaction in this batch has [`NUM_ASSERT_DATA_TX3_A160`] UTXOs each of which can commit
-/// to [`NUM_PKS_A160_RESIDUAL`] hashes.
-pub const NUM_ASSERT_DATA_TX3: usize = 1;
-/// The number of UTXOs that commit to [`NUM_PKS_A160_RESIDUAL`] hashes.
-///
-/// Each such UTXO is used in the third batch of assert-data transactions.
-pub const NUM_ASSERT_DATA_TX3_A160: usize = 1;
-
-/// The number of fourth batch of assert-data transactions.
-///
-/// Each transaction in this batch has [`NUM_ASSERT_DATA_TX4_A256`] UTXOs each of which can commit
-/// to [`NUM_PKS_A256_RESIDUAL`] field elements.
-pub const NUM_ASSERT_DATA_TX4: usize = 1;
-/// The number of UTXOs that commit to [`NUM_PKS_A256_RESIDUAL`] field elements.
-///
-/// Each such UTXO is used in the fourth batch of assert-data transactions.
-pub const NUM_ASSERT_DATA_TX4_A256: usize = 1;
 
 /// The total number of assert-data transactions.
 pub const NUM_ASSERT_DATA_TX: usize = NUM_FIELD_CONNECTORS_BATCH_1
