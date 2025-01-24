@@ -124,12 +124,12 @@ pub enum TxStatus {
 /// This structure serves as the primary type that consumers of this API will handle. It is created via one of the calls
 /// to BtcZmqClient::subscribe_*. From there you should use it via it's Stream API.
 pub struct Subscription<T> {
-    receiver: mpsc::Receiver<T>,
+    receiver: mpsc::UnboundedReceiver<T>,
 }
 
 impl<T> Subscription<T> {
     /// Intentionally left private so as not to leak implementation details to consuming APIs.
-    fn from_receiver(receiver: mpsc::Receiver<T>) -> Subscription<T> {
+    fn from_receiver(receiver: mpsc::UnboundedReceiver<T>) -> Subscription<T> {
         Subscription {
             receiver,
         }
@@ -151,11 +151,11 @@ type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
 
 struct TxSubscriptionDetails {
     predicate: TxPredicate,
-    outbox: mpsc::Sender<(Transaction, TxStatus)>,
+    outbox: mpsc::UnboundedSender<(Transaction, TxStatus)>,
 }
 
 pub struct BtcZmqClient {
-    block_subs: Arc<Mutex<Vec<mpsc::Sender<Block>>>>,
+    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<Block>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
     thread_handle: JoinHandle<()>,
@@ -181,7 +181,7 @@ impl BtcZmqClient {
 
         let mut stream = bitcoincore_zmq::subscribe_async(&sockets)?;
 
-        let block_subs = Arc::new(Mutex::new(Vec::<mpsc::Sender<Block>>::new()));
+        let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<Block>>::new()));
         let block_subs_thread = block_subs.clone();
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
         let tx_subs_thread = tx_subs.clone();
@@ -189,59 +189,35 @@ impl BtcZmqClient {
         let thread_handle = tokio::task::spawn(async move {
             loop {
                 while let Some(res) = stream.next().await {
-                    match res {
-                        Ok(Message::HashBlock(_, _)) => { /* NOOP */ }
-                        Ok(Message::HashTx(_, _)) => { /* NOOP */ }
+                    let mut sm = state_machine_thread.lock().await;
+                    let diff = match res {
+                        Ok(Message::HashBlock(_, _)) => { Vec::new() }
+                        Ok(Message::HashTx(_, _)) => { Vec::new() }
                         Ok(Message::Block(block, _)) => {
-                            let block_subs = block_subs_thread.lock().await;
-                            let tx_subs = tx_subs_thread.lock().await;
-                            let mut sm = state_machine_thread.lock().await;
+                            // First send the block to the block subscribers.
+                            block_subs_thread.lock().await.retain(|sub| sub.send(block.clone()).is_ok());
 
-                            // First send out the new block to all the block subs
-                            // TODO: handle dropped subscriptions
-                            futures::future::join_all(block_subs.iter().map(|sub| sub.send(block.clone()))).await;
-
-                            // Now we process the block to understand what the relevant transaction diff is
-                            let diff = BtcZmqSM::describe_diff(sm.process_block(block));
-
-                            let send_jobs = diff.into_iter()
-                                .cartesian_product(tx_subs.iter())
-                                .filter(|((tx,_), sub)| (sub.predicate)(tx))
-                                .map(|((tx,status), sub)| sub.outbox.send((tx, status)));
-
-                            // TODO: handle dropped subscriptions
-                            futures::future::join_all(send_jobs).await;
+                            // Now we process the block to understand what the relevant transaction diff is.
+                            sm.process_block(block)
                         },
-                        Ok(Message::Tx(tx, _)) => {
-                            let subs = tx_subs_thread.lock().await;
-                            let mut sm = state_machine_thread.lock().await;
-
-                            let diff = BtcZmqSM::describe_diff(sm.process_tx(tx));
-
-                            let send_jobs = diff.into_iter()
-                                .cartesian_product(subs.iter())
-                                .filter(|((tx, _), sub)|(sub.predicate)(tx))
-                                .map(|((tx, status), sub)| sub.outbox.send((tx, status)));
-
-                            // TODO: handle dropped subscriptions
-                            futures::future::join_all(send_jobs).await;
-                        },
-                        Ok(Message::Sequence(seq, _)) => {
-                            let subs = tx_subs_thread.lock().await;
-                            let mut sm = state_machine_thread.lock().await;
-
-                            let diff = BtcZmqSM::describe_diff(sm.process_sequence(seq));
-
-                            let send_jobs = diff.into_iter()
-                                .cartesian_product(subs.iter())
-                                .filter(|((tx,_), sub)|(sub.predicate)(tx))
-                                .map(|((tx,status), sub)| sub.outbox.send((tx, status)));
-
-                            // TODO: handle dropped subscriptions
-                            futures::future::join_all(send_jobs).await;
+                        Ok(Message::Tx(tx, _)) => sm.process_tx(tx),
+                        Ok(Message::Sequence(seq, _)) => sm.process_sequence(seq),
+                        Err(e) => {
+                            eprintln!("ERROR: {e:?}");
+                            Vec::new()
                         }
-                        Err(e) => eprintln!("ERROR: {e:?}")
-                    }
+                    };
+                    // Now we send the diff to the relevant subscribers. If we ever encounter a send error, it
+                    // means the receiver has been dropped.
+                    tx_subs_thread.lock().await.retain(|sub| {
+                        for msg in diff.iter().filter(|(tx, status)| (sub.predicate)(tx)) {
+                            if sub.outbox.send(msg.clone()).is_err() {
+                                sm.rm_filter(&sub.predicate);
+                                return false
+                            }
+                        }
+                        true
+                    });
                 }
             }
         });
@@ -257,8 +233,7 @@ impl BtcZmqClient {
     pub async fn subscribe_transactions(&mut self, f: impl Fn(&Transaction) -> bool + Sync + Send + 'static) ->
         Subscription<(Transaction, TxStatus)> {
 
-        // TODO(proofofkeags): review the correctness of this magic number and provide rationale and possible extraction
-        let (send, recv) = mpsc::channel(4);
+        let (send, recv) = mpsc::unbounded_channel();
 
         let details = TxSubscriptionDetails {
             predicate: Arc::new(f),
@@ -274,8 +249,7 @@ impl BtcZmqClient {
     }
 
     pub async fn subscribe_blocks(&mut self) -> Subscription<Block> {
-        // TODO(proofofkeags): review the correctness of this magic number and provide rationale and possible extraction
-        let (send, recv) = mpsc::channel(10);
+        let (send, recv) = mpsc::unbounded_channel();
 
         self.block_subs.lock().await.push(send);
 
@@ -358,7 +332,7 @@ impl BtcZmqSM {
         self.tx_filters.push(pred);
     }
 
-    fn rm_filter(&mut self, pred: TxPredicate) {
+    fn rm_filter(&mut self, pred: &TxPredicate) {
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, &pred)) {
             self.tx_filters.swap_remove(idx);
         }
@@ -1032,7 +1006,7 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(6);
 
             sm.add_filter(pred.pred.clone());
-            sm.rm_filter(pred.pred);
+            sm.rm_filter(&pred.pred);
 
             assert_eq!(sm, sm_ref);
         }
