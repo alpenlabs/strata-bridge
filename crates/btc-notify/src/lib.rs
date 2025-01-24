@@ -318,6 +318,8 @@ impl PartialEq for BtcZmqSM {
 impl Eq for BtcZmqSM {}
 
 impl BtcZmqSM {
+    // init initializes a BtcZmqSM with the supplied bury_depth. bury_depth is the number of blocks that must be built
+    // on top of a given block before that block's transactions are considered Buried.
     fn init(bury_depth: usize) -> Self {
         BtcZmqSM {
             bury_depth,
@@ -327,23 +329,21 @@ impl BtcZmqSM {
         }
     }
 
+    // add_filter takes a tx predicate and adds it to the state machine. The state machine will track any transaction
+    // that matches the disjunction of predicates added.
     fn add_filter(&mut self, pred: TxPredicate) {
         self.tx_filters.push(pred);
     }
 
+    // rm_filter takes a TxPredicate that was previously added via add_filter.
     fn rm_filter(&mut self, pred: &TxPredicate) {
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, pred)) {
             self.tx_filters.swap_remove(idx);
         }
     }
 
-    fn describe_diff(diff: Vec<(Transaction, TxStatus)>) -> Vec<(Transaction, TxStatus)> {
-        for (tx, status) in diff.iter() {
-            eprintln!("{:?}: {}", status, tx.compute_txid())
-        }
-        diff
-    }
-
+    // process_block is one of the three primary state transition functions of the BtcZmqSM, updating internal state to
+    // reflect the contents of the block.
     fn process_block(&mut self, block: Block) -> Vec<(Transaction, TxStatus)> {
         match self.unburied_blocks.front() {
             Some(tip) => {
@@ -379,6 +379,10 @@ impl BtcZmqSM {
         // 3. Mined -> Buried
         for matched_tx in block.txdata.iter().filter(|tx| self.tx_filters.iter().any(|f| f(tx))) {
             match self.tx_lifecycles.get_mut(&matched_tx.compute_txid()) {
+                // This is either the scenario where we haven't yet seen the transaction in any capacity, or where we
+                // have a MempoolAcceptance event for it but no other information on it. In either case we handle it the
+                // same way, recording the rawtx data in a TxLifecycle and its containing block hash, as well as adding
+                // a Mined transaction event to the diff.
                 None | Some(None) => {
                     let lifecycle = TxLifecycle {
                         // TODO(proofofkeags): figure out how to make this a reference into the block we save to avoid
@@ -389,20 +393,19 @@ impl BtcZmqSM {
                     self.tx_lifecycles.insert(matched_tx.compute_txid(), Some(lifecycle));
                     diff.push((matched_tx.clone(), TxStatus::Mined));
                 }
+                // This means we have seen the rawtx event for this transaction before.
                 Some(Some(lifecycle)) => {
-                    match lifecycle.block {
-                        Some(prior_blockhash) => {
-                            let blockhash = block.block_hash();
-                            debug_assert!(*matched_tx == lifecycle.raw, "transaction data mismatch");
-                            debug_assert!(prior_blockhash != blockhash, "duplicate block message");
-                            lifecycle.block = Some(blockhash);
-                            diff.push((matched_tx.clone(), TxStatus::Mined));
-                        }
-                        None => {
-                            lifecycle.block = Some(block.block_hash());
-                            diff.push((matched_tx.clone(), TxStatus::Mined));
-                        }
+                    let blockhash = block.block_hash();
+                    if let Some(prior_blockhash) = lifecycle.block {
+                        // This means that it was previously mined. This is pretty weird and so we include some debug
+                        // assertions to rule out violations in our core assumptions.
+                        debug_assert!(*matched_tx == lifecycle.raw, "transaction data mismatch");
+                        debug_assert!(prior_blockhash != blockhash, "duplicate block message");
                     }
+
+                    // Record the update and add it to the diff.
+                    lifecycle.block = Some(blockhash);
+                    diff.push((matched_tx.clone(), TxStatus::Mined));
                 }
             }
         }
@@ -424,6 +427,8 @@ impl BtcZmqSM {
         diff
     }
 
+    // process_tx is one of the three primary state transition functions of the BtcZmqSM, updating internal state to
+    // reflect the contents of the transaction.
     fn process_tx(&mut self, tx: Transaction) -> Vec<(Transaction, TxStatus)> {
         if !self.tx_filters.iter().any(|f|f(&tx)) {
             return Vec::new();
@@ -432,6 +437,7 @@ impl BtcZmqSM {
         let txid = tx.compute_txid();
         let lifecycle = self.tx_lifecycles.get_mut(&txid);
         match lifecycle {
+            // In this case we have never seen any information on this transaction whatsoever.
             None => {
                 let lifecycle = TxLifecycle {
                     raw: tx,
@@ -445,6 +451,8 @@ impl BtcZmqSM {
                 // to emit a new state change.
                 Vec::new()
             }
+            // In this case we have seen a MempoolAcceptance event for this txid, but haven't seen the actual
+            // transaction data yet.
             Some(None) => {
                 let lifecycle = TxLifecycle {
                     raw: tx.clone(),
@@ -457,12 +465,14 @@ impl BtcZmqSM {
                 // yet have any other information, indicating that this rawtx event can generate the Mempool event.
                 vec![(tx, TxStatus::Mempool)]
             }
-            Some(Some(_)) => {
-                Vec::new()
-            }
+            // In this case we know everything we need to about this transaction, and this is probably a rawtx event
+            // that accompanies an upcoming new block event.
+            Some(Some(_)) => Vec::new(),
         }
     }
 
+    // process_sequence is one of the three primary state transition functions of the BtcZmqSM, updating internal state
+    // to reflect the sequence event.
     fn process_sequence(&mut self, seq: SequenceMessage) -> Vec<(Transaction, TxStatus)> {
         let mut diff = Vec::new();
         match seq {
@@ -482,31 +492,41 @@ impl BtcZmqSM {
                     }
                 }
 
+                // Clear out all of the transactions we are tracking that were bound to the disconnected block.
                 self.tx_lifecycles.retain(|_, v| {
                     match v {
                         Some(lifecycle) => match lifecycle.block {
+                            // Only clear the tx if its blockhash matches the blockhash of the disconnected block.
                             Some(blk) if blk == blockhash => {
                                 diff.push((lifecycle.raw.clone(), TxStatus::Unknown));
                                 false
                             }
+                            // Otherwise keep it.
                             _ => true,
                         }
-                        None => todo!(),
+                        None => true,
                     }
                 });
             }
             SequenceMessage::MempoolAcceptance { txid, .. } => {
                 match self.tx_lifecycles.get_mut(&txid) {
+                    // In this case we are well aware of the full transaction data here
                     Some(Some(lifecycle)) => {
                         match lifecycle.block {
+                            // This will happen if we receive rawtx before MempoolAcceptance.
                             None => { diff = vec![(lifecycle.raw.clone(), TxStatus::Mempool)]; },
+                            // This should never happen.
                             Some(_) => panic!("invariant violated: mempool acceptance after mining"),
                         }
                     }
+                    // In this case we have received a MempoolAcceptance event for this txid, but haven't yet processed
+                    // the accompanying rawtx event.
+                    //
                     // TODO(proofofkeags): relax this. In theory it should never happen but I don't think it
                     // is a material issue if we do. This is currently a panic to allow us to quickly discover
                     // if this assumption doesn't hold and what it means
                     Some(None) => panic!("invariant violated: duplicate mempool acceptance"),
+                    // In this case we know nothing of this transaction yet.
                     None => {
                         // We insert a placeholder because we expect the rawtx event to fill in the remainder of the
                         // details.
@@ -521,6 +541,8 @@ impl BtcZmqSM {
             }
             SequenceMessage::MempoolRemoval { txid, .. } => {
                 match self.tx_lifecycles.remove(&txid) {
+                    // This will happen if we've seen the rawtx event for a txid irrespective of its MempoolAcceptance.
+                    //
                     // There is an edge case here that will leak memory. The scenario that can cause this is
                     // when we receive a MempoolAcceptance, MempoolRemoval, then the rawtx. The only scenario where I
                     // can picture this happening is during mempool replacement cycling attacks. Even then though it
@@ -533,7 +555,10 @@ impl BtcZmqSM {
                     Some(Some(lifecycle)) => {
                         diff = vec![(lifecycle.raw, TxStatus::Unknown)];
                     }
+                    // This will happen if we've only received a MempoolAcceptance event, the removal will cancel it
+                    // fully.
                     Some(None) => { /* NOOP */ }
+                    // This happens if we've never heard anything about this transaction before.
                     None => { /* NOOP */ }
                 }
             }
