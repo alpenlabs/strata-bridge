@@ -1,5 +1,5 @@
+pub mod v1;
 pub mod wire;
-pub mod traits;
 
 pub fn add(left: u64, right: u64) -> u64 {
     left + right

@@ -18,10 +18,10 @@ members = [
 
   # test utilities
   "crates/test-utils",
-  "crates/mi6",
-  "crates/mi6-proto",
-  "crates/mi6-client",
-  "crates/mi6-server",
+  "crates/secret-service",
+  "crates/secret-service-proto",
+  "crates/secret-service-client",
+  "crates/secret-service-server",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli"]
@@ -73,6 +73,7 @@ bincode = "1.3.3"
 bitcoin = { version = "0.32.5", features = ["rand-std", "serde"] }
 bitcoin-script = { git = "https://github.com/alpenlabs/rust-bitcoin-script", branch = "strata-bridge-poc-bitcoin-0.32.5" }
 bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "bridge-poc" }
+blake3 = { version = "1.5.5", features = ["zeroize"] }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
@@ -83,6 +84,7 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default
   "async-https-rustls",
 ] }
 ethnum = "1.5.0"
+futures = "0.3.31"
 hex = { version = "0.4", features = ["serde"] }
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"
@@ -92,6 +94,7 @@ musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
 ] } # can't be updated without updating bitcoin
+parking_lot = "0.12.3"
 quinn = "0.11.6"
 rand = "0.8.5"
 reqwest = { version = "0.12.12", default-features = false, features = [
