@@ -159,17 +159,22 @@ dependencies = [
 
 [[package]]
 name = "alloy-consensus"
-version = "0.4.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "705687d5bfd019fee57cf9e206b27b30a9a9617535d5590a02b171e813208f8e"
+checksum = "a101d4d016f47f13890a74290fdd17b05dd175191d9337bc600791fb96e4dea8"
 dependencies = [
- "alloy-eips 0.4.2",
+ "alloy-eips 0.7.3",
  "alloy-primitives 0.8.18",
  "alloy-rlp",
- "alloy-serde 0.4.2",
+ "alloy-serde 0.7.3",
+ "alloy-trie",
+ "arbitrary",
  "auto_impl",
+ "c-kzg",
  "derive_more 1.0.0",
+ "rand",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
@@ -182,7 +187,7 @@ dependencies = [
  "alloy-primitives 0.8.18",
  "alloy-rlp",
  "alloy-serde 0.8.3",
- "alloy-trie 0.7.8",
+ "alloy-trie",
  "auto_impl",
  "c-kzg",
  "derive_more 1.0.0",
@@ -312,6 +317,8 @@ checksum = "0069cf0642457f87a01a014f6dc29d5d893cd4fd8fddf0c3cdfad1bb3ebafc41"
 dependencies = [
  "alloy-primitives 0.8.18",
  "alloy-rlp",
+ "arbitrary",
+ "rand",
  "serde",
 ]
 
@@ -335,8 +342,12 @@ checksum = "4c986539255fb839d1533c128e190e557e52ff652c9ef62939e233a81dd93f7e"
 dependencies = [
  "alloy-primitives 0.8.18",
  "alloy-rlp",
+ "arbitrary",
  "derive_more 1.0.0",
+ "k256",
+ "rand",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
@@ -376,16 +387,19 @@ dependencies = [
 
 [[package]]
 name = "alloy-eips"
-version = "0.4.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ffb906284a1e1f63c4607da2068c8197458a352d0b3e9796e67353d72a9be85"
+checksum = "8b6755b093afef5925f25079dd5a7c8d096398b804ba60cb5275397b06b31689"
 dependencies = [
  "alloy-eip2930",
- "alloy-eip7702 0.1.1",
+ "alloy-eip7702 0.4.2",
  "alloy-primitives 0.8.18",
  "alloy-rlp",
- "alloy-serde 0.4.2",
+ "alloy-serde 0.7.3",
+ "arbitrary",
  "c-kzg",
+ "derive_more 1.0.0",
+ "once_cell",
  "serde",
  "sha2",
 ]
@@ -432,12 +446,13 @@ dependencies = [
 
 [[package]]
 name = "alloy-genesis"
-version = "0.4.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8429cf4554eed9b40feec7f4451113e76596086447550275e3def933faf47ce3"
+checksum = "aeec8e6eab6e52b7c9f918748c9b811e87dbef7312a2e3a2ca1729a92966a6af"
 dependencies = [
  "alloy-primitives 0.8.18",
- "alloy-serde 0.4.2",
+ "alloy-serde 0.7.3",
+ "alloy-trie",
  "serde",
 ]
 
@@ -656,9 +671,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "788bb18e8f61d5d9340b52143f27771daf7e1dccbaf2741621d2493f9debf52e"
 dependencies = [
  "alloy-rlp",
+ "arbitrary",
  "bytes",
  "cfg-if",
  "const-hex",
+ "derive_arbitrary",
  "derive_more 1.0.0",
  "foldhash",
  "getrandom",
@@ -669,6 +686,7 @@ dependencies = [
  "keccak-asm",
  "paste",
  "proptest",
+ "proptest-derive",
  "rand",
  "ruint",
  "rustc-hash 2.1.0",
@@ -1024,11 +1042,12 @@ dependencies = [
 
 [[package]]
 name = "alloy-serde"
-version = "0.4.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dff0ab1cdd43ca001e324dc27ee0e8606bd2161d6623c63e0e0b8c4dfc13600"
+checksum = "9afa753a97002a33b2ccb707d9f15f31c81b8c1b786c95b73cc62bb1d1fd0c3f"
 dependencies = [
  "alloy-primitives 0.8.18",
+ "arbitrary",
  "serde",
  "serde_json",
 ]
@@ -1424,21 +1443,6 @@ dependencies = [
 
 [[package]]
 name = "alloy-trie"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9703ce68b97f8faae6f7739d1e003fc97621b856953cbcdbb2b515743f23288"
-dependencies = [
- "alloy-primitives 0.8.18",
- "alloy-rlp",
- "derive_more 1.0.0",
- "nybbles 0.2.1",
- "serde",
- "smallvec",
- "tracing",
-]
-
-[[package]]
-name = "alloy-trie"
 version = "0.7.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6917c79e837aa7b77b7a6dae9f89cbe15313ac161c4d3cfaf8909ef21f3d22d8"
@@ -1447,7 +1451,7 @@ dependencies = [
  "alloy-rlp",
  "arrayvec",
  "derive_more 1.0.0",
- "nybbles 0.3.4",
+ "nybbles",
  "serde",
  "smallvec",
  "tracing",
@@ -1809,6 +1813,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 dependencies = [
  "serde",
+ "zeroize",
 ]
 
 [[package]]
@@ -2771,6 +2776,7 @@ dependencies = [
  "cc",
  "cfg-if",
  "constant_time_eq 0.3.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -3341,6 +3347,12 @@ checksum = "a97769d94ddab943e4510d138150169a2758b5ef3eb191a9ee688de3e23ef7b3"
 dependencies = [
  "cfg-if",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "crossbeam-channel"
@@ -5076,6 +5088,7 @@ version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62f822373a4fe84d4bb149bf54e584a7f4abec90e072ed49cda0edea5b95471f"
 dependencies = [
+ "arbitrary",
  "equivalent",
  "hashbrown 0.15.2",
  "serde",
@@ -5247,7 +5260,7 @@ dependencies = [
  "pin-project",
  "rustls 0.23.20",
  "rustls-pki-types",
- "rustls-platform-verifier",
+ "rustls-platform-verifier 0.3.4",
  "soketto",
  "thiserror 1.0.69",
  "tokio",
@@ -5299,7 +5312,7 @@ dependencies = [
  "jsonrpsee-core",
  "jsonrpsee-types",
  "rustls 0.23.20",
- "rustls-platform-verifier",
+ "rustls-platform-verifier 0.3.4",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -5426,6 +5439,16 @@ dependencies = [
  "once_cell",
  "sha2",
  "signature 2.2.0",
+]
+
+[[package]]
+name = "kanal"
+version = "0.1.0-pre8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b05d55519627edaf7fd0f29981f6dc03fb52df3f5b257130eb8d0bf2801ea1d7"
+dependencies = [
+ "futures-core",
+ "lock_api",
 ]
 
 [[package]]
@@ -6038,24 +6061,13 @@ checksum = "830b246a0e5f20af87141b25c173cd1b609bd7779a4617d6ec582abaf90870f3"
 
 [[package]]
 name = "nybbles"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95f06be0417d97f81fe4e5c86d7d01b392655a9cac9c19a848aa033e18937b23"
-dependencies = [
- "alloy-rlp",
- "const-hex",
- "proptest",
- "serde",
- "smallvec",
-]
-
-[[package]]
-name = "nybbles"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8983bb634df7248924ee0c4c3a749609b5abcb082c28fffe3254b3eb3602b307"
 dependencies = [
+ "alloy-rlp",
  "const-hex",
+ "proptest",
  "serde",
  "smallvec",
 ]
@@ -6074,6 +6086,28 @@ name = "once_cell"
 version = "1.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1261fe7e33c73b354eab43b1273a57c8f967d0391e80353e51f764ac02cf6775"
+dependencies = [
+ "critical-section",
+ "portable-atomic",
+]
+
+[[package]]
+name = "op-alloy-consensus"
+version = "0.7.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "78f0daa0d0936d436a21b57571b1e27c5663aa2ab62f6edae5ba5be999f9f93e"
+dependencies = [
+ "alloy-consensus 0.7.3",
+ "alloy-eips 0.7.3",
+ "alloy-primitives 0.8.18",
+ "alloy-rlp",
+ "alloy-serde 0.7.3",
+ "arbitrary",
+ "derive_more 1.0.0",
+ "serde",
+ "serde_with",
+ "thiserror 2.0.9",
+]
 
 [[package]]
 name = "openssh"
@@ -7010,6 +7044,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "proptest-derive"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ee1c9ac207483d5e7db4940700de86a9aae46ef90c48b57f99fe7edb8345e49"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.95",
+]
+
+[[package]]
 name = "prost"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7106,6 +7151,7 @@ dependencies = [
  "rustc-hash 2.1.0",
  "rustls 0.23.20",
  "rustls-pki-types",
+ "rustls-platform-verifier 0.4.0",
  "slab",
  "thiserror 2.0.9",
  "tinyvec",
@@ -7418,23 +7464,25 @@ dependencies = [
 
 [[package]]
 name = "reth-codecs"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
- "alloy-consensus 0.4.2",
- "alloy-eips 0.4.2",
- "alloy-genesis 0.4.2",
+ "alloy-consensus 0.7.3",
+ "alloy-eips 0.7.3",
+ "alloy-genesis 0.7.3",
  "alloy-primitives 0.8.18",
- "alloy-trie 0.6.0",
+ "alloy-trie",
  "bytes",
  "modular-bitfield",
+ "op-alloy-consensus",
  "reth-codecs-derive",
+ "serde",
 ]
 
 [[package]]
 name = "reth-codecs-derive"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro2",
@@ -7444,8 +7492,8 @@ dependencies = [
 
 [[package]]
 name = "reth-ethereum-forks"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
  "alloy-chains",
  "alloy-primitives 0.8.18",
@@ -7456,55 +7504,60 @@ dependencies = [
  "once_cell",
  "rustc-hash 2.1.0",
  "serde",
- "thiserror-no-std",
+ "thiserror 2.0.9",
 ]
 
 [[package]]
 name = "reth-primitives"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
- "alloy-consensus 0.4.2",
- "alloy-eips 0.4.2",
+ "alloy-consensus 0.7.3",
+ "alloy-eips 0.7.3",
  "alloy-primitives 0.8.18",
  "alloy-rlp",
+ "alloy-serde 0.7.3",
+ "alloy-trie",
  "bytes",
  "derive_more 1.0.0",
  "k256",
  "once_cell",
+ "op-alloy-consensus",
  "rayon",
  "reth-ethereum-forks",
  "reth-primitives-traits",
  "reth-static-file-types",
- "reth-trie-common",
+ "reth-zstd-compressors",
  "revm-primitives",
+ "secp256k1",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
 name = "reth-primitives-traits"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
- "alloy-consensus 0.4.2",
- "alloy-eips 0.4.2",
- "alloy-genesis 0.4.2",
+ "alloy-consensus 0.7.3",
+ "alloy-eips 0.7.3",
+ "alloy-genesis 0.7.3",
  "alloy-primitives 0.8.18",
  "alloy-rlp",
- "byteorder",
+ "auto_impl",
  "bytes",
  "derive_more 1.0.0",
- "modular-bitfield",
+ "op-alloy-consensus",
  "reth-codecs",
  "revm-primitives",
- "roaring",
  "serde",
+ "serde_with",
 ]
 
 [[package]]
 name = "reth-static-file-types"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
  "alloy-primitives 0.8.18",
  "derive_more 1.0.0",
@@ -7513,33 +7566,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "reth-trie-common"
-version = "1.1.0"
-source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.0#1ba631ba9581973e7c6cadeea92cfe1802aceb4a"
+name = "reth-zstd-compressors"
+version = "1.1.3"
+source = "git+https://github.com/paradigmxyz/reth.git?rev=v1.1.3#d97449dae495a2243000078fa30b3b164ef5891b"
 dependencies = [
- "alloy-consensus 0.4.2",
- "alloy-genesis 0.4.2",
- "alloy-primitives 0.8.18",
- "alloy-rlp",
- "alloy-trie 0.6.0",
- "bytes",
- "derive_more 1.0.0",
- "itertools 0.13.0",
- "nybbles 0.2.1",
- "reth-codecs",
- "reth-primitives-traits",
- "revm-primitives",
- "serde",
+ "zstd 0.13.2",
 ]
 
 [[package]]
 name = "revm-primitives"
-version = "10.0.0"
+version = "14.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f1525851a03aff9a9d6a1d018b414d76252d6802ab54695b27093ecd7e7a101"
+checksum = "3702f132bb484f4f0d0ca4f6fbde3c82cfd745041abbedd6eda67730e1868ef0"
 dependencies = [
  "alloy-eip2930",
- "alloy-eip7702 0.1.1",
+ "alloy-eip7702 0.4.2",
  "alloy-primitives 0.8.18",
  "auto_impl",
  "bitflags 2.6.0",
@@ -7629,16 +7670,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "roaring"
-version = "0.10.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41589aba99537475bf697f2118357cad1c31590c5a1b9f6d9fc4ad6d07503661"
-dependencies = [
- "bytemuck",
- "byteorder",
-]
-
-[[package]]
 name = "route-recognizer"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7691,6 +7722,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f5ef8fb1dd8de3870cb8400d51b4c2023854bbafd5431a3ac7e7317243e22d2f"
 dependencies = [
  "alloy-rlp",
+ "arbitrary",
  "ark-ff 0.3.0",
  "ark-ff 0.4.2",
  "bytes",
@@ -7884,6 +7916,27 @@ dependencies = [
  "security-framework-sys",
  "webpki-roots 0.26.7",
  "winapi",
+]
+
+[[package]]
+name = "rustls-platform-verifier"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4c7dc240fec5517e6c4eab3310438636cfe6391dfc345ba013109909a90d136"
+dependencies = [
+ "core-foundation 0.9.4",
+ "core-foundation-sys",
+ "jni",
+ "log",
+ "once_cell",
+ "rustls 0.23.20",
+ "rustls-native-certs 0.7.3",
+ "rustls-platform-verifier-android",
+ "rustls-webpki 0.102.8",
+ "security-framework 2.11.1",
+ "security-framework-sys",
+ "webpki-root-certs",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8085,6 +8138,59 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "secret-service"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "blake3",
+ "musig2",
+ "secret-service-proto",
+ "secret-service-server",
+ "strata-key-derivation",
+ "tokio",
+]
+
+[[package]]
+name = "secret-service-client"
+version = "0.1.0"
+dependencies = [
+ "kanal",
+ "musig2",
+ "quinn",
+ "rkyv",
+ "secret-service-proto",
+ "terrors",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "secret-service-proto"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "musig2",
+ "rkyv",
+]
+
+[[package]]
+name = "secret-service-server"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "futures",
+ "kanal",
+ "musig2",
+ "parking_lot",
+ "quinn",
+ "rkyv",
+ "secret-service-proto",
+ "terrors",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -9399,7 +9505,7 @@ dependencies = [
 [[package]]
 name = "strata-bridge-tx-builder"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "bitcoin",
  "musig2",
@@ -9435,7 +9541,7 @@ dependencies = [
 [[package]]
 name = "strata-btcio"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9468,7 +9574,7 @@ dependencies = [
 [[package]]
 name = "strata-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "bitcoin",
  "opentelemetry",
@@ -9484,7 +9590,7 @@ dependencies = [
 [[package]]
 name = "strata-config"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "bitcoin",
  "serde",
@@ -9493,7 +9599,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -9503,7 +9609,7 @@ dependencies = [
 [[package]]
 name = "strata-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -9522,9 +9628,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-key-derivation"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
+dependencies = [
+ "bitcoin",
+ "secp256k1",
+ "strata-primitives",
+ "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
 name = "strata-l1tx"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -9542,7 +9660,7 @@ dependencies = [
 [[package]]
 name = "strata-mmr"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -9555,7 +9673,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -9568,6 +9686,7 @@ dependencies = [
  "num_enum 0.7.3",
  "rand",
  "reth-primitives",
+ "revm-primitives",
  "secp256k1",
  "serde",
  "serde_json",
@@ -9580,7 +9699,7 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -9606,7 +9725,7 @@ dependencies = [
 [[package]]
 name = "strata-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "bitcoin",
  "hex",
@@ -9623,7 +9742,7 @@ dependencies = [
 [[package]]
 name = "strata-sp1-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "bincode",
  "borsh",
@@ -9641,7 +9760,7 @@ dependencies = [
 [[package]]
 name = "strata-state"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -9661,7 +9780,7 @@ dependencies = [
 [[package]]
 name = "strata-status"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "strata-primitives",
  "strata-rpc-types",
@@ -9674,7 +9793,7 @@ dependencies = [
 [[package]]
 name = "strata-storage"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -9693,7 +9812,7 @@ dependencies = [
 [[package]]
 name = "strata-tasks"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -9705,7 +9824,7 @@ dependencies = [
 [[package]]
 name = "strata-zkvm"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#471bc958a388b8531eb9d15b9176c99b8d18a67a"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
 dependencies = [
  "arbitrary",
  "bincode",
@@ -9946,6 +10065,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "terrors"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a09a4471bca83dc547eb7829f7fe0b96ad3d04d21ad155e1e14084e163fe0e07"
+
+[[package]]
 name = "thin-vec"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9989,26 +10114,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.95",
-]
-
-[[package]]
-name = "thiserror-impl-no-std"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58e6318948b519ba6dc2b442a6d0b904ebfb8d411a3ad3e07843615a72249758"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 1.0.109",
-]
-
-[[package]]
-name = "thiserror-no-std"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3ad459d94dd517257cc96add8a43190ee620011bb6e6cdc82dafd97dfafafea"
-dependencies = [
- "thiserror-impl-no-std",
 ]
 
 [[package]]
@@ -10871,6 +10976,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "0.26.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cd5da49bdf1f30054cfe0b8ce2958b8fbeb67c4d82c8967a598af481bef255c"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]
