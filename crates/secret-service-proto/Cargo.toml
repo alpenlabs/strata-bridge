@@ -1,7 +1,9 @@
 [package]
-name = "mi6-proto"
+name = "secret-service-proto"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bitcoin.workspace = true
+musig2.workspace = true
 rkyv.workspace = true

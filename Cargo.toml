@@ -20,10 +20,10 @@ members = [
 
   # test utilities
   "crates/test-utils",
-  "crates/mi6",
-  "crates/mi6-proto",
-  "crates/mi6-client",
-  "crates/mi6-server",
+  "crates/secret-service",
+  "crates/secret-service-proto",
+  "crates/secret-service-client",
+  "crates/secret-service-server",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
@@ -80,6 +80,7 @@ bitcoin = { version = "0.32.5", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "testnet-i" }
+blake3 = { version = "1.5.5", features = ["zeroize"] }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
@@ -99,6 +100,7 @@ musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
 ] } # can't be updated without updating bitcoin
+parking_lot = "0.12.3"
 quinn = "0.11.6"
 rand = "0.8.5"
 reqwest = { version = "0.12.12", default-features = false, features = [

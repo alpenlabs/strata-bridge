@@ -1,0 +1,14 @@
+[package]
+name = "secret-service"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin.workspace = true
+blake3.workspace = true
+musig2.workspace = true
+secret-service-proto = { version = "0.1.0", path = "../secret-service-proto" }
+secret-service-server = { version = "0.1.0", path = "../secret-service-server" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/strata", version = "0.1.0" }
+
+tokio.workspace = true
