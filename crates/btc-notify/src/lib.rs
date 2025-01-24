@@ -581,13 +581,25 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
-        // TODO(proofofkeags): line-by-line commentary
+        // Set up new bitcoind and zmq client instance
         let (mut client, mut bitcoind) = setup()?;
+
+        // Subscribe to new blocks
         let mut block_sub = client.subscribe_blocks().await;
+
+        // Mine a new block
         let newly_mined = bitcoind.client.generate_to_address(1, &bitcoind.client.new_address()?)?.into_model()?;
+
+        // Wait for a new block to be delivered over the subscription
         let blk = block_sub.next().await.map(|b|b.block_hash());
+
+        // Assert that these blocks are equal
         assert_eq!(newly_mined.0.first(), blk.as_ref());
+
+        // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping it earlier, aborting
+        // the producer thread
         drop(client);
+
         bitcoind.stop()?;
         Ok(())
     }
@@ -595,45 +607,76 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>> {
-        // TODO(proofofkeags): line-by-line commentary
+        // Set up new bitcoind and zmq client instance.
         let (mut client, mut bitcoind) = setup()?;
+
+        // Subscribe to all transactions.
         let mut tx_sub = client.subscribe_transactions(|_|true).await;
-        let new_address = bitcoind.client.new_address()?;
-        let newly_mined = bitcoind.client.generate_to_address(1, &new_address)?.into_model()?;
+
+        // Mine a new block.
+        let newly_mined = bitcoind.client.generate_to_address(1, &bitcoind.client.new_address()?)?.into_model()?;
+
+        // Wait for a new transaction to be delivered over the subscription.
         let tx = tx_sub.next().await.map(|(tx, _)|tx.compute_txid());
+
+        // Grab the newest block ofver RPC.
         let best_block = bitcoind.client.get_block(*newly_mined.0.first().unwrap())?;
+
+        // Get the coinbase transaction from that block.
         let cb = best_block.coinbase();
+
+        // Assert that the tx delivered earlier matches this block's coinbase transaction.
         assert_eq!(tx, cb.map(|cb|cb.compute_txid()));
+
+        // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping it earlier, aborting
+        // the producer thread.
         drop(client);
+
         bitcoind.stop()?;
         Ok(())
     }
 
-    // Only transactions that match the predicate are delivered (Consistency)
+    // Only transactions that match the predicate are delivered (Consistency).
     #[tokio::test]
     #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
-        // TODO(proofofkeags): line-by-line commentary
+        // Set up new bitcoind and zmq client instance.
         let (mut client, mut bitcoind) = setup()?;
-        let new_address = bitcoind.client.new_address()?;
-        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
 
+        // Get a new address that we will use to send money to.
+        let new_address = bitcoind.client.new_address()?;
+
+        // Mine 101 new blocks to that same address. We use 101 so that the coins minted in the first block can be spent
+        // which we will need to do for the remainder of the test.
+        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
         let mut tx_sub = client.subscribe_transactions(pred).await;
 
+        // Launch a new task to issue 20 transactions paying the originally created address.
         let mine_task = tokio::task::spawn_blocking(move || {
+            // Submit 20 transactions.
             for _ in 0..20 {
                 bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap();
             }
-            bitcoind.client.generate_to_address(1, &new_address).unwrap();
+
+            // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping it earlier,
+            // aborting the producer thread. This is done in the mining thread so that the subscription stream
+            // terminates.
             drop(client);
+
             bitcoind.stop().unwrap();
         });
 
+        // Pull all transactions off of the subscription (until it terminates) and assert that all of them pass the
+        // subscription predicate: the transactions are not a coinbase transaction.
         while let Some((tx, _)) = tx_sub.next().await {
             assert!(pred(&tx))
         }
 
+        // Wait for the mining thread to complete.
         mine_task.await?;
 
         Ok(())
@@ -643,94 +686,147 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
-        // TODO(proofofkeags): line-by-line commentary
+        // Set up new bitcoind and zmq client instance.
         let (mut client, mut bitcoind) = setup()?;
-        let new_address = bitcoind.client.new_address()?;
-        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
 
+        // Create a new address that will serve as the recipient of new transactions.
+        let new_address = bitcoind.client.new_address()?;
+
+        // Mine 101 blocks so that the coins in the first block are spendable.
+        let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
+        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+
+        // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
         let mut tx_sub = client.subscribe_transactions(pred).await;
 
+        // Launch a task to issue 20 new transactions paying to the originally created address.
         let mine_task = tokio::task::spawn_blocking(move || {
+            // Submit 20 transactions.
             for _ in 0..20 {
                 bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap();
             }
-            bitcoind.client.generate_to_address(1, &new_address).unwrap();
+
+            // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping it earlier,
+            // aborting the producer thread. This is done in the mining thread so that the subscription stream
+            // terminates.
             drop(client);
+
             bitcoind.stop().unwrap();
         });
 
+        // Count all of the transactions that come over the subscription, waiting for the subscription to terminate.
         let mut n_tx = 0;
         while tx_sub.next().await.is_some() {
             n_tx += 1;
         }
 
+        // Wait for the mining task to complete.
         mine_task.await?;
+
+        // Assert that we received all 20 transactions over with a Mempool and Mined status for each.
         assert_eq!(n_tx, 20);
 
         Ok(())
     }
 
-    // Exactly one Mined status is delivered per (transaction, block) pair
+    // Exactly one Mined status is delivered per (transaction, block) pair (Uniqueness)
     #[tokio::test]
     #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
-        // TODO(proofofkeags): line-by-line commentary
+        // Set up new bitcoind and zmq client instance.
         let (mut client, mut bitcoind) = setup()?;
+
+        // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
+
+        // Mine 101 blocks so that the coins in the first block are spendable.
         let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
+        // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
         let mut tx_sub = client.subscribe_transactions(pred).await;
 
-        // TODO(proofofkeags): tease apart the essential aspects of this linear sequence of actions.
+        // The following is a complicated list of steps wherein we will mine a transaction, invalidate its block and
+        // then mine that same transaction into a new block. We should get two Mined statuses for that transaction, one
+        // corresponding to each time it was included in a block.
+        //
+        // We begin with grabbing the txid for the transaction we are interested in.
         let txid = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
-        eprintln!("candidate: {}", txid);
+
+        // Pull a transaction off of the subscription and assert that it is the Mempool event for our transaction in
+        // question.
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Mempool);
+
+        // Mine a block, and assert we get a Mined event for our transaction.
         let blockhash = bitcoind.client.generate_to_address(1, &new_address).unwrap().into_model().unwrap().0.remove(0);
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Mined);
+
+        // Now we invalidate the block we just mined, simulating a reorg. We should now get an Unknown event for that
+        // transaction as it is evicted from the landscape.
         bitcoind.client.call::<()>("invalidateblock", &[serde_json::Value::String(blockhash.to_string())]).unwrap();
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Unknown);
+
+        // Without intervention we should get a new Mempool event for our transaction as it is returned to the mempool.
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Mempool);
+
+        // Now we add a new transaction to the mempool to ensure that a new block will not exactly match the one we
+        // just invalidated.
         let txid2 = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid2);
         assert_eq!(observed.1, TxStatus::Mempool);
+
+        // Mine a new block. This should include both our original transaction and the second one we created to sidestep
+        // blockhash collision.
         bitcoind.client.generate_to_address(1, &new_address).unwrap().into_model().unwrap().0.remove(0);
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.1, TxStatus::Mined);
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.1, TxStatus::Mined);
+
+        // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping it earlier, aborting
+        // the producer thread.
         drop(client);
+
+        // Assert that the stream has ended following the dropping of our zmq client.
         assert!(tx_sub.next().await.is_none());
+
         bitcoind.stop().unwrap();
         Ok(())
     }
 
-    // Assuming there are no reorgs, Mined transactions are eventually buried
+    // Assuming there are no reorgs, Mined transactions are eventually buried (Eventual Finality)
     #[tokio::test]
     #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
-        // TODO(proofofkeags): line-by-line commentary
+        // Set up new bitcoind and zmq client instance.
         let (mut client, mut bitcoind) = setup()?;
+
+        // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
+
+        // Mine 101 blocks so that the coins in the first block are spendable.
         let _ = bitcoind.client.generate_to_address(101, &new_address)?.into_model()?;
         tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
+        // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
         let mut tx_sub = client.subscribe_transactions(pred).await;
 
+        // Send a non-coinbase transaction, remembering its txid.
         let txid = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
 
+        // Kick off a mining task that will mine a new block every 100ms until we tell it to stop.
         let stop = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let stop_thread = stop.clone();
         let mine_task = tokio::task::spawn_blocking(move || {
@@ -742,8 +838,11 @@ mod e2e_tests {
             bitcoind.stop().unwrap();
         });
 
+        // Continuously pull events off of the stream, checking for a Buried event for our transaction.
         loop {
             if let Poll::Ready(Some((tx, status))) = futures::poll!(tx_sub.next()) {
+                // Once we receive a Buried event for our transaction we can abort the stream polling and stop the
+                // mining task.
                 if tx.compute_txid() == txid && status == TxStatus::Buried {
                     stop.store(false, std::sync::atomic::Ordering::SeqCst);
                     break;
@@ -752,7 +851,8 @@ mod e2e_tests {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         }
 
-        tokio::time::timeout(std::time::Duration::from_secs(10), mine_task).await??;
+        // Wait for the mining task to terminate
+        tokio::time::timeout(std::time::Duration::from_secs(1), mine_task).await;
 
         Ok(())
     }
