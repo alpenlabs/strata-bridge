@@ -25,10 +25,13 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 
-/// BtcZmqConfig is the main configuration type used to establish the connection with the ZMQ interface of Bitcoin. It
-/// accepts independent connection strings for each of the stream types. Any connection strings that are left as None
+/// BtcZmqConfig is the main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
+///
+/// It accepts independent connection strings for each of the stream types. Any connection strings that are left as None
 /// when initializing the BtcZmqClient will result in those streams going unmonitored. In the limit, this means that the
 /// default BtcZmqConfig will result in a BtcZmqClient that does absolutely nothing (NOOP).
+///
+/// You should construct a BtcZmqConfig with [`Default::default`] and modify it with the member methods on this struct.
 #[derive(Debug, Clone)]
 pub struct BtcZmqConfig {
     /// depth at which a transaction is considered buried, defaults to 6
@@ -51,19 +54,6 @@ pub struct BtcZmqConfig {
 }
 
 impl BtcZmqConfig {
-    /// This generates a default config that will not connect to any of the bitcoind zeromq interfaces. It is useful in
-    /// conjunction with subsequent mutations for partial initialization.
-    pub fn empty() -> BtcZmqConfig {
-        BtcZmqConfig {
-            bury_depth: 6,
-            hashblock_connection_string: None,
-            hashtx_connection_string: None,
-            rawblock_connection_string: None,
-            rawtx_connection_string: None,
-            sequence_connection_string: None,
-        }
-    }
-
     /// Updates the BtcZmqConfig with a zmqpubhashblock connection string and returns the updated config. Useful for a
     /// builder pattern with dotchaining.
     pub fn with_hashblock_connection_string(mut self, s: &str) -> Self {
@@ -108,6 +98,19 @@ impl BtcZmqConfig {
         self
     }
 }
+impl Default for BtcZmqConfig {
+    fn default() -> Self {
+        BtcZmqConfig {
+            bury_depth: 6,
+            hashblock_connection_string: None,
+            hashtx_connection_string: None,
+            rawblock_connection_string: None,
+            rawtx_connection_string: None,
+            sequence_connection_string: None,
+        }
+    }
+}
+
 
 /// TxStatus is the primary output of this API via the subscription.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -602,7 +605,7 @@ impl BtcZmqSM {
 
 #[cfg(test)]
 mod e2e_tests {
-    use corepc_node::serde_json;
+    use corepc_node::serde_json::{self, json};
     use serial_test::serial;
 
     use super::*;
@@ -622,7 +625,7 @@ mod e2e_tests {
         ]);
         let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
 
-        let cfg = BtcZmqConfig::empty()
+        let cfg = BtcZmqConfig::default()
             .with_hashblock_connection_string("tcp://127.0.0.1:23882")
             .with_hashtx_connection_string("tcp://127.0.0.1:23883")
             .with_rawblock_connection_string("tcp://127.0.0.1:23884")
@@ -825,7 +828,7 @@ mod e2e_tests {
 
         // Now we invalidate the block we just mined, simulating a reorg. We should now get an Unknown event for that
         // transaction as it is evicted from the landscape.
-        bitcoind.client.call::<()>("invalidateblock", &[serde_json::Value::String(blockhash.to_string())]).unwrap();
+        bitcoind.client.call::<()>("invalidateblock", &[json!(blockhash.to_string())]).unwrap();
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.0.compute_txid(), txid);
         assert_eq!(observed.1, TxStatus::Unknown);
