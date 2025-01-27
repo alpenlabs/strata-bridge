@@ -1,3 +1,11 @@
+//! # btc-notify
+//!
+//! btc-notify is a crate to deliver real-time notifications on the latest transaction and block events in the Bitcoin
+//! network.
+//!
+//! Once the client is initialized, consumers of this API will create [`Subscription`]s with
+//! [`BtcZmqClient::subscribe_blocks`] or [`BtcZmqClient::subscribe_transactions`]. These subscription objects can be
+//! primarily worked with via their [`Stream`] trait API.
 use bitcoin::transaction::Transaction;
 use bitcoin::Block;
 use bitcoin::BlockHash;
@@ -162,6 +170,11 @@ impl std::fmt::Debug for TxSubscriptionDetails {
     }
 }
 
+/// BtcZmqClient is the main structure responsible for processing ZMQ notifications and feeding the appropriate events
+/// to its subscribers.
+///
+/// After construction, this object must be kept around for the monitoring process to continue. Dropping this object
+/// will abort the monitoring thread.
 #[derive(Debug)]
 pub struct BtcZmqClient {
     block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<Block>>>>,
@@ -177,6 +190,9 @@ impl Drop for BtcZmqClient {
 }
 
 impl BtcZmqClient {
+    /// connect is the main constructor for BtcZmqClient.
+    ///
+    /// It takes a [`BtcZmqConfig`] and uses that information to connect to bitcoind.
     pub fn connect(cfg: BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
@@ -239,6 +255,8 @@ impl BtcZmqClient {
         })
     }
 
+    /// Creates a new [`Subscription`] that emits new [`bitcoin::Transaction`] and [`TxStatus`] every time a
+    /// transaction's status changes due to block or mempool events.
     pub async fn subscribe_transactions(&mut self, f: impl Fn(&Transaction) -> bool + Sync + Send + 'static) ->
         Subscription<(Transaction, TxStatus)> {
 
@@ -257,6 +275,8 @@ impl BtcZmqClient {
         Subscription::from_receiver(recv)
     }
 
+    /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is connected to the main
+    /// Bitcoin blockchain.
     pub async fn subscribe_blocks(&mut self) -> Subscription<Block> {
         let (send, recv) = mpsc::unbounded_channel();
 
@@ -265,10 +285,12 @@ impl BtcZmqClient {
         Subscription::from_receiver(recv)
     }
 
+    /// Returns the number of active transaction subscriptions created with [`BtcZmqClient::subscribe_transactions`].
     pub async fn num_tx_subscriptions(&self) -> usize {
         self.tx_subs.lock().await.len()
     }
 
+    /// Returns the number of active block subscriptions created with [`BtcZmqClient::subscribe_blocks`].
     pub async fn num_block_subscriptions(&self) -> usize {
         self.block_subs.lock().await.len()
     }
