@@ -54,50 +54,59 @@ pub struct BtcZmqConfig {
 }
 
 impl BtcZmqConfig {
-    /// Updates the BtcZmqConfig with a zmqpubhashblock connection string and returns the updated config. Useful for a
-    /// builder pattern with dotchaining.
+    /// Updates the BtcZmqConfig with a zmqpubhashblock connection string and returns the updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
     pub fn with_hashblock_connection_string(mut self, s: &str) -> Self {
         self.hashblock_connection_string = Some(s.to_string());
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubhashtx connection string and returns the updated config. Useful for a
-    /// builder pattern with dotchaining.
+    /// Updates the BtcZmqConfig with a zmqpubhashtx connection string and returns the updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
     pub fn with_hashtx_connection_string(mut self, s: &str) -> Self {
         self.hashtx_connection_string = Some(s.to_string());
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubrawblock connection string and returns the updated config. Useful for a
-    /// builder pattern with dotchaining.
+    /// Updates the BtcZmqConfig with a zmqpubrawblock connection string and returns the updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
     pub fn with_rawblock_connection_string(mut self, s: &str) -> Self {
         self.rawblock_connection_string = Some(s.to_string());
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubrawtx connection string and returns the updated config. Useful for a
-    /// builder pattern with dotchaining.
+    /// Updates the BtcZmqConfig with a zmqpubrawtx connection string and returns the updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
     pub fn with_rawtx_connection_string(mut self, s: &str) -> Self {
         self.rawtx_connection_string = Some(s.to_string());
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubsequence connection string and returns the updated config. Useful for a
-    /// builder pattern with dotchaining.
+    /// Updates the BtcZmqConfig with a zmqpubsequence connection string and returns the updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
     pub fn with_sequence_connection_string(mut self, s: &str) -> Self {
         self.sequence_connection_string = Some(s.to_string());
         self
     }
 
-    /// Updates the BtcZmqConfig with a new bury depth and returns the updated config. Useful for a builder pattern with
-    /// dotchaining. Note, this is the number of blocks that must be built on top of a given block before that block is
-    /// considered buried. A bury depth of 6 will mean that the most recent "buried" block will be the 7th newest block.
-    /// A bury depth of 0 would mean that the block is considered buried the moment it is mined.
+    /// Updates the BtcZmqConfig with a new bury depth and returns the updated config.
+    ///
+    /// Useful for a builder pattern with dotchaining.
+    ///
+    /// Note, this is the number of blocks that must be built on top of a given block before that block is considered
+    /// buried. A bury depth of 6 will mean that the most recent "buried" block will be the 7th newest block. A bury
+    /// depth of 0 would mean that the block is considered buried the moment it is mined.
     pub fn with_bury_depth(mut self, n: usize) -> Self {
         self.bury_depth = n;
         self
     }
 }
+
 impl Default for BtcZmqConfig {
     fn default() -> Self {
         BtcZmqConfig {
@@ -115,24 +124,30 @@ impl Default for BtcZmqConfig {
 /// TxStatus is the primary output of this API via the subscription.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TxStatus {
-    /// Unknown indicates that the transaction is not staged for inclusion in the blockchain. Concretely this status
-    /// will only really appear if the transaction is evicted from the mempool.
+    /// Unknown indicates that the transaction is not staged for inclusion in the blockchain.
+    ///
+    /// Concretely this status will only really appear if the transaction is evicted from the mempool.
     Unknown,
-    /// Mempool indicates that the transaction is currently in the mempool. This status will be emitted both when a
-    /// transaction enters the mempool for the first time as well as if it re-enters the mempool due to a containing
-    /// block get reorg'ed out of the main chain and not yet included in the alternative one.
+    /// Mempool indicates that the transaction is currently in the mempool.
+    ///
+    /// This status will be emitted both when a transaction enters the mempool for the first time as well as if it
+    /// re-enters the mempool due to a containing block get reorg'ed out of the main chain and not yet included in the
+    /// alternative one.
     Mempool,
-    /// Mined indicates that the transaction has been included in a block. This status will be received once per
-    /// transaction per block. If a transaction is included in a block, and then that block is reorg'ed out and the same
-    /// transaction is included in a new block, then the subscription will emit two separate events for it.
+    /// Mined indicates that the transaction has been included in a block.
+    ///
+    /// This status will be received once per transaction per block. If a transaction is included in a block, and then
+    /// that block is reorg'ed out and the same transaction is included in a new block, then the subscription will emit
+    /// two separate events for it.
     Mined,
     /// Buried is a terminal status. It will be emitted once the transaction's containing block has been buried under
-    /// a sufficient number of subsequent blocks. After this status is emitted, no further statuses for that transaction
-    /// will be emitted.
+    /// a sufficient number of subsequent blocks.
+    ///
+    /// After this status is emitted, no further statuses for that transaction will be emitted.
     Buried
 }
 
-/// This structure serves as the primary type that consumers of this API will handle. It is created via one of the calls
+/// Subscription serves as the primary type that consumers of this API will handle. It is created via one of the calls
 /// to BtcZmqClient::subscribe_*. From there you should use it via it's Stream API.
 #[derive(Debug)]
 pub struct Subscription<T> {
@@ -156,7 +171,8 @@ impl<T> Stream for Subscription<T> {
     }
 }
 
-/// This is a type synonym to capture predicates of the following form: Transaction -> bool
+/// TxPredicate is a type synonym to capture predicates of the following form: Transaction -> bool.
+///
 /// The choice of using an arc here is intentional so that we can directly compare these predicates when managing the
 /// active subscription set.
 type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
@@ -299,17 +315,19 @@ impl BtcZmqClient {
     }
 }
 
-/// This structure is here so that we can keep track of messages coming in on parallel streams that are all
-/// tracking the same underlying event. Depending on the messages we receive and in what order we track the transaction
-/// all the way to block inclusion, inferring other states depending on the messages we have received.
+/// TxLifecycle keeps track of distinct messages coming in on parallel streams that are all triggered by the same
+/// underlying event.
+///
+/// Depending on the messages we receive and in what order we track the transaction all the way to block inclusion,
+/// inferring other states depending on the messages we have received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TxLifecycle {
     raw: Transaction,
     block: Option<BlockHash>,
 }
 
-/// This is the pure state machine that processes all the relevant messages. From there it will emit diffs that describe
-/// the new states of transactions.
+/// BtcZmqSM is the pure state machine that processes all the relevant messages. From there it will emit diffs that
+/// describe the new states of transactions.
 #[derive(Clone)]
 struct BtcZmqSM {
     /// This is the number of subsequent blocks that must be built on top of a given block for that block to be
@@ -364,21 +382,22 @@ impl BtcZmqSM {
         }
     }
 
-    // add_filter takes a tx predicate and adds it to the state machine. The state machine will track any transaction
-    // that matches the disjunction of predicates added.
+    /// add_filter takes a TxPredicate and adds it to the state machine.
+    ///
+    /// The state machine will track any transaction that matches the disjunction of predicates added.
     fn add_filter(&mut self, pred: TxPredicate) {
         self.tx_filters.push(pred);
     }
 
-    // rm_filter takes a TxPredicate that was previously added via add_filter.
+    /// rm_filter takes a TxPredicate that was previously added via add_filter.
     fn rm_filter(&mut self, pred: &TxPredicate) {
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, pred)) {
             self.tx_filters.swap_remove(idx);
         }
     }
 
-    // process_block is one of the three primary state transition functions of the BtcZmqSM, updating internal state to
-    // reflect the contents of the block.
+    /// process_block is one of the three primary state transition functions of the BtcZmqSM, updating internal state to
+    /// reflect the contents of the block.
     fn process_block(&mut self, block: Block) -> Vec<(Transaction, TxStatus)> {
         match self.unburied_blocks.front() {
             Some(tip) => {
