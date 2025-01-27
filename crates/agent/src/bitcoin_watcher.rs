@@ -1,14 +1,14 @@
 use std::{sync::Arc, time::Duration};
 
 use bitcoin::{Transaction, Txid};
-use strata_bridge_btcio::traits::Reader;
 use strata_bridge_db::{public::PublicDb, tracker::BitcoinBlockTrackerDb};
 use strata_bridge_primitives::{duties::VerifierDuty, params::prelude::*, types::OperatorIdx};
+use strata_btcio::rpc::traits::ReaderRpc;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
-pub struct BitcoinWatcher<D: BitcoinBlockTrackerDb, P: PublicDb, R: Reader> {
+pub struct BitcoinWatcher<D: BitcoinBlockTrackerDb, P: PublicDb, R: ReaderRpc> {
     db: Arc<D>,
 
     public_db: Arc<P>,
@@ -24,7 +24,7 @@ impl<D, P, R> BitcoinWatcher<D, P, R>
 where
     D: BitcoinBlockTrackerDb + Send + Sync + 'static,
     P: PublicDb + Send + Sync + 'static,
-    R: Reader + Send + Sync + 'static,
+    R: ReaderRpc + Send + Sync + 'static,
 {
     pub fn new(
         db: Arc<D>,
@@ -48,7 +48,7 @@ where
         let mut height = self.genesis_height;
         let mut not_found = false;
         loop {
-            let block = self.client.get_block_at(height).await;
+            let block = self.client.get_block_at(height.into()).await;
 
             if let Err(e) = block {
                 if height % 1000 == 0 && !not_found {

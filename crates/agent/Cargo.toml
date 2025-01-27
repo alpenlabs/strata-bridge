@@ -11,13 +11,13 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
-strata-bridge-btcio.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
 strata-bridge-tx-graph.workspace = true
 
+strata-btcio.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true
 strata-rpc = { workspace = true, features = ["client"] }

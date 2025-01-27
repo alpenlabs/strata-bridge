@@ -318,7 +318,6 @@ mod tests {
         rand::{rngs::OsRng, Rng},
         Keypair,
     };
-    use strata_bridge_btcio::types::{GetTxOut, ListUnspent, SignRawTransactionWithWallet};
     use strata_bridge_db::inmemory::public::PublicDbInMemory;
     use strata_bridge_primitives::{
         bitcoin::BitcoinAddress,
@@ -335,6 +334,7 @@ mod tests {
         prelude::{find_funding_utxo, generate_keypair, generate_txid, sign_cpfp_child},
         tx::get_mock_deposit,
     };
+    use strata_btcio::rpc::types::{GetTxOut, ListUnspent, SignRawTransactionWithWallet};
     use strata_common::logging;
     use tracing::warn;
 

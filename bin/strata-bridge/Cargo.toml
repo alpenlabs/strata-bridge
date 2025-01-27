@@ -16,12 +16,12 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 strata-bridge-agent.workspace = true
-strata-bridge-btcio.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
 strata-rpc.workspace = true
 
+strata-btcio.workspace = true
 strata-common.workspace = true
 
 anyhow.workspace = true

@@ -14,7 +14,7 @@ use bitcoin::{
 };
 use corepc_node::{serde_json::json, Client};
 use musig2::secp256k1::{schnorr, Message};
-use strata_bridge_btcio::types::{ListUnspent, SignRawTransactionWithWallet};
+use strata_btcio::rpc::types::{ListUnspent, SignRawTransactionWithWallet};
 
 pub fn generate_txid() -> Txid {
     let mut txid = [0u8; 32];

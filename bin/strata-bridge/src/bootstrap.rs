@@ -14,13 +14,13 @@ use strata_bridge_agent::{
     signal::{CovenantNonceSignal, CovenantSignatureSignal, DepositSignal},
     verifier::Verifier,
 };
-use strata_bridge_btcio::{traits::Reader, BitcoinClient};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::{BridgeDuty, BridgeDutyStatus, VerifierDuty},
     types::PublickeyTable,
 };
+use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_rpc::StrataApiClient;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -49,8 +49,12 @@ pub(crate) async fn bootstrap(args: Cli) {
         .expect("failed to connect to the strata RPC server");
 
     let bitcoin_rpc_client = Arc::new(
-        BitcoinClient::new(&args.btc_url, &args.btc_user, &args.btc_pass)
-            .expect("should be able to create bitcoin client"),
+        BitcoinClient::new(
+            args.btc_url.to_string(),
+            args.btc_user.to_string(),
+            args.btc_pass.to_string(),
+        )
+        .expect("should be able to create bitcoin client"),
     );
 
     // create dbs
