@@ -21,6 +21,7 @@ use std::task::Poll;
 /// accepts independent connection strings for each of the stream types. Any connection strings that are left as None
 /// when initializing the BtcZmqClient will result in those streams going unmonitored. In the limit, this means that the
 /// default BtcZmqConfig will result in a BtcZmqClient that does absolutely nothing (NOOP).
+#[derive(Debug, Clone)]
 pub struct BtcZmqConfig {
     /// depth at which a transaction is considered buried, defaults to 6
     bury_depth: usize,
@@ -122,6 +123,7 @@ pub enum TxStatus {
 
 /// This structure serves as the primary type that consumers of this API will handle. It is created via one of the calls
 /// to BtcZmqClient::subscribe_*. From there you should use it via it's Stream API.
+#[derive(Debug)]
 pub struct Subscription<T> {
     receiver: mpsc::UnboundedReceiver<T>,
 }
@@ -152,7 +154,15 @@ struct TxSubscriptionDetails {
     predicate: TxPredicate,
     outbox: mpsc::UnboundedSender<(Transaction, TxStatus)>,
 }
+impl std::fmt::Debug for TxSubscriptionDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TxSubscriptionDetails")
+            .field("predicate", &format!("{:?}", Arc::as_ptr(&self.predicate)))
+            .field("outbox", &self.outbox).finish()
+    }
+}
 
+#[derive(Debug)]
 pub struct BtcZmqClient {
     block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<Block>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
