@@ -91,7 +91,7 @@ impl PegOutGraph {
                 deposit_txid,
             ))?;
 
-        let connectors = PegOutGraphConnectors::new(context, wots_public_keys);
+        let connectors = PegOutGraphConnectors::new(context, operator_idx, wots_public_keys);
 
         let kickoff_tx = KickOffTx::new(input.kickoff_data, connectors.kickoff)?;
         let kickoff_txid = kickoff_tx.compute_txid();
@@ -232,6 +232,7 @@ impl PegOutGraphConnectors {
     /// Create a new set of connectors for the peg-out graph.
     pub(crate) fn new(
         build_context: &impl BuildContext,
+        operator_idx: OperatorIdx,
         wots_public_keys: wots::PublicKeys,
     ) -> Self {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
@@ -244,7 +245,6 @@ impl PegOutGraphConnectors {
         let claim_out_1 = ConnectorC1::new(n_of_n_agg_pubkey, network);
 
         let stake = ConnectorS::new(n_of_n_agg_pubkey, network);
-        let operator_idx = build_context.own_index();
         let operator_pubkey = build_context
             .pubkey_table()
             .0
