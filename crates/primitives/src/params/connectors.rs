@@ -1,20 +1,20 @@
 //! Params related to the bridge tx graph connectors, specifically the layout of assert-data
 //! connectors.
 //!
-//! The following constants are derived from the `assert-splitter` bin:
+//! The following data was used to determine the layout of the connectors. This data is the output
+//! of running `cargo run --bin assert-splitter`.
 //!
 //! * Average Field Element Max Stack Size: 151
 //! * Average Field Element Transaction Size: 6767
 //! * Average Hash Max Stack size: 103
 //! * Average Hash Transaction size: 4561
 //!
-//! # Field Elements Layout:
+//! Field Elements Layout:
 //! ----------------------------------
 //! * Max Elements per UTXO: 5
 //! * Max UTXOs per TX: 1
 //! * Num TXs: 8
 //! * Remainder: Some(2)
-//!
 //! * Max Stack Size: 755
 //! * Transaction Size per UTXO: 31498
 //!
@@ -24,19 +24,19 @@
 //! * Max UTXOs per TX: 1
 //! * Num TXs: 71
 //! * Remainder: Some(6)
-//!
 //! * Max Stack Size: 824
 //! * Transaction Size per UTXO: 32396
 //!
 //! Based on the above data, the elements can be bitcommitted as follows with the constraint that
-//! the max stack usage must not exceed 1_000 elements and the max V3 transaction size must not
-//! exceed 40_000 weight units:
+//! the max stack usage must not exceed 1,000 elements and the max V3 transaction size must not
+//! exceed 40,000 weight units:
 //!
-//! Element Type  | Elements Per UTXO  |  Connectors | UTXOs Per Tx | Total
-//! Field         | 5                  |  6          | 1            | 30
-//! Field         | 6                  |  2          | 1            | 12
-//! Hash          | 8                  |  65         | 1            | 520
-//! Hash          | 9                  |  6          | 1            | 54
+//! | Element Type  | Elements Per UTXO  |  Connectors | UTXOs Per Tx | Total |
+//! | ------------- | ------------------ | ----------- | ------------ | ----- |
+//! | Field         | 5                  |  6          | 1            | 30    |
+//! | Field         | 6                  |  2          | 1            | 12    |
+//! | Hash          | 8                  |  65         | 1            | 520   |
+//! | Hash          | 9                  |  6          | 1            | 54    |
 use std::time::Duration;
 
 /// The maximum number of field elements that are bitcommitted per UTXO.

@@ -1,3 +1,5 @@
+use std::array;
+
 use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::{groth16::g16, signatures::wots::wots256, treepp::*};
 use strata_bridge_primitives::{
@@ -37,7 +39,7 @@ impl AssertDataTxBatch {
     ) -> Self {
         const STAKE_VOUT_OFFSET: usize = 1;
 
-        Self(std::array::from_fn(|i| {
+        Self(array::from_fn(|i| {
             let (outpoint, prevout) = input
                 .pre_assert_txouts
                 .get(STAKE_VOUT_OFFSET + i)
@@ -150,7 +152,7 @@ impl AssertDataTxBatch {
             [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_FIELD_CONNECTORS_BATCH_2],
         ) = connector_a256_factory.create_connectors();
 
-        let signatures_256: [wots256::Signature; NUM_PKS_A256] = std::array::from_fn(|i| match i {
+        let signatures_256: [wots256::Signature; NUM_PKS_A256] = array::from_fn(|i| match i {
             0 => signatures.superblock_hash,
             1 => signatures.groth16.0[0],
             _ => signatures.groth16.1[i - 2],

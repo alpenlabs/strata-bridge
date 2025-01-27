@@ -1,8 +1,15 @@
+//! Connector for adding an output to a transaction for CPFP.
+//!
+//! Reference: <https://bitcoinops.org/en/topics/cpfp/>
+
 use bitcoin::{key::TapTweak, psbt::Input, Address, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::taproot::finalize_input;
 
 /// Connector for adding outputs to a transaction for CPFP.
+///
+/// It creates a taproot locking script with a public key that is assumed to be tweaked and expects
+/// a schnorr signature to finalize the input.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorCpfp {
     /// The bitcoin network for which to generate output addresses.
