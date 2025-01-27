@@ -631,7 +631,6 @@ mod e2e_tests {
 
     fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
-        bitcoin_conf.view_stdout = false;
         bitcoin_conf.enable_zmq = true;
         // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
         bitcoin_conf.args.extend(vec![
