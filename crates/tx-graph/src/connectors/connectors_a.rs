@@ -1,3 +1,5 @@
+use std::array;
+
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
@@ -17,51 +19,60 @@ use strata_bridge_primitives::scripts::prelude::*;
 /// consensus rules.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorA256Factory<
-    const N_PUBLIC_KEYS_PER_CONNECTOR: usize,
-    const N_PUBLIC_KEYS: usize,
-> {
+    const N_BATCH_1: usize,
+    const N_FIELD_ELEMS_BATCH_1: usize,
+    const N_BATCH_2: usize,
+    const N_FIELD_ELEMS_BATCH_2: usize,
+> where
+    [(); N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2]:,
+{
     /// The bitcoin network for which to generate output addresses.
     pub network: Network,
 
     /// The 256-bit WOTS public keys used for bitcommitments.
-    pub public_keys: [wots256::PublicKey; N_PUBLIC_KEYS],
+    pub public_keys:
+        [wots256::PublicKey; N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2],
 }
 
-impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
-    ConnectorA256Factory<N_PUBLIC_KEYS_PER_CONNECTOR, N_PUBLIC_KEYS>
+impl<
+        const N_BATCH_1: usize,
+        const N_FIELD_ELEMS_BATCH_1: usize,
+        const N_BATCH_2: usize,
+        const N_FIELD_ELEMS_BATCH_2: usize,
+    > ConnectorA256Factory<N_BATCH_1, N_FIELD_ELEMS_BATCH_1, N_BATCH_2, N_FIELD_ELEMS_BATCH_2>
+where
+    [(); N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2]:,
 {
     /// Constructs connectors from the public keys.
     ///
-    /// The public keys are split into chunks of `N_PUBLIC_KEYS_PER_CONNECTOR` and the remaining
-    /// ones are put into a separate connector.
+    /// The public keys are split into two batches each with some number of field elements.
     pub fn create_connectors(
         &self,
     ) -> (
-        Vec<ConnectorA256<N_PUBLIC_KEYS_PER_CONNECTOR>>,
-        ConnectorA256<{ N_PUBLIC_KEYS % N_PUBLIC_KEYS_PER_CONNECTOR }>,
+        [ConnectorA256<N_FIELD_ELEMS_BATCH_1>; N_BATCH_1],
+        [ConnectorA256<N_FIELD_ELEMS_BATCH_2>; N_BATCH_2],
     ) {
-        let mut connectors: Vec<ConnectorA256<N_PUBLIC_KEYS_PER_CONNECTOR>> =
-            Vec::with_capacity(N_PUBLIC_KEYS / N_PUBLIC_KEYS_PER_CONNECTOR);
-
-        let mut chunks = self.public_keys.chunks_exact(N_PUBLIC_KEYS_PER_CONNECTOR);
-        for chunk in chunks.by_ref() {
-            let connector = ConnectorA256::<N_PUBLIC_KEYS_PER_CONNECTOR> {
+        let connectors1: [ConnectorA256<N_FIELD_ELEMS_BATCH_1>; N_BATCH_1] =
+            array::from_fn(|i| ConnectorA256::<N_FIELD_ELEMS_BATCH_1> {
                 network: self.network,
-                public_keys:
-                    TryInto::<[wots256::PublicKey; N_PUBLIC_KEYS_PER_CONNECTOR]>::try_into(chunk)
-                        .unwrap(),
-            };
+                public_keys: self.public_keys
+                    [i * N_FIELD_ELEMS_BATCH_1..(i + 1) * N_FIELD_ELEMS_BATCH_1]
+                    .try_into()
+                    .expect("array size must be N_FIELD_ELEMS_BATCH_1"),
+            });
 
-            connectors.push(connector);
-        }
+        let connectors2: [ConnectorA256<N_FIELD_ELEMS_BATCH_2>; N_BATCH_2] = array::from_fn(|i| {
+            let offset = N_BATCH_1 * N_FIELD_ELEMS_BATCH_1;
+            ConnectorA256::<N_FIELD_ELEMS_BATCH_2> {
+                network: self.network,
+                public_keys: self.public_keys
+                    [offset + i * N_FIELD_ELEMS_BATCH_2..offset + (i + 1) * N_FIELD_ELEMS_BATCH_2]
+                    .try_into()
+                    .expect("array size must be N_FIELD_ELEMS_BATCH_2"),
+            }
+        });
 
-        let remaining = chunks.remainder();
-        let connector = ConnectorA256::<{ N_PUBLIC_KEYS % N_PUBLIC_KEYS_PER_CONNECTOR }> {
-            network: self.network,
-            public_keys: remaining.try_into().unwrap(),
-        };
-
-        (connectors, connector)
+        (connectors1, connectors2)
     }
 }
 
@@ -121,7 +132,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     }
 
     /// Finalizes the input for the psbt that spends this connector.
-    pub fn create_tx_input(
+    pub fn finalize_input(
         &self,
         input: &mut Input,
         signatures: [wots256::Signature; N_PUBLIC_KEYS],
@@ -144,18 +155,29 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
 /// Factory for crafting connectors with 160-bit WOTS public keys.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorA160Factory<
-    const N_PUBLIC_KEYS_PER_CONNECTOR: usize,
-    const N_PUBLIC_KEYS: usize,
-> {
+    const N_BATCH_1: usize,
+    const N_HASHES_BATCH_1: usize,
+    const N_BATCH_2: usize,
+    const N_HASHES_BATCH_2: usize,
+> where
+    [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]:,
+{
     /// The bitcoin network for which to generate output addresses.
     pub network: Network,
 
     /// The 160-bit WOTS public keys used for bitcommitments.
-    pub public_keys: [wots160::PublicKey; N_PUBLIC_KEYS],
+    pub public_keys:
+        [wots160::PublicKey; N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2],
 }
 
-impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
-    ConnectorA160Factory<N_PUBLIC_KEYS_PER_CONNECTOR, N_PUBLIC_KEYS>
+impl<
+        const N_BATCH_1: usize,
+        const N_HASHES_BATCH_1: usize,
+        const N_BATCH_2: usize,
+        const N_HASHES_BATCH_2: usize,
+    > ConnectorA160Factory<N_BATCH_1, N_HASHES_BATCH_1, N_BATCH_2, N_HASHES_BATCH_2>
+where
+    [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]:,
 {
     /// Constructs connectors from the public keys.
     ///
@@ -164,30 +186,28 @@ impl<const N_PUBLIC_KEYS_PER_CONNECTOR: usize, const N_PUBLIC_KEYS: usize>
     pub fn create_connectors(
         &self,
     ) -> (
-        Vec<ConnectorA160<N_PUBLIC_KEYS_PER_CONNECTOR>>,
-        ConnectorA160<{ N_PUBLIC_KEYS % N_PUBLIC_KEYS_PER_CONNECTOR }>,
+        [ConnectorA160<N_HASHES_BATCH_1>; N_BATCH_1],
+        [ConnectorA160<N_HASHES_BATCH_2>; N_BATCH_2],
     ) {
-        let mut connectors: Vec<ConnectorA160<N_PUBLIC_KEYS_PER_CONNECTOR>> = vec![];
-
-        let mut chunks = self.public_keys.chunks_exact(N_PUBLIC_KEYS_PER_CONNECTOR);
-        for chunk in chunks.by_ref() {
-            let connector = ConnectorA160::<N_PUBLIC_KEYS_PER_CONNECTOR> {
-                network: self.network,
-                public_keys:
-                    TryInto::<[wots160::PublicKey; N_PUBLIC_KEYS_PER_CONNECTOR]>::try_into(chunk)
-                        .unwrap(),
-            };
-
-            connectors.push(connector);
-        }
-
-        let remaining = chunks.remainder();
-        let connector = ConnectorA160 {
+        let connectors1 = array::from_fn(|i| ConnectorA160::<N_HASHES_BATCH_1> {
             network: self.network,
-            public_keys: remaining.try_into().unwrap(),
-        };
+            public_keys: self.public_keys[i * N_HASHES_BATCH_1..(i + 1) * N_HASHES_BATCH_1]
+                .try_into()
+                .expect("array size must be N_HASHES_BATCH_1"),
+        });
 
-        (connectors, connector)
+        let connectors2 = array::from_fn(|i| {
+            let offset = N_BATCH_1 * N_HASHES_BATCH_1;
+            ConnectorA160::<N_HASHES_BATCH_2> {
+                network: self.network,
+                public_keys: self.public_keys
+                    [offset + i * N_HASHES_BATCH_2..offset + (i + 1) * N_HASHES_BATCH_2]
+                    .try_into()
+                    .expect("array size must be N_HASHES_BATCH_2"),
+            }
+        });
+
+        (connectors1, connectors2)
     }
 }
 
@@ -246,7 +266,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
     }
 
     /// Finalizes the input for the psbt that spends this connector.
-    pub fn create_tx_input(
+    pub fn finalize_input(
         &self,
         input: &mut Input,
         signatures: [wots160::Signature; N_PUBLIC_KEYS],

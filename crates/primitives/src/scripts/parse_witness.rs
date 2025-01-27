@@ -6,10 +6,7 @@ use bitvm::{
 
 use crate::{
     errors::{ParseError, ParseResult},
-    params::prelude::{
-        NUM_CONNECTOR_A160, NUM_CONNECTOR_A256, NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160_RESIDUAL,
-        NUM_PKS_A256_PER_CONNECTOR,
-    },
+    params::connectors::*,
 };
 
 fn parse_wots160_signatures<const N_SIGS: usize>(
@@ -88,30 +85,39 @@ pub fn parse_claim_witness(
 }
 
 pub fn parse_assertion_witnesses(
-    witness256: [Script; NUM_CONNECTOR_A256],
-    witness160: [Script; NUM_CONNECTOR_A160],
-    witness160_residual: Option<Script>,
+    witness256_batch1: [Script; NUM_FIELD_CONNECTORS_BATCH_1],
+    witness256_batch2: [Script; NUM_FIELD_CONNECTORS_BATCH_2],
+    witness160_batch1: [Script; NUM_HASH_CONNECTORS_BATCH_1],
+    witness160_batch2: [Script; NUM_HASH_CONNECTORS_BATCH_2],
 ) -> ParseResult<(wots256::Signature, g16::Signatures)> {
-    let mut w256 = Vec::with_capacity(NUM_CONNECTOR_A256);
-    for witness in witness256.into_iter() {
-        w256.push(parse_wots256_signatures::<NUM_PKS_A256_PER_CONNECTOR>(
-            witness,
-        )?);
+    let mut w256 = Vec::with_capacity(NUM_FIELD_CONNECTORS_BATCH_1);
+    for witness in witness256_batch1.into_iter() {
+        w256.push(parse_wots256_signatures::<
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1,
+        >(witness)?);
     }
 
-    let w256 = w256.into_iter().flatten().collect::<Vec<_>>();
+    let mut w256 = w256.into_iter().flatten().collect::<Vec<_>>();
 
-    let mut w160 = Vec::with_capacity(NUM_CONNECTOR_A160);
-    for witness in witness160.into_iter() {
-        w160.push(parse_wots160_signatures::<NUM_PKS_A160_PER_CONNECTOR>(
-            witness,
-        )?);
+    for witness in witness256_batch2.into_iter() {
+        w256.extend(parse_wots256_signatures::<
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
+        >(witness)?);
+    }
+
+    let mut w160 = Vec::with_capacity(NUM_HASH_CONNECTORS_BATCH_1);
+    for witness in witness160_batch1.into_iter() {
+        w160.push(parse_wots160_signatures::<
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
+        >(witness)?);
     }
 
     let mut w160 = w160.into_iter().flatten().collect::<Vec<_>>();
 
-    if let Some(witness) = witness160_residual {
-        w160.extend(parse_wots160_signatures::<NUM_PKS_A160_RESIDUAL>(witness)?);
+    for witness in witness160_batch2.into_iter() {
+        w160.extend(parse_wots160_signatures::<
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
+        >(witness)?);
     }
 
     Ok((

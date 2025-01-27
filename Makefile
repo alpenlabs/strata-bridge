@@ -35,7 +35,7 @@ build: ## Build the workspace into the `target` directory.
 
 ##@ Test
 
-UNIT_TEST_ARGS := --locked --workspace -E 'kind(lib)' -E 'kind(bin)' -E 'kind(proc-macro)'
+UNIT_TEST_ARGS := --locked --workspace -E 'kind(lib)' -E 'kind(bin)' -E 'kind(proc-macro)' -F mock
 COV_FILE := lcov.info
 
 .PHONY: test-unit
@@ -50,7 +50,7 @@ cov-unit: ## Run unit tests with coverage.
 
 .PHONY: cov-report-html
 cov-report-html: ## Generate an HTML coverage report and open it in the browser.
-	cargo llvm-cov --open --workspace --locked nextest
+	cargo llvm-cov --open nextest $(UNIT_TEST_ARGS)
 
 .PHONY: mutants-test
 mutants-test: ## Runs `nextest` under `cargo-mutants`. Caution: This can take *really* long to run.

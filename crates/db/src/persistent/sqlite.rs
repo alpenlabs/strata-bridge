@@ -12,7 +12,8 @@ use musig2::{PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature;
 use sqlx::SqlitePool;
 use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, types::OperatorIdx, wots,
+    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, params::prelude::NUM_ASSERT_DATA_TX,
+    types::OperatorIdx, wots,
 };
 
 use super::{
@@ -298,7 +299,7 @@ impl PublicDb for SqliteDb {
 
     async fn register_assert_data_txids(
         &self,
-        assert_data_txids: [Txid; 7],
+        assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<()> {

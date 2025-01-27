@@ -12,6 +12,9 @@ use crate::params::prelude::MAGIC_BYTES;
 
 /// Create a script with the spending condition that a MuSig2 aggregated signature corresponding to
 /// the pubkey set must be provided.
+///
+/// NOTE: This script only requires an [`XOnlyPublicKey`] which may or may not be be a musig2
+/// aggregated public key. No additional validation is performed on the key.
 pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> ScriptBuf {
     script! {
         { *aggregated_pubkey }
@@ -91,8 +94,8 @@ pub fn anyone_can_spend_txout() -> TxOut {
 /// Create a bitcoin [`Transaction`] for the given inputs and outputs.
 pub fn create_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> Transaction {
     Transaction {
-        version: transaction::Version(2),
-        lock_time: LockTime::from_consensus(0),
+        version: transaction::Version::TWO,
+        lock_time: LockTime::ZERO,
         input: tx_ins,
         output: tx_outs,
     }

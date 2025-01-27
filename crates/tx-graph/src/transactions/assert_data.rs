@@ -1,17 +1,17 @@
-use bitcoin::{OutPoint, Psbt, Transaction, TxOut, Txid};
+use std::array;
+
+use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::{groth16::g16, signatures::wots::wots256, treepp::*};
 use strata_bridge_primitives::{
-    params::{
-        connectors::{
-            NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160_RESIDUAL, NUM_PKS_A256_PER_CONNECTOR,
-        },
-        prelude::*,
-    },
+    params::prelude::*,
     scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
     wots,
 };
 
-use super::errors::{TxError, TxResult};
+use super::{
+    errors::{TxError, TxResult},
+    pre_assert::PRE_ASSERT_OUTS,
+};
 use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`AssertDataTxBatch`].
@@ -19,8 +19,7 @@ use crate::connectors::prelude::*;
 pub struct AssertDataTxInput {
     pub pre_assert_txid: Txid,
 
-    pub pre_assert_txouts: [TxOut; NUM_CONNECTOR_A160 + NUM_CONNECTOR_A256 + 1 + 1], /* 1 =>
-                                                                                      * residual, 1 => stake */
+    pub pre_assert_txouts: [TxOut; PRE_ASSERT_OUTS],
 }
 
 /// A batch of transactions in the Assert chain that spend outputs of the pre-assert transaction by
@@ -33,79 +32,88 @@ impl AssertDataTxBatch {
     ///
     /// The batch is constructed by taking the pre-assert transaction outputs and spending them in
     /// order.
-    pub fn new(input: AssertDataTxInput, connector_a2: ConnectorS) -> Self {
-        Self(std::array::from_fn(|i| {
-            let (utxos, prevouts): (Vec<OutPoint>, Vec<TxOut>) = {
-                let (skip, take) = match i {
-                    0 => (1, NUM_ASSERT_DATA_TX1_A256_PK7),
-                    1..=5 => (
-                        1 + NUM_ASSERT_DATA_TX1_A256_PK7 + (i - 1) * NUM_ASSERT_DATA_TX2_A160_PK11,
-                        NUM_ASSERT_DATA_TX2_A160_PK11,
-                    ),
-                    _ => (
-                        1 + NUM_ASSERT_DATA_TX1_A256_PK7
-                            + NUM_ASSERT_DATA_TX2 * NUM_ASSERT_DATA_TX2_A160_PK11,
-                        NUM_ASSERT_DATA_TX3_A160_PK11 + NUM_ASSERT_DATA_TX3_A160_PK2,
-                    ),
-                };
-                input
-                    .pre_assert_txouts
-                    .iter()
-                    .enumerate()
-                    .skip(skip)
-                    .take(take)
-                    .map(|(vout, txout)| {
-                        (
-                            OutPoint {
-                                txid: input.pre_assert_txid,
-                                vout: vout as u32,
-                            },
-                            txout.clone(),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .unzip()
-            };
+    pub fn new(
+        input: AssertDataTxInput,
+        connector_a2: ConnectorS,
+        connector_cpfp: ConnectorCpfp,
+    ) -> Self {
+        const STAKE_VOUT_OFFSET: usize = 1;
 
-            let tx_ins = create_tx_ins(utxos);
+        Self(array::from_fn(|i| {
+            let (outpoint, prevout) = input
+                .pre_assert_txouts
+                .get(STAKE_VOUT_OFFSET + i)
+                .map(|txout| {
+                    (
+                        OutPoint {
+                            txid: input.pre_assert_txid,
+                            vout: (STAKE_VOUT_OFFSET + i) as u32,
+                        },
+                        txout.clone(),
+                    )
+                })
+                .expect("must have enough prevouts");
+
+            let tx_ins = create_tx_ins([outpoint]);
 
             let output_script = connector_a2.create_taproot_address().script_pubkey();
             let output_amt = output_script.minimal_non_dust();
-            let tx_outs = create_tx_outs([(output_script, output_amt)]);
 
-            let tx = create_tx(tx_ins, tx_outs);
+            let connector_cpfp_output_script =
+                connector_cpfp.generate_taproot_address().script_pubkey();
+            let connector_cpfp_output_amt = connector_cpfp_output_script.minimal_non_dust();
+
+            let tx_outs = create_tx_outs([
+                (output_script, output_amt),
+                (connector_cpfp_output_script, connector_cpfp_output_amt),
+            ]);
+
+            let mut tx = create_tx(tx_ins, tx_outs);
+            tx.version = transaction::Version(3);
+
             let mut psbt = Psbt::from_unsigned_tx(tx).expect("must have an empty witness");
-
-            for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts) {
-                input.witness_utxo = Some(utxo);
-            }
+            psbt.inputs[0].witness_utxo = Some(prevout);
 
             psbt
         }))
     }
 
-    /// Get the PSBTs in the batch.
+    /// Gets the PSBTs in the batch.
     pub fn psbts(&self) -> &[Psbt; NUM_ASSERT_DATA_TX] {
         &self.0
     }
 
-    /// Get a PSBT at a given index.
+    /// Gets a PSBT at a given index.
     pub fn psbt_at_index(&self, index: usize) -> Option<&Psbt> {
         self.0.get(index)
     }
 
-    /// Get a mutable reference to a PSBT at a given index.
+    /// Gets a mutable reference to a PSBT at a given index.
     pub fn psbt_at_index_mut(&mut self, index: usize) -> Option<&mut Psbt> {
         self.0.get_mut(index)
     }
 
-    /// Get the number of transactions in the batch.
+    /// Gets the number of transactions in the batch.
     pub const fn num_txs_in_batch(&self) -> usize {
         NUM_ASSERT_DATA_TX
     }
 
-    /// Compute the transaction IDs of the PSBTs in the batch.
+    /// Gets the vout for CPFP in each PSBT in the batch.
+    pub fn cpfp_vout(&self) -> u32 {
+        self.0[0].outputs.len() as u32 - 1
+    }
+
+    /// Gets the total input amount of the psbt at the given index if present.
+    pub fn total_input_amount(&self, index: usize) -> Option<Amount> {
+        self.0.get(index).map(|psbt| {
+            psbt.inputs
+                .iter()
+                .map(|input| input.witness_utxo.as_ref().unwrap().value)
+                .sum()
+        })
+    }
+
+    /// Computes the transaction IDs of the PSBTs in the batch.
     pub fn compute_txids(&self) -> [Txid; NUM_ASSERT_DATA_TX] {
         self.0
             .iter()
@@ -120,85 +128,108 @@ impl AssertDataTxBatch {
     /// This method adds bitcommitments to the assertions corresponding to the Groth16 proof.
     pub fn finalize(
         mut self,
-        connector_a160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
-        connector_a256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
+        connector_a160_factory: ConnectorA160Factory<
+            NUM_HASH_CONNECTORS_BATCH_1,
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
+            NUM_HASH_CONNECTORS_BATCH_2,
+            NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
+        >,
+        connector_a256_factory: ConnectorA256Factory<
+            NUM_FIELD_CONNECTORS_BATCH_1,
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1,
+            NUM_FIELD_CONNECTORS_BATCH_2,
+            NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
+        >,
         signatures: wots::Signatures,
     ) -> [Transaction; NUM_ASSERT_DATA_TX] {
-        let (connector160_batch, connector160_remainder): (
-            Vec<ConnectorA160<NUM_PKS_A160_PER_CONNECTOR>>,
-            ConnectorA160<NUM_PKS_A160_RESIDUAL>,
+        let (connector160_batch1, connector160_batch2): (
+            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
+            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_HASH_CONNECTORS_BATCH_2],
         ) = connector_a160_factory.create_connectors();
 
-        let (connector256_batch, _connector256_remainder): (
-            Vec<ConnectorA256<NUM_PKS_A256_PER_CONNECTOR>>,
-            ConnectorA256<NUM_PKS_A256_RESIDUAL>,
+        let (connector256_batch1, connector256_batch2): (
+            [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_FIELD_CONNECTORS_BATCH_1],
+            [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_FIELD_CONNECTORS_BATCH_2],
         ) = connector_a256_factory.create_connectors();
 
-        let signatures_256: [wots256::Signature; NUM_PKS_A256] = std::array::from_fn(|i| match i {
+        let signatures_256: [wots256::Signature; NUM_PKS_A256] = array::from_fn(|i| match i {
             0 => signatures.superblock_hash,
             1 => signatures.groth16.0[0],
             _ => signatures.groth16.1[i - 2],
         });
 
-        // add connector 6_7x_256
-        let psbt_index = 0;
-        connector256_batch
+        connector256_batch1
             .iter()
-            .by_ref()
-            .take(NUM_ASSERT_DATA_TX1_A256_PK7)
             .enumerate()
-            .for_each(|(input_index, conn)| {
-                let range_s = (input_index + psbt_index * NUM_ASSERT_DATA_TX1_A256_PK7)
-                    * NUM_PKS_A256_PER_CONNECTOR;
-                let range_e = range_s + NUM_PKS_A256_PER_CONNECTOR;
-                conn.create_tx_input(
-                    &mut self.0[psbt_index].inputs[input_index],
-                    signatures_256[range_s..range_e].try_into().unwrap(),
+            .for_each(|(psbt_index, conn)| {
+                let input = &mut self.0[psbt_index].inputs[0];
+
+                let start_index = psbt_index * NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1;
+                let end_index = start_index + NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1;
+
+                conn.finalize_input(
+                    input,
+                    signatures_256[start_index..end_index]
+                        .try_into()
+                        .expect("must have NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1 signatures"),
                 );
             });
 
-        // add connector 5 9_11x_160
-        connector160_batch
-            .chunks(NUM_ASSERT_DATA_TX2_A160_PK11)
+        let mut psbt_offset = NUM_FIELD_CONNECTORS_BATCH_1;
+        let sigs_offset = NUM_FIELD_CONNECTORS_BATCH_1 * NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1;
+        connector256_batch2
+            .iter()
             .enumerate()
-            .for_each(|(psbt_index, conn_batch)| {
-                conn_batch
-                    .iter()
-                    .enumerate()
-                    .for_each(|(input_index, conn)| {
-                        let range_s = (input_index
-                        // last psbt's utxos
-                        + psbt_index * NUM_ASSERT_DATA_TX2_A160_PK11)
-                        // this input's last utxo
-                        * NUM_PKS_A160_PER_CONNECTOR;
-                        let range_e = range_s + NUM_PKS_A160_PER_CONNECTOR;
+            .for_each(|(psbt_index, conn)| {
+                let input = &mut self.0[psbt_offset + psbt_index].inputs[0];
 
-                        conn.create_tx_input(
-                            // +1 for earlier psbt
-                            &mut self.0[psbt_index + 1].inputs[input_index],
-                            signatures.groth16.2[range_s..range_e].try_into().unwrap(),
-                        );
-                    });
+                let start_index = sigs_offset + psbt_index * NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2;
+                let end_index = start_index + NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2;
+
+                conn.finalize_input(
+                    input,
+                    signatures_256[start_index..end_index]
+                        .try_into()
+                        .expect("must have NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2 signatures"),
+                );
             });
 
-        // add connector 7_11x_160, 1_2x_160
-        let psbt_index = NUM_ASSERT_DATA_TX1 + NUM_ASSERT_DATA_TX2;
+        psbt_offset += NUM_FIELD_CONNECTORS_BATCH_2;
+        connector160_batch1
+            .iter()
+            .enumerate()
+            .for_each(|(psbt_index, conn)| {
+                let input = &mut self.0[psbt_offset + psbt_index].inputs[0];
 
-        let range_s = (NUM_ASSERT_DATA_TX2 * NUM_ASSERT_DATA_TX2_A160_PK11
-            + NUM_ASSERT_DATA_TX3_A160_PK11)
-            * NUM_PKS_A160_PER_CONNECTOR;
-        let range_e = range_s + NUM_PKS_A160_RESIDUAL;
-        let residual_a160_input = &mut self.0[psbt_index].inputs[NUM_ASSERT_DATA_TX3_A160_PK11];
-        connector160_remainder.create_tx_input(
-            residual_a160_input,
-            signatures.groth16.2[range_s..range_e].try_into().unwrap(),
-        );
+                let start_index = psbt_index * NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1;
+                let end_index = start_index + NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1;
 
-        assert_eq!(
-            NUM_ASSERT_DATA_TX3_A160_PK11 + NUM_ASSERT_DATA_TX3_A160_PK2,
-            self.0[psbt_index].inputs.len(),
-            "number of inputs in the second psbt must match"
-        );
+                conn.finalize_input(
+                    input,
+                    signatures.groth16.2[start_index..end_index]
+                        .try_into()
+                        .expect("must have NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1 signatures"),
+                );
+            });
+
+        psbt_offset += NUM_HASH_CONNECTORS_BATCH_1;
+        let sigs_offset = NUM_HASH_CONNECTORS_BATCH_1 * NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1;
+        connector160_batch2
+            .iter()
+            .enumerate()
+            .for_each(|(psbt_index, conn)| {
+                let input = &mut self.0[psbt_offset + psbt_index].inputs[0];
+
+                let start_index = sigs_offset + psbt_index * NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2;
+                let end_index = start_index + NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2;
+
+                conn.finalize_input(
+                    input,
+                    signatures.groth16.2[start_index..end_index]
+                        .try_into()
+                        .expect("must have NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2 signatures"),
+                );
+            });
 
         self.0
             .into_iter()
@@ -215,42 +246,63 @@ impl AssertDataTxBatch {
     pub fn parse_witnesses(
         assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
     ) -> TxResult<Option<(wots256::Signature, g16::Signatures)>> {
-        let witnesses = assert_data_txs
+        let witnesses: [_; TOTAL_CONNECTORS] = assert_data_txs
             .iter()
             .flat_map(|tx| {
                 tx.input.iter().map(|txin| {
                     script! {
+                        // skip the last two elements which are the script and control block
                         for w in txin.witness.into_iter().take(txin.witness.len() - 2) {
                             if w.len() == 1 { { w[0] } } else { { w.to_vec() } }
                         }
                     }
                 })
             })
-            .collect::<Vec<_>>();
+            .collect::<Vec<_>>()
+            .try_into()
+            .map_err(|_| {
+                TxError::Witness(format!("number of witnesses must be {TOTAL_CONNECTORS}"))
+            })?;
 
-        let witness256 = witnesses
-            .get(0..NUM_CONNECTOR_A256)
-            .ok_or(TxError::Witness("invalid 256-bit witness size".to_string()))?
+        let witness256_batch1 = witnesses[..NUM_FIELD_CONNECTORS_BATCH_1]
             .to_vec()
             .try_into()
             .or(Err(TxError::Witness(
-                "invalid 256-bit witness size".to_string(),
+                "invalid 256-bit witness size in batch 1".to_string(),
             )))?;
 
-        let witness160 = witnesses
-            .get(NUM_ASSERT_DATA_TX1_A256_PK7..NUM_CONNECTOR_A256 + NUM_CONNECTOR_A160)
-            .ok_or(TxError::Witness("invalid 256-bit witness size".to_string()))?
+        let mut offset = NUM_FIELD_CONNECTORS_BATCH_1;
+        let witness256_batch2 = witnesses[offset..offset + NUM_FIELD_CONNECTORS_BATCH_2]
             .to_vec()
             .try_into()
             .or(Err(TxError::Witness(
-                "invalid 160-bit witness size".to_string(),
+                "invalid 256-bit witness size in batch 2".to_string(),
             )))?;
 
-        let witness160_residual = witnesses.last().cloned();
+        offset += NUM_FIELD_CONNECTORS_BATCH_2;
+        let witness160_batch1 = witnesses[offset..offset + NUM_HASH_CONNECTORS_BATCH_1]
+            .to_vec()
+            .try_into()
+            .or(Err(TxError::Witness(
+                "invalid 160-bit witness size in batch 1".to_string(),
+            )))?;
+
+        offset += NUM_HASH_CONNECTORS_BATCH_1;
+        let witness160_batch2 = witnesses[offset..offset + NUM_HASH_CONNECTORS_BATCH_2]
+            .to_vec()
+            .try_into()
+            .or(Err(TxError::Witness(
+                "invalid 160-bit witness size in batch 2".to_string(),
+            )))?;
 
         Ok(Some(
-            parse_assertion_witnesses(witness256, witness160, witness160_residual)
-                .map_err(|e| TxError::Witness(e.to_string()))?,
+            parse_assertion_witnesses(
+                witness256_batch1,
+                witness256_batch2,
+                witness160_batch1,
+                witness160_batch2,
+            )
+            .map_err(|e| TxError::Witness(e.to_string()))?,
         ))
     }
 }
@@ -290,7 +342,9 @@ mod tests {
         };
 
         let connector_a2 = ConnectorS::new(generate_keypair().x_only_public_key().0, network);
-        let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2);
+        let connector_cpfp = ConnectorCpfp::new(generate_keypair().x_only_public_key().0, network);
+
+        let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2, connector_cpfp);
 
         let msk = "test-assert-data-parse-witnesses";
         let wots_public_keys = WotsPublicKeys::new(msk, generate_txid());
@@ -336,13 +390,9 @@ mod tests {
             .expect("must have witnesses");
 
         signed_assert_data_txs[0].input[0].witness =
-            Witness::from_slice(&[[0u8; 32]; NUM_CONNECTOR_A256 - 1]);
+            Witness::from_slice(&[[0u8; 32]; NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1]);
 
-        assert!(
-            AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs).is_err_and(|e| {
-                dbg!(e.to_string());
-                e.to_string().contains("invalid witness")
-            })
-        );
+        assert!(AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs)
+            .is_err_and(|e| e.to_string().contains("invalid witness")));
     }
 }

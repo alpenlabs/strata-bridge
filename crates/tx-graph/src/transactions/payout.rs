@@ -1,15 +1,13 @@
 use bitcoin::{
-    sighash::Prevouts, Amount, Network, OutPoint, Psbt, Sequence, Transaction, TxOut, Txid,
+    sighash::Prevouts, transaction, Amount, Network, OutPoint, Psbt, Sequence, Transaction, TxOut,
+    Txid,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{
-    params::{connectors::PAYOUT_TIMELOCK, prelude::MIN_RELAY_FEE},
-    scripts::prelude::*,
-};
+use strata_bridge_primitives::{params::connectors::PAYOUT_TIMELOCK, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorS};
+use crate::connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorCpfp, ConnectorS};
 
 /// Data needed to construct a [`PayoutTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,7 +47,12 @@ pub struct PayoutTx {
 
 impl PayoutTx {
     /// Constructs a new instance of the payout transaction.
-    pub fn new(data: PayoutData, connector_a30: ConnectorA30, connector_b: ConnectorS) -> Self {
+    pub fn new(
+        data: PayoutData,
+        connector_a30: ConnectorA30,
+        connector_b: ConnectorS,
+        connector_cpfp: ConnectorCpfp,
+    ) -> Self {
         let utxos = [
             OutPoint {
                 txid: data.deposit_txid,
@@ -71,8 +74,6 @@ impl PayoutTx {
             "must set relative timelock on the second input of payout tx"
         );
 
-        let payout_amount = data.input_stake + data.deposit_amount - MIN_RELAY_FEE;
-
         let (operator_address, _) = create_taproot_addr(
             &data.network,
             SpendPath::KeySpend {
@@ -81,9 +82,18 @@ impl PayoutTx {
         )
         .expect("should be able to create taproot address");
 
-        let tx_outs = create_tx_outs([(operator_address.script_pubkey(), payout_amount)]);
+        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_amount = cpfp_script.minimal_non_dust();
 
-        let tx = create_tx(tx_ins, tx_outs);
+        let payout_amount = data.input_stake + data.deposit_amount - cpfp_amount;
+
+        let tx_outs = create_tx_outs([
+            (operator_address.script_pubkey(), payout_amount),
+            (cpfp_script, cpfp_amount),
+        ]);
+
+        let mut tx = create_tx(tx_ins, tx_outs);
+        tx.version = transaction::Version(3);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("the witness must be empty");
 
@@ -118,6 +128,11 @@ impl PayoutTx {
             prevouts,
             witnesses,
         }
+    }
+
+    /// Gets the output index for CPFP.
+    pub fn cpfp_vout(&self) -> u32 {
+        self.psbt.outputs.len() as u32 - 1
     }
 
     /// Finalizes the payout transaction.
@@ -161,5 +176,19 @@ impl CovenantTx for PayoutTx {
 
     fn compute_txid(&self) -> Txid {
         self.psbt.unsigned_tx.compute_txid()
+    }
+
+    fn input_amount(&self) -> Amount {
+        self.psbt
+            .inputs
+            .iter()
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .as_ref()
+                    .expect("must have witness utxo")
+                    .value
+            })
+            .sum()
     }
 }

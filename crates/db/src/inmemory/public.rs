@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{types::OperatorIdx, wots};
+use strata_bridge_primitives::{params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
 use tokio::sync::RwLock;
 use tracing::trace;
 
@@ -203,7 +203,7 @@ impl PublicDb for PublicDbInMemory {
 
     async fn register_assert_data_txids(
         &self,
-        assert_data_txids: [Txid; 7],
+        assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<()> {

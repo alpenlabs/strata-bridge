@@ -1,12 +1,13 @@
+//! This module constructs the peg-out graph which is a series of transactions that allow for the
+//! withdrawal of funds from the bridge address given a valid claim.
+
 use bitcoin::{Amount, Network, Txid};
 use secp256k1::XOnlyPublicKey;
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::BuildContext,
-    params::connectors::{
-        NUM_PKS_A160, NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A256, NUM_PKS_A256_PER_CONNECTOR,
-    },
+    params::connectors::*,
     types::OperatorIdx,
     wots::{self, Groth16PublicKeys},
 };
@@ -47,14 +48,19 @@ pub struct PegOutGraphInput {
 /// construct the fully signed transaction provided a signature.
 #[derive(Debug, Clone)]
 pub struct PegOutGraph {
+    /// The kickoff transaction that starts the graph.
     pub kickoff_tx: KickOffTx,
 
+    /// The claim transaction that commits to a valid withdrawal.
     pub claim_tx: ClaimTx,
 
+    /// The assert chain that commits to the proof of a valid claim.
     pub assert_chain: AssertChain,
 
+    /// The payout transaction that reimburses the operator.
     pub payout_tx: PayoutTx,
 
+    /// The disprove transaction that invalidates a claim and slashes the operator's stake.
     pub disprove_tx: DisproveTx,
 }
 
@@ -85,7 +91,7 @@ impl PegOutGraph {
                 deposit_txid,
             ))?;
 
-        let connectors = PegOutGraphConnectors::new(context, wots_public_keys);
+        let connectors = PegOutGraphConnectors::new(context, operator_idx, wots_public_keys);
 
         let kickoff_tx = KickOffTx::new(input.kickoff_data, connectors.kickoff)?;
         let kickoff_txid = kickoff_tx.compute_txid();
@@ -101,6 +107,7 @@ impl PegOutGraph {
             connectors.kickoff,
             connectors.claim_out_0,
             connectors.claim_out_1,
+            connectors.connector_cpfp,
         );
         let claim_txid = claim_tx.compute_txid();
         debug!(event = "created claim tx", %operator_idx, %claim_txid);
@@ -122,6 +129,7 @@ impl PegOutGraph {
             connectors.stake,
             connectors.post_assert_out_0,
             connectors.post_assert_out_1,
+            connectors.connector_cpfp,
             connectors.assert_data160_factory,
             connectors.assert_data256_factory,
         );
@@ -140,7 +148,12 @@ impl PegOutGraph {
             network: input.network,
         };
 
-        let payout_tx = PayoutTx::new(payout_data, connectors.post_assert_out_0, connectors.stake);
+        let payout_tx = PayoutTx::new(
+            payout_data,
+            connectors.post_assert_out_0,
+            connectors.stake,
+            connectors.connector_cpfp,
+        );
         let payout_txid = payout_tx.compute_txid();
         debug!(event = "created payout tx", %operator_idx, %payout_txid);
 
@@ -177,27 +190,49 @@ impl PegOutGraph {
 /// These UTXOs have specific spending conditions to emulate covenants.
 #[derive(Debug, Clone, Copy)]
 pub struct PegOutGraphConnectors {
+    /// The output of the kickoff tx.
     pub kickoff: ConnectorK,
 
+    /// The first output of the claim tx.
     pub claim_out_0: ConnectorC0,
 
+    /// The second output of the claim tx.
     pub claim_out_1: ConnectorC1,
 
+    /// The connector that moves the stake across the graph.
     pub stake: ConnectorS,
 
+    /// The connector for the CPFP output.
+    pub connector_cpfp: ConnectorCpfp,
+
+    /// The first output of the post-assert tx used to get the stake.
     pub post_assert_out_0: ConnectorA30,
 
+    /// The second output of the post-assert tx used for disprove commitment.
     pub post_assert_out_1: ConnectorA31,
 
-    pub assert_data160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160>,
+    /// The factory for the 160-bit assertion data connectors.
+    pub assert_data160_factory: ConnectorA160Factory<
+        NUM_HASH_CONNECTORS_BATCH_1,
+        NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
+        NUM_HASH_CONNECTORS_BATCH_2,
+        NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
+    >,
 
-    pub assert_data256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256>,
+    /// The factory for the 256-bit assertion data connectors.
+    pub assert_data256_factory: ConnectorA256Factory<
+        NUM_FIELD_CONNECTORS_BATCH_1,
+        NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1,
+        NUM_FIELD_CONNECTORS_BATCH_2,
+        NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
+    >,
 }
 
 impl PegOutGraphConnectors {
     /// Create a new set of connectors for the peg-out graph.
     pub(crate) fn new(
         build_context: &impl BuildContext,
+        operator_idx: OperatorIdx,
         wots_public_keys: wots::PublicKeys,
     ) -> Self {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
@@ -210,7 +245,15 @@ impl PegOutGraphConnectors {
         let claim_out_1 = ConnectorC1::new(n_of_n_agg_pubkey, network);
 
         let stake = ConnectorS::new(n_of_n_agg_pubkey, network);
+        let operator_pubkey = build_context
+            .pubkey_table()
+            .0
+            .get(&operator_idx)
+            .expect("must have operator pubkey")
+            .x_only_public_key()
+            .0;
 
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
         let post_assert_out_0 = ConnectorA30::new(n_of_n_agg_pubkey, network);
         let post_assert_out_1 = ConnectorA31::new(network, wots_public_keys);
 
@@ -221,11 +264,11 @@ impl PegOutGraphConnectors {
             groth16:
                 Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
         } = wots_public_keys;
-        let assert_data160_factory: ConnectorA160Factory<NUM_PKS_A160_PER_CONNECTOR, NUM_PKS_A160> =
-            ConnectorA160Factory {
-                network,
-                public_keys: public_keys_160,
-            };
+
+        let assert_data160_factory = ConnectorA160Factory {
+            network,
+            public_keys: public_keys_160,
+        };
 
         let public_keys_256 = std::array::from_fn(|i| match i {
             0 => superblock_hash_public_key.0,
@@ -233,17 +276,17 @@ impl PegOutGraphConnectors {
             _ => public_keys_256[i - 2],
         });
 
-        let assert_data256_factory: ConnectorA256Factory<NUM_PKS_A256_PER_CONNECTOR, NUM_PKS_A256> =
-            ConnectorA256Factory {
-                network,
-                public_keys: public_keys_256,
-            };
+        let assert_data256_factory = ConnectorA256Factory {
+            network,
+            public_keys: public_keys_256,
+        };
 
         Self {
             kickoff,
             claim_out_0,
             claim_out_1,
             stake,
+            connector_cpfp,
             post_assert_out_0,
             post_assert_out_1,
             assert_data160_factory,
@@ -254,12 +297,18 @@ impl PegOutGraphConnectors {
 
 #[cfg(test)]
 mod tests {
-    use std::{collections::BTreeMap, fs, str::FromStr, sync::Arc};
+    use std::{
+        collections::{BTreeMap, HashSet},
+        fs,
+        str::FromStr,
+        sync::Arc,
+    };
 
     use bitcoin::{
-        consensus, policy::MAX_STANDARD_TX_WEIGHT, sighash::SighashCache, OutPoint, ScriptBuf,
-        TapSighashType, Transaction, TxOut,
+        consensus, policy::MAX_STANDARD_TX_WEIGHT, sighash::SighashCache, transaction, FeeRate,
+        OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
     };
+    // use bitcoincore_rpc_json::GetRawTransactionResult;
     use corepc_node::{
         serde_json::{self, json},
         Client, Conf, Node,
@@ -283,7 +332,7 @@ mod tests {
     };
     use strata_bridge_test_utils::{
         musig2::generate_agg_signature,
-        prelude::{generate_keypair, generate_txid},
+        prelude::{find_funding_utxo, generate_keypair, generate_txid, sign_cpfp_child},
         tx::get_mock_deposit,
     };
     use strata_common::logging;
@@ -293,19 +342,21 @@ mod tests {
 
     const DEPOSIT_AMOUNT: Amount = Amount::from_int_btc(10);
     const MSK: &str = "test_msk";
+    const FEE_RATE: FeeRate = FeeRate::from_sat_per_kwu(5000);
 
     #[tokio::test]
     async fn test_tx_graph_payout() {
         let SetupOutput {
             bitcoind,
-            keypair,
+            n_of_n_keypair,
             context,
             deposit_txid,
             public_db,
         } = setup().await;
-        let operator_pubkey = keypair.x_only_public_key().0;
+        let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
         let network = context.network();
         let btc_client = &bitcoind.client;
+        let btc_addr = btc_client.new_address().expect("must generate new address");
 
         let input = create_tx_graph_input(btc_client, network, operator_pubkey, deposit_txid);
 
@@ -316,7 +367,7 @@ mod tests {
             ..
         } = submit_assertions(
             btc_client,
-            &keypair,
+            &n_of_n_keypair,
             &context,
             deposit_txid,
             input,
@@ -340,41 +391,86 @@ mod tests {
             )
             .expect("must be able to create a message hash");
 
-            generate_agg_signature(&message, &keypair, witness)
+            generate_agg_signature(&message, &n_of_n_keypair, witness)
         });
 
         let deposit_signature = signatures.next().expect("must have deposit signature");
         let n_of_n_sig = signatures.next().expect("must have n-of-n signature");
+        let payout_input_amount = payout_tx.input_amount();
+        let payout_cpfp_vout = payout_tx.cpfp_vout();
         let signed_payout_tx = payout_tx.finalize(post_assert_out_0, deposit_signature, n_of_n_sig);
-        assert!(
-            btc_client
-                .send_raw_transaction(&signed_payout_tx)
-                .is_err_and(|e| { e.to_string().contains("non-BIP68-final") }),
-            "must not be able to send payout tx immediately"
+        let payout_amount = signed_payout_tx.output[0].value;
+        let payout_txid = signed_payout_tx.compute_txid().to_string();
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
+        let signed_payout_cpfp_child = create_cpfp_child(
+            btc_client,
+            &n_of_n_keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_payout_tx,
+            payout_input_amount,
+            payout_cpfp_vout,
         );
 
-        let btc_addr = btc_client.new_address().expect("must generate new address");
+        info!(
+            txid = payout_txid,
+            "trying to submit payout before timelock"
+        );
+        let result = btc_client
+            .submit_package(
+                &[signed_payout_tx.clone(), signed_payout_cpfp_child.clone()],
+                None,
+                None,
+            )
+            .expect("must be able to submit package");
+        assert_ne!(
+            result.package_msg, "success",
+            "submit package message must not be success"
+        );
+        info!(
+            txid = payout_txid,
+            "could not submit payout before timelock"
+        );
+
         btc_client
             .generate_to_address(PAYOUT_TIMELOCK as usize + 6, &btc_addr)
             .expect("must be able to mine blocks");
 
-        btc_client
-            .send_raw_transaction(&signed_payout_tx)
-            .expect("must be able to send payout tx after timelock");
+        info!(txid = payout_txid, "trying to submit payout after timelock");
+        let result = btc_client
+            .submit_package(&[signed_payout_tx, signed_payout_cpfp_child], None, None)
+            .expect("must be able to send payout package");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "submit package message must be success"
+        );
+        assert_eq!(result.tx_results.len(), 2, "must have two tx results");
+
+        let total_cpfp_amount = OPERATOR_STAKE + DEPOSIT_AMOUNT - payout_amount;
+        let total_cpfp_amount = total_cpfp_amount.to_sat();
+        info!(
+            ?payout_amount,
+            stake = OPERATOR_STAKE.to_sat(),
+            deposit = DEPOSIT_AMOUNT.to_sat(),
+            %total_cpfp_amount,
+            "received_payout"
+        );
     }
 
     #[tokio::test]
     async fn test_tx_graph_disprove() {
         let SetupOutput {
             bitcoind,
-            keypair,
+            n_of_n_keypair,
             context,
             deposit_txid,
             public_db,
         } = setup().await;
         let network = context.network();
-        let operator_pubkey = keypair.x_only_public_key().0;
         let btc_client = &bitcoind.client;
+        let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
         let input = create_tx_graph_input(btc_client, network, operator_pubkey, deposit_txid);
 
@@ -400,7 +496,7 @@ mod tests {
             ..
         } = submit_assertions(
             btc_client,
-            &keypair,
+            &n_of_n_keypair,
             &context,
             deposit_txid,
             input,
@@ -477,7 +573,7 @@ mod tests {
             input_index,
         )
         .expect("must be able to create a message hash");
-        let n_of_n_sig = generate_agg_signature(&message, &keypair, &witness);
+        let n_of_n_sig = generate_agg_signature(&message, &n_of_n_keypair, &witness);
 
         info!("finalizing disprove transaction");
         let signed_disprove_tx = disprove_tx.finalize(
@@ -500,7 +596,7 @@ mod tests {
 
     struct SetupOutput {
         bitcoind: Node,
-        keypair: Keypair,
+        n_of_n_keypair: Keypair,
         context: TxBuildContext,
         deposit_txid: Txid,
         public_db: PublicDbInMemory,
@@ -522,8 +618,8 @@ mod tests {
             .chain;
         let network = Network::from_str(&network).expect("network must be valid");
 
-        let keypair = generate_keypair();
-        let pubkey_table = BTreeMap::from([(0, keypair.public_key())]);
+        let n_of_n_keypair = generate_keypair();
+        let pubkey_table = BTreeMap::from([(0, n_of_n_keypair.public_key())]);
         let context = TxBuildContext::new(network, pubkey_table.into(), 0);
 
         let n_of_n_agg_pubkey = context.aggregated_pubkey();
@@ -546,7 +642,7 @@ mod tests {
 
         SetupOutput {
             bitcoind,
-            keypair,
+            n_of_n_keypair,
             context,
             deposit_txid,
             public_db,
@@ -633,19 +729,24 @@ mod tests {
             )
             .expect("must be able to sign kickoff tx");
 
-        let signed_kickoff_tx = &consensus::encode::deserialize_hex(&signed_kickoff_tx.hex)
-            .expect("must be able to deserialize raw signed kickoff tx");
+        let signed_kickoff_tx =
+            &consensus::encode::deserialize_hex::<Transaction>(&signed_kickoff_tx.hex)
+                .expect("must be able to deserialize raw signed kickoff tx");
 
-        info!("broadcasting kickoff tx");
+        info!(vsize = signed_kickoff_tx.vsize(), "broadcasting kickoff tx");
         btc_client
             .send_raw_transaction(signed_kickoff_tx)
             .expect("must be able to send kickoff tx");
+        btc_client
+            .generate_to_address(1, &btc_addr)
+            .expect("must be able to mine blocks");
 
         let PegOutGraphConnectors {
             kickoff,
             claim_out_0,
             claim_out_1: _,
             stake: _,
+            connector_cpfp,
             post_assert_out_0,
             post_assert_out_1,
             assert_data160_factory,
@@ -663,6 +764,8 @@ mod tests {
             .expect("must get block")
             .time;
 
+        let claim_input_amount = claim_tx.input_amount();
+        let claim_cpfp_vout = claim_tx.cpfp_vout();
         let signed_claim_tx = claim_tx.finalize(
             deposit_txid,
             &kickoff,
@@ -670,9 +773,36 @@ mod tests {
             bridge_out_txid,
             start_ts as u32,
         );
-        btc_client
-            .send_raw_transaction(&signed_claim_tx)
+        info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
+
+        let claim_child_tx = create_cpfp_child(
+            btc_client,
+            keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_claim_tx,
+            claim_input_amount,
+            claim_cpfp_vout,
+        );
+
+        let result = btc_client
+            .submit_package(&[signed_claim_tx.clone(), claim_child_tx], None, None)
             .expect("must be able to send claim tx");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must have successful package submission but got: {:?}",
+            result
+        );
+        assert_eq!(
+            result.tx_results.len(),
+            2,
+            "must have two transactions in package"
+        );
+
+        btc_client
+            .generate_to_address(6, &btc_addr)
+            .expect("must be able to mine blocks");
 
         let AssertChain {
             pre_assert,
@@ -683,6 +813,8 @@ mod tests {
         let mut sighash_cache = SighashCache::new(&pre_assert.psbt().unsigned_tx);
         let prevouts = pre_assert.prevouts();
         let witnesses = pre_assert.witnesses();
+        let pre_assert_input_amount = pre_assert.input_amount();
+        let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
         let tx_hash = create_message_hash(
             &mut sighash_cache,
             prevouts,
@@ -693,16 +825,50 @@ mod tests {
         .expect("must be able create a message hash for tx");
         let n_of_n_sig = generate_agg_signature(&tx_hash, keypair, &witnesses[0]);
         let signed_pre_assert = pre_assert.finalize(n_of_n_sig, claim_out_0);
+        assert_eq!(
+            signed_pre_assert.version,
+            transaction::Version(3),
+            "pre-assert tx must be version 3"
+        );
 
-        btc_client
-            .send_raw_transaction(&signed_pre_assert)
+        let signed_pre_assert_cpfp = create_cpfp_child(
+            btc_client,
+            keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_pre_assert,
+            pre_assert_input_amount,
+            pre_assert_cpfp_vout,
+        );
+
+        info!(
+            vsize = signed_pre_assert.vsize(),
+            "broadcasting pre-assert tx"
+        );
+        let result = btc_client
+            .submit_package(&[signed_pre_assert, signed_pre_assert_cpfp], None, None)
             .expect("must be able to send pre-assert tx");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must have successful package submission"
+        );
+        assert_eq!(
+            result.tx_results.len(),
+            2,
+            "must have two transactions in package"
+        );
 
         btc_client
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine blocks");
 
         let wots_signatures = WotsSignatures::new(MSK, deposit_txid, assertions);
+        let assert_data_input_amounts = (0..assert_data.num_txs_in_batch())
+            .map(|i| assert_data.total_input_amount(i).expect("input must exist"))
+            .collect::<Vec<_>>();
+        let assert_data_cpfp_vout = assert_data.cpfp_vout();
+
         let signed_assert_data_txs = assert_data.finalize(
             assert_data160_factory,
             assert_data256_factory,
@@ -715,34 +881,68 @@ mod tests {
             "number of assert data transactions must match"
         );
 
-        signed_assert_data_txs
-            .iter()
+        let num_signed_assert_data_txs = signed_assert_data_txs.len();
+        let mut total_assert_vsize = 0;
+        let mut total_assert_with_child_vsize = 0;
+
+        assert_data_input_amounts.into_iter().zip(signed_assert_data_txs
+            .into_iter())
             .enumerate()
-            .for_each(|(i, tx)| {
+            .for_each(|(i, (input_amount, tx))| {
                 assert!(
                     tx.weight().to_wu() < MAX_STANDARD_TX_WEIGHT as u64,
                     "assert data tx {i} must be within standardness limit"
                 );
 
-                btc_client
-                    .send_raw_transaction(tx)
-                    .expect("must be able to send assert data tx");
+                assert_eq!(tx.output.len(), 2, "assert data tx {i} must have 2 outputs -- one to consolidate, the other to CPFP");
+                let assert_data_txid = tx.compute_txid();
+
+                let signed_child_tx = create_cpfp_child(
+                    btc_client,
+                    keypair,
+                    &btc_addr,
+                    connector_cpfp,
+                    &tx,
+                    input_amount,
+                    assert_data_cpfp_vout,
+                );
+
+                let vsize = tx.vsize();
+                total_assert_vsize += vsize;
+                total_assert_with_child_vsize += vsize + signed_child_tx.vsize();
+
+                info!(
+                    %vsize,
+                    txid = tx.compute_txid().to_string(),
+                    index = i,
+                    "broadcasting assert data tx"
+                );
+                let result = btc_client
+                    .submit_package(&[tx, signed_child_tx], None, None)
+                    .expect("must be able to send assert data tx with cpfp");
+
+                assert_eq!(result.package_msg, "success", "must have successful package submission but got: {result:?}");
+                assert_eq!(result.tx_results.len(), 2, "must have two transactions in package");
 
                 // generate a block so that the mempool size limit is not hit
                 btc_client
                     .generate_to_address(1, &btc_addr)
                     .expect("must be able to mine assert data tx");
+
+                btc_client.call::<String>("getrawtransaction", &[json!(assert_data_txid.to_string())]).expect("must be able to get assert data tx");
             });
 
         btc_client
             .generate_to_address(5, &btc_addr)
             .expect("must be able to mine blocks");
 
+        info!(%total_assert_vsize, %total_assert_with_child_vsize, "submitted all assert data txs");
+
         let mut sighash_cache = SighashCache::new(&post_assert.psbt().unsigned_tx);
 
         let prevouts = post_assert.prevouts();
         let witnesses = post_assert.witnesses();
-        let post_assert_sigs = (0..signed_assert_data_txs.len() + 1)
+        let post_assert_sigs = (0..num_signed_assert_data_txs + 1)
             .map(|i| {
                 let message = create_message_hash(
                     &mut sighash_cache,
@@ -757,10 +957,43 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
+        let post_assert_input_amount = post_assert.input_amount();
+        let post_assert_cpf_vout = post_assert.cpfp_vout();
         let signed_post_assert = post_assert.finalize(&post_assert_sigs);
-        btc_client
-            .send_raw_transaction(&signed_post_assert)
+
+        let signed_post_assert_child_tx = create_cpfp_child(
+            btc_client,
+            keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_post_assert,
+            post_assert_input_amount,
+            post_assert_cpf_vout,
+        );
+
+        info!(
+            txid = signed_post_assert.compute_txid().to_string(),
+            "broadcasting post-assert tx"
+        );
+        let result = btc_client
+            .submit_package(
+                &[signed_post_assert.clone(), signed_post_assert_child_tx],
+                None,
+                None,
+            )
             .expect("must be able to send post-assert tx");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must have successful package submission but got: {:?}",
+            result
+        );
+        assert_eq!(
+            result.tx_results.len(),
+            2,
+            "must have two transactions in package"
+        );
+
         btc_client
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine post-assert tx");
@@ -773,6 +1006,53 @@ mod tests {
             disprove_tx,
             post_assert_out_1,
         }
+    }
+
+    /// Creates a funded child transaction for CPFP.
+    fn create_cpfp_child(
+        btc_client: &Client,
+        operator_keypair: &Keypair,
+        btc_addr: &bitcoin::Address,
+        connector_cpfp: ConnectorCpfp,
+        parent_tx: &Transaction,
+        parent_input_amount: Amount,
+        parent_output_index: u32,
+    ) -> Transaction {
+        let cpfp_details = CpfpInput::new(parent_tx, parent_input_amount, parent_output_index)
+            .expect("inputs must be valid");
+        let assert_data_cpfp = Cpfp::new(cpfp_details, connector_cpfp);
+
+        let funding_amount = assert_data_cpfp
+            .estimate_package_fee(FEE_RATE)
+            .expect("fee rate must be reasonable");
+
+        let (funding_prevout, funding_utxo) =
+            find_funding_utxo(btc_client, HashSet::new(), funding_amount);
+
+        let funded_cpfp_tx = assert_data_cpfp
+            .add_funding(funding_prevout, funding_utxo, btc_addr.clone(), FEE_RATE)
+            .expect("must be able to fund assert data cpfp tx");
+
+        let prevouts = funded_cpfp_tx
+            .psbt()
+            .inputs
+            .iter()
+            .filter_map(|input| input.witness_utxo.clone())
+            .collect::<Vec<_>>();
+
+        let mut unsigned_child_tx = funded_cpfp_tx.psbt().unsigned_tx.clone();
+        let (funding_witness, parent_signature) = sign_cpfp_child(
+            btc_client,
+            operator_keypair,
+            &prevouts,
+            &mut unsigned_child_tx,
+            Cpfp::FUNDING_INPUT_INDEX,
+            Cpfp::PARENT_INPUT_INDEX,
+        );
+
+        funded_cpfp_tx
+            .finalize(connector_cpfp, funding_witness, parent_signature)
+            .expect("must be able to create signed child tx")
     }
 
     fn load_assertions() -> Assertions {

@@ -1,3 +1,5 @@
+//! Error types for the transaction graph.
+
 use bitcoin::Txid;
 use strata_bridge_db::errors::DbError;
 use strata_bridge_primitives::types::OperatorIdx;
@@ -12,6 +14,7 @@ pub enum TxGraphError {
     #[error("Transaction: {0}")]
     TxError(#[from] TxError),
 
+    /// Error while interacting with the database.
     #[error("Database: {0}")]
     DbError(#[from] DbError),
 
@@ -20,4 +23,5 @@ pub enum TxGraphError {
     MissingWotsPublicKeys(OperatorIdx, Txid),
 }
 
+/// Wrapper type for results that can fail with a `TxGraphError`.
 pub type TxGraphResult<T> = Result<T, TxGraphError>;

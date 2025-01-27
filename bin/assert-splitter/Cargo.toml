@@ -1,0 +1,21 @@
+[package]
+name = "assert-splitter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop", features = [
+  "curve",
+], default-features = false }
+ark-ff.workspace = true
+bitcoin.workspace = true
+bitcoin-script.workspace = true
+bitvm.workspace = true
+blake3 = "1.5.5"
+secp256k1.workspace = true
+
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true
+strata-bridge-primitives.workspace = true
+
+proptest = "1.6.0"
