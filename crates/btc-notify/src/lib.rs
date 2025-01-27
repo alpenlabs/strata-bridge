@@ -173,8 +173,8 @@ impl<T> Stream for Subscription<T> {
 
 /// TxPredicate is a type synonym to capture predicates of the following form: Transaction -> bool.
 ///
-/// The choice of using an arc here is intentional so that we can directly compare these predicates when managing the
-/// active subscription set.
+/// The choice of using an arc here is intentional so that we can directly compare these predicates
+/// (via [`Arc::ptr_eq`]) when managing the active subscription set.
 type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
 
 struct TxSubscriptionDetails {
@@ -337,8 +337,8 @@ struct BtcZmqSM {
     /// This is the set of predicates that are selecting for transactions, the disjunction of which we care about.
     tx_filters: Vec<TxPredicate>,
 
-    /// This is the core data structure that holds TxLifecycles indexed by txid. The encoding should be understood as
-    /// follows: If the entry is in the map but the value is None, then it means we have only received the
+    /// This is the core data structure that holds [`TxLifecycles`] indexed by txid. The encoding should be understood
+    /// as follows: If the entry is in the map but the value is None, then it means we have only received the
     /// MempoolAcceptance event. If it's present then we will definitely have the rawtx event, and if it has been mined
     /// into a block, we will also have that blockhash as well.
     tx_lifecycles: BTreeMap<Txid, Option<TxLifecycle>>,
@@ -697,7 +697,7 @@ mod e2e_tests {
         // Wait for a new transaction to be delivered over the subscription.
         let tx = tx_sub.next().await.map(|(tx, _)|tx.compute_txid());
 
-        // Grab the newest block ofver RPC.
+        // Grab the newest block over RPC.
         let best_block = bitcoind.client.get_block(*newly_mined.0.first().unwrap())?;
 
         // Get the coinbase transaction from that block.
