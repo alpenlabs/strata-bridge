@@ -147,6 +147,16 @@ pub enum TxStatus {
     Buried
 }
 
+/// TxEvent is the type that is emitted to Subscriptions created with [`BtcZmqClient::subscribe_transactions`].
+///
+/// It contains the raw transaction data, and the status indicating the Transaction's most up to date status about
+/// its inclusion in the canonical history.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct TxEvent {
+    pub rawtx: Transaction,
+    pub status: TxStatus
+}
+
 /// Subscription serves as the primary type that consumers of this API will handle. It is created via one of the calls
 /// to BtcZmqClient::subscribe_*. From there you should use it via it's Stream API.
 #[derive(Debug)]
@@ -179,7 +189,7 @@ type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
 
 struct TxSubscriptionDetails {
     predicate: TxPredicate,
-    outbox: mpsc::UnboundedSender<(Transaction, TxStatus)>,
+    outbox: mpsc::UnboundedSender<TxEvent>,
 }
 impl std::fmt::Debug for TxSubscriptionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -254,7 +264,7 @@ impl BtcZmqClient {
                     // Now we send the diff to the relevant subscribers. If we ever encounter a send error, it
                     // means the receiver has been dropped.
                     tx_subs_thread.lock().await.retain(|sub| {
-                        for msg in diff.iter().filter(|(tx, _)| (sub.predicate)(tx)) {
+                        for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
                             if sub.outbox.send(msg.clone()).is_err() {
                                 sm.rm_filter(&sub.predicate);
                                 return false
@@ -277,7 +287,7 @@ impl BtcZmqClient {
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Transaction`] and [`TxStatus`] every time a
     /// transaction's status changes due to block or mempool events.
     pub async fn subscribe_transactions(&mut self, f: impl Fn(&Transaction) -> bool + Sync + Send + 'static) ->
-        Subscription<(Transaction, TxStatus)> {
+        Subscription<TxEvent> {
 
         let (send, recv) = mpsc::unbounded_channel();
 
@@ -398,7 +408,7 @@ impl BtcZmqSM {
 
     /// process_block is one of the three primary state transition functions of the BtcZmqSM, updating internal state to
     /// reflect the contents of the block.
-    fn process_block(&mut self, block: Block) -> Vec<(Transaction, TxStatus)> {
+    fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
         match self.unburied_blocks.front() {
             Some(tip) => {
                 if block.header.prev_blockhash == tip.block_hash() {
@@ -445,7 +455,7 @@ impl BtcZmqSM {
                         block: Some(block.block_hash()),
                     };
                     self.tx_lifecycles.insert(matched_tx.compute_txid(), Some(lifecycle));
-                    diff.push((matched_tx.clone(), TxStatus::Mined));
+                    diff.push(TxEvent { rawtx: matched_tx.clone(), status: TxStatus::Mined });
                 }
                 // This means we have seen the rawtx event for this transaction before.
                 Some(Some(lifecycle)) => {
@@ -459,7 +469,7 @@ impl BtcZmqSM {
 
                     // Record the update and add it to the diff.
                     lifecycle.block = Some(blockhash);
-                    diff.push((matched_tx.clone(), TxStatus::Mined));
+                    diff.push(TxEvent { rawtx: matched_tx.clone(), status: TxStatus::Mined });
                 }
             }
         }
@@ -472,7 +482,7 @@ impl BtcZmqSM {
                 for buried_tx in newly_buried.txdata {
                     self.tx_lifecycles.remove(&buried_tx.compute_txid());
                     if self.tx_filters.iter().any(|f|f(&buried_tx)) {
-                        diff.push((buried_tx, TxStatus::Buried));
+                        diff.push(TxEvent{ rawtx: buried_tx, status: TxStatus::Buried });
                     }
                 }
             }
@@ -483,7 +493,7 @@ impl BtcZmqSM {
 
     // process_tx is one of the three primary state transition functions of the BtcZmqSM, updating internal state to
     // reflect the contents of the transaction.
-    fn process_tx(&mut self, tx: Transaction) -> Vec<(Transaction, TxStatus)> {
+    fn process_tx(&mut self, tx: Transaction) -> Vec<TxEvent> {
         if !self.tx_filters.iter().any(|f|f(&tx)) {
             return Vec::new();
         }
@@ -517,7 +527,7 @@ impl BtcZmqSM {
 
                 // Presence within the map indicates we have already received the sequence message for this but don't
                 // yet have any other information, indicating that this rawtx event can generate the Mempool event.
-                vec![(tx, TxStatus::Mempool)]
+                vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]
             }
             // In this case we know everything we need to about this transaction, and this is probably a rawtx event
             // that accompanies an upcoming new block event.
@@ -527,7 +537,7 @@ impl BtcZmqSM {
 
     // process_sequence is one of the three primary state transition functions of the BtcZmqSM, updating internal state
     // to reflect the sequence event.
-    fn process_sequence(&mut self, seq: SequenceMessage) -> Vec<(Transaction, TxStatus)> {
+    fn process_sequence(&mut self, seq: SequenceMessage) -> Vec<TxEvent> {
         let mut diff = Vec::new();
         match seq {
             SequenceMessage::BlockConnect { .. } => { /* NOOP */ },
@@ -552,7 +562,7 @@ impl BtcZmqSM {
                         Some(lifecycle) => match lifecycle.block {
                             // Only clear the tx if its blockhash matches the blockhash of the disconnected block.
                             Some(blk) if blk == blockhash => {
-                                diff.push((lifecycle.raw.clone(), TxStatus::Unknown));
+                                diff.push(TxEvent { rawtx: lifecycle.raw.clone(), status: TxStatus::Unknown });
                                 false
                             }
                             // Otherwise keep it.
@@ -568,7 +578,7 @@ impl BtcZmqSM {
                     Some(Some(lifecycle)) => {
                         match lifecycle.block {
                             // This will happen if we receive rawtx before MempoolAcceptance.
-                            None => { diff = vec![(lifecycle.raw.clone(), TxStatus::Mempool)]; },
+                            None => { diff = vec![TxEvent { rawtx: lifecycle.raw.clone(), status: TxStatus::Mempool }]; },
                             // This should never happen.
                             Some(_) => panic!("invariant violated: mempool acceptance after mining"),
                         }
@@ -607,7 +617,7 @@ impl BtcZmqSM {
                     // For now I think we can leave this alone, but if we notice memory leaks in a live deployment
                     // this will be one of the places to look.
                     Some(Some(lifecycle)) => {
-                        diff = vec![(lifecycle.raw, TxStatus::Unknown)];
+                        diff = vec![TxEvent { rawtx: lifecycle.raw, status: TxStatus::Unknown }];
                     }
                     // This will happen if we've only received a MempoolAcceptance event, the removal will cancel it
                     // fully.
@@ -624,7 +634,7 @@ impl BtcZmqSM {
 
 #[cfg(test)]
 mod e2e_tests {
-    use corepc_node::serde_json::{self, json};
+    use corepc_node::serde_json::json;
     use serial_test::serial;
 
     use super::*;
@@ -694,7 +704,7 @@ mod e2e_tests {
         let newly_mined = bitcoind.client.generate_to_address(1, &bitcoind.client.new_address()?)?.into_model()?;
 
         // Wait for a new transaction to be delivered over the subscription.
-        let tx = tx_sub.next().await.map(|(tx, _)|tx.compute_txid());
+        let tx = tx_sub.next().await.map(|event|event.rawtx.compute_txid());
 
         // Grab the newest block over RPC.
         let best_block = bitcoind.client.get_block(*newly_mined.0.first().unwrap())?;
@@ -749,8 +759,8 @@ mod e2e_tests {
 
         // Pull all transactions off of the subscription (until it terminates) and assert that all of them pass the
         // subscription predicate: the transactions are not a coinbase transaction.
-        while let Some((tx, _)) = tx_sub.next().await {
-            assert!(pred(&tx))
+        while let Some(event) = tx_sub.next().await {
+            assert!(pred(&event.rawtx))
         }
 
         // Wait for the mining thread to complete.
@@ -835,41 +845,41 @@ mod e2e_tests {
         // Pull a transaction off of the subscription and assert that it is the Mempool event for our transaction in
         // question.
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.0.compute_txid(), txid);
-        assert_eq!(observed.1, TxStatus::Mempool);
+        assert_eq!(observed.rawtx.compute_txid(), txid);
+        assert_eq!(observed.status, TxStatus::Mempool);
 
         // Mine a block, and assert we get a Mined event for our transaction.
         let blockhash = bitcoind.client.generate_to_address(1, &new_address).unwrap().into_model().unwrap().0.remove(0);
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.0.compute_txid(), txid);
-        assert_eq!(observed.1, TxStatus::Mined);
+        assert_eq!(observed.rawtx.compute_txid(), txid);
+        assert_eq!(observed.status, TxStatus::Mined);
 
         // Now we invalidate the block we just mined, simulating a reorg. We should now get an Unknown event for that
         // transaction as it is evicted from the landscape.
         bitcoind.client.call::<()>("invalidateblock", &[json!(blockhash.to_string())]).unwrap();
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.0.compute_txid(), txid);
-        assert_eq!(observed.1, TxStatus::Unknown);
+        assert_eq!(observed.rawtx.compute_txid(), txid);
+        assert_eq!(observed.status, TxStatus::Unknown);
 
         // Without intervention we should get a new Mempool event for our transaction as it is returned to the mempool.
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.0.compute_txid(), txid);
-        assert_eq!(observed.1, TxStatus::Mempool);
+        assert_eq!(observed.rawtx.compute_txid(), txid);
+        assert_eq!(observed.status, TxStatus::Mempool);
 
         // Now we add a new transaction to the mempool to ensure that a new block will not exactly match the one we
         // just invalidated.
         let txid2 = bitcoind.client.send_to_address(&new_address, bitcoin::Amount::ONE_BTC).unwrap().txid()?;
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.0.compute_txid(), txid2);
-        assert_eq!(observed.1, TxStatus::Mempool);
+        assert_eq!(observed.rawtx.compute_txid(), txid2);
+        assert_eq!(observed.status, TxStatus::Mempool);
 
         // Mine a new block. This should include both our original transaction and the second one we created to sidestep
         // blockhash collision.
         bitcoind.client.generate_to_address(1, &new_address).unwrap().into_model().unwrap().0.remove(0);
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.1, TxStatus::Mined);
+        assert_eq!(observed.status, TxStatus::Mined);
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.1, TxStatus::Mined);
+        assert_eq!(observed.status, TxStatus::Mined);
 
         // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping it earlier, aborting
         // the producer thread.
@@ -917,10 +927,10 @@ mod e2e_tests {
 
         // Continuously pull events off of the stream, checking for a Buried event for our transaction.
         loop {
-            if let Poll::Ready(Some((tx, status))) = futures::poll!(tx_sub.next()) {
+            if let Poll::Ready(Some(event)) = futures::poll!(tx_sub.next()) {
                 // Once we receive a Buried event for our transaction we can abort the stream polling and stop the
                 // mining task.
-                if tx.compute_txid() == txid && status == TxStatus::Buried {
+                if event.rawtx.compute_txid() == txid && event.status == TxStatus::Buried {
                     stop.store(false, std::sync::atomic::Ordering::SeqCst);
                     break;
                 }
@@ -1093,8 +1103,8 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(6);
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block);
-            for (tx, _) in diff.iter() {
-                assert!((pred.pred)(tx))
+            for event in diff.iter() {
+                assert!((pred.pred)(&event.rawtx))
             }
         }
 
@@ -1134,7 +1144,7 @@ mod prop_tests {
 
             let diff_tx_1_set = BTreeSet::from_iter(diff_tx_1.into_iter());
             let diff_seq_1_set = BTreeSet::from_iter(diff_seq_1.into_iter());
-            let diff_1 = diff_tx_1_set.union(&diff_seq_1_set).cloned().collect::<BTreeSet<(Transaction, TxStatus)>>();
+            let diff_1 = diff_tx_1_set.union(&diff_seq_1_set).cloned().collect::<BTreeSet<crate::TxEvent>>();
 
             let mut sm2 = BtcZmqSM::init(6);
             sm2.add_filter(std::sync::Arc::new(|_|true));
@@ -1144,7 +1154,7 @@ mod prop_tests {
 
             let diff_tx_2_set = BTreeSet::from_iter(diff_tx_2.into_iter());
             let diff_seq_2_set = BTreeSet::from_iter(diff_seq_2.into_iter());
-            let diff_2 = diff_tx_2_set.union(&diff_seq_2_set).cloned().collect::<BTreeSet<(Transaction, TxStatus)>>();
+            let diff_2 = diff_tx_2_set.union(&diff_seq_2_set).cloned().collect::<BTreeSet<crate::TxEvent>>();
 
             assert_eq!(diff_1, diff_2);
         }
@@ -1157,10 +1167,10 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(6);
             sm.add_filter(pred.pred);
             let diff_mined = sm.process_block(block);
-            assert!(diff_mined.iter().map(|(_, status)| status).all(|s| *s == TxStatus::Mined));
+            assert!(diff_mined.iter().map(|event| &event.status).all(|s| *s == TxStatus::Mined));
 
             let diff_dropped = sm.process_sequence(SequenceMessage::BlockDisconnect{ blockhash});
-            assert!(diff_dropped.iter().map(|(_, status)| status).all(|s| *s == TxStatus::Unknown));
+            assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
         }
 
         // Ensure that adding a full bury_depth length chain of blocks on top of a block yields a Buried event for every
@@ -1177,9 +1187,9 @@ mod prop_tests {
                 diff_last = sm.process_block(block);
             }
 
-            let to_be_buried = diff.into_iter().map(|(tx, _)| tx.compute_txid()).collect::<BTreeSet<Txid>>();
-            let is_buried = diff_last.into_iter().filter_map(|(tx, status)| if status == TxStatus::Buried {
-                Some(tx.compute_txid())
+            let to_be_buried = diff.into_iter().map(|event| event.rawtx.compute_txid()).collect::<BTreeSet<Txid>>();
+            let is_buried = diff_last.into_iter().filter_map(|event| if event.status == TxStatus::Buried {
+                Some(event.rawtx.compute_txid())
             } else {
                 None
             }).collect::<BTreeSet<Txid>>();
@@ -1198,7 +1208,7 @@ mod prop_tests {
             assert!(diff.is_empty());
 
             let diff = sm.process_tx(tx.clone());
-            assert_eq!(diff, vec![(tx, TxStatus::Mempool)]);
+            assert_eq!(diff, vec![crate::TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
         }
 
         // Ensure that removing a filter after adding it results in an identical state machine (filter Invertibility).
