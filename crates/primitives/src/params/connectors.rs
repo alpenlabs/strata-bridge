@@ -33,35 +33,41 @@
 //!
 //! | Element Type  | Elements Per UTXO  |  Connectors | UTXOs Per Tx | Total |
 //! | ------------- | ------------------ | ----------- | ------------ | ----- |
-//! | Field         | 5                  |  6          | 1            | 30    |
-//! | Field         | 6                  |  2          | 1            | 12    |
-//! | Hash          | 8                  |  65         | 1            | 520   |
-//! | Hash          | 9                  |  6          | 1            | 54    |
+//! | Field         | 6                  |  7          | 1            | 42    |
+//! | Field         | 0                  |  0          | 1            | 0     |
+//! | Hash          | 9                  |  63         | 1            | 567   |
+//! | Hash          | 7                  |  1          | 1            | 7     |
 use std::time::Duration;
 
 /// The maximum number of field elements that are bitcommitted per UTXO.
-pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 5;
+pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 6;
 
 /// The number of UTXOs necessary to commit all the required field elements evenly.
-pub const NUM_FIELD_CONNECTORS_BATCH_1: usize = 6;
+pub const NUM_FIELD_CONNECTORS_BATCH_1: usize = 7;
 
 /// The number of remaining field elements.
-pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2: usize = 6;
+///
+/// # NOTE: This constant has been kept around even if it is zero so as to keep the code agnostic to
+/// some extent even if the number of field elements change in the future.
+pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2: usize = 0;
 
 /// The number of UTXOs necessary to commit all the remaining field elements evenly.
-pub const NUM_FIELD_CONNECTORS_BATCH_2: usize = 2;
+///
+/// # NOTE: This constant has been kept around even if it is zero so as to keep the code agnostic to
+/// some extent even if the number of field elements change in the future.
+pub const NUM_FIELD_CONNECTORS_BATCH_2: usize = 0;
 
 /// The maximum number of hashes that are bitcommitted per UTXO.
-pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1: usize = 8;
+pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1: usize = 9;
 
 /// The number of UTXOs necessary to commit all the required hashes evenly.
-pub const NUM_HASH_CONNECTORS_BATCH_1: usize = 65;
+pub const NUM_HASH_CONNECTORS_BATCH_1: usize = 63;
 
 /// The number of remaining hash elements.
-pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2: usize = 9;
+pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2: usize = 7;
 
 /// The number of UTXOs necessary to commit all the remaining hashes evenly.
-pub const NUM_HASH_CONNECTORS_BATCH_2: usize = 6;
+pub const NUM_HASH_CONNECTORS_BATCH_2: usize = 1;
 
 /// The total number of field elements that need to be committed.
 pub const NUM_PKS_A256: usize = 42;
