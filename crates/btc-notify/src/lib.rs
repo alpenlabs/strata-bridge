@@ -1306,16 +1306,15 @@ mod prop_tests {
         }
 
         let tail = arb_chain(prev_blockhash, length - 1);
-        return tail
-            .prop_flat_map(move |t| {
-                let prev = t.front().unwrap().block_hash();
-                arb_block(prev).prop_map(move |b| {
-                    let mut v = t.clone();
-                    v.push_front(b);
-                    v
-                })
+        tail.prop_flat_map(move |t| {
+            let prev = t.front().unwrap().block_hash();
+            arb_block(prev).prop_map(move |b| {
+                let mut v = t.clone();
+                v.push_front(b);
+                v
             })
-            .boxed();
+        })
+        .boxed()
     }
 
     // Generate a random predicate that will shrink towards including all transactions.
