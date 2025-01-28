@@ -131,37 +131,41 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
 
-    // Extract the public key of the operator who did the withdrawal fulfillment
+    // 5a. Extract the public key of the operator who did the withdrawal fulfillment
     let operator_pub_key = input
         .chain_state
         .operator_table()
-        .get_operator(operator_idx) // TODO: optimization, maybe use `entry_at_pos` to avoid searching
+        .get_operator(operator_idx)
+        // TODO: optimization, maybe use `entry_at_pos` to avoid searching
+        // Deferred for now because the number of operators will be small
         .unwrap()
         .signing_pk();
 
-    // NOTE: verifying the signing the withdrawal fulfillment transaction is sufficient
+    // 5b. Verify the signature agains the operator pub key in the chain state
+    // TODO: verifying the signature of the withdrawal fulfillment transaction is sufficient or
+    // should be message include some other information as well
     let msg = compute_txid(withdrawal_fulfillment_tx.transaction());
     if !verify_schnorr_sig(&input.op_signature, &msg, operator_pub_key) {
         return Err(BridgeProofError::InvalidSignature);
     }
 
-    // 5a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
+    // 6a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
     let (claim_tx, claim_tx_idx) = &input.claim_tx;
     let withdrawal_fullfillment_txid = extract_claim_info(claim_tx.transaction())?;
 
-    // 5b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
+    // 6b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
     // witness data, so we expect witness to be present.
     let claim_header = headers[*claim_tx_idx];
     verify_tx_inclusion(claim_tx, BridgeRelatedTx::Claim, claim_header, true)?;
 
-    // 5c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
+    // 6c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
     // the withdrawal fulfillment transaction.
     if withdrawal_fullfillment_txid != compute_txid(withdrawal_fulfillment_tx.transaction()).into()
     {
         return Err(InvalidClaimInfo::InvalidWithdrawalCommitment.into());
     }
 
-    // 6. Construct the proof output.
+    // 7. Construct the proof output.
     let num_headers_after_claim_tx = headers.len() - claim_tx_idx;
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
