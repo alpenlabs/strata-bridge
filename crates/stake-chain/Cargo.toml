@@ -22,7 +22,7 @@ serde.workspace = true
 # strata-bridge-db.workspace = true
 # strata-bridge-primitives.workspace = true
 # strata-bridge-proof-snark.workspace = true
-# thiserror.workspace = true
+thiserror.workspace = true
 # tracing.workspace = true
 
 [dev-dependencies]

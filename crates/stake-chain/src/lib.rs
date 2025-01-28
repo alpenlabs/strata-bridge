@@ -21,6 +21,9 @@
 
 #![feature(duration_constructors)] // for constructing `Duration::from_days`
 
+pub mod errors;
 pub mod stake_chain;
+pub mod transactions;
 
+pub use errors::StakeChainError;
 pub use stake_chain::StakeChain;
