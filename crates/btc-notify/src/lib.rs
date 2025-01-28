@@ -655,11 +655,10 @@ impl BtcZmqSM {
                                     status: TxStatus::Mempool,
                                 }];
                             }
-                            // This should never happen.
-                            Some(_) => panic!(
-                                "invariant violated: mempool acceptance after mining: {:?}",
-                                lifecycle.raw
-                            ),
+                            // This can happen because there is a race between the rawblock event
+                            // delivery and the sequence event for a given transaction. If we
+                            // encounter this, we will ignore the MempoolAcceptance.
+                            Some(_) => { /* NOOP */ }
                         }
                     }
                     // In this case we have received a MempoolAcceptance event for this txid, but
@@ -1072,11 +1071,11 @@ mod e2e_tests {
         let stop_thread = stop.clone();
         let mine_task = tokio::task::spawn_blocking(move || {
             while stop_thread.load(std::sync::atomic::Ordering::SeqCst) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
                 bitcoind
                     .client
                     .generate_to_address(1, &new_address)
                     .unwrap();
+                std::thread::sleep(std::time::Duration::from_millis(100));
             }
             drop(client);
         });
