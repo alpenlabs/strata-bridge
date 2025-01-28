@@ -1072,11 +1072,11 @@ mod e2e_tests {
         let stop_thread = stop.clone();
         let mine_task = tokio::task::spawn_blocking(move || {
             while stop_thread.load(std::sync::atomic::Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
                 bitcoind
                     .client
                     .generate_to_address(1, &new_address)
                     .unwrap();
-                std::thread::sleep(std::time::Duration::from_millis(100));
             }
             drop(client);
         });
