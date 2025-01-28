@@ -17,7 +17,11 @@ mod tx_info;
 use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
 use statement::process_bridge_proof;
-use strata_primitives::{buf::Buf32, params::RollupParams, proof::RollupVerifyingKey};
+use strata_primitives::{
+    buf::{Buf32, Buf64},
+    params::RollupParams,
+    proof::RollupVerifyingKey,
+};
 use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
 use strata_zkvm::ZkVmEnv;
 use tx_inclusion_proof::L1TxWithProofBundle;
@@ -54,6 +58,9 @@ pub struct BridgeProofInput {
     /// Transaction (and its inclusion proof) fulfilling the withdrawal.  
     /// The `usize` represents the position of this transaction in the header chain.
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
+
+    /// Signature of the operator to prove that the withdrawal info was indeed performed
+    op_signature: Buf64,
 }
 
 /// Subset of [`BridgeProofInput`] that is [borsh]-serializable
@@ -65,6 +72,7 @@ pub(crate) struct BridgeProofInputBorsh {
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
     claim_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
+    op_signature: Buf64,
 }
 
 impl From<BridgeProofInput> for BridgeProofInputBorsh {
@@ -76,6 +84,7 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
             strata_checkpoint_tx: input.strata_checkpoint_tx,
             claim_tx: input.claim_tx,
             withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,
+            op_signature: input.op_signature,
         }
     }
 }
@@ -84,7 +93,7 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
 pub(crate) struct BridgeProofOutput {
     deposit_txid: Buf32,
     claim_ts: u32,
-    headers_after_claim_tx: usize,
+    num_headers_after_claim_tx: usize,
 }
 
 /// Processes the bridge proof by reading necessary data from the provided ZkVM environment,

@@ -30,6 +30,10 @@ pub(crate) enum BridgeProofError {
     /// mismatch.
     #[error("Claim info is invalid")]
     InvalidClaimInfo(#[from] InvalidClaimInfo),
+
+    /// The operator's signature is invalid
+    #[error("Signature is invalid")]
+    InvalidSignature,
 }
 
 /// Represents all errors that can occur specifically during the verification of a claim's

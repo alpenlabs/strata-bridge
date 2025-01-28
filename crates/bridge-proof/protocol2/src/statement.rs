@@ -1,4 +1,5 @@
 use bitcoin::block::Header;
+use strata_crypto::verify_schnorr_sig;
 use strata_primitives::params::RollupParams;
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
@@ -130,6 +131,20 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
 
+    // Extract the public key of the operator who did the withdrawal fulfillment
+    let operator_pub_key = input
+        .chain_state
+        .operator_table()
+        .get_operator(operator_idx) // TODO: optimization, maybe use `entry_at_pos` to avoid searching
+        .unwrap()
+        .signing_pk();
+
+    // NOTE: verifying the signing the withdrawal fulfillment transaction is sufficient
+    let msg = compute_txid(withdrawal_fulfillment_tx.transaction());
+    if !verify_schnorr_sig(&input.op_signature, &msg, operator_pub_key) {
+        return Err(BridgeProofError::InvalidSignature);
+    }
+
     // 5a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
     let (claim_tx, claim_tx_idx) = &input.claim_tx;
     let withdrawal_fullfillment_txid = extract_claim_info(claim_tx.transaction())?;
@@ -147,11 +162,11 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 6. Construct the proof output.
-    let headers_after_claim_tx = headers.len() - claim_tx_idx;
+    let num_headers_after_claim_tx = headers.len() - claim_tx_idx;
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
         claim_ts: claim_header.time,
-        headers_after_claim_tx,
+        num_headers_after_claim_tx,
     };
 
     Ok((output, checkpoint))

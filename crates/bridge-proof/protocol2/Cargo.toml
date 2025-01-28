@@ -14,6 +14,7 @@ rustdoc.all = "warn"
 
 [dependencies]
 strata-bridge-primitives.workspace = true
+strata-crypto.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true
 strata-proofimpl-btc-blockspace.workspace = true

@@ -10170,6 +10170,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "strata-bridge-primitives",
+ "strata-crypto",
  "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
