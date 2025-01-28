@@ -141,7 +141,7 @@ pub(crate) fn process_bridge_proof(
         .unwrap()
         .signing_pk();
 
-    // 5b. Verify the signature agains the operator pub key in the chain state
+    // 5b. Verify the signature against the operator pub key in the chain state
     // TODO: verifying the signature of the withdrawal fulfillment transaction is sufficient or
     // should be message include some other information as well
     let msg = compute_txid(withdrawal_fulfillment_tx.transaction());
