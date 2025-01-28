@@ -124,7 +124,7 @@ impl<'a> arbitrary::Arbitrary<'a> for BitcoinTx {
 
 #[cfg(test)]
 mod tests {
-    use strata_test_utils::ArbitraryGenerator;
+    use strata_bridge_test_utils::arbitrary_generator::ArbitraryGenerator;
 
     use super::*;
 

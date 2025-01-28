@@ -10067,7 +10067,7 @@ dependencies = [
  "secp256k1",
  "serde",
  "sha2",
- "strata-test-utils",
+ "strata-bridge-test-utils",
  "thiserror 2.0.11",
 ]
 
