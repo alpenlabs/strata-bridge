@@ -10153,10 +10153,12 @@ dependencies = [
 name = "strata-bridge-test-utils"
 version = "0.1.0"
 dependencies = [
+ "arbitrary",
  "bitcoin",
  "bitvm",
  "corepc-node",
  "musig2",
+ "rand_core",
  "strata-bridge-primitives",
  "strata-btcio",
 ]
