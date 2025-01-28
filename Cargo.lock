@@ -9337,6 +9337,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-stake-chain"
+version = "0.1.0"
+
+[[package]]
 name = "strata-bridge-test-utils"
 version = "0.1.0"
 dependencies = [
