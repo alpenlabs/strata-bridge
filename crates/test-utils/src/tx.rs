@@ -1,7 +1,7 @@
 use bitcoin::{consensus, Address, Amount, OutPoint, Transaction, TxOut};
 use corepc_node::{serde_json, Client};
-use strata_bridge_btcio::types::{ListUnspent, SignRawTransactionWithWallet};
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
+use strata_btcio::rpc::types::{ListUnspent, SignRawTransactionWithWallet};
 
 pub const FEES: Amount = Amount::from_sat(1_000);
 

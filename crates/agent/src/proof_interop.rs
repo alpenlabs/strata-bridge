@@ -7,7 +7,7 @@ use bitcoin::{
     Transaction, Txid, Wtxid,
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-use strata_bridge_btcio::traits::Reader;
+use strata_btcio::rpc::traits::ReaderRpc;
 use strata_l1tx::envelope::parser::parse_envelope_data;
 use strata_state::{
     batch::{BatchCheckpoint, SignedBatchCheckpoint},
@@ -141,17 +141,17 @@ pub struct BridgeProofInput {
 
 /// Gets the [`HeaderVerificationState`] for the particular block
 pub async fn get_verification_state(
-    client: &impl Reader,
+    client: &impl ReaderRpc,
     height: u64,
     params: &BtcParams,
 ) -> anyhow::Result<HeaderVerificationState> {
     // Get the difficulty adjustment block just before `block_height`
     let h1 = get_difficulty_adjustment_height(0, height as u32, params);
-    let b1 = client.get_block_at(h1).await?;
+    let b1 = client.get_block_at(h1.into()).await?;
 
     // Consider the block before `block_height` to be the last verified block
     let vh = height - 1; // verified_height
-    let vb = client.get_block_at(vh as u32).await?; // verified_block
+    let vb = client.get_block_at(vh).await?; // verified_block
 
     const N: usize = 11;
     let mut timestamps: [u32; N] = [0u32; N];
@@ -161,7 +161,7 @@ pub async fn get_verification_state(
     for i in 0..N {
         if vh >= i as u64 {
             let height_to_fetch = vh - i as u64;
-            let h = client.get_block_at(height_to_fetch as u32).await?;
+            let h = client.get_block_at(height_to_fetch).await?;
             timestamps[N - 1 - i] = h.header.time;
         } else {
             // No more blocks to fetch; the rest remain zero

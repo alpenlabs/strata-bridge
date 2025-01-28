@@ -11,8 +11,8 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
-strata-bridge-btcio.workspace = true
 strata-bridge-primitives.workspace = true
+strata-btcio.workspace = true
 
 bitcoin.workspace = true
 bitvm.workspace = true

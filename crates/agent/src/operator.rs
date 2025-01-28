@@ -16,7 +16,6 @@ use musig2::{
 };
 use rand::Rng;
 use secp256k1::{schnorr::Signature, XOnlyPublicKey};
-use strata_bridge_btcio::traits::{Broadcaster, Reader, Signer};
 use strata_bridge_db::{
     errors::DbError,
     operator::{KickoffInfo, OperatorDb},
@@ -46,6 +45,7 @@ use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
+use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
 use strata_primitives::buf::Buf32;
 use strata_rpc::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
@@ -1744,7 +1744,7 @@ where
                     // clause
                 }
                 Err(err) => {
-                    if !err.is_missing() {
+                    if !err.is_missing_or_invalid_input() {
                         warn!(msg = "unable to get reimbursement", %err, %deposit_txid, %own_index);
                         return; // try again later
                     }
@@ -1780,7 +1780,7 @@ where
             let funded_kickoff = self
                 .agent
                 .btc_client
-                .sign_raw_transaction_with_wallet(unsigned_kickoff)
+                .sign_raw_transaction_with_wallet(unsigned_kickoff, None)
                 .await
                 .expect("should be able to sign kickoff tx with wallet");
             let funded_kickoff_tx: Transaction =
@@ -1896,7 +1896,7 @@ where
         let signed_tx_result = self
             .agent
             .btc_client
-            .sign_raw_transaction_with_wallet(&withdrawal_fulfillment.tx())
+            .sign_raw_transaction_with_wallet(&withdrawal_fulfillment.tx(), None)
             .await
             .expect("must be able to sign withdrawal fulfillment transaction");
 
@@ -2005,7 +2005,7 @@ where
         info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, %superblock_period_start_ts, start_height=%height);
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
-            let block = self.agent.btc_client.get_block_at(height).await;
+            let block = self.agent.btc_client.get_block_at(height.into()).await;
 
             if block.is_err() {
                 tokio::time::sleep(poll_interval).await;

@@ -26,7 +26,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
-strata-bridge-btcio.workspace = true
+strata-btcio.workspace = true
 strata-common.workspace = true
 
 corepc-node.workspace = true

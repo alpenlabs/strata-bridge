@@ -283,8 +283,8 @@ mod tests {
 
     use bitcoin::{consensus, Network};
     use corepc_node::{serde_json::json, Conf, Node};
-    use strata_bridge_btcio::types::{ListUnspent, SignRawTransactionWithWallet};
     use strata_bridge_test_utils::prelude::{find_funding_utxo, generate_keypair, sign_cpfp_child};
+    use strata_btcio::rpc::types::{ListUnspent, SignRawTransactionWithWallet};
     use strata_common::logging::{self, LoggerConfig};
 
     use super::*;

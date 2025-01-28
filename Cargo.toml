@@ -1,7 +1,6 @@
 [workspace]
 members = [
   "crates/agent",
-  "crates/btcio",
   "crates/db",
   "crates/primitives",
   "crates/bridge-proof/protocol",
@@ -29,7 +28,6 @@ resolver = "2"
 # deps in this workspace
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 strata-bridge-agent = { path = "crates/agent" }
-strata-bridge-btcio = { path = "crates/btcio" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-primitives = { path = "crates/primitives" }

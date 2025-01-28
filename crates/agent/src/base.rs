@@ -10,12 +10,12 @@ use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use musig2::{KeyAggContext, SecNonce};
 use rand::{rngs::OsRng, RngCore};
 use secp256k1::{schnorr::Signature, Keypair, PublicKey, SecretKey, SECP256K1};
-use strata_bridge_btcio::{
-    error::ClientResult,
-    traits::{Broadcaster, Reader, Wallet},
+use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
+use strata_btcio::rpc::{
+    error::ClientError,
+    traits::{BroadcasterRpc, ReaderRpc, WalletRpc},
     BitcoinClient,
 };
-use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
 use tracing::trace;
 
 #[derive(Debug, Clone)]
@@ -36,8 +36,12 @@ impl Agent {
         strata_url: &str,
         ws_timeout: Duration,
     ) -> Self {
-        let btc_client = BitcoinClient::new(btc_url, btc_user, btc_pass)
-            .expect("should be able to create bitcoin client");
+        let btc_client = BitcoinClient::new(
+            btc_url.to_string(),
+            btc_user.to_string(),
+            btc_pass.to_string(),
+        )
+        .expect("should be able to create bitcoin client");
         let btc_client = Arc::new(btc_client);
 
         let strata_client = WsClientBuilder::new()
@@ -72,7 +76,7 @@ impl Agent {
         &self,
         tx: &Transaction,
         wait_time: Duration,
-    ) -> ClientResult<Txid> {
+    ) -> Result<Txid, ClientError> {
         // sleep to confirm parent
         tokio::time::sleep(wait_time).await;
 
