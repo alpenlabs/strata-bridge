@@ -1,0 +1,35 @@
+[package]
+edition = "2021"
+name = "strata-bridge-stake-chain"
+version = "0.1.0"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+
+# TODO: remove the commented out (dev-)dependencies before the PR is merged.
+[dependencies]
+# bincode.workspace = true
+# bitcoin = { workspace = true, features = ["rand-std"] }
+# bitcoin-script = { workspace = true }
+# bitvm = { workspace = true }
+# lazy_static.workspace = true
+# secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
+# serde.workspace = true
+# strata-bridge-db.workspace = true
+# strata-bridge-primitives.workspace = true
+# strata-bridge-proof-snark.workspace = true
+# thiserror.workspace = true
+# tracing.workspace = true
+
+[dev-dependencies]
+# strata-bridge-test-utils.workspace = true
+# strata-btcio.workspace = true
+# strata-common.workspace = true
+
+# corepc-node.workspace = true
+# rkyv.workspace = true
+# tokio.workspace = true
