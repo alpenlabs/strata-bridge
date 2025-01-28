@@ -106,7 +106,7 @@ pub(crate) fn process_bridge_proof(
         false,
     )?;
 
-    // 4c. Ensure that the withdrawal information aligns with the chain state at the specified
+    // 4c. Extract the withdrawal output from the chain state using the specified
     // deposit index.
     let entry = input
         .chain_state
@@ -118,10 +118,10 @@ pub(crate) fn process_bridge_proof(
         DepositState::Dispatched(dispatched_state) => dispatched_state,
         _ => return Err(ChainStateError::InvalidDepositState.into()),
     };
-
-    // The deposit's assigned operator, destination address, and amount must match
-    // what was provided in the withdrawal fulfillment transaction.
     let withdrawal = dispatched_state.cmd().withdraw_outputs().first().unwrap();
+
+    // 4d. Ensure that the withdrawal information(operator, destination address and amount) matches
+    // with the chain state withdrawal output.
     if operator_idx != dispatched_state.assignee()
         || address != *withdrawal.dest_addr()
         // TODO: amount should be equal to entry.amt() - withdrawal_fee
@@ -129,6 +129,13 @@ pub(crate) fn process_bridge_proof(
         || amount != entry.amt()
     {
         return Err(BridgeProofError::InvalidWithdrawalData);
+    }
+
+    // 4e. Ensure that the withdrawal was fulfilled before the deadline
+    let withdrawal_fulfillment_height =
+        header_vs.last_verified_block_num as usize - headers.len() + withdrawal_fullfillment_idx;
+    if withdrawal_fulfillment_height > dispatched_state.exec_deadline() as usize {
+        return Err(BridgeProofError::DeadlineExceeded);
     }
 
     // 5a. Extract the public key of the operator who did the withdrawal fulfillment

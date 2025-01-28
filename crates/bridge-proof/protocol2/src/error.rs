@@ -34,6 +34,10 @@ pub(crate) enum BridgeProofError {
     /// The operator's signature is invalid
     #[error("Signature is invalid")]
     InvalidSignature,
+
+    /// The operator's fulfilled the withdrawal request after the deadline
+    #[error("Withdrawal fulfilled after deadline exceeded")]
+    DeadlineExceeded,
 }
 
 /// Represents all errors that can occur specifically during the verification of a claim's
