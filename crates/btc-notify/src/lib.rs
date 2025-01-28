@@ -245,6 +245,7 @@ impl BtcZmqClient {
         let state_machine_thread = state_machine.clone();
         let thread_handle = tokio::task::spawn(async move {
             loop {
+                // This loop has no break condition. It is only aborted when the BtcZmqClient is dropped.
                 while let Some(res) = stream.next().await {
                     let mut sm = state_machine_thread.lock().await;
                     let diff = match res {
