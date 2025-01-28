@@ -154,7 +154,10 @@ pub enum TxStatus {
 /// its inclusion in the canonical history.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TxEvent {
+    /// rawtx is the transaction data itself for which the event is describing.
     pub rawtx: Transaction,
+
+    /// status is the new [`TxStatus`] that this event is reporting for the transaction.
     pub status: TxStatus
 }
 
