@@ -10131,12 +10131,14 @@ dependencies = [
  "bitcoin",
  "bitcoin-script 0.3.0",
  "bitvm",
+ "borsh",
  "lazy_static",
  "musig2",
  "rkyv",
  "secp256k1",
  "serde",
  "sha2",
+ "strata-test-utils",
  "thiserror 2.0.11",
 ]
 
@@ -10165,9 +10167,9 @@ dependencies = [
 name = "strata-bridge-proof-protocol2"
 version = "0.1.0"
 dependencies = [
- "arbitrary",
  "bitcoin",
  "borsh",
+ "strata-bridge-primitives",
  "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",

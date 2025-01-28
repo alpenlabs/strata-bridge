@@ -8,7 +8,6 @@
 //! - Validate checkpoints for the Strata rollup via zero-knowledge proofs.
 //! - Prove deposits, claims, and withdrawals between Bitcoin and the Strata rollup.
 
-mod bitcoin_tx;
 mod error;
 mod prover;
 mod statement;
