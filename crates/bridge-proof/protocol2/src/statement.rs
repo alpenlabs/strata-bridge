@@ -83,21 +83,12 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::ChainStateMismatch);
     }
 
-    // 3. Verify that each provided header follows Bitcoin consensus rules. This step ensures the
-    //    headers are internally consistent and continuous.
-    let mut header_vs = input.header_vs;
-    let params = get_btc_params();
-    for header in &headers {
-        // NOTE: This may panic internally on failure, which should be handled appropriately.
-        header_vs.check_and_update_continuity(header, &params);
-    }
-
-    // 4a. Extract withdrawal fulfillment info.
+    // 3a. Extract withdrawal fulfillment info.
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
     let (operator_idx, address, amount) =
         extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
 
-    // 4b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
+    // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
     // transaction does not depend on witness data, hence `expect_witness` is `false`.
     verify_tx_inclusion(
         withdrawal_fulfillment_tx,
@@ -106,7 +97,7 @@ pub(crate) fn process_bridge_proof(
         false,
     )?;
 
-    // 4c. Extract the withdrawal output from the chain state using the specified
+    // 3c. Extract the withdrawal output from the chain state using the specified
     // deposit index.
     let entry = input
         .chain_state
@@ -120,7 +111,7 @@ pub(crate) fn process_bridge_proof(
     };
     let withdrawal = dispatched_state.cmd().withdraw_outputs().first().unwrap();
 
-    // 4d. Ensure that the withdrawal information(operator, destination address and amount) matches
+    // 3d. Ensure that the withdrawal information(operator, destination address and amount) matches
     // with the chain state withdrawal output.
     if operator_idx != dispatched_state.assignee()
         || address != *withdrawal.dest_addr()
@@ -131,14 +122,14 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
 
-    // 4e. Ensure that the withdrawal was fulfilled before the deadline
+    // 3e. Ensure that the withdrawal was fulfilled before the deadline
     let withdrawal_fulfillment_height =
-        header_vs.last_verified_block_num as usize - headers.len() + withdrawal_fullfillment_idx;
+        input.header_vs.last_verified_block_num as usize + withdrawal_fullfillment_idx;
     if withdrawal_fulfillment_height > dispatched_state.exec_deadline() as usize {
         return Err(BridgeProofError::DeadlineExceeded);
     }
 
-    // 5a. Extract the public key of the operator who did the withdrawal fulfillment
+    // 4a. Extract the public key of the operator who did the withdrawal fulfillment
     let operator_pub_key = input
         .chain_state
         .operator_table()
@@ -148,7 +139,7 @@ pub(crate) fn process_bridge_proof(
         .unwrap()
         .signing_pk();
 
-    // 5b. Verify the signature against the operator pub key in the chain state
+    // 4b. Verify the signature against the operator pub key in the chain state
     // TODO: verifying the signature of the withdrawal fulfillment transaction is sufficient or
     // should be message include some other information as well
     let msg = compute_txid(withdrawal_fulfillment_tx.transaction());
@@ -156,11 +147,11 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::InvalidSignature);
     }
 
-    // 6a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
+    // 5a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
     let (claim_tx, claim_tx_idx) = &input.claim_tx;
     let withdrawal_fullfillment_txid = extract_claim_info(claim_tx.transaction())?;
 
-    // 6b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
+    // 5b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
     // witness data, so we expect witness to be present.
     let claim_header = headers[*claim_tx_idx];
     verify_tx_inclusion(claim_tx, BridgeRelatedTx::Claim, claim_header, true)?;
@@ -170,6 +161,15 @@ pub(crate) fn process_bridge_proof(
     if withdrawal_fullfillment_txid != compute_txid(withdrawal_fulfillment_tx.transaction()).into()
     {
         return Err(InvalidClaimInfo::InvalidWithdrawalCommitment.into());
+    }
+
+    // 6. Verify that each provided header follows Bitcoin consensus rules. This step ensures the
+    //    headers are internally consistent and continuous.
+    let mut header_vs = input.header_vs;
+    let params = get_btc_params();
+    for header in &headers {
+        // NOTE: This may panic internally on failure, which should be handled appropriately.
+        header_vs.check_and_update_continuity(header, &params);
     }
 
     // 7. Construct the proof output.
