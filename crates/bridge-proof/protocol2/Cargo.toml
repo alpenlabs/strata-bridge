@@ -26,4 +26,4 @@ borsh.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-test-utils = { git = "https://github.com/alpenlabs/strata" }
+bincode.workspace = true

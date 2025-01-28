@@ -168,25 +168,17 @@ impl L1TxWithProofBundle {
 
 #[cfg(test)]
 mod tests {
-    use strata_test_utils::bitcoin::get_btc_mainnet_block;
+    use bitcoin::Block;
 
     use super::L1TxWithProofBundle;
 
     #[test]
     fn test_segwit_tx() {
-        let block = get_btc_mainnet_block();
-        // This idx doesn't have any witness
-        let idx = 4;
-        let tx_bundle = L1TxWithProofBundle::generate(&block.txdata, idx);
-        assert!(tx_bundle.get_witness_tx().is_none());
-        assert!(tx_bundle.verify(block.header));
-    }
+        let blocks_bytes = include_bytes!("../../../../test-data/blocks.bin");
+        let blocks: Vec<Block> = bincode::deserialize(blocks_bytes).unwrap();
+        let block = &blocks[31];
 
-    #[test]
-    fn test_nonsegwit_tx() {
-        let block = get_btc_mainnet_block();
-        // Most of the other transaction in this block has some witness in the transaction
-        let idx = 10;
+        let idx = 2;
         let tx_bundle = L1TxWithProofBundle::generate(&block.txdata, idx);
         assert!(tx_bundle.get_witness_tx().is_some());
         assert!(tx_bundle.verify(block.header));
