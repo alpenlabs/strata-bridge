@@ -320,7 +320,9 @@ impl BtcZmqClient {
         let mut subs = self.tx_subs.lock().await;
         let mut sm = self.state_machine.lock().await;
         sm.add_filter(details.predicate.clone());
+        drop(sm); // dropped eagerly to allow other threads to progress immediately.
         subs.push(details);
+        drop(subs); // dropped eagerly to allow other threads to progress immediately.
 
         Subscription::from_receiver(recv)
     }
