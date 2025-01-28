@@ -1,6 +1,6 @@
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
-use strata_bridge_primitives::bitcoin_tx::BitcoinTx;
+use strata_bridge_primitives::bitcoin::BitcoinTx;
 use strata_primitives::{
     buf::Buf32,
     hash::sha256d,

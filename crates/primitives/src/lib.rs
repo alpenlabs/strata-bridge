@@ -7,7 +7,6 @@
 #![feature(array_try_from_fn)]
 
 pub mod bitcoin;
-pub mod bitcoin_tx;
 pub mod build_context;
 pub mod deposit;
 pub mod duties;
