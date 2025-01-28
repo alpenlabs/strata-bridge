@@ -20,3 +20,7 @@
 //! separate withdrawal requests concurrently.
 
 #![feature(duration_constructors)] // for constructing `Duration::from_days`
+
+pub mod stake_chain;
+
+pub use stake_chain::StakeChain;
