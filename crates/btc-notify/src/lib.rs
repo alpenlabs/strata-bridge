@@ -1,3 +1,4 @@
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 //! # btc-notify
 //!
 //! btc-notify is a crate to deliver real-time notifications on the latest transaction and block
@@ -22,6 +23,8 @@ use tokio::{
     sync::{mpsc, Mutex},
     task::JoinHandle,
 };
+
+const DEFAULT_BURY_DEPTH: usize = 6;
 
 /// BtcZmqConfig is the main configuration type used to establish the connection with the ZMQ
 /// interface of Bitcoin.
@@ -117,7 +120,7 @@ impl BtcZmqConfig {
 impl Default for BtcZmqConfig {
     fn default() -> Self {
         BtcZmqConfig {
-            bury_depth: 6,
+            bury_depth: DEFAULT_BURY_DEPTH,
             hashblock_connection_string: None,
             hashtx_connection_string: None,
             rawblock_connection_string: None,
@@ -202,6 +205,8 @@ struct TxSubscriptionDetails {
     predicate: TxPredicate,
     outbox: mpsc::UnboundedSender<TxEvent>,
 }
+
+#[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for TxSubscriptionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxSubscriptionDetails")
@@ -387,6 +392,8 @@ struct BtcZmqSM {
     // back is the oldest "unburied" block
     unburied_blocks: VecDeque<Block>,
 }
+
+#[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for BtcZmqSM {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BtcZmqSM")
@@ -720,6 +727,7 @@ impl BtcZmqSM {
 }
 
 #[cfg(test)]
+// #[cfg_attr(coverage_nightly, coverage(off))]
 mod e2e_tests {
     use corepc_node::serde_json::json;
     use serial_test::serial;
@@ -741,6 +749,7 @@ mod e2e_tests {
         let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
+            .with_bury_depth(DEFAULT_BURY_DEPTH)
             .with_hashblock_connection_string("tcp://127.0.0.1:23882")
             .with_hashtx_connection_string("tcp://127.0.0.1:23883")
             .with_rawblock_connection_string("tcp://127.0.0.1:23884")
@@ -752,6 +761,7 @@ mod e2e_tests {
         Ok((client, bitcoind))
     }
 
+    #[cfg_attr(coverage_nightly, coverage(off))]
     async fn wait_for_height(
         rpc_client: &corepc_node::Node,
         height: usize,
@@ -1102,7 +1112,7 @@ mod e2e_tests {
 
     #[tokio::test]
     #[serial]
-    async fn dropped_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+    async fn dropped_tx_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
         let (mut client, bitcoind) = setup()?;
 
@@ -1168,9 +1178,65 @@ mod e2e_tests {
 
         Ok(())
     }
+
+    #[tokio::test]
+    #[serial]
+    async fn dropped_block_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+        // Set up new bitcoind and zmq client instance.
+        let (mut client, bitcoind) = setup()?;
+
+        // Create a new address that will serve as the recipient of new transactions.
+        let new_address = bitcoind.client.new_address()?;
+
+        // Create new block subscription.
+        let mut block_sub = client.subscribe_blocks().await;
+
+        // Assert that we have an active transaction subscription.
+        assert_eq!(client.num_block_subscriptions().await, 1);
+
+        // Generate a transaction that would match our filter predicate.
+        let newly_mined = bitcoind
+            .client
+            .generate_to_address(1, &new_address)?
+            .into_model()?;
+
+        // Pull the Mempool event off of our subscription.
+        assert_eq!(
+            newly_mined.0.first(),
+            block_sub.next().await.map(|b| b.block_hash()).as_ref()
+        );
+
+        // Drop the subscription to trigger its removal from the BtcZmqClient.
+        drop(block_sub);
+
+        // Assert that we still have an active subscription because we haven't yet processed an
+        // an event that would cause it prune the subscription.
+        assert_eq!(client.num_block_subscriptions().await, 1);
+
+        // Mine a block, triggering a nominal Mined event for our active subscription, this should
+        // cause the subscription to be pruned.
+        bitcoind
+            .client
+            .generate_to_address(1, &new_address)
+            .unwrap();
+
+        // Wait for our active subscription count to report 0.
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if client.num_block_subscriptions().await == 0 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
+// #[cfg_attr(coverage_nightly, coverage(off))]
 mod prop_tests {
     use std::{
         collections::{BTreeSet, VecDeque},
@@ -1188,7 +1254,7 @@ mod prop_tests {
     use prop::array::uniform32;
     use proptest::prelude::*;
 
-    use crate::{BtcZmqSM, TxPredicate, TxStatus};
+    use crate::{BtcZmqSM, TxPredicate, TxStatus, DEFAULT_BURY_DEPTH};
 
     // Create a DebuggablePredicate type so we can generate dynamic predicates for the tests in this
     // module.
@@ -1196,6 +1262,8 @@ mod prop_tests {
         pred: TxPredicate,
         description: String,
     }
+
+    #[cfg_attr(coverage_nightly, coverage(off))]
     impl std::fmt::Debug for DebuggablePredicate {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str(&self.description)
@@ -1299,15 +1367,12 @@ mod prop_tests {
             return Just(VecDeque::new()).boxed();
         }
 
-        if length == 1 {
-            return arb_block(prev_blockhash)
-                .prop_map(|b| VecDeque::from([b]))
-                .boxed();
-        }
-
         let tail = arb_chain(prev_blockhash, length - 1);
         tail.prop_flat_map(move |t| {
-            let prev = t.front().unwrap().block_hash();
+            let prev = match t.front() {
+                Some(b) => b.block_hash(),
+                None => prev_blockhash,
+            };
             arb_block(prev).prop_map(move |b| {
                 let mut v = t.clone();
                 v.push_front(b);
@@ -1333,7 +1398,7 @@ mod prop_tests {
         // all match the predicate we added. (Consistency)
         #[test]
         fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
-            let mut sm = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block);
             for event in diff.iter() {
@@ -1345,7 +1410,7 @@ mod prop_tests {
         // generated by the BtcZmqSM. (Completeness)
         #[test]
         fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
-            let mut sm = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block.clone());
             assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
@@ -1356,7 +1421,7 @@ mod prop_tests {
         // This serves as an important base case to ensure the uniqueness of events
         #[test]
         fn lone_process_tx_yields_empty_diff(tx in arb_transaction()) {
-            let mut sm = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(std::sync::Arc::new(|_|true));
             let diff = sm.process_tx(tx);
             assert_eq!(diff, Vec::new());
@@ -1369,7 +1434,7 @@ mod prop_tests {
             let txid = tx.compute_txid();
             let mempool_sequence = 0u64;
 
-            let mut sm1 = BtcZmqSM::init(6);
+            let mut sm1 = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm1.add_filter(std::sync::Arc::new(|_|true));
 
             let diff_tx_1 = sm1.process_tx(tx.clone());
@@ -1379,11 +1444,11 @@ mod prop_tests {
             let diff_seq_1_set = BTreeSet::from_iter(diff_seq_1.into_iter());
             let diff_1 = diff_tx_1_set.union(&diff_seq_1_set).cloned().collect::<BTreeSet<crate::TxEvent>>();
 
-            let mut sm2 = BtcZmqSM::init(6);
+            let mut sm2 = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm2.add_filter(std::sync::Arc::new(|_|true));
 
-            let diff_seq_2 = sm1.process_sequence(SequenceMessage::MempoolAcceptance{ txid, mempool_sequence });
-            let diff_tx_2 = sm1.process_tx(tx);
+            let diff_seq_2 = sm2.process_sequence(SequenceMessage::MempoolAcceptance{ txid, mempool_sequence });
+            let diff_tx_2 = sm2.process_tx(tx);
 
             let diff_tx_2_set = BTreeSet::from_iter(diff_tx_2.into_iter());
             let diff_seq_2_set = BTreeSet::from_iter(diff_seq_2.into_iter());
@@ -1394,10 +1459,13 @@ mod prop_tests {
 
         // Ensure that a BlockDisconnect event yields an Unknown event for every transaction in that block.
         #[test]
-        fn block_disconnect_drops_all_transactions(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
+        fn block_disconnect_drops_all_transactions(
+            pred in arb_predicate(),
+            block in arb_block(Hash::all_zeros()),
+        ) {
             let blockhash = block.block_hash();
 
-            let mut sm = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred);
             let diff_mined = sm.process_block(block);
             assert!(diff_mined.iter().map(|event| &event.status).all(|s| *s == TxStatus::Mined));
@@ -1410,7 +1478,8 @@ mod prop_tests {
         // transaction in that block.
         #[test]
         fn transactions_eventually_buried(mut chain in arb_chain(Hash::all_zeros(), 7)) {
-            let mut sm = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
+            sm.add_filter(std::sync::Arc::new(|_|true));
 
             let oldest = chain.pop_back().unwrap();
             let diff = sm.process_block(oldest);
@@ -1433,7 +1502,7 @@ mod prop_tests {
         // Ensure that receiving both a MempoolAcceptance and tx event yields a Mempool event. (seq-tx Completeness)
         #[test]
         fn seq_and_tx_make_mempool(tx in arb_transaction()) {
-            let mut sm = BtcZmqSM::init(6);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
 
             sm.add_filter(Arc::new(|_|true));
 
@@ -1447,20 +1516,20 @@ mod prop_tests {
         // Ensure that removing a filter after adding it results in an identical state machine (filter Invertibility).
         #[test]
         fn filter_rm_inverts_add(pred in arb_predicate()) {
-            let sm_ref = BtcZmqSM::init(6);
-            let mut sm = BtcZmqSM::init(6);
+            let sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
+            let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
 
             sm.add_filter(pred.pred.clone());
             sm.rm_filter(&pred.pred);
 
-            assert_eq!(sm, sm_ref);
+            assert_eq!(sm, sm_ref, "expected: {:?}, actual: {:?}", sm_ref, sm);
         }
 
         // Ensure that a processing of a MempoolRemoval inverts the processing of a MempoolAcceptance, even if there is
         // an interceding rawtx event. (Mempool Invertibility)
         #[test]
         fn mempool_removal_inverts_acceptance(tx in arb_transaction(), include_raw in any::<bool>()) {
-            let mut sm_ref = BtcZmqSM::init(6);
+            let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_ref.add_filter(Arc::new(|_|true));
             let mut sm = sm_ref.clone();
 
@@ -1477,11 +1546,35 @@ mod prop_tests {
         // Ensure that processing a BlockDisconnect event inverts the processing of a prior rawblock event.
         // (Block Invertibility)
         #[test]
-        fn block_disconnect_inverts_block(block in arb_block(Hash::all_zeros())) {
-            let mut sm_ref = BtcZmqSM::init(6);
+        fn block_disconnect_inverts_block(
+            mempool_tx in arb_transaction(),
+            sequence_only in any::<bool>(),
+            mut chain in arb_chain(Hash::all_zeros(), 2),
+        ) {
+            let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_ref.add_filter(Arc::new(|_|true));
+
+            // To ensure that we have a more interesting state machine than just the block we want
+            // to process we include transactions that aren't included in any block.
+            if sequence_only {
+                sm_ref.process_sequence(
+                    SequenceMessage::MempoolAcceptance {
+                        txid: mempool_tx.compute_txid(),
+                        mempool_sequence: 0
+                    },
+                );
+            } else {
+                sm_ref.process_tx(mempool_tx);
+            }
+
+            // We process a block that isn't the one we plan to disconnect just to ensure the state
+            // machine has a richer state.
+            sm_ref.process_block(chain.pop_back().unwrap());
+
+            // Fork the state machine.
             let mut sm = sm_ref.clone();
 
+            let block = chain.pop_back().unwrap();
             let blockhash = block.block_hash();
             sm.process_block(block);
             sm.process_sequence(SequenceMessage::BlockDisconnect { blockhash });
@@ -1493,7 +1586,7 @@ mod prop_tests {
         // (block-tx Idempotence)
         #[test]
         fn tx_after_block_idempotence(block in arb_block(Hash::all_zeros())) {
-            let mut sm_ref = BtcZmqSM::init(6);
+            let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_ref.add_filter(Arc::new(|_|true));
             sm_ref.process_block(block.clone());
             let mut sm = sm_ref.clone();
@@ -1508,7 +1601,7 @@ mod prop_tests {
         // accompanying rawtx events. (tx-block Commutativity)
         #[test]
         fn tx_block_commutativity(block in arb_block(Hash::all_zeros())) {
-            let mut sm_base = BtcZmqSM::init(6);
+            let mut sm_base = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_base.add_filter(Arc::new(|_|true));
             let mut sm_block_first = sm_base.clone();
             let mut sm_tx_first = sm_base;

@@ -7,6 +7,9 @@ edition = "2021"
 rust.missing_debug_implementations = "warn"
 rust.missing_docs = "warn"
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage, coverage_nightly)',
+] }
 rust.unreachable_pub = "warn"
 rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
