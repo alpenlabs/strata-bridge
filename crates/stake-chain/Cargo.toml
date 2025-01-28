@@ -13,12 +13,12 @@ rust.unused_must_use = "deny"
 # TODO: remove the commented out (dev-)dependencies before the PR is merged.
 [dependencies]
 # bincode.workspace = true
-# bitcoin = { workspace = true, features = ["rand-std"] }
+bitcoin = { workspace = true, features = ["rand-std"] }
 # bitcoin-script = { workspace = true }
 # bitvm = { workspace = true }
 # lazy_static.workspace = true
 # secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
-# serde.workspace = true
+serde.workspace = true
 # strata-bridge-db.workspace = true
 # strata-bridge-primitives.workspace = true
 # strata-bridge-proof-snark.workspace = true

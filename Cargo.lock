@@ -9339,6 +9339,10 @@ dependencies = [
 [[package]]
 name = "strata-bridge-stake-chain"
 version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "serde",
+]
 
 [[package]]
 name = "strata-bridge-test-utils"
