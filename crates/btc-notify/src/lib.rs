@@ -5,7 +5,7 @@
 //!
 //! Once the client is initialized, consumers of this API will create [`Subscription`]s with
 //! [`BtcZmqClient::subscribe_blocks`] or [`BtcZmqClient::subscribe_transactions`]. These
-//! subscription objects can be primarily worked with via their [`Stream`] trait API.
+//! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
 use std::{
     collections::{BTreeMap, VecDeque},
     error::Error,
