@@ -1251,7 +1251,7 @@ mod prop_tests {
         Transaction, TxIn, TxOut, Txid, Witness,
     };
     use bitcoincore_zmq::SequenceMessage;
-    use prop::array::uniform32;
+    use prop::array::uniform16;
     use proptest::prelude::*;
 
     use crate::{BtcZmqSM, TxPredicate, TxStatus, DEFAULT_BURY_DEPTH};
@@ -1279,7 +1279,7 @@ mod prop_tests {
 
     // Generate a random 32 byte hash as a Txid.
     prop_compose! {
-        fn arb_txid()(bs in uniform32(any::<u8>())) -> Txid {
+        fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
             Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
         }
     }
@@ -1295,7 +1295,7 @@ mod prop_tests {
     prop_compose! {
         fn arb_input()(
             previous_output in arb_outpoint(),
-            script_sig in uniform32(any::<u8>()).prop_map(|b| ScriptBuf::from_bytes(b.to_vec())),
+            script_sig in any::<[u8; 32]>().prop_map(|b| ScriptBuf::from_bytes(b.to_vec())),
             sequence in any::<u32>().prop_map(Sequence::from_consensus),
         ) -> TxIn {
             TxIn {
@@ -1311,7 +1311,7 @@ mod prop_tests {
     prop_compose! {
         fn arb_output()(
             value in arb_amount(),
-            script_pubkey in uniform32(any::<u8>()).prop_map(|b| ScriptBuf::from_bytes(b.to_vec()))
+            script_pubkey in any::<[u8; 32]>().prop_map(|b| ScriptBuf::from_bytes(b.to_vec()))
         ) -> TxOut {
             TxOut {
                 value,
@@ -1341,7 +1341,10 @@ mod prop_tests {
     // Generate a block that contains 32 random transactions. The argument defines the blockhash of
     // the block this block builds on top of.
     prop_compose! {
-        fn arb_block(prev_blockhash: BlockHash)(txdata in uniform32(arb_transaction()), time in any::<u32>()) -> Block {
+        fn arb_block(prev_blockhash: BlockHash)(
+            txdata in uniform16(arb_transaction()),
+            time in any::<u32>(),
+        ) -> Block {
             let header = block::Header {
                 version: block::Version::TWO,
                 prev_blockhash,
@@ -1402,7 +1405,7 @@ mod prop_tests {
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block);
             for event in diff.iter() {
-                assert!((pred.pred)(&event.rawtx))
+                prop_assert!((pred.pred)(&event.rawtx))
             }
         }
 
@@ -1413,7 +1416,7 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block.clone());
-            assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
+            prop_assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
         }
 
         // Ensure that an unaccompanied process_tx yields an empty diff.
@@ -1424,7 +1427,7 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(std::sync::Arc::new(|_|true));
             let diff = sm.process_tx(tx);
-            assert_eq!(diff, Vec::new());
+            prop_assert_eq!(diff, Vec::new());
         }
 
         // Ensure that the order of process_tx and a corresponding MempoolAcceptance (process_sequence) does not impact
@@ -1454,7 +1457,7 @@ mod prop_tests {
             let diff_seq_2_set = BTreeSet::from_iter(diff_seq_2.into_iter());
             let diff_2 = diff_tx_2_set.union(&diff_seq_2_set).cloned().collect::<BTreeSet<crate::TxEvent>>();
 
-            assert_eq!(diff_1, diff_2);
+            prop_assert_eq!(diff_1, diff_2);
         }
 
         // Ensure that a BlockDisconnect event yields an Unknown event for every transaction in that block.
@@ -1468,10 +1471,10 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred);
             let diff_mined = sm.process_block(block);
-            assert!(diff_mined.iter().map(|event| &event.status).all(|s| *s == TxStatus::Mined));
+            prop_assert!(diff_mined.iter().map(|event| &event.status).all(|s| *s == TxStatus::Mined));
 
             let diff_dropped = sm.process_sequence(SequenceMessage::BlockDisconnect{ blockhash});
-            assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
+            prop_assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
         }
 
         // Ensure that adding a full bury_depth length chain of blocks on top of a block yields a Buried event for every
@@ -1496,7 +1499,7 @@ mod prop_tests {
                 None
             }).collect::<BTreeSet<Txid>>();
 
-            assert_eq!(to_be_buried, is_buried);
+            prop_assert_eq!(to_be_buried, is_buried);
         }
 
         // Ensure that receiving both a MempoolAcceptance and tx event yields a Mempool event. (seq-tx Completeness)
@@ -1507,10 +1510,10 @@ mod prop_tests {
             sm.add_filter(Arc::new(|_|true));
 
             let diff = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid: tx.compute_txid(), mempool_sequence: 0 });
-            assert!(diff.is_empty());
+            prop_assert!(diff.is_empty());
 
             let diff = sm.process_tx(tx.clone());
-            assert_eq!(diff, vec![crate::TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
+            prop_assert_eq!(diff, vec![crate::TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
         }
 
         // Ensure that removing a filter after adding it results in an identical state machine (filter Invertibility).
@@ -1522,7 +1525,7 @@ mod prop_tests {
             sm.add_filter(pred.pred.clone());
             sm.rm_filter(&pred.pred);
 
-            assert_eq!(sm, sm_ref, "expected: {:?}, actual: {:?}", sm_ref, sm);
+            prop_assert_eq!(sm, sm_ref);
         }
 
         // Ensure that a processing of a MempoolRemoval inverts the processing of a MempoolAcceptance, even if there is
@@ -1540,7 +1543,7 @@ mod prop_tests {
             }
             sm.process_sequence(SequenceMessage::MempoolRemoval { txid, mempool_sequence: 0 });
 
-            assert_eq!(sm, sm_ref);
+            prop_assert_eq!(sm, sm_ref);
         }
 
         // Ensure that processing a BlockDisconnect event inverts the processing of a prior rawblock event.
@@ -1579,7 +1582,7 @@ mod prop_tests {
             sm.process_block(block);
             sm.process_sequence(SequenceMessage::BlockDisconnect { blockhash });
 
-            assert_eq!(sm, sm_ref);
+            prop_assert_eq!(sm, sm_ref);
         }
 
         // Ensure that a rawtx event sampled from a rawblock event is idempotent following the rawblock event.
@@ -1593,7 +1596,7 @@ mod prop_tests {
 
             for tx in block.txdata {
                 sm.process_tx(tx);
-                assert_eq!(sm, sm_ref);
+                prop_assert_eq!(&sm, &sm_ref);
             }
         }
 
@@ -1616,7 +1619,7 @@ mod prop_tests {
             }
             sm_tx_first.process_block(block);
 
-            assert_eq!(sm_tx_first, sm_block_first);
+            prop_assert_eq!(sm_tx_first, sm_block_first);
         }
     }
 }
