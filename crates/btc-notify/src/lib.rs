@@ -752,6 +752,20 @@ mod e2e_tests {
         Ok((client, bitcoind))
     }
 
+    async fn wait_for_height(
+        rpc_client: &corepc_node::Node,
+        height: usize,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(
+            tokio::time::timeout(std::time::Duration::from_secs(10), async {
+                while rpc_client.client.get_blockchain_info().unwrap().blocks != height as i64 {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+            })
+            .await?,
+        )
+    }
+
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
@@ -831,11 +845,7 @@ mod e2e_tests {
             .client
             .generate_to_address(101, &new_address)?
             .into_model()?;
-
-        // We include a sleep here to increase the probability that the full event stream generated
-        // by the 101 mining operation is fully flushed out before we subscribe to new
-        // transaction events.
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        wait_for_height(&bitcoind, 101).await?;
 
         // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
@@ -885,11 +895,7 @@ mod e2e_tests {
             .client
             .generate_to_address(101, &new_address)?
             .into_model()?;
-
-        // We include a sleep here to increase the probability that the full event stream generated
-        // by the 101 mining operation is fully flushed out before we subscribe to new
-        // transaction events.
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        wait_for_height(&bitcoind, 101).await?;
 
         // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
@@ -943,11 +949,7 @@ mod e2e_tests {
             .client
             .generate_to_address(101, &new_address)?
             .into_model()?;
-
-        // We include a sleep here to increase the probability that the full event stream generated
-        // by the 101 mining operation is fully flushed out before we subscribe to new
-        // transaction events.
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        wait_for_height(&bitcoind, 101).await?;
 
         // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
@@ -1051,11 +1053,7 @@ mod e2e_tests {
             .client
             .generate_to_address(101, &new_address)?
             .into_model()?;
-
-        // We include a sleep here to increase the probability that the full event stream generated
-        // by the 101 mining operation is fully flushed out before we subscribe to new
-        // transaction events.
-        tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+        wait_for_height(&bitcoind, 101).await?;
 
         // Subscribe to all non-coinbase transactions.
         let pred = |tx: &Transaction| !tx.is_coinbase();
@@ -1098,6 +1096,75 @@ mod e2e_tests {
 
         // Wait for the mining task to terminate
         tokio::time::timeout(std::time::Duration::from_secs(1), mine_task).await??;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
+    async fn dropped_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+        // Set up new bitcoind and zmq client instance.
+        let (mut client, bitcoind) = setup()?;
+
+        // Create a new address that will serve as the recipient of new transactions.
+        let new_address = bitcoind.client.new_address()?;
+
+        // Mine 101 blocks so that the coins in the first block are spendable.
+        let _ = bitcoind
+            .client
+            .generate_to_address(101, &new_address)?
+            .into_model()?;
+        wait_for_height(&bitcoind, 101).await?;
+
+        // Subscribe to all non-coinbase transactions.
+        let pred = |tx: &Transaction| !tx.is_coinbase();
+        let mut tx_sub = client.subscribe_transactions(pred).await;
+
+        // Assert that we have an active transaction subscription.
+        assert_eq!(client.num_tx_subscriptions().await, 1);
+
+        // Generate a transaction that would match our filter predicate.
+        let txid = bitcoind
+            .client
+            .send_to_address(&new_address, bitcoin::Amount::ONE_BTC)
+            .unwrap()
+            .txid()?;
+
+        // Pull the Mempool event off of our subscription.
+        match tx_sub.next().await {
+            Some(event) => {
+                assert_eq!(event.rawtx.compute_txid(), txid);
+                assert_eq!(event.status, TxStatus::Mempool);
+            }
+            None => {
+                panic!("stream wrongfully terminated by client");
+            }
+        }
+
+        // Drop the subscription to trigger its removal from the BtcZmqClient.
+        drop(tx_sub);
+
+        // Assert that we still have an active subscription because we haven't yet processed an
+        // an event that would cause it prune the subscription.
+        assert_eq!(client.num_tx_subscriptions().await, 1);
+
+        // Mine a block, triggering a nominal Mined event for our active subscription, this should
+        // cause the subscription to be pruned.
+        bitcoind
+            .client
+            .generate_to_address(1, &new_address)
+            .unwrap();
+
+        // Wait for our active subscription count to report 0.
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            loop {
+                if client.num_tx_subscriptions().await == 0 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await?;
 
         Ok(())
     }
