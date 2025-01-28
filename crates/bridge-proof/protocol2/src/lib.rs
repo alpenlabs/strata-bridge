@@ -67,7 +67,6 @@ pub(crate) struct BridgeProofInputBorsh {
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
 }
 
-// Implement `From<&BridgeProofInput>` to create a `BridgeProofInputBorsh`.
 impl From<BridgeProofInput> for BridgeProofInputBorsh {
     fn from(input: BridgeProofInput) -> Self {
         Self {

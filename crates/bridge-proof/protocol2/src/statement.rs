@@ -123,10 +123,10 @@ pub(crate) fn process_bridge_proof(
     let withdrawal = dispatched_state.cmd().withdraw_outputs().first().unwrap();
     if operator_idx != dispatched_state.assignee()
         || address != *withdrawal.dest_addr()
+        // TODO: amount should be equal to entry.amt() - withdrawal_fee
+        // withdrawal_fee will be part of the params
         || amount != entry.amt()
     {
-        // TODO: amount might be equal to entry.amt()
-        // TODO: verify if this might instead be equal to withdrawal.amt()
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
 
