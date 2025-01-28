@@ -656,9 +656,10 @@ impl BtcZmqSM {
                                 }];
                             }
                             // This should never happen.
-                            Some(_) => {
-                                panic!("invariant violated: mempool acceptance after mining")
-                            }
+                            Some(_) => panic!(
+                                "invariant violated: mempool acceptance after mining: {:?}",
+                                lifecycle.raw
+                            ),
                         }
                     }
                     // In this case we have received a MempoolAcceptance event for this txid, but
