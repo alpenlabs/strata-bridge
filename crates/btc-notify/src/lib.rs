@@ -12,7 +12,6 @@ use bitcoin::BlockHash;
 use bitcoin::Txid;
 use bitcoincore_zmq::Message;
 use bitcoincore_zmq::SequenceMessage;
-use futures::Stream;
 use futures::StreamExt;
 use log::error;
 use tokio::sync::mpsc;
@@ -177,7 +176,7 @@ impl<T> Subscription<T> {
     }
 }
 
-impl<T> Stream for Subscription<T> {
+impl<T> futures::Stream for Subscription<T> {
     type Item = T;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
