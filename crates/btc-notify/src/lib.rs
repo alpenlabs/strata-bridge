@@ -357,7 +357,10 @@ impl BtcZmqClient {
 /// block inclusion, inferring other states depending on the messages we have received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TxLifecycle {
+    /// raw is the full transaction data of the lifecycle we are tracking.
     raw: Transaction,
+    /// block is an optional [`bitcoin::BlockHash`] that will be populated once the transaction has
+    /// been included in a block.
     block: Option<BlockHash>,
 }
 
