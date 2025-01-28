@@ -550,7 +550,7 @@ impl BtcZmqSM {
                     if block.block_hash() == blockhash {
                         self.unburied_blocks.pop_front();
                     } else {
-                        // As far as I can tell, the block connect and diconnect events are done in "stack order". This
+                        // As far as I can tell, the block connect and disconnect events are done in "stack order". This
                         // means that block connects happen in chronological order and disconnects happen in reverse
                         // chronological order. If we get a block disconnect event that doesn't match our current tip
                         // then this assumption has broken down.
