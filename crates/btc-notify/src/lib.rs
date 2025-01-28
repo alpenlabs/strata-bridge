@@ -669,7 +669,7 @@ mod e2e_tests {
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance
-        let (mut client, mut bitcoind) = setup()?;
+        let (mut client, bitcoind) = setup()?;
 
         // Subscribe to new blocks
         let mut block_sub = client.subscribe_blocks().await;
@@ -687,7 +687,6 @@ mod e2e_tests {
         // the producer thread
         drop(client);
 
-        bitcoind.stop()?;
         Ok(())
     }
 
@@ -695,7 +694,7 @@ mod e2e_tests {
     #[serial]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, mut bitcoind) = setup()?;
+        let (mut client, bitcoind) = setup()?;
 
         // Subscribe to all transactions.
         let mut tx_sub = client.subscribe_transactions(|_|true).await;
@@ -719,7 +718,6 @@ mod e2e_tests {
         // the producer thread.
         drop(client);
 
-        bitcoind.stop()?;
         Ok(())
     }
 
@@ -728,7 +726,7 @@ mod e2e_tests {
     #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, mut bitcoind) = setup()?;
+        let (mut client, bitcoind) = setup()?;
 
         // Get a new address that we will use to send money to.
         let new_address = bitcoind.client.new_address()?;
@@ -754,7 +752,6 @@ mod e2e_tests {
             // terminates.
             drop(client);
 
-            bitcoind.stop().unwrap();
         });
 
         // Pull all transactions off of the subscription (until it terminates) and assert that all of them pass the
@@ -774,7 +771,7 @@ mod e2e_tests {
     #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, mut bitcoind) = setup()?;
+        let (mut client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -799,7 +796,6 @@ mod e2e_tests {
             // terminates.
             drop(client);
 
-            bitcoind.stop().unwrap();
         });
 
         // Count all of the transactions that come over the subscription, waiting for the subscription to terminate.
@@ -822,7 +818,7 @@ mod e2e_tests {
     #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, mut bitcoind) = setup()?;
+        let (mut client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -888,7 +884,6 @@ mod e2e_tests {
         // Assert that the stream has ended following the dropping of our zmq client.
         assert!(tx_sub.next().await.is_none());
 
-        bitcoind.stop().unwrap();
         Ok(())
     }
 
@@ -897,7 +892,7 @@ mod e2e_tests {
     #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, mut bitcoind) = setup()?;
+        let (mut client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -922,7 +917,6 @@ mod e2e_tests {
                 std::thread::sleep(std::time::Duration::from_millis(100));
             }
             drop(client);
-            bitcoind.stop().unwrap();
         });
 
         // Continuously pull events off of the stream, checking for a Buried event for our transaction.
