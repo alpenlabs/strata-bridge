@@ -2900,6 +2900,7 @@ dependencies = [
  "bitcoincore-zmq",
  "corepc-node",
  "futures",
+ "log",
  "proptest",
  "serial_test",
  "tokio",
