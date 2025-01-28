@@ -20,6 +20,6 @@ futures = "0.3.31"
 log = "0.4.25"
 
 [dev-dependencies]
-corepc-node = "0.5.0"
+corepc-node.workspace = true
 serial_test = "3.2.0"
 proptest = "1.6.0"
