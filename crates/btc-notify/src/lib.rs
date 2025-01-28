@@ -139,7 +139,7 @@ pub enum TxStatus {
     ///
     /// This status will be received once per transaction per block. If a transaction is included in a block, and then
     /// that block is reorg'ed out and the same transaction is included in a new block, then the subscription will emit
-    /// two separate events for it.
+    /// two separate [`TxStatus::Mined`] events for it.
     Mined,
     /// Buried is a terminal status. It will be emitted once the transaction's containing block has been buried under
     /// a sufficient number of subsequent blocks.
