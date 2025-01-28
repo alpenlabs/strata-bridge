@@ -450,8 +450,6 @@ impl BtcZmqSM {
                 // a Mined transaction event to the diff.
                 None | Some(None) => {
                     let lifecycle = TxLifecycle {
-                        // TODO(proofofkeags): figure out how to make this a reference into the block we save to avoid
-                        // duplicating transaction data.
                         raw: matched_tx.clone(),
                         block: Some(block.block_hash()),
                     };
