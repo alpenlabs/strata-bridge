@@ -23,6 +23,8 @@ use tokio::{
     task::JoinHandle,
 };
 
+// TODO(proofofkeags), TODO(Rajil1213): Use different default finality depths depending on the
+// network we are on?
 const DEFAULT_BURY_DEPTH: usize = 6;
 
 /// BtcZmqConfig is the main configuration type used to establish the connection with the ZMQ
@@ -37,7 +39,7 @@ const DEFAULT_BURY_DEPTH: usize = 6;
 /// methods on this struct.
 #[derive(Debug, Clone)]
 pub struct BtcZmqConfig {
-    /// depth at which a transaction is considered buried, defaults to 6
+    /// depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
     bury_depth: usize,
 
     /// connection string used in bitcoin.conf => zmqpubhashblock
