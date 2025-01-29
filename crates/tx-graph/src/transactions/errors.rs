@@ -1,4 +1,4 @@
-use bitcoin::{FeeRate, Txid};
+use bitcoin::{psbt::ExtractTxError, Amount, FeeRate, Txid};
 use strata_bridge_primitives::errors::BridgeTxBuilderError;
 use thiserror::Error;
 
@@ -7,6 +7,14 @@ pub enum TxError {
     /// Error building the tx.
     #[error("build: {0}")]
     BuildTx(#[from] BridgeTxBuilderError),
+
+    /// Failed to finalize a psbt.
+    #[error("could not finalize psbt: {0}")]
+    FinalizationFailed(#[from] ExtractTxError),
+
+    /// Insufficient input amount.
+    #[error("insufficient input amount, input: {0}, output: {0}")]
+    InsufficientInputAmount(Amount, Amount),
 
     /// Provided output index is invalid for a transaction.
     #[error("invalid vout: {0}")]

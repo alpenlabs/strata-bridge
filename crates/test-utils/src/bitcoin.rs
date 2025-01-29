@@ -1,6 +1,6 @@
 //! Module to generate arbitrary values for testing.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, str::FromStr};
 
 use bitcoin::{
     absolute::LockTime,
@@ -108,6 +108,43 @@ pub fn find_funding_utxo(
             }
         })
         .expect("must have a utxo with enough funds")
+}
+
+pub fn get_funding_utxo_exact(btc_client: &Client, target_amount: Amount) -> (TxOut, OutPoint) {
+    let funding_address = btc_client
+        .new_address()
+        .expect("must be able to generate new address");
+
+    let result = btc_client
+        .send_to_address(&funding_address, target_amount)
+        .expect("must be able to send funds");
+    btc_client
+        .generate_to_address(6, &funding_address)
+        .expect("must be able to generate blocks");
+
+    let result = btc_client
+        .get_transaction(Txid::from_str(&result.0).expect("txid must be valid"))
+        .expect("must be able to get transaction");
+    let tx: Transaction =
+        consensus::encode::deserialize_hex(&result.hex).expect("must be able to deserialize tx");
+
+    let vout = tx
+        .output
+        .iter()
+        .position(|out| out.value == target_amount)
+        .expect("must have a txout with the target amount");
+
+    let txout = TxOut {
+        value: target_amount,
+        script_pubkey: tx.output[vout].script_pubkey.clone(),
+    };
+
+    let outpoint = OutPoint {
+        txid: tx.compute_txid(),
+        vout: vout as u32,
+    };
+
+    (txout, outpoint)
 }
 
 pub fn sign_cpfp_child(

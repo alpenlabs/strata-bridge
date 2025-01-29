@@ -161,7 +161,7 @@ mod tests {
 
     #[test]
     fn test_connector_a30() {
-        logging::init(LoggerConfig::new("test-connector-c0".to_string()));
+        logging::init(LoggerConfig::new("test-connector-a30".to_string()));
 
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");

@@ -305,8 +305,11 @@ mod tests {
     };
 
     use bitcoin::{
-        consensus, policy::MAX_STANDARD_TX_WEIGHT, sighash::SighashCache, transaction, FeeRate,
-        OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
+        consensus,
+        policy::MAX_STANDARD_TX_WEIGHT,
+        sighash::SighashCache,
+        taproot::{self},
+        transaction, FeeRate, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
     };
     // use bitcoincore_rpc_json::GetRawTransactionResult;
     use corepc_node::{
@@ -324,21 +327,25 @@ mod tests {
         build_context::TxBuildContext,
         params::{
             prelude::{NUM_ASSERT_DATA_TX, PAYOUT_TIMELOCK},
-            tx::OPERATOR_STAKE,
+            tx::{CHALLENGE_COST, OPERATOR_STAKE},
         },
         scripts::taproot::create_message_hash,
         wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
     };
     use strata_bridge_test_utils::{
         musig2::generate_agg_signature,
-        prelude::{find_funding_utxo, generate_keypair, generate_txid, sign_cpfp_child},
-        tx::get_mock_deposit,
+        prelude::{
+            find_funding_utxo, generate_keypair, generate_txid, get_funding_utxo_exact,
+            sign_cpfp_child,
+        },
+        tx::{get_mock_deposit, FEES},
     };
     use strata_btcio::rpc::types::{GetTxOut, ListUnspent, SignRawTransactionWithWallet};
     use strata_common::logging;
     use tracing::warn;
 
     use super::*;
+    use crate::transactions::challenge::{ChallengeTx, ChallengeTxInput};
 
     const DEPOSIT_AMOUNT: Amount = Amount::from_int_btc(10);
     const MSK: &str = "test_msk";
@@ -744,7 +751,7 @@ mod tests {
         let PegOutGraphConnectors {
             kickoff,
             claim_out_0,
-            claim_out_1: _,
+            claim_out_1,
             stake: _,
             connector_cpfp,
             post_assert_out_0,
@@ -802,6 +809,72 @@ mod tests {
 
         btc_client
             .generate_to_address(6, &btc_addr)
+            .expect("must be able to mine blocks");
+
+        info!("submitting a challenge");
+        let challenge_leaf = ConnectorC1Path::Challenge(());
+        let challenge_tx_input = ChallengeTxInput {
+            claim_outpoint: OutPoint {
+                txid: signed_claim_tx.compute_txid(),
+                vout: 1, // challenge tx uses the second output of the claim tx
+            },
+            challenge_amt: CHALLENGE_COST,
+            operator_pubkey: keypair.x_only_public_key().0,
+            network: context.network(),
+        };
+
+        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1);
+
+        let unsigned_challenge_tx = challenge_tx.psbt().unsigned_tx.clone();
+        let mut sighash_cache = SighashCache::new(&unsigned_challenge_tx);
+        let input_index = challenge_leaf.get_input_index() as usize;
+        let challenge_witness = &challenge_tx.witnesses()[input_index];
+        let msg_hash = create_message_hash(
+            &mut sighash_cache,
+            challenge_tx.prevouts(),
+            challenge_witness,
+            challenge_leaf.get_sighash_type(),
+            input_index,
+        )
+        .expect("should be able to create message hash");
+        let signature = generate_agg_signature(&msg_hash, keypair, challenge_witness);
+        let signature = taproot::Signature {
+            signature,
+            sighash_type: challenge_leaf.get_sighash_type(),
+        };
+        let signed_challenge_leaf = challenge_leaf.add_witness_data(signature);
+
+        let (funding_input, funding_utxo) =
+            get_funding_utxo_exact(btc_client, CHALLENGE_COST + FEES);
+
+        let funded_challenge_tx = challenge_tx
+            .add_funding_input(funding_utxo, funding_input)
+            .expect("must be able to add funding input to challenge tx");
+        let partially_signed_challenge_tx = funded_challenge_tx
+            .finalize(claim_out_1, signed_challenge_leaf)
+            .expect("must be able to finalize challenge tx");
+
+        let raw_partially_signed_challenge_tx =
+            consensus::encode::serialize_hex(&partially_signed_challenge_tx);
+        let result = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(raw_partially_signed_challenge_tx)],
+            )
+            .expect("must be able to sign tx");
+        let signed_challenge_tx = consensus::encode::deserialize_hex::<Transaction>(&result.hex)
+            .expect("must be able to deserialize signed tx");
+
+        info!(
+            vsize = signed_challenge_tx.vsize(),
+            txid = signed_challenge_tx.compute_txid().to_string(),
+            "broadcasting challenge tx"
+        );
+        btc_client
+            .send_raw_transaction(&signed_challenge_tx)
+            .expect("must be able to send challenge tx");
+        btc_client
+            .generate_to_address(1, &btc_addr)
             .expect("must be able to mine blocks");
 
         let AssertChain {

@@ -114,6 +114,11 @@ pub const TS_COMMITMENT_MARGIN: u32 = 288; // 2 days' worth of blocks in mainnet
 
 pub const PAYOUT_OPTIMISTIC_TIMELOCK: u32 = 500;
 
+pub const PRE_ASSERT_TIMELOCK: u32 = PAYOUT_OPTIMISTIC_TIMELOCK + 100; // 100 is slack
+
+// compile-time checks
+const _: () = assert!(PRE_ASSERT_TIMELOCK > PAYOUT_OPTIMISTIC_TIMELOCK);
+
 const _: u32 =
     PAYOUT_OPTIMISTIC_TIMELOCK - (SUPERBLOCK_MEASUREMENT_PERIOD + TS_COMMITMENT_MARGIN + 100); // 100
                                                                                                // is slack

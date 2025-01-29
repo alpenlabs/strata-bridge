@@ -2,6 +2,7 @@
 
 pub mod assert_chain;
 pub mod assert_data;
+pub mod challenge;
 pub mod claim;
 pub mod covenant_tx;
 pub mod cpfp;
