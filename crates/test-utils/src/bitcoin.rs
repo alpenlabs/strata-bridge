@@ -80,7 +80,7 @@ pub fn generate_tx(num_inputs: usize, num_outputs: usize) -> Transaction {
 pub fn find_funding_utxo(
     btc_client: &Client,
     ignore_list: HashSet<OutPoint>,
-    total_fee: Amount,
+    total_amount: Amount,
 ) -> (TxOut, OutPoint) {
     let list_unspent = btc_client
         .call::<Vec<ListUnspent>>("listunspent", &[])
@@ -89,7 +89,7 @@ pub fn find_funding_utxo(
     list_unspent
         .iter()
         .find_map(|utxo| {
-            if utxo.amount > total_fee
+            if utxo.amount > total_amount
                 && !ignore_list.contains(&OutPoint::new(utxo.txid, utxo.vout))
             {
                 Some((

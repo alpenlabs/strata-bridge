@@ -5,7 +5,7 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use strata_bridge_primitives::{
-    params::connectors::{PAYOUT_OPTIMISTIC_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
+    params::{connectors::SUPERBLOCK_MEASUREMENT_PERIOD, prelude::PRE_ASSERT_TIMELOCK},
     scripts::prelude::*,
 };
 
@@ -33,6 +33,18 @@ impl<W> ConnectorC0Leaf<W>
 where
     W: Sized,
 {
+    pub(super) fn generate_locking_script(&self, n_of_n_agg_pubkey: &XOnlyPublicKey) -> ScriptBuf {
+        match self {
+            ConnectorC0Leaf::PayoutOptimistic(_) => {
+                n_of_n_with_timelock(n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK)
+            }
+            ConnectorC0Leaf::Assert(_) => n_of_n_script(n_of_n_agg_pubkey),
+            ConnectorC0Leaf::InvalidateTs(_) => {
+                n_of_n_with_timelock(n_of_n_agg_pubkey, SUPERBLOCK_MEASUREMENT_PERIOD)
+            }
+        }
+    }
+
     pub fn add_witness_data<NW: Sized>(self, witness_data: NW) -> ConnectorC0Leaf<NW> {
         match self {
             ConnectorC0Leaf::PayoutOptimistic(_) => ConnectorC0Leaf::PayoutOptimistic(witness_data),
@@ -59,23 +71,6 @@ impl ConnectorC0 {
         }
     }
 
-    /// Generates the tapleaf script for the given leaf.
-    ///
-    /// The witness data is not required to generate this information. So, a unit type can be
-    /// passed in place of the witness parameter.
-    pub fn generate_tapleaf<W: Sized>(&self, tapleaf: ConnectorC0Leaf<W>) -> ScriptBuf {
-        match tapleaf {
-            ConnectorC0Leaf::PayoutOptimistic(_) => {
-                n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK)
-            }
-            ConnectorC0Leaf::Assert(_) => n_of_n_script(&self.n_of_n_agg_pubkey), /* FIXME: use */
-            // timelock
-            ConnectorC0Leaf::InvalidateTs(_) => {
-                n_of_n_with_timelock(&self.n_of_n_agg_pubkey, SUPERBLOCK_MEASUREMENT_PERIOD)
-            }
-        }
-    }
-
     /// Generates the locking script for this connector.
     pub fn generate_locking_script(&self) -> ScriptBuf {
         let (address, _) = self.generate_taproot_address();
@@ -93,7 +88,7 @@ impl ConnectorC0 {
     ) -> (ScriptBuf, ControlBlock) {
         let (_, taproot_spend_info) = self.generate_taproot_address();
 
-        let script = self.generate_tapleaf(tapleaf);
+        let script = tapleaf.generate_locking_script(&self.n_of_n_agg_pubkey);
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -101,12 +96,14 @@ impl ConnectorC0 {
         (script, control_block)
     }
 
-    fn generate_taproot_address(&self) -> (Address, TaprootSpendInfo) {
+    /// Constructs the taproot address for this connector along with the spending info.
+    pub fn generate_taproot_address(&self) -> (Address, TaprootSpendInfo) {
         let scripts = &[
-            self.generate_tapleaf(ConnectorC0Leaf::PayoutOptimistic(())),
-            self.generate_tapleaf(ConnectorC0Leaf::Assert(())),
-            self.generate_tapleaf(ConnectorC0Leaf::InvalidateTs(())),
-        ];
+            ConnectorC0Leaf::PayoutOptimistic(()),
+            ConnectorC0Leaf::Assert(()),
+            ConnectorC0Leaf::InvalidateTs(()),
+        ]
+        .map(|leaf| leaf.generate_locking_script(&self.n_of_n_agg_pubkey));
 
         create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts })
             .expect("should be able to create taproot address")
@@ -197,7 +194,7 @@ mod tests {
                 let mut spend_connector_tx = spend_connector_tx;
                 if let ConnectorC0Leaf::PayoutOptimistic(_) = leaf {
                     spend_connector_tx.input[0].sequence =
-                        Sequence::from_height(PAYOUT_OPTIMISTIC_TIMELOCK as u16);
+                        Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
                 }
 
                 let mut psbt =
@@ -236,7 +233,7 @@ mod tests {
                         .new_address()
                         .expect("must be able to generate new address");
 
-                    [0; PAYOUT_OPTIMISTIC_TIMELOCK as usize]
+                    [0; PRE_ASSERT_TIMELOCK as usize]
                         .chunks(100)
                         .for_each(|chunk| {
                             btc_client

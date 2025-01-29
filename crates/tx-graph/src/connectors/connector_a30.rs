@@ -85,14 +85,6 @@ impl ConnectorA30 {
         }
     }
 
-    /// Creates the taproot script for the given tapleaf.
-    ///
-    /// The witness data is not required to generate this information. So, a unit type can be
-    /// passed in place of the witness parameter.
-    pub fn generate_tapleaf<W: Sized>(&self, tapleaf: ConnectorA30Leaf<W>) -> ScriptBuf {
-        tapleaf.generate_locking_script(&self.n_of_n_agg_pubkey)
-    }
-
     /// Creates the locking script for this connector.
     pub fn generate_locking_script(&self) -> ScriptBuf {
         let (address, _) = self.generate_taproot_address();
@@ -110,7 +102,7 @@ impl ConnectorA30 {
     ) -> (ScriptBuf, ControlBlock) {
         let (_, taproot_spend_info) = self.generate_taproot_address();
 
-        let script = self.generate_tapleaf(tapleaf);
+        let script = tapleaf.generate_locking_script(&self.n_of_n_agg_pubkey);
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -119,10 +111,8 @@ impl ConnectorA30 {
     }
 
     fn generate_taproot_address(&self) -> (Address, TaprootSpendInfo) {
-        let scripts = &[
-            self.generate_tapleaf(ConnectorA30Leaf::Payout(())),
-            self.generate_tapleaf(ConnectorA30Leaf::Disprove(())),
-        ];
+        let scripts = &[ConnectorA30Leaf::Payout(()), ConnectorA30Leaf::Disprove(())]
+            .map(|leaf| leaf.generate_locking_script(&self.n_of_n_agg_pubkey));
 
         create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts })
             .expect("should be able to create taproot address")

@@ -17,7 +17,6 @@ use bitcoin::{
 use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 
-// use secp256k1::SECP256K1;
 use crate::{
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult},
     params::prelude::UNSPENDABLE_INTERNAL_KEY,
