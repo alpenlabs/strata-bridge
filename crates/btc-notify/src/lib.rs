@@ -207,6 +207,7 @@ struct TxSubscriptionDetails {
     outbox: mpsc::UnboundedSender<TxEvent>,
 }
 
+// Coverage is disabled because when tests pass, most Debug impls will never be invoked.
 #[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for TxSubscriptionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -394,6 +395,7 @@ struct BtcZmqSM {
     unburied_blocks: VecDeque<Block>,
 }
 
+// Coverage is disabled because when tests pass, most Debug impls will never be invoked.
 #[cfg_attr(coverage_nightly, coverage(off))]
 impl std::fmt::Debug for BtcZmqSM {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -728,7 +730,6 @@ impl BtcZmqSM {
 }
 
 #[cfg(test)]
-// #[cfg_attr(coverage_nightly, coverage(off))]
 mod e2e_tests {
     use corepc_node::serde_json::json;
     use serial_test::serial;
@@ -762,6 +763,9 @@ mod e2e_tests {
         Ok((client, bitcoind))
     }
 
+    // This is disabled because it is merely a testing helper function to ensure tests complete in
+    // a timely manner, so we don't want lack of full coverage in this function to distract from
+    // overall coverage.
     #[cfg_attr(coverage_nightly, coverage(off))]
     async fn wait_for_height(
         rpc_client: &corepc_node::Node,
@@ -780,7 +784,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
-        // Set up new bitcoind and zmq client instance
+        // Set up new bitcoind and zmq client instance.
         let (mut client, bitcoind) = setup()?;
 
         // Subscribe to new blocks
@@ -1237,7 +1241,6 @@ mod e2e_tests {
 }
 
 #[cfg(test)]
-// #[cfg_attr(coverage_nightly, coverage(off))]
 mod prop_tests {
     use std::{
         collections::{BTreeSet, VecDeque},
@@ -1264,6 +1267,7 @@ mod prop_tests {
         description: String,
     }
 
+    // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
     #[cfg_attr(coverage_nightly, coverage(off))]
     impl std::fmt::Debug for DebuggablePredicate {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
