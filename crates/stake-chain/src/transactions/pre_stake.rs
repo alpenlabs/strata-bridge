@@ -45,19 +45,14 @@ impl PreStakeTx {
         }
     }
 
-    /// Creates a new [`PreStakeTx`] transaction from a PSBT.
-    pub fn from_psbt(psbt: Psbt, amount: Amount) -> Self {
-        Self { psbt, amount }
-    }
-
     /// The transaction's inputs.
-    pub fn inputs(&self) -> Result<Vec<TxIn>, StakeChainError> {
-        Ok(self.psbt.clone().extract_tx()?.input)
+    pub fn inputs(&self) -> Vec<TxIn> {
+        self.psbt.unsigned_tx.input.clone()
     }
 
     /// The transaction's outputs.
-    pub fn outputs(&self) -> Result<Vec<TxOut>, StakeChainError> {
-        Ok(self.psbt.clone().extract_tx()?.output)
+    pub fn outputs(&self) -> Vec<TxOut> {
+        self.psbt.unsigned_tx.output.clone()
     }
 
     /// The transaction's fee.
@@ -72,7 +67,7 @@ impl PreStakeTx {
     /// The fee rate calculation relies on an unchecked division using the total fees and the total
     /// transaction virtual size. Internally it calls [`FeeRate::from_sat_per_vb_unchecked`].
     pub fn fee_rate(&self) -> Result<FeeRate, StakeChainError> {
-        let vsize = self.psbt.clone().extract_tx()?.vsize();
+        let vsize = self.psbt.unsigned_tx.vsize();
         let fee = self.fee()?;
         Ok(FeeRate::from_sat_per_vb_unchecked(
             fee.to_sat() / vsize as u64,
