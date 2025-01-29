@@ -45,7 +45,7 @@ pub struct BridgeProofInput {
 
     /// The index of the deposit within the [Chainstate] deposit table.  
     /// Must match the corresponding information in the withdrawal fulfillment transaction.
-    deposit_idx: usize,
+    deposit_idx: u32,
 
     /// Transaction (and its inclusion proof) containing the strata checkpoint proof.  
     /// The `usize` represents the position of this transaction in the header chain.
@@ -68,7 +68,7 @@ pub struct BridgeProofInput {
 pub(crate) struct BridgeProofInputBorsh {
     chain_state: Chainstate,
     header_vs: HeaderVerificationState,
-    deposit_idx: usize,
+    deposit_idx: u32,
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
     claim_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
@@ -92,7 +92,6 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub(crate) struct BridgeProofOutput {
     deposit_txid: Buf32,
-    claim_ts: u32,
     num_headers_after_claim_tx: usize,
 }
 

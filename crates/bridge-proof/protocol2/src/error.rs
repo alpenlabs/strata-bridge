@@ -38,6 +38,10 @@ pub(crate) enum BridgeProofError {
     /// The operator's fulfilled the withdrawal request after the deadline
     #[error("Withdrawal fulfilled after deadline exceeded")]
     DeadlineExceeded,
+
+    /// The transactions are not ordered as expected
+    #[error("Invalid transactions order. {0:?} must occur before {1:?}")]
+    InvalidTxOrder(BridgeRelatedTx, BridgeRelatedTx),
 }
 
 /// Represents all errors that can occur specifically during the verification of a claim's
@@ -55,7 +59,7 @@ pub(crate) enum InvalidClaimInfo {
 pub(crate) enum ChainStateError {
     /// Indicates that the deposit could not be found for the specified index.
     #[error("Deposit not found for idx {0}")]
-    DepositNotFound(usize),
+    DepositNotFound(u32),
 
     /// Indicates that the deposit state is invalid or unexpected for the operation in question.
     #[error("Deposit state is expected to be Dispatched")]

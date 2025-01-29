@@ -27,7 +27,6 @@ pub(crate) struct L1TxWithIdProof<T> {
 impl<T: TxIdComputable> L1TxWithIdProof<T> {
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
-    #[allow(dead_code)]
     pub(crate) fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
         Self { tx, proof }
     }
@@ -83,7 +82,7 @@ impl L1TxWithProofBundle {
     /// Panics if `idx` is out of bounds for the `txs` array (e.g., `idx as usize >= txs.len()`).
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
-    #[allow(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code))]
     pub(crate) fn generate(txs: &[Transaction], idx: u32) -> Self {
         // Clone the transaction we want to prove.
         let tx = txs[idx as usize].clone();
@@ -174,12 +173,15 @@ mod tests {
 
     #[test]
     fn test_segwit_tx() {
-        let blocks_bytes = include_bytes!("../../../../test-data/blocks.bin");
-        let blocks: Vec<Block> = bincode::deserialize(blocks_bytes).unwrap();
-        let block = &blocks[31];
+        let blocks_bytes = std::fs::read("../../../test-data/blocks.bin").unwrap();
+        let blocks: Vec<Block> = bincode::deserialize(&blocks_bytes).unwrap();
 
-        let idx = 2;
-        let tx_bundle = L1TxWithProofBundle::generate(&block.txdata, idx);
+        // Select a block with more than one transaction and construct the proof for the last
+        // transaction in the block
+        let block = blocks.iter().find(|block| block.txdata.len() > 1).unwrap();
+        let idx = block.txdata.len() - 1;
+
+        let tx_bundle = L1TxWithProofBundle::generate(&block.txdata, idx as u32);
         assert!(tx_bundle.get_witness_tx().is_some());
         assert!(tx_bundle.verify(block.header));
     }

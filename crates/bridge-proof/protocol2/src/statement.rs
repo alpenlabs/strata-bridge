@@ -102,7 +102,7 @@ pub(crate) fn process_bridge_proof(
     let entry = input
         .chain_state
         .deposits_table()
-        .get_deposit(input.deposit_idx as u32)
+        .get_deposit(input.deposit_idx)
         .ok_or(ChainStateError::DepositNotFound(input.deposit_idx))?;
 
     let dispatched_state = match entry.deposit_state() {
@@ -153,8 +153,12 @@ pub(crate) fn process_bridge_proof(
 
     // 5b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
     // witness data, so we expect witness to be present.
-    let claim_header = headers[*claim_tx_idx];
-    verify_tx_inclusion(claim_tx, BridgeRelatedTx::Claim, claim_header, true)?;
+    verify_tx_inclusion(
+        claim_tx,
+        BridgeRelatedTx::Claim,
+        headers[*claim_tx_idx],
+        true,
+    )?;
 
     // 6c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
     // the withdrawal fulfillment transaction.
@@ -163,7 +167,21 @@ pub(crate) fn process_bridge_proof(
         return Err(InvalidClaimInfo::InvalidWithdrawalCommitment.into());
     }
 
-    // 6. Verify that each provided header follows Bitcoin consensus rules. This step ensures the
+    // 6. Ensure that the transactions are in order
+    if strata_checkpoint_idx > withdrawal_fullfillment_idx {
+        return Err(BridgeProofError::InvalidTxOrder(
+            BridgeRelatedTx::StrataCheckpoint,
+            BridgeRelatedTx::WithdrawalFulfillment,
+        ));
+    }
+    if withdrawal_fullfillment_idx > claim_tx_idx {
+        return Err(BridgeProofError::InvalidTxOrder(
+            BridgeRelatedTx::WithdrawalFulfillment,
+            BridgeRelatedTx::Claim,
+        ));
+    }
+
+    // 7. Verify that each provided header follows Bitcoin consensus rules. This step ensures the
     //    headers are internally consistent and continuous.
     let mut header_vs = input.header_vs;
     let params = get_btc_params();
@@ -172,11 +190,10 @@ pub(crate) fn process_bridge_proof(
         header_vs.check_and_update_continuity(header, &params);
     }
 
-    // 7. Construct the proof output.
+    // 8. Construct the proof output.
     let num_headers_after_claim_tx = headers.len() - claim_tx_idx;
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        claim_ts: claim_header.time,
         num_headers_after_claim_tx,
     };
 
