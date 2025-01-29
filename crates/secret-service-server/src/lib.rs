@@ -26,9 +26,9 @@ use secret_service_proto::{
             Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, OperatorSigner,
             P2PSigner, SecretService, Server, WotsSigner,
         },
-        wire::{ArchivedClientMessage, LengthUint, ServerMessage, WireMessage},
+        wire::{ArchivedClientMessage, ServerMessage},
     },
-    wire::ArchivedVersionedClientMessage,
+    wire::{ArchivedVersionedClientMessage, LengthUint, VersionedServerMessage, WireMessage},
 };
 use terrors::OneOf;
 use tokio::{
@@ -151,7 +151,7 @@ async fn request_manager(
 
     match handler_res {
         Ok(msg) => {
-            let byte_response = match WireMessage::serialize(&msg) {
+            let byte_response = match WireMessage::serialize(&VersionedServerMessage::V1(msg)) {
                 Ok(r) => r,
                 Err(e) => {
                     error!("failed to serialize response: {e:?}");
