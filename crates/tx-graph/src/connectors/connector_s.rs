@@ -5,7 +5,7 @@ use strata_bridge_primitives::scripts::prelude::*;
 /// The connector to move the operator's stake across transactions.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorS {
-    /// The $ N $-of-$ N $ aggregated public key for the operator set.
+    /// The N-of-N aggregated public key for the operator set.
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
     /// The bitcoin network on which the connector operates.
@@ -13,7 +13,7 @@ pub struct ConnectorS {
 }
 
 impl ConnectorS {
-    /// Creates a new `ConnectorS` with the given $ N $-of-$ N $ aggregated public key and the
+    /// Creates a new `ConnectorS` with the given N-of-N aggregated public key and the
     /// bitcoin network.
     pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
         Self {
