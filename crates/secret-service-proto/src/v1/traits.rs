@@ -1,4 +1,4 @@
-use std::{fmt::Debug, future::Future};
+use std::future::Future;
 
 use bitcoin::Psbt;
 use musig2::{
@@ -6,9 +6,10 @@ use musig2::{
     secp256k1::PublicKey,
     AggNonce, LiftedSignature, PartialSignature, PubNonce,
 };
-use rkyv::{
-    api::high::HighSerializer, rancor, ser::allocator::ArenaHandle, util::AlignedVec, Serialize,
-};
+use quinn::{ConnectionError, ReadExactError, WriteError};
+use rkyv::rancor;
+
+use super::wire::ServerMessage;
 
 pub trait SecretServiceFactory<FirstRound, SecondRound>: Send + Clone
 where
@@ -40,29 +41,23 @@ where
 }
 
 pub trait OperatorSigner<O: Origin>: Send {
-    type OperatorSigningError: Debug
-        + Send
-        + Clone
-        + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>;
+    // type OperatorSigningError: Debug
+    //     + Send
+    //     + Clone
+    //     + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>;
 
-    fn sign_psbt(
-        &self,
-        psbt: Psbt,
-    ) -> impl Future<Output = O::Container<Result<Psbt, Self::OperatorSigningError>>> + Send;
+    fn sign_psbt(&self, psbt: Psbt) -> impl Future<Output = O::Container<Psbt>> + Send;
 }
 
 pub trait P2PSigner<O: Origin>: Send {
-    type P2PSigningError: Debug
-        + Send
-        + Clone
-        + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>;
+    // type P2PSigningError: Debug
+    //     + Send
+    //     + Clone
+    //     + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>;
 
-    fn sign_p2p(
-        &self,
-        hash: [u8; 32],
-    ) -> impl Future<Output = O::Container<Result<[u8; 64], Self::P2PSigningError>>> + Send;
+    fn sign_p2p(&self, hash: [u8; 32]) -> impl Future<Output = O::Container<[u8; 64]>> + Send;
 
-    fn p2p_pubkey(&self) -> impl Future<Output = [u8; 32]> + Send;
+    fn p2p_pubkey(&self) -> impl Future<Output = O::Container<[u8; 33]>> + Send;
 }
 
 pub type Musig2SessionId = usize;
@@ -126,7 +121,16 @@ impl Origin for Server {
 
 pub struct Client;
 impl Origin for Client {
-    type Container<T> = Result<T, NetworkError>;
+    type Container<T> = Result<T, ClientError>;
 }
 
-pub enum NetworkError {}
+pub enum ClientError {
+    ConnectionError(ConnectionError),
+    SerializationError(rancor::Error),
+    DeserializationError(rancor::Error),
+    BadData,
+    WriteError(WriteError),
+    ReadError(ReadExactError),
+    Timeout,
+    ProtocolError(ServerMessage),
+}
