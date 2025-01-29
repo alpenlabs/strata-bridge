@@ -133,4 +133,5 @@ pub enum ClientError {
     ReadError(ReadExactError),
     Timeout,
     ProtocolError(ServerMessage),
+    WrongVersion,
 }

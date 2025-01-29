@@ -1,19 +1,7 @@
 use musig2::errors::{RoundContributionError, RoundFinalizeError};
-use rkyv::{
-    api::high::{to_bytes_in, HighSerializer},
-    rancor,
-    ser::allocator::ArenaHandle,
-    util::AlignedVec,
-    with::Map,
-    Archive, Deserialize, Serialize,
-};
+use rkyv::{with::Map, Archive, Deserialize, Serialize};
 
 use super::traits::Musig2SessionId;
-
-trait WireMessageMarker:
-    for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>
-{
-}
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -74,8 +62,6 @@ pub enum ServerMessage {
         key: [u8; 64],
     },
 }
-
-impl WireMessageMarker for ServerMessage {}
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum Musig2SessionResult {
@@ -159,31 +145,4 @@ pub enum ClientMessage {
     WotsGetKey {
         index: u64,
     },
-}
-
-impl WireMessageMarker for ClientMessage {}
-
-pub trait WireMessage {
-    fn serialize(&self) -> Result<AlignedVec, rancor::Error>;
-}
-
-pub type LengthUint = u16;
-
-// ignore, probably will just directly write to the connection instead of this
-impl<T: WireMessageMarker> WireMessage for T {
-    fn serialize(&self) -> Result<AlignedVec, rancor::Error> {
-        let mut aligned_buf = AlignedVec::new();
-        aligned_buf.extend_from_slice(&LengthUint::MAX.to_le_bytes());
-        let mut aligned_buf = to_bytes_in(self, aligned_buf)?;
-        let len = aligned_buf.len() - size_of::<LengthUint>();
-        assert!(len <= LengthUint::MAX as usize);
-        (len as LengthUint)
-            .to_le_bytes()
-            .into_iter()
-            .enumerate()
-            .for_each(|byte| {
-                aligned_buf[byte.0] = byte.1;
-            });
-        Ok(aligned_buf)
-    }
 }

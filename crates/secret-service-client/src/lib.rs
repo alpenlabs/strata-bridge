@@ -17,12 +17,18 @@ use quinn::{
     rustls, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
 };
 use rkyv::{deserialize, rancor};
-use secret_service_proto::v1::{
-    traits::{
-        Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
-        Musig2SignerSecondRound, OperatorSigner, Origin, P2PSigner, SecretService, WotsSigner,
+use secret_service_proto::{
+    v1::{
+        traits::{
+            Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
+            Musig2SignerSecondRound, OperatorSigner, Origin, P2PSigner, SecretService, WotsSigner,
+        },
+        wire::{ClientMessage, ServerMessage},
     },
-    wire::{ArchivedServerMessage, ClientMessage, LengthUint, ServerMessage, WireMessage},
+    wire::{
+        ArchivedVersionedServerMessage, LengthUint, VersionedClientMessage, VersionedServerMessage,
+        WireMessage,
+    },
 };
 use terrors::OneOf;
 use tokio::time::timeout;
@@ -131,7 +137,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             let msg = ClientMessage::Musig2FirstRoundOurNonce {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundOurNonce { our_nonce } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -146,7 +152,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             let msg = ClientMessage::Musig2FirstRoundHoldouts {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundHoldouts { pubkeys } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -163,7 +169,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             let msg = ClientMessage::Musig2FirstRoundIsComplete {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundIsComplete { complete } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -183,7 +189,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
                 pubkey: pubkey.serialize(),
                 pubnonce: pubnonce.serialize(),
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundReceivePubNonce(maybe_err) = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -202,7 +208,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
                 session_id: self.session_id,
                 hash,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundFinalize(maybe_err) = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -230,7 +236,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             let msg = ClientMessage::Musig2SecondRoundAggNonce {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundAggNonce { nonce } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -245,7 +251,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             let msg = ClientMessage::Musig2SecondRoundHoldouts {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundHoldouts { pubkeys } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -264,7 +270,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             let msg = ClientMessage::Musig2SecondRoundOurSignature {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundOurSignature { sig } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -277,7 +283,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             let msg = ClientMessage::Musig2SecondRoundIsComplete {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundIsComplete { complete } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -297,7 +303,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
                 pubkey: pubkey.serialize(),
                 signature: signature.serialize(),
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundReceiveSignature(maybe_err) = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -314,7 +320,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             let msg = ClientMessage::Musig2SecondRoundFinalize {
                 session_id: self.session_id,
             };
-            let res = make_req(&self.connection, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundFinalize(res) = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -345,7 +351,7 @@ impl OperatorSigner<Client> for OperatorClient {
             let msg = ClientMessage::OperatorSignPsbt {
                 psbt: psbt.serialize(),
             };
-            let res = make_req(&self.conn, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::OperatorSignPsbt { psbt } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -366,7 +372,7 @@ impl P2PSigner<Client> for P2PClient {
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 64]>> + Send {
         async move {
             let msg = ClientMessage::SignP2P { hash };
-            let res = make_req(&self.conn, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::SignP2P { sig } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -377,7 +383,7 @@ impl P2PSigner<Client> for P2PClient {
     fn p2p_pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<[u8; 33]>> + Send {
         async move {
             let msg = ClientMessage::P2PPubkey;
-            let res = make_req(&self.conn, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::P2PPubkey { pubkey } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -395,7 +401,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     fn new_session(&self) -> impl Future<Output = Result<Musig2FirstRound, ClientError>> + Send {
         async move {
             let msg = ClientMessage::Musig2NewSession;
-            let res = make_req(&self.conn, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::Musig2NewSession { session_id } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -421,7 +427,7 @@ impl WotsSigner<Client> for WotsClient {
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 64]>> + Send {
         async move {
             let msg = ClientMessage::WotsGetKey { index };
-            let res = make_req(&self.conn, msg, self.config.timeout).await?;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::WotsGetKey { key } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
@@ -430,7 +436,7 @@ impl WotsSigner<Client> for WotsClient {
     }
 }
 
-async fn make_req(
+async fn make_v1_req(
     conn: &Connection,
     msg: ClientMessage,
     timeout_dur: Duration,
@@ -438,7 +444,11 @@ async fn make_req(
     let (mut tx, mut rx) = conn.open_bi().await.map_err(ClientError::ConnectionError)?;
     timeout(
         timeout_dur,
-        tx.write_all(&msg.serialize().map_err(ClientError::SerializationError)?),
+        tx.write_all(
+            &VersionedClientMessage::V1(msg)
+                .serialize()
+                .map_err(ClientError::SerializationError)?,
+        ),
     )
     .await
     .map_err(|_| ClientError::Timeout)?
@@ -459,8 +469,11 @@ async fn make_req(
         .map_err(|_| ClientError::Timeout)?
         .map_err(ClientError::ReadError)?;
 
-    let archived = rkyv::access::<ArchivedServerMessage, rancor::Error>(&buf)
+    let archived = rkyv::access::<ArchivedVersionedServerMessage, rancor::Error>(&buf)
         .map_err(ClientError::DeserializationError)?;
 
-    Ok(deserialize(archived).map_err(ClientError::DeserializationError)?)
+    let VersionedServerMessage::V1(msg) =
+        deserialize(archived).map_err(ClientError::DeserializationError)?;
+
+    Ok(msg)
 }
