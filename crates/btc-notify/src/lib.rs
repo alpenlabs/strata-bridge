@@ -18,7 +18,6 @@ use std::{
 use bitcoin::{transaction::Transaction, Block, BlockHash, Txid};
 use bitcoincore_zmq::{Message, SequenceMessage};
 use futures::StreamExt;
-use log::error;
 use tokio::{
     sync::{mpsc, Mutex},
     task::JoinHandle,
@@ -282,7 +281,7 @@ impl BtcZmqClient {
                         Ok(Message::Tx(tx, _)) => sm.process_tx(tx),
                         Ok(Message::Sequence(seq, _)) => sm.process_sequence(seq),
                         Err(e) => {
-                            error!("ERROR: {e}");
+                            tracing::error!("ERROR: {e}");
                             Vec::new()
                         }
                     };
