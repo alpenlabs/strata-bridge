@@ -1,4 +1,3 @@
-#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
 //! # btc-notify
 //!
 //! btc-notify is a crate to deliver real-time notifications on the latest transaction and block
@@ -7,6 +6,11 @@
 //! Once the client is initialized, consumers of this API will create [`Subscription`]s with
 //! [`BtcZmqClient::subscribe_blocks`] or [`BtcZmqClient::subscribe_transactions`]. These
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
+
+// This cfg_attr is needed so that we can disable coverage in parts of the code that we don't want
+// polluting coverage analysis. Removing this will cause this module to fail to compile.
+#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+
 use std::{
     collections::{BTreeMap, VecDeque},
     error::Error,
