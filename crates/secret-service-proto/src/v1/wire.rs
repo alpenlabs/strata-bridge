@@ -8,9 +8,7 @@ use rkyv::{
     Archive, Deserialize, Serialize,
 };
 
-use super::traits::{
-    Musig2SessionId, Musig2SignerFirstRound, OperatorSigner, P2PSigner, SecretService, Server,
-};
+use super::traits::Musig2SessionId;
 
 trait WireMessageMarker:
     for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>
@@ -18,25 +16,34 @@ trait WireMessageMarker:
 }
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-pub enum ServerMessage<S, FirstRound, SecondRound>
-where
-    S: SecretService<Server, FirstRound, SecondRound>,
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
-{
+pub enum ServerMessage {
     InvalidClientMessage,
     OpaqueServerError,
 
-    OperatorSignPsbt(
-        Result<Vec<u8>, <S::OperatorSigner as OperatorSigner<Server>>::OperatorSigningError>,
-    ),
+    OperatorSignPsbt {
+        psbt: Vec<u8>,
+    },
 
-    SignP2P(Result<[u8; 64], <S::P2PSigner as P2PSigner<Server>>::P2PSigningError>),
+    SignP2P {
+        sig: [u8; 64],
+    },
+    P2PPubkey {
+        pubkey: [u8; 33],
+    },
 
-    Musig2NewSession(Musig2SessionId),
+    Musig2NewSession {
+        session_id: Musig2SessionId,
+    },
 
-    Musig2FirstRoundOurNonce([u8; 66]),
-    Musig2FirstRoundHoldouts(Vec<[u8; 33]>),
-    Musig2FirstRoundIsComplete(bool),
+    Musig2FirstRoundOurNonce {
+        our_nonce: [u8; 66],
+    },
+    Musig2FirstRoundHoldouts {
+        pubkeys: Vec<[u8; 33]>,
+    },
+    Musig2FirstRoundIsComplete {
+        complete: bool,
+    },
     Musig2FirstRoundReceivePubNonce(
         #[rkyv(with = Map<super::rkyv_wrappers::RoundContributionError>)]
         Option<RoundContributionError>,
@@ -45,25 +52,30 @@ where
         #[rkyv(with = Map<super::rkyv_wrappers::RoundFinalizeError>)] Option<RoundFinalizeError>,
     ),
 
-    Musig2SecondRoundAggNonce([u8; 66]),
-    Musig2SecondRoundHoldouts(Vec<[u8; 33]>),
-    Musig2SecondRoundOurSignature([u8; 32]),
-    Musig2SecondRoundIsComplete(bool),
+    Musig2SecondRoundAggNonce {
+        nonce: [u8; 66],
+    },
+    Musig2SecondRoundHoldouts {
+        pubkeys: Vec<[u8; 33]>,
+    },
+    Musig2SecondRoundOurSignature {
+        sig: [u8; 32],
+    },
+    Musig2SecondRoundIsComplete {
+        complete: bool,
+    },
     Musig2SecondRoundReceiveSignature(
         #[rkyv(with = Map<super::rkyv_wrappers::RoundContributionError>)]
         Option<RoundContributionError>,
     ),
     Musig2SecondRoundFinalize(Musig2SessionResult),
 
-    WotsGetKey([u8; 64]),
+    WotsGetKey {
+        key: [u8; 64],
+    },
 }
 
-impl<S, FirstRound, SecondRound> WireMessageMarker for ServerMessage<S, FirstRound, SecondRound>
-where
-    S: SecretService<Server, FirstRound, SecondRound>,
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
-{
-}
+impl WireMessageMarker for ServerMessage {}
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum Musig2SessionResult {
@@ -100,6 +112,7 @@ pub enum ClientMessage {
     SignP2P {
         hash: [u8; 32],
     },
+    P2PPubkey,
 
     Musig2NewSession,
 
@@ -154,15 +167,17 @@ pub trait WireMessage {
     fn serialize(&self) -> Result<AlignedVec, rancor::Error>;
 }
 
+pub type LengthUint = u16;
+
 // ignore, probably will just directly write to the connection instead of this
 impl<T: WireMessageMarker> WireMessage for T {
     fn serialize(&self) -> Result<AlignedVec, rancor::Error> {
         let mut aligned_buf = AlignedVec::new();
-        aligned_buf.extend_from_slice(&u32::MAX.to_le_bytes());
+        aligned_buf.extend_from_slice(&LengthUint::MAX.to_le_bytes());
         let mut aligned_buf = to_bytes_in(self, aligned_buf)?;
-        let len = aligned_buf.len() - size_of::<u32>();
-        assert!(len <= u32::MAX as usize);
-        (len as u32)
+        let len = aligned_buf.len() - size_of::<LengthUint>();
+        assert!(len <= LengthUint::MAX as usize);
+        (len as LengthUint)
             .to_le_bytes()
             .into_iter()
             .enumerate()

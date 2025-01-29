@@ -12,23 +12,21 @@ use std::{
 };
 
 use bitcoin::{secp256k1::PublicKey, Psbt};
-use kanal::AsyncSender;
 use ms2sm::Musig2SessionManager;
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
     ConnectionError, Endpoint, Incoming, ReadExactError, RecvStream, SendStream, ServerConfig,
-    WriteError,
 };
-use rkyv::rancor::{self, Error};
+use rkyv::rancor::Error;
 use secret_service_proto::{
     v1::{
         traits::{
             Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, OperatorSigner,
             P2PSigner, SecretService, Server, WotsSigner,
         },
-        wire::{ArchivedClientMessage, ServerMessage, WireMessage},
+        wire::{ArchivedClientMessage, LengthUint, ServerMessage, WireMessage},
     },
     wire::ArchivedVersionedClientMessage,
 };
@@ -139,14 +137,10 @@ async fn conn_handler<FirstRound, SecondRound, Service>(
     }
 }
 
-async fn request_manager<Service, FirstRound, SecondRound>(
+async fn request_manager(
     mut tx: SendStream,
-    handler: JoinHandle<Result<ServerMessage<Service, FirstRound, SecondRound>, ReadExactError>>,
-) where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
-    SecondRound: Musig2SignerSecondRound<Server>,
-    Service: SecretService<Server, FirstRound, SecondRound>,
-{
+    handler: JoinHandle<Result<ServerMessage, ReadExactError>>,
+) {
     let handler_res = match handler.await {
         Ok(r) => r,
         Err(e) => {
@@ -176,16 +170,16 @@ async fn request_handler<Service, FirstRound, SecondRound>(
     mut rx: RecvStream,
     service: Arc<Service>,
     musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
-) -> Result<ServerMessage<Service, FirstRound, SecondRound>, ReadExactError>
+) -> Result<ServerMessage, ReadExactError>
 where
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
     SecondRound: Musig2SignerSecondRound<Server>,
     Service: SecretService<Server, FirstRound, SecondRound>,
 {
     let len_to_read = {
-        let mut buf = 0u16.to_le_bytes();
+        let mut buf = [0; size_of::<LengthUint>()];
         rx.read_exact(&mut buf).await?;
-        u16::from_le_bytes(buf)
+        LengthUint::from_le_bytes(buf)
     };
 
     let mut buf = vec![0u8; len_to_read as usize];
@@ -197,19 +191,26 @@ where
         ArchivedVersionedClientMessage::V1(req) => match req {
             ArchivedClientMessage::OperatorSignPsbt { psbt } => {
                 let psbt = Psbt::deserialize(&psbt).unwrap();
-                let r = service.operator_signer().sign_psbt(psbt).await;
-                ServerMessage::OperatorSignPsbt(r.map(|psbt| psbt.serialize()))
+                let psbt = service.operator_signer().sign_psbt(psbt).await;
+                ServerMessage::OperatorSignPsbt {
+                    psbt: psbt.serialize(),
+                }
             }
 
             ArchivedClientMessage::SignP2P { hash } => {
-                let r = service.p2p_signer().sign_p2p(*hash).await;
-                ServerMessage::SignP2P(r)
+                let sig = service.p2p_signer().sign_p2p(*hash).await;
+                ServerMessage::SignP2P { sig }
+            }
+
+            ArchivedClientMessage::P2PPubkey => {
+                let pubkey = service.p2p_signer().p2p_pubkey().await;
+                ServerMessage::P2PPubkey { pubkey }
             }
 
             ArchivedClientMessage::Musig2NewSession => {
                 let first_round = service.musig2_signer().new_session().await;
                 match musig2_sm.lock().await.new_session(first_round) {
-                    Some(id) => ServerMessage::Musig2NewSession(id),
+                    Some(session_id) => ServerMessage::Musig2NewSession { session_id },
                     None => ServerMessage::OpaqueServerError,
                 }
             }
@@ -220,8 +221,8 @@ where
                     .first_round(session_id.to_native() as usize);
                 match r {
                     Ok(Some(first_round)) => {
-                        let nonce = first_round.our_nonce().await.serialize();
-                        ServerMessage::Musig2FirstRoundOurNonce(nonce)
+                        let our_nonce = first_round.our_nonce().await.serialize();
+                        ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
                     }
                     _ => ServerMessage::InvalidClientMessage,
                 }
@@ -232,14 +233,14 @@ where
                     .await
                     .first_round(session_id.to_native() as usize);
                 match r {
-                    Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundHoldouts(
-                        first_round
+                    Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundHoldouts {
+                        pubkeys: first_round
                             .holdouts()
                             .await
                             .iter()
                             .map(PublicKey::serialize)
                             .collect(),
-                    ),
+                    },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
@@ -249,9 +250,9 @@ where
                     .await
                     .first_round(session_id.to_native() as usize);
                 match r {
-                    Ok(Some(first_round)) => {
-                        ServerMessage::Musig2FirstRoundIsComplete(first_round.is_complete().await)
-                    }
+                    Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundIsComplete {
+                        complete: first_round.is_complete().await,
+                    },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
@@ -303,9 +304,9 @@ where
                     .second_round(session_id.to_native() as usize);
 
                 match sr {
-                    Ok(Some(sr)) => {
-                        ServerMessage::Musig2SecondRoundAggNonce(sr.agg_nonce().await.serialize())
-                    }
+                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundAggNonce {
+                        nonce: sr.agg_nonce().await.serialize(),
+                    },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
@@ -316,13 +317,14 @@ where
                     .second_round(session_id.to_native() as usize);
 
                 match sr {
-                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundHoldouts(
-                        sr.holdouts()
+                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundHoldouts {
+                        pubkeys: sr
+                            .holdouts()
                             .await
                             .iter()
                             .map(PublicKey::serialize)
                             .collect(),
-                    ),
+                    },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
@@ -333,9 +335,9 @@ where
                     .second_round(session_id.to_native() as usize);
 
                 match sr {
-                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundOurSignature(
-                        sr.our_signature().await.serialize(),
-                    ),
+                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundOurSignature {
+                        sig: sr.our_signature().await.serialize(),
+                    },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
@@ -346,9 +348,9 @@ where
                     .second_round(session_id.to_native() as usize);
 
                 match sr {
-                    Ok(Some(sr)) => {
-                        ServerMessage::Musig2SecondRoundIsComplete(sr.is_complete().await)
-                    }
+                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundIsComplete {
+                        complete: sr.is_complete().await,
+                    },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
@@ -390,26 +392,9 @@ where
             }
 
             ArchivedClientMessage::WotsGetKey { index } => {
-                let r = service.wots_signer().get_key(index.into()).await;
-                ServerMessage::WotsGetKey(r)
+                let key = service.wots_signer().get_key(index.into()).await;
+                ServerMessage::WotsGetKey { key }
             }
         },
     })
-}
-
-enum IoError {
-    WriteError(WriteError),
-    ReadError(ReadExactError),
-}
-
-impl From<WriteError> for IoError {
-    fn from(e: WriteError) -> Self {
-        IoError::WriteError(e)
-    }
-}
-
-impl From<ReadExactError> for IoError {
-    fn from(e: ReadExactError) -> Self {
-        IoError::ReadError(e)
-    }
 }
