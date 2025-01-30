@@ -1,10 +1,9 @@
 //! This module constructs the peg-out graph which is a series of transactions that allow for the
 //! withdrawal of funds from the bridge address given a valid claim.
 
-use bitcoin::{Amount, Network, Txid};
+use bitcoin::{Amount, Txid};
 use secp256k1::XOnlyPublicKey;
 use serde::{Deserialize, Serialize};
-use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     params::connectors::*,
@@ -13,11 +12,7 @@ use strata_bridge_primitives::{
 };
 use tracing::{debug, info};
 
-use crate::{
-    connectors::prelude::*,
-    errors::{TxGraphError, TxGraphResult},
-    transactions::prelude::*,
-};
+use crate::{connectors::prelude::*, errors::TxGraphResult, transactions::prelude::*};
 
 /// The input data required to generate a peg-out graph.
 ///
@@ -25,9 +20,6 @@ use crate::{
 /// graph deterministically. This assumes that the WOTS public keys have already been shared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
-    /// The bitcoin network on which the peg-out graph is being constructed.
-    pub network: Network,
-
     /// The deposit amount for the peg-out graph.
     ///
     /// This is kept as an input instead of a constant to allow for flexibility in the future.
@@ -70,27 +62,16 @@ impl PegOutGraph {
     /// Each graph can be generated deterministically provided that the WOTS public keys are
     /// available for the operator for the given deposit transaction, and the input data is
     /// available.
-    pub async fn generate<Db, DbRef, Context>(
+    pub async fn generate<Context>(
         input: PegOutGraphInput,
-        public_db: DbRef,
         context: &Context,
         deposit_txid: Txid,
         operator_idx: OperatorIdx,
+        wots_public_keys: wots::PublicKeys,
     ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
     where
-        Db: PublicDb,
-        DbRef: AsRef<Db>,
         Context: BuildContext,
     {
-        let wots_public_keys = public_db
-            .as_ref()
-            .get_wots_public_keys(operator_idx, deposit_txid)
-            .await?
-            .ok_or(TxGraphError::MissingWotsPublicKeys(
-                operator_idx,
-                deposit_txid,
-            ))?;
-
         let connectors = PegOutGraphConnectors::new(context, operator_idx, wots_public_keys);
 
         let kickoff_tx = KickOffTx::new(input.kickoff_data, connectors.kickoff)?;
@@ -145,7 +126,7 @@ impl PegOutGraph {
             input_stake: post_assert_out_stake,
             deposit_amount: input.deposit_amount,
             operator_key: input.operator_pubkey,
-            network: input.network,
+            network: context.network(),
         };
 
         let payout_tx = PayoutTx::new(
@@ -161,7 +142,7 @@ impl PegOutGraph {
             post_assert_txid,
             deposit_txid,
             input_stake: post_assert_out_stake,
-            network: input.network,
+            network: context.network(),
         };
 
         let disprove_tx = DisproveTx::new(
@@ -309,7 +290,7 @@ mod tests {
         policy::MAX_STANDARD_TX_WEIGHT,
         sighash::SighashCache,
         taproot::{self},
-        transaction, FeeRate, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
+        transaction, FeeRate, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
     };
     // use bitcoincore_rpc_json::GetRawTransactionResult;
     use corepc_node::{
@@ -321,7 +302,7 @@ mod tests {
         rand::{rngs::OsRng, Rng},
         Keypair,
     };
-    use strata_bridge_db::inmemory::public::PublicDbInMemory;
+    use strata_bridge_db::{inmemory::public::PublicDbInMemory, public::PublicDb};
     use strata_bridge_primitives::{
         bitcoin::BitcoinAddress,
         build_context::TxBuildContext,
@@ -682,7 +663,6 @@ mod tests {
 
         let btc_addr = btc_client.new_address().expect("must generate new address");
         PegOutGraphInput {
-            network,
             deposit_amount: DEPOSIT_AMOUNT,
             operator_pubkey,
             kickoff_data: KickoffTxData {
@@ -715,9 +695,17 @@ mod tests {
         assertions: Assertions,
     ) -> SubmitAssertionsResult {
         let btc_addr = btc_client.new_address().expect("must generate new address");
-        let (graph, connectors) = PegOutGraph::generate(input, public_db, context, deposit_txid, 0)
+        let operator_idx = 0;
+        let wots_public_keys = public_db
+            .as_ref()
+            .get_wots_public_keys(operator_idx, deposit_txid)
             .await
-            .expect("must be able to generate peg-out graph");
+            .expect("must be able to get wots public keys")
+            .expect("must have wots public keys");
+        let (graph, connectors) =
+            PegOutGraph::generate(input, context, deposit_txid, operator_idx, wots_public_keys)
+                .await
+                .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
             kickoff_tx,

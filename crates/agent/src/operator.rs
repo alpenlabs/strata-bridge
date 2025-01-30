@@ -249,7 +249,6 @@ where
 
         info!(action = "composing pegout graph input", %deposit_txid, %own_index);
         let peg_out_graph_input = PegOutGraphInput {
-            network: self.build_context.network(),
             deposit_amount: BRIDGE_DENOMINATION,
             operator_pubkey: self.agent.public_key().x_only_public_key().0,
             kickoff_data: KickoffTxData {
@@ -276,12 +275,18 @@ where
             .unwrap(); // FIXME: Handle me
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
+        let wots_public_keys = self
+            .public_db
+            .get_wots_public_keys(own_index, deposit_txid)
+            .await
+            .expect("should be able to get wots public keys")
+            .unwrap(); // FIXME: Handle me
         let (peg_out_graph, _connectors) = PegOutGraph::generate(
             peg_out_graph_input.clone(),
-            &self.public_db,
             &self.build_context,
             deposit_txid,
             own_index,
+            wots_public_keys,
         )
         .await
         .expect("must be able to generate tx graph");
@@ -497,6 +502,12 @@ where
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
 
+                    let wots_public_keys = self
+                        .public_db
+                        .get_wots_public_keys(sender_id, deposit_txid)
+                        .await
+                        .expect("should be able to get wots public keys")
+                        .unwrap(); // FIXME: Handle me
                     let (
                         PegOutGraph {
                             kickoff_tx: _,
@@ -508,10 +519,10 @@ where
                         _connectors,
                     ) = PegOutGraph::generate(
                         peg_out_graph_input,
-                        &self.public_db,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
+                        wots_public_keys,
                     )
                     .await
                     .expect("should be able to generate tx graph");
@@ -864,12 +875,18 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
+                    let wots_public_keys = self
+                        .public_db
+                        .get_wots_public_keys(sender_id, deposit_txid)
+                        .await
+                        .expect("should be able to get wots public keys")
+                        .unwrap(); // FIXME: Handle me
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
                         peg_out_graph_input,
-                        &self.public_db,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
+                        wots_public_keys,
                     )
                     .await
                     .expect("should be able to generate tx graph");
@@ -1472,7 +1489,6 @@ where
             .expect("kickoff data for the deposit must be present");
 
         let peg_out_graph_input = PegOutGraphInput {
-            network,
             deposit_amount: BRIDGE_DENOMINATION,
             operator_pubkey: own_pubkey,
             kickoff_data: KickoffTxData {
@@ -1484,12 +1500,18 @@ where
             },
         };
 
+        let wots_public_keys = self
+            .public_db
+            .get_wots_public_keys(own_index, deposit_txid)
+            .await
+            .expect("should be able to get wots public keys")
+            .unwrap(); // FIXME: Handle me
         let (peg_out_graph, connectors) = PegOutGraph::generate(
             peg_out_graph_input,
-            &self.public_db,
             &self.build_context,
             deposit_txid,
             own_index,
+            wots_public_keys,
         )
         .await
         .expect("should be able to generate tx graph");
