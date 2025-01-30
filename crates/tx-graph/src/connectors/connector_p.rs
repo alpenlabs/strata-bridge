@@ -134,3 +134,200 @@ impl ConnectorP {
         finalize_input(input, [signature.as_ref()]);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{
+        absolute, consensus, taproot::LeafVersion, transaction, Amount, BlockHash, OutPoint,
+        Transaction, TxIn, TxOut, Witness,
+    };
+    use corepc_node::{serde_json::json, Conf, Node};
+    use strata_bridge_test_utils::prelude::generate_keypair;
+    use strata_btcio::rpc::types::SignRawTransactionWithWallet;
+    use strata_common::logging::{self, LoggerConfig};
+    use tracing::info;
+
+    use super::*;
+
+    #[test]
+    fn test_create_pre_image() {
+        logging::init(LoggerConfig::new("test-pre-image".to_string()));
+
+        // Setup Bitcoin node
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
+        let btc_client = &bitcoind.client;
+
+        // Get network
+        let network = btc_client
+            .get_blockchain_info()
+            .expect("must get blockchain info")
+            .chain;
+        let network = network.parse::<Network>().expect("network must be valid");
+
+        // Mine until maturity
+        let funded_address = btc_client.new_address().unwrap();
+        let change_address = btc_client.new_address().unwrap();
+        let coinbase_block = btc_client
+            .generate_to_address(101, &funded_address)
+            .expect("must be able to generate blocks")
+            .0
+            .first()
+            .expect("must be able to get the blocks")
+            .parse::<BlockHash>()
+            .expect("must parse");
+        let coinbase_txid = btc_client
+            .get_block(coinbase_block)
+            .expect("must be able to get coinbase block")
+            .coinbase()
+            .expect("must be able to get the coinbase transaction")
+            .compute_txid();
+
+        // Generate keys and preimage
+        let n_of_n_keypair = generate_keypair();
+        let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
+        let stake_preimage = [1u8; 32];
+
+        // Create connector
+        let connector_p = ConnectorP::new(n_of_n_pubkey, stake_preimage, network);
+
+        // Create funding transaction
+        let funding_input = OutPoint {
+            txid: coinbase_txid,
+            vout: 0,
+        };
+
+        let coinbase_amount = Amount::from_btc(50.0).expect("must be valid amount");
+        let funding_amount = Amount::from_sat(50_000);
+        let fees = Amount::from_sat(1_000);
+
+        let input = vec![TxIn {
+            previous_output: funding_input,
+            script_sig: funded_address.script_pubkey(),
+            ..Default::default()
+        }];
+
+        let output = vec![
+            TxOut {
+                value: funding_amount,
+                script_pubkey: connector_p.create_pre_image(),
+            },
+            TxOut {
+                value: coinbase_amount
+                    .checked_sub(funding_amount)
+                    .unwrap()
+                    .checked_sub(fees)
+                    .unwrap(),
+                script_pubkey: change_address.script_pubkey(),
+            },
+        ];
+
+        let funding_tx = Transaction {
+            version: transaction::Version(2),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+
+        // Sign and broadcast funding transaction
+        let signed_funding_tx = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(consensus::encode::serialize_hex(&&funding_tx))],
+            )
+            .expect("must be able to sign transaction");
+
+        assert!(signed_funding_tx.complete);
+        let signed_funding_tx =
+            consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
+
+        let funding_txid = btc_client
+            .send_raw_transaction(&signed_funding_tx)
+            .expect("must be able to broadcast transaction")
+            .txid()
+            .expect("must have txid");
+
+        info!(%funding_txid, "Funding transaction broadcasted");
+
+        // Mine the funding transaction
+        let _ = btc_client
+            .generate_to_address(1, &funded_address)
+            .expect("must be able to generate blocks");
+
+        // Create spending transaction that spends the connector p
+        let spending_input = OutPoint {
+            txid: funding_txid,
+            vout: 0,
+        };
+
+        let spending_output = TxOut {
+            value: funding_amount.checked_sub(fees).unwrap(),
+            script_pubkey: change_address.script_pubkey(),
+        };
+
+        let mut spending_tx = Transaction {
+            version: transaction::Version(2),
+            lock_time: absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: spending_input,
+                ..Default::default()
+            }],
+            output: vec![spending_output],
+        };
+
+        // Create the locking script
+        let locking_script = ScriptBuf::builder()
+            .push_opcode(OP_SIZE)
+            .push_int(20)
+            .push_opcode(OP_EQUALVERIFY)
+            .push_opcode(OP_SHA256)
+            .push_slice(stake_preimage)
+            .push_opcode(OP_EQUALVERIFY)
+            .into_script();
+
+        // Get taproot spend info
+        let (_, taproot_spend_info) = create_taproot_addr(
+            &network,
+            SpendPath::Both {
+                internal_key: *UNSPENDABLE_INTERNAL_KEY,
+                scripts: &[locking_script.clone()],
+            },
+        )
+        .expect("should be able to create taproot address");
+
+        let control_block = taproot_spend_info
+            .control_block(&(locking_script.clone(), LeafVersion::TapScript))
+            .expect("must get control block");
+
+        // Construct the witness stack
+        let mut witness = Witness::new();
+        witness.push(stake_preimage.to_vec());
+        witness.push(locking_script.to_bytes());
+        witness.push(&control_block.serialize());
+
+        // Set the witness in the transaction
+        spending_tx.input[0].witness = witness;
+
+        // Broadcast spending transaction
+        let spending_txid = btc_client
+            .send_raw_transaction(&spending_tx)
+            .expect("must be able to broadcast spending transaction")
+            .txid()
+            .expect("must have txid");
+
+        info!(%spending_txid, "Spending transaction broadcasted");
+
+        // Verify the transaction was mined
+        btc_client
+            .generate_to_address(1, &funded_address)
+            .expect("must be able to generate block");
+
+        let tx = btc_client
+            .call::<String>("getrawtransaction", &[json!(&spending_txid)])
+            .expect("must be able to get transaction");
+        let tx = consensus::encode::deserialize_hex::<Transaction>(&tx).expect("must deserialize");
+
+        assert_eq!(spending_txid, tx.compute_txid());
+    }
+}
