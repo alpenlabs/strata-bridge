@@ -1,4 +1,5 @@
 use bitcoin::{
+    hashes::{sha256, Hash},
     key::Parity,
     opcodes::all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
@@ -170,14 +171,15 @@ impl ConnectorStake {
     /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
     pub fn create_pre_image_timelock(&self) -> ScriptBuf {
+        let stake_hash = sha256::Hash::hash(&self.stake_preimage);
         let script = ScriptBuf::builder()
-            .push_key(&self.operator_pubkey.public_key(Parity::Even).into())
+            .push_slice(&self.operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
-            .push_int(20)
+            .push_int(32) // 20 in hex
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
-            .push_slice(self.stake_preimage)
+            .push_slice(stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
             .push_sequence(self.delta.into())
             .push_opcode(OP_CSV)
@@ -384,14 +386,15 @@ mod tests {
         let prevouts = Prevouts::All(&prevouts);
 
         // Create the locking script
+        let stake_hash = sha256::Hash::hash(&stake_preimage);
         let locking_script = ScriptBuf::builder()
-            .push_key(&operator_pubkey.public_key(Parity::Even).into())
+            .push_slice(&operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
-            .push_int(20)
+            .push_int(32) // 20 in hex
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
-            .push_slice(stake_preimage)
+            .push_slice(stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
             .push_sequence(delta.into())
             .push_opcode(OP_CSV)
@@ -428,8 +431,8 @@ mod tests {
 
         // Construct the witness stack
         let mut witness = Witness::new();
-        witness.push(signature.as_ref().to_vec());
         witness.push(stake_preimage.to_vec());
+        witness.push(signature.as_ref().to_vec());
         witness.push(locking_script.to_bytes());
         witness.push(&control_block.serialize());
 
