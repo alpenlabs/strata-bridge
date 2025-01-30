@@ -1,4 +1,5 @@
 use bitcoin::{
+    hashes::{sha256, Hash},
     opcodes::all::{OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
     Address, Network, ScriptBuf,
@@ -102,13 +103,15 @@ impl ConnectorP {
     /// OP_SIZE <20> OP_EQUALVERIFY OP_SHA256 <stake_preimage> OP_EQUALVERIFY
     /// ```
     pub fn create_pre_image(&self) -> ScriptBuf {
+        let stake_hash = sha256::Hash::hash(&self.stake_preimage);
         let script = ScriptBuf::builder()
             .push_opcode(OP_SIZE)
-            .push_int(20)
+            .push_int(32) // 20 in hex
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
-            .push_slice(self.stake_preimage)
+            .push_slice(stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
+            .push_int(1)
             .into_script();
         let (taproot_address, _) = create_taproot_addr(
             &self.network,
@@ -277,13 +280,15 @@ mod tests {
         };
 
         // Create the locking script
+        let stake_hash = sha256::Hash::hash(&stake_preimage);
         let locking_script = ScriptBuf::builder()
             .push_opcode(OP_SIZE)
-            .push_int(20)
+            .push_int(32) // 20 in hex
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
-            .push_slice(stake_preimage)
+            .push_slice(stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
+            .push_int(1)
             .into_script();
 
         // Get taproot spend info
