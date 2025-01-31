@@ -12,7 +12,14 @@ use strata_bridge_primitives::{
 };
 use tracing::{debug, info};
 
-use crate::{connectors::prelude::*, errors::TxGraphResult, transactions::prelude::*};
+use crate::{
+    connectors::prelude::*,
+    errors::TxGraphResult,
+    transactions::{
+        payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
+        prelude::*,
+    },
+};
 
 /// The input data required to generate a peg-out graph.
 ///
@@ -45,6 +52,9 @@ pub struct PegOutGraph {
 
     /// The claim transaction that commits to a valid withdrawal.
     pub claim_tx: ClaimTx,
+
+    /// The transaction used to reimburse operators when no challenge occurs.
+    pub payout_optimistic: PayoutOptimisticTx,
 
     /// The assert chain that commits to the proof of a valid claim.
     pub assert_chain: AssertChain,
@@ -94,6 +104,23 @@ impl PegOutGraph {
         debug!(event = "created claim tx", %operator_idx, %claim_txid);
 
         info!(action = "registering claim txid for bitcoin watcher", %claim_txid, own_index = %operator_idx);
+
+        let payout_optimistic_data = PayoutOptimisticData {
+            claim_txid,
+            deposit_txid,
+            input_stake: claim_tx.remaining_stake(),
+            deposit_amount: input.deposit_amount,
+            operator_key: input.operator_pubkey,
+            network: context.network(),
+        };
+
+        let payout_optimistic = PayoutOptimisticTx::new(
+            payout_optimistic_data,
+            connectors.claim_out_0,
+            connectors.claim_out_1,
+            connectors.stake,
+            connectors.connector_cpfp,
+        );
 
         let assert_chain_data = AssertChainData {
             pre_assert_data: PreAssertData {
@@ -157,6 +184,7 @@ impl PegOutGraph {
             Self {
                 kickoff_tx,
                 claim_tx,
+                payout_optimistic,
                 assert_chain,
                 payout_tx,
                 disprove_tx,
@@ -317,7 +345,7 @@ mod tests {
         musig2::generate_agg_signature,
         prelude::{
             find_funding_utxo, generate_keypair, generate_txid, get_funding_utxo_exact,
-            sign_cpfp_child,
+            sign_cpfp_child, wait_for_blocks,
         },
         tx::{get_mock_deposit, FEES},
     };
@@ -331,6 +359,231 @@ mod tests {
     const DEPOSIT_AMOUNT: Amount = Amount::from_int_btc(10);
     const MSK: &str = "test_msk";
     const FEE_RATE: FeeRate = FeeRate::from_sat_per_kwu(5000);
+
+    #[tokio::test]
+    async fn test_payout_optimistic() {
+        let SetupOutput {
+            bitcoind,
+            n_of_n_keypair,
+            context,
+            deposit_txid,
+            public_db,
+        } = setup().await;
+
+        let btc_client = &bitcoind.client;
+        let operator_idx = 0;
+        let wots_public_keys = public_db
+            .get_wots_public_keys(operator_idx, deposit_txid)
+            .await
+            .expect("must be able to get wots public keys")
+            .expect("must have wots public keys");
+
+        let btc_addr = btc_client.new_address().expect("must generate new address");
+        let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
+
+        let input =
+            create_tx_graph_input(btc_client, context.network(), operator_pubkey, deposit_txid);
+        let (graph, connectors) = PegOutGraph::generate(
+            input,
+            &context,
+            deposit_txid,
+            operator_idx,
+            wots_public_keys,
+        )
+        .await
+        .expect("must be able to generate peg-out graph");
+
+        let PegOutGraph {
+            kickoff_tx,
+            claim_tx,
+            payout_optimistic,
+            ..
+        } = graph;
+
+        let signed_kickoff_tx = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[serde_json::Value::String(consensus::encode::serialize_hex(
+                    &kickoff_tx.psbt().unsigned_tx,
+                ))],
+            )
+            .expect("must be able to sign kickoff tx");
+
+        let signed_kickoff_tx =
+            &consensus::encode::deserialize_hex::<Transaction>(&signed_kickoff_tx.hex)
+                .expect("must be able to deserialize raw signed kickoff tx");
+
+        info!(vsize = signed_kickoff_tx.vsize(), "broadcasting kickoff tx");
+        btc_client
+            .send_raw_transaction(signed_kickoff_tx)
+            .expect("must be able to send kickoff tx");
+        btc_client
+            .generate_to_address(1, &btc_addr)
+            .expect("must be able to mine blocks");
+
+        let PegOutGraphConnectors {
+            kickoff,
+            claim_out_0,
+            claim_out_1,
+            connector_cpfp,
+            ..
+        } = connectors;
+
+        let bridge_out_txid = generate_txid();
+        let best_block_hash = btc_client
+            .get_best_block_hash()
+            .expect("must get block")
+            .block_hash()
+            .expect("must have block hash");
+        let start_ts = btc_client
+            .get_block_verbose_one(best_block_hash)
+            .expect("must get block")
+            .time;
+
+        let claim_input_amount = claim_tx.input_amount();
+        let claim_cpfp_vout = claim_tx.cpfp_vout();
+        let signed_claim_tx = claim_tx.finalize(
+            deposit_txid,
+            &kickoff,
+            MSK,
+            bridge_out_txid,
+            start_ts as u32,
+        );
+        info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
+
+        let claim_child_tx = create_cpfp_child(
+            btc_client,
+            &n_of_n_keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_claim_tx,
+            claim_input_amount,
+            claim_cpfp_vout,
+        );
+
+        let result = btc_client
+            .submit_package(&[signed_claim_tx, claim_child_tx], None, None)
+            .expect("must be able to send claim tx");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must have successful package submission but got: {:?}",
+            result
+        );
+        assert_eq!(
+            result.tx_results.len(),
+            2,
+            "must have two transactions in package"
+        );
+
+        btc_client
+            .generate_to_address(6, &btc_addr)
+            .expect("must be able to mine blocks");
+
+        let mut sighash_cache = SighashCache::new(&payout_optimistic.psbt().unsigned_tx);
+
+        let prevouts = payout_optimistic.prevouts();
+        let witnesses = payout_optimistic.witnesses();
+
+        let mut signatures = witnesses.iter().enumerate().map(|(i, witness)| {
+            let message = create_message_hash(
+                &mut sighash_cache,
+                prevouts.clone(),
+                witness,
+                TapSighashType::Default,
+                i,
+            )
+            .expect("must be able to create a message hash");
+
+            generate_agg_signature(&message, &n_of_n_keypair, witness)
+        });
+
+        assert_eq!(
+            signatures.len(),
+            payout_optimistic.psbt().inputs.len(),
+            "must have signatures for all inputs"
+        );
+
+        let deposit_signature = signatures.next().expect("must have deposit signature");
+        let n_of_n_sig_c0 = signatures
+            .next()
+            .expect("must have n-of-n signature for c0");
+        let n_of_n_sig_c1 = signatures
+            .next()
+            .expect("must have n-of-n signature for c1");
+
+        let payout_input_amount = payout_optimistic.input_amount();
+        let payout_cpfp_vout = payout_optimistic.cpfp_vout();
+
+        let signed_payout_tx = payout_optimistic.finalize(
+            claim_out_0,
+            claim_out_1,
+            n_of_n_sig_c0,
+            n_of_n_sig_c1,
+            deposit_signature,
+        );
+        let payout_amount = signed_payout_tx.output[0].value;
+        let payout_txid = signed_payout_tx.compute_txid().to_string();
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+        let signed_payout_cpfp_child = create_cpfp_child(
+            btc_client,
+            &n_of_n_keypair,
+            &btc_addr,
+            connector_cpfp,
+            &signed_payout_tx,
+            payout_input_amount,
+            payout_cpfp_vout,
+        );
+
+        info!(
+            txid = payout_txid,
+            "trying to submit payout before timelock"
+        );
+        let result = btc_client
+            .submit_package(
+                &[signed_payout_tx.clone(), signed_payout_cpfp_child.clone()],
+                None,
+                None,
+            )
+            .expect("must be able to submit package");
+
+        assert_ne!(
+            result.package_msg, "success",
+            "submit package message must not be success"
+        );
+        info!(
+            txid = payout_txid,
+            "could not submit payout before timelock"
+        );
+
+        let n_blocks = PAYOUT_OPTIMISTIC_TIMELOCK as usize + 1;
+        info!(%n_blocks, "waiting for blocks");
+
+        wait_for_blocks(btc_client, PAYOUT_OPTIMISTIC_TIMELOCK as usize + 1);
+
+        info!(txid = payout_txid, "trying to submit payout after timelock");
+        let result = btc_client
+            .submit_package(&[signed_payout_tx, signed_payout_cpfp_child], None, None)
+            .expect("must be able to send payout package");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "submit package message must be success but got: {:?}",
+            result
+        );
+        assert_eq!(result.tx_results.len(), 2, "must have two tx results");
+
+        let total_cpfp_amount = OPERATOR_STAKE + DEPOSIT_AMOUNT - payout_amount;
+        let total_cpfp_amount = total_cpfp_amount.to_sat();
+        info!(
+            ?payout_amount,
+            stake = OPERATOR_STAKE.to_sat(),
+            deposit = DEPOSIT_AMOUNT.to_sat(),
+            %total_cpfp_amount,
+            "received_payout"
+        );
+    }
 
     #[tokio::test]
     async fn test_tx_graph_payout() {
@@ -421,9 +674,7 @@ mod tests {
             "could not submit payout before timelock"
         );
 
-        btc_client
-            .generate_to_address(PAYOUT_TIMELOCK as usize + 6, &btc_addr)
-            .expect("must be able to mine blocks");
+        wait_for_blocks(btc_client, PAYOUT_TIMELOCK as usize + 1);
 
         info!(txid = payout_txid, "trying to submit payout after timelock");
         let result = btc_client
@@ -713,6 +964,7 @@ mod tests {
             assert_chain,
             payout_tx,
             disprove_tx,
+            ..
         } = graph;
 
         let signed_kickoff_tx = btc_client
@@ -885,7 +1137,7 @@ mod tests {
         )
         .expect("must be able create a message hash for tx");
         let n_of_n_sig = generate_agg_signature(&tx_hash, keypair, &witnesses[0]);
-        let signed_pre_assert = pre_assert.finalize(n_of_n_sig, claim_out_0);
+        let signed_pre_assert = pre_assert.finalize(claim_out_0, n_of_n_sig);
         assert_eq!(
             signed_pre_assert.version,
             transaction::Version(3),
@@ -902,6 +1154,8 @@ mod tests {
             pre_assert_cpfp_vout,
         );
 
+        wait_for_blocks(btc_client, PRE_ASSERT_TIMELOCK as usize + 1);
+
         info!(
             vsize = signed_pre_assert.vsize(),
             "broadcasting pre-assert tx"
@@ -912,7 +1166,8 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission"
+            "must have successful package submission but got: {:?}",
+            result
         );
         assert_eq!(
             result.tx_results.len(),

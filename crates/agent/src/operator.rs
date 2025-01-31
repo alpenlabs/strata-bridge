@@ -362,11 +362,10 @@ where
 
         // 1. Prepare txs
         let PegOutGraph {
-            kickoff_tx: _,
-            claim_tx: _,
             assert_chain,
             payout_tx,
             disprove_tx,
+            ..
         } = self_peg_out_graph;
         let AssertChain {
             pre_assert,
@@ -510,11 +509,10 @@ where
                         .unwrap(); // FIXME: Handle me
                     let (
                         PegOutGraph {
-                            kickoff_tx: _,
-                            claim_tx: _,
                             assert_chain,
                             disprove_tx,
                             payout_tx,
+                            ..
                         },
                         _connectors,
                     ) = PegOutGraph::generate(
@@ -633,11 +631,10 @@ where
 
         // 1. Prepare txs
         let PegOutGraph {
-            kickoff_tx: _,
-            claim_tx: _,
             assert_chain,
             payout_tx,
             disprove_tx,
+            ..
         } = self_peg_out_graph;
         let AssertChain {
             pre_assert,
@@ -896,11 +893,10 @@ where
                         .expect("should be able to register graph");
 
                     let PegOutGraph {
-                        kickoff_tx: _,
-                        claim_tx: _,
                         assert_chain,
                         disprove_tx,
                         payout_tx,
+                        ..
                     } = peg_out_graph;
 
                     let AssertChain {
@@ -1525,7 +1521,7 @@ where
             claim_tx,
             assert_chain,
             payout_tx,
-            disprove_tx: _,
+            ..
         } = peg_out_graph;
         // 3. publish kickoff -> claim
         self.broadcast_kickoff_and_claim(
@@ -1555,7 +1551,7 @@ where
                 .await
                 .unwrap()
                 .unwrap(); // FIXME: Handle me
-            let signed_pre_assert = pre_assert.finalize(n_of_n_sig, connectors.claim_out_0);
+            let signed_pre_assert = pre_assert.finalize(connectors.claim_out_0, n_of_n_sig);
             let vsize = signed_pre_assert.vsize();
             let total_size = signed_pre_assert.total_size();
             let weight = signed_pre_assert.weight();

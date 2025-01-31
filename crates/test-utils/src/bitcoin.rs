@@ -184,3 +184,16 @@ pub fn sign_cpfp_child(
 
     (funding_witness, parent_signature)
 }
+
+pub fn wait_for_blocks(btc_client: &Client, count: usize) {
+    let random_address = btc_client
+        .new_address()
+        .expect("must be able to generate new address");
+
+    let chunk = 100;
+    (0..count).step_by(chunk).for_each(|_| {
+        btc_client
+            .generate_to_address(chunk, &random_address)
+            .expect("must be able to generate blocks");
+    });
+}

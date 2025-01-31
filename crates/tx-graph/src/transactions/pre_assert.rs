@@ -1,5 +1,7 @@
-use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
-use secp256k1::schnorr::Signature;
+use bitcoin::{
+    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, Transaction, TxOut, Txid,
+};
+use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*};
 use tracing::trace;
@@ -151,6 +153,7 @@ impl PreAssertTx {
 
         let mut tx = create_tx(tx_ins, tx_outs.clone());
         tx.version = transaction::Version(3); // for 0-fee TRUC transactions
+        tx.input[0].sequence = Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
 
         let mut psbt =
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");
@@ -164,8 +167,7 @@ impl PreAssertTx {
             input.witness_utxo = Some(utxo);
         }
 
-        let (script_buf, control_block) =
-            connector_c0.generate_spend_info(ConnectorC0Leaf::Assert(()));
+        let (script_buf, control_block) = connector_c0.generate_spend_info();
         let witness = vec![TaprootWitness::Script {
             script_buf,
             control_block,
@@ -208,10 +210,14 @@ impl PreAssertTx {
     }
 
     /// Finalizes the transaction by adding the n-of-n signature to the [`ConnectorC0`] witness.
-    pub fn finalize(mut self, n_of_n_sig: Signature, connector_c0: ConnectorC0) -> Transaction {
+    pub fn finalize(
+        mut self,
+        connector_c0: ConnectorC0,
+        n_of_n_sig: schnorr::Signature,
+    ) -> Transaction {
         connector_c0.finalize_input(
             &mut self.psbt_mut().inputs[0],
-            ConnectorC0Leaf::Assert(n_of_n_sig),
+            ConnectorC0Path::Assert(n_of_n_sig),
         );
 
         self.psbt

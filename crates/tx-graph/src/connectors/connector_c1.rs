@@ -23,12 +23,12 @@ pub enum ConnectorC1Path<Witness = ()> {
 impl<Witness: Sized> ConnectorC1Path<Witness> {
     /// Returns the input index for the leaf.
     ///
-    /// The `PayoutOptimistic` leaf is spent in the second input of the `PayoutOptimistic`
+    /// The `PayoutOptimistic` leaf is spent in the third input of the `PayoutOptimistic`
     /// transaction, whereas the `Challenge` leaf is spent in the first input of the `Challenge`
     /// transaction.
     pub fn get_input_index(&self) -> u32 {
         match self {
-            ConnectorC1Path::PayoutOptimistic(_) => 1,
+            ConnectorC1Path::PayoutOptimistic(_) => 2,
             ConnectorC1Path::Challenge(_) => 0,
         }
     }
@@ -127,15 +127,16 @@ impl ConnectorC1 {
     ///
     /// This requires that the connector leaf contain the schnorr signature as the witness.
     pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorC1Path<taproot::Signature>) {
-        let (script, control_block) = self.generate_spend_info();
-
         let witnesses = {
             match tapleaf {
-                ConnectorC1Path::PayoutOptimistic(n_of_n_sig) => vec![
-                    n_of_n_sig.serialize().to_vec(),
-                    script.to_bytes(),
-                    control_block.serialize(),
-                ],
+                ConnectorC1Path::PayoutOptimistic(n_of_n_sig) => {
+                    let (script, control_block) = self.generate_spend_info();
+                    vec![
+                        n_of_n_sig.serialize().to_vec(),
+                        script.to_bytes(),
+                        control_block.serialize(),
+                    ]
+                }
                 ConnectorC1Path::Challenge(n_of_n_sig) => vec![n_of_n_sig.serialize().to_vec()],
             }
         };
