@@ -9342,7 +9342,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "serde",
- "thiserror 2.0.9",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
