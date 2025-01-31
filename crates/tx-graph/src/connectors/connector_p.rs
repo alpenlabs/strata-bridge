@@ -2,10 +2,11 @@ use bitcoin::{
     hashes::{sha256, Hash},
     opcodes::all::{OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
+    taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf,
 };
 use secp256k1::{schnorr::Signature, XOnlyPublicKey};
-use strata_bridge_primitives::{params::tx::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
 
 /// The connector to decide whether the operator's stake can be used for a withdrawal (Payout
 /// Optimistic) or not (Burn Payouts).
@@ -68,26 +69,7 @@ impl ConnectorP {
         }
     }
 
-    /// Creates a P2TR address with key spend path for the given operator set and no script paths.
-    ///
-    /// This is used both in the Disprove and in the Slash Stake `k` transactions.
-    pub fn create_n_of_n(&self) -> Address {
-        let (addr, _spend_info) = create_taproot_addr(
-            &self.network,
-            SpendPath::KeySpend {
-                internal_key: self.n_of_n_agg_pubkey,
-            },
-        )
-        .expect("must be able to create taproot address");
-
-        addr
-    }
-
-    /// Creates a P2TR address with an unspendable key spend path and a single script path that can
-    /// be unlocked by revealing the pre-image.
-    ///
-    /// This is used to invalidate that a certain stake can be used in payouts by an operator in a
-    /// Burn Payouts transaction.
+    /// Generates the locking script for this connector if using the script spend path.
     ///
     /// # Implementation Details
     ///
@@ -102,30 +84,62 @@ impl ConnectorP {
     /// ```text
     /// OP_SIZE <20> OP_EQUALVERIFY OP_SHA256 <stake_preimage> OP_EQUALVERIFY
     /// ```
-    pub fn create_pre_image(&self) -> ScriptBuf {
+    pub fn generate_script(&self) -> ScriptBuf {
         let stake_hash = sha256::Hash::hash(&self.stake_preimage);
-        let script = ScriptBuf::builder()
+        ScriptBuf::builder()
             .push_opcode(OP_SIZE)
-            .push_int(32) // 20 in hex
+            .push_int(0x20)
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
             .push_slice(stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
             .push_int(1)
-            .into_script();
+            .into_script()
+    }
+
+    /// Creates a P2TR address with key spend path for the given operator set and a single script
+    /// path that can be unlocked by revealing the pre-image.
+    ///
+    /// This is used to invalidate that a certain stake can be used in payouts by an operator in a
+    /// Burn Payouts transaction.
+    ///
+    /// See [`Self::generate_script`] for the script implementation details.
+    pub fn generate_address(&self) -> Address {
+        let script = self.generate_script();
         let (taproot_address, _) = create_taproot_addr(
             &self.network,
             SpendPath::Both {
-                internal_key: *UNSPENDABLE_INTERNAL_KEY,
+                internal_key: self.n_of_n_agg_pubkey,
                 scripts: &[script],
             },
         )
         .expect("should be able to create taproot address");
 
-        taproot_address.script_pubkey()
+        taproot_address
     }
 
-    /// Finalizes a psbt input where this connector is used with the provided signature.
+    /// Generates the spending info for the address.
+    pub fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
+        let script = self.generate_script();
+        let (_, taproot_spending_info) = create_taproot_addr(
+            &self.network,
+            SpendPath::Both {
+                internal_key: self.n_of_n_agg_pubkey,
+                scripts: &[script],
+            },
+        )
+        .expect("should be able to create taproot address");
+
+        let script = self.generate_script();
+        let control_block = taproot_spending_info
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .expect("script is always present in the address");
+
+        (script, control_block)
+    }
+
+    /// Finalizes a psbt input where this connector is used with the provided signature in the case
+    /// of the key spend path.
     ///
     /// # Note
     ///
@@ -133,16 +147,23 @@ impl ConnectorP {
     /// responsibility to ensure that the signature is valid.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, signature: Signature, input: &mut Input) {
+    pub fn create_tx_input_key_spend_path(&self, signature: Signature, input: &mut Input) {
         finalize_input(input, [signature.as_ref()]);
+    }
+
+    /// Finalizes a psbt input where this connector is used with the script spend path.
+    ///
+    /// If the psbt input is already in the final state, then this method overrides witness.
+    pub fn create_tx_input_script_spend_path(&self, input: &mut Input) {
+        finalize_input(input, [&self.stake_preimage]);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        absolute, consensus, taproot::LeafVersion, transaction, Amount, BlockHash, OutPoint,
-        Transaction, TxIn, TxOut, Witness,
+        absolute, consensus, transaction, Amount, BlockHash, OutPoint, Transaction, TxIn, TxOut,
+        Witness,
     };
     use corepc_node::{serde_json::json, Conf, Node};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -153,8 +174,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_pre_image() {
-        logging::init(LoggerConfig::new("test-pre-image".to_string()));
+    fn connector_p_script_path() {
+        logging::init(LoggerConfig::new("connector-p-script-path".to_string()));
 
         // Setup Bitcoin node
         let mut conf = Conf::default();
@@ -214,7 +235,7 @@ mod tests {
         let output = vec![
             TxOut {
                 value: funding_amount,
-                script_pubkey: connector_p.create_pre_image(),
+                script_pubkey: connector_p.generate_address().script_pubkey(),
             },
             TxOut {
                 value: coinbase_amount
@@ -280,30 +301,10 @@ mod tests {
         };
 
         // Create the locking script
-        let stake_hash = sha256::Hash::hash(&stake_preimage);
-        let locking_script = ScriptBuf::builder()
-            .push_opcode(OP_SIZE)
-            .push_int(32) // 20 in hex
-            .push_opcode(OP_EQUALVERIFY)
-            .push_opcode(OP_SHA256)
-            .push_slice(stake_hash.to_byte_array())
-            .push_opcode(OP_EQUALVERIFY)
-            .push_int(1)
-            .into_script();
+        let locking_script = connector_p.generate_script();
 
         // Get taproot spend info
-        let (_, taproot_spend_info) = create_taproot_addr(
-            &network,
-            SpendPath::Both {
-                internal_key: *UNSPENDABLE_INTERNAL_KEY,
-                scripts: &[locking_script.clone()],
-            },
-        )
-        .expect("should be able to create taproot address");
-
-        let control_block = taproot_spend_info
-            .control_block(&(locking_script.clone(), LeafVersion::TapScript))
-            .expect("must get control block");
+        let (_, control_block) = connector_p.generate_spend_info();
 
         // Construct the witness stack
         let mut witness = Witness::new();
