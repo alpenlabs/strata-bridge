@@ -252,8 +252,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_create_pre_image_timelock() {
-        logging::init(LoggerConfig::new("test-pre-image-timelock".to_string()));
+    fn connector_s_script_path() {
+        logging::init(LoggerConfig::new("connector-s-script-path".to_string()));
 
         // Setup Bitcoin node
         let mut conf = Conf::default();
