@@ -9342,6 +9342,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "serde",
+ "strata-bridge-tx-graph",
  "thiserror 2.0.11",
 ]
 
