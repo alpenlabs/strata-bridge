@@ -307,9 +307,9 @@ mod tests {
 
         // Construct the witness stack
         let mut witness = Witness::new();
-        witness.push(stake_preimage.to_vec());
+        witness.push(stake_preimage);
         witness.push(locking_script.to_bytes());
-        witness.push(&control_block.serialize());
+        witness.push(control_block.serialize());
 
         // Set the witness in the transaction
         spending_tx.input[0].witness = witness;
