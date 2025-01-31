@@ -13,7 +13,7 @@
 //! Ideally, we would like a single stake to be reused for each deposit. If any operator makes a
 //! faulty claim, this stake is spent by a disprover and renders any future reimbursement payouts
 //! impossible. The purpose of a stake chain is to enable this by creating a series of transactions
-//! that “move” the stake. The tradeoff is that each operator can service any one withdrawal request
+//! that "move" the stake. The tradeoff is that each operator can service any one withdrawal request
 //! per stake chain at any given time i.e., if two withdrawal requests are assigned to the same
 //! operator with one stake chain, they cannot process both those requests concurrently. However, in
 //! the same scenario, if each operator had two stake chains, they could, in fact, process two

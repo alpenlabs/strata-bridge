@@ -1,11 +1,11 @@
-//! The `PreStakeTx` transaction is used to lock up a stake in the stake chain.
+//! The [`PreStakeTx`] transaction is used to lock up a stake in the stake chain.
 
 use bitcoin::{absolute, transaction, Amount, FeeRate, Psbt, Transaction, TxIn, TxOut};
 use serde::{Deserialize, Serialize};
 
 use crate::StakeChainError;
 
-/// The `PreStakeTx` transaction is used to lock up a stake in the stake chain.
+/// The [`PreStakeTx`] transaction is used to lock up a stake in the stake chain.
 ///
 /// It includes a PSBT that contains the inputs and outputs for the transaction.
 /// Strictly required are one or more inputs that can cover the stake amount along with all the dust
@@ -34,8 +34,6 @@ impl PreStakeTx {
             output: outputs,
         };
 
-        // TODO: Check that the first output has the right stake amount.
-        //       Maybe return an error if not.
         let stake_amount = transaction.output[0].value;
 
         Self {
