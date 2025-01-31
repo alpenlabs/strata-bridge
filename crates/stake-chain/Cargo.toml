@@ -24,6 +24,8 @@ serde.workspace = true
 # strata-bridge-db.workspace = true
 # strata-bridge-primitives.workspace = true
 # strata-bridge-proof-snark.workspace = true
+# TODO: replace the `tx-graph` for the `connector` crate.
+strata-bridge-tx-graph.workspace = true
 thiserror.workspace = true
 # tracing.workspace = true
 
