@@ -2,10 +2,12 @@ use bitcoin::{
     hashes::{sha256, Hash},
     opcodes::all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
-    relative, Address, Network, ScriptBuf,
+    relative,
+    taproot::{ControlBlock, LeafVersion},
+    Address, Network, ScriptBuf,
 };
 use secp256k1::{schnorr::Signature, XOnlyPublicKey};
-use strata_bridge_primitives::{params::tx::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
 
 /// The connector to move the operator's stake across transactions.
 // TODO: Replace this with `ConnectorStake`.
@@ -131,29 +133,7 @@ impl ConnectorStake {
         }
     }
 
-    /// Creates a P2TR address with key spend path for the given operator set and no script paths.
-    ///
-    /// This is used both in the Disprove and in the Slash Stake `k` transactions.
-    pub fn create_n_of_n(&self) -> Address {
-        let (addr, _spend_info) = create_taproot_addr(
-            &self.network,
-            SpendPath::KeySpend {
-                internal_key: self.n_of_n_agg_pubkey,
-            },
-        )
-        .expect("must be able to create taproot address");
-
-        addr
-    }
-
-    /// Creates a P2TR address with an unspendable key spend path and a single script path that can
-    /// be unlocked by revealing the pre-image, and assuring that the `ΔS` relative timelock
-    /// interval has passed.
-    ///
-    /// This is used to advance the stake chain.
-    ///
-    /// Due to security reasons, the locking script is also secured by a valid signature from
-    /// the operator's public key.
+    /// Generates the locking script for this connector if using the script spend path.
     ///
     /// # Implementation Details
     ///
@@ -169,30 +149,61 @@ impl ConnectorStake {
     /// <operator_pubkey> OP_CHECKSIGVERIFY OP_SIZE <20> OP_EQUALVERIFY OP_SHA256
     /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
-    pub fn create_pre_image_timelock(&self) -> ScriptBuf {
+    pub fn generate_script(&self) -> ScriptBuf {
         let stake_hash = sha256::Hash::hash(&self.stake_preimage);
-        let script = ScriptBuf::builder()
+        ScriptBuf::builder()
             .push_slice(self.operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
-            .push_int(32) // 20 in hex
+            .push_int(0x20)
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
             .push_slice(stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
             .push_sequence(self.delta.into())
             .push_opcode(OP_CSV)
-            .into_script();
+            .into_script()
+    }
+
+    /// Creates a P2TR address with key spend path for the given operator set and a single script
+    /// path that can be unlocked by revealing the pre-image, along with an operator signature and
+    /// is timelocked by `ΔS`.
+    ///
+    /// This is used to advance the stake chain, slash the stake, and disprove the stake.
+    ///
+    /// See [`Self::generate_script`] for the script implementation details.
+    pub fn generate_address(&self) -> Address {
+        let script = self.generate_script();
         let (taproot_address, _) = create_taproot_addr(
             &self.network,
             SpendPath::Both {
-                internal_key: *UNSPENDABLE_INTERNAL_KEY,
+                internal_key: self.n_of_n_agg_pubkey,
                 scripts: &[script],
             },
         )
         .expect("should be able to create taproot address");
 
-        taproot_address.script_pubkey()
+        taproot_address
+    }
+
+    /// Generates the spending info for the address.
+    pub fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
+        let script = self.generate_script();
+        let (_, taproot_spending_info) = create_taproot_addr(
+            &self.network,
+            SpendPath::Both {
+                internal_key: self.n_of_n_agg_pubkey,
+                scripts: &[script],
+            },
+        )
+        .expect("should be able to create taproot address");
+
+        let script = self.generate_script();
+        let control_block = taproot_spending_info
+            .control_block(&(script.clone(), LeafVersion::TapScript))
+            .expect("script is always present in the address");
+
+        (script, control_block)
     }
 
     /// Finalizes a psbt input where this connector is used with the provided signature.
@@ -205,6 +216,20 @@ impl ConnectorStake {
     /// If the psbt input is already in the final state, then this method overrides the signature.
     pub fn create_tx_input(&self, signature: Signature, input: &mut Input) {
         finalize_input(input, [signature.as_ref()]);
+    }
+
+    /// Finalizes a psbt input where this connector is used with the script spend path.
+    ///
+    /// If the psbt input is already in the final state, then this method overrides witness and
+    /// signature.
+    pub fn create_tx_input_script_spend_path(&self, signature: Signature, input: &mut Input) {
+        finalize_input(
+            input,
+            vec![
+                &self.stake_preimage.to_vec(),
+                &signature.serialize().to_vec(),
+            ],
+        );
     }
 }
 
@@ -283,7 +308,7 @@ mod tests {
         );
 
         // Generate address and script
-        let taproot_script = connector_s.create_pre_image_timelock();
+        let taproot_script = connector_s.generate_address().script_pubkey();
 
         // Create funding transaction
         let funding_input = OutPoint {
@@ -372,7 +397,6 @@ mod tests {
         };
 
         // Create sighash for the spending transaction
-        // FIXME: Help me how to do this?
         let mut sighash_cache = SighashCache::new(&spending_tx);
         let sighash_type = sighash::TapSighashType::Default;
         // Create the prevouts
@@ -383,35 +407,10 @@ mod tests {
         let prevouts = Prevouts::All(&prevouts);
 
         // Create the locking script
-        let stake_hash = sha256::Hash::hash(&stake_preimage);
-        let locking_script = ScriptBuf::builder()
-            .push_slice(operator_pubkey.serialize())
-            .push_opcode(OP_CHECKSIGVERIFY)
-            .push_opcode(OP_SIZE)
-            .push_int(32) // 20 in hex
-            .push_opcode(OP_EQUALVERIFY)
-            .push_opcode(OP_SHA256)
-            .push_slice(stake_hash.to_byte_array())
-            .push_opcode(OP_EQUALVERIFY)
-            .push_sequence(delta.into())
-            .push_opcode(OP_CSV)
-            .into_script();
+        let locking_script = connector_s.generate_script();
 
-        // Get the script and control block for the script path
-        let control_block = {
-            let (_, taproot_spend_info) = create_taproot_addr(
-                &network,
-                SpendPath::Both {
-                    internal_key: *UNSPENDABLE_INTERNAL_KEY,
-                    scripts: &[locking_script.clone()],
-                },
-            )
-            .expect("should be able to create taproot address");
-
-            taproot_spend_info
-                .control_block(&(locking_script.clone(), LeafVersion::TapScript))
-                .expect("script must be part of the address")
-        };
+        // Get taproot spend info
+        let (_, control_block) = connector_s.generate_spend_info();
 
         let leaf_hash =
             TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
