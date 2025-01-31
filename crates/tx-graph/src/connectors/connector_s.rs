@@ -103,8 +103,8 @@ pub struct ConnectorStake {
     /// This is a 32-byte array, that should be generated securely from the operator's master
     /// entropy along with the `k`th stake's index.
     ///
-    /// A suggestion is to hash them together, i.e. SHA256(master entropy || stake_index), and take
-    /// the 32 bytes of the resulting hash.
+    /// A suggestion is to use purpose-built KDF, like BLAKE3 or HKDF. Care should be taken given
+    /// that there could be multiple stake chains with different `k`th stakes.
     stake_preimage: [u8; 32],
 
     /// The `ΔS` interval relative timelock to advance the stake chain.
