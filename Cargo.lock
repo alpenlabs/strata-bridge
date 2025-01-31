@@ -1813,6 +1813,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 dependencies = [
  "serde",
+ "zeroize",
 ]
 
 [[package]]
@@ -2791,6 +2792,7 @@ dependencies = [
  "cc",
  "cfg-if",
  "constant_time_eq 0.3.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -5263,7 +5265,7 @@ dependencies = [
  "pin-project",
  "rustls 0.23.20",
  "rustls-pki-types",
- "rustls-platform-verifier",
+ "rustls-platform-verifier 0.3.4",
  "soketto",
  "thiserror 1.0.69",
  "tokio",
@@ -5315,7 +5317,7 @@ dependencies = [
  "jsonrpsee-core",
  "jsonrpsee-types",
  "rustls 0.23.20",
- "rustls-platform-verifier",
+ "rustls-platform-verifier 0.3.4",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -5442,6 +5444,16 @@ dependencies = [
  "once_cell",
  "sha2",
  "signature 2.2.0",
+]
+
+[[package]]
+name = "kanal"
+version = "0.1.0-pre8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b05d55519627edaf7fd0f29981f6dc03fb52df3f5b257130eb8d0bf2801ea1d7"
+dependencies = [
+ "futures-core",
+ "lock_api",
 ]
 
 [[package]]
@@ -7144,6 +7156,7 @@ dependencies = [
  "rustc-hash 2.1.0",
  "rustls 0.23.20",
  "rustls-pki-types",
+ "rustls-platform-verifier 0.4.0",
  "slab",
  "thiserror 2.0.9",
  "tinyvec",
@@ -7905,6 +7918,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-platform-verifier"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a4c7dc240fec5517e6c4eab3310438636cfe6391dfc345ba013109909a90d136"
+dependencies = [
+ "core-foundation 0.9.4",
+ "core-foundation-sys",
+ "jni",
+ "log",
+ "once_cell",
+ "rustls 0.23.20",
+ "rustls-native-certs 0.7.3",
+ "rustls-platform-verifier-android",
+ "rustls-webpki 0.102.8",
+ "security-framework 2.11.1",
+ "security-framework-sys",
+ "webpki-root-certs",
+ "windows-sys 0.52.0",
+]
+
+[[package]]
 name = "rustls-platform-verifier-android"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8103,6 +8137,61 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "secret-service"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "blake3",
+ "musig2",
+ "secret-service-proto",
+ "secret-service-server",
+ "strata-key-derivation",
+ "tokio",
+]
+
+[[package]]
+name = "secret-service-client"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "kanal",
+ "musig2",
+ "quinn",
+ "rkyv",
+ "secret-service-proto",
+ "terrors",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "secret-service-proto"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "musig2",
+ "quinn",
+ "rkyv",
+]
+
+[[package]]
+name = "secret-service-server"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "futures",
+ "kanal",
+ "musig2",
+ "parking_lot",
+ "quinn",
+ "rkyv",
+ "secret-service-proto",
+ "terrors",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -9521,6 +9610,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-key-derivation"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
+dependencies = [
+ "bitcoin",
+ "secp256k1",
+ "strata-primitives",
+ "thiserror 1.0.69",
+ "zeroize",
+]
+
+[[package]]
 name = "strata-l1tx"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
@@ -9944,6 +10045,12 @@ dependencies = [
  "rustix",
  "windows-sys 0.59.0",
 ]
+
+[[package]]
+name = "terrors"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a09a4471bca83dc547eb7829f7fe0b96ad3d04d21ad155e1e14084e163fe0e07"
 
 [[package]]
 name = "thin-vec"
@@ -10851,6 +10958,15 @@ checksum = "5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "webpki-root-certs"
+version = "0.26.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cd5da49bdf1f30054cfe0b8ce2958b8fbeb67c4d82c8967a598af481bef255c"
+dependencies = [
+ "rustls-pki-types",
 ]
 
 [[package]]
