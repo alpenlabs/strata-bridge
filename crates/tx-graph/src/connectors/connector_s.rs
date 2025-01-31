@@ -1,6 +1,5 @@
 use bitcoin::{
     hashes::{sha256, Hash},
-    key::Parity,
     opcodes::all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
     relative, Address, Network, ScriptBuf,
@@ -173,7 +172,7 @@ impl ConnectorStake {
     pub fn create_pre_image_timelock(&self) -> ScriptBuf {
         let stake_hash = sha256::Hash::hash(&self.stake_preimage);
         let script = ScriptBuf::builder()
-            .push_slice(&self.operator_pubkey.serialize())
+            .push_slice(self.operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
             .push_int(32) // 20 in hex
@@ -284,7 +283,7 @@ mod tests {
         );
 
         // Generate address and script
-        let locking_script = connector_s.create_pre_image_timelock();
+        let taproot_script = connector_s.create_pre_image_timelock();
 
         // Create funding transaction
         let funding_input = OutPoint {
@@ -305,7 +304,7 @@ mod tests {
         let output = vec![
             TxOut {
                 value: funding_amount,
-                script_pubkey: locking_script.clone(),
+                script_pubkey: taproot_script.clone(),
             },
             TxOut {
                 value: coinbase_amount
@@ -376,19 +375,17 @@ mod tests {
         // FIXME: Help me how to do this?
         let mut sighash_cache = SighashCache::new(&spending_tx);
         let sighash_type = sighash::TapSighashType::Default;
-        let leaf_hash =
-            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
         // Create the prevouts
         let prevouts = [TxOut {
             value: funding_amount,
-            script_pubkey: locking_script,
+            script_pubkey: taproot_script,
         }];
         let prevouts = Prevouts::All(&prevouts);
 
         // Create the locking script
         let stake_hash = sha256::Hash::hash(&stake_preimage);
         let locking_script = ScriptBuf::builder()
-            .push_slice(&operator_pubkey.serialize())
+            .push_slice(operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
             .push_int(32) // 20 in hex
@@ -411,13 +408,13 @@ mod tests {
             )
             .expect("should be able to create taproot address");
 
-            let control_block = taproot_spend_info
+            taproot_spend_info
                 .control_block(&(locking_script.clone(), LeafVersion::TapScript))
-                .expect("script must be part of the address");
-
-            control_block
+                .expect("script must be part of the address")
         };
 
+        let leaf_hash =
+            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
         let sighash = sighash_cache
             .taproot_script_spend_signature_hash(0, &prevouts, leaf_hash, sighash_type)
             .expect("must create sighash");
@@ -431,10 +428,10 @@ mod tests {
 
         // Construct the witness stack
         let mut witness = Witness::new();
-        witness.push(stake_preimage.to_vec());
-        witness.push(signature.as_ref().to_vec());
+        witness.push(stake_preimage);
+        witness.push(signature.as_ref());
         witness.push(locking_script.to_bytes());
-        witness.push(&control_block.serialize());
+        witness.push(control_block.serialize());
 
         // Set the witness in the transaction
         spending_tx.input[0].witness = witness;
