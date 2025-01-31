@@ -16,6 +16,7 @@ strata-bridge-proof-snark.workspace = true
 
 bincode.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
+bitcoin-bosd.workspace = true
 bitcoin-script = { workspace = true }
 bitvm = { workspace = true }
 lazy_static.workspace = true

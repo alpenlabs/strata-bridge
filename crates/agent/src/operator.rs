@@ -7,8 +7,9 @@ use bitcoin::{
     consensus,
     hashes::Hash,
     hex::DisplayHex,
+    key::TapTweak,
     sighash::{Prevouts, SighashCache},
-    TapSighashType, Transaction, TxOut, Txid,
+    Address, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitvm::groth16::g16;
 use musig2::{
@@ -1440,6 +1441,7 @@ where
         let own_index = self.build_context.own_index();
 
         let deposit_txid = withdrawal_info.deposit_outpoint().txid;
+        let deposit_idx = 0; // FIXME: this must be extracted from the state
 
         let own_pubkey = self.agent.public_key().x_only_public_key().0;
 
@@ -1450,7 +1452,7 @@ where
             info!(action = "paying out the user", %user_pk, %own_index);
 
             let withdrawal_fulfillment_txid = self
-                .pay_user(user_pk, network, own_index)
+                .pay_user(user_pk, network, own_index, deposit_idx)
                 .await
                 .expect("must be able to pay user");
 
@@ -1886,6 +1888,7 @@ where
         user_pk: XOnlyPublicKey,
         network: bitcoin::Network,
         own_index: OperatorIdx,
+        deposit_idx: u32,
     ) -> anyhow::Result<Txid> {
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
@@ -1901,14 +1904,21 @@ where
         let change_amount = total_amount - net_payment - MIN_RELAY_FEE;
         debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
+        let withdrawal_metadata = WithdrawalMetadata {
+            deposit_idx,
+            operator_idx: own_index,
+        };
+        let change = WithdrawalChange {
+            address: change_address,
+            amount: change_amount,
+        };
+        let recipient_addr = Address::p2tr_tweaked(user_pk.dangerous_assume_tweaked(), network);
         let withdrawal_fulfillment = WithdrawalFulfillment::new(
-            network,
-            own_index,
+            withdrawal_metadata,
             vec![outpoint],
             net_payment,
-            change_address,
-            change_amount,
-            user_pk,
+            Some(change),
+            recipient_addr.into(),
         );
 
         let signed_tx_result = self
