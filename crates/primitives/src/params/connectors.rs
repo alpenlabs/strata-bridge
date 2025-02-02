@@ -33,8 +33,8 @@
 //!
 //! | Element Type  | Elements Per UTXO  |  Connectors | UTXOs Per Tx | Total |
 //! | ------------- | ------------------ | ----------- | ------------ | ----- |
-//! | Field         | 6                  |  7          | 1            | 42    |
-//! | Field         | 0                  |  0          | 1            | 0     |
+//! | Field         | 6                  |  6          | 1            | 36    |
+//! | Field         | 5                  |  1          | 1            | 5     |
 //! | Hash          | 9                  |  63         | 1            | 567   |
 //! | Hash          | 7                  |  1          | 1            | 7     |
 use std::time::Duration;
@@ -43,19 +43,13 @@ use std::time::Duration;
 pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 6;
 
 /// The number of UTXOs necessary to commit all the required field elements evenly.
-pub const NUM_FIELD_CONNECTORS_BATCH_1: usize = 7;
+pub const NUM_FIELD_CONNECTORS_BATCH_1: usize = 6;
 
 /// The number of remaining field elements.
-///
-/// # NOTE: This constant has been kept around even if it is zero so as to keep the code agnostic to
-/// some extent even if the number of field elements change in the future.
-pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2: usize = 0;
+pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2: usize = 5;
 
 /// The number of UTXOs necessary to commit all the remaining field elements evenly.
-///
-/// # NOTE: This constant has been kept around even if it is zero so as to keep the code agnostic to
-/// some extent even if the number of field elements change in the future.
-pub const NUM_FIELD_CONNECTORS_BATCH_2: usize = 0;
+pub const NUM_FIELD_CONNECTORS_BATCH_2: usize = 1;
 
 /// The maximum number of hashes that are bitcommitted per UTXO.
 pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1: usize = 9;
@@ -70,7 +64,7 @@ pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2: usize = 7;
 pub const NUM_HASH_CONNECTORS_BATCH_2: usize = 1;
 
 /// The total number of field elements that need to be committed.
-pub const NUM_PKS_A256: usize = 42;
+pub const NUM_PKS_A256: usize = 40 + 1; // 40 field elements + 1 proof input
 /// The total number of hashes that need to be committed.
 pub const NUM_PKS_A160: usize = 574;
 
@@ -108,9 +102,7 @@ const _: [(); 0] = [(); (NUM_PKS_A256 + NUM_PKS_A160 - TOTAL_VALUES)];
 
 pub const BLOCK_TIME: Duration = Duration::from_secs(30);
 
-pub const SUPERBLOCK_MEASUREMENT_PERIOD: u32 = 100; // blocks
-
-pub const TS_COMMITMENT_MARGIN: u32 = 288; // 2 days' worth of blocks in mainnet
+pub const EXPECTED_BLOCK_COUNT: u32 = 100; // blocks
 
 pub const PAYOUT_OPTIMISTIC_TIMELOCK: u32 = 500;
 
@@ -119,8 +111,6 @@ pub const PRE_ASSERT_TIMELOCK: u32 = PAYOUT_OPTIMISTIC_TIMELOCK + 100; // 100 is
 // compile-time checks
 const _: () = assert!(PRE_ASSERT_TIMELOCK > PAYOUT_OPTIMISTIC_TIMELOCK);
 
-const _: u32 =
-    PAYOUT_OPTIMISTIC_TIMELOCK - (SUPERBLOCK_MEASUREMENT_PERIOD + TS_COMMITMENT_MARGIN + 100); // 100
-                                                                                               // is slack
+const _: u32 = PAYOUT_OPTIMISTIC_TIMELOCK - (EXPECTED_BLOCK_COUNT + 100); // 100 is slack
 
 pub const PAYOUT_TIMELOCK: u32 = 288; // 2 day's worth of blocks in mainnet

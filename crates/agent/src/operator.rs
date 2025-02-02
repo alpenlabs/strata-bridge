@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashSet, fs, sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bitcoin::{
@@ -28,10 +28,7 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::{
-        connectors::{PAYOUT_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
-        prelude::*,
-    },
+    params::{connectors::PAYOUT_TIMELOCK, prelude::*},
     scripts::taproot::{create_message_hash, finalize_input, TaprootWitness},
     types::{OperatorIdx, TxSigningData},
     withdrawal::WithdrawalInfo,
@@ -1467,7 +1464,7 @@ where
                 .await
                 .expect("should be able to send duty status");
 
-            status.next(withdrawal_fulfillment_txid, None);
+            status.next(withdrawal_fulfillment_txid);
         } else {
             info!(action = "already paid user, so skipping");
         }
@@ -1542,8 +1539,7 @@ where
             post_assert,
         } = assert_chain;
 
-        if let Some((withdrawal_fulfillment_txid, superblock_start_ts)) = status.should_pre_assert()
-        {
+        if let Some(withdrawal_fulfillment_txid) = status.should_pre_assert() {
             // 5. Publish pre-assert tx
             info!(event = "challenge received, broadcasting pre-assert tx");
             let pre_assert_txid = pre_assert.compute_txid();
@@ -1559,9 +1555,11 @@ where
             let weight = signed_pre_assert.weight();
             info!(event = "finalized pre-assert tx", %pre_assert_txid, %vsize, %total_size, %weight, %own_index);
 
+            let n_blocks = PRE_ASSERT_TIMELOCK + 10;
+            info!(%n_blocks, "waiting before settling pre-assert");
             let pre_assert_txid = self
                 .agent
-                .wait_and_broadcast(&signed_pre_assert, BTC_CONFIRM_PERIOD)
+                .wait_and_broadcast(&signed_pre_assert, Duration::from_secs(n_blocks as u64))
                 .await
                 .expect("should settle pre-assert");
             info!(event = "broadcasted pre-assert", %pre_assert_txid, %own_index);
@@ -1571,7 +1569,6 @@ where
                     deposit_txid,
                     WithdrawalStatus::PreAssert {
                         withdrawal_fulfillment_txid,
-                        superblock_start_ts,
                         pre_assert_txid,
                     }
                     .into(),
@@ -1579,25 +1576,21 @@ where
                 .await
                 .expect("should be able to send duty status");
 
-            status.next(withdrawal_fulfillment_txid, Some(superblock_start_ts));
+            status.next(withdrawal_fulfillment_txid);
         } else {
             info!(action = "already broadcasted pre-assert, so skipping");
         }
 
-        // 6. compute superblock and proof
+        // 6. compute proof
         // check that at least one assert data is still left to broadcast i.e, the last one has not
         // been broadcasted yet.
         let should_assert = status.should_assert_data(NUM_ASSERT_DATA_TX - 1);
-        if let Some((bridge_out_txid, superblock_start_ts)) = should_assert {
-            info!(action = "creating assertion signatures", %bridge_out_txid, %superblock_start_ts, %own_index);
+        if let Some(bridge_out_txid) = should_assert {
+            info!(action = "creating assertion signatures", %bridge_out_txid, %own_index);
 
             let assert_data_signatures = {
                 let mut assertions: Assertions = self
-                    .prove_and_generate_assertions(
-                        deposit_txid,
-                        bridge_out_txid,
-                        superblock_start_ts,
-                    )
+                    .prove_and_generate_assertions(deposit_txid, bridge_out_txid)
                     .await;
                 if self.am_i_faulty() {
                     warn!(action = "making a faulty assertion");
@@ -1639,9 +1632,7 @@ where
             let mut broadcasted_assert_data_txids = Vec::with_capacity(TOTAL_CONNECTORS);
 
             for (index, signed_assert_data_tx) in signed_assert_data_txs.iter().enumerate() {
-                if let Some((withdrawal_fulfillment_txid, superblock_start_ts)) =
-                    status.should_assert_data(index)
-                {
+                if let Some(withdrawal_fulfillment_txid) = status.should_assert_data(index) {
                     info!(event = "broadcasting signed assert data tx", %index, %num_assert_data_txs);
                     let txid = self
                         .agent
@@ -1656,7 +1647,6 @@ where
                             deposit_txid,
                             BridgeDutyStatus::Withdrawal(WithdrawalStatus::AssertData {
                                 withdrawal_fulfillment_txid,
-                                superblock_start_ts,
                                 assert_data_txids: broadcasted_assert_data_txids.clone(),
                             }),
                         ))
@@ -1665,7 +1655,7 @@ where
 
                     info!(event = "broadcasted signed assert data tx", %index, %num_assert_data_txs);
 
-                    status.next(txid, Some(superblock_start_ts));
+                    status.next(txid);
                 } else {
                     info!(action = "already broadcasted this assert data tx; so skipping", %index);
                 }
@@ -1712,7 +1702,7 @@ where
 
             info!(event = "broadcasted post-assert tx", %post_assert_txid, %own_index);
 
-            status.next(txid, None);
+            status.next(txid);
         } else {
             info!(action = "already broadcasted post assert tx, so skipping");
         }
@@ -1829,26 +1819,17 @@ where
 
             info!(event = "broadcasted kickoff tx", %deposit_txid, %kickoff_txid, %own_index);
 
-            status.next(withdrawal_fulfillment_txid, None);
+            status.next(withdrawal_fulfillment_txid);
         } else {
             info!(action = "already broadcasted kickoff, so skipping");
         }
 
         if let Some(withdrawal_fulfillment_txid) = status.should_claim() {
-            let superblock_start_ts = self
-                .agent
-                .btc_client
-                .get_current_timestamp()
-                .await
-                .expect("should be able to get the latest timestamp from the best block");
-            debug!(event = "got current timestamp (T_s)", %superblock_start_ts, %own_index);
-
             let claim_tx_with_commitment = claim_tx.finalize(
                 deposit_txid,
                 &connectors.kickoff,
                 &self.msk,
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
             );
 
             let raw_claim_tx: String = consensus::encode::serialize_hex(&claim_tx_with_commitment);
@@ -1856,14 +1837,12 @@ where
 
             let claim_txid = self
                 .agent
-                .btc_client
-                .send_raw_transaction(&claim_tx_with_commitment)
+                .wait_and_broadcast(&claim_tx_with_commitment, BTC_CONFIRM_PERIOD)
                 .await
-                .expect("should be able to publish claim tx with commitment to bridge_out_txid and superblock period start_ts");
+                .expect("should be able to publish claim tx with commitment to bridge_out_txid");
 
             let duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
                 claim_txid,
             });
             info!(
@@ -1877,7 +1856,7 @@ where
 
             info!(event = "broadcasted claim tx", %deposit_txid, %claim_txid, %own_index);
 
-            status.next(withdrawal_fulfillment_txid, Some(superblock_start_ts));
+            status.next(withdrawal_fulfillment_txid);
         } else {
             info!(action = "already broadcasted claim tx, so skipping");
         }
@@ -1954,7 +1933,6 @@ where
         &self,
         deposit_txid: Txid,
         withdrawal_fulfillment_txid: Txid,
-        superblock_period_start_ts: u32,
     ) -> Assertions {
         info!(action = "getting latest checkpoint at the time of withdrawal duty reception");
         let latest_checkpoint_at_payout = self
@@ -2003,15 +1981,12 @@ where
             .expect("should be able to query for CL block witness")
             .expect("cl block witness must exist");
 
-        fs::write("cl_block_witness.bin", &cl_block_witness)
-            .expect("should write cl block witness");
-
         let chain_state = borsh::from_slice::<(Chainstate, L2Block)>(&cl_block_witness)
             .expect("should be able to deserialize CL block witness")
             .0;
 
         let l1_start_height = (checkpoint_info.l1_range.1 + 1) as u32;
-        let mut superblock_period_blocks_count = 0;
+        let mut block_count = 0;
 
         let btc_params = get_btc_params();
 
@@ -2030,7 +2005,7 @@ where
         let mut withdrawal_fulfillment = None;
         let mut checkpoint = None;
 
-        info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, %superblock_period_start_ts, start_height=%height);
+        info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, start_height=%height);
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
             let block = self.agent.btc_client.get_block_at(height.into()).await;
@@ -2071,11 +2046,10 @@ where
             headers.push(header);
             height += 1;
 
-            if header.time > superblock_period_start_ts {
-                superblock_period_blocks_count += 1;
-            }
-            if superblock_period_blocks_count >= SUPERBLOCK_MEASUREMENT_PERIOD {
-                info!(event = "superblock period complete", total_blocks = %headers.len());
+            block_count += 1;
+
+            if block_count >= EXPECTED_BLOCK_COUNT {
+                info!(event = "blocks period complete", total_blocks = %headers.len());
                 break;
             }
 
@@ -2088,7 +2062,6 @@ where
             checkpoint: checkpoint.expect("must be able to find checkpoint"),
             withdrawal_fulfillment: withdrawal_fulfillment
                 .expect("must be able to find withdrawal fulfillment txid"),
-            superblock_period_start_ts,
         };
 
         let strata_bridge_state = StrataBridgeState {
@@ -2107,15 +2080,11 @@ where
 
         let BridgeProofPublicParams {
             deposit_txid: _,
-            superblock_hash,
-            bridge_out_txid,
-            superblock_period_start_ts,
+            withdrawal_fulfillment_txid: bridge_out_txid,
         } = public_params;
 
         Assertions {
             bridge_out_txid,
-            superblock_hash,
-            superblock_period_start_ts: superblock_period_start_ts.to_le_bytes(),
             groth16: g16::generate_proof_assertions(
                 bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,

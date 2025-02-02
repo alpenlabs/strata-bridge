@@ -41,9 +41,7 @@ impl<'de> Deserialize<'de> for InclusionProof {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeProofPublicParams {
     pub deposit_txid: [u8; 32],
-    pub superblock_hash: [u8; 32],
-    pub bridge_out_txid: [u8; 32],
-    pub superblock_period_start_ts: u32,
+    pub withdrawal_fulfillment_txid: [u8; 32],
 }
 
 pub trait WtxidToTxid {
@@ -191,9 +189,6 @@ pub struct BridgeProofInput {
 
     /// Block height of bridge_out tx, and it's inclusion proof
     pub bridge_out: (u32, TransactionWithInclusionProof),
-
-    /// superblock period start ts
-    pub superblock_period_start_ts: u32,
 }
 
 #[derive(borsh::BorshSerialize, borsh::BorshDeserialize, Clone)]
@@ -222,7 +217,7 @@ mod tests {
     use bitcoin::{Block, Txid};
 
     use super::*;
-    use crate::{process_bridge_proof, statement::SUPERBLOCK_PERIOD_BLOCK_INTERVAL};
+    use crate::process_bridge_proof;
 
     #[test]
     fn test_tx_inclusion_proofs() {
@@ -433,10 +428,6 @@ mod tests {
             }
             None
         }
-
-        pub fn superblock_period_start_ts() -> u32 {
-            1736463276
-        }
     }
 
     #[test]
@@ -492,38 +483,23 @@ mod tests {
             })
             .unwrap();
 
-        let superblock_period_start_ts = data::superblock_period_start_ts();
-
-        let mut headers = blocks
+        let headers = blocks
             .iter()
             .filter_map(|block| {
                 if initial_header_state.last_verified_block_num
                     < block.bip34_block_height().unwrap() as u32
-                    && block.header.time <= superblock_period_start_ts
                 {
                     return Some(block.header);
                 }
                 None
             })
             .collect::<Vec<_>>();
-        headers.extend(
-            blocks
-                .iter()
-                .filter_map(|block| {
-                    if block.header.time > superblock_period_start_ts {
-                        return Some(block.header);
-                    }
-                    None
-                })
-                .take(SUPERBLOCK_PERIOD_BLOCK_INTERVAL),
-        );
 
         let bridge_proof_input = BridgeProofInput {
             headers,
             deposit_txid: deposit_txid.to_byte_array(),
             checkpoint: (checkpoint_height, checkpoint_tx),
             bridge_out: (bridge_out_height, bridge_out_tx),
-            superblock_period_start_ts,
         };
 
         let strata_bridge_state = StrataBridgeState {

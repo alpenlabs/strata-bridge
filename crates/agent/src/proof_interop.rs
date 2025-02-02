@@ -134,9 +134,6 @@ pub struct BridgeProofInput {
 
     /// Block height of withdrawal_fulfillment tx, and it's inclusion proof
     pub withdrawal_fulfillment: (u32, TransactionWithInclusionProof),
-
-    /// superblock period start ts
-    pub superblock_period_start_ts: u32,
 }
 
 /// Gets the [`HeaderVerificationState`] for the particular block

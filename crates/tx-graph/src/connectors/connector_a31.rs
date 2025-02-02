@@ -5,15 +5,13 @@ use bitcoin::{
     Address, Network, ScriptBuf, Txid,
 };
 use bitvm::{
-    bn254::chunk_superblock::H256,
     groth16::g16::{self, N_TAPLEAVES},
     hash::sha256::sha256,
     pseudo::NMUL,
-    signatures::wots::{wots256, wots32, SignatureImpl},
+    signatures::wots::{wots256, SignatureImpl},
     treepp::*,
 };
 use strata_bridge_primitives::{
-    params::prelude::*,
     scripts::prelude::*,
     wots::{self, Groth16PublicKeys},
 };
@@ -37,8 +35,6 @@ pub enum ConnectorA31Leaf {
         witness_script: Option<Script>,
     },
 
-    DisproveSuperblockCommitment(Option<(wots256::Signature, wots32::Signature, [u8; 80])>),
-
     DisprovePublicInputsCommitment {
         deposit_txid: Txid,
         witness: Option<DisprovePublicInputsCommitmentWitness>,
@@ -47,79 +43,42 @@ pub enum ConnectorA31Leaf {
 
 #[derive(Debug, Clone, Copy)]
 pub struct DisprovePublicInputsCommitmentWitness {
-    pub sig_superblock_hash: wots256::Signature,
-    pub sig_bridge_out_txid: wots256::Signature,
-    pub sig_superblock_period_start_ts: wots32::Signature,
+    pub sig_withdrawal_fulfillment_txid: wots256::Signature,
     pub sig_public_inputs_hash: wots256::Signature,
 }
 
 impl ConnectorA31Leaf {
     /// Generate the locking script for the leaf.
-    pub(crate) fn generate_locking_script(self, public_keys: wots::PublicKeys) -> Script {
+    pub(crate) fn generate_locking_script(&self, public_keys: wots::PublicKeys) -> Script {
         let wots::PublicKeys {
-            bridge_out_txid: bridge_out_txid_public_key,
-            superblock_hash: superblock_hash_public_key,
-            superblock_period_start_ts: superblock_period_start_ts_public_key,
+            withdrawal_fulfillment_pk,
             groth16: Groth16PublicKeys(([public_inputs_hash_public_key], _, _)),
         } = public_keys;
         match self {
-            ConnectorA31Leaf::DisproveSuperblockCommitment(_) => {
-                script! {
-                    // committed superblock hash
-                    { wots256::compact::checksig_verify(superblock_hash_public_key.0) }
-                    { sb_hash_from_nibbles() } { H256::toaltstack() }
-
-                    // committed superblock period start timestamp
-                    { wots32::compact::checksig_verify(superblock_period_start_ts_public_key.0) }
-                    { ts_from_nibbles() } OP_TOALTSTACK
-
-                    // extract superblock timestamp from header
-                    extract_superblock_ts_from_header
-
-                    // assert: 0 < sbv.ts - sb_start_ts < superblock_period
-                    OP_FROMALTSTACK
-                    OP_SUB
-                    OP_DUP
-                    0 OP_GREATERTHAN OP_VERIFY
-                    { SUPERBLOCK_PERIOD } OP_LESSTHAN OP_VERIFY
-
-                    { sha256(80) }
-                    { sha256(32) }
-                    { sb_hash_from_bytes() }
-
-                    { H256::fromaltstack() }
-
-                    // assert sb.hash < committed_sb_hash
-                    { H256::lessthan(1, 0) } OP_VERIFY
-
-                    OP_TRUE
-                }
-            }
-
             ConnectorA31Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
-                    { wots256::compact::checksig_verify(superblock_hash_public_key.0) }
+                    // first, verify that the WOTS for withdrawal fulfillment txid is correct.
+                    { wots256::compact::checksig_verify(withdrawal_fulfillment_pk.0) }
+                    // convert txid to a number by multiplying and accumulating each byte by 16.
                     for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
-                    { wots256::compact::checksig_verify(bridge_out_txid_public_key.0) }
-                    for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
-
-                    { wots32::compact::checksig_verify(superblock_period_start_ts_public_key.0) }
-                    for _ in 0..4 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
-
+                    // second, verify that the WOTS for public inputs hash is correct.
                     { wots256::compact::checksig_verify(public_inputs_hash_public_key) }
-                    for _ in 0..32 { { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK } // TODO: add OP_SWAP after fixing groth16 witnernitz issue
+                    // convert hash to a number by multiplying and accumulating each byte by 16.
+                    for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
-
+                    // extract the numbers
                     for _ in 0..32 { OP_FROMALTSTACK }
-                    for _ in 0..4 { OP_FROMALTSTACK }
-                    for _ in 0..32 { OP_FROMALTSTACK } // add_bincode_padding_bytes32
-                    for _ in 0..32 { OP_FROMALTSTACK } // add_bincode_padding_bytes32
+                    for _ in 0..32 { OP_FROMALTSTACK }
 
-
+                    // include the deposit txid in the script to couple proofs with deposits.
+                    // this is part of the commitment to the public inputs (along with the
+                    // withdrawal_fulfillment txid.
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
-                    { sha256(3 * 32 + 4) }
+                    // hash the txid and public inputs hash
+                    { sha256(2 * 32) }
+                    // convert the hash to a bn254 field element
                     hash_to_bn254_fq
 
                     // verify that hashes don't match
@@ -134,45 +93,30 @@ impl ConnectorA31Leaf {
             }
             ConnectorA31Leaf::DisproveProof {
                 disprove_script, ..
-            } => disprove_script,
+            } => disprove_script.clone(),
         }
     }
 
     /// Generate the witness script for the leaf.
-    pub fn generate_witness_script(self) -> Script {
+    pub fn generate_witness_script(&self) -> Script {
         match self {
-            ConnectorA31Leaf::DisproveSuperblockCommitment(Some((
-                sig_superblock_hash,
-                sig_superblock_period_start_ts,
-                raw_superblock_header_bytes,
-            ))) => {
-                script! {
-                    { raw_superblock_header_bytes.to_vec() }
-                    { sig_superblock_period_start_ts.to_compact_script() }
-                    { sig_superblock_hash.to_compact_script() }
-                }
-            }
             ConnectorA31Leaf::DisprovePublicInputsCommitment {
                 witness:
                     Some(DisprovePublicInputsCommitmentWitness {
-                        sig_superblock_hash,
-                        sig_bridge_out_txid,
-                        sig_superblock_period_start_ts,
+                        sig_withdrawal_fulfillment_txid,
                         sig_public_inputs_hash,
                     }),
                 ..
             } => {
                 script! {
                     { sig_public_inputs_hash.to_compact_script() }
-                    { sig_superblock_period_start_ts.to_compact_script() }
-                    { sig_bridge_out_txid.to_compact_script() }
-                    { sig_superblock_hash.to_compact_script() }
+                    { sig_withdrawal_fulfillment_txid.to_compact_script() }
                 }
             }
             ConnectorA31Leaf::DisproveProof {
                 witness_script: Some(witness_script),
                 ..
-            } => witness_script,
+            } => witness_script.clone(),
             _ => panic!("no data provided to finalize input"),
         }
     }
@@ -224,17 +168,12 @@ impl ConnectorA31 {
     fn generate_taproot_address(&self, deposit_txid: Txid) -> (Address, TaprootSpendInfo) {
         let disprove_scripts = self.generate_disprove_scripts();
 
-        let mut scripts = vec![
-            ConnectorA31Leaf::DisproveSuperblockCommitment(None)
-                .generate_locking_script(self.wots_public_keys)
-                .compile(),
-            ConnectorA31Leaf::DisprovePublicInputsCommitment {
-                deposit_txid,
-                witness: None,
-            }
-            .generate_locking_script(self.wots_public_keys)
-            .compile(),
-        ];
+        let mut scripts = vec![ConnectorA31Leaf::DisprovePublicInputsCommitment {
+            deposit_txid,
+            witness: None,
+        }
+        .generate_locking_script(self.wots_public_keys)
+        .compile()];
 
         let mut invalidate_proof_tapleaves = Vec::with_capacity(N_TAPLEAVES);
         for disprove_script in disprove_scripts.into_iter() {
@@ -266,5 +205,160 @@ impl ConnectorA31 {
         witness_stack.push(control_block.serialize());
 
         finalize_input(input, witness_stack);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+    use strata_bridge_primitives::scripts::parse_witness::parse_wots256_signatures;
+    use strata_bridge_proof_protocol::BridgeProofPublicParams;
+    use strata_bridge_test_utils::prelude::generate_txid;
+
+    use super::*;
+
+    #[test]
+    fn test_disprove_public_inputs() {
+        let deposit_txid = generate_txid();
+        let withdrawal_fulfillment_txid = generate_txid();
+
+        let public_inputs = BridgeProofPublicParams {
+            deposit_txid: deposit_txid.to_byte_array(),
+            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.to_byte_array(),
+        };
+
+        let serialized_public_inputs = bincode::serialize(&public_inputs).unwrap();
+        let public_inputs_hash = hash_public_inputs(serialized_public_inputs);
+
+        let committed_public_inputs_hash = public_inputs_hash;
+
+        let msk: &str = "test-disprove-public-inputs-hash";
+
+        let invalid_disprove_leaf = get_disprove_leaf(
+            msk,
+            deposit_txid,
+            withdrawal_fulfillment_txid,
+            committed_public_inputs_hash,
+        );
+
+        let result = execute_disprove(msk, deposit_txid, invalid_disprove_leaf);
+        assert!(
+            !result.success,
+            "must not be able to disprove with matching input hash"
+        );
+        assert!(
+            result.error.is_none(),
+            "disprove script must not error but got: {:?}",
+            result.error
+        );
+
+        let faulty_public_inputs = BridgeProofPublicParams {
+            withdrawal_fulfillment_txid: generate_txid().to_byte_array(),
+            deposit_txid: deposit_txid.to_byte_array(),
+        };
+        let faulty_inputs_hash =
+            hash_public_inputs(bincode::serialize(&faulty_public_inputs).unwrap());
+
+        let valid_disprove_leaf = get_disprove_leaf(
+            msk,
+            deposit_txid,
+            withdrawal_fulfillment_txid,
+            faulty_inputs_hash,
+        );
+
+        let result = execute_disprove(msk, deposit_txid, valid_disprove_leaf);
+        assert!(
+            result.success,
+            "must be able to disprove with different withdrawal fulfillment txid"
+        );
+        assert!(
+            result.error.is_none(),
+            "disprove script must not error but got: {:?}",
+            result.error
+        );
+
+        let faulty_public_inputs = BridgeProofPublicParams {
+            deposit_txid: generate_txid().to_byte_array(),
+            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.to_byte_array(),
+        };
+        let faulty_inputs_hash =
+            hash_public_inputs(bincode::serialize(&faulty_public_inputs).unwrap());
+
+        let valid_disprove_leaf = get_disprove_leaf(
+            msk,
+            deposit_txid,
+            withdrawal_fulfillment_txid,
+            faulty_inputs_hash,
+        );
+
+        let result = execute_disprove(msk, deposit_txid, valid_disprove_leaf);
+        assert!(
+            result.success,
+            "must be able to disprove with different deposit txid"
+        );
+        assert!(
+            result.error.is_none(),
+            "disprove script must not error but got: {:?}",
+            result.error
+        );
+    }
+
+    fn hash_public_inputs(serialized_public_inputs: Vec<u8>) -> [u8; 32] {
+        let data: &[u8] = &serialized_public_inputs;
+        let mut hasher = Sha256::new();
+        hasher.update(data);
+        let mut hash: [u8; 32] = hasher.finalize().into();
+        hash[0] &= 0b00011111;
+        // mask 3 most significant bits
+        hash
+    }
+
+    fn execute_disprove(
+        msk: &str,
+        deposit_txid: Txid,
+        invalid_disprove_leaf: ConnectorA31Leaf,
+    ) -> bitvm::ExecuteInfo {
+        let wots_public_keys = wots::PublicKeys::new(msk, deposit_txid);
+
+        let locking_script = invalid_disprove_leaf.generate_locking_script(wots_public_keys);
+        let witness_script = invalid_disprove_leaf.generate_witness_script();
+        let witness_script = taproot_witness_signatures(witness_script);
+        let full_script = script! {
+            { witness_script }
+            { locking_script }
+        };
+
+        execute_script(full_script)
+    }
+
+    fn get_disprove_leaf(
+        msk: &str,
+        deposit_txid: Txid,
+        withdrawal_fulfillment_txid: Txid,
+        committed_public_inputs_hash: [u8; 32],
+    ) -> ConnectorA31Leaf {
+        let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
+
+        let withdrawal_fulfillment_txid_sk = secret_key_for_bridge_out_txid(&deposit_msk);
+        let sig_withdrawal_fulfillment_txid = wots256::sign(
+            &withdrawal_fulfillment_txid_sk,
+            &withdrawal_fulfillment_txid.to_byte_array()[..],
+        );
+        let sig_withdrawal_fulfillment_txid =
+            parse_wots256_signatures::<1>(sig_withdrawal_fulfillment_txid).unwrap()[0];
+
+        let public_inputs_hash_sk = secret_key_for_public_inputs_hash(&deposit_msk);
+        let sig_public_inputs_hash =
+            wots256::sign(&public_inputs_hash_sk, &committed_public_inputs_hash[..]);
+        let sig_public_inputs_hash =
+            parse_wots256_signatures::<1>(sig_public_inputs_hash).unwrap()[0];
+
+        ConnectorA31Leaf::DisprovePublicInputsCommitment {
+            deposit_txid,
+            witness: Some(DisprovePublicInputsCommitmentWitness {
+                sig_withdrawal_fulfillment_txid,
+                sig_public_inputs_hash,
+            }),
+        }
     }
 }

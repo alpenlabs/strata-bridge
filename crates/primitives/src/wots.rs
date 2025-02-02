@@ -8,9 +8,7 @@ use bitvm::{
 
 use crate::scripts::{
     commitments::{
-        get_deposit_master_secret_key, secret_key_for_bridge_out_txid,
-        secret_key_for_proof_element, secret_key_for_superblock_hash,
-        secret_key_for_superblock_period_start_ts,
+        get_deposit_master_secret_key, secret_key_for_bridge_out_txid, secret_key_for_proof_element,
     },
     prelude::secret_key_for_public_inputs_hash,
 };
@@ -20,9 +18,6 @@ pub struct Wots256PublicKey(pub wots256::PublicKey);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots160PublicKey(pub wots160::PublicKey);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots32PublicKey(pub wots32::PublicKey);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16PublicKeys(pub g16::PublicKeys);
@@ -45,11 +40,7 @@ impl DerefMut for Groth16PublicKeys {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct PublicKeys {
-    pub bridge_out_txid: Wots256PublicKey,
-
-    pub superblock_hash: Wots256PublicKey,
-
-    pub superblock_period_start_ts: Wots32PublicKey,
+    pub withdrawal_fulfillment_pk: Wots256PublicKey,
 
     pub groth16: Groth16PublicKeys,
 }
@@ -58,14 +49,8 @@ impl PublicKeys {
     pub fn new(msk: &str, deposit_txid: Txid) -> Self {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
         Self {
-            bridge_out_txid: Wots256PublicKey(wots256::generate_public_key(
+            withdrawal_fulfillment_pk: Wots256PublicKey(wots256::generate_public_key(
                 &secret_key_for_bridge_out_txid(&deposit_msk),
-            )),
-            superblock_hash: Wots256PublicKey(wots256::generate_public_key(
-                &secret_key_for_superblock_hash(&deposit_msk),
-            )),
-            superblock_period_start_ts: Wots32PublicKey(wots32::generate_public_key(
-                &secret_key_for_superblock_period_start_ts(&deposit_msk),
             )),
             groth16: Groth16PublicKeys((
                 [wots256::generate_public_key(
@@ -96,9 +81,7 @@ pub struct Groth16Signatures(g16::Signatures);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Signatures {
-    pub bridge_out_txid: wots256::Signature,
-    pub superblock_hash: wots256::Signature,
-    pub superblock_period_start_ts: wots32::Signature,
+    pub withdrawal_fulfillment_sig: wots256::Signature,
     pub groth16: g16::Signatures,
 }
 
@@ -107,17 +90,9 @@ impl Signatures {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
         Self {
-            bridge_out_txid: wots256::get_signature(
+            withdrawal_fulfillment_sig: wots256::get_signature(
                 &secret_key_for_bridge_out_txid(&deposit_msk),
                 &assertions.bridge_out_txid,
-            ),
-            superblock_hash: wots256::get_signature(
-                &secret_key_for_superblock_hash(&deposit_msk),
-                &assertions.superblock_hash,
-            ),
-            superblock_period_start_ts: wots32::get_signature(
-                &secret_key_for_superblock_period_start_ts(&deposit_msk),
-                &assertions.superblock_period_start_ts,
             ),
             groth16: (
                 [wots256::get_signature(
@@ -144,7 +119,5 @@ impl Signatures {
 #[derive(Debug, Clone, Copy, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Assertions {
     pub bridge_out_txid: [u8; 32],
-    pub superblock_hash: [u8; 32],
-    pub superblock_period_start_ts: [u8; 4],
     pub groth16: g16::Assertions,
 }

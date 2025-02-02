@@ -17,7 +17,6 @@ pub const STRATA_CKP_VERIFICATION_KEY: &str =
     "0x005027dda93318eb6bb85acd3a924f9d6d63006672ed2ff14c87352acf538993";
 
 pub const ROLLUP_NAME: &str = "alpenstrata";
-pub const SUPERBLOCK_PERIOD_BLOCK_INTERVAL: usize = 100;
 
 pub fn process_bridge_proof(
     input: BridgeProofInput,
@@ -28,7 +27,6 @@ pub fn process_bridge_proof(
         deposit_txid,
         checkpoint: (checkpoint_height, checkpoint),
         bridge_out: (bridge_out_height, bridge_out),
-        superblock_period_start_ts,
     } = input;
 
     let params = &get_btc_params();
@@ -42,16 +40,10 @@ pub fn process_bridge_proof(
         (bridge_out_height - state.initial_header_state.last_verified_block_num - 1) as usize;
 
     // verify header chain
-    let header_hashes = {
-        let mut hvs = state.initial_header_state.clone();
-        headers
-            .iter()
-            .map(|header| {
-                hvs.check_and_update_full(header, params);
-                hvs.last_verified_block_hash
-            })
-            .collect::<Vec<_>>()
-    };
+    let mut hvs = state.initial_header_state.clone();
+    headers.iter().for_each(|header| {
+        hvs.check_and_update_full(header, params);
+    });
 
     // verify checkpoint inclusion proof
     checkpoint
@@ -62,25 +54,6 @@ pub fn process_bridge_proof(
     bridge_out
         .verify(&headers[bridge_out_header_index])
         .map_err(|_err| "invalid bridge_out tx: non-inclusion")?;
-
-    // superblock hash and blocks count
-    let (superblock_hash, superblock_period_blocks_count) = headers.iter().zip(header_hashes).fold(
-        ([u8::MAX; 32], 0),
-        |(mut superblock_hash, mut superblock_period_blocks_count), (header, hash)| {
-            if header.time > superblock_period_start_ts
-                && superblock_period_blocks_count < SUPERBLOCK_PERIOD_BLOCK_INTERVAL
-            {
-                superblock_period_blocks_count += 1;
-                if hash.as_ref() < &superblock_hash {
-                    superblock_hash = *hash.as_ref();
-                }
-            }
-            (superblock_hash, superblock_period_blocks_count)
-        },
-    );
-    if superblock_period_blocks_count < SUPERBLOCK_PERIOD_BLOCK_INTERVAL {
-        return Err("not enough headers in superblock period".into());
-    }
 
     // TODO: parse and validate bridge out tx
     let (operator_id, withdrawal_address, withdrawal_amount) = {
@@ -153,9 +126,7 @@ pub fn process_bridge_proof(
 
     Ok(BridgeProofPublicParams {
         deposit_txid,
-        superblock_hash,
-        bridge_out_txid: bridge_out.tx.0.compute_txid().to_byte_array(),
-        superblock_period_start_ts,
+        withdrawal_fulfillment_txid: bridge_out.tx.0.compute_txid().to_byte_array(),
     })
 }
 

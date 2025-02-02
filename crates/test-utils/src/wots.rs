@@ -3,19 +3,16 @@
 use bitcoin::key::rand::{rngs::OsRng, Rng, RngCore};
 use bitvm::{
     groth16::g16::{N_VERIFIER_FQS, N_VERIFIER_HASHES, N_VERIFIER_PUBLIC_INPUTS},
-    signatures::wots::{wots160, wots256, wots32},
+    signatures::wots::{wots160, wots256},
 };
-use strata_bridge_primitives::wots::{self, Groth16PublicKeys, Wots256PublicKey, Wots32PublicKey};
+use strata_bridge_primitives::wots::{self, Groth16PublicKeys, Wots256PublicKey};
 
 pub fn generate_wots_signatures() -> wots::Signatures {
     let wots256_signature: wots256::Signature = generate_byte_tuple_array(&mut OsRng);
-    let wots32_signature: wots32::Signature = generate_byte_tuple_array(&mut OsRng);
     let wots160_signature: wots160::Signature = generate_byte_tuple_array(&mut OsRng);
 
     wots::Signatures {
-        bridge_out_txid: wots256_signature,
-        superblock_hash: wots256_signature,
-        superblock_period_start_ts: wots32_signature,
+        withdrawal_fulfillment_sig: wots256_signature,
         groth16: (
             [wots256_signature; N_VERIFIER_PUBLIC_INPUTS],
             [wots256_signature; N_VERIFIER_FQS],
@@ -27,16 +24,11 @@ pub fn generate_wots_signatures() -> wots::Signatures {
 pub fn generate_wots_public_keys() -> wots::PublicKeys {
     let wots256_public_key: wots256::PublicKey = generate_byte_slice_array(&mut OsRng);
     let wots160_public_key: wots160::PublicKey = generate_byte_slice_array(&mut OsRng);
-    let wots32_public_key: wots32::PublicKey = generate_byte_slice_array(&mut OsRng);
 
-    let bridge_out_txid = Wots256PublicKey(wots256_public_key);
-    let superblock_hash = Wots256PublicKey(wots256_public_key);
-    let superblock_period_start_ts = Wots32PublicKey(wots32_public_key);
+    let withdrawal_fulfillment_pk = Wots256PublicKey(wots256_public_key);
 
     wots::PublicKeys {
-        bridge_out_txid,
-        superblock_hash,
-        superblock_period_start_ts,
+        withdrawal_fulfillment_pk,
         groth16: Groth16PublicKeys((
             [wots256_public_key; N_VERIFIER_PUBLIC_INPUTS],
             [wots256_public_key; N_VERIFIER_FQS],
@@ -77,10 +69,8 @@ mod tests {
             generate_byte_slice_array::<20, 67>(&mut OsRng);
         let wots160_public_key: wots160::PublicKey =
             generate_byte_slice_array::<20, 43>(&mut OsRng);
-        let wots32_public_key: wots32::PublicKey = generate_byte_slice_array::<20, 10>(&mut OsRng);
 
         assert_eq!(wots256_public_key.len(), 67, "wots256 size should match");
         assert_eq!(wots160_public_key.len(), 43, "wots160 size should match");
-        assert_eq!(wots32_public_key.len(), 10, "wots32 size should match");
     }
 }

@@ -33,8 +33,6 @@ pub const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
 /// This has the type [`Amount`] for convenience.
 pub const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
 
-pub const SUPERBLOCK_PERIOD: u32 = 2 * 7 * 24 * 60 * 60; // 2w in secs
-
 pub const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
 
 pub const DISPROVER_REWARD: Amount = Amount::from_int_btc(2);

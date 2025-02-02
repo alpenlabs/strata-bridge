@@ -267,9 +267,7 @@ impl PegOutGraphConnectors {
         let post_assert_out_1 = ConnectorA31::new(network, wots_public_keys);
 
         let wots::PublicKeys {
-            bridge_out_txid: _,
-            superblock_hash: superblock_hash_public_key,
-            superblock_period_start_ts: _,
+            withdrawal_fulfillment_pk: _,
             groth16:
                 Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
         } = wots_public_keys;
@@ -280,9 +278,8 @@ impl PegOutGraphConnectors {
         };
 
         let public_keys_256 = std::array::from_fn(|i| match i {
-            0 => superblock_hash_public_key.0,
-            1 => public_inputs_hash_public_key,
-            _ => public_keys_256[i - 2],
+            0 => public_inputs_hash_public_key,
+            _ => public_keys_256[i - 1],
         });
 
         let assert_data256_factory = ConnectorA256Factory {
@@ -320,7 +317,6 @@ mod tests {
         taproot::{self},
         transaction, FeeRate, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
     };
-    // use bitcoincore_rpc_json::GetRawTransactionResult;
     use corepc_node::{
         serde_json::{self, json},
         Client, Conf, Node,
@@ -429,26 +425,12 @@ mod tests {
             ..
         } = connectors;
 
-        let bridge_out_txid = generate_txid();
-        let best_block_hash = btc_client
-            .get_best_block_hash()
-            .expect("must get block")
-            .block_hash()
-            .expect("must have block hash");
-        let start_ts = btc_client
-            .get_block_verbose_one(best_block_hash)
-            .expect("must get block")
-            .time;
+        let withdrawal_fulfillment_txid = generate_txid();
 
         let claim_input_amount = claim_tx.input_amount();
         let claim_cpfp_vout = claim_tx.cpfp_vout();
-        let signed_claim_tx = claim_tx.finalize(
-            deposit_txid,
-            &kickoff,
-            MSK,
-            bridge_out_txid,
-            start_ts as u32,
-        );
+        let signed_claim_tx =
+            claim_tx.finalize(deposit_txid, &kickoff, MSK, withdrawal_fulfillment_txid);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(
@@ -761,7 +743,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         info!("extracting assertion data from assert data transactions");
-        let (sig_superblock_hash, g16_proof) = AssertDataTxBatch::parse_witnesses(
+        let g16_proof = AssertDataTxBatch::parse_witnesses(
             &signed_assert_txs
                 .try_into()
                 .expect("the number of assert data txs must match"),
@@ -769,11 +751,10 @@ mod tests {
         .expect("must be able to parse assert data txs")
         .expect("must have assertion witness");
 
-        info!("extracting superblock and withdrawal fulfillment txid commitments from claim transactions");
-        let (sig_superblock_period_start_ts, sig_bridge_out_txid) =
-            ClaimTx::parse_witness(&signed_claim_tx)
-                .expect("must be able to parse claim witness")
-                .expect("must have claim witness");
+        info!("extracting withdrawal fulfillment txid commitments from claim transactions");
+        let sig_withdrawal_fulfillment_txid = ClaimTx::parse_witness(&signed_claim_tx)
+            .expect("must be able to parse claim witness")
+            .expect("must have claim witness");
 
         // TODO: find a way to get the groth16 disprove leaf without having to compile the actual
         // partial verification scripts (and vk).
@@ -784,9 +765,7 @@ mod tests {
         let input_disprove_leaf = ConnectorA31Leaf::DisprovePublicInputsCommitment {
             deposit_txid,
             witness: Some(DisprovePublicInputsCommitmentWitness {
-                sig_superblock_hash,
-                sig_bridge_out_txid,
-                sig_superblock_period_start_ts,
+                sig_withdrawal_fulfillment_txid,
                 sig_public_inputs_hash: g16_proof.0[0],
             }),
         };
@@ -1000,26 +979,11 @@ mod tests {
             assert_data256_factory,
         } = connectors;
 
-        let bridge_out_txid = generate_txid();
-        let best_block_hash = btc_client
-            .get_best_block_hash()
-            .expect("must get block")
-            .block_hash()
-            .expect("must have block hash");
-        let start_ts = btc_client
-            .get_block_verbose_one(best_block_hash)
-            .expect("must get block")
-            .time;
-
+        let withdrawal_fulfillment_txid = generate_txid();
         let claim_input_amount = claim_tx.input_amount();
         let claim_cpfp_vout = claim_tx.cpfp_vout();
-        let signed_claim_tx = claim_tx.finalize(
-            deposit_txid,
-            &kickoff,
-            MSK,
-            bridge_out_txid,
-            start_ts as u32,
-        );
+        let signed_claim_tx =
+            claim_tx.finalize(deposit_txid, &kickoff, MSK, withdrawal_fulfillment_txid);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(

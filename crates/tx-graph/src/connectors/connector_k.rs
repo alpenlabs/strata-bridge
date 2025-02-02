@@ -4,10 +4,7 @@ use bitcoin::{
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, Txid,
 };
-use bitvm::{
-    signatures::wots::{wots256, wots32},
-    treepp::*,
-};
+use bitvm::{signatures::wots::wots256, treepp::*};
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::{scripts::prelude::*, wots};
 
@@ -42,20 +39,13 @@ impl ConnectorK {
 
     fn create_locking_script(&self) -> ScriptBuf {
         let wots::PublicKeys {
-            bridge_out_txid: bridge_out_txid_public_key,
-            superblock_hash: _,
-            superblock_period_start_ts: superblock_period_start_ts_public_key,
+            withdrawal_fulfillment_pk,
             groth16: _,
         } = self.wots_public_keys;
 
         script! {
-            // superblock_period_start_timestamp
-            { wots32::checksig_verify(superblock_period_start_ts_public_key.0, true) }
-            // ts_from_nibbles OP_CLTV OP_DROP // check absolute locktime
-
-
             // bridge_out_tx_id
-            { wots256::checksig_verify(bridge_out_txid_public_key.0, true) }
+            { wots256::checksig_verify(withdrawal_fulfillment_pk.0, true) }
 
             OP_TRUE
         }
@@ -93,13 +83,11 @@ impl ConnectorK {
     }
 
     /// Finalizes the input to the transaction that spends this connector.
-    #[expect(clippy::too_many_arguments)]
     pub fn create_tx_input(
         &self,
         input: &mut Input,
         msk: &str,
-        bridge_out_txid: Txid,
-        superblock_period_start_ts: u32,
+        withdrawal_fulfillment_txid: Txid,
         deposit_txid: Txid,
         script: ScriptBuf,
         control_block: ControlBlock,
@@ -107,9 +95,7 @@ impl ConnectorK {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
         let witness = script! {
-            { wots256::sign(&secret_key_for_bridge_out_txid(&deposit_msk), &bridge_out_txid.to_byte_array()) }
-
-            { wots32::sign(&secret_key_for_superblock_period_start_ts(&deposit_msk), &superblock_period_start_ts.to_le_bytes()) }
+            { wots256::sign(&secret_key_for_bridge_out_txid(&deposit_msk), &withdrawal_fulfillment_txid.to_byte_array()) }
         };
 
         let result = execute_script(witness.clone());

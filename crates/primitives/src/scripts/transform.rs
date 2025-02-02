@@ -1,4 +1,4 @@
-use bitvm::{bigint::U254, bn254::chunk_superblock::H256, pseudo::NMUL, treepp::*};
+use bitvm::{bigint::U254, pseudo::NMUL, treepp::*};
 
 fn split_digit(window: u32, index: u32) -> Script {
     script! {
@@ -59,62 +59,6 @@ pub fn fq_from_nibbles() -> Script {
     }
 }
 
-pub fn sb_hash_from_nibbles() -> Script {
-    const WINDOW: u32 = 4;
-    const LIMB_SIZE: u32 = 30;
-    const N_DIGITS: u32 = H256::N_BITS.div_ceil(WINDOW);
-
-    script! {
-        for i in 1..64 { { i } OP_ROLL }
-        for i in (1..=N_DIGITS).rev() {
-            if (i * WINDOW) % LIMB_SIZE == 0 {
-                OP_TOALTSTACK
-            } else if (i * WINDOW) % LIMB_SIZE > 0 &&
-                        (i * WINDOW) % LIMB_SIZE < WINDOW {
-                OP_SWAP
-                { split_digit(WINDOW, (i * WINDOW) % LIMB_SIZE) }
-                OP_ROT
-                { NMUL(1 << ((i * WINDOW) % LIMB_SIZE)) }
-                OP_ADD
-                OP_TOALTSTACK
-            } else if i != N_DIGITS {
-                { NMUL(1 << WINDOW) }
-                OP_ADD
-            }
-        }
-        for _ in 1..H256::N_LIMBS { OP_FROMALTSTACK }
-        for i in 1..H256::N_LIMBS { { i } OP_ROLL }
-    }
-}
-
-pub fn sb_hash_from_bytes() -> Script {
-    const WINDOW: u32 = 8;
-    const LIMB_SIZE: u32 = 30;
-    const N_DIGITS: u32 = H256::N_BITS.div_ceil(WINDOW);
-
-    script! {
-        for i in 1..32 { { i } OP_ROLL }
-        for i in (1..=N_DIGITS).rev() {
-            if (i * WINDOW) % LIMB_SIZE == 0 {
-                OP_TOALTSTACK
-            } else if (i * WINDOW) % LIMB_SIZE > 0 &&
-                        (i * WINDOW) % LIMB_SIZE < WINDOW {
-                OP_SWAP
-                { split_digit(WINDOW, (i * WINDOW) % LIMB_SIZE) }
-                OP_ROT
-                { NMUL(1 << ((i * WINDOW) % LIMB_SIZE)) }
-                OP_ADD
-                OP_TOALTSTACK
-            } else if i != N_DIGITS {
-                { NMUL(1 << WINDOW) }
-                OP_ADD
-            }
-        }
-        for _ in 1..H256::N_LIMBS { OP_FROMALTSTACK }
-        for i in 1..H256::N_LIMBS { { i } OP_ROLL }
-    }
-}
-
 pub fn flip_byte_nibbles() -> Script {
     script! {
         for i in 1..=4 {
@@ -144,13 +88,6 @@ pub fn hash_to_bn254_fq() -> Script {
     }
 }
 
-pub fn extract_superblock_ts_from_header() -> Script {
-    script! {
-        for i in 0..4 { { 80 - 12 + 2 * i } OP_PICK }
-        for _ in 1..4 {  { NMUL(1 << 8) } OP_ADD }
-    }
-}
-
 pub fn add_bincode_padding_bytes32() -> Script {
     script! {
         for b in [0; 7] { {b} } 32
@@ -164,7 +101,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_flip_byts_nibbles() {
+    fn test_flip_bytes_nibbles() {
         let script = script! {
             { 0xf9 }
             flip_byte_nibbles
