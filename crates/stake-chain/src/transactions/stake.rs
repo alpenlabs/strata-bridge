@@ -63,11 +63,14 @@ impl StakeTx {
     /// [`TxIn`].
     pub fn new(
         index: u32,
-        inputs: Vec<TxIn>,
+        stake_input: TxIn,
+        operator_funds: TxIn,
         connector_k: ConnectorK,
         connector_p: ConnectorP,
         connector_s: ConnectorStake,
     ) -> Self {
+        // The first input is the operator's funds.
+        let inputs = vec![operator_funds, stake_input];
         // The outputs are the `TxOut`s created from the connectors.
         let outputs = vec![
             TxOut {
@@ -99,7 +102,7 @@ impl StakeTx {
             output: outputs,
         };
 
-        // NOTE: The `ConnectorS` is the third output.
+        // The `ConnectorS` is the third output.
         let stake_amount = transaction.output[2].value;
 
         Self {
