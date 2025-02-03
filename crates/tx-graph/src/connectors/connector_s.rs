@@ -97,14 +97,12 @@ pub struct ConnectorStake {
     /// The operator's public key.
     operator_pubkey: XOnlyPublicKey,
 
-    /// The corresponding pre-image for the `k`th stake.
+    /// The hash of the `k`th stake preimage.
     ///
-    /// This is a 32-byte array, that should be generated securely from the operator's master
-    /// entropy along with the `k`th stake's index.
-    ///
-    /// A suggestion is to use purpose-built KDF, like BLAKE3 or HKDF. Care should be taken given
-    /// that there could be multiple stake chains with different `k`th stakes.
-    stake_preimage: [u8; 32],
+    /// It is used to derive the locking script and must be shared with between operators so that
+    /// each operator can compute the transactions deterministically. This is important for
+    /// validating transactions before operators offer up their signatures.
+    stake_hash: sha256::Hash,
 
     /// The `ΔS` interval relative timelock to advance the stake chain.
     delta: relative::LockTime,
@@ -119,14 +117,14 @@ impl ConnectorStake {
     pub fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         operator_pubkey: XOnlyPublicKey,
-        stake_preimage: [u8; 32],
+        stake_hash: sha256::Hash,
         delta: relative::LockTime,
         network: Network,
     ) -> Self {
         Self {
             n_of_n_agg_pubkey,
             operator_pubkey,
-            stake_preimage,
+            stake_hash,
             delta,
             network,
         }
@@ -149,7 +147,6 @@ impl ConnectorStake {
     /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
     pub fn generate_script(&self) -> ScriptBuf {
-        let stake_hash = sha256::Hash::hash(&self.stake_preimage);
         ScriptBuf::builder()
             .push_slice(self.operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
@@ -157,7 +154,7 @@ impl ConnectorStake {
             .push_int(0x20)
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
-            .push_slice(stake_hash.to_byte_array())
+            .push_slice(self.stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
             .push_sequence(self.delta.into())
             .push_opcode(OP_CSV)
@@ -221,13 +218,18 @@ impl ConnectorStake {
     ///
     /// If the psbt input is already in the final state, then this method overrides witness and
     /// signature.
-    pub fn create_tx_input_script_spend_path(&self, signature: Signature, input: &mut Input) {
+    ///
+    /// This uses the `stake_preimage` that must be revealed along with the `signature` in order to
+    /// [`Self`].
+    pub fn create_tx_input_script_spend_path(
+        &self,
+        signature: Signature,
+        stake_preimage: [u8; 32],
+        input: &mut Input,
+    ) {
         finalize_input(
             input,
-            vec![
-                &self.stake_preimage.to_vec(),
-                &signature.serialize().to_vec(),
-            ],
+            vec![&stake_preimage.to_vec(), &signature.serialize().to_vec()],
         );
     }
 }
@@ -293,18 +295,14 @@ mod tests {
 
         // Generate stake preimage
         let stake_preimage = [1; 32];
+        let stake_hash = sha256::Hash::hash(&stake_preimage);
 
         // Create relative timelock (e.g., 10 blocks)
         let delta = relative::LockTime::from_height(10);
 
         // Create connector
-        let connector_s = ConnectorStake::new(
-            n_of_n_pubkey,
-            operator_pubkey,
-            stake_preimage,
-            delta,
-            network,
-        );
+        let connector_s =
+            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
 
         // Generate address and script
         let taproot_script = connector_s.generate_address().script_pubkey();
