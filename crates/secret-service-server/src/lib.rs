@@ -38,9 +38,9 @@ use tokio::{
 use tracing::{error, span, warn, Instrument, Level};
 
 pub struct Config {
-    addr: SocketAddr,
-    connection_limit: Option<usize>,
-    tls_config: rustls::ServerConfig,
+    pub addr: SocketAddr,
+    pub connection_limit: Option<usize>,
+    pub tls_config: rustls::ServerConfig,
 }
 
 pub struct ServerHandle {

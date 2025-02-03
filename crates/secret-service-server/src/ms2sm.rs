@@ -44,8 +44,8 @@ pub struct OutOfRange;
 
 #[derive(Debug)]
 pub struct NotInCorrectRound {
-    wanted: SlotState,
-    got: SlotState,
+    pub wanted: SlotState,
+    pub got: SlotState,
 }
 
 #[derive(Debug)]
@@ -177,7 +177,7 @@ where
 }
 
 #[derive(Debug)]
-enum SlotState {
+pub enum SlotState {
     Empty,
     FirstRound,
     SecondRound,
