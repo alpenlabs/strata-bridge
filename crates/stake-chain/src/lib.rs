@@ -1,6 +1,6 @@
 //! # Strata Bridge Stake Chain
 //!
-//! In a BitVM-based brideg, each transaction graph requires a stake that gets burnt/slashed/spent
+//! In a BitVM-based bridge, each transaction graph requires a stake that gets burnt/slashed/spent
 //! in the corresponding BitVM game.
 //!
 //! Additionally, the staked amount must be greater than the amount paid to the operator in the
