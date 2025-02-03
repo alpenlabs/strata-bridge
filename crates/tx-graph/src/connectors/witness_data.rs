@@ -8,16 +8,16 @@ use secp256k1::schnorr;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive] // We might want to add more variants in the future.
 pub enum WitnessData {
-    /// The witness data is a single (aggregated) Schnorr [`Signature`].
+    /// The witness data is a single (aggregated) Schnorr [`Signature`](schnorr::Signature).
     Signature(schnorr::Signature),
 
     /// The witness data is a 32-byte hash preimage.
     Preimage([u8; 32]),
 
-    /// The witness data are a single (aggregated) Schnorr [`Signature`] and a 32-byte hash
-    /// preimage.
+    /// The witness data are a single (aggregated) Schnorr [`Signature`](schnorr::Signature) and a
+    /// 32-byte hash preimage.
     SignaturePreimage {
-        /// The Schnorr [`Signature`].
+        /// The Schnorr [`Signature`](schnorr::Signature).
         signature: schnorr::Signature,
 
         /// The 32-byte hash preimage.
