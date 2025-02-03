@@ -9,6 +9,8 @@ use bitcoin::{
 use secp256k1::{schnorr::Signature, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::prelude::*;
 
+use crate::connectors::witness_data::WitnessData;
+
 /// The connector to move the operator's stake across transactions.
 // TODO: Replace this with `ConnectorStake`.
 #[derive(Debug, Clone, Copy)]
@@ -202,35 +204,31 @@ impl ConnectorStake {
         (script, control_block)
     }
 
-    /// Finalizes a psbt input where this connector is used with the provided signature.
+    /// Finalizes a psbt input where this connector is used with the provided `witness_data`.
+    ///
+    /// Depending on the `witness_data` it will be used either a key or scripth path spend.
     ///
     /// # Note
     ///
-    /// This method does not check if the signature is valid for the input. It is the caller's
-    /// responsibility to ensure that the signature is valid.
+    /// This method does not check if the `witness_data` is valid for the input, deferring the
+    /// validation to the caller.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, signature: Signature, input: &mut Input) {
-        finalize_input(input, [signature.as_ref()]);
-    }
-
-    /// Finalizes a psbt input where this connector is used with the script spend path.
-    ///
-    /// If the psbt input is already in the final state, then this method overrides witness and
-    /// signature.
-    ///
-    /// This uses the `stake_preimage` that must be revealed along with the `signature` in order to
-    /// [`Self`].
-    pub fn create_tx_input_script_spend_path(
-        &self,
-        signature: Signature,
-        stake_preimage: [u8; 32],
-        input: &mut Input,
-    ) {
-        finalize_input(
-            input,
-            vec![&stake_preimage.to_vec(), &signature.serialize().to_vec()],
-        );
+    pub fn create_tx_input(&self, witness_data: WitnessData, input: &mut Input) {
+        match witness_data {
+            WitnessData::Signature(signature) => {
+                finalize_input(input, [&signature.serialize().to_vec()]);
+            }
+            WitnessData::SignaturePreimage {
+                signature,
+                preimage,
+            } => finalize_input(
+                input,
+                // NOTE: Order matters here.
+                vec![&preimage.to_vec(), &signature.serialize().to_vec()],
+            ),
+            _ => (), // other variants are no-op.
+        }
     }
 }
 
