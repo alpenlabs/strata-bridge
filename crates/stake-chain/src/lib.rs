@@ -25,5 +25,7 @@ pub mod errors;
 pub mod stake_chain;
 pub mod transactions;
 
+pub mod prelude;
+
 pub use errors::StakeChainError;
 pub use stake_chain::StakeChain;
