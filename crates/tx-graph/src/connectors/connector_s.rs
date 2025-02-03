@@ -63,7 +63,7 @@ impl ConnectorS {
 /// It is used in the Disprove and Slash Stake `k` transactions, where `k` is the index of the
 /// stake transaction.
 ///
-/// The operator can also advance the stake chain by revealing the pre-image, along with a valid
+/// The operator can also advance the stake chain by revealing the preimage, along with a valid
 /// signature from the operator's public key.
 /// Note that the stake advancement is done by the `stake-chain` crate.
 ///
@@ -76,19 +76,19 @@ impl ConnectorS {
 /// been advanced, they can use the `k`th stake to make their claim.
 ///
 /// If the operator tries to advance the chain to the `k+1`th stake, they are required to reveal a
-/// pre-image (publicly) on bitcoin. Using this stake, anybody can post the Burn Payouts transaction
+/// preimage (publicly) on bitcoin. Using this stake, anybody can post the Burn Payouts transaction
 /// which renders it impossible for an operator to receive a payout (optimistically or otherwise).
 ///
 /// If the operator has received a `k`th Payout Optimistic or Payout transaction, they can advance
-/// the stake chain (revealing the pre-image) without fear. It is the responsibility of the
+/// the stake chain (revealing the preimage) without fear. It is the responsibility of the
 /// [`ConnectorP`](super::connector_p::ConnectorP) and [`ConnectorStake`] to ensure that will make
 /// it impossible make it impossible
 ///
 /// # Security
 ///
-/// An operator can only advance the stake chain if they reveal the pre-image along with a valid
+/// An operator can only advance the stake chain if they reveal the preimage along with a valid
 /// signature from the operator's public key. Hence, the operator must must be able to provide the
-/// pre-image to the [`ConnectorStake`]. It is required that the preimage be securely derived and
+/// preimage to the [`ConnectorStake`]. It is required that the preimage be securely derived and
 /// never reused under any circumstances
 // TODO: This should replace the `ConnectorS` struct above.
 #[derive(Debug, Clone, Copy)]
@@ -164,7 +164,7 @@ impl ConnectorStake {
     }
 
     /// Creates a P2TR address with key spend path for the given operator set and a single script
-    /// path that can be unlocked by revealing the pre-image, along with an operator signature and
+    /// path that can be unlocked by revealing the preimage, along with an operator signature and
     /// is timelocked by `ΔS`.
     ///
     /// This is used to advance the stake chain, slash the stake, and disprove the stake.

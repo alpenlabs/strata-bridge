@@ -24,18 +24,18 @@ use crate::connectors::witness_data::WitnessData;
 /// been advanced, they can use the `k`th stake to make their claim.
 ///
 /// If the operator tries to advance the chain to the `k+1`th stake, they are required to reveal a
-/// pre-image (publicly) on bitcoin. Using this stake, anybody can post the Burn Payouts transaction
+/// preimage (publicly) on bitcoin. Using this stake, anybody can post the Burn Payouts transaction
 /// which renders it impossible for an operator to receive a payout (optimistically or otherwise).
 ///
 /// If the operator has received a `k`th Payout Optimistic or Payout transaction, they can advance
-/// the stake chain (revealing the pre-image) without fear. It is the responsibility of the
+/// the stake chain (revealing the preimage) without fear. It is the responsibility of the
 /// [`ConnectorP`] and [`ConnectorStake`](super::connector_s::ConnectorStake) to ensure that will
 /// make it impossible
 ///
 /// # Security
 ///
-/// An operator can only advance the stake chain if they reveal the pre-image. Hence, the operator
-/// must be able to provide the pre-image to the [`ConnectorP`]. It is required that the preimage be
+/// An operator can only advance the stake chain if they reveal the preimage. Hence, the operator
+/// must be able to provide the preimage to the [`ConnectorP`]. It is required that the preimage be
 /// securely derived and never reused under any circumstances.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorP {
@@ -96,7 +96,7 @@ impl ConnectorP {
     }
 
     /// Creates a P2TR address with key spend path for the given operator set and a single script
-    /// path that can be unlocked by revealing the pre-image.
+    /// path that can be unlocked by revealing the preimage.
     ///
     /// This is used to invalidate that a certain stake can be used in payouts by an operator in a
     /// Burn Payouts transaction.
