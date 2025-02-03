@@ -32,20 +32,16 @@ use crate::StakeChainError;
 ///
 /// # Implementation Details
 ///
-/// The [`StakeTx`] transaction is implemented as a generic type that takes the number of the
-/// previous stake transaction as a generic parameter. This is used to ensure that the stake
-/// transactions are ordered in the correct order.
-///
 /// Users can instantiate a [`StakeTx`] by calling the [`StakeTx::new`] function as in the example:
 ///
 /// ```rust,ignore
-/// let stake_1 = StakeTx::<1>::new(stake_tx_in, connector_k, connector_p, connector_s);
+/// let stake_1 = StakeTxnew(1, stake_tx_in, connector_k, connector_p, connector_s);
 /// # drop(stake_1);
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct StakeTx<const N: u32> {
+pub struct StakeTx {
     /// The index of the stake transaction, denoted by `k` in the docs and specifications.
-    index: u32,
+    pub index: u32,
 
     /// The PSBT that contains the inputs and outputs for the transaction.
     pub psbt: Psbt,
@@ -54,13 +50,14 @@ pub struct StakeTx<const N: u32> {
     pub amount: Amount,
 }
 
-impl<const N: u32> StakeTx<N> {
+impl StakeTx {
     /// Creates a new [`StakeTx`] transaction from the previous stake transaction as input and
     /// connector outputs.
     ///
     /// The single input should be the [`ConnectorStake`] from the previous stake transaction as a
     /// [`Transaction`]'s [`TxIn`].
     pub fn new(
+        index: u32,
         input: TxIn,
         connector_k: ConnectorK,
         connector_p: ConnectorP,
@@ -104,16 +101,11 @@ impl<const N: u32> StakeTx<N> {
         let stake_amount = transaction.output[2].value;
 
         Self {
-            index: N,
+            index,
             psbt: Psbt::from_unsigned_tx(transaction)
                 .expect("cannot fail since transaction will be always unsigned"),
             amount: stake_amount,
         }
-    }
-
-    /// The index of the stake transaction, denoted by `k` in the docs and specifications.
-    pub fn index(&self) -> u32 {
-        self.index
     }
 
     /// The transaction's inputs.
