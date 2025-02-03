@@ -1,0 +1,10 @@
+[package]
+name = "duty-tracker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+btc-notify.workspace = true
+bitcoin.workspace = true
+futures = "0.3.31"
+tokio = "1.43.0"
