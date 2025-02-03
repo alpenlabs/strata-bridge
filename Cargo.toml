@@ -11,6 +11,11 @@ members = [
   "crates/bridge-proof/test-utils",
   "crates/tx-graph",
   "bridge-guest-builder",
+  "crates/secret-service",
+  "crates/secret-service-proto",
+  "crates/secret-service-client",
+  "crates/secret-service-server",
+  "crates/musig2",
 
   # binaries listed separately
   "bin/strata-bridge",
@@ -18,10 +23,6 @@ members = [
 
   # test utilities
   "crates/test-utils",
-  "crates/secret-service",
-  "crates/secret-service-proto",
-  "crates/secret-service-client",
-  "crates/secret-service-server",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli"]

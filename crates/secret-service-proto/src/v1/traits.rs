@@ -109,6 +109,11 @@ pub trait WotsSigner<O: Origin>: Send {
     fn get_key(&self, index: u64) -> impl Future<Output = O::Container<[u8; 64]>> + Send;
 }
 
+pub trait StakeChainPreimages<O: Origin>: Send {
+    fn get_preimg(&self, deposit_index: u64)
+        -> impl Future<Output = O::Container<[u8; 32]>> + Send;
+}
+
 pub trait Origin {
     type Container<T>;
 }
