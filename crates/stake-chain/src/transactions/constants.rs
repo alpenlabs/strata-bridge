@@ -11,11 +11,14 @@ use bitcoin::Amount;
 ///
 /// - 71 pairs of dust outputs for the "Assert-data" transaction: `330 * 2 * 71 = 46_860` sats.
 /// - 1 pair of dust outputs for the "Claim" transaction: `330 * 2 = 660` sats.
+/// - 1 dust output for the "Burn Payouts" transaction: `330` sats.
 /// - 1 dust output for the CPFP in the "Pre-Assert" transaction: `330` sats.
 /// - 1 dust output for the CPFP for the "Claim" transaction: `330` sats.
+/// - 1 dust output for the CPFP for the "Stake" transaction itself: `330` sats.
 ///
 /// The total is: `46_860 + 660 + 330 + 330 = 53_460` sats.
-pub const OPERATOR_FUNDS: Amount = Amount::from_sat((330 * 2 * 71) + (330 * 2) + 330 + 330);
+pub const OPERATOR_FUNDS: Amount =
+    Amount::from_sat((330 * 2 * 71) + (330 * 2) + 330 + 330 + 330 + 330);
 
 #[cfg(test)]
 mod tests {
@@ -23,6 +26,6 @@ mod tests {
 
     #[test]
     fn operator_funds() {
-        assert_eq!(OPERATOR_FUNDS, Amount::from_sat(48_180));
+        assert_eq!(OPERATOR_FUNDS, Amount::from_sat(48_840));
     }
 }
