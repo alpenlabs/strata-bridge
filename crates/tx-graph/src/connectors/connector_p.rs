@@ -40,14 +40,12 @@ pub struct ConnectorP {
     /// The N-of-N aggregated public key for the operator set.
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
-    /// The corresponding pre-image for the `k`th stake.
+    /// The hash of the `k`th stake preimage.
     ///
-    /// This is a 32-byte array, that should be generated securely from the operator's master
-    /// entropy along with the `k`th stake's index.
-    ///
-    /// A suggestion is to use purpose-built KDF, like BLAKE3 or HKDF. Care should be taken given
-    /// that there could be multiple stake chains with different `k`th stakes.
-    stake_preimage: [u8; 32],
+    /// It is used to derive the locking script and must be shared with between operators so that
+    /// each operator can compute the transactions deterministically. This is important for
+    /// validating transactions before operators offer up their signatures.
+    stake_hash: sha256::Hash,
 
     /// The bitcoin network on which the connector operates.
     network: Network,
@@ -58,12 +56,12 @@ impl ConnectorP {
     /// preimage, and the bitcoin network.
     pub fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
-        stake_preimage: [u8; 32],
+        stake_hash: sha256::Hash,
         network: Network,
     ) -> Self {
         Self {
             n_of_n_agg_pubkey,
-            stake_preimage,
+            stake_hash,
             network,
         }
     }
@@ -84,13 +82,12 @@ impl ConnectorP {
     /// OP_SIZE <20> OP_EQUALVERIFY OP_SHA256 <stake_preimage> OP_EQUALVERIFY
     /// ```
     pub fn generate_script(&self) -> ScriptBuf {
-        let stake_hash = sha256::Hash::hash(&self.stake_preimage);
         ScriptBuf::builder()
             .push_opcode(OP_SIZE)
             .push_int(0x20)
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
-            .push_slice(stake_hash.to_byte_array())
+            .push_slice(self.stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
             .push_int(1)
             .into_script()
@@ -153,8 +150,10 @@ impl ConnectorP {
     /// Finalizes a psbt input where this connector is used with the script spend path.
     ///
     /// If the psbt input is already in the final state, then this method overrides witness.
-    pub fn create_tx_input_script_spend_path(&self, input: &mut Input) {
-        finalize_input(input, [&self.stake_preimage]);
+    ///
+    /// This uses the `stake_preimage` that must be revealed in order to spend [`Self`].
+    pub fn create_tx_input_script_spend_path(&self, stake_preimage: [u8; 32], input: &mut Input) {
+        finalize_input(input, [&stake_preimage]);
     }
 }
 
@@ -211,9 +210,10 @@ mod tests {
         let n_of_n_keypair = generate_keypair();
         let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
         let stake_preimage = [1u8; 32];
+        let stake_hash = sha256::Hash::hash(&stake_preimage);
 
         // Create connector
-        let connector_p = ConnectorP::new(n_of_n_pubkey, stake_preimage, network);
+        let connector_p = ConnectorP::new(n_of_n_pubkey, stake_hash, network);
 
         // Create funding transaction
         let funding_input = OutPoint {
