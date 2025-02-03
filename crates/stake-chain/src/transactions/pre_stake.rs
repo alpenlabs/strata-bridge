@@ -8,10 +8,12 @@ use crate::StakeChainError;
 /// The [`PreStakeTx`] transaction is used to lock up a stake in the stake chain.
 ///
 /// It includes a PSBT that contains the inputs and outputs for the transaction.
-/// Strictly required are one or more inputs that can cover the stake amount along with all the dust
-/// amounts that are required to cover the transaction graph.
-/// The total stake amount should be the first output for the transaction.
-/// This should be the output for the initial stake in the [`StakeChain`](crate::StakeChain).
+///
+/// Strictly required are one or more inputs that can cover the stake amount, this will be the first
+/// output to be included as an input for the first [`StakeTx`](super::StakeTx).
+///
+/// There's no need to include any costs for the dust amounts that are required to cover the
+/// transaction graph, since these are included in every `k`th [`StakeTx`](super::StakeTx).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PreStakeTx {
     /// The PSBT that contains the inputs and outputs for the transaction.
@@ -25,7 +27,7 @@ impl PreStakeTx {
     /// Creates a new [`PreStakeTx`] transaction from inputs and outputs.
     ///
     /// The caller should be responsible for ensuring that the first output should cover for the the
-    /// stake amount and all the dust amounts that are required to cover the transaction graph.
+    /// stake amount.
     pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>) -> Self {
         let transaction = Transaction {
             version: transaction::Version(2),
