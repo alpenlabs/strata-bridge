@@ -12,12 +12,15 @@ use crate::StakeChainError;
 ///
 /// # Input order
 ///
-/// The [`StakeTx`] transaction has only one input and should be the stake amount from the previous
-/// [`StakeTx`] transaction.
+/// Inputs must be ordered in the following way:
+///
+/// 1. The [`OPERATOR_FUNDS`](crate::transactions::constants::OPERATOR_FUNDS) input that will cover
+///    all the dust outputs for the current stake transaction.
+/// 2. The stake amount from the previous [`StakeTx`] transaction.
 ///
 /// # Output order
 ///
-/// The outputs should be ordered in the following way:
+/// The outputs must be ordered in the following way:
 ///
 /// 1. A dust output, [`ConnectorK`] used as an input to the Claim transaction and it is used to
 ///    bind the stake to the deposit.
@@ -54,18 +57,17 @@ impl StakeTx {
     /// Creates a new [`StakeTx`] transaction from the previous stake transaction as input and
     /// connector outputs.
     ///
-    /// The single input should be the [`ConnectorStake`] from the previous stake transaction as a
-    /// [`Transaction`]'s [`TxIn`].
+    /// The inputs should be both the
+    /// [`OPERATOR_FUNDS`](crate::transactions::constants::OPERATOR_FUNDS) and the
+    /// [`ConnectorStake`] from the previous stake transaction as a [`Transaction`]'s vector of
+    /// [`TxIn`].
     pub fn new(
         index: u32,
-        input: TxIn,
+        inputs: Vec<TxIn>,
         connector_k: ConnectorK,
         connector_p: ConnectorP,
         connector_s: ConnectorStake,
     ) -> Self {
-        // The input is a single `ConnectorS` output from the previous stake transaction.
-        let inputs = vec![input];
-
         // The outputs are the `TxOut`s created from the connectors.
         let outputs = vec![
             TxOut {
