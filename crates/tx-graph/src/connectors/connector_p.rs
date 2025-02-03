@@ -33,9 +33,8 @@ use strata_bridge_primitives::scripts::prelude::*;
 /// # Security
 ///
 /// An operator can only advance the stake chain if they reveal the pre-image. Hence, the operator
-/// must be able to provide the pre-image to the [`ConnectorP`]. It is advised to use a secure
-/// storage mechanism to store the pre-image, and optionally a deterministic key derivation function
-/// to derive the pre-image from something such as an operator's master entropy.
+/// must be able to provide the pre-image to the [`ConnectorP`]. It is required that the preimage be
+/// securely derived and never reused under any circumstances.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorP {
     /// The N-of-N aggregated public key for the operator set.

@@ -86,9 +86,8 @@ impl ConnectorS {
 ///
 /// An operator can only advance the stake chain if they reveal the pre-image along with a valid
 /// signature from the operator's public key. Hence, the operator must must be able to provide the
-/// pre-image to the [`ConnectorStake`]. It is advised to use a secure storage mechanism to store
-/// the pre-image, and optionally a deterministic key derivation function to derive the pre-image
-/// from something such as an operator's master entropy.
+/// pre-image to the [`ConnectorStake`]. It is required that the preimage be securely derived and
+/// never reused under any circumstances
 // TODO: This should replace the `ConnectorS` struct above.
 #[derive(Debug, Clone, Copy)]
 pub struct ConnectorStake {
