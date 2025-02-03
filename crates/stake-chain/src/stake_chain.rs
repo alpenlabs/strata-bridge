@@ -45,7 +45,7 @@ pub struct StakeChain {
     pub amount: Amount,
 
     /// The `ΔS` interval relative timelock to advance the stake chain.
-    delta: relative::LockTime,
+    pub delta: relative::LockTime,
 
     /// Maximum number of slashing transactions to be created.
     pub max_slashing_transactions: u32,
