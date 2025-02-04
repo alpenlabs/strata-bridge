@@ -19,8 +19,6 @@
 //! the same scenario, if each operator had two stake chains, they could, in fact, process two
 //! separate withdrawal requests concurrently.
 
-#![feature(duration_constructors)] // for constructing `Duration::from_days`
-
 pub mod errors;
 pub mod stake_chain;
 pub mod transactions;
