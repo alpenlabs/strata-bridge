@@ -14,7 +14,11 @@ use tokio::{
 };
 
 use crate::state_machine::{BtcZmqSM, TxPredicate};
-pub use crate::{config::BtcZmqConfig, event::TxEvent, subscription::Subscription};
+pub use crate::{
+    config::BtcZmqConfig,
+    event::{TxEvent, TxStatus},
+    subscription::Subscription,
+};
 
 struct TxSubscriptionDetails {
     predicate: TxPredicate,
@@ -546,7 +550,9 @@ mod e2e_tests {
             if let Poll::Ready(Some(event)) = futures::poll!(tx_sub.next()) {
                 // Once we receive a Buried event for our transaction we can abort the stream
                 // polling and stop the mining task.
-                if event.rawtx.compute_txid() == txid && event.status.is_buried() {
+                if event.rawtx.compute_txid() == txid
+                    && matches!(event.status, TxStatus::Buried { .. })
+                {
                     stop.store(false, std::sync::atomic::Ordering::SeqCst);
                     break;
                 }

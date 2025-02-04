@@ -631,7 +631,8 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred);
             let diff_mined = sm.process_block(block);
-            prop_assert!(diff_mined.iter().map(|event| &event.status).all(TxStatus::is_mined));
+            let is_mined = |s: &TxStatus| matches!(s, TxStatus::Mined{..});
+            prop_assert!(diff_mined.iter().map(|event| &event.status).all(is_mined));
 
             let diff_dropped = sm.process_sequence(SequenceMessage::BlockDisconnect{ blockhash});
             prop_assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
@@ -653,7 +654,7 @@ mod prop_tests {
             }
 
             let to_be_buried = diff.into_iter().map(|event| event.rawtx.compute_txid()).collect::<BTreeSet<Txid>>();
-            let is_buried = diff_last.into_iter().filter_map(|event| if event.status.is_buried() {
+            let is_buried = diff_last.into_iter().filter_map(|event| if matches!(event.status, TxStatus::Buried{..}) {
                 Some(event.rawtx.compute_txid())
             } else {
                 None

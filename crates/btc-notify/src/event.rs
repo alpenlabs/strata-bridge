@@ -20,33 +20,24 @@ pub enum TxStatus {
     /// in a block, and then that block is reorg'ed out and the same transaction is included in
     /// a new block, then the subscription will emit two separate [`TxStatus::Mined`] events
     /// for it.
-    Mined { blockhash: BlockHash },
+    Mined {
+        /// This is the block hash of the block in which this transaction is included.
+        blockhash: BlockHash,
+    },
     /// Buried is a terminal status. It will be emitted once the transaction's containing block has
     /// been buried under a sufficient number of subsequent blocks.
     ///
     /// After this status is emitted, no further statuses for that transaction will be emitted.
-    Buried { blockhash: BlockHash },
-}
-impl TxStatus {
-    /// is_mined returns true if the status is any kind of Mined status.
-    pub fn is_mined(&self) -> bool {
-        match self {
-            TxStatus::Mined { .. } => true,
-            _ => false,
-        }
-    }
-
-    /// is_buried returns true if the status is any kind of Buried status.
-    pub fn is_buried(&self) -> bool {
-        match self {
-            TxStatus::Buried { .. } => true,
-            _ => false,
-        }
-    }
+    Buried {
+        /// This is the block hash of the block in which this transaction is buried.
+        ///
+        /// It is the same as the block hash in which it was mined but is included for redundancy.
+        blockhash: BlockHash,
+    },
 }
 
 /// TxEvent is the type that is emitted to Subscriptions created with
-/// [`BtcZmqClient::subscribe_transactions`].
+/// [`crate::client::BtcZmqClient::subscribe_transactions`].
 ///
 /// It contains the raw transaction data, and the status indicating the Transaction's most up to
 /// date status about its inclusion in the canonical history.
