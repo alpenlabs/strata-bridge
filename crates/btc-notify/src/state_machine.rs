@@ -164,15 +164,18 @@ impl BtcZmqSM {
                 // same way, recording the rawtx data in a TxLifecycle and its containing block
                 // hash, as well as adding a Mined transaction event to the diff.
                 None | Some(None) => {
+                    let blockhash = block.block_hash();
                     let lifecycle = TxLifecycle {
                         raw: matched_tx.clone(),
-                        block: Some(block.block_hash()),
+                        block: Some(blockhash),
                     };
                     self.tx_lifecycles
                         .insert(matched_tx.compute_txid(), Some(lifecycle));
                     diff.push(TxEvent {
                         rawtx: matched_tx.clone(),
-                        status: TxStatus::Mined,
+                        status: TxStatus::Mined {
+                            blockhash: block.block_hash(),
+                        },
                     });
                 }
                 // This means we have seen the rawtx event for this transaction before.
@@ -190,7 +193,7 @@ impl BtcZmqSM {
                     lifecycle.block = Some(blockhash);
                     diff.push(TxEvent {
                         rawtx: matched_tx.clone(),
-                        status: TxStatus::Mined,
+                        status: TxStatus::Mined { blockhash },
                     });
                 }
             }
@@ -202,12 +205,13 @@ impl BtcZmqSM {
                 // still tracking and declare all of its relevant transactions
                 // buried, and then finally we can clear the buried transactions
                 // from the current lifecycle map.
+                let blockhash = newly_buried.block_hash();
                 for buried_tx in newly_buried.txdata {
                     self.tx_lifecycles.remove(&buried_tx.compute_txid());
                     if self.tx_filters.iter().any(|f| f(&buried_tx)) {
                         diff.push(TxEvent {
                             rawtx: buried_tx,
-                            status: TxStatus::Buried,
+                            status: TxStatus::Buried { blockhash },
                         });
                     }
                 }
@@ -627,7 +631,7 @@ mod prop_tests {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred);
             let diff_mined = sm.process_block(block);
-            prop_assert!(diff_mined.iter().map(|event| &event.status).all(|s| *s == TxStatus::Mined));
+            prop_assert!(diff_mined.iter().map(|event| &event.status).all(TxStatus::is_mined));
 
             let diff_dropped = sm.process_sequence(SequenceMessage::BlockDisconnect{ blockhash});
             prop_assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
@@ -649,7 +653,7 @@ mod prop_tests {
             }
 
             let to_be_buried = diff.into_iter().map(|event| event.rawtx.compute_txid()).collect::<BTreeSet<Txid>>();
-            let is_buried = diff_last.into_iter().filter_map(|event| if event.status == TxStatus::Buried {
+            let is_buried = diff_last.into_iter().filter_map(|event| if event.status.is_buried() {
                 Some(event.rawtx.compute_txid())
             } else {
                 None

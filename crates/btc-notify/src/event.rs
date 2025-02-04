@@ -1,4 +1,4 @@
-use bitcoin::Transaction;
+use bitcoin::{BlockHash, Transaction};
 
 /// TxStatus is the primary output of this API via the subscription.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -20,12 +20,29 @@ pub enum TxStatus {
     /// in a block, and then that block is reorg'ed out and the same transaction is included in
     /// a new block, then the subscription will emit two separate [`TxStatus::Mined`] events
     /// for it.
-    Mined,
+    Mined { blockhash: BlockHash },
     /// Buried is a terminal status. It will be emitted once the transaction's containing block has
     /// been buried under a sufficient number of subsequent blocks.
     ///
     /// After this status is emitted, no further statuses for that transaction will be emitted.
-    Buried,
+    Buried { blockhash: BlockHash },
+}
+impl TxStatus {
+    /// is_mined returns true if the status is any kind of Mined status.
+    pub fn is_mined(&self) -> bool {
+        match self {
+            TxStatus::Mined { .. } => true,
+            _ => false,
+        }
+    }
+
+    /// is_buried returns true if the status is any kind of Buried status.
+    pub fn is_buried(&self) -> bool {
+        match self {
+            TxStatus::Buried { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 /// TxEvent is the type that is emitted to Subscriptions created with

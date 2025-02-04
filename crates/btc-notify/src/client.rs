@@ -444,7 +444,7 @@ mod e2e_tests {
             .remove(0);
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.rawtx.compute_txid(), txid);
-        assert_eq!(observed.status, TxStatus::Mined);
+        assert_eq!(observed.status, TxStatus::Mined { blockhash });
 
         // Now we invalidate the block we just mined, simulating a reorg. We should now get an
         // Unknown event for that transaction as it is evicted from the landscape.
@@ -475,7 +475,7 @@ mod e2e_tests {
 
         // Mine a new block. This should include both our original transaction and the second one we
         // created to sidestep blockhash collision.
-        bitcoind
+        let blockhash = bitcoind
             .client
             .generate_to_address(1, &new_address)
             .unwrap()
@@ -484,9 +484,9 @@ mod e2e_tests {
             .0
             .remove(0);
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.status, TxStatus::Mined);
+        assert_eq!(observed.status, TxStatus::Mined { blockhash });
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.status, TxStatus::Mined);
+        assert_eq!(observed.status, TxStatus::Mined { blockhash });
 
         // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping
         // it earlier, aborting the producer thread.
@@ -546,7 +546,7 @@ mod e2e_tests {
             if let Poll::Ready(Some(event)) = futures::poll!(tx_sub.next()) {
                 // Once we receive a Buried event for our transaction we can abort the stream
                 // polling and stop the mining task.
-                if event.rawtx.compute_txid() == txid && event.status == TxStatus::Buried {
+                if event.rawtx.compute_txid() == txid && event.status.is_buried() {
                     stop.store(false, std::sync::atomic::Ordering::SeqCst);
                     break;
                 }
