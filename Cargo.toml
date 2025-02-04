@@ -66,6 +66,7 @@ async-trait = "0.1.81"
 base64 = "0.22.1"
 bincode = "1.3.3"
 bitcoin = { version = "0.32.5", features = ["rand-std", "serde"] }
+bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/alpenlabs/rust-bitcoin-script", branch = "strata-bridge-poc-bitcoin-0.32.5" }
 bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "bridge-poc" }
 borsh = { version = "1.5.0", features = ["derive"] }

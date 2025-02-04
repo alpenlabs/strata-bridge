@@ -17,7 +17,6 @@ use bitcoin::{
 use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 
-// use secp256k1::SECP256K1;
 use crate::{
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult},
     params::prelude::UNSPENDABLE_INTERNAL_KEY,
@@ -209,6 +208,9 @@ pub enum TaprootWitness {
         script_buf: ScriptBuf,
         control_block: ControlBlock,
     },
+
+    /// Use the keypath spend tweaked with some known hash.
+    Tweaked { tweak: TapNodeHash },
 }
 
 impl<'a> Arbitrary<'a> for TaprootWitness {
@@ -265,6 +267,12 @@ impl<'a> Arbitrary<'a> for TaprootWitness {
                     script_buf,
                     control_block,
                 })
+            }
+            2 => {
+                let tweak = TapNodeHash::from_slice(&<[u8; 32]>::arbitrary(u)?)
+                    .map_err(|_e| arbitrary::Error::IncorrectFormat)?;
+
+                Ok(TaprootWitness::Tweaked { tweak })
             }
             _ => unreachable!(),
         }

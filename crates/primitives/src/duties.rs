@@ -173,19 +173,16 @@ pub enum WithdrawalStatus {
 
     Claim {
         withdrawal_fulfillment_txid: Txid,
-        superblock_start_ts: u32,
         claim_txid: Txid,
     },
 
     PreAssert {
         withdrawal_fulfillment_txid: Txid,
-        superblock_start_ts: u32,
         pre_assert_txid: Txid,
     },
 
     AssertData {
         withdrawal_fulfillment_txid: Txid,
-        superblock_start_ts: u32,
         assert_data_txids: Vec<Txid>, // dynamic for assert data txs that have been broadcasted
     },
 
@@ -207,7 +204,7 @@ pub enum WithdrawalStatus {
 }
 
 impl WithdrawalStatus {
-    pub fn next(&mut self, txid: Txid, superblock_start_ts: Option<u32>) {
+    pub fn next(&mut self, txid: Txid) {
         match self {
             Self::Received => *self = Self::PaidUser(txid),
             Self::PaidUser(withdrawal_fulfillment_txid) => {
@@ -222,36 +219,30 @@ impl WithdrawalStatus {
             } => {
                 *self = Self::Claim {
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
-                    superblock_start_ts: superblock_start_ts.unwrap_or(0),
                     claim_txid: txid,
                 }
             }
             Self::Claim {
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
                 claim_txid: _,
             } => {
                 *self = Self::PreAssert {
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
-                    superblock_start_ts: *superblock_start_ts,
                     pre_assert_txid: txid,
                 }
             }
             Self::PreAssert {
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
                 pre_assert_txid: _,
             } => {
                 *self = Self::AssertData {
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
-                    superblock_start_ts: *superblock_start_ts,
                     assert_data_txids: vec![txid],
                 }
             }
 
             Self::AssertData {
                 withdrawal_fulfillment_txid: _,
-                superblock_start_ts: _,
                 assert_data_txids,
             } => {
                 assert_data_txids.push(txid);
@@ -288,32 +279,29 @@ impl WithdrawalStatus {
         }
     }
 
-    pub fn should_pre_assert(&self) -> Option<(Txid, u32)> {
+    pub fn should_pre_assert(&self) -> Option<Txid> {
         match self {
             WithdrawalStatus::Claim {
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
                 claim_txid: _,
-            } => Some((*withdrawal_fulfillment_txid, *superblock_start_ts)),
+            } => Some(*withdrawal_fulfillment_txid),
             _ => None,
         }
     }
 
-    pub fn should_assert_data(&self, assert_data_index: usize) -> Option<(Txid, u32)> {
+    pub fn should_assert_data(&self, assert_data_index: usize) -> Option<Txid> {
         match self {
             WithdrawalStatus::PreAssert {
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
                 pre_assert_txid: _,
-            } => Some((*withdrawal_fulfillment_txid, *superblock_start_ts)),
+            } => Some(*withdrawal_fulfillment_txid),
             WithdrawalStatus::AssertData {
                 withdrawal_fulfillment_txid,
-                superblock_start_ts,
                 assert_data_txids,
             } if assert_data_txids.len() < assert_data_index + 1
                 && assert_data_txids.len() < NUM_ASSERT_DATA_TX =>
             {
-                Some((*withdrawal_fulfillment_txid, *superblock_start_ts))
+                Some(*withdrawal_fulfillment_txid)
             }
             _ => None,
         }
@@ -342,15 +330,14 @@ mod tests {
     #[test]
     fn test_state_transition() {
         let txid = Txid::from_slice(&[1u8; 32]).expect("32-byte slice must be a valid txid");
-        let superblock_start_ts = Some(1u32);
         let mut status = WithdrawalStatus::Received;
 
         assert!(status.should_pay(), "should pay");
-        status.next(txid, superblock_start_ts); // broadcast bridge-out
+        status.next(txid); // broadcast bridge-out
         assert!(matches!(status, WithdrawalStatus::PaidUser(_)));
 
         assert!(status.should_kickoff().is_some(), "should kickoff");
-        status.next(txid, superblock_start_ts); // broadcast kickoff
+        status.next(txid); // broadcast kickoff
         assert!(matches!(
             status,
             WithdrawalStatus::Kickoff {
@@ -360,23 +347,21 @@ mod tests {
         ));
 
         assert!(status.should_claim().is_some(), "should claim");
-        status.next(txid, superblock_start_ts); // broadcast claim
+        status.next(txid); // broadcast claim
         assert!(matches!(
             status,
             WithdrawalStatus::Claim {
                 withdrawal_fulfillment_txid: _,
-                superblock_start_ts: _,
                 claim_txid: _
             }
         ));
 
         assert!(status.should_pre_assert().is_some(), "should pre-assert");
-        status.next(txid, superblock_start_ts); // broadcast pre-assert
+        status.next(txid); // broadcast pre-assert
         assert!(matches!(
             status,
             WithdrawalStatus::PreAssert {
                 withdrawal_fulfillment_txid: _,
-                superblock_start_ts: _,
                 pre_assert_txid: _
             },
         ));
@@ -386,12 +371,11 @@ mod tests {
                 status.should_assert_data(assert_data_index).is_some(),
                 "should assert data"
             );
-            status.next(txid, superblock_start_ts); // broadcast assert data
+            status.next(txid); // broadcast assert data
             assert!(matches!(
                 status,
                 WithdrawalStatus::AssertData {
                     withdrawal_fulfillment_txid: _,
-                    superblock_start_ts: _,
                     assert_data_txids: _
                 }
             ));
@@ -401,15 +385,14 @@ mod tests {
             status.should_assert_data(NUM_ASSERT_DATA_TX - 1).is_some(),
             "should assert final data"
         );
-        status.next(txid, superblock_start_ts); // broadcast final assert data
-        assert!(matches!(status, WithdrawalStatus::AssertDataComplete));
+        status.next(txid);
 
         assert!(status.should_post_assert(), "should post assert");
-        status.next(txid, superblock_start_ts); // broadcast post assert data
+        status.next(txid); // broadcast post assert data
         assert!(matches!(status, WithdrawalStatus::PostAssert));
 
         assert!(status.should_get_payout(), "should get payout");
-        status.next(txid, superblock_start_ts); // publish payout tx
+        status.next(txid); // publish payout tx
         assert!(matches!(status, WithdrawalStatus::Executed));
     }
 }

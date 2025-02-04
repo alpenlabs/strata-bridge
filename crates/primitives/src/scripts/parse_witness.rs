@@ -9,7 +9,7 @@ use crate::{
     params::connectors::*,
 };
 
-fn parse_wots160_signatures<const N_SIGS: usize>(
+pub fn parse_wots160_signatures<const N_SIGS: usize>(
     script: Script,
 ) -> ParseResult<[wots160::Signature; N_SIGS]> {
     let res = execute_script(script.clone());
@@ -29,7 +29,7 @@ fn parse_wots160_signatures<const N_SIGS: usize>(
     })
 }
 
-fn parse_wots256_signatures<const N_SIGS: usize>(
+pub fn parse_wots256_signatures<const N_SIGS: usize>(
     script: Script,
 ) -> ParseResult<[wots256::Signature; N_SIGS]> {
     let res = execute_script(script.clone());
@@ -89,7 +89,7 @@ pub fn parse_assertion_witnesses(
     witness256_batch2: [Script; NUM_FIELD_CONNECTORS_BATCH_2],
     witness160_batch1: [Script; NUM_HASH_CONNECTORS_BATCH_1],
     witness160_batch2: [Script; NUM_HASH_CONNECTORS_BATCH_2],
-) -> ParseResult<(wots256::Signature, g16::Signatures)> {
+) -> ParseResult<g16::Signatures> {
     let mut w256 = Vec::with_capacity(NUM_FIELD_CONNECTORS_BATCH_1);
     for witness in witness256_batch1.into_iter() {
         w256.push(parse_wots256_signatures::<
@@ -121,12 +121,9 @@ pub fn parse_assertion_witnesses(
     }
 
     Ok((
-        w256[0], // superblock_hash
-        (
-            [w256[1]], // proof public input
-            w256[2..].try_into().unwrap(),
-            w160.try_into().unwrap(),
-        ),
+        [w256[0]], // proof public input
+        w256[1..].try_into().unwrap(),
+        w160.try_into().unwrap(),
     ))
 }
 

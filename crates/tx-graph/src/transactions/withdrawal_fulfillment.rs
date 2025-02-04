@@ -1,5 +1,5 @@
-use bitcoin::{key::TapTweak, Address, Amount, Network, OutPoint, Transaction};
-use secp256k1::XOnlyPublicKey;
+use bitcoin::{Amount, OutPoint, Transaction, TxOut};
+use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::{
     scripts::general::{create_tx, create_tx_ins, create_tx_outs, op_return_nonce},
     types::OperatorIdx,
@@ -9,38 +9,55 @@ use strata_bridge_primitives::{
 #[derive(Debug, Clone)]
 pub struct WithdrawalFulfillment(Transaction);
 
+/// Metadata to be posted in the withdrawal transaction.
+///
+/// This metadata is used to identify the operator and deposit index in the bridge withdrawal proof.
+#[derive(Debug, Clone, Copy)]
+pub struct WithdrawalMetadata {
+    pub operator_idx: OperatorIdx,
+    pub deposit_idx: u32,
+}
+
 impl WithdrawalFulfillment {
     /// Constructs a new instance of the withdrawal transaction.
     ///
     /// NOTE: This transaction is not signed and must be done so before broadcasting by calling
     /// `signrawtransaction` on the Bitcoin Core RPC, for example.
     pub fn new(
-        network: Network,
-        operator_idx: OperatorIdx,
+        metadata: WithdrawalMetadata,
         sender_outpoints: Vec<OutPoint>,
         amount: Amount,
-        change_address: Address,
-        change_amount: Amount,
-        recipient_key: XOnlyPublicKey,
+        change: Option<TxOut>,
+        recipient_desc: Descriptor,
     ) -> Self {
         let tx_ins = create_tx_ins(sender_outpoints);
-        let recipient_address =
-            Address::p2tr_tweaked(recipient_key.dangerous_assume_tweaked(), network);
-        let recipient_pubkey = recipient_address.script_pubkey();
-
-        let change_pubkey = change_address.script_pubkey();
+        let recipient_pubkey = recipient_desc.to_script();
 
         let op_return_amount = Amount::from_int_btc(0);
 
+        let WithdrawalMetadata {
+            operator_idx,
+            deposit_idx,
+        } = metadata;
         let prefix: [u8; 4] = operator_idx.to_be_bytes();
+        let deposit_idx: [u8; 4] = deposit_idx.to_be_bytes();
 
-        let op_return_script = op_return_nonce(&prefix[..]);
+        let data = [prefix, deposit_idx].concat();
 
-        let scripts_and_amounts = [
+        let op_return_script = op_return_nonce(&data[..]);
+
+        let mut scripts_and_amounts = vec![
             (op_return_script, op_return_amount),
-            (recipient_pubkey.clone(), amount),
-            (change_pubkey.clone(), change_amount),
+            (recipient_pubkey, amount),
         ];
+
+        if let Some(change) = change {
+            let TxOut {
+                value,
+                script_pubkey,
+            } = change;
+            scripts_and_amounts.push((script_pubkey, value));
+        }
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
@@ -60,7 +77,10 @@ mod tests {
     use bitcoin::{
         address::Address,
         hex::DisplayHex,
-        key::rand::{self, Rng},
+        key::{
+            rand::{self, Rng},
+            TapTweak,
+        },
         network::Network,
         Amount,
     };
@@ -77,6 +97,9 @@ mod tests {
         let amount = Amount::from_sat(10000); // Recipient amount
         let change_amount = Amount::from_sat(5000); // Change amount
         let recipient_key = generate_xonly_pubkey();
+        let recipient_addr =
+            Address::p2tr_tweaked(recipient_key.dangerous_assume_tweaked(), network);
+        let recipient_desc = recipient_addr.into();
 
         // Use a random change address
         let change_keypair = Keypair::new(SECP256K1, &mut rand::thread_rng());
@@ -89,14 +112,22 @@ mod tests {
 
         // Call the `new` function to create a transaction
         let operator_idx: u32 = OsRng.gen();
-        let withdrawal_fulfillment = WithdrawalFulfillment::new(
-            network,
+        let deposit_idx: u32 = OsRng.gen();
+
+        let withdrawal_metadata = WithdrawalMetadata {
             operator_idx,
+            deposit_idx,
+        };
+        let change = TxOut {
+            script_pubkey: change_address.script_pubkey(),
+            value: change_amount,
+        };
+        let withdrawal_fulfillment = WithdrawalFulfillment::new(
+            withdrawal_metadata,
             sender_outpoints,
             amount,
-            change_address.clone(),
-            change_amount,
-            recipient_key,
+            Some(change),
+            recipient_desc,
         );
 
         // Extract the transaction from the returned struct
@@ -123,12 +154,12 @@ mod tests {
         );
 
         let operator_idx = operator_idx.to_be_bytes().to_lower_hex_string();
+        let deposit_dx = deposit_idx.to_be_bytes().to_lower_hex_string();
+        let data = [operator_idx, deposit_dx].concat();
         assert!(
             tx.output.iter().any(|out| out.value == op_return_amount
                 && out.script_pubkey.is_op_return()
-                && out.script_pubkey[2..]
-                    .to_hex_string()
-                    .starts_with(&operator_idx)),
+                && out.script_pubkey[2..].to_hex_string().starts_with(&data)),
             "OP_RETURN output is missing or invalid"
         );
     }

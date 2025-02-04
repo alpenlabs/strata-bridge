@@ -153,9 +153,8 @@ impl AssertDataTxBatch {
         ) = connector_a256_factory.create_connectors();
 
         let signatures_256: [wots256::Signature; NUM_PKS_A256] = array::from_fn(|i| match i {
-            0 => signatures.superblock_hash,
-            1 => signatures.groth16.0[0],
-            _ => signatures.groth16.1[i - 2],
+            0 => signatures.groth16.0[0],
+            _ => signatures.groth16.1[i - 1],
         });
 
         connector256_batch1
@@ -245,7 +244,7 @@ impl AssertDataTxBatch {
     /// Parse the assertion data from the signed transactions in the batch.
     pub fn parse_witnesses(
         assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
-    ) -> TxResult<Option<(wots256::Signature, g16::Signatures)>> {
+    ) -> TxResult<Option<g16::Signatures>> {
         let witnesses: [_; TOTAL_CONNECTORS] = assert_data_txs
             .iter()
             .flat_map(|tx| {
@@ -287,8 +286,7 @@ impl AssertDataTxBatch {
                 "invalid 160-bit witness size in batch 1".to_string(),
             )))?;
 
-        offset += NUM_HASH_CONNECTORS_BATCH_1;
-        let witness160_batch2 = witnesses[offset..offset + NUM_HASH_CONNECTORS_BATCH_2]
+        let witness160_batch2 = witnesses[witnesses.len() - NUM_HASH_CONNECTORS_BATCH_2..]
             .to_vec()
             .try_into()
             .or(Err(TxError::Witness(
@@ -350,17 +348,14 @@ mod tests {
         let wots_public_keys = WotsPublicKeys::new(msk, generate_txid());
 
         let wots::PublicKeys {
-            bridge_out_txid: _,
-            superblock_hash: superblock_hash_public_key,
-            superblock_period_start_ts: _,
+            withdrawal_fulfillment_pk: _,
             groth16:
                 Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
         } = wots_public_keys;
 
         let public_keys_256 = std::array::from_fn(|i| match i {
-            0 => superblock_hash_public_key.0,
-            1 => public_inputs_hash_public_key,
-            _ => public_keys_256[i - 2],
+            0 => public_inputs_hash_public_key,
+            _ => public_keys_256[i - 1],
         });
 
         let connector_a160_factory = ConnectorA160Factory {

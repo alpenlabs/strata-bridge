@@ -1243,12 +1243,10 @@ mod tests {
 
         let withdrawal_fulfillment_txid = generate_txid();
         let claim_txid = generate_txid();
-        let superblock_start_ts = OsRng.gen();
         // This might change later after [STR-821](https://alpenlabs.atlassian.net/browse/STR-754).
         // So, hardcoding the value for now.
         let bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
             withdrawal_fulfillment_txid,
-            superblock_start_ts,
             claim_txid,
         });
 

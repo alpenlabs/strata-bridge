@@ -81,9 +81,7 @@ where
                 claim_tx,
             } => {
                 warn!("No challenging yet!");
-                if let Ok(Some((_superblock_period_start_ts, _bridge_out_txid))) =
-                    ClaimTx::parse_witness(&claim_tx)
-                {
+                if let Ok(Some(_bridge_out_txid)) = ClaimTx::parse_witness(&claim_tx) {
                     info!(event = "parsed claim transaction");
                 }
 
@@ -104,21 +102,17 @@ where
             } => {
                 info!(event = "verifying assertion", by_operator=%operator_id, for_deposit=%deposit_txid);
 
-                let (superblock_period_start_ts, bridge_out_txid) =
-                    ClaimTx::parse_witness(&claim_tx).unwrap().unwrap(); // FIXME: Handle me
-                info!(event = "parsed claim transaction", superblock_start_ts_size = superblock_period_start_ts.len(), bridge_out_txid_size = %bridge_out_txid.len());
+                let bridge_out_txid = ClaimTx::parse_witness(&claim_tx).unwrap().unwrap(); // FIXME: Handle me
+                info!(event = "parsed claim transaction", bridge_out_txid_size = %bridge_out_txid.len());
 
-                let (superblock_hash, groth16) =
-                    AssertDataTxBatch::parse_witnesses(&assert_data_txs)
-                        .unwrap()
-                        .unwrap(); // FIXME:
-                                   // Handle me
+                let groth16 = AssertDataTxBatch::parse_witnesses(&assert_data_txs)
+                    .unwrap()
+                    .unwrap(); // FIXME:
+                               // Handle me
                 info!(event = "parsed assert data", wots256_signature_size=%groth16.0.len(), groth16_signature_size=%groth16.1.len());
 
                 let signatures = Signatures {
-                    bridge_out_txid,
-                    superblock_hash,
-                    superblock_period_start_ts,
+                    withdrawal_fulfillment_sig: bridge_out_txid,
                     groth16,
                 };
                 info!(event = "constructed signatures");
@@ -136,11 +130,7 @@ where
 
                     let public_inputs = BridgeProofPublicParams {
                         deposit_txid: deposit_txid.to_byte_array(),
-                        superblock_hash: superblock_hash.parse(),
-                        bridge_out_txid: bridge_out_txid.parse(),
-                        superblock_period_start_ts: u32::from_le_bytes(
-                            superblock_period_start_ts.parse(),
-                        ),
+                        withdrawal_fulfillment_txid: bridge_out_txid.parse(),
                     };
                     let serialized_public_inputs = bincode::serialize(&public_inputs).unwrap();
                     let public_inputs_hash = {
@@ -162,39 +152,29 @@ where
                         Some(ConnectorA31Leaf::DisprovePublicInputsCommitment {
                             deposit_txid,
                             witness: Some(DisprovePublicInputsCommitmentWitness {
-                                sig_superblock_hash: superblock_hash,
-                                sig_bridge_out_txid: bridge_out_txid,
-                                sig_superblock_period_start_ts: superblock_period_start_ts,
+                                sig_withdrawal_fulfillment_txid: bridge_out_txid,
                                 sig_public_inputs_hash: groth16.0[0],
                             }),
                         })
                     } else {
-                        // 2. do superblock validation
-                        let is_superblock_invalid = false;
-                        if is_superblock_invalid {
-                            unreachable!("always false for now");
+                        // 2. groth16 proof validation
+                        info!(action = "verifying groth16 assertions");
+                        if let Some((tapleaf_index, witness_script)) = g16::verify_signed_assertions(
+                            bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
+                            *public_keys.groth16,
+                            signatures.groth16,
+                        ) {
+                            let disprove_script = g16::generate_disprove_scripts(
+                                *public_keys.groth16,
+                                &PARTIAL_VERIFIER_SCRIPTS,
+                            )[tapleaf_index]
+                                .clone();
+                            Some(ConnectorA31Leaf::DisproveProof {
+                                disprove_script,
+                                witness_script: Some(witness_script),
+                            })
                         } else {
-                            info!(action = "verifying groth16 assertions");
-                            // 3. groth16 proof validation
-                            if let Some((tapleaf_index, witness_script)) =
-                                g16::verify_signed_assertions(
-                                    bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
-                                    *public_keys.groth16,
-                                    signatures.groth16,
-                                )
-                            {
-                                let disprove_script = g16::generate_disprove_scripts(
-                                    *public_keys.groth16,
-                                    &PARTIAL_VERIFIER_SCRIPTS,
-                                )[tapleaf_index]
-                                    .clone();
-                                Some(ConnectorA31Leaf::DisproveProof {
-                                    disprove_script,
-                                    witness_script: Some(witness_script),
-                                })
-                            } else {
-                                None
-                            }
+                            None
                         }
                     }
                 };

@@ -1,13 +1,10 @@
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},
-    Address, Network, ScriptBuf, XOnlyPublicKey,
+    Address, Network, ScriptBuf, TapNodeHash, TapSighashType, XOnlyPublicKey,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::{
-    params::connectors::{PAYOUT_OPTIMISTIC_TIMELOCK, SUPERBLOCK_MEASUREMENT_PERIOD},
-    scripts::prelude::*,
-};
+use strata_bridge_primitives::{params::prelude::PRE_ASSERT_TIMELOCK, scripts::prelude::*};
 
 /// Connector from the claim transaction used in optimistic payouts or assertions.
 #[derive(Debug, Clone, Copy)]
@@ -17,35 +14,52 @@ pub struct ConnectorC0 {
 }
 
 /// Spend paths for the [`ConnectorC0`].
+///
+/// The witness may not be known (hence, `()`) in use cases where the input index or sighash type
+/// needs to be retrieved corresponding to the leaf whereas the witness ([`schnorr::Signature`])
+/// must be known when a path is used when spending the output.
 #[derive(Debug, Clone, Copy)]
-pub enum ConnectorC0Leaf<Witness = ()> {
+pub enum ConnectorC0Path<Witness = ()> {
     /// Spend path for the optimistic payout.
     PayoutOptimistic(Witness),
 
     /// Spend path for the pre-assert transaction.
     Assert(Witness),
-
-    /// Send path for the invalidate transaction.
-    InvalidateTs(Witness),
 }
 
-impl<W> ConnectorC0Leaf<W>
+impl<W> ConnectorC0Path<W>
 where
     W: Sized,
 {
-    pub fn add_witness_data<NW: Sized>(self, witness_data: NW) -> ConnectorC0Leaf<NW> {
+    /// Returns the input index of the transaction for the given spend path.
+    pub fn get_input_index(&self) -> u32 {
         match self {
-            ConnectorC0Leaf::PayoutOptimistic(_) => ConnectorC0Leaf::PayoutOptimistic(witness_data),
-            ConnectorC0Leaf::Assert(_) => ConnectorC0Leaf::Assert(witness_data),
-            ConnectorC0Leaf::InvalidateTs(_) => ConnectorC0Leaf::InvalidateTs(witness_data),
+            ConnectorC0Path::PayoutOptimistic(_) => 1,
+            ConnectorC0Path::Assert(_) => 0,
         }
     }
 
+    /// Returns the sighash type for the given spend path.
+    pub fn get_sighash_type(&self) -> TapSighashType {
+        match self {
+            ConnectorC0Path::PayoutOptimistic(_) => TapSighashType::Default,
+            ConnectorC0Path::Assert(_) => TapSighashType::Default,
+        }
+    }
+
+    /// Adds a new witness to the path thereby creating a new path.
+    pub fn add_witness_data<NW: Sized>(self, witness_data: NW) -> ConnectorC0Path<NW> {
+        match self {
+            ConnectorC0Path::PayoutOptimistic(_) => ConnectorC0Path::PayoutOptimistic(witness_data),
+            ConnectorC0Path::Assert(_) => ConnectorC0Path::Assert(witness_data),
+        }
+    }
+
+    /// Returns the witness data for the path.
     pub fn get_witness_data(&self) -> &W {
         match self {
-            ConnectorC0Leaf::PayoutOptimistic(witness_data) => witness_data,
-            ConnectorC0Leaf::Assert(witness_data) => witness_data,
-            ConnectorC0Leaf::InvalidateTs(witness_data) => witness_data,
+            ConnectorC0Path::PayoutOptimistic(witness_data) => witness_data,
+            ConnectorC0Path::Assert(witness_data) => witness_data,
         }
     }
 }
@@ -59,21 +73,9 @@ impl ConnectorC0 {
         }
     }
 
-    /// Generates the tapleaf script for the given leaf.
-    ///
-    /// The witness data is not required to generate this information. So, a unit type can be
-    /// passed in place of the witness parameter.
-    pub fn generate_tapleaf<W: Sized>(&self, tapleaf: ConnectorC0Leaf<W>) -> ScriptBuf {
-        match tapleaf {
-            ConnectorC0Leaf::PayoutOptimistic(_) => {
-                n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK)
-            }
-            ConnectorC0Leaf::Assert(_) => n_of_n_script(&self.n_of_n_agg_pubkey), /* FIXME: use */
-            // timelock
-            ConnectorC0Leaf::InvalidateTs(_) => {
-                n_of_n_with_timelock(&self.n_of_n_agg_pubkey, SUPERBLOCK_MEASUREMENT_PERIOD)
-            }
-        }
+    /// Generate the payout script.
+    fn generate_payout_script(&self) -> ScriptBuf {
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK)
     }
 
     /// Generates the locking script for this connector.
@@ -87,13 +89,10 @@ impl ConnectorC0 {
     ///
     /// The witness data is not required to generate this information. So, a unit type can be
     /// passed in place of the witness parameter.
-    pub fn generate_spend_info<W: Sized>(
-        &self,
-        tapleaf: ConnectorC0Leaf<W>,
-    ) -> (ScriptBuf, ControlBlock) {
+    pub fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
         let (_, taproot_spend_info) = self.generate_taproot_address();
 
-        let script = self.generate_tapleaf(tapleaf);
+        let script = self.generate_payout_script();
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -101,37 +100,45 @@ impl ConnectorC0 {
         (script, control_block)
     }
 
-    fn generate_taproot_address(&self) -> (Address, TaprootSpendInfo) {
-        let scripts = &[
-            self.generate_tapleaf(ConnectorC0Leaf::PayoutOptimistic(())),
-            self.generate_tapleaf(ConnectorC0Leaf::Assert(())),
-            self.generate_tapleaf(ConnectorC0Leaf::InvalidateTs(())),
-        ];
+    /// Constructs the taproot address for this connector along with the spending info.
+    pub fn generate_taproot_address(&self) -> (Address, TaprootSpendInfo) {
+        let scripts = &[self.generate_payout_script()];
 
-        create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts })
-            .expect("should be able to create taproot address")
+        create_taproot_addr(
+            &self.network,
+            SpendPath::Both {
+                internal_key: self.n_of_n_agg_pubkey,
+                scripts,
+            },
+        )
+        .expect("should be able to create taproot address")
+    }
+
+    /// Generates the merkle root for the connector for tweaking taproot keys.
+    pub fn generate_merkle_root(&self) -> TapNodeHash {
+        let payout_script = self.generate_payout_script();
+
+        TapNodeHash::from_script(&payout_script, LeafVersion::TapScript)
     }
 
     /// Finalizes the psbt input that spends this connector.
     ///
     /// This requires that the connector leaf contain the schnorr signature as the witness.
-    pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorC0Leaf<schnorr::Signature>) {
-        if let ConnectorC0Leaf::InvalidateTs(_) = tapleaf {
-            // do nothing since this does not take an n_of_n sig
-            return;
-        }
+    pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorC0Path<schnorr::Signature>) {
+        let witnesses = match tapleaf {
+            ConnectorC0Path::PayoutOptimistic(n_of_n_sig) => vec![n_of_n_sig.serialize().to_vec()],
+            ConnectorC0Path::Assert(n_of_n_sig) => {
+                let (script, control_block) = self.generate_spend_info();
 
-        let (script, control_block) = self.generate_spend_info(tapleaf);
-        let n_of_n_signature = *tapleaf.get_witness_data();
+                vec![
+                    n_of_n_sig.serialize().to_vec(),
+                    script.to_bytes(),
+                    control_block.serialize(),
+                ]
+            }
+        };
 
-        finalize_input(
-            input,
-            [
-                n_of_n_signature.serialize().to_vec(),
-                script.to_bytes(),
-                control_block.serialize(),
-            ],
-        );
+        finalize_input(input, witnesses);
     }
 }
 
@@ -140,6 +147,7 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::{
+        key::TapTweak,
         sighash::{Prevouts, SighashCache},
         Amount, Psbt, Sequence, TxOut,
     };
@@ -173,9 +181,9 @@ mod tests {
 
         const INPUT_AMOUNT: Amount = Amount::from_sat(1_000_000);
         const NUM_OUTPUTS: usize = 2;
-        const LEAVES: [ConnectorC0Leaf; NUM_OUTPUTS] = [
-            ConnectorC0Leaf::PayoutOptimistic(()),
-            ConnectorC0Leaf::Assert(()),
+        const LEAVES: [ConnectorC0Path; NUM_OUTPUTS] = [
+            ConnectorC0Path::PayoutOptimistic(()),
+            ConnectorC0Path::Assert(()),
         ];
         let spend_connector_txs = get_connector_txs::<NUM_OUTPUTS>(
             btc_client,
@@ -195,24 +203,41 @@ mod tests {
                 debug!(?leaf, "testing leaf");
 
                 let mut spend_connector_tx = spend_connector_tx;
-                if let ConnectorC0Leaf::PayoutOptimistic(_) = leaf {
+                let (witness, keypair) = match leaf {
+                    ConnectorC0Path::PayoutOptimistic(_) => {
+                        let tweak = connector.generate_merkle_root();
+                        (
+                            TaprootWitness::Tweaked { tweak },
+                            keypair.tap_tweak(SECP256K1, Some(tweak)).to_inner(),
+                        )
+                    }
+                    ConnectorC0Path::Assert(_) => {
+                        spend_connector_tx.input[0].sequence =
+                            Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
+                        let (script, control_block) = connector.generate_spend_info();
+                        (
+                            TaprootWitness::Script {
+                                script_buf: script,
+                                control_block,
+                            },
+                            keypair,
+                        )
+                    }
+                };
+                if let ConnectorC0Path::PayoutOptimistic(_) = leaf {
                     spend_connector_tx.input[0].sequence =
-                        Sequence::from_height(PAYOUT_OPTIMISTIC_TIMELOCK as u16);
+                        Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
                 }
 
                 let mut psbt =
                     Psbt::from_unsigned_tx(spend_connector_tx.clone()).expect("must be unsigned");
 
                 psbt.inputs[0].witness_utxo = Some(prevout.clone());
-                let (script, control_block) = connector.generate_spend_info(*leaf);
 
                 let tx_hash = create_message_hash(
                     &mut SighashCache::new(&spend_connector_tx),
                     Prevouts::All(&[prevout.clone()]),
-                    &TaprootWitness::Script {
-                        script_buf: script,
-                        control_block,
-                    },
+                    &witness,
                     bitcoin::TapSighashType::Default,
                     0,
                 )
@@ -226,7 +251,7 @@ mod tests {
                     .extract_tx()
                     .expect("must be able to extract signed tx from psbt");
 
-                if let ConnectorC0Leaf::PayoutOptimistic(_) = leaf {
+                if let ConnectorC0Path::PayoutOptimistic(_) = leaf {
                     assert!(
                         btc_client.send_raw_transaction(&signed_tx).is_err(),
                         "must not be able to send tx before timelock"
@@ -236,7 +261,7 @@ mod tests {
                         .new_address()
                         .expect("must be able to generate new address");
 
-                    [0; PAYOUT_OPTIMISTIC_TIMELOCK as usize]
+                    [0; PRE_ASSERT_TIMELOCK as usize]
                         .chunks(100)
                         .for_each(|chunk| {
                             btc_client

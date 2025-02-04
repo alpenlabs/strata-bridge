@@ -45,10 +45,19 @@ pub fn generate_agg_signature(
 
     let mut key_agg_ctx =
         KeyAggContext::new([public_key]).expect("must be able to aggregate a single pubkey");
-    if matches!(witness, TaprootWitness::Key) {
-        key_agg_ctx = key_agg_ctx
-            .with_unspendable_taproot_tweak()
-            .expect("must be able to tweak the key agg context")
+
+    match witness {
+        TaprootWitness::Key => {
+            key_agg_ctx = key_agg_ctx
+                .with_unspendable_taproot_tweak()
+                .expect("must be able to tweak the key agg context")
+        }
+        TaprootWitness::Tweaked { tweak } => {
+            key_agg_ctx = key_agg_ctx
+                .with_taproot_tweak(tweak.as_ref())
+                .expect("must be able to tweak the key agg context")
+        }
+        _ => {}
     }
 
     let secnonce = SecNonce::build([0u8; 32])

@@ -1,6 +1,6 @@
 //! Module to generate arbitrary values for testing.
 
-use std::collections::HashSet;
+use std::{collections::HashSet, str::FromStr};
 
 use bitcoin::{
     absolute::LockTime,
@@ -80,7 +80,7 @@ pub fn generate_tx(num_inputs: usize, num_outputs: usize) -> Transaction {
 pub fn find_funding_utxo(
     btc_client: &Client,
     ignore_list: HashSet<OutPoint>,
-    total_fee: Amount,
+    total_amount: Amount,
 ) -> (TxOut, OutPoint) {
     let list_unspent = btc_client
         .call::<Vec<ListUnspent>>("listunspent", &[])
@@ -89,7 +89,7 @@ pub fn find_funding_utxo(
     list_unspent
         .iter()
         .find_map(|utxo| {
-            if utxo.amount > total_fee
+            if utxo.amount > total_amount
                 && !ignore_list.contains(&OutPoint::new(utxo.txid, utxo.vout))
             {
                 Some((
@@ -108,6 +108,43 @@ pub fn find_funding_utxo(
             }
         })
         .expect("must have a utxo with enough funds")
+}
+
+pub fn get_funding_utxo_exact(btc_client: &Client, target_amount: Amount) -> (TxOut, OutPoint) {
+    let funding_address = btc_client
+        .new_address()
+        .expect("must be able to generate new address");
+
+    let result = btc_client
+        .send_to_address(&funding_address, target_amount)
+        .expect("must be able to send funds");
+    btc_client
+        .generate_to_address(6, &funding_address)
+        .expect("must be able to generate blocks");
+
+    let result = btc_client
+        .get_transaction(Txid::from_str(&result.0).expect("txid must be valid"))
+        .expect("must be able to get transaction");
+    let tx: Transaction =
+        consensus::encode::deserialize_hex(&result.hex).expect("must be able to deserialize tx");
+
+    let vout = tx
+        .output
+        .iter()
+        .position(|out| out.value == target_amount)
+        .expect("must have a txout with the target amount");
+
+    let txout = TxOut {
+        value: target_amount,
+        script_pubkey: tx.output[vout].script_pubkey.clone(),
+    };
+
+    let outpoint = OutPoint {
+        txid: tx.compute_txid(),
+        vout: vout as u32,
+    };
+
+    (txout, outpoint)
 }
 
 pub fn sign_cpfp_child(
@@ -146,4 +183,17 @@ pub fn sign_cpfp_child(
     let parent_signature = SECP256K1.sign_schnorr(&child_tx_msg, keypair);
 
     (funding_witness, parent_signature)
+}
+
+pub fn wait_for_blocks(btc_client: &Client, count: usize) {
+    let random_address = btc_client
+        .new_address()
+        .expect("must be able to generate new address");
+
+    let chunk = 100;
+    (0..count).step_by(chunk).for_each(|_| {
+        btc_client
+            .generate_to_address(chunk, &random_address)
+            .expect("must be able to generate blocks");
+    });
 }
