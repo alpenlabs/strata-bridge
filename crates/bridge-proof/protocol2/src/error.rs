@@ -42,6 +42,10 @@ pub(crate) enum BridgeProofError {
     /// The transactions are not ordered as expected
     #[error("Invalid transactions order. {0:?} must occur before {1:?}")]
     InvalidTxOrder(BridgeRelatedTx, BridgeRelatedTx),
+
+    /// Insufficient blocks submitted after the claim transaction.
+    #[error("Expected at least {0} blocks after the claim transaction, but {1} were provided.")]
+    InsufficientBlocksAfterClaim(usize, usize),
 }
 
 /// Represents all errors that can occur specifically during the verification of a claim's

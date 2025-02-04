@@ -11,6 +11,9 @@ use crate::{
     BridgeProofInputBorsh, BridgeProofOutput,
 };
 
+/// The number of headers after claim transaction that must be provided as private input
+const REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX: usize = 30;
+
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
 /// Also optionally checks if the transaction includes witness data.
 ///
@@ -190,11 +193,19 @@ pub(crate) fn process_bridge_proof(
         header_vs.check_and_update_continuity(header, &params);
     }
 
+    // 8. Verify sufficient headers after claim transaction
+    let headers_after_claim_tx = headers.len() - claim_tx_idx;
+    if REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX < headers_after_claim_tx {
+        return Err(BridgeProofError::InsufficientBlocksAfterClaim(
+            REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX,
+            headers_after_claim_tx,
+        ));
+    }
+
     // 8. Construct the proof output.
-    let num_headers_after_claim_tx = headers.len() - claim_tx_idx;
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        num_headers_after_claim_tx,
+        withdrawal_txid: withdrawal_fullfillment_txid.into(),
     };
 
     Ok((output, checkpoint))

@@ -26,7 +26,12 @@ use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
 use strata_zkvm::ZkVmEnv;
 use tx_inclusion_proof::L1TxWithProofBundle;
 
-/// Inputs that is required for the BridgeProver to prove the statements
+/// Represents the private inputs required by the `BridgeProver` to generate a proof.
+///
+/// Unlike [`BridgeProofOutput`], which consists of publicly verifiable parameters,
+/// this structure contains the confidential data necessary for proof generation.
+/// These private inputs are only known to the prover and are not part of the publicly
+/// accessible proof validation process.
 #[derive(Debug, Clone)]
 pub struct BridgeProofInput {
     /// The [RollupParams] of the strata rollup
@@ -89,10 +94,18 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
     }
 }
 
+/// Represents the public outputs of the `BridgeProver`, used for proof verification.
+///
+/// Unlike [`BridgeProofInput`], which contains private inputs required for generating a proof,
+/// this structure holds publicly accessible data necessary for validating the proof statements.
+/// These outputs, also known as public inputs/outputs or public parameters, are used to verify
+/// the correctness of the proof without revealing confidential details.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub(crate) struct BridgeProofOutput {
+pub struct BridgeProofOutput {
+    /// The transaction ID of the deposit transaction.
     deposit_txid: Buf32,
-    num_headers_after_claim_tx: usize,
+    /// The transaction ID of the withdrawal fulfillment transaction.
+    withdrawal_txid: Buf32,
 }
 
 /// Processes the bridge proof by reading necessary data from the provided ZkVM environment,
