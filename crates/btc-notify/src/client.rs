@@ -128,7 +128,7 @@ impl BtcZmqClient {
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Transaction`] and [`TxStatus`]
     /// every time a transaction's status changes due to block or mempool events.
     pub async fn subscribe_transactions(
-        &mut self,
+        &self,
         f: impl Fn(&Transaction) -> bool + Sync + Send + 'static,
     ) -> Subscription<TxEvent> {
         let (send, recv) = mpsc::unbounded_channel();
@@ -150,7 +150,7 @@ impl BtcZmqClient {
 
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is
     /// connected to the main Bitcoin blockchain.
-    pub async fn subscribe_blocks(&mut self) -> Subscription<Block> {
+    pub async fn subscribe_blocks(&self) -> Subscription<Block> {
         let (send, recv) = mpsc::unbounded_channel();
 
         self.block_subs.lock().await.push(send);
@@ -230,7 +230,7 @@ mod e2e_tests {
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Subscribe to new blocks
         let mut block_sub = client.subscribe_blocks().await;
@@ -259,7 +259,7 @@ mod e2e_tests {
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>>
     {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Subscribe to all transactions.
         let mut tx_sub = client.subscribe_transactions(|_| true).await;
@@ -294,7 +294,7 @@ mod e2e_tests {
     #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Get a new address that we will use to send money to.
         let new_address = bitcoind.client.new_address()?;
@@ -345,7 +345,7 @@ mod e2e_tests {
     #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -399,7 +399,7 @@ mod e2e_tests {
     #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -503,7 +503,7 @@ mod e2e_tests {
     #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -564,7 +564,7 @@ mod e2e_tests {
     #[serial]
     async fn dropped_tx_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -633,7 +633,7 @@ mod e2e_tests {
     #[serial]
     async fn dropped_block_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
         // Set up new bitcoind and zmq client instance.
-        let (mut client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup()?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
