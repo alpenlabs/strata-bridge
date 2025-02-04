@@ -12,6 +12,8 @@ use crate::{
 };
 
 /// The number of headers after claim transaction that must be provided as private input
+///
+/// TODO: update this once this is fixed
 const REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX: usize = 30;
 
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
