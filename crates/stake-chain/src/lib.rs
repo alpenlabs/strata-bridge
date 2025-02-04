@@ -19,6 +19,9 @@
 //! the same scenario, if each operator had two stake chains, they could, in fact, process two
 //! separate withdrawal requests concurrently.
 
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)] // for compile-time checks in the StakeInput -> StakeChain conversion.
+
 pub mod errors;
 pub mod stake_chain;
 pub mod transactions;
