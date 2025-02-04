@@ -74,7 +74,7 @@ impl StakeChain {
     /// 8. `connector_k`: The [`ConnectorK`] for the first [`StakeTx`] in the stake chain.
     /// 9. `connector_p`: The [`ConnectorP`] for the first [`StakeTx`] in the stake chain.
     /// 10. `connector_s`: The [`ConnectorStake`] for the first [`StakeTx`] in the stake chain.
-    #[allow(clippy::too_many_arguments)]
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         original_stake: TxOut,
         current_stake: TxIn,
