@@ -37,12 +37,12 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 ///
 /// After construction, this object must be kept around for the monitoring process to continue.
 /// Dropping this object will abort the monitoring thread.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BtcZmqClient {
     block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<Block>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
-    thread_handle: JoinHandle<()>,
+    thread_handle: Arc<JoinHandle<()>>,
 }
 
 impl Drop for BtcZmqClient {
@@ -75,7 +75,7 @@ impl BtcZmqClient {
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
         let tx_subs_thread = tx_subs.clone();
         let state_machine_thread = state_machine.clone();
-        let thread_handle = tokio::task::spawn(async move {
+        let thread_handle = Arc::new(tokio::task::spawn(async move {
             loop {
                 // This loop has no break condition. It is only aborted when the BtcZmqClient is
                 // dropped.
@@ -115,7 +115,7 @@ impl BtcZmqClient {
                     });
                 }
             }
-        });
+        }));
 
         Ok(BtcZmqClient {
             block_subs,
