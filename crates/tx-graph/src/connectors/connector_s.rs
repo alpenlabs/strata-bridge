@@ -219,7 +219,7 @@ impl ConnectorStake {
             WitnessData::Signature(signature) => {
                 finalize_input(input, [&signature.serialize().to_vec()]);
             }
-            WitnessData::SignaturePreimage {
+            WitnessData::Both {
                 signature,
                 preimage,
             } => finalize_input(
