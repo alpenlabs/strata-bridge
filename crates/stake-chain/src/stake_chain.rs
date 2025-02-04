@@ -1,11 +1,9 @@
 //! The stake chain is a series of transactions that move the stake from a previous stake to a new
 //! stake.
 
-use bitcoin::{relative, Amount, OutPoint, TxIn, TxOut};
-use serde::{Deserialize, Serialize};
-use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
+use bitcoin::{hashes::sha256, relative, Amount, TxIn, TxOut};
 
-use crate::prelude::StakeTx;
+use crate::{prelude::StakeTx, StakeChainError};
 
 /// A [`StakeChain`] is a series of transactions that move the stake from a previous stake to a new
 /// stake.
@@ -21,138 +19,167 @@ use crate::prelude::StakeTx;
 /// The stake index corresponds to the deposit index i.e., the `n`th stake transaction is used to
 /// stake in the transaction graph for the `n`th deposit.
 ///
-/// The current stake with respect to the stake index `k` is the previous stake transaction in index
-/// `k-1`. It is the first second output of the [`StakeTx`] with respect to the stake index `k-1`.
+/// The original stake is the first stake transaction in the chain, which is used to stake in the
+/// transaction graph for a single deposit and is moved after a successful deposit, i.e., the
+/// operator is not succcesfully challenged and has it's stake slashed.
+/// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
+///
+/// The stake chain can be advanced forward by revealing a preimage to a locking script that is
+/// also relative timelocked to a certain `ΔS` interval.
+///
+/// # Construction
+///
+/// [`StakeChain`]s can be constructed by first creating a [`StakeInputs`] of length `N` and then
+/// calling [`StakeInputs::<M>::to_stake_chain`](StakeInputs::to_stake_chain), where `M < N`
+/// (compile-time check).
+///
+/// The user can also coerce a [`Vec<StakeTx>`] into a `[StakeChain; N]`, but it does not offer the
+/// same compile-time guarantees as the previous method.
+pub type StakeChain<const N: usize> = [StakeTx; N];
+
+/// An `N`-length [`StakeInputs`] holds all the necessary data to construct an `M < N`-length
+/// [`StakeChain`].
+///
+/// The data that it needs are:
+///
+/// 1. Stake amount.
+/// 2. `ΔS` relative timelock interval.
+/// 3. `N`-length array of stake hashes.
+/// 4. `N`-length array of operator fund prevouts.
+/// 5. Original stake output.
+///
+/// The staking amount and the `ΔS` relative timelock interval are scalar values and configurable
+/// parameters which can be set at compile time to a contracted value.
+///
+/// The `N`-length stake hashes and operator funds prevouts arrays are needed to construct the
+/// transaction graph for the `N` deposits to be claimed while using and advacning the
+/// [`StakeChain`].
 ///
 /// The original stake is the first stake transaction in the chain, which is used to stake in the
 /// transaction graph for a single deposit and is moved after a successful deposit, i.e., the
 /// operator is not succcesfully challenged and has it's stake slashed.
-/// It is the first output of the [`PreStakeTx`](crate::transactions::PreStakeTx).
-///
-/// The stake chain can be advanced forward by revealing a preimage to a locking script that is
-/// also relative timelocked to a certain `ΔS` interval.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct StakeChain {
-    /// The staking amount.
-    pub amount: Amount,
+/// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct StakeInputs<const N: usize> {
+    /// Staking amount.
+    // TODO: make this configurable with a fallback const `D_BTC`.
+    amount: Amount,
 
-    /// The stake index, i.e., the index of the stake transaction in the chain.
-    pub index: u32,
+    /// Hashes for the `stake_txs` locking scripts.
+    stake_hashes: [sha256::Hash; N],
 
-    /// The current prevout for the last stake transaction.
-    pub current_stake: TxIn,
+    /// Operator fund prevouts to cover dust outputs for the entirety of the `N`-length
+    /// [`StakeChain`].
+    operator_funds: [TxIn; N],
 
-    /// The [`StakeTx`] with respect to the stake [`Self::index`].
-    pub stake_tx: StakeTx,
+    /// Output for the first stake transaction.
+    original_stake: TxOut,
 
-    /// The prevout for the first stake transaction.
-    pub original_stake: TxOut,
-
-    /// The `ΔS` relative timelock interval to advance the stake chain.
-    pub delta: relative::LockTime,
+    /// `ΔS` relative timelock interval to advance the stake chain.
+    // TODO: make this configurable with a fallback const like FINALITY_DEPTH to something like
+    //       `6`.
+    delta: relative::LockTime,
 }
 
-impl StakeChain {
-    /// Creates a new stake chain.
-    ///
-    /// Once a stake chain is created, it can be advanced by revealing a preimage to a locking
-    /// script that is also relative timelocked to a certain `ΔS` interval.
+impl<const N: usize> StakeInputs<N> {
+    /// Creates a new N-length [`StakeInputs`].
     ///
     /// # Arguments
-    ///
-    /// 1. `original_stake`: The prevout for the first stake transaction, i.e., the first output of
-    ///    the [`PreStakeTx`](crate::transactions::PreStakeTx).
-    /// 2. `current_stake`: The input for the current stake transaction, this is the same as
-    ///    `original_stake` but as a [`TxIn`] instead of [`TxOut`].
-    /// 3. `index`: The stake index, i.e., the index of the latest stake transaction in this stake
-    ///    chain.
-    /// 4. `amount`: The staking amount.
-    /// 5. `delta`: The `ΔS` interval relative timelock to advance the stake chain.
-    /// 6. `max_slashing_transactions`: Maximum number of slashing transactions to be created.
-    /// 7. `operator_funds`: The input that needs to be added to cover all the dust outputs of the
-    ///    first [`StakeTx`] transaction. It's value should be equal to
-    ///    [`OPERATOR_FUNDS`](crate::transactions::constants::OPERATOR_FUNDS).
-    /// 8. `connector_k`: The [`ConnectorK`] for the first [`StakeTx`] in the stake chain.
-    /// 9. `connector_p`: The [`ConnectorP`] for the first [`StakeTx`] in the stake chain.
-    /// 10. `connector_s`: The [`ConnectorStake`] for the first [`StakeTx`] in the stake chain.
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
-        original_stake: TxOut,
-        current_stake: TxIn,
-        index: u32,
         amount: Amount,
+        stake_hashes: [sha256::Hash; N],
+        operator_funds: [TxIn; N],
+        original_stake: TxOut,
         delta: relative::LockTime,
-        operator_funds: TxIn,
-        connector_k: ConnectorK,
-        connector_p: ConnectorP,
-        connector_s: ConnectorStake,
     ) -> Self {
-        // The first input is the operator's funds.
-        let stake_tx = StakeTx::new(
-            index,
-            current_stake.clone(),
-            operator_funds,
-            connector_k,
-            connector_p,
-            connector_s,
-        );
         Self {
             amount,
-            index,
-            current_stake,
-            stake_tx,
+            stake_hashes,
+            operator_funds,
             original_stake,
             delta,
         }
     }
 
-    /// Advances the stake chain by revealing a preimage to a locking script that is also
-    /// relative timelocked to a certain `ΔS` interval.
-    ///
-    /// # Arguments
-    ///
-    /// 1. `operator_funds`: The input that needs to be added to cover all the dust outputs of the
-    ///    first [`StakeTx`] transaction. It's value should be equal to
-    ///    [`OPERATOR_FUNDS`](crate::transactions::constants::OPERATOR_FUNDS).
-    /// 2. `connector_k`: The [`ConnectorK`] for the first [`StakeTx`] in the stake chain.
-    /// 3. `connector_p`: The [`ConnectorP`] for the first [`StakeTx`] in the stake chain.
-    /// 4. `connector_s`: The [`ConnectorStake`] for the first [`StakeTx`] in the stake chain.
+    /// Converts a [`StakeInputs`] into a [`StakeChain`].
     ///
     /// # Note
     ///
-    /// The user should also advance the stake on-chain by signing and adding the preimage to the
-    /// [`Self::stake_tx`] transaction.
-    pub fn advance(
-        &mut self,
-        operator_funds: TxIn,
-        connector_k: ConnectorK,
-        connector_p: ConnectorP,
-        connector_s: ConnectorStake,
-    ) {
-        // The third output of the `StakeTx` is the stake to be moved.
-        let current_stake_input = TxIn {
-            previous_output: OutPoint {
-                // This is valid since this is a SegWit transaction even unsigned the Txid won't
-                // change.
-                txid: self.stake_tx.psbt.unsigned_tx.compute_txid(),
-                vout: 2, // third output
-            },
-            script_sig: self.stake_tx.outputs()[2].script_pubkey.clone(),
-            sequence: self.delta.into(),
-            // Witness will be taken care by the PSBT.
-            ..Default::default()
-        };
+    /// The [`StakeChain`] can be of length less than or equal to the [`StakeInputs`].
+    ///
+    /// It is impossible to create a [`StakeChain`] with a length greater than the [`StakeInputs`].
+    /// This is done by compile-time checks.
+    pub fn to_stake_chain<const M: usize>(&self) -> Result<StakeChain<M>, StakeChainError>
+    where
+        [(); N - M]:,
+    {
+        todo!()
+    }
 
-        // Mutate in-place the current stake, the index and the stake transaction.
-        self.current_stake = current_stake_input.clone();
-        self.index += 1;
-        self.stake_tx = StakeTx::new(
-            self.index,
-            current_stake_input,
-            operator_funds,
-            connector_k,
-            connector_p,
-            connector_s,
-        );
+    /// Stake amount.
+    ///
+    /// The staking amount is the amount that is staked in the transaction graph for a single stake.
+    pub fn amount(&self) -> Amount {
+        self.amount
+    }
+
+    /// Stake hashes for all the [`StakeInputs`]s.
+    ///
+    /// The stake hashes are used to derive the locking script and must be shared with between
+    /// operators so that each operator can compute the transactions deterministically.
+    ///
+    /// If you only need the stake hash for a single stake, use
+    /// [`StakeInputs::stake_hash_at_index`].
+    pub fn stake_hashes(&self) -> [sha256::Hash; N] {
+        self.stake_hashes
+    }
+
+    /// Stake hash for the [`StakeInputs`] at the given index.
+    ///
+    /// The stake hashes are used to derive the locking script and must be shared with between
+    /// operators so that each operator can compute the transactions deterministically.
+    ///
+    /// If you need the stake hash for all the stakes, use [`StakeInputs::stake_hashes`].
+    pub fn stake_hash_at_index(&self, index: usize) -> sha256::Hash {
+        self.stake_hashes[index]
+    }
+
+    /// Operator funds for all the [`StakeInputs`]s.
+    ///
+    /// The operator funds are the inputs to cover the dust outputs for the entirety of the
+    /// [`StakeInputs`]s.
+    ///
+    /// If you only need the operator funds for a single stake, use
+    /// [`StakeInputs::operator_funds_at_index`] since it vastly reduces the allocations.
+    pub fn operator_funds(&self) -> [TxIn; N] {
+        self.operator_funds.clone()
+    }
+
+    /// Operator funds for the [`StakeInputs`] at the given index.
+    ///
+    /// The operator funds are the inputs to cover the dust outputs for the entirety of the
+    /// [`StakeInputs`]s.
+    ///
+    /// If you need the operator funds for all the stakes, use [`StakeInputs::operator_funds`].
+    pub fn operator_funds_at_index(&self, index: usize) -> TxIn {
+        self.operator_funds[index].clone()
+    }
+
+    /// Original stake.
+    ///
+    /// The original stake is the first stake transaction in the chain, which is used to stake in
+    /// the transaction graph for a single deposit and is moved after a successful deposit, i.e.,
+    /// the operator is not succcesfully challenged and has it's stake slashed.
+    /// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
+    pub fn original_stake(&self) -> TxOut {
+        self.original_stake.clone()
+    }
+
+    /// Relative timelock interval to advance the stake chain.
+    ///
+    /// The stake chain can be advanced forward by revealing a preimage to a locking script that is
+    /// also relative timelocked to a certain `ΔS` interval.
+    pub fn delta(&self) -> relative::LockTime {
+        self.delta
     }
 }
