@@ -1,14 +1,13 @@
 use crate::constants::DEFAULT_BURY_DEPTH;
 
-/// BtcZmqConfig is the main configuration type used to establish the connection with the ZMQ
-/// interface of Bitcoin.
+/// Main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
 ///
 /// It accepts independent connection strings for each of the stream types. Any connection strings
-/// that are left as None when initializing the BtcZmqClient will result in those streams going
-/// unmonitored. In the limit, this means that the default BtcZmqConfig will result in a
-/// BtcZmqClient that does absolutely nothing (NOOP).
+/// that are left as None when initializing the [`crate::client::BtcZmqClient`] will result in those
+/// streams going unmonitored. In the limit, this means that the default [`BtcZmqConfig`] will
+/// result in a [`crate::client::BtcZmqClient`] that does absolutely nothing (NOOP).
 ///
-/// You should construct a BtcZmqConfig with [`Default::default`] and modify it with the member
+/// You should construct a [`BtcZmqConfig`] with [`Default::default`] and modify it with the member
 /// methods on this struct.
 #[derive(Debug, Clone)]
 pub struct BtcZmqConfig {
@@ -32,8 +31,8 @@ pub struct BtcZmqConfig {
 }
 
 impl BtcZmqConfig {
-    /// Updates the [`BtcZmqConfig`] with a `zmqpubhashblock` connection string and returns the updated
-    /// config.
+    /// Updates the [`BtcZmqConfig`] with a `zmqpubhashblock` connection string and returns the
+    /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     pub fn with_hashblock_connection_string(mut self, s: &str) -> Self {
@@ -41,8 +40,8 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubhashtx connection string and returns the updated
-    /// config.
+    /// Updates the [`BtcZmqConfig`] with a `zmqpubhashtx` connection string and returns the
+    /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     pub fn with_hashtx_connection_string(mut self, s: &str) -> Self {
@@ -50,8 +49,8 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubrawblock connection string and returns the updated
-    /// config.
+    /// Updates the [`BtcZmqConfig`] with a `zmqpubrawblock` connection string and returns the
+    /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     pub fn with_rawblock_connection_string(mut self, s: &str) -> Self {
@@ -59,7 +58,7 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubrawtx connection string and returns the updated
+    /// Updates the [`BtcZmqConfig`] with a `zmqpubrawtx` connection string and returns the updated
     /// config.
     ///
     /// Useful for a builder pattern with dotchaining.
@@ -68,8 +67,8 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the BtcZmqConfig with a zmqpubsequence connection string and returns the updated
-    /// config.
+    /// Updates the [`BtcZmqConfig`] with a `zmqpubsequence` connection string and returns the
+    /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     pub fn with_sequence_connection_string(mut self, s: &str) -> Self {
@@ -77,7 +76,7 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the BtcZmqConfig with a new bury depth and returns the updated config.
+    /// Updates the [`BtcZmqConfig`] with a new bury depth and returns the updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     ///
