@@ -157,7 +157,7 @@ where
                             }),
                         })
                     } else {
-                        // 3. groth16 proof validation
+                        // 2. groth16 proof validation
                         info!(action = "verifying groth16 assertions");
                         if let Some((tapleaf_index, witness_script)) = g16::verify_signed_assertions(
                             bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
