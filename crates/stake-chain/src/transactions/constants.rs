@@ -16,16 +16,12 @@ use bitcoin::Amount;
 /// - 1 dust output for the CPFP for the "Claim" transaction: `330` sats.
 /// - 1 dust output for the CPFP for the "Stake" transaction itself: `330` sats.
 ///
-/// The total is: `46_860 + 660 + 330 + 330 = 53_460` sats.
+/// The total is:
+///
+/// ```
+/// # use bitcoin::Amount;
+/// # use strata_bridge_stake_chain::transactions::constants::OPERATOR_FUNDS;
+/// assert_eq!(OPERATOR_FUNDS, Amount::from_sat(48_840));
+/// ```
 pub const OPERATOR_FUNDS: Amount =
     Amount::from_sat((330 * 2 * 71) + (330 * 2) + 330 + 330 + 330 + 330);
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn operator_funds() {
-        assert_eq!(OPERATOR_FUNDS, Amount::from_sat(48_840));
-    }
-}

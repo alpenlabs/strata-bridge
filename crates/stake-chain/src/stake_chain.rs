@@ -64,7 +64,8 @@ impl StakeChain {
     ///    the [`PreStakeTx`](crate::transactions::PreStakeTx).
     /// 2. `current_stake`: The input for the current stake transaction, this is the same as
     ///    `original_stake` but as a [`TxIn`] instead of [`TxOut`].
-    /// 3. `index`: The stake index, i.e., the index of the stake transaction in this stake chain.
+    /// 3. `index`: The stake index, i.e., the index of the latest stake transaction in this stake
+    ///    chain.
     /// 4. `amount`: The staking amount.
     /// 5. `delta`: The `ΔS` interval relative timelock to advance the stake chain.
     /// 6. `max_slashing_transactions`: Maximum number of slashing transactions to be created.
