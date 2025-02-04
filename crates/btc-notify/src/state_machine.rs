@@ -8,46 +8,46 @@ use bitcoincore_zmq::SequenceMessage;
 
 use crate::event::{TxEvent, TxStatus};
 
-/// TxPredicate is a type synonym to capture predicates of the following form: Transaction -> bool.
+/// Type synonym to capture predicates of the following form: Transaction -> bool.
 ///
 /// The choice of using an arc here is intentional so that we can directly compare these predicates
 /// (via [`Arc::ptr_eq`]) when managing the active subscription set.
 pub(crate) type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
 
-/// TxLifecycle keeps track of distinct messages coming in on parallel streams that are all
-/// triggered by the same underlying event.
+/// Keeps track of distinct messages coming in on parallel streams that are all triggered by the
+/// same underlying event.
 ///
 /// Depending on the messages we receive and in what order we track the transaction all the way to
 /// block inclusion, inferring other states depending on the messages we have received.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TxLifecycle {
-    /// raw is the full transaction data of the lifecycle we are tracking.
+    /// The full transaction data of the lifecycle we are tracking.
     raw: Transaction,
-    /// block is an optional [`bitcoin::BlockHash`] that will be populated once the transaction has
+    /// An optional [`bitcoin::BlockHash`] that will be populated once the transaction has
     /// been included in a block.
     block: Option<BlockHash>,
 }
 
-/// BtcZmqSM is the pure state machine that processes all the relevant messages. From there it will
+/// The pure state machine that processes all the relevant messages. From there it will
 /// emit diffs that describe the new states of transactions.
 #[derive(Clone)]
 pub(crate) struct BtcZmqSM {
-    /// This is the number of subsequent blocks that must be built on top of a given block for that
+    /// The number of subsequent blocks that must be built on top of a given block for that
     /// block to be considered "buried": the transactions will never be reversed.
     bury_depth: usize,
 
-    /// This is the set of predicates that are selecting for transactions, the disjunction of which
+    /// The set of predicates that are selecting for transactions, the disjunction of which
     /// we care about.
     tx_filters: Vec<TxPredicate>,
 
-    /// This is the core data structure that holds [`TxLifecycles`] indexed by txid. The encoding
+    /// The core data structure that holds [`TxLifecycles`] indexed by txid. The encoding
     /// should be understood as follows: If the entry is in the map but the value is None, then
     /// it means we have only received the MempoolAcceptance event. If it's present then we
     /// will definitely have the rawtx event, and if it has been mined into a block, we will
     /// also have that blockhash as well.
     tx_lifecycles: BTreeMap<Txid, Option<TxLifecycle>>,
 
-    // We track the list of unburied blocks in a queue where the front is the newest block and the
+    // The list of unburied blocks in a queue where the front is the newest block and the
     // back is the oldest "unburied" block
     unburied_blocks: VecDeque<Block>,
 }
@@ -89,9 +89,9 @@ impl PartialEq for BtcZmqSM {
 impl Eq for BtcZmqSM {}
 
 impl BtcZmqSM {
-    // init initializes a BtcZmqSM with the supplied bury_depth. bury_depth is the number of blocks
-    // that must be built on top of a given block before that block's transactions are
-    // considered Buried.
+    /// Initializes a [`BtcZmqSM`] with the supplied bury_depth. bury_depth is the number of blocks
+    /// that must be built on top of a given block before that block's transactions are
+    /// considered Buried.
     pub(crate) fn init(bury_depth: usize) -> Self {
         BtcZmqSM {
             bury_depth,
@@ -101,7 +101,7 @@ impl BtcZmqSM {
         }
     }
 
-    /// add_filter takes a TxPredicate and adds it to the state machine.
+    /// Takes a [`TxPredicate`] and adds it to the state machine.
     ///
     /// The state machine will track any transaction that matches the disjunction of predicates
     /// added.
@@ -109,15 +109,15 @@ impl BtcZmqSM {
         self.tx_filters.push(pred);
     }
 
-    /// rm_filter takes a TxPredicate that was previously added via add_filter.
+    /// Takes a [`TxPredicate`] that was previously added via [`BtcZmqSM::add_filter`].
     pub(crate) fn rm_filter(&mut self, pred: &TxPredicate) {
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, pred)) {
             self.tx_filters.swap_remove(idx);
         }
     }
 
-    /// process_block is one of the three primary state transition functions of the BtcZmqSM,
-    /// updating internal state to reflect the contents of the block.
+    /// One of the three primary state transition functions of the [`BtcZmqSM`], updating internal
+    /// state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
         match self.unburied_blocks.front() {
             Some(tip) => {
@@ -221,8 +221,8 @@ impl BtcZmqSM {
         diff
     }
 
-    // process_tx is one of the three primary state transition functions of the BtcZmqSM, updating
-    // internal state to reflect the contents of the transaction.
+    /// One of the three primary state transition functions of the [`BtcZmqSM`], updating
+    /// internal state to reflect the `rawtx` event.
     pub(crate) fn process_tx(&mut self, tx: Transaction) -> Vec<TxEvent> {
         if !self.tx_filters.iter().any(|f| f(&tx)) {
             return Vec::new();
@@ -270,8 +270,8 @@ impl BtcZmqSM {
         }
     }
 
-    // process_sequence is one of the three primary state transition functions of the BtcZmqSM,
-    // updating internal state to reflect the sequence event.
+    /// One of the three primary state transition functions of the [`BtcZmqSM`],
+    /// updating internal state to reflect the `sequence` event.
     pub(crate) fn process_sequence(&mut self, seq: SequenceMessage) -> Vec<TxEvent> {
         let mut diff = Vec::new();
         match seq {
@@ -430,28 +430,28 @@ mod prop_tests {
         }
     }
 
-    // Generate an amount between 1sat and 21MBTC.
+    // Generates an amount between 1sat and 21MBTC.
     prop_compose! {
         fn arb_amount()(sats in 1..2100000000000000u64) -> Amount {
             Amount::from_sat(sats)
         }
     }
 
-    // Generate a random 32 byte hash as a Txid.
+    // Generates a random 32 byte hash as a Txid`.
     prop_compose! {
         fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
             Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
         }
     }
 
-    // Generate a random OutPoint reference.
+    // Generates a random OutPoint reference.
     prop_compose! {
         fn arb_outpoint()(txid in arb_txid(), vout in 0..100u32) -> OutPoint {
             OutPoint { txid, vout }
         }
     }
 
-    // Generate a fully defined TxIn.
+    // Generates a fully defined TxIn.
     prop_compose! {
         fn arb_input()(
             previous_output in arb_outpoint(),
@@ -467,7 +467,7 @@ mod prop_tests {
         }
     }
 
-    // Generate a fully defined TxOut.
+    // Generates a fully defined TxOut.
     prop_compose! {
         fn arb_output()(
             value in arb_amount(),
@@ -480,7 +480,7 @@ mod prop_tests {
         }
     }
 
-    // Generate a random Transaction. It is not guaranteed to be consensus valid.
+    // Generates a random Transaction. It is not guaranteed to be consensus valid.
     prop_compose! {
         fn arb_transaction()(
             max_num_ins in 2..100u32,
@@ -498,7 +498,7 @@ mod prop_tests {
         }
     }
 
-    // Generate a block that contains 32 random transactions. The argument defines the blockhash of
+    // Generates a block that contains 32 random transactions. The argument defines the blockhash of
     // the block this block builds on top of.
     prop_compose! {
         fn arb_block(prev_blockhash: BlockHash)(
@@ -524,7 +524,7 @@ mod prop_tests {
         }
     }
 
-    // Generate a chain of size "length" that is anchored to "prev_blockhash".
+    // Generates a chain of size "length" that is anchored to "prev_blockhash".
     fn arb_chain(prev_blockhash: BlockHash, length: usize) -> BoxedStrategy<VecDeque<Block>> {
         if length == 0 {
             return Just(VecDeque::new()).boxed();
@@ -545,7 +545,7 @@ mod prop_tests {
         .boxed()
     }
 
-    // Generate a random predicate that will shrink towards including all transactions.
+    // Generates a random predicate that will shrink towards including all transactions.
     prop_compose! {
         fn arb_predicate()(modsize in 1..255u8) -> DebuggablePredicate {
             let pred = move |tx: &Transaction| tx.compute_txid().to_raw_hash().to_byte_array()[31] % modsize == 0;
@@ -557,8 +557,8 @@ mod prop_tests {
     }
 
     proptest! {
-        // Ensure that the transactions that appear in the diffs generated by the BtcZmqSM's state transition functions
-        // all match the predicate we added. (Consistency)
+        // Ensures that the transactions that appear in the diffs generated by the BtcZmqSM's state
+        // transition functions all match the predicate we added. (Consistency)
         #[test]
         fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -569,8 +569,8 @@ mod prop_tests {
             }
         }
 
-        // Ensure that all of the transactions match the predicate we add to the state machine appear in the diffs
-        // generated by the BtcZmqSM. (Completeness)
+        // Ensures that all of the transactions match the predicate we add to the state machine
+        // appear in the diffs generated by the BtcZmqSM. (Completeness)
         #[test]
         fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -579,7 +579,7 @@ mod prop_tests {
             prop_assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
         }
 
-        // Ensure that an unaccompanied process_tx yields an empty diff.
+        // Ensures that an unaccompanied process_tx yields an empty diff.
         //
         // This serves as an important base case to ensure the uniqueness of events
         #[test]
@@ -590,8 +590,9 @@ mod prop_tests {
             prop_assert_eq!(diff, Vec::new());
         }
 
-        // Ensure that the order of process_tx and a corresponding MempoolAcceptance (process_sequence) does not impact
-        // the total event diff when both of these are received. (seq-tx Commutativity)
+        // Ensures that the order of process_tx and a corresponding MempoolAcceptance
+        // (process_sequence) does not impact the total event diff when both of these are received.
+        // (seq-tx Commutativity)
         #[test]
         fn seq_tx_commutativity(tx in arb_transaction()) {
             let txid = tx.compute_txid();
@@ -620,7 +621,8 @@ mod prop_tests {
             prop_assert_eq!(diff_1, diff_2);
         }
 
-        // Ensure that a BlockDisconnect event yields an Unknown event for every transaction in that block.
+        // Ensures that a BlockDisconnect event yields an Unknown event for every transaction in
+        // that block.
         #[test]
         fn block_disconnect_drops_all_transactions(
             pred in arb_predicate(),
@@ -638,8 +640,8 @@ mod prop_tests {
             prop_assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
         }
 
-        // Ensure that adding a full bury_depth length chain of blocks on top of a block yields a Buried event for every
-        // transaction in that block.
+        // Ensures that adding a full bury_depth length chain of blocks on top of a block yields a
+        // Buried event for every transaction in that block.
         #[test]
         fn transactions_eventually_buried(mut chain in arb_chain(Hash::all_zeros(), 7)) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -663,7 +665,8 @@ mod prop_tests {
             prop_assert_eq!(to_be_buried, is_buried);
         }
 
-        // Ensure that receiving both a MempoolAcceptance and tx event yields a Mempool event. (seq-tx Completeness)
+        // Ensures that receiving both a MempoolAcceptance and tx event yields a Mempool event.
+        // (seq-tx Completeness)
         #[test]
         fn seq_and_tx_make_mempool(tx in arb_transaction()) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -677,7 +680,8 @@ mod prop_tests {
             prop_assert_eq!(diff, vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
         }
 
-        // Ensure that removing a filter after adding it results in an identical state machine (filter Invertibility).
+        // Ensures that removing a filter after adding it results in an identical state machine.
+        // (filter Invertibility)
         #[test]
         fn filter_rm_inverts_add(pred in arb_predicate()) {
             let sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -689,8 +693,8 @@ mod prop_tests {
             prop_assert_eq!(sm, sm_ref);
         }
 
-        // Ensure that a processing of a MempoolRemoval inverts the processing of a MempoolAcceptance, even if there is
-        // an interceding rawtx event. (Mempool Invertibility)
+        // Ensures that a processing of a MempoolRemoval inverts the processing of a
+        // MempoolAcceptance, even if there is an interceding `rawtx` event. (Mempool Invertibility)
         #[test]
         fn mempool_removal_inverts_acceptance(tx in arb_transaction(), include_raw in any::<bool>()) {
             let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -707,8 +711,8 @@ mod prop_tests {
             prop_assert_eq!(sm, sm_ref);
         }
 
-        // Ensure that processing a BlockDisconnect event inverts the processing of a prior rawblock event.
-        // (Block Invertibility)
+        // Ensures that processing a BlockDisconnect event inverts the processing of a prior
+        // `rawblock` event. (Block Invertibility)
         #[test]
         fn block_disconnect_inverts_block(
             mempool_tx in arb_transaction(),
@@ -746,8 +750,8 @@ mod prop_tests {
             prop_assert_eq!(sm, sm_ref);
         }
 
-        // Ensure that a rawtx event sampled from a rawblock event is idempotent following the rawblock event.
-        // (block-tx Idempotence)
+        // Ensures that a `rawtx` event sampled from a `rawblock` event is idempotent following the
+        // `rawblock` event. (block-tx Idempotence)
         #[test]
         fn tx_after_block_idempotence(block in arb_block(Hash::all_zeros())) {
             let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -761,8 +765,8 @@ mod prop_tests {
             }
         }
 
-        // Ensure that we end up with the same result irrespective of the processing order of a rawblock and its
-        // accompanying rawtx events. (tx-block Commutativity)
+        // Ensures that we end up with the same result irrespective of the processing order of a
+        // `rawblock` and its accompanying rawtx events. (tx-block Commutativity)
         #[test]
         fn tx_block_commutativity(block in arb_block(Hash::all_zeros())) {
             let mut sm_base = BtcZmqSM::init(DEFAULT_BURY_DEPTH);

@@ -36,8 +36,8 @@ impl std::fmt::Debug for TxSubscriptionDetails {
     }
 }
 
-/// BtcZmqClient is the main structure responsible for processing ZMQ notifications and feeding the
-/// appropriate events to its subscribers.
+/// Main structure responsible for processing ZMQ notifications and feeding the appropriate events
+/// to its subscribers.
 ///
 /// After construction, this object must be kept around for the monitoring process to continue.
 /// Dropping this object will abort the monitoring thread.
