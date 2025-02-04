@@ -9,6 +9,7 @@ members = [
   "crates/rpc/strata",
   "crates/bridge-proof/test-utils",
   "crates/tx-graph",
+  "crates/btc-notify",
   "bridge-guest-builder",
 
   # binaries listed separately
@@ -79,6 +80,7 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default
   "async-https-rustls",
 ] }
 ethnum = "1.5.0"
+futures = "0.3.31"
 hex = { version = "0.4", features = ["serde"] }
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"

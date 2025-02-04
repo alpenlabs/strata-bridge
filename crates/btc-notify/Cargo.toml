@@ -1,0 +1,28 @@
+[package]
+name = "btc-notify"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.missing_docs = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage, coverage_nightly)',
+] }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rustdoc.all = "warn"
+
+[dependencies]
+bitcoin.workspace = true
+bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
+futures.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }
+tracing.workspace = true
+
+[dev-dependencies]
+corepc-node.workspace = true
+serial_test = "3.2.0"
+proptest = "1.6.0"
