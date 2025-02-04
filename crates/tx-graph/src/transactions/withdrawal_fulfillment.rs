@@ -1,4 +1,4 @@
-use bitcoin::{Address, Amount, OutPoint, Transaction};
+use bitcoin::{Amount, OutPoint, Transaction, TxOut};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::{
     scripts::general::{create_tx, create_tx_ins, create_tx_outs, op_return_nonce},
@@ -8,13 +8,6 @@ use strata_bridge_primitives::{
 /// The transaction by which an operator fronts payments to a user requesting a withdrawal.
 #[derive(Debug, Clone)]
 pub struct WithdrawalFulfillment(Transaction);
-
-/// The change output for the withdrawal transaction.
-#[derive(Debug, Clone)]
-pub struct WithdrawalChange {
-    pub address: Address,
-    pub amount: Amount,
-}
 
 /// Metadata to be posted in the withdrawal transaction.
 ///
@@ -34,7 +27,7 @@ impl WithdrawalFulfillment {
         metadata: WithdrawalMetadata,
         sender_outpoints: Vec<OutPoint>,
         amount: Amount,
-        change: Option<WithdrawalChange>,
+        change: Option<TxOut>,
         recipient_desc: Descriptor,
     ) -> Self {
         let tx_ins = create_tx_ins(sender_outpoints);
@@ -59,9 +52,11 @@ impl WithdrawalFulfillment {
         ];
 
         if let Some(change) = change {
-            let change_pubkey = change.address.script_pubkey();
-
-            scripts_and_amounts.push((change_pubkey, change.amount));
+            let TxOut {
+                value,
+                script_pubkey,
+            } = change;
+            scripts_and_amounts.push((script_pubkey, value));
         }
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
@@ -123,9 +118,9 @@ mod tests {
             operator_idx,
             deposit_idx,
         };
-        let change = WithdrawalChange {
-            address: change_address.clone(),
-            amount: change_amount,
+        let change = TxOut {
+            script_pubkey: change_address.script_pubkey(),
+            value: change_amount,
         };
         let withdrawal_fulfillment = WithdrawalFulfillment::new(
             withdrawal_metadata,

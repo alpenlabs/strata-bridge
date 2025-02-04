@@ -1887,9 +1887,9 @@ where
             deposit_idx,
             operator_idx: own_index,
         };
-        let change = WithdrawalChange {
-            address: change_address,
-            amount: change_amount,
+        let change = TxOut {
+            script_pubkey: change_address.script_pubkey(),
+            value: change_amount,
         };
         let recipient_addr = Address::p2tr_tweaked(user_pk.dangerous_assume_tweaked(), network);
         let withdrawal_fulfillment = WithdrawalFulfillment::new(
