@@ -18,9 +18,9 @@ rustdoc.all = "warn"
 [dependencies]
 bitcoin.workspace = true
 bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
-futures = "0.3.31"
+futures.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }
-tracing = "0.1.41"
+tracing.workspace = true
 
 [dev-dependencies]
 corepc-node.workspace = true
