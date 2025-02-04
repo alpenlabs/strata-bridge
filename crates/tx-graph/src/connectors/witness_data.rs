@@ -6,7 +6,6 @@ use secp256k1::schnorr;
 
 /// Ways that a connector can be spent given the witness data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive] // We might want to add more variants in the future.
 pub enum WitnessData {
     /// The witness data is a single (aggregated) Schnorr [`Signature`](schnorr::Signature).
     Signature(schnorr::Signature),
@@ -16,7 +15,7 @@ pub enum WitnessData {
 
     /// The witness data are a single (aggregated) Schnorr [`Signature`](schnorr::Signature) and a
     /// 32-byte hash preimage.
-    SignaturePreimage {
+    Both {
         /// The Schnorr [`Signature`](schnorr::Signature).
         signature: schnorr::Signature,
 
