@@ -1,6 +1,6 @@
-//! # btc-notify
+//! # `btc-notify`
 //!
-//! btc-notify is a crate to deliver real-time notifications on the latest transaction and block
+//! `btc-notify` is a crate to deliver real-time notifications on the latest transaction and block
 //! events in the Bitcoin network.
 
 // This cfg_attr is needed so that we can disable coverage in parts of the code that we don't want

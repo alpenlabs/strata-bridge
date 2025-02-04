@@ -12,27 +12,27 @@ use crate::constants::DEFAULT_BURY_DEPTH;
 /// methods on this struct.
 #[derive(Debug, Clone)]
 pub struct BtcZmqConfig {
-    /// depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
+    /// Depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
     pub(crate) bury_depth: usize,
 
-    /// connection string used in bitcoin.conf => zmqpubhashblock
+    /// Connection string used in `bitcoin.conf => zmqpubhashblock`.
     pub(crate) hashblock_connection_string: Option<String>,
 
-    /// connection string used in bitcoin.conf => zmqpubhashtx
+    /// Connection string used in `bitcoin.conf => zmqpubhashtx`.
     pub(crate) hashtx_connection_string: Option<String>,
 
-    /// connection string used in bitcoin.conf => zmqpubrawblock
+    /// Connection string used in `bitcoin.conf => zmqpubrawblock`.
     pub(crate) rawblock_connection_string: Option<String>,
 
-    /// connection string used in bitcoin.conf => zmqpubrawtx
+    /// Connection string used in `bitcoin.conf => zmqpubrawtx`.
     pub(crate) rawtx_connection_string: Option<String>,
 
-    /// connection string used in bitcoin.conf => zmqpubsequence
+    /// Connection string used in `bitcoin.conf => zmqpubsequence`.
     pub(crate) sequence_connection_string: Option<String>,
 }
 
 impl BtcZmqConfig {
-    /// Updates the BtcZmqConfig with a zmqpubhashblock connection string and returns the updated
+    /// Updates the [`BtcZmqConfig`] with a `zmqpubhashblock` connection string and returns the updated
     /// config.
     ///
     /// Useful for a builder pattern with dotchaining.

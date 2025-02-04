@@ -4,6 +4,7 @@ use std::{
 };
 
 use tokio::sync::mpsc;
+
 /// Subscription serves as the primary type that consumers of this API will handle. It is created
 /// via one of the calls to BtcZmqClient::subscribe_*. From there you should use it via it's Stream
 /// API.

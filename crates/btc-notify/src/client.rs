@@ -56,9 +56,9 @@ impl Drop for BtcZmqClient {
 }
 
 impl BtcZmqClient {
-    /// connect is the main constructor for BtcZmqClient.
+    /// Primary constructor for [`BtcZmqClient`].
     ///
-    /// It takes a [`BtcZmqConfig`] and uses that information to connect to bitcoind.
+    /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`.
     pub fn connect(cfg: BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
