@@ -59,16 +59,21 @@ impl ConnectorA31Leaf {
                 script! {
                     // first, verify that the WOTS for withdrawal fulfillment txid is correct.
                     { wots256::compact::checksig_verify(withdrawal_fulfillment_pk.0) }
-                    // convert txid to a number by multiplying and accumulating each byte by 16.
+
+                    // `checksig_verify` pushes the committed data onto the stack as nibbles in big-endian form.
+                    // so, first `swap` to reverse the order of the nibbles.
+                    // then, multiply each nibble by 16 and add them to together to get the byte.
+                    // finally, push the byte to the ALTSTACK.
                     for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
                     // second, verify that the WOTS for public inputs hash is correct.
                     { wots256::compact::checksig_verify(public_inputs_hash_public_key) }
-                    // convert hash to a number by multiplying and accumulating each byte by 16.
+                    // same as above
                     for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
-                    // extract the numbers
+                    // get the committed public inputs hash from the altstack.
                     for _ in 0..32 { OP_FROMALTSTACK }
+                    // get the committed withdrawal fulfillment txid from the altstack.
                     for _ in 0..32 { OP_FROMALTSTACK }
 
                     // include the deposit txid in the script to couple proofs with deposits.
@@ -76,18 +81,25 @@ impl ConnectorA31Leaf {
                     // withdrawal_fulfillment txid.
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
-                    // hash the txid and public inputs hash
+                    // hash the deposit txid and the withdrawal fulfillment txid to get the public
+                    // inputs hash
                     { sha256(2 * 32) }
                     // convert the hash to a bn254 field element
                     hash_to_bn254_fq
 
-                    // verify that hashes don't match
+                    // verify that the computed hash and the committed inputs hash don't match
                     for i in (1..32).rev() {
+                        // compare the last bytes first
                         {i + 1} OP_ROLL
+                        // check if they are equal and push the result to the altstack
                         OP_EQUAL OP_TOALTSTACK
                     }
+                    // check the first bytes (this serves as the accumulator of the boolean fold)
                     OP_EQUAL
+                    // fold all the comparison result with `AND`
                     for _ in 1..32 { OP_FROMALTSTACK OP_BOOLAND }
+                    // if the result is true, the public inputs hash is not committed correctly
+                    // which is cause for a disprove so invert the result.
                     OP_NOT
                 }
             }
