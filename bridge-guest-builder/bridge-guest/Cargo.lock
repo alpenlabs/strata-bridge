@@ -2115,7 +2115,7 @@ dependencies = [
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
- "strata-zkvm",
+ "zkaleido",
 ]
 
 [[package]]
@@ -2670,6 +2670,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.87",
+]
+
+[[package]]
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido.git#6274649beee4738e66874d76dd17bd4c129bd16f"
+dependencies = [
+ "arbitrary",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.67",
 ]
 
 [[patch.unused]]

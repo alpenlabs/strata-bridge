@@ -23,8 +23,8 @@ use strata_primitives::{
     proof::RollupVerifyingKey,
 };
 use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
-use strata_zkvm::ZkVmEnv;
 use tx_inclusion_proof::L1TxWithProofBundle;
+use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
 ///

@@ -1,7 +1,7 @@
 use num_bigint::BigUint;
 use num_traits::Num;
-use strata_sp1_adapter::verify_groth16;
-use strata_zkvm::Proof;
+use zkaleido::Proof;
+use zkaleido_sp1_adapter::verify_groth16;
 
 pub fn verify_proof(proof: Proof, vkey: String, comitted_values: &[u8]) -> anyhow::Result<()> {
     let vkey_hash = BigUint::from_str_radix(

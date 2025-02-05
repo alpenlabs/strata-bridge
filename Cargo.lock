@@ -7297,8 +7297,8 @@ dependencies = [
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
- "strata-zkvm",
  "tokio",
+ "zkaleido",
 ]
 
 [[package]]
@@ -9554,9 +9554,9 @@ dependencies = [
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
- "strata-zkvm",
  "tokio",
  "tower 0.4.13",
+ "zkaleido",
 ]
 
 [[package]]
@@ -9572,8 +9572,8 @@ dependencies = [
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
- "strata-zkvm",
  "thiserror 2.0.11",
+ "zkaleido",
 ]
 
 [[package]]
@@ -9603,10 +9603,10 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-proof-protocol",
  "strata-primitives",
- "strata-sp1-adapter",
  "strata-state",
- "strata-zkvm",
  "tracing",
+ "zkaleido",
+ "zkaleido-sp1-adapter",
 ]
 
 [[package]]
@@ -9856,24 +9856,6 @@ dependencies = [
  "strata-primitives",
  "strata-state",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "strata-sp1-adapter"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#0db65b9ba7e540cb9806683cebcb74d459a626c8"
-dependencies = [
- "bincode",
- "borsh",
- "hex",
- "serde",
- "sha2",
- "sp1-primitives",
- "sp1-sdk",
- "sp1-verifier",
- "strata-primitives",
- "strata-zkvm",
- "tracing",
 ]
 
 [[package]]
@@ -11634,6 +11616,32 @@ dependencies = [
  "sha1",
  "time",
  "zstd 0.11.2+zstd.1.5.2",
+]
+
+[[package]]
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido.git#6274649beee4738e66874d76dd17bd4c129bd16f"
+dependencies = [
+ "arbitrary",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido-sp1-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido.git#6274649beee4738e66874d76dd17bd4c129bd16f"
+dependencies = [
+ "bincode",
+ "borsh",
+ "hex",
+ "serde",
+ "sp1-sdk",
+ "sp1-verifier",
+ "zkaleido",
 ]
 
 [[package]]
