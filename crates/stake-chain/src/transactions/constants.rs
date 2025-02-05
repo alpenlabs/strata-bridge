@@ -23,5 +23,19 @@ use bitcoin::Amount;
 /// # use strata_bridge_stake_chain::transactions::constants::OPERATOR_FUNDS;
 /// assert_eq!(OPERATOR_FUNDS, Amount::from_sat(48_840));
 /// ```
-pub const OPERATOR_FUNDS: Amount =
-    Amount::from_sat((330 * 2 * 71) + (330 * 2) + 330 + 330 + 330 + 330);
+pub const OPERATOR_FUNDS: Amount = Amount::from_sat(
+    (DUST_AMOUNT * 2 * 71)
+        + (DUST_AMOUNT * 2)
+        + DUST_AMOUNT
+        + DUST_AMOUNT
+        + DUST_AMOUNT
+        + DUST_AMOUNT,
+);
+
+/// SegWit minimal non-dust value.
+pub const DUST_AMOUNT: Amount = Amount::from_sat(330);
+
+/// [`StakeTx`](crate::transactions::StakeTx) stake output, i.e. the stake vout.
+///
+/// This is the third output.
+pub const STAKE_VOUT: u32 = 2;

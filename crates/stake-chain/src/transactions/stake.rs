@@ -1,10 +1,16 @@
 //! The [`StakeTx`] transaction is used to move stake across transactions.
 
-use bitcoin::{absolute, transaction, Amount, FeeRate, Psbt, Transaction, TxIn, TxOut};
+use bitcoin::{
+    absolute, secp256k1::SECP256K1, transaction, Address, Amount, FeeRate, Network, Psbt,
+    Transaction, TxIn, TxOut, XOnlyPublicKey,
+};
 use serde::{Deserialize, Serialize};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
-use crate::StakeChainError;
+use crate::{
+    prelude::{DUST_AMOUNT, OPERATOR_FUNDS},
+    StakeChainError,
+};
 
 /// The [`StakeTx`] transaction is used to move stake across transactions.
 ///
@@ -32,6 +38,7 @@ use crate::StakeChainError;
 /// 3. The stake amount, [`ConnectorStake`], which is the first output minus the already taken into
 ///    account dust outputs. This is used to move the stake from the previous [`StakeTx`]
 ///    transaction to the current one.
+/// 4. A dust output for the operator to use as CPFP in future transactions that spends this one.
 ///
 /// # Implementation Details
 ///
@@ -58,26 +65,32 @@ impl StakeTx {
     /// connector outputs.
     ///
     /// The inputs should be both the
-    /// [`OPERATOR_FUNDS`](crate::transactions::constants::OPERATOR_FUNDS) and the
+    /// [`OPERATOR_FUNDS`] and the
     /// [`ConnectorStake`] from the previous stake transaction as a [`Transaction`]'s vector of
     /// [`TxIn`].
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         index: u32,
         stake_input: TxIn,
         operator_funds: TxIn,
+        operator_pubkey: XOnlyPublicKey,
         connector_k: ConnectorK,
         connector_p: ConnectorP,
         connector_s: ConnectorStake,
+        network: Network,
     ) -> Self {
         // The first input is the operator's funds.
         let inputs = vec![operator_funds, stake_input];
+        // Create a P2TR from the `operator_pubkey`.
+        let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, network);
         // The outputs are the `TxOut`s created from the connectors.
         let outputs = vec![
             TxOut {
-                value: connector_k
-                    .create_taproot_address()
-                    .script_pubkey()
-                    .minimal_non_dust(),
+                // The value is deducted 2 dust outputs, i.e. 2 * 330 sats.
+                value: OPERATOR_FUNDS.checked_sub(
+                    Amount::from_sat(2 * 330)
+                        .expect("must be able to subtract 2*330 sats from OPERATOR_FUNDS"),
+                ),
                 script_pubkey: connector_k.create_taproot_address().script_pubkey(),
             },
             TxOut {
@@ -88,11 +101,12 @@ impl StakeTx {
                 script_pubkey: connector_p.generate_address().script_pubkey(),
             },
             TxOut {
-                value: connector_s
-                    .generate_address()
-                    .script_pubkey()
-                    .minimal_non_dust(),
+                value: stake_amount,
                 script_pubkey: connector_s.generate_address().script_pubkey(),
+            },
+            TxOut {
+                value: DUST_AMOUNT,
+                script_pubkey: operator_address.script_pubkey(),
             },
         ];
         let transaction = Transaction {
