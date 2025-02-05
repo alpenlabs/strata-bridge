@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
 use crate::{
-    prelude::{DUST_AMOUNT, OPERATOR_FUNDS, STAKE_VOUT},
+    prelude::{DUST_AMOUNT, OPERATOR_FUNDS},
     StakeChainError,
 };
 
@@ -29,15 +29,14 @@ use crate::{
 /// The outputs must be ordered in the following way:
 ///
 /// 1. A dust output, [`ConnectorK`] used as an input to the Claim transaction and it is used to
-///    bind the stake to the deposit.
+///    bind the stake to the transaction graph for a particular deposit.
 /// 2. A dust output, [`ConnectorP`] used as an input to the Burn Payouts transaction that makes
-///    sure that, if an operator publishes their next stake transaction before a previous payout has
-///    been received, they will lose the ability to receive the payout. So it is in the operator's
-///    best interest to not advance the stake chain before all previous valid payouts have been
-///    received.
-/// 3. The stake amount, [`ConnectorStake`], which is the first output minus the already taken into
-///    account dust outputs. This is used to move the stake from the previous [`StakeTx`]
-///    transaction to the current one.
+///    sure that, if the stake is advanced before a withdrawal has been fully processed, then the
+///    sake is burned via the Slash Stake transactions. The purpose of the burn payouts is to burn
+///    the payout path if an operator starts publishing past claims (that weren't assigned) _after_
+///    their stake has been slashed.
+/// 3. The stake amount, [`ConnectorStake`].This is used to move the stake from the previous
+///    [`StakeTx`] transaction to the current one.
 /// 4. A dust output for the operator to use as CPFP in future transactions that spends this one.
 ///
 /// # Implementation Details
@@ -115,9 +114,6 @@ impl StakeTx {
             input: inputs,
             output: outputs,
         };
-
-        // The `ConnectorS` is the third output.
-        let stake_amount = transaction.output[STAKE_VOUT as usize].value;
 
         Self {
             index,

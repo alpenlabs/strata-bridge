@@ -1,5 +1,7 @@
-//! The stake chain is a series of transactions that move the stake from a previous stake to a new
-//! stake.
+//! The stake chain is a series of transactions that move the stake from one transaction to the
+//! next.
+
+use std::ops::{Deref, DerefMut};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, Txid, XOnlyPublicKey};
 use strata_bridge_primitives::wots;
@@ -7,8 +9,8 @@ use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, Connec
 
 use crate::prelude::{StakeTx, STAKE_VOUT};
 
-/// A [`StakeChain`] is a series of transactions that move the stake from a previous stake to a new
-/// stake.
+/// A [`StakeChain`] is a series of transactions that move the stake from one transaction to the
+/// next.
 ///
 /// It tracks the stake amount and index, the original and current stake prevouts, the current
 /// [`StakeTx`] transactions the relative timelock interval to advance the stake chain, and the
@@ -37,7 +39,34 @@ use crate::prelude::{StakeTx, STAKE_VOUT};
 ///
 /// The user can also coerce a [`Vec<StakeTx>`] into a `[StakeChain; N]`, but it does not offer the
 /// same compile-time guarantees as the previous method.
-pub type StakeChain<const N: usize> = [StakeTx; N];
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StakeChain<const M: usize>([StakeTx; M]);
+
+impl<const M: usize> StakeChain<M> {
+    /// Creates a new [`StakeChain`] from the provided [`StakeInputs`].
+    ///
+    /// The provided [`StakeInputs`] must be of length `N`.
+    pub fn new<const N: usize>(stake_inputs: &StakeInputs<N>) -> Self
+    where
+        [(); N - M]:,
+    {
+        stake_inputs.to_stake_chain::<M>()
+    }
+}
+
+impl<const M: usize> Deref for StakeChain<M> {
+    type Target = [StakeTx; M];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<const M: usize> DerefMut for StakeChain<M> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 /// An `N`-length [`StakeInputs`] holds all the necessary data to construct an `M < N`-length
 /// [`StakeChain`].
@@ -205,9 +234,11 @@ impl<const N: usize> StakeInputs<N> {
             );
             stake_chain.push(new_stake_tx);
         }
-        stake_chain
+
+        let arr: [StakeTx; M] = stake_chain
             .try_into()
-            .expect("infallible since we are aware that M < N (compile-time check)")
+            .expect("stake inputs did not contain exactly M transactions");
+        StakeChain(arr)
     }
 
     /// Stake amount.
@@ -529,7 +560,7 @@ mod tests {
             delta,
             network,
         );
-        let stake_chain: [StakeTx; 3] = stake_inputs.to_stake_chain();
+        let stake_chain = StakeChain::<3>::new(&stake_inputs);
 
         // Sign and broadcast the first StakeTx
         let stake_chain_0_tx = stake_chain[0].psbt.unsigned_tx.clone();
@@ -543,7 +574,7 @@ mod tests {
             .expect("must be able to sign transaction");
 
         assert!(signed_stake_chain_0_tx.complete);
-        let signed_stake_chain_0_tx =
+        let signed_stake_chain_0_tx: Transaction =
             consensus::encode::deserialize_hex(&signed_stake_chain_0_tx.hex)
                 .expect("must deserialize");
 
@@ -555,11 +586,11 @@ mod tests {
         // Needed for 1P1C TRUC relay
         let prev_outputs_1p1c = PreviousTransactionOutput {
             txid: cpfp_txid,
-            vout: cpfp_vout,
-            script_pubkey: cpfp_spk,
+            vout: cpfp_vout as u32,
+            script_pubkey: cpfp_spk.to_string(),
             redeem_script: None,
             witness_script: None,
-            amount: Some(DUST_AMOUNT),
+            amount: Some(DUST_AMOUNT.to_btc()),
         };
 
         // Broadcast the PreStakeTx
