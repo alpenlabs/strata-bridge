@@ -11,9 +11,9 @@ use sp1_sdk::{
 use sp1_verifier::Groth16Verifier;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 use strata_bridge_proof_protocol::{BridgeProofInput, BridgeProofPublicParams, StrataBridgeState};
-use strata_sp1_adapter::SP1ProofInputBuilder;
-use strata_zkvm::{ZkVmError, ZkVmInputBuilder};
 use tracing::info;
+use zkaleido::{ZkVmError, ZkVmInputBuilder};
+use zkaleido_sp1_adapter::SP1ProofInputBuilder;
 
 use crate::sp1;
 

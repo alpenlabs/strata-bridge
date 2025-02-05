@@ -215,6 +215,7 @@ mod tests {
     use std::{fs, str::FromStr};
 
     use bitcoin::{Block, Txid};
+    use strata_primitives::params::RollupParams;
 
     use super::*;
     use crate::process_bridge_proof;
@@ -238,10 +239,12 @@ mod tests {
     }
 
     mod data {
+        use std::fs;
+
         use bitcoin::Transaction;
         use borsh::BorshDeserialize;
-        use strata_l1tx::envelope::parser::parse_envelope_data;
-        use strata_primitives::buf::Buf32;
+        use strata_l1tx::envelope::parser::parse_envelope_payloads;
+        use strata_primitives::{buf::Buf32, params::RollupParams};
         use strata_state::{
             batch::{BatchCheckpoint, SignedBatchCheckpoint},
             block::L2Block,
@@ -416,10 +419,12 @@ mod tests {
         }
 
         pub fn checkpoint_last_verified_l1_height(tx: &Transaction) -> Option<u32> {
+            let json = fs::read_to_string("../../../../test-data/rollup_params.json").unwrap();
+            let rollup_params: RollupParams = serde_json::from_str(&json).unwrap();
             if let Some(script) = tx.input[0].witness.tapscript() {
-                if let Ok(inscription) = parse_envelope_data(&script.into(), "alpenstrata") {
+                if let Ok(payloads) = parse_envelope_payloads(&script.into(), &rollup_params) {
                     if let Ok(signed_batch_checkpoint) =
-                        borsh::from_slice::<SignedBatchCheckpoint>(inscription.data())
+                        borsh::from_slice::<SignedBatchCheckpoint>(payloads[0].data())
                     {
                         let batch_checkpoint: BatchCheckpoint = signed_batch_checkpoint.into();
                         return Some(batch_checkpoint.batch_info().l1_range.1 as u32);
@@ -434,6 +439,10 @@ mod tests {
     fn test_dump_proof_inputs() {
         let blocks_bytes = include_bytes!("../../../../test-data/blocks.bin");
         let blocks: Vec<Block> = bincode::deserialize(blocks_bytes).unwrap();
+
+        let json = fs::read_to_string("../../../../test-data/rollup_params.json").unwrap();
+        let rollup_params: RollupParams = serde_json::from_str(&json).unwrap();
+        rollup_params.check_well_formed().unwrap();
 
         let initial_header_state = data::header_verification_state();
 
@@ -510,7 +519,7 @@ mod tests {
         // write_bridge_proof_input_and_state(&bridge_proof_input, &strata_bridge_state);
 
         // verifying proof statements
-        let res = process_bridge_proof(bridge_proof_input, strata_bridge_state);
+        let res = process_bridge_proof(bridge_proof_input, strata_bridge_state, rollup_params);
 
         assert!(
             res.is_ok(),

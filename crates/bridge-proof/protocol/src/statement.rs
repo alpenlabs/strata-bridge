@@ -1,7 +1,6 @@
 use bitcoin::hashes::Hash;
-use borsh::BorshDeserialize;
-use strata_l1tx::envelope::parser::parse_envelope_data;
-use strata_primitives::l1::{BitcoinAmount, XOnlyPk};
+use strata_l1tx::envelope::parser::parse_envelope_payloads;
+use strata_primitives::{l1::BitcoinAmount, params::RollupParams};
 use strata_state::{
     batch::{BatchCheckpoint, SignedBatchCheckpoint},
     bridge_state::DepositState,
@@ -21,6 +20,7 @@ pub const ROLLUP_NAME: &str = "alpenstrata";
 pub fn process_bridge_proof(
     input: BridgeProofInput,
     state: StrataBridgeState,
+    rollup_params: RollupParams,
 ) -> Result<BridgeProofPublicParams, Box<dyn std::error::Error>> {
     let BridgeProofInput {
         headers,
@@ -63,9 +63,7 @@ pub fn process_bridge_proof(
                 .map_err(|_| "bridge_out: invalid operator id")?,
         );
         let withdrawal_amount = BitcoinAmount::from_sat(bridge_out.tx.0.output[1].value.to_sat());
-        let withdrawal_address =
-            XOnlyPk::try_from_slice(&bridge_out.tx.0.output[1].script_pubkey.as_bytes()[2..])
-                .map_err(|_| "bridge_out: invalid withdrawal address")?;
+        let withdrawal_address = bridge_out.tx.0.output[1].script_pubkey.clone();
         (operator_id, withdrawal_address, withdrawal_amount)
     };
 
@@ -73,7 +71,8 @@ pub fn process_bridge_proof(
     {
         // extract batch checkpoint from checkpoint tx
         let script = checkpoint.tx.0.input[0].witness.tapscript().unwrap();
-        let inscription = parse_envelope_data(&script.into(), ROLLUP_NAME).unwrap();
+        let inscription =
+            parse_envelope_payloads(&script.into(), &rollup_params).unwrap()[0].clone();
         let batch_checkpoint: BatchCheckpoint =
             borsh::from_slice::<SignedBatchCheckpoint>(inscription.data())
                 .unwrap()
@@ -113,7 +112,7 @@ pub fn process_bridge_proof(
         let withdrawal = dispatched_state.cmd().withdraw_outputs().first().unwrap();
 
         if operator_id != dispatched_state.assignee()
-            || withdrawal_address != *withdrawal.dest_addr()
+            || withdrawal_address != withdrawal.destination().to_script()
             || withdrawal_amount != BitcoinAmount::from_sat(800000000)
         {
             return Err("checkpoint: invalid operator or withdrawal address or amount".into());
@@ -134,6 +133,11 @@ pub fn process_bridge_proof(
 pub fn run_process_bridge_proof(
     serialized_input: &[u8],
     state: StrataBridgeState,
+    rollup_params: RollupParams,
 ) -> Result<BridgeProofPublicParams, Box<dyn std::error::Error>> {
-    process_bridge_proof(bincode::deserialize(serialized_input).unwrap(), state)
+    process_bridge_proof(
+        bincode::deserialize(serialized_input).unwrap(),
+        state,
+        rollup_params,
+    )
 }

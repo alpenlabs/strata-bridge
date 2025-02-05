@@ -28,11 +28,14 @@ pub struct Agent {
 }
 
 impl Agent {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         keypair: Keypair,
         btc_url: &str,
         btc_user: &str,
         btc_pass: &str,
+        btc_retry_count: Option<u8>,
+        btc_retry_interval: Option<u64>,
         strata_url: &str,
         ws_timeout: Duration,
     ) -> Self {
@@ -40,6 +43,8 @@ impl Agent {
             btc_url.to_string(),
             btc_user.to_string(),
             btc_pass.to_string(),
+            btc_retry_count,
+            btc_retry_interval,
         )
         .expect("should be able to create bitcoin client");
         let btc_client = Arc::new(btc_client);

@@ -44,7 +44,7 @@ use strata_bridge_tx_graph::{
     transactions::prelude::*,
 };
 use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
-use strata_primitives::buf::Buf32;
+use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_rpc::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
@@ -74,6 +74,7 @@ pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
     pub duty_db: Arc<D>,
     pub is_faulty: bool,
     pub btc_poll_interval: Duration,
+    pub rollup_params: RollupParams,
 
     pub duty_status_sender: mpsc::Sender<(Txid, BridgeDutyStatus)>,
     pub deposit_signal_sender: broadcast::Sender<DepositSignal>,
@@ -2020,7 +2021,7 @@ where
             if checkpoint.is_none() {
                 // check and get checkpoint idx with proof
                 if let Some(tx) = block.txdata.iter().find(|&tx| {
-                    checkpoint_last_verified_l1_height(tx)
+                    checkpoint_last_verified_l1_height(tx, &self.rollup_params)
                         .is_some_and(|h| h == initial_header_state.last_verified_block_num)
                 }) {
                     let height = block.bip34_block_height().unwrap() as u32;
@@ -2072,8 +2073,12 @@ where
         let input = bincode::serialize(&input).expect("should serialize BridgeProofInput");
 
         // check if proof is valid
-        let _local_public_params = run_process_bridge_proof(&input, strata_bridge_state.clone())
-            .expect("failed to assert proof statements");
+        let _local_public_params = run_process_bridge_proof(
+            &input,
+            strata_bridge_state.clone(),
+            self.rollup_params.clone(),
+        )
+        .expect("failed to assert proof statements");
 
         let (proof, public_inputs, public_params) =
             prover::prove(&input, &strata_bridge_state).unwrap();

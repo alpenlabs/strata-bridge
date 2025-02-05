@@ -15,6 +15,8 @@ pub fn get_bitcoin_client() -> BitcoinClient {
         "http://127.0.0.1:18443".to_string(),
         "rpcuser".to_string(),
         "rpcpassword".to_string(),
+        None,
+        None,
     )
     .expect("failed to connect to the btc client")
 }

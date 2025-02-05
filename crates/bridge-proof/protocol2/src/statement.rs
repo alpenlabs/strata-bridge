@@ -70,8 +70,7 @@ pub(crate) fn process_bridge_proof(
 ) -> Result<(BridgeProofOutput, BatchCheckpoint), BridgeProofError> {
     // 1a. Extract checkpoint info.
     let (strata_checkpoint_tx, strata_checkpoint_idx) = &input.strata_checkpoint_tx;
-    let checkpoint =
-        extract_checkpoint(strata_checkpoint_tx.transaction(), &rollup_params.cred_rule)?;
+    let checkpoint = extract_checkpoint(strata_checkpoint_tx.transaction(), &rollup_params)?;
 
     // 1b. Verify that the checkpoint transaction is included in the provided header chain. Since
     // the checkpoint info relies on witness data, `expect_witness` must be `true`.
@@ -119,7 +118,7 @@ pub(crate) fn process_bridge_proof(
     // 3d. Ensure that the withdrawal information(operator, destination address and amount) matches
     // with the chain state withdrawal output.
     if operator_idx != dispatched_state.assignee()
-        || address != *withdrawal.dest_addr()
+        || address != *withdrawal.destination().to_script()
         // TODO: amount should be equal to entry.amt() - withdrawal_fee
         // withdrawal_fee will be part of the params
         || amount != entry.amt()
