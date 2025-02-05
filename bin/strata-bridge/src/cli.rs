@@ -38,6 +38,19 @@ pub(crate) struct Cli {
     #[clap(long, help = "Bitcoind password", env = "BTC_PASSWORD")]
     pub btc_pass: String,
 
+    #[clap(long, help = "Bitcoind password", env = "BTC_PASSWORD")]
+    pub btc_pass: String,
+
+    #[clap(long, help = "Bitcoind RPC Retry count", env = "BTC_RPC_RETRY_COUNT")]
+    pub btc_retry_count: Option<u8>,
+
+    #[clap(
+        long,
+        help = "Bitcoind RPC retry interval",
+        env = "BTC_RPC_RETRY_INTERVAL"
+    )]
+    pub btc_retry_interval: Option<u64>,
+
     #[clap(
         long,
         default_value = "1",
@@ -77,6 +90,13 @@ pub(crate) struct Cli {
         default_value = "xpriv.bin"
     )]
     pub xpriv_file: PathBuf,
+
+    #[clap(
+        long,
+        help = "The file containing RollupParams",
+        default_value = "rollup_params.json"
+    )]
+    pub rollup_params_file: PathBuf,
 
     #[clap(
         long,

@@ -138,9 +138,7 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
         process_bridge_proof(input, headers, rollup_params).expect("expect output");
 
     // Verify the strata checkpoint proof
-    let public_params_raw =
-        borsh::to_vec(&checkpoint.get_proof_output()).expect("borsh serialization must not fail");
-    zkvm.verify_groth16_proof(checkpoint.proof(), &rollup_vk.0, &public_params_raw);
+    zkvm.verify_groth16_receipt(&checkpoint.into_proof_receipt(), &rollup_vk.0);
 
     zkvm.commit_borsh(&output);
 }

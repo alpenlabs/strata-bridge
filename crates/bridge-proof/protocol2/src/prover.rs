@@ -10,6 +10,10 @@ impl ZkVmProver for BridgeProver {
 
     type Output = BridgeProofOutput;
 
+    fn name() -> String {
+        "Bridge Proof".to_string()
+    }
+
     fn proof_type() -> ProofType {
         zkaleido::ProofType::Groth16
     }

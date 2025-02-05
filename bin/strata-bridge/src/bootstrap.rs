@@ -53,6 +53,8 @@ pub(crate) async fn bootstrap(args: Cli) {
             args.btc_url.to_string(),
             args.btc_user.to_string(),
             args.btc_pass.to_string(),
+            args.btc_retry_count,
+            args.btc_retry_interval,
         )
         .expect("should be able to create bitcoin client"),
     );
@@ -142,6 +144,8 @@ pub(crate) async fn bootstrap(args: Cli) {
         &args.btc_url,
         &args.btc_user,
         &args.btc_pass,
+        &args.btc_retry_count,
+        &args.btc_retry_interval,
         &args.strata_url,
         args.strata_ws_timeout,
     )
@@ -228,6 +232,8 @@ pub(crate) async fn generate_operator_set(
             .as_str(),
             &args.btc_user,
             &args.btc_pass,
+            &args.btc_retry_count,
+            &args.btc_retry_interval,
             &args.strata_url,
             args.strata_ws_timeout,
         )
@@ -252,6 +258,11 @@ pub(crate) async fn generate_operator_set(
         .await;
         let operator_db = Arc::new(operator_db);
 
+        let json =
+            fs::read_to_string(args.rollup_params_file).expect("rollup params must be present");
+        let rollup_params: RollupParams =
+            serde_json::from_str(&json).expect("failed to parse rollup params file");
+
         let operator = Operator {
             agent,
             build_context,
@@ -261,6 +272,7 @@ pub(crate) async fn generate_operator_set(
             public_db: public_db.clone(),
             duty_db: duty_db.clone(),
             btc_poll_interval: args.btc_scan_interval,
+            rollup_params,
 
             duty_status_sender: duty_status_sender.clone(),
             deposit_signal_sender: deposit_signal_sender.clone(),

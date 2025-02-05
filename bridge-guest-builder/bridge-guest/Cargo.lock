@@ -2675,7 +2675,7 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido.git#6274649beee4738e66874d76dd17bd4c129bd16f"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc1#132da748d0789cd5799d5f949d017141926802e7"
 dependencies = [
  "arbitrary",
  "bincode",

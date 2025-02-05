@@ -1,0 +1,42 @@
+{
+    "rollup_name": "alpenstrata",
+    "block_time": 5000,
+    "cred_rule": {
+        "schnorr_key": "0x8a509a27b3160e5bca4e3a45de1a7d966d3751683900e8ea3b371af31d191699"
+    },
+    "horizon_l1_height": 50,
+    "genesis_l1_height": 100,
+    "operator_config": {
+        "static": [
+            {
+                "signing_pk": "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000",
+                "wallet_pk": "0xd678aa2ad5e4f2174025aa7f77cd43ee662ccd94499982d0c322a73d1ffecd79"
+            },
+            {
+                "signing_pk": "0x0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d",
+                "wallet_pk": "0x175cb26def00eaef40650c9d611be6750fb577a10ce1f8f85e2b28c346db89f6"
+            },
+            {
+                "signing_pk": "0x2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be",
+                "wallet_pk": "0x01a4a0e8d1ae4b10b8dc230d5c330e48940587998b94f76a5e2e73d1444d4afb"
+            }
+        ]
+    },
+    "evm_genesis_block_hash": "0xdebf7422deb9a84341da8cd64fcfc3867404b303920dc54d3f8444e48c168d43",
+    "evm_genesis_block_state_root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+    "l1_reorg_safe_depth": 6,
+    "target_l2_batch_size": 3,
+    "address_length": 20,
+    "deposit_amount": 1000000000,
+    "rollup_vk": {
+        "native": "0x0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "dispatch_assignment_dur": 1000000,
+    "proof_publish_mode": {
+        "timeout": 30
+    },
+    "max_deposits_in_block": 16,
+    "network": "regtest",
+    "da_tag": "strata-da",
+    "checkpoint_tag": "strata-ckpt"
+}
