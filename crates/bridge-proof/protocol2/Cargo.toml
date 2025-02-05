@@ -1,0 +1,29 @@
+[package]
+name = "strata-bridge-proof-protocol2"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.missing_docs = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rustdoc.all = "warn"
+
+[dependencies]
+strata-bridge-primitives.workspace = true
+strata-crypto.workspace = true
+strata-l1tx.workspace = true
+strata-primitives.workspace = true
+strata-proofimpl-btc-blockspace.workspace = true
+strata-state.workspace = true
+strata-zkvm.workspace = true
+
+bitcoin.workspace = true
+borsh.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+bincode.workspace = true
