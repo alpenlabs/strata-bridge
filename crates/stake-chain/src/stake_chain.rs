@@ -1,7 +1,7 @@
 //! The stake chain is a series of transactions that move the stake from a previous stake to a new
 //! stake.
 
-use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, Txid, XOnlyPublicKey};
 use strata_bridge_primitives::wots;
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
@@ -47,7 +47,7 @@ pub type StakeChain<const N: usize> = [StakeTx; N];
 /// 1. Stake amount.
 /// 2. Operator's public key.
 /// 3. N-of-N aggregated bridge public key.
-/// 4. `N`-length array of WOTS public keys.
+/// 4. WOTS master secret key.
 /// 5. `N`-length array of stake hashes.
 /// 6. `N`-length array of operator fund prevouts.
 /// 7. Original stake prevout.
@@ -79,8 +79,8 @@ pub struct StakeInputs<const N: usize> {
     /// N-of-N aggregated bridge public key.
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
-    /// WOTS public keys use for the bitcommitment scripts in [`ConnectorK`]s.
-    wots_public_keys: [wots::PublicKeys; N],
+    /// WOTS master secret key used for the bitcommitment scripts in [`ConnectorK`]s.
+    wots_master_sk: String,
 
     /// Hashes for the `stake_txs` locking scripts.
     stake_hashes: [sha256::Hash; N],
@@ -89,8 +89,11 @@ pub struct StakeInputs<const N: usize> {
     /// [`StakeChain`].
     operator_funds: [TxIn; N],
 
-    /// Output for the first stake transaction.
+    /// Prevout for the first stake transaction.
     original_stake: TxIn,
+
+    /// [`PreStakeTx`](crate::transactions::PreStakeTx)'s [`Txid`].
+    pre_stake_txid: Txid,
 
     /// `ΔS` relative timelock interval to advance the stake chain.
     // TODO: make this configurable with a fallback const like FINALITY_DEPTH to something like
@@ -109,12 +112,13 @@ impl<const N: usize> StakeInputs<N> {
     /// 1. Stake amount.
     /// 2. Operator's public key.
     /// 3. N-of-N aggregated bridge public key.
-    /// 4. `N`-length array of WOTS public keys.
+    /// 4. WOTS master secret key.
     /// 5. `N`-length array of stake hashes.
     /// 6. `N`-length array of operator fund prevouts.
     /// 7. Original stake prevout.
-    /// 8. `ΔS` relative timelock interval.
-    /// 9. Network.
+    /// 8. [`PreStakeTx`](crate::transactions::PreStakeTx)'s [`Txid`].
+    /// 9. `ΔS` relative timelock interval.
+    /// 10. Network.
     ///
     /// For an explanation of the parameters, see the documentation for [`StakeInputs`].
     #[expect(clippy::too_many_arguments)]
@@ -122,10 +126,11 @@ impl<const N: usize> StakeInputs<N> {
         amount: Amount,
         operator_pubkey: XOnlyPublicKey,
         n_of_n_agg_pubkey: XOnlyPublicKey,
-        wots_public_keys: [wots::PublicKeys; N],
+        wots_master_sk: String,
         stake_hashes: [sha256::Hash; N],
         operator_funds: [TxIn; N],
         original_stake: TxIn,
+        pre_stake_txid: Txid,
         delta: relative::LockTime,
         network: Network,
     ) -> Self {
@@ -133,10 +138,11 @@ impl<const N: usize> StakeInputs<N> {
             amount,
             operator_pubkey,
             n_of_n_agg_pubkey,
-            wots_public_keys,
+            wots_master_sk,
             stake_hashes,
             operator_funds,
             original_stake,
+            pre_stake_txid,
             delta,
             network,
         }
@@ -154,11 +160,8 @@ impl<const N: usize> StakeInputs<N> {
     where
         [(); N - M]:,
     {
-        let connector_k = ConnectorK::new(
-            self.n_of_n_agg_pubkey,
-            self.network,
-            self.wots_public_keys[0],
-        );
+        let wots_pubkeys = wots::PublicKeys::new(&self.wots_master_sk, self.pre_stake_txid);
+        let connector_k = ConnectorK::new(self.n_of_n_agg_pubkey, self.network, wots_pubkeys);
         let connector_p =
             ConnectorP::new(self.n_of_n_agg_pubkey, self.stake_hashes[0], self.network);
         let connector_s = ConnectorStake::new(
@@ -187,6 +190,8 @@ impl<const N: usize> StakeInputs<N> {
         // for-loop to generate the rest of the `StakeTx`s from the second
         for index in 1..M {
             let previous_stake_tx = stake_chain.get(index -1).expect("always valid since we are starting from 1 (we always have 0) and the length is checked at compile time");
+            let previous_stake_txid = previous_stake_tx.compute_txid();
+            let wots_pubkeys = wots::PublicKeys::new(&self.wots_master_sk, previous_stake_txid);
             let new_stake_tx = generate_new_stake_tx(
                 previous_stake_tx,
                 self.amount,
@@ -194,7 +199,7 @@ impl<const N: usize> StakeInputs<N> {
                 self.operator_funds[index].clone(),
                 self.operator_pubkey,
                 self.n_of_n_agg_pubkey,
-                self.wots_public_keys[index],
+                wots_pubkeys,
                 self.stake_hashes[index],
                 self.network,
             );
@@ -202,7 +207,7 @@ impl<const N: usize> StakeInputs<N> {
         }
         stake_chain
             .try_into()
-            .expect("infallible since we are aware that M < N (compile-time check")
+            .expect("infallible since we are aware that M < N (compile-time check)")
     }
 
     /// Stake amount.
