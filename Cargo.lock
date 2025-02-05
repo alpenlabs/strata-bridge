@@ -7738,9 +7738,9 @@ dependencies = [
 
 [[package]]
 name = "rkyv"
-version = "0.8.9"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b11a153aec4a6ab60795f8ebe2923c597b16b05bb1504377451e705ef1a45323"
+checksum = "1e147371c75553e1e2fcdb483944a8540b8438c31426279553b9a8182a9b7b65"
 dependencies = [
  "bytecheck",
  "bytes",
@@ -7757,9 +7757,9 @@ dependencies = [
 
 [[package]]
 name = "rkyv_derive"
-version = "0.8.9"
+version = "0.8.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "beb382a4d9f53bd5c0be86b10d8179c3f8a14c30bf774ff77096ed6581e35981"
+checksum = "246b40ac189af6c675d124b802e8ef6d5246c53e17367ce9501f8f66a81abb7a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8254,14 +8254,18 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "blake3",
- "musig2 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "musig2 0.1.0",
+ "parking_lot 0.12.3",
+ "rand",
  "rcgen",
+ "rkyv",
  "rustls-pemfile 2.2.0",
  "secret-service-proto",
  "secret-service-server",
  "serde",
  "sled",
  "strata-key-derivation",
+ "terrors",
  "tokio",
  "toml",
  "tracing",
@@ -8274,7 +8278,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "kanal",
- "musig2 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "musig2 0.1.0",
  "quinn",
  "rkyv",
  "secret-service-proto",
@@ -8288,7 +8292,7 @@ name = "secret-service-proto"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "musig2 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "musig2 0.1.0",
  "quinn",
  "rkyv",
 ]
@@ -8300,7 +8304,7 @@ dependencies = [
  "bitcoin",
  "futures",
  "kanal",
- "musig2 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "musig2 0.1.0",
  "parking_lot 0.12.3",
  "quinn",
  "rkyv",
