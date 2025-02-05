@@ -21,6 +21,7 @@ use strata_bridge_primitives::{
     types::PublickeyTable,
 };
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
+use strata_primitives::params::RollupParams;
 use strata_rpc::StrataApiClient;
 use tokio::{
     sync::{broadcast, mpsc},
@@ -144,8 +145,8 @@ pub(crate) async fn bootstrap(args: Cli) {
         &args.btc_url,
         &args.btc_user,
         &args.btc_pass,
-        &args.btc_retry_count,
-        &args.btc_retry_interval,
+        args.btc_retry_count,
+        args.btc_retry_interval,
         &args.strata_url,
         args.strata_ws_timeout,
     )
@@ -232,8 +233,8 @@ pub(crate) async fn generate_operator_set(
             .as_str(),
             &args.btc_user,
             &args.btc_pass,
-            &args.btc_retry_count,
-            &args.btc_retry_interval,
+            args.btc_retry_count,
+            args.btc_retry_interval,
             &args.strata_url,
             args.strata_ws_timeout,
         )
@@ -259,7 +260,7 @@ pub(crate) async fn generate_operator_set(
         let operator_db = Arc::new(operator_db);
 
         let json =
-            fs::read_to_string(args.rollup_params_file).expect("rollup params must be present");
+            fs::read_to_string(&args.rollup_params_file).expect("rollup params must be present");
         let rollup_params: RollupParams =
             serde_json::from_str(&json).expect("failed to parse rollup params file");
 

@@ -15,7 +15,7 @@ bitcoin.workspace = true
 borsh.workspace = true
 hex.workspace = true
 serde = { workspace = true, features = ["derive"] }
-sp1-verifier = { version = "4.0.0" }                # Note: On new SP1 version, this will be available via SDK
+sp1-verifier = { version = "4.0.0" }
 
 [dev-dependencies]
 bincode.workspace = true

@@ -38,9 +38,6 @@ pub(crate) struct Cli {
     #[clap(long, help = "Bitcoind password", env = "BTC_PASSWORD")]
     pub btc_pass: String,
 
-    #[clap(long, help = "Bitcoind password", env = "BTC_PASSWORD")]
-    pub btc_pass: String,
-
     #[clap(long, help = "Bitcoind RPC Retry count", env = "BTC_RPC_RETRY_COUNT")]
     pub btc_retry_count: Option<u8>,
 

@@ -19,6 +19,7 @@ strata-bridge-agent.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
+strata-primitives.workspace = true
 strata-rpc.workspace = true
 
 strata-btcio.workspace = true
@@ -32,6 +33,7 @@ clap.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 rand.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
+serde_json.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
 tracing.workspace = true

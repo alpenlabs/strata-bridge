@@ -28,6 +28,7 @@ pub struct Agent {
 }
 
 impl Agent {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         keypair: Keypair,
         btc_url: &str,

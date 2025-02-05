@@ -8,10 +8,6 @@ use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
 
 use crate::error::{BridgeProofError, BridgeRelatedTx};
 
-// TODO: maybe read this from params or somewhere.
-// NOTE: this should be a param
-pub(crate) const ROLLUP_NAME: &str = "alpenstrata";
-
 pub(crate) fn extract_checkpoint(
     tx: &Transaction,
     rollup_params: &RollupParams,
