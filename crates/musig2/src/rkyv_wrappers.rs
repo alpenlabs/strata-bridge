@@ -2,7 +2,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 use secp256k1::ffi::CPtr;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Archive, Serialize, Deserialize)]
-#[rkyv(remote = secp::Point)]
+#[rkyv(remote = secp::Point, derive(Hash, PartialEq, Eq))]
 pub struct Point {
     #[rkyv(getter = point_inner_getter, with = PublicKey)]
     inner: secp256k1::PublicKey,
@@ -29,7 +29,7 @@ impl From<secp::Point> for Point {
 #[derive(
     Copy, Clone, Debug, PartialOrd, Ord, PartialEq, Eq, Hash, Archive, Serialize, Deserialize,
 )]
-#[rkyv(remote = secp256k1::PublicKey)]
+#[rkyv(remote = secp256k1::PublicKey, derive(Hash, PartialEq, Eq))]
 pub struct PublicKey(
     #[rkyv(getter = public_key_getter, with = FFIPublicKey)] secp256k1::ffi::PublicKey,
 );
@@ -51,7 +51,7 @@ impl From<secp256k1::PublicKey> for PublicKey {
 }
 
 #[derive(Copy, Clone, Archive, Serialize, Deserialize)]
-#[rkyv(remote = secp256k1::ffi::PublicKey)]
+#[rkyv(remote = secp256k1::ffi::PublicKey, derive(Hash, PartialEq, Eq))]
 pub struct FFIPublicKey(#[rkyv(getter = ffi_public_key_getter)] [u8; 64]);
 
 fn ffi_public_key_getter(p: &secp256k1::ffi::PublicKey) -> [u8; 64] {

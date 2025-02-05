@@ -6,14 +6,18 @@ edition = "2021"
 [dependencies]
 bitcoin.workspace = true
 blake3.workspace = true
-musig2.workspace = true
+musig2 = { path = "../musig2" }
+parking_lot.workspace = true
+rand.workspace = true
 rcgen = "0.13.2"
+rkyv.workspace = true
 rustls-pemfile = "2.2.0"
 secret-service-proto = { version = "0.1.0", path = "../secret-service-proto" }
 secret-service-server = { version = "0.1.0", path = "../secret-service-server" }
 serde.workspace = true
 sled = "0.34.7"
 strata-key-derivation = { git = "https://github.com/alpenlabs/strata", version = "0.1.0" }
+terrors.workspace = true
 
 tokio.workspace = true
 toml = "0.8.19"

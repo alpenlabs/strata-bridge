@@ -13,7 +13,7 @@ use super::wire::ServerMessage;
 
 pub trait SecretServiceFactory<FirstRound, SecondRound>: Send + Clone
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + Clone,
     SecondRound: Musig2SignerSecondRound<Server>,
 {
     type Context: Send + Clone;
@@ -33,11 +33,13 @@ where
     type P2PSigner: P2PSigner<O>;
     type Musig2Signer: Musig2Signer<O, FirstRound>;
     type WotsSigner: WotsSigner<O>;
+    type StakeChain: StakeChainPreimages<O>;
 
     fn operator_signer(&self) -> Self::OperatorSigner;
     fn p2p_signer(&self) -> Self::P2PSigner;
     fn musig2_signer(&self) -> Self::Musig2Signer;
     fn wots_signer(&self) -> Self::WotsSigner;
+    fn stake_chain(&self) -> Self::StakeChain;
 }
 
 pub trait OperatorSigner<O: Origin>: Send {
@@ -63,7 +65,10 @@ pub trait P2PSigner<O: Origin>: Send {
 pub type Musig2SessionId = usize;
 
 pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
-    fn new_session(&self) -> impl Future<Output = O::Container<FirstRound>> + Send;
+    fn new_session(
+        &self,
+        public_keys: Vec<PublicKey>,
+    ) -> impl Future<Output = O::Container<FirstRound>> + Send;
 }
 
 pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {

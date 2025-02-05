@@ -7,7 +7,7 @@ edition = "2021"
 bitcoin.workspace = true
 futures.workspace = true
 kanal.workspace = true
-musig2.workspace = true
+musig2 = { path = "../musig2" }
 parking_lot.workspace = true
 quinn.workspace = true
 rkyv.workspace = true

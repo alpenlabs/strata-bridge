@@ -61,6 +61,10 @@ pub enum ServerMessage {
     WotsGetKey {
         key: [u8; 64],
     },
+
+    StakeChainGetPreimage {
+        preimg: [u8; 32],
+    },
 }
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -100,7 +104,9 @@ pub enum ClientMessage {
     },
     P2PPubkey,
 
-    Musig2NewSession,
+    Musig2NewSession {
+        public_keys: Vec<[u8; 33]>,
+    },
 
     Musig2FirstRoundOurNonce {
         session_id: usize,
@@ -144,5 +150,9 @@ pub enum ClientMessage {
 
     WotsGetKey {
         index: u64,
+    },
+
+    StakeChainGetPreimage {
+        deposit_idx: u64,
     },
 }

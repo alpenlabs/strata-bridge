@@ -21,7 +21,8 @@ use secret_service_proto::{
     v1::{
         traits::{
             Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
-            Musig2SignerSecondRound, OperatorSigner, Origin, P2PSigner, SecretService, WotsSigner,
+            Musig2SignerSecondRound, OperatorSigner, Origin, P2PSigner, SecretService,
+            StakeChainPreimages, WotsSigner,
         },
         wire::{ClientMessage, ServerMessage},
     },
@@ -96,6 +97,8 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
 
     type WotsSigner = WotsClient;
 
+    type StakeChain = StakeChainClient;
+
     fn operator_signer(&self) -> Self::OperatorSigner {
         OperatorClient {
             conn: self.conn.clone(),
@@ -123,8 +126,16 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
             config: self.config.clone(),
         }
     }
+
+    fn stake_chain(&self) -> Self::StakeChain {
+        StakeChainClient {
+            conn: self.conn.clone(),
+            config: self.config.clone(),
+        }
+    }
 }
 
+#[derive(Clone)]
 struct Musig2FirstRound {
     session_id: Musig2SessionId,
     connection: Connection,
@@ -398,9 +409,14 @@ struct Musig2Client {
 }
 
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
-    fn new_session(&self) -> impl Future<Output = Result<Musig2FirstRound, ClientError>> + Send {
+    fn new_session(
+        &self,
+        public_keys: Vec<PublicKey>,
+    ) -> impl Future<Output = Result<Musig2FirstRound, ClientError>> + Send {
         async move {
-            let msg = ClientMessage::Musig2NewSession;
+            let msg = ClientMessage::Musig2NewSession {
+                public_keys: public_keys.into_iter().map(|pk| pk.serialize()).collect(),
+            };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::Musig2NewSession { session_id } = res else {
                 return Err(ClientError::ProtocolError(res));
@@ -432,6 +448,27 @@ impl WotsSigner<Client> for WotsClient {
                 return Err(ClientError::ProtocolError(res));
             };
             Ok(key)
+        }
+    }
+}
+
+struct StakeChainClient {
+    conn: Connection,
+    config: Arc<Config>,
+}
+
+impl StakeChainPreimages<Client> for StakeChainClient {
+    fn get_preimg(
+        &self,
+        deposit_idx: u64,
+    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 32]>> + Send {
+        async move {
+            let msg = ClientMessage::StakeChainGetPreimage { deposit_idx };
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+            let ServerMessage::StakeChainGetPreimage { preimg } = res else {
+                return Err(ClientError::ProtocolError(res));
+            };
+            Ok(preimg)
         }
     }
 }

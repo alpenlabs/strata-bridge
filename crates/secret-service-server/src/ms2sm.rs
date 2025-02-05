@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, sync::Arc};
+use std::{mem::MaybeUninit, ptr, sync::Arc};
 
 use musig2::{errors::RoundFinalizeError, LiftedSignature};
 use secret_service_proto::v1::traits::{Musig2SignerFirstRound, Musig2SignerSecondRound, Server};
@@ -51,21 +51,51 @@ pub struct NotInCorrectRound {
 #[derive(Debug)]
 pub struct OtherReferencesActive;
 
+pub struct WritePermission<'a, T> {
+    slot: &'a mut MaybeUninit<Arc<T>>,
+    session_id: usize,
+    t: Arc<T>,
+}
+
+impl<T> WritePermission<'_, T> {
+    pub fn value(&self) -> &T {
+        &self.t
+    }
+
+    pub fn session_id(&self) -> usize {
+        self.session_id
+    }
+}
+
+impl<T> Drop for WritePermission<'_, T> {
+    fn drop(&mut self) {
+        self.slot.write(self.t.clone());
+    }
+}
+
 impl<FirstRound, SecondRound, const N: usize> Musig2SessionManager<FirstRound, SecondRound, N>
 where
     SecondRound: Musig2SignerSecondRound<Server>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
 {
-    pub fn new_session(&mut self, first_round: FirstRound) -> Option<usize> {
-        let next_empty = self.tracker.find_next_empty_slot()?;
-        if next_empty <= self.first_rounds.len() {
+    pub fn new_session(
+        &mut self,
+        first_round: FirstRound,
+    ) -> Result<WritePermission<FirstRound>, OutOfRange> {
+        let next_empty = self.tracker.find_next_empty_slot().ok_or(OutOfRange)?;
+        let slot = if next_empty <= self.first_rounds.len() {
             // we're replacing an existing session
-            self.first_rounds[next_empty] = MaybeUninit::new(first_round.into());
+            self.first_rounds.get_mut(next_empty).unwrap()
         } else {
             // we're not replacing any existing session, so we need to grow
-            self.first_rounds.push(MaybeUninit::new(first_round.into()));
-        }
-        return Some(next_empty);
+            self.first_rounds.push(MaybeUninit::uninit());
+            self.first_rounds.last_mut().unwrap()
+        };
+        Ok(WritePermission {
+            slot,
+            session_id: next_empty,
+            t: first_round.into(),
+        })
     }
 
     #[inline]
