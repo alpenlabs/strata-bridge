@@ -2,13 +2,13 @@
 
 use bitcoin::{
     absolute, secp256k1::SECP256K1, transaction, Address, Amount, FeeRate, Network, Psbt,
-    Transaction, TxIn, TxOut, XOnlyPublicKey,
+    Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
 use crate::{
-    prelude::{DUST_AMOUNT, OPERATOR_FUNDS},
+    prelude::{DUST_AMOUNT, OPERATOR_FUNDS, STAKE_VOUT},
     StakeChainError,
 };
 
@@ -72,6 +72,7 @@ impl StakeTx {
     pub fn new(
         index: u32,
         stake_input: TxIn,
+        stake_amount: Amount,
         operator_funds: TxIn,
         operator_pubkey: XOnlyPublicKey,
         connector_k: ConnectorK,
@@ -87,10 +88,9 @@ impl StakeTx {
         let outputs = vec![
             TxOut {
                 // The value is deducted 2 dust outputs, i.e. 2 * 330 sats.
-                value: OPERATOR_FUNDS.checked_sub(
-                    Amount::from_sat(2 * 330)
-                        .expect("must be able to subtract 2*330 sats from OPERATOR_FUNDS"),
-                ),
+                value: OPERATOR_FUNDS
+                    .checked_sub(Amount::from_sat(2 * 330))
+                    .expect("must be able to subtract 2*330 sats from OPERATOR_FUNDS"),
                 script_pubkey: connector_k.create_taproot_address().script_pubkey(),
             },
             TxOut {
@@ -117,7 +117,7 @@ impl StakeTx {
         };
 
         // The `ConnectorS` is the third output.
-        let stake_amount = transaction.output[2].value;
+        let stake_amount = transaction.output[STAKE_VOUT as usize].value;
 
         Self {
             index,
@@ -135,6 +135,16 @@ impl StakeTx {
     /// The transaction's outputs.
     pub fn outputs(&self) -> Vec<TxOut> {
         self.psbt.unsigned_tx.output.clone()
+    }
+
+    /// The transaction's [`Txid`].
+    ///
+    /// # Note
+    ///
+    /// Getting the txid from a [`Psbt`]'s `unsigned_tx` is fine IF it's SegWit since the signature
+    /// does not change the [`Txid`].
+    pub fn compute_txid(&self) -> Txid {
+        self.psbt.unsigned_tx.compute_txid()
     }
 
     /// The transaction's fee.

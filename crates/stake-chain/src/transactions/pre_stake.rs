@@ -1,6 +1,6 @@
 //! The [`PreStakeTx`] transaction is used to lock up a stake in the stake chain.
 
-use bitcoin::{absolute, transaction, Amount, FeeRate, Psbt, Transaction, TxIn, TxOut};
+use bitcoin::{absolute, transaction, Amount, FeeRate, Psbt, Transaction, TxIn, TxOut, Txid};
 use serde::{Deserialize, Serialize};
 
 use crate::StakeChainError;
@@ -53,6 +53,16 @@ impl PreStakeTx {
     /// The transaction's outputs.
     pub fn outputs(&self) -> Vec<TxOut> {
         self.psbt.unsigned_tx.output.clone()
+    }
+
+    /// The transaction's [`Txid`].
+    ///
+    /// # Note
+    ///
+    /// Getting the txid from a [`Psbt`]'s `unsigned_tx` is fine IF it's SegWit since the signature
+    /// does not change the [`Txid`].
+    pub fn compute_txid(&self) -> Txid {
+        self.psbt.unsigned_tx.compute_txid()
     }
 
     /// The transaction's fee.
