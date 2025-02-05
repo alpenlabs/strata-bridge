@@ -13,11 +13,19 @@ rust.missing_docs = "warn"
 rustdoc.all = "warn"
 
 [dependencies]
-bitcoin = { workspace = true, features = ["rand-std"] }
-serde.workspace = true
 strata-bridge-primitives.workspace = true
 # TODO: replace the `tx-graph` for the `connector` crate.
 strata-bridge-tx-graph.workspace = true
+
+bitcoin = { workspace = true, features = ["rand-std"] }
+serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+strata-bridge-test-utils.workspace = true
+strata-btcio.workspace = true
+strata-common.workspace = true
+
+corepc-node.workspace = true
+secp256k1.workspace = true
+tracing.workspace = true

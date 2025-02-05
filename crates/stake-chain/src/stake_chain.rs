@@ -325,3 +325,255 @@ fn generate_new_stake_tx(
         network,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{
+        absolute, consensus,
+        hashes::Hash,
+        sighash::{self, Prevouts, SighashCache},
+        taproot::LeafVersion,
+        transaction, Amount, BlockHash, OutPoint, TapLeafHash, Transaction, TxIn, TxOut, Witness,
+    };
+    use corepc_node::{serde_json::json, AddressType, Conf, Node};
+    use secp256k1::{Message, SECP256K1};
+    use strata_bridge_test_utils::prelude::generate_keypair;
+    use strata_btcio::rpc::types::{
+        CreateRawTransaction, CreateRawTransactionInput, PreviousTransactionOutput,
+        SignRawTransactionWithWallet,
+    };
+    use strata_common::logging::{self, LoggerConfig};
+    use tracing::{info, trace};
+
+    use super::*;
+    use crate::prelude::{PreStakeTx, DUST_AMOUNT, OPERATOR_FUNDS};
+
+    #[test]
+    fn stake_chain_advancement() {
+        logging::init(LoggerConfig::new("stake_chain_advancement".to_string()));
+
+        // Setup Bitcoin node
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
+        let btc_client = &bitcoind.client;
+
+        // Get network
+        let network = btc_client
+            .get_blockchain_info()
+            .expect("must get blockchain info")
+            .chain;
+        let network = network.parse::<Network>().expect("network must be valid");
+
+        // Mine until maturity
+        let funded_address = btc_client.new_address().unwrap();
+        let change_address = btc_client.new_address().unwrap();
+        let coinbase_block = btc_client
+            .generate_to_address(101, &funded_address)
+            .expect("must be able to generate blocks")
+            .0
+            .first()
+            .expect("must be able to get the blocks")
+            .parse::<BlockHash>()
+            .expect("must parse");
+        let coinbase_txid = btc_client
+            .get_block(coinbase_block)
+            .expect("must be able to get coinbase block")
+            .coinbase()
+            .expect("must be able to get the coinbase transaction")
+            .compute_txid();
+
+        // Generate keys
+        let n_of_n_keypair = generate_keypair();
+        let operator_keypair = generate_keypair();
+        let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
+        let operator_pubkey = operator_keypair.x_only_public_key().0;
+
+        // Generate stake preimage
+        let stake_preimage = [1; 32];
+        let stake_hash = sha256::Hash::hash(&stake_preimage);
+
+        // Create relative timelock (e.g., 6 blocks)
+        let delta = relative::LockTime::from_height(6);
+
+        // Create PreStakeTx
+        let pre_stake_address = btc_client
+            .new_address_with_type(AddressType::Bech32m)
+            .unwrap();
+        let funding_input = OutPoint {
+            txid: coinbase_txid,
+            vout: 0,
+        };
+        let coinbase_amount = Amount::from_btc(50.0).expect("must be valid amount");
+        let stake_amount = Amount::from_btc(25.0).expect("must be a valid amount");
+        let fees = Amount::from_sat(1_000);
+
+        let inputs = vec![TxIn {
+            previous_output: funding_input,
+            ..Default::default()
+        }];
+        // 3 OPERATOR_FUNDS outputs
+        let operator_funds_addresses = [
+            btc_client
+                .new_address_with_type(AddressType::Bech32m)
+                .unwrap(),
+            btc_client
+                .new_address_with_type(AddressType::Bech32m)
+                .unwrap(),
+            btc_client
+                .new_address_with_type(AddressType::Bech32m)
+                .unwrap(),
+        ];
+        let outputs = vec![
+            TxOut {
+                value: stake_amount,
+                script_pubkey: pre_stake_address.script_pubkey(),
+            },
+            TxOut {
+                value: OPERATOR_FUNDS,
+                script_pubkey: operator_funds_addresses[0].script_pubkey(),
+            },
+            TxOut {
+                value: OPERATOR_FUNDS,
+                script_pubkey: operator_funds_addresses[1].script_pubkey(),
+            },
+            TxOut {
+                value: OPERATOR_FUNDS,
+                script_pubkey: operator_funds_addresses[2].script_pubkey(),
+            },
+            TxOut {
+                value: coinbase_amount
+                    - stake_amount
+                    - fees
+                    - OPERATOR_FUNDS
+                    - OPERATOR_FUNDS
+                    - OPERATOR_FUNDS,
+                script_pubkey: change_address.script_pubkey(),
+            },
+        ];
+        let pre_stake_tx = PreStakeTx::new(inputs, outputs).psbt.unsigned_tx;
+        let pre_stake_txid = pre_stake_tx.compute_txid();
+        // Sign the transaction
+        let signed_pre_stake_tx = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(consensus::encode::serialize_hex(&&pre_stake_tx))],
+            )
+            .expect("must be able to sign transaction");
+
+        assert!(signed_pre_stake_tx.complete);
+        let signed_funding_tx =
+            consensus::encode::deserialize_hex(&signed_pre_stake_tx.hex).expect("must deserialize");
+
+        // Broadcast the PreStakeTx
+        let funding_txid = btc_client
+            .send_raw_transaction(&signed_funding_tx)
+            .expect("must be able to broadcast transaction")
+            .txid()
+            .expect("must have txid");
+
+        info!(%funding_txid, "PreStakeTx broadcasted");
+
+        // Mine the PreStakeTx
+        let _ = btc_client
+            .generate_to_address(1, &funded_address)
+            .expect("must be able to generate blocks");
+
+        // Create a StakeChain with 3 inputs
+        let wots_master_sk = "test-stake-chain";
+        let stake_preimages = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let stake_hashes = [
+            sha256::Hash::hash(&stake_preimages[0]),
+            sha256::Hash::hash(&stake_preimages[1]),
+            sha256::Hash::hash(&stake_preimages[2]),
+        ];
+        let operator_funds = [
+            TxIn {
+                previous_output: OutPoint {
+                    txid: funding_txid,
+                    vout: 1,
+                },
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: funding_txid,
+                    vout: 2,
+                },
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: funding_txid,
+                    vout: 3,
+                },
+                ..Default::default()
+            },
+        ];
+        let original_stake = TxIn {
+            previous_output: OutPoint {
+                txid: pre_stake_txid,
+                vout: 0,
+            },
+            ..Default::default()
+        };
+        let stake_inputs = StakeInputs::new(
+            stake_amount,
+            operator_pubkey,
+            n_of_n_pubkey,
+            wots_master_sk.to_string(),
+            stake_hashes,
+            operator_funds,
+            original_stake,
+            pre_stake_txid,
+            delta,
+            network,
+        );
+        let stake_chain: [StakeTx; 3] = stake_inputs.to_stake_chain();
+
+        // Sign and broadcast the first StakeTx
+        let stake_chain_0_tx = stake_chain[0].psbt.unsigned_tx.clone();
+        let stake_chain_0_txid = stake_chain_0_tx.compute_txid();
+        // Sign the transaction
+        let signed_stake_chain_0_tx = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(consensus::encode::serialize_hex(&&stake_chain_0_tx))],
+            )
+            .expect("must be able to sign transaction");
+
+        assert!(signed_stake_chain_0_tx.complete);
+        let signed_stake_chain_0_tx =
+            consensus::encode::deserialize_hex(&signed_stake_chain_0_tx.hex)
+                .expect("must deserialize");
+
+        // Get the CPFP for StakeTx 0
+        let cpfp_vout = 3; // 4th output in StakeTx
+        let cpfp_txid = stake_chain_0_txid;
+        let cpfp_spk = stake_chain_0_tx.output[cpfp_vout].script_pubkey.clone();
+
+        // Needed for 1P1C TRUC relay
+        let prev_outputs_1p1c = PreviousTransactionOutput {
+            txid: cpfp_txid,
+            vout: cpfp_vout,
+            script_pubkey: cpfp_spk,
+            redeem_script: None,
+            witness_script: None,
+            amount: Some(DUST_AMOUNT),
+        };
+
+        // Broadcast the PreStakeTx
+        let stake_chain_0_txid = btc_client
+            .send_raw_transaction(&signed_funding_tx)
+            .expect("must be able to broadcast transaction")
+            .txid()
+            .expect("must have txid");
+
+        info!(%stake_chain_0_txid, "StakeTx 0 broadcasted");
+
+        // Mine the StakeTx
+        let _ = btc_client
+            .generate_to_address((delta.to_consensus_u32() as usize) + 1, &funded_address)
+            .expect("must be able to generate blocks");
+    }
+}
