@@ -2,6 +2,7 @@ pub mod bool_arr;
 pub mod ms2sm;
 
 use std::{
+    fmt::Debug,
     future::Future,
     io,
     marker::Sync,
@@ -23,8 +24,8 @@ use rkyv::rancor::Error;
 use secret_service_proto::{
     v1::{
         traits::{
-            Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, OperatorSigner,
-            P2PSigner, SecretService, Server, WotsSigner,
+            Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound,
+            OperatorSigner, P2PSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
         },
         wire::{ArchivedClientMessage, ServerMessage},
     },
@@ -60,9 +61,11 @@ pub fn run_server<FirstRound, SecondRound, Service>(
     service: Arc<Service>,
 ) -> Result<ServerHandle, OneOf<(NoInitialCipherSuite, io::Error)>>
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
-    SecondRound: Musig2SignerSecondRound<Server> + 'static,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static + RoundPersister,
+    SecondRound: Musig2SignerSecondRound<Server> + 'static + RoundPersister,
     Service: SecretService<Server, FirstRound, SecondRound> + Sync + 'static,
+    <Service as SecretService<Server, FirstRound, SecondRound>>::Musig2Signer:
+        Musig2RoundRecovery<FirstRound, SecondRound>,
 {
     let quic_server_config = ServerConfig::with_crypto(Arc::new(
         QuicServerConfig::try_from(c.tls_config).map_err(OneOf::new)?,
@@ -97,9 +100,11 @@ async fn conn_handler<FirstRound, SecondRound, Service>(
     service: Arc<Service>,
     musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
 ) where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
-    SecondRound: Musig2SignerSecondRound<Server> + 'static,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static + RoundPersister,
+    SecondRound: Musig2SignerSecondRound<Server> + 'static + RoundPersister,
     Service: SecretService<Server, FirstRound, SecondRound> + Sync + 'static,
+    <Service as SecretService<Server, FirstRound, SecondRound>>::Musig2Signer:
+        Musig2RoundRecovery<FirstRound, SecondRound>,
 {
     let conn = match incoming.await {
         Ok(conn) => conn,
@@ -172,9 +177,11 @@ async fn request_handler<Service, FirstRound, SecondRound>(
     musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
 ) -> Result<ServerMessage, ReadExactError>
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
-    SecondRound: Musig2SignerSecondRound<Server>,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + RoundPersister,
+    SecondRound: Musig2SignerSecondRound<Server> + RoundPersister,
     Service: SecretService<Server, FirstRound, SecondRound>,
+    <Service as SecretService<Server, FirstRound, SecondRound>>::Musig2Signer:
+        Musig2RoundRecovery<FirstRound, SecondRound>,
 {
     let len_to_read = {
         let mut buf = [0; size_of::<LengthUint>()];
@@ -207,11 +214,35 @@ where
                 ServerMessage::P2PPubkey { pubkey }
             }
 
-            ArchivedClientMessage::Musig2NewSession => {
-                let first_round = service.musig2_signer().new_session().await;
-                match musig2_sm.lock().await.new_session(first_round) {
-                    Some(session_id) => ServerMessage::Musig2NewSession { session_id },
-                    None => ServerMessage::OpaqueServerError,
+            ArchivedClientMessage::Musig2NewSession { public_keys } => 'block: {
+                let signer = service.musig2_signer();
+                let public_keys: Result<Vec<_>, _> = public_keys
+                    .iter()
+                    .map(AsRef::<[u8]>::as_ref)
+                    .map(PublicKey::from_slice)
+                    .collect();
+
+                let Ok(mut public_keys) = public_keys else {
+                    break 'block ServerMessage::InvalidClientMessage;
+                };
+
+                // enforce sorting at the protocol level
+                public_keys.sort();
+
+                let first_round = signer.new_session(public_keys).await;
+                let mut sm = musig2_sm.lock().await;
+
+                let Ok(write_perm) = sm.new_session(first_round) else {
+                    break 'block ServerMessage::OpaqueServerError;
+                };
+
+                if let Err(e) = write_perm.value().persist(write_perm.session_id()).await {
+                    error!("failed to persist first round: {e:?}");
+                    break 'block ServerMessage::OpaqueServerError;
+                }
+
+                ServerMessage::Musig2NewSession {
+                    session_id: write_perm.session_id(),
                 }
             }
             ArchivedClientMessage::Musig2FirstRoundOurNonce { session_id } => {
@@ -395,6 +426,32 @@ where
                 let key = service.wots_signer().get_key(index.into()).await;
                 ServerMessage::WotsGetKey { key }
             }
+
+            ArchivedClientMessage::StakeChainGetPreimage { deposit_idx } => {
+                let preimg = service.stake_chain().get_preimg(deposit_idx.into()).await;
+                ServerMessage::StakeChainGetPreimage { preimg }
+            }
         },
     })
+}
+
+pub trait RoundPersister {
+    type Error: Debug;
+
+    fn persist(
+        &self,
+        session_id: Musig2SessionId,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+}
+
+pub trait Musig2RoundRecovery<FirstRound, SecondRound> {
+    type Error: Debug;
+
+    fn load_first_rounds(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(Musig2SessionId, FirstRound)>, Self::Error>> + Send;
+
+    fn load_second_rounds(
+        &self,
+    ) -> impl Future<Output = Result<Vec<(Musig2SessionId, SecondRound)>, Self::Error>> + Send;
 }

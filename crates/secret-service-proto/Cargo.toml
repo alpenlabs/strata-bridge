@@ -5,6 +5,6 @@ edition = "2021"
 
 [dependencies]
 bitcoin.workspace = true
-musig2.workspace = true
+musig2 = { path = "../musig2" }
 quinn.workspace = true
 rkyv.workspace = true
