@@ -12,28 +12,12 @@ rust.unused_must_use = "deny"
 rust.missing_docs = "warn"
 rustdoc.all = "warn"
 
-# TODO: remove the commented out (dev-)dependencies before the PR is merged.
 [dependencies]
-# bincode.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
-# bitcoin-script = { workspace = true }
-# bitvm = { workspace = true }
-# lazy_static.workspace = true
-# secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
-# strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
-# strata-bridge-proof-snark.workspace = true
 # TODO: replace the `tx-graph` for the `connector` crate.
 strata-bridge-tx-graph.workspace = true
 thiserror.workspace = true
-# tracing.workspace = true
 
 [dev-dependencies]
-# strata-bridge-test-utils.workspace = true
-# strata-btcio.workspace = true
-# strata-common.workspace = true
-
-# corepc-node.workspace = true
-# rkyv.workspace = true
-# tokio.workspace = true
