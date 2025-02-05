@@ -12,6 +12,9 @@ pub mod connector_c0;
 pub mod connector_c1;
 pub mod connector_cpfp;
 pub mod connector_k;
+pub mod connector_p;
 pub mod connector_s;
 pub mod connectors_a;
+pub mod witness_data;
+
 pub mod prelude;
