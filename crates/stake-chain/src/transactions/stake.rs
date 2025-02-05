@@ -20,8 +20,8 @@ use crate::{
 ///
 /// Inputs must be ordered in the following way:
 ///
-/// 1. The [`OPERATOR_FUNDS`](crate::transactions::constants::OPERATOR_FUNDS) input that will cover
-///    all the dust outputs for the current stake transaction.
+/// 1. The [`OPERATOR_FUNDS`] input that will cover all the dust outputs for the current stake
+///    transaction.
 /// 2. The stake amount from the previous [`StakeTx`] transaction.
 ///
 /// # Output order
