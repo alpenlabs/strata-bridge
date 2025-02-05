@@ -110,7 +110,7 @@ impl StakeTx {
             },
         ];
         let transaction = Transaction {
-            version: transaction::Version(2),
+            version: transaction::Version(3), // needed for 1P1C TRUC relay
             lock_time: absolute::LockTime::ZERO,
             input: inputs,
             output: outputs,
