@@ -1,11 +1,21 @@
 //! The [`StakeTx`] transaction is used to move stake across transactions.
 
 use bitcoin::{
-    absolute, secp256k1::SECP256K1, transaction, Address, Amount, FeeRate, Network, Psbt,
-    Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+    absolute,
+    hashes::{sha256, Hash},
+    key::Keypair,
+    relative,
+    secp256k1::SECP256K1,
+    sighash::{self, Prevouts, SighashCache},
+    taproot::LeafVersion,
+    transaction, Address, Amount, FeeRate, Network, Psbt, TapLeafHash, Transaction, TxIn, TxOut,
+    Txid, XOnlyPublicKey,
 };
+use secp256k1::Message;
 use serde::{Deserialize, Serialize};
+use strata_bridge_primitives::scripts::taproot::finalize_input;
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
+use tracing::trace;
 
 use crate::{
     prelude::{DUST_AMOUNT, OPERATOR_FUNDS},
@@ -160,5 +170,88 @@ impl StakeTx {
         Ok(FeeRate::from_sat_per_vb_unchecked(
             fee.to_sat() / vsize as u64,
         ))
+    }
+
+    /// Adds the preimage and signature for the previous [`StakeTx`] transaction is an input to the
+    /// current [`StakeTx`] transaction.
+    ///
+    /// This is used to advance a [`StakeChain`](crate::StakeChain) by revealing the preimage.
+    ///
+    /// # Implementation Details
+    ///
+    /// Under the hood, it spents the underlying [`ConnectorStake`] from the previous [`StakeTx`].
+    #[expect(clippy::too_many_arguments)]
+    pub fn finalize_connector_s(
+        &mut self,
+        stake_amount: Amount,
+        operator_funds: TxOut,
+        preimage: &[u8; 32],
+        keypair: &Keypair,
+        n_of_n_agg_pubkey: XOnlyPublicKey,
+        delta: relative::LockTime,
+        network: Network,
+    ) {
+        // Regenerate the Connector s.
+        let stake_hash = sha256::Hash::hash(preimage);
+        let operator_pubkey = keypair.public_key().x_only_public_key().0;
+        let connector_s = ConnectorStake::new(
+            n_of_n_agg_pubkey,
+            operator_pubkey,
+            stake_hash,
+            delta,
+            network,
+        );
+        let unsigned_tx = self.psbt.unsigned_tx.clone();
+        let taproot_script = connector_s.generate_address().script_pubkey();
+
+        // Create sighash for the spending transaction
+        let mut sighash_cache = SighashCache::new(&unsigned_tx);
+        let sighash_type = sighash::TapSighashType::Default;
+        // Create the prevouts
+        let prevouts = [
+            operator_funds,
+            TxOut {
+                value: stake_amount,
+                script_pubkey: taproot_script,
+            },
+        ];
+        let prevouts = Prevouts::All(&prevouts);
+
+        // Create the locking script
+        let locking_script = connector_s.generate_script();
+
+        // Get taproot spend info
+        let (_, control_block) = connector_s.generate_spend_info();
+
+        let leaf_hash =
+            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
+        let sighash = sighash_cache
+            .taproot_script_spend_signature_hash(0, &prevouts, leaf_hash, sighash_type)
+            .expect("must create sighash");
+
+        let message =
+            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
+
+        // Sign the transaction with operator key
+        let signature = SECP256K1.sign_schnorr(&message, keypair);
+        trace!(%signature, "Signature");
+
+        // Need to change the inputs
+        finalize_input(
+            self.psbt
+                .inputs
+                .first_mut()
+                .expect("must have second input"),
+            [signature.serialize().to_vec()],
+        );
+        finalize_input(
+            self.psbt.inputs.get_mut(1).expect("must have second input"),
+            [
+                preimage.to_vec(),
+                signature.serialize().to_vec(),
+                locking_script.to_bytes(),
+                control_block.serialize(),
+            ],
+        );
     }
 }

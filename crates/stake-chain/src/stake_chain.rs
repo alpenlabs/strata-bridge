@@ -462,7 +462,7 @@ mod tests {
                 script_pubkey: change_address.script_pubkey(),
             },
         ];
-        let pre_stake_tx = PreStakeTx::new(inputs, outputs).psbt.unsigned_tx;
+        let pre_stake_tx = PreStakeTx::new(inputs, outputs.clone()).psbt.unsigned_tx;
         let pre_stake_txid = pre_stake_tx.compute_txid();
         // Sign the transaction
         let signed_pre_stake_tx = btc_client
@@ -563,7 +563,7 @@ mod tests {
             consensus::encode::deserialize_hex(&signed_stake_chain_0_tx.hex)
                 .expect("must deserialize");
 
-        // Broadcast the PreStakeTx
+        // Broadcast the StakeTx
         let stake_chain_0_txid = btc_client
             .send_raw_transaction(&signed_stake_chain_0_tx)
             .expect("must be able to broadcast transaction")
@@ -577,5 +577,32 @@ mod tests {
             .generate_to_address((delta.to_consensus_u32() as usize) + 1, &funded_address)
             .expect("must be able to generate blocks");
         info!(%delta, %stake_chain_0_txid, "StakeTx 0 mined and blockchain advanced to spendable delta relative timelock");
+
+        // Sign and broadcast the second StakeTx
+        // Sign the connector s from the StakeTx (under the hood changes the PSBT)
+        let mut stake_tx = stake_chain[1].clone();
+        stake_tx.finalize_connector_s(
+            stake_amount,
+            outputs[1].clone(),
+            &stake_preimages[0],
+            &operator_keypair,
+            n_of_n_pubkey,
+            delta,
+            network,
+        );
+
+        let stake_chain_1_tx = stake_tx.psbt.extract_tx().unwrap();
+        trace!(?stake_chain_1_tx, "StakeTx 1"); // FIXME: delete me!
+        let stake_chain_1_txid = stake_chain_1_tx.compute_txid();
+        info!(%stake_chain_1_txid, "StakeTx 1 txid created (signed)");
+
+        // Broadcast the StakeTx
+        let stake_chain_1_txid = btc_client
+            .send_raw_transaction(&stake_chain_1_tx)
+            .expect("must be able to broadcast transaction")
+            .txid()
+            .expect("must have txid");
+
+        info!(%stake_chain_1_txid, "StakeTx 1 broadcasted");
     }
 }
