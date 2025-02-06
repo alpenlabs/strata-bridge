@@ -212,7 +212,7 @@ impl StrataBridgeState {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, str::FromStr};
+    use std::{fs, path::Path, str::FromStr};
 
     use bitcoin::{Block, Txid};
     use strata_primitives::params::RollupParams;
@@ -239,7 +239,7 @@ mod tests {
     }
 
     mod data {
-        use std::fs;
+        use std::{fs, path::Path};
 
         use bitcoin::Transaction;
         use borsh::BorshDeserialize;
@@ -419,7 +419,9 @@ mod tests {
         }
 
         pub fn checkpoint_last_verified_l1_height(tx: &Transaction) -> Option<u32> {
-            let json = fs::read_to_string("../../../../test-data/rollup_params.json").unwrap();
+            let manifest_dir = env!("CARGO_MANIFEST_DIR");
+            let json_path = Path::new(manifest_dir).join("../../../test-data/rollup_params.json");
+            let json = fs::read_to_string(json_path).expect("rollup params file not found");
             let rollup_params: RollupParams = serde_json::from_str(&json).unwrap();
             if let Some(script) = tx.input[0].witness.tapscript() {
                 if let Ok(payloads) = parse_envelope_payloads(&script.into(), &rollup_params) {
@@ -438,9 +440,12 @@ mod tests {
     #[test]
     fn test_dump_proof_inputs() {
         let blocks_bytes = include_bytes!("../../../../test-data/blocks.bin");
-        let blocks: Vec<Block> = bincode::deserialize(blocks_bytes).unwrap();
+        let blocks: Vec<Block> =
+            bincode::deserialize(blocks_bytes).expect("failed Block deserialization");
 
-        let json = fs::read_to_string("../../../../test-data/rollup_params.json").unwrap();
+        let manifest_dir = env!("CARGO_MANIFEST_DIR");
+        let json_path = Path::new(manifest_dir).join("../../../test-data/rollup_params.json");
+        let json = fs::read_to_string(json_path).expect("rollup params file not found");
         let rollup_params: RollupParams = serde_json::from_str(&json).unwrap();
         rollup_params.check_well_formed().unwrap();
 
