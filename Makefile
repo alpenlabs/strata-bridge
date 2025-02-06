@@ -202,6 +202,7 @@ run:
 		--wallet-prefix bridge \
 		--fault-tolerance 100 \
 		--duty-interval 120000 \
+		--rollup-params-file test-data/rollup_params.json \
 		--num-threads 4 \
 		--stack-size 512 \
 		--xpriv-file .secrets/xprivs.bin \
