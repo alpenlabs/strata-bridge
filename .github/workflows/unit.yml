@@ -59,6 +59,12 @@ jobs:
         with:
           tool: nextest
 
+      - name: Install SP1 Toolchain
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash && ~/.sp1/bin/sp1up
+          export PATH=~/.sp1/bin:$PATH
+          cargo prove --version
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2
         with:
