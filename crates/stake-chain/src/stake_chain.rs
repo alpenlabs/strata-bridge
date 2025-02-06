@@ -4,7 +4,7 @@
 use std::ops::{Deref, DerefMut};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, Txid, XOnlyPublicKey};
-use strata_bridge_primitives::wots;
+use strata_bridge_primitives::{scripts::prelude::get_deposit_master_secret_key, wots};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
 use crate::prelude::{StakeTx, STAKE_VOUT};
@@ -41,12 +41,15 @@ impl<const M: usize> StakeChain<M> {
     where
         [(); N - M]:,
     {
-        let wots_pubkeys =
-            wots::PublicKeys::new(&stake_inputs.wots_master_sk, stake_inputs.pre_stake_txid);
+        let wots_sk = get_deposit_master_secret_key(
+            &stake_inputs.wots_master_sk,
+            stake_inputs.pre_stake_txid,
+        );
+        let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
         let connector_k = ConnectorK::new(
             stake_inputs.n_of_n_agg_pubkey,
             stake_inputs.network,
-            wots_pubkeys,
+            wots_pubkey,
         );
         let connector_p = ConnectorP::new(
             stake_inputs.n_of_n_agg_pubkey,
@@ -80,8 +83,9 @@ impl<const M: usize> StakeChain<M> {
         for index in 1..M {
             let previous_stake_tx = stake_chain.get(index -1).expect("always valid since we are starting from 1 (we always have 0) and the length is checked at compile time");
             let previous_stake_txid = previous_stake_tx.compute_txid();
-            let wots_pubkeys =
-                wots::PublicKeys::new(&stake_inputs.wots_master_sk, previous_stake_txid);
+            let wots_sk =
+                get_deposit_master_secret_key(&stake_inputs.wots_master_sk, previous_stake_txid);
+            let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
             let new_stake_tx = generate_new_stake_tx(
                 previous_stake_tx,
                 stake_inputs.amount,
@@ -89,7 +93,7 @@ impl<const M: usize> StakeChain<M> {
                 stake_inputs.operator_funds[index].clone(),
                 stake_inputs.operator_pubkey,
                 stake_inputs.n_of_n_agg_pubkey,
-                wots_pubkeys,
+                wots_pubkey,
                 stake_inputs.stake_hashes[index],
                 stake_inputs.network,
             );
@@ -303,7 +307,7 @@ fn generate_new_stake_tx(
     operator_funds: TxIn,
     operator_pubkey: XOnlyPublicKey,
     n_of_n_agg_pubkey: XOnlyPublicKey,
-    wots_public_keys: wots::PublicKeys,
+    wots_public_key: wots::Wots256PublicKey,
     stake_hash: sha256::Hash,
     network: Network,
 ) -> StakeTx {
@@ -320,7 +324,7 @@ fn generate_new_stake_tx(
     };
 
     // Connectors.
-    let connector_k = ConnectorK::new(n_of_n_agg_pubkey, network, wots_public_keys);
+    let connector_k = ConnectorK::new(n_of_n_agg_pubkey, network, wots_public_key);
     let connector_p = ConnectorP::new(n_of_n_agg_pubkey, stake_hash, network);
     let connector_s = ConnectorStake::new(
         n_of_n_agg_pubkey,

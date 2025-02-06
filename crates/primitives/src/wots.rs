@@ -16,6 +16,15 @@ use crate::scripts::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256PublicKey(pub wots256::PublicKey);
 
+impl Wots256PublicKey {
+    /// Creates a new 256-bit WOTS public key from a secret key string.
+    pub fn new(sk: &str) -> Self {
+        Self(wots256::generate_public_key(
+            &secret_key_for_bridge_out_txid(sk),
+        ))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots160PublicKey(pub wots160::PublicKey);
 
