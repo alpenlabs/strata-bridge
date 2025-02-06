@@ -35,6 +35,9 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Cleanup space
+        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
       - name: Install bitcoind
         env:
           BITCOIND_VERSION: "28.0"
