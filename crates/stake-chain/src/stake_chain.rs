@@ -30,15 +30,6 @@ use crate::prelude::{StakeTx, STAKE_VOUT};
 ///
 /// The stake chain can be advanced forward by revealing a preimage to a locking script that is
 /// also relative timelocked to a certain `ΔS` interval.
-///
-/// # Construction
-///
-/// [`StakeChain`]s can be constructed by first creating a [`StakeInputs`] of length `N` and then
-/// calling [`StakeInputs::<M>::to_stake_chain`](StakeInputs::to_stake_chain), where `M < N`
-/// (compile-time check).
-///
-/// The user can also coerce a [`Vec<StakeTx>`] into a `[StakeChain; N]`, but it does not offer the
-/// same compile-time guarantees as the previous method.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeChain<const M: usize>([StakeTx; M]);
 
@@ -50,7 +41,65 @@ impl<const M: usize> StakeChain<M> {
     where
         [(); N - M]:,
     {
-        stake_inputs.to_stake_chain::<M>()
+        let wots_pubkeys =
+            wots::PublicKeys::new(&stake_inputs.wots_master_sk, stake_inputs.pre_stake_txid);
+        let connector_k = ConnectorK::new(
+            stake_inputs.n_of_n_agg_pubkey,
+            stake_inputs.network,
+            wots_pubkeys,
+        );
+        let connector_p = ConnectorP::new(
+            stake_inputs.n_of_n_agg_pubkey,
+            stake_inputs.stake_hashes[0],
+            stake_inputs.network,
+        );
+        let connector_s = ConnectorStake::new(
+            stake_inputs.n_of_n_agg_pubkey,
+            stake_inputs.operator_pubkey,
+            stake_inputs.stake_hashes[0],
+            stake_inputs.delta,
+            stake_inputs.network,
+        );
+        let first_stake_tx = StakeTx::new(
+            0,
+            stake_inputs.original_stake.clone(),
+            stake_inputs.amount,
+            stake_inputs.operator_funds[0].clone(),
+            stake_inputs.operator_pubkey,
+            connector_k,
+            connector_p,
+            connector_s,
+            stake_inputs.network,
+        );
+
+        // Instantiate a vector with the length `M`.
+        let mut stake_chain = Vec::with_capacity(M);
+        stake_chain.push(first_stake_tx);
+
+        // for-loop to generate the rest of the `StakeTx`s from the second
+        for index in 1..M {
+            let previous_stake_tx = stake_chain.get(index -1).expect("always valid since we are starting from 1 (we always have 0) and the length is checked at compile time");
+            let previous_stake_txid = previous_stake_tx.compute_txid();
+            let wots_pubkeys =
+                wots::PublicKeys::new(&stake_inputs.wots_master_sk, previous_stake_txid);
+            let new_stake_tx = generate_new_stake_tx(
+                previous_stake_tx,
+                stake_inputs.amount,
+                stake_inputs.delta,
+                stake_inputs.operator_funds[index].clone(),
+                stake_inputs.operator_pubkey,
+                stake_inputs.n_of_n_agg_pubkey,
+                wots_pubkeys,
+                stake_inputs.stake_hashes[index],
+                stake_inputs.network,
+            );
+            stake_chain.push(new_stake_tx);
+        }
+
+        let arr: [StakeTx; M] = stake_chain
+            .try_into()
+            .expect("stake inputs did not contain exactly M transactions");
+        StakeChain(arr)
     }
 }
 
@@ -175,70 +224,6 @@ impl<const N: usize> StakeInputs<N> {
             delta,
             network,
         }
-    }
-
-    /// Converts a [`StakeInputs`] into a [`StakeChain`].
-    ///
-    /// # Note
-    ///
-    /// The [`StakeChain`] can be of length less than or equal to the [`StakeInputs`].
-    ///
-    /// It is impossible to create a [`StakeChain`] with a length greater than the [`StakeInputs`].
-    /// This is done by compile-time checks.
-    pub fn to_stake_chain<const M: usize>(&self) -> StakeChain<M>
-    where
-        [(); N - M]:,
-    {
-        let wots_pubkeys = wots::PublicKeys::new(&self.wots_master_sk, self.pre_stake_txid);
-        let connector_k = ConnectorK::new(self.n_of_n_agg_pubkey, self.network, wots_pubkeys);
-        let connector_p =
-            ConnectorP::new(self.n_of_n_agg_pubkey, self.stake_hashes[0], self.network);
-        let connector_s = ConnectorStake::new(
-            self.n_of_n_agg_pubkey,
-            self.operator_pubkey,
-            self.stake_hashes[0],
-            self.delta,
-            self.network,
-        );
-        let first_stake_tx = StakeTx::new(
-            0,
-            self.original_stake.clone(),
-            self.amount,
-            self.operator_funds[0].clone(),
-            self.operator_pubkey,
-            connector_k,
-            connector_p,
-            connector_s,
-            self.network,
-        );
-
-        // Instantiate a vector with the length `M`.
-        let mut stake_chain = Vec::with_capacity(M);
-        stake_chain.push(first_stake_tx);
-
-        // for-loop to generate the rest of the `StakeTx`s from the second
-        for index in 1..M {
-            let previous_stake_tx = stake_chain.get(index -1).expect("always valid since we are starting from 1 (we always have 0) and the length is checked at compile time");
-            let previous_stake_txid = previous_stake_tx.compute_txid();
-            let wots_pubkeys = wots::PublicKeys::new(&self.wots_master_sk, previous_stake_txid);
-            let new_stake_tx = generate_new_stake_tx(
-                previous_stake_tx,
-                self.amount,
-                self.delta,
-                self.operator_funds[index].clone(),
-                self.operator_pubkey,
-                self.n_of_n_agg_pubkey,
-                wots_pubkeys,
-                self.stake_hashes[index],
-                self.network,
-            );
-            stake_chain.push(new_stake_tx);
-        }
-
-        let arr: [StakeTx; M] = stake_chain
-            .try_into()
-            .expect("stake inputs did not contain exactly M transactions");
-        StakeChain(arr)
     }
 
     /// Stake amount.
