@@ -359,25 +359,16 @@ fn generate_new_stake_tx(
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{
-        absolute, consensus,
-        hashes::Hash,
-        sighash::{self, Prevouts, SighashCache},
-        taproot::LeafVersion,
-        transaction, Amount, BlockHash, OutPoint, TapLeafHash, Transaction, TxIn, TxOut, Witness,
-    };
+    use bitcoin::{consensus, hashes::Hash, Amount, BlockHash, OutPoint, Transaction, TxIn, TxOut};
     use corepc_node::{serde_json::json, AddressType, Conf, Node};
-    use secp256k1::{Message, SECP256K1};
+    use secp256k1 as _;
     use strata_bridge_test_utils::prelude::generate_keypair;
-    use strata_btcio::rpc::types::{
-        CreateRawTransaction, CreateRawTransactionInput, PreviousTransactionOutput,
-        SignRawTransactionWithWallet,
-    };
+    use strata_btcio::rpc::types::SignRawTransactionWithWallet;
     use strata_common::logging::{self, LoggerConfig};
     use tracing::{info, trace};
 
     use super::*;
-    use crate::prelude::{PreStakeTx, DUST_AMOUNT, OPERATOR_FUNDS};
+    use crate::prelude::{PreStakeTx, OPERATOR_FUNDS};
 
     #[test]
     fn stake_chain_advancement() {
@@ -386,6 +377,10 @@ mod tests {
         // Setup Bitcoin node
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
+        // Let's not deal with CPFP 1P1C TRUC relay annoyances for this test
+        conf.args.push("-minrelaytxfee=0.0");
+        conf.args.push("-blockmintxfee=0.0");
+        conf.args.push("-dustrelayfee=0.0");
         let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
         let btc_client = &bitcoind.client;
 
@@ -419,10 +414,6 @@ mod tests {
         let operator_keypair = generate_keypair();
         let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
         let operator_pubkey = operator_keypair.x_only_public_key().0;
-
-        // Generate stake preimage
-        let stake_preimage = [1; 32];
-        let stake_hash = sha256::Hash::hash(&stake_preimage);
 
         // Create relative timelock (e.g., 6 blocks)
         let delta = relative::LockTime::from_height(6);
@@ -513,11 +504,13 @@ mod tests {
         // Create a StakeChain with 3 inputs
         let wots_master_sk = "test-stake-chain";
         let stake_preimages = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        trace!(?stake_preimages, "stake preimages");
         let stake_hashes = [
             sha256::Hash::hash(&stake_preimages[0]),
             sha256::Hash::hash(&stake_preimages[1]),
             sha256::Hash::hash(&stake_preimages[2]),
         ];
+        trace!(?stake_hashes, "stake hashes");
         let operator_funds = [
             TxIn {
                 previous_output: OutPoint {
@@ -541,6 +534,7 @@ mod tests {
                 ..Default::default()
             },
         ];
+        trace!(?operator_funds, "operator funds");
         let original_stake = TxIn {
             previous_output: OutPoint {
                 txid: pre_stake_txid,
@@ -548,6 +542,7 @@ mod tests {
             },
             ..Default::default()
         };
+        trace!(?original_stake, "original stake");
         let stake_inputs = StakeInputs::new(
             stake_amount,
             operator_pubkey,
@@ -565,6 +560,7 @@ mod tests {
         // Sign and broadcast the first StakeTx
         let stake_chain_0_tx = stake_chain[0].psbt.unsigned_tx.clone();
         let stake_chain_0_txid = stake_chain_0_tx.compute_txid();
+        info!(%stake_chain_0_txid, "StakeTx 0 txid created (unsigned");
         // Sign the transaction
         let signed_stake_chain_0_tx = btc_client
             .call::<SignRawTransactionWithWallet>(
@@ -578,24 +574,9 @@ mod tests {
             consensus::encode::deserialize_hex(&signed_stake_chain_0_tx.hex)
                 .expect("must deserialize");
 
-        // Get the CPFP for StakeTx 0
-        let cpfp_vout = 3; // 4th output in StakeTx
-        let cpfp_txid = stake_chain_0_txid;
-        let cpfp_spk = stake_chain_0_tx.output[cpfp_vout].script_pubkey.clone();
-
-        // Needed for 1P1C TRUC relay
-        let prev_outputs_1p1c = PreviousTransactionOutput {
-            txid: cpfp_txid,
-            vout: cpfp_vout as u32,
-            script_pubkey: cpfp_spk.to_string(),
-            redeem_script: None,
-            witness_script: None,
-            amount: Some(DUST_AMOUNT.to_btc()),
-        };
-
         // Broadcast the PreStakeTx
         let stake_chain_0_txid = btc_client
-            .send_raw_transaction(&signed_funding_tx)
+            .send_raw_transaction(&signed_stake_chain_0_tx)
             .expect("must be able to broadcast transaction")
             .txid()
             .expect("must have txid");
@@ -606,5 +587,6 @@ mod tests {
         let _ = btc_client
             .generate_to_address((delta.to_consensus_u32() as usize) + 1, &funded_address)
             .expect("must be able to generate blocks");
+        info!(%delta, %stake_chain_0_txid, "StakeTx 0 mined and blockchain advanced to spendable delta relative timelock");
     }
 }
