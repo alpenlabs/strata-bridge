@@ -135,7 +135,5 @@ ark-poly = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-
 ark-serialize = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
-ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
-ark-snark = { git = "https://github.com/arkworks-rs/snark/" }
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16" }
 ark-std = { git = "https://github.com/arkworks-rs/std/" }

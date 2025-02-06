@@ -11466,13 +11466,3 @@ dependencies = [
  "cc",
  "pkg-config",
 ]
-
-[[patch.unused]]
-name = "ark-relations"
-version = "0.5.1"
-source = "git+https://github.com/arkworks-rs/snark/#f632770319e1aeca64524fbeb279ce6171923d9b"
-
-[[patch.unused]]
-name = "ark-snark"
-version = "0.5.1"
-source = "git+https://github.com/arkworks-rs/snark/#f632770319e1aeca64524fbeb279ce6171923d9b"
