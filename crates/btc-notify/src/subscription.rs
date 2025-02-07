@@ -1,3 +1,5 @@
+//! This module contains the core [`Subscription`] type that consumers of this API will use to
+//! observe new events.
 use std::{
     pin::Pin,
     task::{Context, Poll},

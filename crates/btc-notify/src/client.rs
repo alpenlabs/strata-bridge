@@ -13,10 +13,12 @@ use tokio::{
     task::JoinHandle,
 };
 
-use crate::state_machine::{BtcZmqSM, TxPredicate};
 pub use crate::{
     config::BtcZmqConfig,
     event::{TxEvent, TxStatus},
+};
+use crate::{
+    state_machine::{BtcZmqSM, TxPredicate},
     subscription::Subscription,
 };
 

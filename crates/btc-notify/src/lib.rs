@@ -12,4 +12,4 @@ mod config;
 mod constants;
 mod event;
 mod state_machine;
-mod subscription;
+pub mod subscription;
