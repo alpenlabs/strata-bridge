@@ -2852,6 +2852,7 @@ dependencies = [
  "bitcoin",
  "btc-notify",
  "futures",
+ "strata-btcio",
  "tokio",
 ]
 
