@@ -669,7 +669,7 @@ mod tests {
         let connector_s = ConnectorStake::new(
             n_of_n_pubkey,
             operator_pubkey,
-            stake_hashes[1],
+            stake_hashes[0],
             delta,
             network,
         );
@@ -723,7 +723,7 @@ mod tests {
         trace!(%signature, "Signature stake_tx 1 connector s");
         // Construct the witness stack
         let mut witness = Witness::new();
-        witness.push(stake_preimages[1]);
+        witness.push(stake_preimages[0]);
         witness.push(signature.as_ref());
         witness.push(locking_script.to_bytes());
         witness.push(control_block.serialize());
