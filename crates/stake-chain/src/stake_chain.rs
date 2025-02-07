@@ -639,11 +639,12 @@ mod tests {
 
         info!(%stake_chain_0_txid, "StakeTx 0 broadcasted");
 
-        // Mine the StakeTx
+        // Mine the StakeTx but for only 1 block
+        // This will make the stake chain advancement to fail and we need to test it
         let _ = btc_client
-            .generate_to_address((delta.to_consensus_u32() as usize) + 1, &funded_address)
+            .generate_to_address(1, &funded_address)
             .expect("must be able to generate blocks");
-        info!(%delta, %stake_chain_0_txid, "StakeTx 0 mined and blockchain advanced to spendable delta relative timelock");
+        info!(%stake_chain_0_txid, "StakeTx 0 mined");
 
         // Sign and broadcast the second StakeTx
         // FIXME: I give up using the Psbt API.
@@ -724,11 +725,20 @@ mod tests {
         witness.push(locking_script.to_bytes());
         witness.push(control_block.serialize());
         *sighash_cache.witness_mut(1).unwrap() = witness;
-        let signed_stake_chain_1_tx = sighash_cache.into_transaction();
+        let signed_stake_chain_1_tx = sighash_cache.into_transaction().to_owned();
 
-        // Broadcast the StakeTx
+        // Broadcast the StakeTx which will error because of the delta relative timelock
+        let stake_chain_1_txid = btc_client.send_raw_transaction(&signed_stake_chain_1_tx);
+        assert!(stake_chain_1_txid.is_err());
+
+        // Mine the blockchain delta-1 blocks
+        info!(%delta, %stake_chain_0_txid, "StakeTx 0 mined and blockchain advanced to spendable delta relative timelock");
+
+        let _ = btc_client
+            .generate_to_address((delta.to_consensus_u32() as usize) - 1, &funded_address)
+            .expect("must be able to generate blocks");
         let stake_chain_1_txid = btc_client
-            .send_raw_transaction(signed_stake_chain_1_tx)
+            .send_raw_transaction(&signed_stake_chain_1_tx)
             .expect("must be able to broadcast transaction")
             .txid()
             .expect("must have txid");
