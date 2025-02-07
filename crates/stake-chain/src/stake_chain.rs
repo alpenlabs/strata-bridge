@@ -664,7 +664,7 @@ mod tests {
 
         // Sign and broadcast the second StakeTx NOT using the Psbt API
         let stake_chain_1 = stake_chain[1].clone();
-        let stake_chain_1_tx = stake_chain_1.psbt.unsigned_tx.clone();
+        let mut stake_chain_1_tx = stake_chain_1.psbt.unsigned_tx.clone();
         // Recreate the connector s.
         let connector_s = ConnectorStake::new(
             n_of_n_pubkey,
@@ -675,27 +675,24 @@ mod tests {
         );
         // Create sighash for the spending transaction
         let taproot_script = connector_s.generate_address().script_pubkey();
-        let sighash_type = sighash::TapSighashType::AllPlusAnyoneCanPay;
+        let sighash_type = sighash::TapSighashType::Default;
         // Create the prevouts
         let prevouts = [
-            outputs_funding[1].clone(),
+            outputs_funding[2].clone(),
             TxOut {
                 value: stake_amount,
                 script_pubkey: taproot_script,
             },
         ];
+        let prevouts = Prevouts::All(&prevouts);
         // OPERATOR_FUNDS witness (key path spend)
-        let mut sighash_cache = SighashCache::new(stake_chain_1_tx);
-        let prevout_0 = Prevouts::One(0, prevouts[0].clone());
+        let mut sighash_cache = SighashCache::new(&mut stake_chain_1_tx);
         let tweaked = operator_fund_1_keypair.tap_tweak(SECP256K1, None);
         let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &prevout_0, sighash_type)
+            .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
             .expect("must create sighash");
-        let message =
-            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
-        // FIXME: which one to use?
+        let message = Message::from(sighash);
         let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
-        // let signature = SECP256K1.sign_schnorr(&message, &operator_fund_1_keypair);
         trace!(%signature, "Signature stake_tx 1 operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
@@ -703,18 +700,17 @@ mod tests {
             sighash_type,
         };
         *sighash_cache.witness_mut(0).unwrap() = Witness::p2tr_key_spend(&signature);
-        let stake_chain_1_tx = sighash_cache.into_transaction();
+        let mut stake_chain_1_tx = sighash_cache.into_transaction().to_owned();
         // Connector S witness (script path spend)
         // Create the locking script
-        let mut sighash_cache = SighashCache::new(stake_chain_1_tx);
-        let prevout_1 = Prevouts::One(1, prevouts[1].clone());
+        let mut sighash_cache = SighashCache::new(&mut stake_chain_1_tx);
         let locking_script = connector_s.generate_script();
         // Get taproot spend info
         let (_, control_block) = connector_s.generate_spend_info();
         let leaf_hash =
             TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
         let sighash = sighash_cache
-            .taproot_script_spend_signature_hash(1, &prevout_1, leaf_hash, sighash_type)
+            .taproot_script_spend_signature_hash(1, &prevouts, leaf_hash, sighash_type)
             .expect("must create sighash");
         let message =
             Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
@@ -732,7 +728,7 @@ mod tests {
 
         // Broadcast the StakeTx
         let stake_chain_1_txid = btc_client
-            .send_raw_transaction(&signed_stake_chain_1_tx)
+            .send_raw_transaction(signed_stake_chain_1_tx)
             .expect("must be able to broadcast transaction")
             .txid()
             .expect("must have txid");
