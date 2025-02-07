@@ -24,6 +24,7 @@ miniscript = "12.2.0"
 strata-common.workspace = true
 
 anyhow.workspace = true
+bitcoin-bosd.workspace = true
 clap.workspace = true
 hex = "0.4"
 lazy_static.workspace = true

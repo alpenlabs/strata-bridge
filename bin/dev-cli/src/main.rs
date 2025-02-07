@@ -11,6 +11,7 @@ use alloy::{
 use alloy_signer::k256::ecdsa::SigningKey;
 use anyhow::{Context, Error, Result};
 use bitcoin::secp256k1::Secp256k1;
+use bitcoin_bosd::Descriptor;
 use bridge_in::{deposit_request, wallet};
 use clap::Parser;
 use strata_common::logging::{self, LoggerConfig};
@@ -70,8 +71,11 @@ fn handle_bridge_out(args: cli::BridgeOutArgs) -> Result<()> {
     let signer = PrivateKeySigner::from(signing_key);
     let wallet = EthereumWallet::new(signer);
 
-    let data: Vec<u8> =
-        hex::decode(args.destination_address_pubkey).context("decode address pubkey")?;
+    let data: [u8; 32] = hex::decode(args.destination_address_pubkey)
+        .context("decode address pubkey")?
+        .try_into()
+        .unwrap();
+    let bosd_data = Descriptor::new_p2tr(&data).unwrap().to_bytes();
     let amount = U256::from(constants::BRIDGE_OUT_AMOUNT.to_sat() as u128 * constants::SATS_TO_WEI);
     let rollup_address =
         EvmAddress::from_str(constants::ROLLUP_ADDRESS).context("precompile address")?;
@@ -80,7 +84,7 @@ fn handle_bridge_out(args: cli::BridgeOutArgs) -> Result<()> {
     runtime.block_on(bridge_out::withdrawal::create_withdrawal_transaction(
         rollup_address,
         constants::ETH_RPC_URL,
-        data,
+        bosd_data,
         &wallet,
         amount,
     ))?;
