@@ -356,7 +356,8 @@ mod tests {
         key::TapTweak,
         sighash::{self, Prevouts, SighashCache},
         taproot::{self, LeafVersion},
-        transaction, Amount, BlockHash, OutPoint, TapLeafHash, Transaction, TxIn, TxOut, Witness,
+        transaction, Address, Amount, BlockHash, OutPoint, TapLeafHash, Transaction, TxIn, TxOut,
+        Witness,
     };
     use corepc_node::{serde_json::json, AddressType, Conf, Node};
     use secp256k1::{Message, SECP256K1};
@@ -442,17 +443,27 @@ mod tests {
             previous_output: funding_input,
             ..Default::default()
         }];
-        // 3 OPERATOR_FUNDS outputs
+        // 2 OPERATOR_FUNDS outputs:
+        // 1 with the regular bitcoind wallet for the first StakeTx
+        // 1 using `rust-bitcoin` keypair from the derivation path below for the second StakeTx
+        // The address that is holding the operator_funds[1] (for the stake_1 tx) is the 5th
+        // generated wallet address. It is a BIP86 regtest address.
+        let derivation_path = "86'/1'/0'/0/4".parse::<DerivationPath>().unwrap();
+        let operator_fund_1_keypair = xpriv
+            .derive_priv(SECP256K1, &derivation_path)
+            .unwrap()
+            .to_keypair(SECP256K1);
+        let operator_fund_1_address = Address::p2tr(
+            SECP256K1,
+            operator_fund_1_keypair.x_only_public_key().0,
+            None,
+            network,
+        );
         let operator_funds_addresses = [
             btc_client
                 .new_address_with_type(AddressType::Bech32m)
                 .unwrap(),
-            btc_client
-                .new_address_with_type(AddressType::Bech32m)
-                .unwrap(),
-            btc_client
-                .new_address_with_type(AddressType::Bech32m)
-                .unwrap(),
+            operator_fund_1_address,
         ];
         let outputs_funding = vec![
             TxOut {
@@ -468,16 +479,7 @@ mod tests {
                 script_pubkey: operator_funds_addresses[1].script_pubkey(),
             },
             TxOut {
-                value: OPERATOR_FUNDS,
-                script_pubkey: operator_funds_addresses[2].script_pubkey(),
-            },
-            TxOut {
-                value: coinbase_amount
-                    - stake_amount
-                    - fees
-                    - OPERATOR_FUNDS
-                    - OPERATOR_FUNDS
-                    - OPERATOR_FUNDS,
+                value: coinbase_amount - stake_amount - fees - OPERATOR_FUNDS - OPERATOR_FUNDS,
                 script_pubkey: change_address.script_pubkey(),
             },
         ];
@@ -565,12 +567,11 @@ mod tests {
 
         // Create a StakeChain with 3 inputs
         let wots_master_sk = "test-stake-chain";
-        let stake_preimages = [[0u8; 32], [1u8; 32], [2u8; 32]];
+        let stake_preimages = [[0u8; 32], [1u8; 32]];
         trace!(?stake_preimages, "stake preimages");
         let stake_hashes = [
             sha256::Hash::hash(&stake_preimages[0]),
             sha256::Hash::hash(&stake_preimages[1]),
-            sha256::Hash::hash(&stake_preimages[2]),
         ];
         trace!(?stake_hashes, "stake hashes");
         let operator_funds = [
@@ -585,13 +586,6 @@ mod tests {
                 previous_output: OutPoint {
                     txid: funding_txid,
                     vout: 2,
-                },
-                ..Default::default()
-            },
-            TxIn {
-                previous_output: OutPoint {
-                    txid: funding_txid,
-                    vout: 3,
                 },
                 ..Default::default()
             },
@@ -617,7 +611,7 @@ mod tests {
             delta,
             network,
         );
-        let stake_chain = StakeChain::<3>::new(&stake_inputs);
+        let stake_chain = StakeChain::<2>::new(&stake_inputs);
 
         // Sign and broadcast the first StakeTx
         let stake_chain_0_tx = stake_chain[0].psbt.unsigned_tx.clone();
@@ -671,13 +665,6 @@ mod tests {
         // Sign and broadcast the second StakeTx NOT using the Psbt API
         let stake_chain_1 = stake_chain[1].clone();
         let stake_chain_1_tx = stake_chain_1.psbt.unsigned_tx.clone();
-        // The address that is holding the operator_funds[1] (for the stake_1 tx) is the 5th
-        // generated wallet address. It is a BIP86 regtest address.
-        let derivation_path = "86'/1'/0'/0/4".parse::<DerivationPath>().unwrap();
-        let operator_funds_stake_1_keypair = xpriv
-            .derive_priv(SECP256K1, &derivation_path)
-            .unwrap()
-            .to_keypair(SECP256K1);
         // Recreate the connector s.
         let connector_s = ConnectorStake::new(
             n_of_n_pubkey,
@@ -700,15 +687,15 @@ mod tests {
         // OPERATOR_FUNDS witness (key path spend)
         let mut sighash_cache = SighashCache::new(stake_chain_1_tx);
         let prevout_0 = Prevouts::One(0, prevouts[0].clone());
-        let tweaked = operator_funds_stake_1_keypair.tap_tweak(SECP256K1, None);
+        let tweaked = operator_fund_1_keypair.tap_tweak(SECP256K1, None);
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(0, &prevout_0, sighash_type)
             .expect("must create sighash");
         let message =
             Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
         // FIXME: which one to use?
-        let _signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
-        let signature = SECP256K1.sign_schnorr(&message, &operator_funds_stake_1_keypair);
+        let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
+        // let signature = SECP256K1.sign_schnorr(&message, &operator_fund_1_keypair);
         trace!(%signature, "Signature stake_tx 1 operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
