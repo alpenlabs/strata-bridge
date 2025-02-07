@@ -1,10 +1,8 @@
 //! Provides types/traits associated with the withdrawal process.
 
-use std::str::FromStr;
-
 use bitcoin::OutPoint;
-use secp256k1::XOnlyPublicKey;
-use serde::{de, Deserialize, Deserializer, Serialize};
+use bitcoin_bosd::Descriptor;
+use serde::{Deserialize, Serialize};
 
 use crate::types::{BitcoinBlockHeight, OperatorIdx};
 
@@ -20,8 +18,7 @@ pub struct WithdrawalInfo {
 
     /// The x-only public key of the user used to create the taproot address that the user can
     /// spend from.
-    #[serde(deserialize_with = "deserialize_hex_xonly_pubkey")]
-    user_pk: XOnlyPublicKey,
+    user_destination: Descriptor,
 
     /// The index of the operator that is assigned the withdrawal.
     assigned_operator_idx: OperatorIdx,
@@ -33,30 +30,30 @@ pub struct WithdrawalInfo {
     exec_deadline: BitcoinBlockHeight,
 }
 
-fn deserialize_hex_xonly_pubkey<'de, D>(deserializer: D) -> Result<XOnlyPublicKey, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let hex_str: String = Deserialize::deserialize(deserializer)?;
+// fn deserialize_hex_xonly_pubkey<'de, D>(deserializer: D) -> Result<XOnlyPublicKey, D::Error>
+// where
+//     D: Deserializer<'de>,
+// {
+//     let hex_str: String = Deserialize::deserialize(deserializer)?;
 
-    // Strip the `0x` prefix if it exists
-    let hex_str = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
+//     // Strip the `0x` prefix if it exists
+//     let hex_str = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
 
-    // Parse the hex string to XOnlyPublicKey
-    XOnlyPublicKey::from_str(hex_str).map_err(de::Error::custom)
-}
+//     // Parse the hex string to XOnlyPublicKey
+//     XOnlyPublicKey::from_str(hex_str).map_err(de::Error::custom)
+// }
 
 impl WithdrawalInfo {
     /// Create a new withdrawal request.
     pub fn new(
         deposit_outpoint: OutPoint,
-        user_pk: XOnlyPublicKey,
+        user_destination: Descriptor,
         assigned_operator_idx: OperatorIdx,
         exec_deadline: BitcoinBlockHeight,
     ) -> Self {
         Self {
             deposit_outpoint,
-            user_pk,
+            user_destination,
             assigned_operator_idx,
             exec_deadline,
         }
@@ -72,9 +69,9 @@ impl WithdrawalInfo {
         self.assigned_operator_idx
     }
 
-    /// Get the recipient's [`XOnlyPublicKey`].
-    pub fn user_pk(&self) -> XOnlyPublicKey {
-        self.user_pk
+    /// Get the recipient's [`Descriptor`].
+    pub fn user_destination(&self) -> &Descriptor {
+        &self.user_destination
     }
 
     /// Get the execution deadline for the request.

@@ -201,7 +201,7 @@ run:
 		--btc-scan-interval 100 \
 		--wallet-prefix bridge \
 		--fault-tolerance 100 \
-		--duty-interval 120000 \
+		--duty-interval 20000 \
 		--rollup-params-file test-data/rollup_params.json \
 		--num-threads 4 \
 		--stack-size 512 \

@@ -75,7 +75,7 @@ fn handle_bridge_out(args: cli::BridgeOutArgs) -> Result<()> {
         .context("decode address pubkey")?
         .try_into()
         .unwrap();
-    let bosd_data = Descriptor::new_p2tr(&data).unwrap().to_bytes();
+    let bosd_data = Descriptor::new_p2tr_unchecked(&data).to_bytes();
     let amount = U256::from(constants::BRIDGE_OUT_AMOUNT.to_sat() as u128 * constants::SATS_TO_WEI);
     let rollup_address =
         EvmAddress::from_str(constants::ROLLUP_ADDRESS).context("precompile address")?;

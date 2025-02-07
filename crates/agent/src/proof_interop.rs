@@ -194,6 +194,9 @@ pub fn checkpoint_last_verified_l1_height(
     if let Some(script) = tx.input[0].witness.tapscript() {
         let script = script.to_bytes();
         if let Ok(inscription) = parse_envelope_payloads(&script.into(), rollup_params) {
+            if inscription.is_empty() {
+                return None;
+            }
             if let Ok(signed_batch_checkpoint) =
                 borsh::from_slice::<SignedBatchCheckpoint>(inscription[0].data())
             {
