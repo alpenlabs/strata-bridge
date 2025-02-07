@@ -1,8 +1,16 @@
+mod tx_driver;
+use std::{
+    collections::VecDeque,
+    future::Future,
+    pin::pin,
+    sync::{Arc, Mutex, MutexGuard},
+};
+
 use bitcoin::{
     opcodes::all::OP_RETURN, Amount, Network, Script, ScriptBuf, Transaction, XOnlyPublicKey,
 };
 use btc_notify::client::BtcZmqClient;
-use futures::StreamExt;
+use futures::{poll, FutureExt, Stream, StreamExt};
 use tokio::task::JoinHandle;
 
 const DUST_VALUE: Amount = Amount::from_sat(330);
@@ -46,6 +54,10 @@ fn is_deposit_request(tx: &Transaction) -> bool {
     })
 }
 
+fn is_strata_checkpoint_transaction(tx: &Transaction) -> bool {
+    todo!()
+}
+
 // Duties, like transactions are ultimately events. These events are generated in reaction to other
 // events.
 
@@ -77,11 +89,35 @@ struct DutyTracker {
     deposit_request_monitor: JoinHandle<()>,
 }
 impl DutyTracker {
-    async fn new(mut btc_zmq_client: BtcZmqClient) -> Self {
+    async fn new(btc_zmq_client: BtcZmqClient) -> Self {
         let sub = btc_zmq_client
             .subscribe_transactions(is_deposit_request)
             .await;
-        let deposit_request_monitor = tokio::task::spawn(async move {});
+        let deposit_request_monitor = tokio::task::spawn(async move {
+            let mut sub = sub;
+            loop {
+                while let Some(ev) = sub.next().await {
+                    // kick off N-1 graph signing jobs
+                    // kick off a "wait for N-1 graph signatures" job
+                    // kick off N-1 deposit signing jobs
+                    // kick off a "wait for N-1 deposit signatures" job
+                    // publish deposit
+                    // Create contract resolver for the deposit
+                }
+            }
+        });
+
+        let sub = btc_zmq_client
+            .subscribe_transactions(is_strata_checkpoint_transaction)
+            .await;
+        let strata_checkpoint_monitor = tokio::task::spawn(async move {
+            let mut sub = sub;
+            loop {
+                while let Some(ev) = sub.next().await {
+                    // do stuff
+                }
+            }
+        });
         DutyTracker {
             btc_zmq_client,
             deposit_request_monitor,
@@ -90,3 +126,6 @@ impl DutyTracker {
 }
 
 // Manifest
+pub enum ContractState {
+    Requested {},
+}

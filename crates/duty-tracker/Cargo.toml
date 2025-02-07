@@ -7,4 +7,5 @@ edition = "2021"
 btc-notify.workspace = true
 bitcoin.workspace = true
 futures = "0.3.31"
+strata-btcio.workspace = true
 tokio = "1.43.0"
