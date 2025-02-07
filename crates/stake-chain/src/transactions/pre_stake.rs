@@ -28,7 +28,7 @@ impl PreStakeTx {
     ///
     /// The caller should be responsible for ensuring that the first output should cover for the the
     /// stake amount.
-    pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>) -> Self {
+    pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, prevout: &TxOut) -> Self {
         let transaction = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
@@ -38,9 +38,13 @@ impl PreStakeTx {
 
         let stake_amount = transaction.output[0].value;
 
+        let mut psbt = Psbt::from_unsigned_tx(transaction)
+            .expect("cannot fail since transaction will be always unsigned");
+
+        psbt.inputs[0].witness_utxo = Some(prevout.clone());
+
         Self {
-            psbt: Psbt::from_unsigned_tx(transaction)
-                .expect("cannot fail since transaction will be always unsigned"),
+            psbt,
             amount: stake_amount,
         }
     }

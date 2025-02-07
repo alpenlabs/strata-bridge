@@ -13,4 +13,8 @@ pub enum StakeChainError {
     /// Ways that a [`Psbt`](bitcoin::Psbt) might fail.
     #[error("PSBT error: {0}")]
     Psbt(#[from] PsbtError),
+
+    /// Signature failure.
+    #[error("signature failure")]
+    SignatureFailure,
 }

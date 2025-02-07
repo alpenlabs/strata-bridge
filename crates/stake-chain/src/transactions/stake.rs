@@ -180,10 +180,8 @@ impl StakeTx {
     /// # Implementation Details
     ///
     /// Under the hood, it spents the underlying [`ConnectorStake`] from the previous [`StakeTx`].
-    #[expect(clippy::too_many_arguments)]
     pub fn finalize_connector_s(
         &mut self,
-        stake_amount: Amount,
         operator_funds: TxOut,
         preimage: &[u8; 32],
         keypair: &Keypair,
@@ -211,7 +209,7 @@ impl StakeTx {
         let prevouts = [
             operator_funds,
             TxOut {
-                value: stake_amount,
+                value: self.amount,
                 script_pubkey: taproot_script,
             },
         ];

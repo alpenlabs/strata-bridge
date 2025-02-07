@@ -348,19 +348,28 @@ fn generate_new_stake_tx(
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{consensus, hashes::Hash, Amount, BlockHash, OutPoint, Transaction, TxIn, TxOut};
+    use bitcoin::{
+        absolute,
+        bip32::DerivationPath,
+        consensus,
+        hashes::Hash,
+        key::TapTweak,
+        sighash::{self, Prevouts, SighashCache},
+        taproot::{self, LeafVersion},
+        transaction, Amount, BlockHash, OutPoint, TapLeafHash, Transaction, TxIn, TxOut, Witness,
+    };
     use corepc_node::{serde_json::json, AddressType, Conf, Node};
-    use secp256k1 as _;
-    use strata_bridge_test_utils::prelude::generate_keypair;
-    use strata_btcio::rpc::types::SignRawTransactionWithWallet;
+    use secp256k1::{Message, SECP256K1};
+    use strata_bridge_test_utils::prelude::{generate_keypair, get_client_async};
+    use strata_btcio::rpc::{traits::SignerRpc, types::SignRawTransactionWithWallet};
     use strata_common::logging::{self, LoggerConfig};
     use tracing::{info, trace};
 
     use super::*;
     use crate::prelude::{PreStakeTx, OPERATOR_FUNDS};
 
-    #[test]
-    fn stake_chain_advancement() {
+    #[tokio::test]
+    async fn stake_chain_advancement() {
         logging::init(LoggerConfig::new("stake_chain_advancement".to_string()));
 
         // Setup Bitcoin node
@@ -372,6 +381,7 @@ mod tests {
         conf.args.push("-dustrelayfee=0.0");
         let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
         let btc_client = &bitcoind.client;
+        let async_client = get_client_async(&bitcoind);
 
         // Get network
         let network = btc_client
@@ -380,9 +390,18 @@ mod tests {
             .chain;
         let network = network.parse::<Network>().expect("network must be valid");
 
+        // get the xpriv
+        let xpriv = async_client.get_xpriv().await.unwrap().unwrap();
+        trace!(%xpriv, "xpriv");
+        let operator_keypair = xpriv.to_keypair(SECP256K1);
+
         // Mine until maturity
-        let funded_address = btc_client.new_address().unwrap();
-        let change_address = btc_client.new_address().unwrap();
+        let funded_address = btc_client
+            .new_address_with_type(AddressType::Bech32m)
+            .unwrap();
+        let change_address = btc_client
+            .new_address_with_type(AddressType::Bech32m)
+            .unwrap();
         let coinbase_block = btc_client
             .generate_to_address(101, &funded_address)
             .expect("must be able to generate blocks")
@@ -400,14 +419,14 @@ mod tests {
 
         // Generate keys
         let n_of_n_keypair = generate_keypair();
-        let operator_keypair = generate_keypair();
+        // let operator_keypair = generate_keypair();
         let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
         let operator_pubkey = operator_keypair.x_only_public_key().0;
 
         // Create relative timelock (e.g., 6 blocks)
         let delta = relative::LockTime::from_height(6);
 
-        // Create PreStakeTx
+        // Create funding transaction
         let pre_stake_address = btc_client
             .new_address_with_type(AddressType::Bech32m)
             .unwrap();
@@ -435,7 +454,7 @@ mod tests {
                 .new_address_with_type(AddressType::Bech32m)
                 .unwrap(),
         ];
-        let outputs = vec![
+        let outputs_funding = vec![
             TxOut {
                 value: stake_amount,
                 script_pubkey: pre_stake_address.script_pubkey(),
@@ -462,8 +481,60 @@ mod tests {
                 script_pubkey: change_address.script_pubkey(),
             },
         ];
-        let pre_stake_tx = PreStakeTx::new(inputs, outputs.clone()).psbt.unsigned_tx;
-        let pre_stake_txid = pre_stake_tx.compute_txid();
+        let funding_tx = Transaction {
+            version: transaction::Version(2),
+            lock_time: absolute::LockTime::ZERO,
+            input: inputs,
+            output: outputs_funding.clone(),
+        };
+        // Sign the funding tx
+        let signed_funding_tx = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(consensus::encode::serialize_hex(&&funding_tx))],
+            )
+            .expect("must be able to sign transaction");
+
+        assert!(signed_funding_tx.complete);
+        let signed_funding_tx: Transaction =
+            consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
+
+        // Broadcast the funding tx
+        let funding_txid = btc_client
+            .send_raw_transaction(&signed_funding_tx)
+            .expect("must be able to broadcast transaction")
+            .txid()
+            .expect("must have txid");
+
+        info!(%funding_txid, "funding tx broadcasted");
+
+        // Mine the funding tx
+        let _ = btc_client
+            .generate_to_address(1, &funded_address)
+            .expect("must be able to generate blocks");
+
+        // Create PreStakeTx
+        let stake_0_address = btc_client
+            .new_address_with_type(AddressType::Bech32m)
+            .unwrap();
+        let prevout = TxOut {
+            value: stake_amount,
+            script_pubkey: pre_stake_address.script_pubkey(),
+        };
+        let inputs = vec![TxIn {
+            previous_output: OutPoint {
+                txid: funding_txid,
+                vout: 0,
+            },
+            ..Default::default()
+        }];
+        let outputs = vec![TxOut {
+            value: stake_amount,
+            script_pubkey: stake_0_address.script_pubkey(),
+        }];
+        let pre_stake = PreStakeTx::new(inputs, outputs.clone(), &prevout);
+        let pre_stake_txid = pre_stake.compute_txid();
+        let pre_stake_tx = pre_stake.psbt.extract_tx().unwrap();
         // Sign the transaction
         let signed_pre_stake_tx = btc_client
             .call::<SignRawTransactionWithWallet>(
@@ -473,17 +544,19 @@ mod tests {
             .expect("must be able to sign transaction");
 
         assert!(signed_pre_stake_tx.complete);
-        let signed_funding_tx =
-            consensus::encode::deserialize_hex(&signed_pre_stake_tx.hex).expect("must deserialize");
-
+        let signed_pre_stake_tx = consensus::encode::deserialize_hex(&signed_pre_stake_tx.hex)
+            .expect(
+                "must
+        deserialize",
+            );
         // Broadcast the PreStakeTx
-        let funding_txid = btc_client
-            .send_raw_transaction(&signed_funding_tx)
+        let prestake_txid = btc_client
+            .send_raw_transaction(&signed_pre_stake_tx)
             .expect("must be able to broadcast transaction")
             .txid()
             .expect("must have txid");
 
-        info!(%funding_txid, "PreStakeTx broadcasted");
+        info!(%prestake_txid, "PreStakeTx broadcasted");
 
         // Mine the PreStakeTx
         let _ = btc_client
@@ -579,26 +652,100 @@ mod tests {
         info!(%delta, %stake_chain_0_txid, "StakeTx 0 mined and blockchain advanced to spendable delta relative timelock");
 
         // Sign and broadcast the second StakeTx
+        // FIXME: I give up using the Psbt API.
         // Sign the connector s from the StakeTx (under the hood changes the PSBT)
-        let mut stake_tx = stake_chain[1].clone();
-        stake_tx.finalize_connector_s(
-            stake_amount,
-            outputs[1].clone(),
-            &stake_preimages[0],
-            &operator_keypair,
+        // let mut stake_tx = stake_chain[1].clone();
+        // stake_tx.finalize_connector_s(
+        //     outputs_funding[1].clone(),
+        //     &stake_preimages[0],
+        //     &operator_keypair,
+        //     n_of_n_pubkey,
+        //     delta,
+        //     network,
+        // );
+        // let stake_chain_1_tx = stake_tx.psbt.extract_tx().unwrap();
+        // trace!(?stake_chain_1_tx, "StakeTx 1");
+        // let stake_chain_1_txid = stake_chain_1_tx.compute_txid();
+        // info!(%stake_chain_1_txid, "StakeTx 1 txid created (signed)");
+
+        // Sign and broadcast the second StakeTx NOT using the Psbt API
+        let stake_chain_1 = stake_chain[1].clone();
+        let stake_chain_1_tx = stake_chain_1.psbt.unsigned_tx.clone();
+        // The address that is holding the operator_funds[1] (for the stake_1 tx) is the 5th
+        // generated wallet address. It is a BIP86 regtest address.
+        let derivation_path = "86'/1'/0'/0/4".parse::<DerivationPath>().unwrap();
+        let operator_funds_stake_1_keypair = xpriv
+            .derive_priv(SECP256K1, &derivation_path)
+            .unwrap()
+            .to_keypair(SECP256K1);
+        // Recreate the connector s.
+        let connector_s = ConnectorStake::new(
             n_of_n_pubkey,
+            operator_pubkey,
+            stake_hashes[1],
             delta,
             network,
         );
-
-        let stake_chain_1_tx = stake_tx.psbt.extract_tx().unwrap();
-        trace!(?stake_chain_1_tx, "StakeTx 1"); // FIXME: delete me!
-        let stake_chain_1_txid = stake_chain_1_tx.compute_txid();
-        info!(%stake_chain_1_txid, "StakeTx 1 txid created (signed)");
+        // Create sighash for the spending transaction
+        let taproot_script = connector_s.generate_address().script_pubkey();
+        let sighash_type = sighash::TapSighashType::AllPlusAnyoneCanPay;
+        // Create the prevouts
+        let prevouts = [
+            outputs_funding[1].clone(),
+            TxOut {
+                value: stake_amount,
+                script_pubkey: taproot_script,
+            },
+        ];
+        // OPERATOR_FUNDS witness (key path spend)
+        let mut sighash_cache = SighashCache::new(stake_chain_1_tx);
+        let prevout_0 = Prevouts::One(0, prevouts[0].clone());
+        let tweaked = operator_funds_stake_1_keypair.tap_tweak(SECP256K1, None);
+        let sighash = sighash_cache
+            .taproot_key_spend_signature_hash(0, &prevout_0, sighash_type)
+            .expect("must create sighash");
+        let message =
+            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
+        // FIXME: which one to use?
+        let _signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
+        let signature = SECP256K1.sign_schnorr(&message, &operator_funds_stake_1_keypair);
+        trace!(%signature, "Signature stake_tx 1 operator funds");
+        // Update the witness stack.
+        let signature = taproot::Signature {
+            signature,
+            sighash_type,
+        };
+        *sighash_cache.witness_mut(0).unwrap() = Witness::p2tr_key_spend(&signature);
+        let stake_chain_1_tx = sighash_cache.into_transaction();
+        // Connector S witness (script path spend)
+        // Create the locking script
+        let mut sighash_cache = SighashCache::new(stake_chain_1_tx);
+        let prevout_1 = Prevouts::One(1, prevouts[1].clone());
+        let locking_script = connector_s.generate_script();
+        // Get taproot spend info
+        let (_, control_block) = connector_s.generate_spend_info();
+        let leaf_hash =
+            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
+        let sighash = sighash_cache
+            .taproot_script_spend_signature_hash(1, &prevout_1, leaf_hash, sighash_type)
+            .expect("must create sighash");
+        let message =
+            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
+        // Sign the transaction with operator key
+        let signature = SECP256K1.sign_schnorr(&message, &operator_keypair);
+        trace!(%signature, "Signature stake_tx 1 connector s");
+        // Construct the witness stack
+        let mut witness = Witness::new();
+        witness.push(stake_preimages[1]);
+        witness.push(signature.as_ref());
+        witness.push(locking_script.to_bytes());
+        witness.push(control_block.serialize());
+        *sighash_cache.witness_mut(1).unwrap() = witness;
+        let signed_stake_chain_1_tx = sighash_cache.into_transaction();
 
         // Broadcast the StakeTx
         let stake_chain_1_txid = btc_client
-            .send_raw_transaction(&stake_chain_1_tx)
+            .send_raw_transaction(&signed_stake_chain_1_tx)
             .expect("must be able to broadcast transaction")
             .txid()
             .expect("must have txid");
