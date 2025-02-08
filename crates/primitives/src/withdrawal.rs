@@ -30,19 +30,6 @@ pub struct WithdrawalInfo {
     exec_deadline: BitcoinBlockHeight,
 }
 
-// fn deserialize_hex_xonly_pubkey<'de, D>(deserializer: D) -> Result<XOnlyPublicKey, D::Error>
-// where
-//     D: Deserializer<'de>,
-// {
-//     let hex_str: String = Deserialize::deserialize(deserializer)?;
-
-//     // Strip the `0x` prefix if it exists
-//     let hex_str = hex_str.strip_prefix("0x").unwrap_or(&hex_str);
-
-//     // Parse the hex string to XOnlyPublicKey
-//     XOnlyPublicKey::from_str(hex_str).map_err(de::Error::custom)
-// }
-
 impl WithdrawalInfo {
     /// Create a new withdrawal request.
     pub fn new(

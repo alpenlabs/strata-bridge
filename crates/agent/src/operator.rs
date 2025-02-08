@@ -1951,10 +1951,6 @@ where
             .await
             .expect("should be able to get checkpoint info")
             .expect("checkpoint info must exist");
-        println!("-----checkpoint info-----");
-        println!("{:?}", checkpoint_info);
-        println!("--------");
-
         let l1_range = checkpoint_info.l1_range;
         let l2_range = checkpoint_info.l2_range;
 
@@ -1988,10 +1984,6 @@ where
         let chain_state = borsh::from_slice::<(Chainstate, L2Block)>(&cl_block_witness)
             .expect("should be able to deserialize CL block witness")
             .0;
-
-        println!("-----chain state-----");
-        println!("{:?}", borsh::to_vec(&chain_state));
-        println!("--------");
 
         let l1_start_height = (checkpoint_info.l1_range.1 + 1) as u32;
         let mut block_count = 0;
