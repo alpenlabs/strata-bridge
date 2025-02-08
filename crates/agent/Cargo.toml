@@ -26,6 +26,7 @@ strata-state.workspace = true
 anyhow.workspace = true
 bincode.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
+bitcoin-bosd.workspace = true
 bitvm = { workspace = true }
 borsh = { workspace = true }
 jsonrpsee.workspace = true

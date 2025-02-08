@@ -7,10 +7,10 @@ version = "0.1.0"
 
 [dependencies]
 borsh = { version = "1.5.0", features = ["derive"] }
-sp1-zkvm = { version = "=4.0.0-rc.8", features = ["verify"] }
+sp1-zkvm = { version = "4.0.0", features = ["verify"] }
 strata-bridge-proof-protocol = { path = "../../crates/bridge-proof/protocol" }
-
+strata-primitives = { git = "https://github.com/alpenlabs/strata.git" }
 
 [patch.crates-io]
-secp256k1 = { git = "https://github.com/sp1-patches/rust-secp256k1", branch = "patch-secp256k1-v0.29.0" }
+secp256k1 = { git = "https://github.com/sp1-patches/rust-secp256k1", branch = "patch-secp256k1-v0.29.1" }
 sha2-v0-10-8 = { git = "https://github.com/sp1-patches/RustCrypto-hashes", package = "sha2", branch = "patch-sha2-v0.10.8" }

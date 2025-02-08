@@ -1,9 +1,9 @@
 use num_bigint::BigUint;
 use num_traits::Num;
-use strata_sp1_adapter::verify_groth16;
-use strata_zkvm::Proof;
+use zkaleido::ProofReceipt;
+use zkaleido_sp1_adapter::verify_groth16;
 
-pub fn verify_proof(proof: Proof, vkey: String, comitted_values: &[u8]) -> anyhow::Result<()> {
+pub fn verify_proof(receipt: ProofReceipt, vkey: String) -> anyhow::Result<()> {
     let vkey_hash = BigUint::from_str_radix(
         vkey.strip_prefix("0x")
             .expect("vkey should start with '0x'"),
@@ -12,7 +12,7 @@ pub fn verify_proof(proof: Proof, vkey: String, comitted_values: &[u8]) -> anyho
     .expect("Failed to parse vkey hash")
     .to_bytes_be();
 
-    verify_groth16(&proof, &vkey_hash.try_into().unwrap(), comitted_values)?;
+    verify_groth16(&receipt, &vkey_hash.try_into().unwrap())?;
 
     anyhow::Ok(())
 }

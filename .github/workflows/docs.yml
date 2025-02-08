@@ -29,6 +29,12 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Install SP1 Toolchain
+        run: |
+          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash && ~/.sp1/bin/sp1up
+          export PATH=~/.sp1/bin:$PATH
+          cargo prove --version
+
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked
 

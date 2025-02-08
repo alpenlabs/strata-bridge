@@ -14,6 +14,7 @@ rust.unused_must_use = "deny"
 anyhow.workspace = true
 arbitrary.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
+bitcoin-bosd.workspace = true
 bitcoin-script.workspace = true
 bitvm.workspace = true
 borsh.workspace = true

@@ -1,55 +1,16 @@
-use std::{
-    env, fs,
-    path::{Path, PathBuf},
-};
-
 use sp1_helper::build_program;
 
-const RISC_V_COMPILER: &str = "/opt/riscv/bin/riscv-none-elf-gcc";
-const ELF_FILE_PATH: &str =
-    "bridge-guest/target/elf-compilation/riscv32im-succinct-zkvm-elf/release/strata-bridge-guest";
-const MOCK_ELF_CONTENT: &str = r#"
-    pub const GUEST_BRIDGE_ELF: &[u8] = &[];
-"#;
-
 fn main() {
-    let out_dir = get_output_dir();
-    let methods_path = out_dir.join("methods.rs");
+    // Tell Cargo to rerun this build script if SKIP_GUEST_BUILD changes.
+    println!("cargo:rerun-if-env-changed=SKIP_GUEST_BUILD");
 
-    if cfg!(feature = "prover")
-        && std::env::var("CARGO_CFG_CLIPPY").is_err()
-        && std::env::var("SKIP_GUEST_BUILD").is_err()
-    {
-        setup_compiler();
-        build_program("bridge-guest");
-        let elf_content = generate_elf_content(ELF_FILE_PATH);
-        fs::write(&methods_path, elf_content).expect("failed writing to methods path");
-    } else {
-        fs::write(methods_path, MOCK_ELF_CONTENT).expect("failed writing to methods path");
+    // Register our custom cfg flag so that Cargo (and Clippy) know it's valid.
+    println!("cargo:rustc-check-cfg=cfg(skip_guest_build)");
+
+    // Check the environment variable and set the custom cfg flag if needed.
+    if std::env::var("SKIP_GUEST_BUILD").unwrap_or_default() == "1" {
+        println!("cargo:rustc-cfg=skip_guest_build");
     }
-}
 
-fn get_output_dir() -> PathBuf {
-    let out_dir = env::var_os("OUT_DIR").expect("OUT_DIR environment variable not set");
-    Path::new(&out_dir).to_path_buf()
-}
-
-fn setup_compiler() {
-    env::set_var("CC_riscv32im_succinct_zkvm_elf", RISC_V_COMPILER);
-}
-
-fn generate_elf_content(elf_path: &str) -> String {
-    let contents = fs::read(elf_path).expect("failed to find sp1 elf");
-    let contents_str = contents
-        .iter()
-        .map(|byte| format!("{:#04x}", byte))
-        .collect::<Vec<String>>()
-        .join(", ");
-
-    format!(
-        r#"
-        pub const GUEST_BRIDGE_ELF: &[u8] = &[{}];
-    "#,
-        contents_str
-    )
+    build_program("bridge-guest");
 }

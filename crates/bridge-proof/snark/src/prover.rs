@@ -11,21 +11,23 @@ use sp1_sdk::{
 use sp1_verifier::Groth16Verifier;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 use strata_bridge_proof_protocol::{BridgeProofInput, BridgeProofPublicParams, StrataBridgeState};
-use strata_sp1_adapter::SP1ProofInputBuilder;
-use strata_zkvm::{ZkVmError, ZkVmInputBuilder};
+use strata_primitives::params::RollupParams;
 use tracing::info;
+use zkaleido::{ZkVmError, ZkVmInputBuilder};
+use zkaleido_sp1_adapter::SP1ProofInputBuilder;
 
 use crate::sp1;
 
 pub fn prove(
     input: &[u8],
     strata_bridge_state: &StrataBridgeState,
+    rollup_params: &RollupParams,
 ) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofPublicParams)> {
     let bridge_proof_input: BridgeProofInput =
         bincode::deserialize(input).context("should be able to deserialize input")?;
 
-    let (mut sp1prf, sp1vk) =
-        default_prove(bridge_proof_input, strata_bridge_state).context("cannot generate proof")?;
+    let (mut sp1prf, sp1vk) = default_prove(bridge_proof_input, rollup_params, strata_bridge_state)
+        .context("cannot generate proof")?;
 
     info!(action = "verifying proof");
     Groth16Verifier::verify(
@@ -47,11 +49,13 @@ pub fn prove(
 
 pub fn default_prove(
     bridge_proof_input: BridgeProofInput,
+    rollup_params: &RollupParams,
     strata_bridge_state: &StrataBridgeState,
 ) -> anyhow::Result<(SP1ProofWithPublicValues, SP1VerifyingKey)> {
     let input = {
         let mut input_builder = SP1ProofInputBuilder::new();
         input_builder.write_serde(&bridge_proof_input)?;
+        input_builder.write_serde(&rollup_params)?;
         input_builder.write_borsh(strata_bridge_state)?;
         input_builder.build()?
     };

@@ -1,5 +1,5 @@
 use bitcoin::consensus::serialize;
-use strata_zkvm::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResult};
+use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResult};
 
 use crate::{BridgeProofInput, BridgeProofInputBorsh, BridgeProofOutput};
 
@@ -10,13 +10,17 @@ impl ZkVmProver for BridgeProver {
 
     type Output = BridgeProofOutput;
 
+    fn name() -> String {
+        "Bridge Proof".to_string()
+    }
+
     fn proof_type() -> ProofType {
-        strata_zkvm::ProofType::Groth16
+        zkaleido::ProofType::Groth16
     }
 
     fn prepare_input<'a, B>(input: &'a Self::Input) -> ZkVmInputResult<B::Input>
     where
-        B: strata_zkvm::ZkVmInputBuilder<'a>,
+        B: zkaleido::ZkVmInputBuilder<'a>,
     {
         let mut input_builder = B::new();
 
@@ -38,7 +42,7 @@ impl ZkVmProver for BridgeProver {
 
     fn process_output<H>(public_values: &PublicValues) -> ZkVmResult<Self::Output>
     where
-        H: strata_zkvm::ZkVmHost,
+        H: zkaleido::ZkVmHost,
     {
         H::extract_borsh_public_output(public_values)
     }

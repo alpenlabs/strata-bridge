@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, fs::File, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bitcoin::{
@@ -7,16 +7,16 @@ use bitcoin::{
     consensus,
     hashes::Hash,
     hex::DisplayHex,
-    key::TapTweak,
     sighash::{Prevouts, SighashCache},
-    Address, TapSighashType, Transaction, TxOut, Txid,
+    Block, TapSighashType, Transaction, TxOut, Txid,
 };
+use bitcoin_bosd::Descriptor;
 use bitvm::groth16::g16;
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
 use rand::Rng;
-use secp256k1::{schnorr::Signature, XOnlyPublicKey};
+use secp256k1::schnorr::Signature;
 use strata_bridge_db::{
     errors::DbError,
     operator::{KickoffInfo, OperatorDb},
@@ -44,7 +44,7 @@ use strata_bridge_tx_graph::{
     transactions::prelude::*,
 };
 use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
-use strata_primitives::buf::Buf32;
+use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_rpc::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
@@ -74,6 +74,7 @@ pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
     pub duty_db: Arc<D>,
     pub is_faulty: bool,
     pub btc_poll_interval: Duration,
+    pub rollup_params: RollupParams,
 
     pub duty_status_sender: mpsc::Sender<(Txid, BridgeDutyStatus)>,
     pub deposit_signal_sender: broadcast::Sender<DepositSignal>,
@@ -1444,12 +1445,12 @@ where
 
         // 1. pay the user
         if status.should_pay() {
-            let user_pk = withdrawal_info.user_pk();
+            let user_destination = withdrawal_info.user_destination();
 
-            info!(action = "paying out the user", %user_pk, %own_index);
+            info!(action = "paying out the user", %user_destination, %own_index);
 
             let withdrawal_fulfillment_txid = self
-                .pay_user(user_pk, network, own_index, deposit_idx)
+                .pay_user(user_destination, network, own_index, deposit_idx)
                 .await
                 .expect("must be able to pay user");
 
@@ -1864,7 +1865,7 @@ where
 
     async fn pay_user(
         &self,
-        user_pk: XOnlyPublicKey,
+        user_destination: &Descriptor,
         network: bitcoin::Network,
         own_index: OperatorIdx,
         deposit_idx: u32,
@@ -1891,7 +1892,7 @@ where
             script_pubkey: change_address.script_pubkey(),
             value: change_amount,
         };
-        let recipient_addr = Address::p2tr_tweaked(user_pk.dangerous_assume_tweaked(), network);
+        let recipient_addr = user_destination.to_address(network)?;
         let withdrawal_fulfillment = WithdrawalFulfillment::new(
             withdrawal_metadata,
             vec![outpoint],
@@ -1950,7 +1951,6 @@ where
             .await
             .expect("should be able to get checkpoint info")
             .expect("checkpoint info must exist");
-
         let l1_range = checkpoint_info.l1_range;
         let l2_range = checkpoint_info.l2_range;
 
@@ -2002,6 +2002,7 @@ where
 
         let mut height = l1_start_height as u32;
         let mut headers: Vec<Header> = vec![];
+        let mut blocks: Vec<Block> = vec![];
         let mut withdrawal_fulfillment = None;
         let mut checkpoint = None;
 
@@ -2020,7 +2021,7 @@ where
             if checkpoint.is_none() {
                 // check and get checkpoint idx with proof
                 if let Some(tx) = block.txdata.iter().find(|&tx| {
-                    checkpoint_last_verified_l1_height(tx)
+                    checkpoint_last_verified_l1_height(tx, &self.rollup_params)
                         .is_some_and(|h| h == initial_header_state.last_verified_block_num)
                 }) {
                     let height = block.bip34_block_height().unwrap() as u32;
@@ -2044,6 +2045,7 @@ where
 
             let header = block.header;
             headers.push(header);
+            blocks.push(block);
             height += 1;
 
             block_count += 1;
@@ -2055,6 +2057,8 @@ where
 
             tokio::time::sleep(poll_interval).await;
         }
+
+        bincode::serialize_into(File::create("../blocks.bin").unwrap(), &blocks).unwrap();
 
         let input = proof_interop::BridgeProofInput {
             headers,
@@ -2072,11 +2076,15 @@ where
         let input = bincode::serialize(&input).expect("should serialize BridgeProofInput");
 
         // check if proof is valid
-        let _local_public_params = run_process_bridge_proof(&input, strata_bridge_state.clone())
-            .expect("failed to assert proof statements");
+        let _local_public_params = run_process_bridge_proof(
+            &input,
+            strata_bridge_state.clone(),
+            self.rollup_params.clone(),
+        )
+        .expect("failed to assert proof statements");
 
         let (proof, public_inputs, public_params) =
-            prover::prove(&input, &strata_bridge_state).unwrap();
+            prover::prove(&input, &strata_bridge_state, &self.rollup_params).unwrap();
 
         let BridgeProofPublicParams {
             deposit_txid: _,

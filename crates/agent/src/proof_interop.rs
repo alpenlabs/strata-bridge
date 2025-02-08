@@ -8,7 +8,8 @@ use bitcoin::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use strata_btcio::rpc::traits::ReaderRpc;
-use strata_l1tx::envelope::parser::parse_envelope_data;
+use strata_l1tx::envelope::parser::parse_envelope_payloads;
+use strata_primitives::params::RollupParams;
 use strata_state::{
     batch::{BatchCheckpoint, SignedBatchCheckpoint},
     l1::{
@@ -186,12 +187,18 @@ pub async fn get_verification_state(
     Ok(header_vs)
 }
 
-pub fn checkpoint_last_verified_l1_height(tx: &Transaction) -> Option<u32> {
+pub fn checkpoint_last_verified_l1_height(
+    tx: &Transaction,
+    rollup_params: &RollupParams,
+) -> Option<u32> {
     if let Some(script) = tx.input[0].witness.tapscript() {
         let script = script.to_bytes();
-        if let Ok(inscription) = parse_envelope_data(&script.into(), "alpenstrata") {
+        if let Ok(inscription) = parse_envelope_payloads(&script.into(), rollup_params) {
+            if inscription.is_empty() {
+                return None;
+            }
             if let Ok(signed_batch_checkpoint) =
-                borsh::from_slice::<SignedBatchCheckpoint>(inscription.data())
+                borsh::from_slice::<SignedBatchCheckpoint>(inscription[0].data())
             {
                 let batch_checkpoint: BatchCheckpoint = signed_batch_checkpoint.into();
                 return Some(batch_checkpoint.batch_info().l1_range.1 as u32);
