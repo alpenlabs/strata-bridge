@@ -392,7 +392,7 @@ mod tests {
 
     #[test]
     fn test_dump_proof_inputs() {
-        let blocks_bytes = include_bytes!("../../../../test-data/blocks2.bin");
+        let blocks_bytes = include_bytes!("../../../../test-data/blocks.bin");
         let blocks: Vec<Block> =
             bincode::deserialize(blocks_bytes).expect("failed Block deserialization");
 
