@@ -47,3 +47,24 @@ impl ZkVmProver for BridgeProver {
         H::extract_borsh_public_output(public_values)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use zkaleido_native_adapter::{NativeHost, NativeMachine};
+
+    use crate::{process_bridge_proof_outer, BridgeProofInput};
+
+    pub fn get_native_host() -> NativeHost {
+        NativeHost {
+            process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
+                process_bridge_proof_outer(zkvm);
+                Ok(())
+            })),
+        }
+    }
+
+    #[test]
+    fn test_native() {}
+}

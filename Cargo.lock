@@ -9292,6 +9292,7 @@ dependencies = [
  "strata-state",
  "thiserror 2.0.11",
  "zkaleido",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
@@ -11356,6 +11357,18 @@ dependencies = [
  "borsh",
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido-native-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc1#132da748d0789cd5799d5f949d017141926802e7"
+dependencies = [
+ "bincode",
+ "borsh",
+ "serde",
+ "tracing",
+ "zkaleido",
 ]
 
 [[package]]

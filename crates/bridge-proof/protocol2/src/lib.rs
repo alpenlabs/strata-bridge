@@ -11,6 +11,7 @@
 mod error;
 mod prover;
 mod statement;
+mod test_data;
 mod tx_inclusion_proof;
 mod tx_info;
 
