@@ -52,6 +52,7 @@ impl ZkVmProver for BridgeProver {
 mod tests {
     use std::sync::Arc;
 
+    use borsh::BorshDeserialize;
     use strata_primitives::buf::Buf64;
     use zkaleido::ZkVmProver;
     use zkaleido_native_adapter::{NativeHost, NativeMachine};
@@ -76,6 +77,9 @@ mod tests {
     }
 
     fn get_input() -> BridgeProofInput {
+        let sig_bytes: Vec<u8> = hex::decode("0efe555da06ed50a752cd5721dbc35acb296d8a38879dc0ddb6c5dffeb157575c243d444f0b2e56caccc6865a800b81b205ebc9346ee7a7a592467431da2fb17").unwrap();
+        let sig_buf64 = Buf64::try_from_slice(&sig_bytes).unwrap();
+
         BridgeProofInput {
             rollup_params: load_test_rollup_params(),
             headers: extract_test_headers(),
@@ -84,7 +88,7 @@ mod tests {
             deposit_idx: 0,
             strata_checkpoint_tx: get_strata_checkpoint_tx(),
             withdrawal_fulfillment_tx: get_withdrawal_fulfillment_tx(),
-            op_signature: Buf64::zero(),
+            op_signature: sig_buf64,
         }
     }
 

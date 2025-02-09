@@ -178,7 +178,7 @@ pub(crate) fn process_bridge_proof(
 
     // 8. Verify sufficient headers after claim transaction
     let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fullfillment_idx;
-    if REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX < headers_after_withdrawal_fulfillment_tx {
+    if headers_after_withdrawal_fulfillment_tx < REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX {
         return Err(
             BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
                 REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX,

@@ -64,6 +64,8 @@ pub(crate) fn extract_withdrawal_info(
 
 #[cfg(test)]
 mod tests {
+    use strata_proofimpl_btc_blockspace::tx::compute_txid;
+
     use super::*;
     use crate::{test_data::test_data_loader, tx_info::extract_withdrawal_info};
 
@@ -89,6 +91,12 @@ mod tests {
         assert!(withdrawal_fulfillment_tx_bundle.verify(headers[idx]));
 
         let withdrawal_fulfillment_tx = withdrawal_fulfillment_tx_bundle.transaction();
+
+        // NOTE: Although these two outputs look different, they refer to the same transaction ID.
+        // The discrepancy is due to how the bytes are represented (e.g., endianness or formatting)
+        // in different debug/display methods.
+        dbg!(compute_txid(withdrawal_fulfillment_tx));
+        dbg!(withdrawal_fulfillment_tx.compute_txid());
 
         let res = extract_withdrawal_info(withdrawal_fulfillment_tx);
         assert!(res.is_ok());
