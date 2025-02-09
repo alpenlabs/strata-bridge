@@ -1,6 +1,6 @@
 use bitcoin::block::Header;
 use strata_crypto::verify_schnorr_sig;
-use strata_primitives::params::RollupParams;
+use strata_primitives::{l1::BitcoinAmount, params::RollupParams};
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
 
@@ -15,6 +15,14 @@ use crate::{
 ///
 /// TODO: update this once this is fixed
 const REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX: usize = 30;
+
+/// The fixed withdrawal fee for Bitcoin transactions.
+///
+/// This fee is currently set to **2 BTC** and is represented in satoshis.
+/// The fee is subtracted from the total amount during a withdrawal operation.
+///
+/// **TODO:** This value will be configurable as part of the parameters in the future.
+const WITHDRAWAL_FEE: BitcoinAmount = BitcoinAmount::from_sat(2_00_00_00_00);
 
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
 /// Also optionally checks if the transaction includes witness data.
@@ -83,13 +91,13 @@ pub(crate) fn process_bridge_proof(
 
     // 2. Verify that the chain state root matches the checkpoint's state root. This ensures the
     //    provided chain state aligns with the checkpoint data.
-    if input.chain_state.compute_state_root() != *checkpoint.batch_info().final_l1_state_hash() {
+    if input.chain_state.compute_state_root() != *checkpoint.batch_info().final_l2_state_hash() {
         return Err(BridgeProofError::ChainStateMismatch);
     }
 
     // 3a. Extract withdrawal fulfillment info.
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
-    let (operator_idx, address, amount) =
+    let (operator_idx, destination, amount) =
         extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
@@ -118,10 +126,8 @@ pub(crate) fn process_bridge_proof(
     // 3d. Ensure that the withdrawal information(operator, destination address and amount) matches
     // with the chain state withdrawal output.
     if operator_idx != dispatched_state.assignee()
-        || address != *withdrawal.destination().to_script()
-        // TODO: amount should be equal to entry.amt() - withdrawal_fee
-        // withdrawal_fee will be part of the params
-        || amount != entry.amt()
+        || destination != *withdrawal.destination().to_script()
+        || amount + WITHDRAWAL_FEE != entry.amt()
     {
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
