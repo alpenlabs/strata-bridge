@@ -9283,6 +9283,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "borsh",
+ "serde_json",
  "strata-bridge-primitives",
  "strata-crypto",
  "strata-l1tx",
