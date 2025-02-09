@@ -5,9 +5,9 @@ use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
 
 use crate::{
-    error::{BridgeProofError, BridgeRelatedTx, ChainStateError, InvalidClaimInfo},
+    error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
     tx_inclusion_proof::L1TxWithProofBundle,
-    tx_info::{extract_checkpoint, extract_claim_info, extract_withdrawal_info},
+    tx_info::{extract_checkpoint, extract_withdrawal_info},
     BridgeProofInputBorsh, BridgeProofOutput,
 };
 
@@ -43,7 +43,7 @@ fn verify_tx_inclusion(
     }
 
     // Verify the merkle proof against the header. If verification fails, return an error.
-    if tx.verify(header) {
+    if !tx.verify(header) {
         return Err(BridgeProofError::InvalidMerkleProof(tx_marker));
     }
 
@@ -144,31 +144,13 @@ pub(crate) fn process_bridge_proof(
         .signing_pk();
 
     // 4b. Verify the signature against the operator pub key in the chain state
-    // TODO: verifying the signature of the withdrawal fulfillment transaction is sufficient or
-    // should be message include some other information as well
-    let msg = compute_txid(withdrawal_fulfillment_tx.transaction());
-    if !verify_schnorr_sig(&input.op_signature, &msg, operator_pub_key) {
+    let withdrawal_fulfillment_txid = compute_txid(withdrawal_fulfillment_tx.transaction());
+    if !verify_schnorr_sig(
+        &input.op_signature,
+        &withdrawal_fulfillment_txid,
+        operator_pub_key,
+    ) {
         return Err(BridgeProofError::InvalidSignature);
-    }
-
-    // 5a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
-    let (claim_tx, claim_tx_idx) = &input.claim_tx;
-    let withdrawal_fullfillment_txid = extract_claim_info(claim_tx.transaction())?;
-
-    // 5b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
-    // witness data, so we expect witness to be present.
-    verify_tx_inclusion(
-        claim_tx,
-        BridgeRelatedTx::Claim,
-        headers[*claim_tx_idx],
-        true,
-    )?;
-
-    // 6c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
-    // the withdrawal fulfillment transaction.
-    if withdrawal_fullfillment_txid != compute_txid(withdrawal_fulfillment_tx.transaction()).into()
-    {
-        return Err(InvalidClaimInfo::InvalidWithdrawalCommitment.into());
     }
 
     // 6. Ensure that the transactions are in order
@@ -176,12 +158,6 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::InvalidTxOrder(
             BridgeRelatedTx::StrataCheckpoint,
             BridgeRelatedTx::WithdrawalFulfillment,
-        ));
-    }
-    if withdrawal_fullfillment_idx > claim_tx_idx {
-        return Err(BridgeProofError::InvalidTxOrder(
-            BridgeRelatedTx::WithdrawalFulfillment,
-            BridgeRelatedTx::Claim,
         ));
     }
 
@@ -195,18 +171,20 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 8. Verify sufficient headers after claim transaction
-    let headers_after_claim_tx = headers.len() - claim_tx_idx;
-    if REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX < headers_after_claim_tx {
-        return Err(BridgeProofError::InsufficientBlocksAfterClaim(
-            REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX,
-            headers_after_claim_tx,
-        ));
+    let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fullfillment_idx;
+    if REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX < headers_after_withdrawal_fulfillment_tx {
+        return Err(
+            BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
+                REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX,
+                headers_after_withdrawal_fulfillment_tx,
+            ),
+        );
     }
 
     // 8. Construct the proof output.
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        withdrawal_txid: withdrawal_fullfillment_txid.into(),
+        withdrawal_txid: withdrawal_fulfillment_txid,
     };
 
     Ok((output, checkpoint))

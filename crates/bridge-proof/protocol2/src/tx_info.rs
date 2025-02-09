@@ -1,9 +1,8 @@
-use bitcoin::{ScriptBuf, Transaction, Txid};
+use bitcoin::{ScriptBuf, Transaction};
 use strata_l1tx::envelope::parser::parse_envelope_payloads;
 use strata_primitives::{
     block_credential::CredRule, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
 };
-use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
 
 use crate::error::{BridgeProofError, BridgeRelatedTx};
@@ -63,14 +62,6 @@ pub(crate) fn extract_withdrawal_info(
     Ok((operator_id, withdrawal_address, withdrawal_amount))
 }
 
-/// Returns:
-///
-/// 2. committed witdrawal fulfillment tx id
-pub(crate) fn extract_claim_info(tx: &Transaction) -> Result<Txid, BridgeProofError> {
-    // TODO: FIXME
-    Ok(compute_txid(tx).into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,17 +69,28 @@ mod tests {
 
     #[test]
     fn test_extract_checkpoint() {
-        let checkpoint_inscribed_tx = test_data_loader::get_checkpoint_inscription_tx();
+        let headers = test_data_loader::extract_test_headers();
+        let (checkpoint_inscribed_tx_bundle, idx) = test_data_loader::get_strata_checkpoint_tx();
+        assert!(checkpoint_inscribed_tx_bundle.verify(headers[idx]));
+
+        let checkpoint_inscribed_tx = checkpoint_inscribed_tx_bundle.transaction();
+
         let rollup_params = test_data_loader::load_test_rollup_params();
-        let res = extract_checkpoint(&checkpoint_inscribed_tx, &rollup_params);
+        let res = extract_checkpoint(checkpoint_inscribed_tx, &rollup_params);
         assert!(res.is_ok());
         dbg!(res.unwrap());
     }
 
     #[test]
     fn test_extract_withdrawal_info() {
-        let withdrawal_fulfillment_tx = test_data_loader::get_withdrawal_fulfillment_tx();
-        let res = extract_withdrawal_info(&withdrawal_fulfillment_tx);
+        let headers = test_data_loader::extract_test_headers();
+        let (withdrawal_fulfillment_tx_bundle, idx) =
+            test_data_loader::get_withdrawal_fulfillment_tx();
+        assert!(withdrawal_fulfillment_tx_bundle.verify(headers[idx]));
+
+        let withdrawal_fulfillment_tx = withdrawal_fulfillment_tx_bundle.transaction();
+
+        let res = extract_withdrawal_info(withdrawal_fulfillment_tx);
         assert!(res.is_ok());
         dbg!(res.unwrap());
     }

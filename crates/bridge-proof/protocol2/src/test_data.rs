@@ -3,9 +3,15 @@
 pub(crate) mod test_data_loader {
     use std::fs;
 
-    use bitcoin::{block::Header, Block, Transaction};
-    use strata_primitives::params::RollupParams;
-    use strata_state::chain_state::Chainstate;
+    use bitcoin::{block::Header, Block};
+    use borsh::BorshDeserialize;
+    use strata_primitives::{buf::Buf32, params::RollupParams};
+    use strata_state::{
+        chain_state::Chainstate,
+        l1::{HeaderVerificationState, L1BlockId, TimestampStore},
+    };
+
+    use crate::L1TxWithProofBundle;
 
     /// Loads and deserializes a list of Bitcoin blocks from a binary test data file.
     pub(crate) fn load_test_blocks() -> Vec<Block> {
@@ -17,6 +23,31 @@ pub(crate) mod test_data_loader {
     /// Extracts the headers from the test blocks.
     pub(crate) fn extract_test_headers() -> Vec<Header> {
         load_test_blocks().iter().map(|b| b.header).collect()
+    }
+
+    pub(crate) fn header_verification_state() -> HeaderVerificationState {
+        let mut timestamps = [
+            1738924903, 1738924903, 1738924903, 1738924903, 1738924907, 1738924907, 1738924907,
+            1738924907, 1738924911, 1738924899, 1738924899,
+        ];
+        timestamps.sort();
+
+        HeaderVerificationState {
+            last_verified_block_num: 932,
+            last_verified_block_hash: L1BlockId::from(
+                Buf32::try_from_slice(
+                    &hex::decode(
+                        "e2c06d4ff03aadd3ee68c446743bb9ee55a816af8a39b6e393b0bca74d60b753",
+                    )
+                    .unwrap(),
+                )
+                .unwrap(),
+            ),
+            next_block_target: 545259519,
+            interval_start_timestamp: 1296688602,
+            total_accumulated_pow: 0,
+            last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 9),
+        }
     }
 
     /// Loads and deserializes the chain state from a Borsh-encoded test data file.
@@ -38,33 +69,49 @@ pub(crate) mod test_data_loader {
 
     /// Retrieves the withdrawal fulfillment transaction from test blocks.
     ///
-    /// This transaction is located at block height 988, index 1 in the block's transaction list.
-    pub(crate) fn get_withdrawal_fulfillment_tx() -> Transaction {
-        let target_height = 988;
+    /// This transaction is found at block height 988, with index 1 in the block's transaction list.
+    /// Returns the transaction along with the relative block index in the test blocks.
+    pub(crate) fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
+        let block_height = 988;
         let tx_index = 1;
-
-        let blocks = load_test_blocks();
-        let starting_height = blocks
-            .first()
-            .expect("No blocks found")
-            .bip34_block_height()
-            .expect("Missing block height");
-        blocks[(target_height - starting_height) as usize].txdata[tx_index].clone()
+        fetch_test_transaction(block_height, tx_index)
     }
 
-    /// Retrieves the checkpoint inscription transaction from test blocks.
+    /// Retrieves the strata checkpoint transaction from test blocks.
     ///
-    /// This transaction is located at block height 968, index 2 in the block's transaction list.
-    pub(crate) fn get_checkpoint_inscription_tx() -> Transaction {
-        let target_height = 968;
+    /// This transaction is found at block height 968, with index 2 in the block's transaction list.
+    /// Returns the transaction along with the relative block index in the test blocks.
+    pub(crate) fn get_strata_checkpoint_tx() -> (L1TxWithProofBundle, usize) {
+        let block_height = 968;
         let tx_index = 2;
+        fetch_test_transaction(block_height, tx_index)
+    }
 
-        let blocks = load_test_blocks();
-        let starting_height = blocks
+    /// Retrieves a transaction from test blocks given a specific block height and transaction
+    /// index.
+    ///
+    /// # Arguments
+    /// * `block_height` - The height of the block where the transaction is located.
+    /// * `tx_index` - The index of the transaction in the block's transaction list.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// * `L1TxWithProofBundle` - The generated transaction bundle.
+    /// * `usize` - The relative index of the block in the test blocks list.
+    fn fetch_test_transaction(block_height: u64, tx_index: u32) -> (L1TxWithProofBundle, usize) {
+        let test_blocks = load_test_blocks();
+        let first_block_height = test_blocks
             .first()
-            .expect("No blocks found")
+            .expect("No test blocks found")
             .bip34_block_height()
-            .expect("Missing block height");
-        blocks[(target_height - starting_height) as usize].txdata[tx_index].clone()
+            .expect("Missing block height from the first block");
+
+        let relative_block_index = (block_height - first_block_height) as usize;
+        let block_transactions = &test_blocks[relative_block_index].txdata;
+
+        (
+            L1TxWithProofBundle::generate(block_transactions, tx_index),
+            relative_block_index,
+        )
     }
 }

@@ -34,8 +34,8 @@ impl ZkVmProver for BridgeProver {
         let borsh_input: BridgeProofInputBorsh = input.clone().into();
 
         input_builder
-            .write_buf(&headers_buf)?
             .write_serde(&input.rollup_params)?
+            .write_buf(&headers_buf)?
             .write_borsh(&borsh_input)?
             .build()
     }
@@ -52,11 +52,21 @@ impl ZkVmProver for BridgeProver {
 mod tests {
     use std::sync::Arc;
 
+    use strata_primitives::buf::Buf64;
+    use zkaleido::ZkVmProver;
     use zkaleido_native_adapter::{NativeHost, NativeMachine};
 
-    use crate::{process_bridge_proof_outer, BridgeProofInput};
+    use super::BridgeProver;
+    use crate::{
+        process_bridge_proof_outer,
+        test_data::test_data_loader::{
+            extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
+            header_verification_state, load_test_chainstate, load_test_rollup_params,
+        },
+        BridgeProofInput,
+    };
 
-    pub fn get_native_host() -> NativeHost {
+    fn get_native_host() -> NativeHost {
         NativeHost {
             process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
                 process_bridge_proof_outer(zkvm);
@@ -65,6 +75,24 @@ mod tests {
         }
     }
 
+    fn get_input() -> BridgeProofInput {
+        BridgeProofInput {
+            rollup_params: load_test_rollup_params(),
+            headers: extract_test_headers(),
+            chain_state: load_test_chainstate(),
+            header_vs: header_verification_state(),
+            deposit_idx: 0,
+            strata_checkpoint_tx: get_strata_checkpoint_tx(),
+            withdrawal_fulfillment_tx: get_withdrawal_fulfillment_tx(),
+            op_signature: Buf64::zero(),
+        }
+    }
+
     #[test]
-    fn test_native() {}
+    fn test_native() {
+        let input = get_input();
+        let host = get_native_host();
+        let receipt = BridgeProver::prove(&input, &host).unwrap();
+        dbg!(receipt);
+    }
 }
