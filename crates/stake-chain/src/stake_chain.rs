@@ -7,7 +7,10 @@ use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, XOnlyPu
 use strata_bridge_primitives::{scripts::prelude::get_deposit_master_secret_key, wots};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
-use crate::prelude::{StakeTx, STAKE_VOUT};
+use crate::{
+    params::StakeChainParams,
+    prelude::{StakeTx, STAKE_VOUT},
+};
 
 /// A [`StakeChain`] is a series of transactions that move the stake from one transaction to the
 /// next.
@@ -47,32 +50,32 @@ impl<const M: usize> StakeChain<M> {
         );
         let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
         let connector_k = ConnectorK::new(
-            stake_inputs.n_of_n_agg_pubkey,
-            stake_inputs.network,
+            stake_inputs.params.n_of_n_agg_pubkey,
+            stake_inputs.params.network,
             wots_pubkey,
         );
         let connector_p = ConnectorP::new(
-            stake_inputs.n_of_n_agg_pubkey,
+            stake_inputs.params.n_of_n_agg_pubkey,
             stake_inputs.stake_hashes[0],
-            stake_inputs.network,
+            stake_inputs.params.network,
         );
         let connector_s = ConnectorStake::new(
-            stake_inputs.n_of_n_agg_pubkey,
+            stake_inputs.params.n_of_n_agg_pubkey,
             stake_inputs.operator_pubkey,
             stake_inputs.stake_hashes[0],
-            stake_inputs.delta,
-            stake_inputs.network,
+            stake_inputs.params.delta,
+            stake_inputs.params.network,
         );
         let first_stake_tx = StakeTx::new(
             0,
             stake_inputs.original_stake.clone(),
-            stake_inputs.amount,
+            stake_inputs.params.stake_amount,
             stake_inputs.operator_funds[0].clone(),
             stake_inputs.operator_pubkey,
             connector_k,
             connector_p,
             connector_s,
-            stake_inputs.network,
+            stake_inputs.params.network,
         );
 
         // Instantiate a vector with the length `M`.
@@ -88,14 +91,14 @@ impl<const M: usize> StakeChain<M> {
             let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
             let new_stake_tx = generate_new_stake_tx(
                 previous_stake_tx,
-                stake_inputs.amount,
-                stake_inputs.delta,
+                stake_inputs.params.stake_amount,
+                stake_inputs.params.delta,
                 stake_inputs.operator_funds[index].clone(),
                 stake_inputs.operator_pubkey,
-                stake_inputs.n_of_n_agg_pubkey,
+                stake_inputs.params.n_of_n_agg_pubkey,
                 wots_pubkey,
                 stake_inputs.stake_hashes[index],
-                stake_inputs.network,
+                stake_inputs.params.network,
             );
             stake_chain.push(new_stake_tx);
         }
@@ -126,18 +129,16 @@ impl<const M: usize> DerefMut for StakeChain<M> {
 ///
 /// The data that it needs are:
 ///
-/// 1. Stake amount.
-/// 2. Operator's public key.
-/// 3. N-of-N aggregated bridge public key.
-/// 4. WOTS master secret key.
-/// 5. `N`-length array of stake hashes.
-/// 6. `N`-length array of operator fund prevouts.
-/// 7. Original stake prevout.
-/// 8. `ΔS` relative timelock interval.
-/// 9. Network.
-///
-/// The staking amount and the `ΔS` relative timelock interval are scalar values and configurable
-/// parameters which can be set at compile time to a contracted value.
+/// 1. Operator's public key.
+/// 2. WOTS master secret key.
+/// 3. `N`-length array of stake hashes.
+/// 4. `N`-length array of operator fund prevouts.
+/// 5. Original stake prevout.
+/// 6. Stake Chain protocol parameters:
+///    1. Stake amount.
+///    2. N-of-N aggregated bridge public key.
+///    3. `ΔS` relative timelock interval.
+///    4. Network.
 ///
 /// The `N`-length WOTS public keys, stake hashes, and operator funds prevouts arrays are needed to
 /// construct the transaction graph for the `N` deposits to be claimed while using and advancing the
@@ -148,18 +149,14 @@ impl<const M: usize> DerefMut for StakeChain<M> {
 /// operator is not succcesfully challenged and has it's stake slashed.
 /// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
 ///
+/// The staking amount, N-of-N aggregated bridge public key, `ΔS` relative timelock interval, and
+/// network are configurable parameters which can be set at compile time to a contracted value.
+///
 /// The network is the bitcoin network on which the stake chain operates.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeInputs<const N: usize> {
-    /// Staking amount.
-    // TODO: make this configurable with a fallback const `D_BTC`.
-    amount: Amount,
-
     /// Operator's public key.
     operator_pubkey: XOnlyPublicKey,
-
-    /// N-of-N aggregated bridge public key.
-    n_of_n_agg_pubkey: XOnlyPublicKey,
 
     /// WOTS master secret key used for the bitcommitment scripts in [`ConnectorK`]s.
     wots_master_sk: String,
@@ -174,13 +171,8 @@ pub struct StakeInputs<const N: usize> {
     /// Prevout for the first stake transaction.
     original_stake: TxIn,
 
-    /// `ΔS` relative timelock interval to advance the stake chain.
-    // TODO: make this configurable with a fallback const like FINALITY_DEPTH to something like
-    //       `6`.
-    delta: relative::LockTime,
-
-    /// Network on which the stake chain operates.
-    network: Network,
+    /// Stake Chain protocol parameters.
+    params: StakeChainParams,
 }
 
 impl<const N: usize> StakeInputs<N> {
@@ -188,40 +180,33 @@ impl<const N: usize> StakeInputs<N> {
     ///
     /// # Arguments
     ///
-    /// 1. Stake amount.
-    /// 2. Operator's public key.
-    /// 3. N-of-N aggregated bridge public key.
-    /// 4. WOTS master secret key.
-    /// 5. `N`-length array of stake hashes.
-    /// 6. `N`-length array of operator fund prevouts.
-    /// 7. Original stake prevout.
-    /// 8. [`PreStakeTx`](crate::transactions::PreStakeTx)'s [`Txid`].
-    /// 9. `ΔS` relative timelock interval.
-    /// 10. Network.
+    /// 1. Operator's public key.
+    /// 2. WOTS master secret key.
+    /// 3. `N`-length array of stake hashes.
+    /// 4. `N`-length array of operator fund prevouts.
+    /// 5. Original stake prevout.
+    /// 6. Stake Chain protocol parameters:
+    ///    1. Stake amount.
+    ///    2. N-of-N aggregated bridge public key.
+    ///    3. `ΔS` relative timelock interval.
+    ///    4. Network.
     ///
     /// For an explanation of the parameters, see the documentation for [`StakeInputs`].
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
-        amount: Amount,
         operator_pubkey: XOnlyPublicKey,
-        n_of_n_agg_pubkey: XOnlyPublicKey,
         wots_master_sk: String,
         stake_hashes: [sha256::Hash; N],
         operator_funds: [TxIn; N],
         original_stake: TxIn,
-        delta: relative::LockTime,
-        network: Network,
+        params: StakeChainParams,
     ) -> Self {
         Self {
-            amount,
             operator_pubkey,
-            n_of_n_agg_pubkey,
             wots_master_sk,
             stake_hashes,
             operator_funds,
             original_stake,
-            delta,
-            network,
+            params,
         }
     }
 
@@ -229,7 +214,7 @@ impl<const N: usize> StakeInputs<N> {
     ///
     /// The staking amount is the amount that is staked in the transaction graph for a single stake.
     pub fn amount(&self) -> Amount {
-        self.amount
+        self.params.stake_amount
     }
 
     /// Stake hashes for all the [`StakeInputs`]s.
@@ -289,7 +274,7 @@ impl<const N: usize> StakeInputs<N> {
     /// The stake chain can be advanced forward by revealing a preimage to a locking script that is
     /// also relative timelocked to a certain `ΔS` interval.
     pub fn delta(&self) -> relative::LockTime {
-        self.delta
+        self.params.delta
     }
 }
 
@@ -591,11 +576,20 @@ mod tests {
         // Generate keys
         let n_of_n_keypair = generate_keypair();
         // let operator_keypair = generate_keypair();
-        let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
+        let n_of_n_agg_pubkey = n_of_n_keypair.x_only_public_key().0;
         let operator_pubkey = operator_keypair.x_only_public_key().0;
 
         // Create relative timelock (e.g., 6 blocks)
         let delta = relative::LockTime::from_height(6);
+
+        // Create the StakeParams
+        let stake_amount = Amount::from_btc(25.0).expect("must be a valid amount");
+        let params = StakeChainParams {
+            stake_amount,
+            n_of_n_agg_pubkey,
+            delta,
+            network,
+        };
 
         // Create funding transaction
         let pre_stake_keypair = xpriv
@@ -613,7 +607,6 @@ mod tests {
             vout: 0,
         };
         let coinbase_amount = Amount::from_btc(50.0).expect("must be valid amount");
-        let stake_amount = Amount::from_btc(25.0).expect("must be a valid amount");
         let fees = Amount::from_sat(1_000);
 
         let inputs = vec![TxIn {
@@ -768,15 +761,12 @@ mod tests {
         };
         trace!(?original_stake, "original stake");
         let stake_inputs = StakeInputs::new(
-            stake_amount,
             operator_pubkey,
-            n_of_n_pubkey,
             wots_master_sk.to_string(),
             stake_hashes,
             operator_funds,
             original_stake,
-            delta,
-            network,
+            params,
         );
         let stake_chain = StakeChain::<2>::new(&stake_inputs);
 
@@ -818,7 +808,7 @@ mod tests {
 
         // Sign the StakeTx 1
         let connector_s = create_connector_stake(
-            n_of_n_pubkey,
+            n_of_n_agg_pubkey,
             operator_pubkey,
             stake_hashes[0],
             delta,
@@ -838,7 +828,7 @@ mod tests {
             &operator_keypair,
             prevouts,
             &stake_preimages[0],
-            n_of_n_pubkey,
+            n_of_n_agg_pubkey,
             operator_pubkey,
             delta,
             network,

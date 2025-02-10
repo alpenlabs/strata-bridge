@@ -23,6 +23,7 @@
 #![feature(generic_const_exprs)] // for compile-time checks in the StakeInput -> StakeChain conversion.
 
 pub mod errors;
+pub mod params;
 pub mod stake_chain;
 pub mod transactions;
 

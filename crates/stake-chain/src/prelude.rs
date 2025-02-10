@@ -3,6 +3,7 @@
 
 pub use crate::{
     errors::StakeChainError,
+    params::*,
     stake_chain::StakeChain,
     transactions::{constants::*, pre_stake::PreStakeTx, stake::StakeTx},
 };
