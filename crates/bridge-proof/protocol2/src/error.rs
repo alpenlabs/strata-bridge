@@ -26,11 +26,6 @@ pub(crate) enum BridgeProofError {
     #[error("Mismatch in operator index, withdrawal address, or amount.")]
     InvalidWithdrawalData,
 
-    /// The claim transaction's information is invalid, for instance a withdrawal commitment
-    /// mismatch.
-    #[error("Claim info is invalid")]
-    InvalidClaimInfo(#[from] InvalidClaimInfo),
-
     /// The operator's signature is invalid
     #[error("Signature is invalid")]
     InvalidSignature,
@@ -43,19 +38,9 @@ pub(crate) enum BridgeProofError {
     #[error("Invalid transactions order. {0:?} must occur before {1:?}")]
     InvalidTxOrder(BridgeRelatedTx, BridgeRelatedTx),
 
-    /// Insufficient blocks submitted after the claim transaction.
-    #[error("Expected at least {0} blocks after the claim transaction, but {1} were provided.")]
-    InsufficientBlocksAfterClaim(usize, usize),
-}
-
-/// Represents all errors that can occur specifically during the verification of a claim's
-/// information.
-#[derive(Debug, Error)]
-pub(crate) enum InvalidClaimInfo {
-    /// Indicates that the withdrawal fulfillment transaction ID committed on-chain
-    /// was not found or did not match the expected one in the provided header chain.
-    #[error("Committed withdrawal fulfillment transaction ID not found in the header chain")]
-    InvalidWithdrawalCommitment,
+    /// Insufficient blocks submitted after the withdrawal fulfillment transaction.
+    #[error("Expected at least {0} blocks after the withdrawal fulfillment transaction, but {1} were provided.")]
+    InsufficientBlocksAfterWithdrawalFulfillment(usize, usize),
 }
 
 /// Represents errors that occur during the verification of chain state.
@@ -77,6 +62,4 @@ pub(crate) enum BridgeRelatedTx {
     StrataCheckpoint,
     /// A withdrawal fulfillment transaction.
     WithdrawalFulfillment,
-    /// A claim transaction.
-    Claim,
 }

@@ -1,20 +1,29 @@
 use bitcoin::block::Header;
 use strata_crypto::verify_schnorr_sig;
-use strata_primitives::params::RollupParams;
+use strata_primitives::{l1::BitcoinAmount, params::RollupParams};
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
 
 use crate::{
-    error::{BridgeProofError, BridgeRelatedTx, ChainStateError, InvalidClaimInfo},
+    error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
     tx_inclusion_proof::L1TxWithProofBundle,
-    tx_info::{extract_checkpoint, extract_claim_info, extract_withdrawal_info},
+    tx_info::{extract_checkpoint, extract_withdrawal_info},
     BridgeProofInputBorsh, BridgeProofOutput,
 };
 
-/// The number of headers after claim transaction that must be provided as private input
+/// The number of headers after withdrawal fulfillment transaction that must be provided as private
+/// input
 ///
 /// TODO: update this once this is fixed
-const REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX: usize = 30;
+const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
+
+/// The fixed withdrawal fee for Bitcoin transactions.
+///
+/// This fee is currently set to **2 BTC** and is represented in satoshis.
+/// The fee is subtracted from the total amount during a withdrawal operation.
+///
+/// **TODO:** This value will be configurable as part of the parameters in the future.
+const WITHDRAWAL_FEE: BitcoinAmount = BitcoinAmount::from_sat(2_00_00_00_00);
 
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
 /// Also optionally checks if the transaction includes witness data.
@@ -43,7 +52,7 @@ fn verify_tx_inclusion(
     }
 
     // Verify the merkle proof against the header. If verification fails, return an error.
-    if tx.verify(header) {
+    if !tx.verify(header) {
         return Err(BridgeProofError::InvalidMerkleProof(tx_marker));
     }
 
@@ -83,13 +92,13 @@ pub(crate) fn process_bridge_proof(
 
     // 2. Verify that the chain state root matches the checkpoint's state root. This ensures the
     //    provided chain state aligns with the checkpoint data.
-    if input.chain_state.compute_state_root() != *checkpoint.batch_info().final_l1_state_hash() {
+    if input.chain_state.compute_state_root() != *checkpoint.batch_info().final_l2_state_hash() {
         return Err(BridgeProofError::ChainStateMismatch);
     }
 
     // 3a. Extract withdrawal fulfillment info.
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
-    let (operator_idx, address, amount) =
+    let (operator_idx, destination, amount) =
         extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
@@ -118,10 +127,8 @@ pub(crate) fn process_bridge_proof(
     // 3d. Ensure that the withdrawal information(operator, destination address and amount) matches
     // with the chain state withdrawal output.
     if operator_idx != dispatched_state.assignee()
-        || address != *withdrawal.destination().to_script()
-        // TODO: amount should be equal to entry.amt() - withdrawal_fee
-        // withdrawal_fee will be part of the params
-        || amount != entry.amt()
+        || destination != *withdrawal.destination().to_script()
+        || amount + WITHDRAWAL_FEE != entry.amt()
     {
         return Err(BridgeProofError::InvalidWithdrawalData);
     }
@@ -144,31 +151,13 @@ pub(crate) fn process_bridge_proof(
         .signing_pk();
 
     // 4b. Verify the signature against the operator pub key in the chain state
-    // TODO: verifying the signature of the withdrawal fulfillment transaction is sufficient or
-    // should be message include some other information as well
-    let msg = compute_txid(withdrawal_fulfillment_tx.transaction());
-    if !verify_schnorr_sig(&input.op_signature, &msg, operator_pub_key) {
+    let withdrawal_fulfillment_txid = compute_txid(withdrawal_fulfillment_tx.transaction());
+    if !verify_schnorr_sig(
+        &input.op_signature,
+        &withdrawal_fulfillment_txid,
+        operator_pub_key,
+    ) {
         return Err(BridgeProofError::InvalidSignature);
-    }
-
-    // 5a. Extract claim transaction info: anchor index and withdrawal fulfillment txid.
-    let (claim_tx, claim_tx_idx) = &input.claim_tx;
-    let withdrawal_fullfillment_txid = extract_claim_info(claim_tx.transaction())?;
-
-    // 5b. Verify the inclusion of the claim transaction in the header chain. The claim depends on
-    // witness data, so we expect witness to be present.
-    verify_tx_inclusion(
-        claim_tx,
-        BridgeRelatedTx::Claim,
-        headers[*claim_tx_idx],
-        true,
-    )?;
-
-    // 6c. Check that the claim's recorded withdrawal fulfillment TXID matches the actual TXID of
-    // the withdrawal fulfillment transaction.
-    if withdrawal_fullfillment_txid != compute_txid(withdrawal_fulfillment_tx.transaction()).into()
-    {
-        return Err(InvalidClaimInfo::InvalidWithdrawalCommitment.into());
     }
 
     // 6. Ensure that the transactions are in order
@@ -176,12 +165,6 @@ pub(crate) fn process_bridge_proof(
         return Err(BridgeProofError::InvalidTxOrder(
             BridgeRelatedTx::StrataCheckpoint,
             BridgeRelatedTx::WithdrawalFulfillment,
-        ));
-    }
-    if withdrawal_fullfillment_idx > claim_tx_idx {
-        return Err(BridgeProofError::InvalidTxOrder(
-            BridgeRelatedTx::WithdrawalFulfillment,
-            BridgeRelatedTx::Claim,
         ));
     }
 
@@ -195,18 +178,22 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 8. Verify sufficient headers after claim transaction
-    let headers_after_claim_tx = headers.len() - claim_tx_idx;
-    if REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX < headers_after_claim_tx {
-        return Err(BridgeProofError::InsufficientBlocksAfterClaim(
-            REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX,
-            headers_after_claim_tx,
-        ));
+    let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fullfillment_idx;
+    if headers_after_withdrawal_fulfillment_tx
+        < REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX
+    {
+        return Err(
+            BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
+                REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
+                headers_after_withdrawal_fulfillment_tx,
+            ),
+        );
     }
 
     // 8. Construct the proof output.
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        withdrawal_txid: withdrawal_fullfillment_txid.into(),
+        withdrawal_txid: withdrawal_fulfillment_txid,
     };
 
     Ok((output, checkpoint))

@@ -27,3 +27,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 bincode.workspace = true
+serde_json.workspace = true
+zkaleido-native-adapter.workspace = true
+hex.workspace = true

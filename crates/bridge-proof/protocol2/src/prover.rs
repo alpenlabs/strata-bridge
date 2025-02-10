@@ -34,8 +34,8 @@ impl ZkVmProver for BridgeProver {
         let borsh_input: BridgeProofInputBorsh = input.clone().into();
 
         input_builder
-            .write_buf(&headers_buf)?
             .write_serde(&input.rollup_params)?
+            .write_buf(&headers_buf)?
             .write_borsh(&borsh_input)?
             .build()
     }
@@ -45,5 +45,58 @@ impl ZkVmProver for BridgeProver {
         H: zkaleido::ZkVmHost,
     {
         H::extract_borsh_public_output(public_values)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use borsh::BorshDeserialize;
+    use strata_primitives::buf::Buf64;
+    use zkaleido::ZkVmProver;
+    use zkaleido_native_adapter::{NativeHost, NativeMachine};
+
+    use super::BridgeProver;
+    use crate::{
+        process_bridge_proof_outer,
+        test_data::test_data_loader::{
+            extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
+            header_verification_state, load_test_chainstate, load_test_rollup_params,
+        },
+        BridgeProofInput,
+    };
+
+    fn get_native_host() -> NativeHost {
+        NativeHost {
+            process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
+                process_bridge_proof_outer(zkvm);
+                Ok(())
+            })),
+        }
+    }
+
+    fn get_input() -> BridgeProofInput {
+        let sig_bytes: Vec<u8> = hex::decode("0efe555da06ed50a752cd5721dbc35acb296d8a38879dc0ddb6c5dffeb157575c243d444f0b2e56caccc6865a800b81b205ebc9346ee7a7a592467431da2fb17").unwrap();
+        let sig_buf64 = Buf64::try_from_slice(&sig_bytes).unwrap();
+
+        BridgeProofInput {
+            rollup_params: load_test_rollup_params(),
+            headers: extract_test_headers(),
+            chain_state: load_test_chainstate(),
+            header_vs: header_verification_state(),
+            deposit_idx: 0,
+            strata_checkpoint_tx: get_strata_checkpoint_tx(),
+            withdrawal_fulfillment_tx: get_withdrawal_fulfillment_tx(),
+            op_signature: sig_buf64,
+        }
+    }
+
+    #[test]
+    fn test_native() {
+        let input = get_input();
+        let host = get_native_host();
+        let receipt = BridgeProver::prove(&input, &host).unwrap();
+        dbg!(receipt);
     }
 }

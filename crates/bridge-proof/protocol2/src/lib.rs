@@ -11,6 +11,7 @@
 mod error;
 mod prover;
 mod statement;
+mod test_data;
 mod tx_inclusion_proof;
 mod tx_info;
 
@@ -56,10 +57,6 @@ pub struct BridgeProofInput {
     /// The `usize` represents the position of this transaction in the header chain.
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
 
-    /// Transaction (and its inclusion proof) containing the claim.  
-    /// The `usize` represents the position of this transaction in the header chain.
-    claim_tx: (L1TxWithProofBundle, usize),
-
     /// Transaction (and its inclusion proof) fulfilling the withdrawal.  
     /// The `usize` represents the position of this transaction in the header chain.
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
@@ -75,7 +72,6 @@ pub(crate) struct BridgeProofInputBorsh {
     header_vs: HeaderVerificationState,
     deposit_idx: u32,
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
-    claim_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
     op_signature: Buf64,
 }
@@ -87,7 +83,6 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
             header_vs: input.header_vs,
             deposit_idx: input.deposit_idx,
             strata_checkpoint_tx: input.strata_checkpoint_tx,
-            claim_tx: input.claim_tx,
             withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,
             op_signature: input.op_signature,
         }
