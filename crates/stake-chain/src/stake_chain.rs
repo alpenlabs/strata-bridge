@@ -3,7 +3,7 @@
 
 use std::ops::{Deref, DerefMut};
 
-use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, XOnlyPublicKey};
 use strata_bridge_primitives::{scripts::prelude::get_deposit_master_secret_key, wots};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
@@ -43,7 +43,7 @@ impl<const M: usize> StakeChain<M> {
     {
         let wots_sk = get_deposit_master_secret_key(
             &stake_inputs.wots_master_sk,
-            stake_inputs.pre_stake_txid,
+            stake_inputs.original_stake.previous_output.txid,
         );
         let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
         let connector_k = ConnectorK::new(
@@ -174,9 +174,6 @@ pub struct StakeInputs<const N: usize> {
     /// Prevout for the first stake transaction.
     original_stake: TxIn,
 
-    /// [`PreStakeTx`](crate::transactions::PreStakeTx)'s [`Txid`].
-    pre_stake_txid: Txid,
-
     /// `ΔS` relative timelock interval to advance the stake chain.
     // TODO: make this configurable with a fallback const like FINALITY_DEPTH to something like
     //       `6`.
@@ -212,7 +209,6 @@ impl<const N: usize> StakeInputs<N> {
         stake_hashes: [sha256::Hash; N],
         operator_funds: [TxIn; N],
         original_stake: TxIn,
-        pre_stake_txid: Txid,
         delta: relative::LockTime,
         network: Network,
     ) -> Self {
@@ -224,7 +220,6 @@ impl<const N: usize> StakeInputs<N> {
             stake_hashes,
             operator_funds,
             original_stake,
-            pre_stake_txid,
             delta,
             network,
         }
@@ -780,7 +775,6 @@ mod tests {
             stake_hashes,
             operator_funds,
             original_stake,
-            pre_stake_txid,
             delta,
             network,
         );
