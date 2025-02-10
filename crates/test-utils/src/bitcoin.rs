@@ -24,7 +24,7 @@ pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
     env::set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
     let url = bitcoind.rpc_url();
     let (user, password) = get_auth(bitcoind);
-    BitcoinClient::new(url, user, password).unwrap()
+    BitcoinClient::new(url, user, password, None, None).unwrap()
 }
 
 /// Get the authentication credentials for a given `bitcoind` instance.
