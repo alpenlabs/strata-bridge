@@ -28,12 +28,12 @@ impl ConnectorK {
     pub fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         network: Network,
-        wots_public_key: wots::Wots256PublicKey,
+        withdrawal_fulfillment_pk: wots::Wots256PublicKey,
     ) -> Self {
         Self {
             n_of_n_agg_pubkey,
             network,
-            wots_public_key,
+            wots_public_key: withdrawal_fulfillment_pk,
         }
     }
 
