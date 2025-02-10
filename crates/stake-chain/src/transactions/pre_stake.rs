@@ -29,8 +29,9 @@ impl PreStakeTx {
     /// The caller should be responsible for ensuring that the first output should cover for the the
     /// stake amount.
     ///
-    /// The `prevout` is the [`TxOut`] from the previous transaction that funds the stake chain.
-    pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, prevout: &TxOut) -> Self {
+    /// The `previous_utxo` is the [`TxOut`] from the previous transaction that funds the stake
+    /// chain.
+    pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, previous_utxo: &TxOut) -> Self {
         let transaction = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
@@ -43,7 +44,7 @@ impl PreStakeTx {
         let mut psbt = Psbt::from_unsigned_tx(transaction)
             .expect("cannot fail since transaction will be always unsigned");
 
-        psbt.inputs[0].witness_utxo = Some(prevout.clone());
+        psbt.inputs[0].witness_utxo = Some(previous_utxo.clone());
 
         Self {
             psbt,
