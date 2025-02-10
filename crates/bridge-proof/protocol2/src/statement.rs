@@ -11,10 +11,11 @@ use crate::{
     BridgeProofInputBorsh, BridgeProofOutput,
 };
 
-/// The number of headers after claim transaction that must be provided as private input
+/// The number of headers after withdrawal fulfillment transaction that must be provided as private
+/// input
 ///
 /// TODO: update this once this is fixed
-const REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX: usize = 30;
+const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
 
 /// The fixed withdrawal fee for Bitcoin transactions.
 ///
@@ -178,10 +179,12 @@ pub(crate) fn process_bridge_proof(
 
     // 8. Verify sufficient headers after claim transaction
     let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fullfillment_idx;
-    if headers_after_withdrawal_fulfillment_tx < REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX {
+    if headers_after_withdrawal_fulfillment_tx
+        < REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX
+    {
         return Err(
             BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
-                REQUIRED_NUM_OF_HEADERS_AFTER_CLAIM_TX,
+                REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
                 headers_after_withdrawal_fulfillment_tx,
             ),
         );

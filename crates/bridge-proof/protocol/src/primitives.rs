@@ -427,7 +427,6 @@ mod tests {
                 None
             })
             .unwrap();
-        dbg!(bridge_out_height);
 
         let (checkpoint_height, checkpoint_tx) = blocks
             .iter()
@@ -450,8 +449,6 @@ mod tests {
                 None
             })
             .unwrap();
-        dbg!(&checkpoint_height);
-        dbg!(&checkpoint_tx);
 
         let headers = blocks
             .iter()
