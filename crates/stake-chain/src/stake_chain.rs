@@ -4,7 +4,7 @@
 use std::ops::{Deref, DerefMut};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, TxIn, XOnlyPublicKey};
-use strata_bridge_primitives::{scripts::prelude::get_deposit_master_secret_key, wots};
+use strata_bridge_primitives::wots;
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
 use crate::{
@@ -44,15 +44,10 @@ impl<const M: usize> StakeChain<M> {
     where
         [(); N - M]:,
     {
-        let wots_sk = get_deposit_master_secret_key(
-            &stake_inputs.wots_master_sk,
-            stake_inputs.original_stake.previous_output.txid,
-        );
-        let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
         let connector_k = ConnectorK::new(
             stake_inputs.params.n_of_n_agg_pubkey,
             stake_inputs.params.network,
-            wots_pubkey,
+            stake_inputs.wots_public_keys[0],
         );
         let connector_p = ConnectorP::new(
             stake_inputs.params.n_of_n_agg_pubkey,
@@ -85,10 +80,6 @@ impl<const M: usize> StakeChain<M> {
         // for-loop to generate the rest of the `StakeTx`s from the second
         for index in 1..M {
             let previous_stake_tx = stake_chain.get(index -1).expect("always valid since we are starting from 1 (we always have 0) and the length is checked at compile time");
-            let previous_stake_txid = previous_stake_tx.compute_txid();
-            let wots_sk =
-                get_deposit_master_secret_key(&stake_inputs.wots_master_sk, previous_stake_txid);
-            let wots_pubkey = wots::Wots256PublicKey::new(&wots_sk);
             let new_stake_tx = generate_new_stake_tx(
                 previous_stake_tx,
                 stake_inputs.params.stake_amount,
@@ -96,7 +87,7 @@ impl<const M: usize> StakeChain<M> {
                 stake_inputs.operator_funds[index].clone(),
                 stake_inputs.operator_pubkey,
                 stake_inputs.params.n_of_n_agg_pubkey,
-                wots_pubkey,
+                stake_inputs.wots_public_keys[index],
                 stake_inputs.stake_hashes[index],
                 stake_inputs.params.network,
             );
@@ -130,7 +121,7 @@ impl<const M: usize> DerefMut for StakeChain<M> {
 /// The data that it needs are:
 ///
 /// 1. Operator's public key.
-/// 2. WOTS master secret key.
+/// 2. `N`-length WOTS public keys.
 /// 3. `N`-length array of stake hashes.
 /// 4. `N`-length array of operator fund prevouts.
 /// 5. Original stake prevout.
@@ -158,8 +149,8 @@ pub struct StakeInputs<const N: usize> {
     /// Operator's public key.
     operator_pubkey: XOnlyPublicKey,
 
-    /// WOTS master secret key used for the bitcommitment scripts in [`ConnectorK`]s.
-    wots_master_sk: String,
+    /// WOTS public keys used for the bitcommitment scripts in [`ConnectorK`]s.
+    wots_public_keys: [wots::Wots256PublicKey; N],
 
     /// Hashes for the `stake_txs` locking scripts.
     stake_hashes: [sha256::Hash; N],
@@ -181,7 +172,7 @@ impl<const N: usize> StakeInputs<N> {
     /// # Arguments
     ///
     /// 1. Operator's public key.
-    /// 2. WOTS master secret key.
+    /// 2. `N`-length WOTS public keys.
     /// 3. `N`-length array of stake hashes.
     /// 4. `N`-length array of operator fund prevouts.
     /// 5. Original stake prevout.
@@ -194,7 +185,7 @@ impl<const N: usize> StakeInputs<N> {
     /// For an explanation of the parameters, see the documentation for [`StakeInputs`].
     pub fn new(
         operator_pubkey: XOnlyPublicKey,
-        wots_master_sk: String,
+        wots_public_keys: [wots::Wots256PublicKey; N],
         stake_hashes: [sha256::Hash; N],
         operator_funds: [TxIn; N],
         original_stake: TxIn,
@@ -202,7 +193,7 @@ impl<const N: usize> StakeInputs<N> {
     ) -> Self {
         Self {
             operator_pubkey,
-            wots_master_sk,
+            wots_public_keys,
             stake_hashes,
             operator_funds,
             original_stake,
@@ -727,7 +718,6 @@ mod tests {
             .expect("must be able to generate blocks");
 
         // Create a StakeChain with 3 inputs
-        let wots_master_sk = "test-stake-chain";
         let stake_preimages = [[0u8; 32], [1u8; 32]];
         trace!(?stake_preimages, "stake preimages");
         let stake_hashes = [
@@ -760,9 +750,14 @@ mod tests {
             ..Default::default()
         };
         trace!(?original_stake, "original stake");
+        let wots_public_keys = [
+            wots::Wots256PublicKey::new("0"),
+            wots::Wots256PublicKey::new("1"),
+        ];
+        trace!(?wots_public_keys, "wots public keys");
         let stake_inputs = StakeInputs::new(
             operator_pubkey,
-            wots_master_sk.to_string(),
+            wots_public_keys,
             stake_hashes,
             operator_funds,
             original_stake,
