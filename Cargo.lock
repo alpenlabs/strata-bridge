@@ -9347,10 +9347,8 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
- "strata-btcio",
  "strata-common",
  "thiserror 2.0.11",
- "tokio",
  "tracing",
 ]
 
