@@ -28,6 +28,8 @@ impl PreStakeTx {
     ///
     /// The caller should be responsible for ensuring that the first output should cover for the the
     /// stake amount.
+    ///
+    /// The `prevout` is the [`TxOut`] from the previous transaction that funds the stake chain.
     pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, prevout: &TxOut) -> Self {
         let transaction = Transaction {
             version: transaction::Version(2),
