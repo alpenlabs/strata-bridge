@@ -1,19 +1,17 @@
 //! This module contains utility to load or create verifier scripts for the groth16 verifier
 //! program.
-use std::fs;
+use std::{fs, sync::LazyLock};
 
 use bitcoin::ScriptBuf;
 use bitvm::{groth16::g16, treepp::*};
-use lazy_static::lazy_static;
 use strata_bridge_proof_snark::bridge_vk;
 use tracing::{info, warn};
 
 const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-poc-vk.scripts";
 
-lazy_static! {
-    /// The verifier scripts for the groth16 verifier program.
-    pub static ref PARTIAL_VERIFIER_SCRIPTS: [Script; 579] = load_or_create_verifier_scripts();
-}
+/// The verifier scripts for the groth16 verifier program.
+pub static PARTIAL_VERIFIER_SCRIPTS: LazyLock<[Script; 579]> =
+    LazyLock::new(load_or_create_verifier_scripts);
 
 /// Loads tapscripts for the groth16 verifier program.
 pub fn load_or_create_verifier_scripts() -> [Script; 579] {

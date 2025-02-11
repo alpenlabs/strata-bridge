@@ -15,7 +15,6 @@ bitcoin-script.workspace = true
 bitvm.workspace = true
 borsh.workspace = true
 hex.workspace = true
-lazy_static.workspace = true
 num-bigint = "0.4.6"
 num-traits = "0.2.19"
 rs_merkle = { version = "1.4.2", default-features = false }
