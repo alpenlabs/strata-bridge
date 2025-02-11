@@ -78,11 +78,11 @@ impl StakeTx {
     /// [`ConnectorStake`] from the previous stake transaction as a [`Transaction`]'s vector of
     /// [`TxIn`].
     ///
-    /// The `previous_utxos` are the [`TxOut`]s:
+    /// `operator_funds_utxo` is the previous operator funds output that will fund the dust outputs
+    /// for the current stake transaction.
     ///
-    /// 1. Previous operator funds output that will fund the dust outputs for the current stake
-    ///    transaction.
-    /// 2. Previous stake output that will be used as an input to the current stake transaction.
+    /// `stake_utxo` is the previous stake output that will be used as an input to the current stake
+    /// transaction.
     #[expect(clippy::too_many_arguments)]
     pub fn new(
         index: u32,
@@ -90,7 +90,8 @@ impl StakeTx {
         stake_amount: Amount,
         operator_funds: TxIn,
         operator_pubkey: XOnlyPublicKey,
-        previous_utxos: [TxOut; 2],
+        operator_funds_utxo: TxOut,
+        stake_utxo: TxOut,
         connector_k: ConnectorK,
         connector_p: ConnectorP,
         connector_s: ConnectorStake,
@@ -135,8 +136,8 @@ impl StakeTx {
         let mut psbt = Psbt::from_unsigned_tx(transaction)
             .expect("cannot fail since transaction will be always unsigned");
 
-        psbt.inputs[0].witness_utxo = Some(previous_utxos[0].clone());
-        psbt.inputs[1].witness_utxo = Some(previous_utxos[1].clone());
+        psbt.inputs[0].witness_utxo = Some(operator_funds_utxo.clone());
+        psbt.inputs[1].witness_utxo = Some(stake_utxo.clone());
 
         Self {
             index,

@@ -58,7 +58,7 @@ impl<const M: usize> StakeChain<M> {
             stake_inputs.params.delta,
             stake_inputs.params.network,
         );
-        let first_previous_utxo = [
+        let first_previous_utxos = [
             stake_inputs.operator_funds_utxo[0].clone(),
             stake_inputs.pre_stake_utxo.clone(),
         ];
@@ -68,7 +68,8 @@ impl<const M: usize> StakeChain<M> {
             stake_inputs.params.stake_amount,
             stake_inputs.operator_funds[0].clone(),
             stake_inputs.operator_pubkey,
-            first_previous_utxo,
+            first_previous_utxos[0].clone(),
+            first_previous_utxos[1].clone(),
             connector_k,
             connector_p,
             connector_s,
@@ -88,11 +89,11 @@ impl<const M: usize> StakeChain<M> {
                     .script_pubkey
                     .clone(),
             };
-            let previous_utxos = [stake_inputs.operator_funds_utxo[index].clone(), stake_utxo];
             let new_stake_tx = generate_new_stake_tx(
                 previous_stake_tx,
                 stake_inputs.operator_funds[index].clone(),
-                previous_utxos,
+                stake_inputs.operator_funds_utxo[index].clone(),
+                stake_utxo,
                 stake_inputs.operator_pubkey,
                 stake_inputs.wots_public_keys[index],
                 stake_inputs.stake_hashes[index],
@@ -292,10 +293,12 @@ impl<const N: usize> StakeInputs<N> {
 }
 
 /// Generates a new [`StakeTx`] transaction for the given current [`StakeTx`] transaction.
+#[expect(clippy::too_many_arguments)]
 fn generate_new_stake_tx(
     current_stake_tx: &StakeTx,
     operator_funds: TxIn,
-    previous_utxo: [TxOut; 2],
+    operator_funds_utxo: TxOut,
+    stake_utxo: TxOut,
     operator_pubkey: XOnlyPublicKey,
     wots_public_key: wots::Wots256PublicKey,
     stake_hash: sha256::Hash,
@@ -329,7 +332,8 @@ fn generate_new_stake_tx(
         params.stake_amount,
         operator_funds,
         operator_pubkey,
-        previous_utxo,
+        operator_funds_utxo,
+        stake_utxo,
         connector_k,
         connector_p,
         connector_s,
