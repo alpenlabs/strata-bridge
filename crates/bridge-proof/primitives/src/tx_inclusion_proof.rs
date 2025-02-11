@@ -43,9 +43,11 @@ impl<T: TxIdComputable> L1TxWithIdProof<T> {
 /// - an optional “witness” transaction ([`L1TxWithIdProof<WtxIdMarker>`]).
 ///
 /// This structure is meant to unify the concept of:
-/// 1. **Proving a transaction without witness data:** we only need a [`txid`] Merkle proof.
-/// 2. **Proving a transaction with witness data:** we provide a [`wtxid`] Merkle proof, plus a
-///    coinbase transaction (the “base” transaction) that commits to the witness Merkle root.
+/// 1. **Proving a transaction without witness data:** we only need a [`Txid`](bitcoin::Txid) Merkle
+///    proof.
+/// 2. **Proving a transaction with witness data:** we provide a [`Wtxid`](bitcoin::Wtxid) Merkle
+///    proof, plus a coinbase transaction (the “base” transaction) that commits to the witness
+///    Merkle root.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct L1TxWithProofBundle {
     /// If `witness_tx` is `None`, this is the actual transaction we want to prove.
