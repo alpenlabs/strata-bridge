@@ -34,7 +34,8 @@ use strata_bridge_primitives::{
     withdrawal::WithdrawalInfo,
     wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
-use strata_bridge_proof_protocol2::{BridgeProofInput, L1TxWithProofBundle};
+use strata_bridge_proof_primitives::L1TxWithProofBundle;
+use strata_bridge_proof_protocol2::BridgeProofInput;
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_tx_graph::{
     connectors::prelude::ConnectorA30Leaf,

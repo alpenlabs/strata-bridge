@@ -4,7 +4,7 @@ name = "prover-test-utils"
 version = "0.1.0"
 
 [dependencies]
-strata-bridge-proof-protocol2.workspace = true
+strata-bridge-proof-primitives.workspace = true
 strata-btcio.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true

@@ -1,5 +1,5 @@
 [package]
-name = "strata-bridge-proof-protocol2"
+name = "strata-bridge-proof-protocol2" # TODO: rename this from protocol2 -> protocol
 version = "0.1.0"
 edition = "2021"
 
@@ -27,8 +27,5 @@ borsh.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-bincode.workspace = true
-serde_json.workspace = true
 hex.workspace = true
-strata-bridge-test-utils.workspace = true
 prover-test-utils.workspace = true

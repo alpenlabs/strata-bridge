@@ -4,7 +4,7 @@ use std::fs;
 
 use bitcoin::{block::Header, Block};
 use borsh::BorshDeserialize;
-use strata_bridge_proof_protocol2::L1TxWithProofBundle;
+use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_state::{
     chain_state::Chainstate,

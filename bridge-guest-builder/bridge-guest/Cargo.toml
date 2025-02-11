@@ -9,7 +9,7 @@ version = "0.1.0"
 sp1-zkvm = { version = "4.0.0" }
 strata-bridge-proof-protocol2 = { path = "../../crates/bridge-proof/protocol2" }
 zkaleido-sp1-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1", features = [
-    "zkvm",
+  "zkvm",
 ] }
 
 [patch.crates-io]

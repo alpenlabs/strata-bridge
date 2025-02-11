@@ -59,13 +59,15 @@ pub struct L1TxWithProofBundle {
 }
 
 impl L1TxWithProofBundle {
-    /// transaction that the bundle includes the proof of
-    /// if the tranaction desn't have any witness data this is None
+    /// Returns the transaction for which this bundle includes a proof.
+    /// If the transaction does not have any witness data, this returns `None`.
     pub fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
         &self.witness_tx
     }
 
-    /// this is the actual transaction that the bundle includes the proof of
+    /// Returns the actual transaction included in this bundle.
+    /// If witness data is available, it returns the transaction from `witness_tx`,
+    /// otherwise, it falls back to the base transaction.
     pub fn transaction(&self) -> &Transaction {
         match &self.witness_tx {
             Some(tx) => tx.tx.as_ref(),

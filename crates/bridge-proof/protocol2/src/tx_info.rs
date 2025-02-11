@@ -65,7 +65,8 @@ pub(crate) fn extract_withdrawal_info(
 #[cfg(test)]
 mod tests {
     use prover_test_utils::{
-        extract_test_headers, get_strata_checkpoint_tx, load_test_rollup_params,
+        extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
+        load_test_rollup_params,
     };
     use strata_proofimpl_btc_blockspace::tx::compute_txid;
 

@@ -70,17 +70,14 @@ pub fn get_native_host() -> NativeHost {
 mod tests {
 
     use borsh::BorshDeserialize;
+    use prover_test_utils::{
+        extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
+        header_verification_state, load_test_chainstate, load_test_rollup_params,
+    };
     use strata_primitives::buf::Buf64;
     use zkaleido::ZkVmProver;
 
     use super::*;
-    use crate::{
-        test_data::test_data_loader::{
-            extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
-            header_verification_state, load_test_chainstate, load_test_rollup_params,
-        },
-        BridgeProofInput,
-    };
 
     fn get_input() -> BridgeProofInput {
         let sig_bytes: Vec<u8> = hex::decode("0efe555da06ed50a752cd5721dbc35acb296d8a38879dc0ddb6c5dffeb157575c243d444f0b2e56caccc6865a800b81b205ebc9346ee7a7a592467431da2fb17").unwrap();

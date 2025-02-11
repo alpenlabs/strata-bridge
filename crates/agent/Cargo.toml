@@ -13,6 +13,7 @@ rust.unused_must_use = "deny"
 [dependencies]
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-protocol2.workspace = true
 strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
