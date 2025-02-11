@@ -4,13 +4,10 @@
 use std::ops::{Deref, DerefMut};
 
 use bitcoin::{hashes::sha256, relative, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
-use strata_bridge_primitives::wots;
+use strata_bridge_primitives::{params::stake_chain::StakeChainParams, wots};
 use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
 
-use crate::{
-    params::StakeChainParams,
-    prelude::{StakeTx, STAKE_VOUT},
-};
+use crate::prelude::{StakeTx, STAKE_VOUT};
 
 /// A [`StakeChain`] is a series of transactions that move the stake from one transaction to the
 /// next.
