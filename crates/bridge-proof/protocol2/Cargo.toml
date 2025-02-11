@@ -13,7 +13,6 @@ rust.unused_must_use = "deny"
 rustdoc.all = "warn"
 
 [dependencies]
-strata-bridge-primitives.workspace = true
 strata-crypto.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true
@@ -21,6 +20,7 @@ strata-proofimpl-btc-blockspace.workspace = true
 strata-state.workspace = true
 zkaleido.workspace = true
 
+arbitrary.workspace = true
 bitcoin.workspace = true
 borsh.workspace = true
 thiserror.workspace = true
@@ -30,3 +30,4 @@ bincode.workspace = true
 serde_json.workspace = true
 zkaleido-native-adapter.workspace = true
 hex.workspace = true
+strata-bridge-test-utils.workspace = true

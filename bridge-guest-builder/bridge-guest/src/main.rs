@@ -9,5 +9,5 @@ use strata_bridge_proof_protocol2::process_bridge_proof_outer;
 use zkaleido_sp1_adapter::Sp1ZkVmEnv;
 
 fn main() {
-    process_bridge_proof_outer2(&Sp1ZkVmEnv);
+    process_bridge_proof_outer(&Sp1ZkVmEnv);
 }
