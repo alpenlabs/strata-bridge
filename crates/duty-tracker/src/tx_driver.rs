@@ -21,7 +21,9 @@ use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
-pub enum DriveErr {}
+pub enum DriveErr {
+    DriverAborted,
+}
 
 pub struct TxDriver {
     new_jobs_sender: UnboundedSender<TxDriveJob>,
@@ -120,7 +122,10 @@ impl TxDriver {
                 deadline,
                 respond_on: sender,
             })
-            .unwrap(); // TODO(proofofkeags): fix this
-        receiver.await.unwrap() // TODO(proofofkeags): fix this
+            .map_err(|_| DriveErr::DriverAborted)?;
+        receiver
+            .await
+            .map_err(|_| DriveErr::DriverAborted)
+            .flatten()
     }
 }
