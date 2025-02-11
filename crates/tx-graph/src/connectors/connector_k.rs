@@ -20,7 +20,7 @@ pub struct ConnectorK {
     pub network: Network,
 
     /// The WOTS public key used for bitcommitment scripts.
-    pub wots_public_key: wots::Wots256PublicKey,
+    pub claim_bitcommitment: wots::Wots256PublicKey,
 }
 
 impl ConnectorK {
@@ -33,12 +33,12 @@ impl ConnectorK {
         Self {
             n_of_n_agg_pubkey,
             network,
-            wots_public_key: withdrawal_fulfillment_pk,
+            claim_bitcommitment: withdrawal_fulfillment_pk,
         }
     }
 
     fn create_locking_script(&self) -> ScriptBuf {
-        let wots::Wots256PublicKey(withdrawal_fulfillment_pk) = self.wots_public_key;
+        let wots::Wots256PublicKey(withdrawal_fulfillment_pk) = self.claim_bitcommitment;
 
         script! {
             // bridge_out_tx_id
