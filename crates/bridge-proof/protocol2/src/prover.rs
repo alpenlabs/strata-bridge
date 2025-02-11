@@ -80,7 +80,7 @@ mod tests {
     use super::*;
 
     fn get_input() -> BridgeProofInput {
-        let sig_bytes: Vec<u8> = hex::decode("0efe555da06ed50a752cd5721dbc35acb296d8a38879dc0ddb6c5dffeb157575c243d444f0b2e56caccc6865a800b81b205ebc9346ee7a7a592467431da2fb17").unwrap();
+        let sig_bytes: Vec<u8> = hex::decode("47d264910cb48a1ca933f4fc3f55188c0fda70cef1216cd38a887e169e7faed03fc49ffacd645dd11ba68bbb038a782d1b21875f0e6ebd7eb7816ee642e642f7").unwrap();
         let sig_buf64 = Buf64::try_from_slice(&sig_bytes).unwrap();
 
         BridgeProofInput {

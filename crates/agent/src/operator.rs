@@ -2114,7 +2114,7 @@ where
             op_signature,
         };
 
-        let (proof, public_inputs, public_output) = prover::prove(&input).unwrap();
+        let (proof, public_inputs, public_output) = prover::sp1_prove(&input).unwrap();
 
         Assertions {
             bridge_out_txid: public_output.withdrawal_txid.0,

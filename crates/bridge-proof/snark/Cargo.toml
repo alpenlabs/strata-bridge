@@ -35,3 +35,6 @@ zkaleido-sp1-adapter.workspace = true
 default = ["zkaleido-sp1-adapter/prover"]
 prover = ["zkaleido-sp1-adapter/prover", "strata-bridge-guest-builder/prover"]
 mock = []
+
+[dev-dependencies]
+prover-test-utils.workspace = true

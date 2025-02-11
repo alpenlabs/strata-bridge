@@ -9329,6 +9329,7 @@ dependencies = [
  "hex",
  "num-bigint 0.4.6",
  "num-traits",
+ "prover-test-utils",
  "rs_merkle",
  "serde",
  "sha2",
