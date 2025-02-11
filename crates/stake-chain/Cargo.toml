@@ -18,13 +18,13 @@ strata-bridge-primitives.workspace = true
 strata-bridge-tx-graph.workspace = true
 
 bitcoin = { workspace = true, features = ["rand-std"] }
-secp256k1.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 strata-common.workspace = true
 
 corepc-node.workspace = true
+secp256k1.workspace = true
+tracing.workspace = true
