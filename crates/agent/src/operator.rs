@@ -11,6 +11,7 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitvm::groth16::g16;
+use borsh::BorshSerialize;
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
@@ -41,7 +42,10 @@ use strata_bridge_tx_graph::{
     transactions::prelude::*,
 };
 use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
-use strata_primitives::{buf::Buf32, params::RollupParams};
+use strata_primitives::{
+    buf::{Buf32, Buf64},
+    params::RollupParams,
+};
 use strata_rpc::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
@@ -2073,7 +2077,19 @@ where
             tokio::time::sleep(poll_interval).await;
         }
 
-        bincode::serialize_into(File::create("../blocks.bin").unwrap(), &blocks).unwrap();
+        // Dump the proof to file if flag is enabled
+        if std::env::var("ZKVM_PROOF_DUMP")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false)
+        {
+            // Save chainstate
+            let mut file = File::create("../chainstate.borsh").unwrap();
+            let data = borsh::to_vec(&chain_state).expect("chainstate borsh serialization failed");
+            data.serialize(&mut file).unwrap();
+
+            // Save blocks
+            bincode::serialize_into(File::create("../blocks.bin").unwrap(), &blocks).unwrap();
+        }
 
         let deposit_idx = chain_state
             .deposits_table()
@@ -2082,6 +2098,9 @@ where
             .expect("expected a deposit idx")
             .idx();
 
+        let pk = self.agent.public_key();
+        info!(action = "signing txid", ?withdrawal_fulfillment_txid, %pk);
+        let op_signature: Buf64 = self.agent.sign_txid(&withdrawal_fulfillment_txid).into();
         let input = BridgeProofInput {
             rollup_params: self.rollup_params.clone(),
             headers,
@@ -2091,7 +2110,7 @@ where
             strata_checkpoint_tx: checkpoint.expect("must be able to find checkpoint"),
             withdrawal_fulfillment_tx: withdrawal_fulfillment
                 .expect("must be able to find withdrawal fulfillment tx"),
-            op_signature: self.agent.sign_txid(&withdrawal_fulfillment_txid).into(),
+            op_signature,
         };
 
         let (proof, public_inputs, public_output) = prover::prove(&input).unwrap();

@@ -148,7 +148,7 @@ pub(crate) fn process_bridge_proof(
         // TODO: optimization, maybe use `entry_at_pos` to avoid searching
         // Deferred for now because the number of operators will be small
         .unwrap()
-        .signing_pk();
+        .wallet_pk();
 
     // 4b. Verify the signature against the operator pub key in the chain state
     let withdrawal_fulfillment_txid = compute_txid(withdrawal_fulfillment_tx.transaction());
