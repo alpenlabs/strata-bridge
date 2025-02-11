@@ -64,7 +64,7 @@ impl<const M: usize> StakeChain<M> {
         ];
         let first_stake_tx = StakeTx::new(
             0,
-            stake_inputs.original_stake.clone(),
+            stake_inputs.pre_stake_prevout.clone(),
             stake_inputs.params.stake_amount,
             stake_inputs.operator_funds[0].clone(),
             stake_inputs.operator_pubkey,
@@ -132,7 +132,7 @@ impl<const M: usize> DerefMut for StakeChain<M> {
 /// 3. `N`-length array of stake hashes.
 /// 4. `N`-length array of operator fund prevouts.
 /// 5. `N`-length array of operator fund previous UTXOs.
-/// 6. Original stake prevout.
+/// 6. Pre-stake prevout.
 /// 7. Pre-stake utxo.
 /// 8. Stake Chain protocol parameters:
 ///    1. Stake amount.
@@ -171,8 +171,8 @@ pub struct StakeInputs<const N: usize> {
     /// Operator funds previous UTXOs.
     operator_funds_utxo: [TxOut; N],
 
-    /// Prevout for the first stake transaction.
-    original_stake: TxIn,
+    /// Prevout for the [`PreStakeTx`](crate::transactions::PreStakeTx).
+    pre_stake_prevout: TxIn,
 
     /// [`PreStakeTx`](crate::transactions::PreStakeTx) utxo.
     pre_stake_utxo: TxOut,
@@ -191,7 +191,7 @@ impl<const N: usize> StakeInputs<N> {
     /// 3. `N`-length array of stake hashes.
     /// 4. `N`-length array of operator fund prevouts.
     /// 5. `N`-length array of operator fund previous UTXOs.
-    /// 6. Original stake prevout.
+    /// 6. Pre-stake prevout.
     /// 7. Pre-stake utxo.
     /// 8. Stake Chain protocol parameters:
     ///    1. Stake amount.
@@ -207,7 +207,7 @@ impl<const N: usize> StakeInputs<N> {
         stake_hashes: [sha256::Hash; N],
         operator_funds: [TxIn; N],
         operator_funds_utxo: [TxOut; N],
-        original_stake: TxIn,
+        pre_stake_prevout: TxIn,
         pre_stake_utxo: TxOut,
         params: StakeChainParams,
     ) -> Self {
@@ -217,7 +217,7 @@ impl<const N: usize> StakeInputs<N> {
             stake_hashes,
             operator_funds,
             operator_funds_utxo,
-            original_stake,
+            pre_stake_prevout,
             pre_stake_utxo,
             params,
         }
@@ -272,14 +272,14 @@ impl<const N: usize> StakeInputs<N> {
         self.operator_funds[index].clone()
     }
 
-    /// Original stake.
+    /// Pre-stake prevout.
     ///
     /// The original stake is the first stake transaction in the chain, which is used to stake in
     /// the transaction graph for a single deposit and is moved after a successful deposit, i.e.,
     /// the operator is not succcesfully challenged and has it's stake slashed.
     /// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
-    pub fn original_stake(&self) -> TxIn {
-        self.original_stake.clone()
+    pub fn pre_stake_prevout(&self) -> TxIn {
+        self.pre_stake_prevout.clone()
     }
 
     /// Relative timelock interval to advance the stake chain.
@@ -766,14 +766,14 @@ mod tests {
             },
         ];
         trace!(?operator_funds, "operator funds");
-        let original_stake = TxIn {
+        let pre_stake_prevout = TxIn {
             previous_output: OutPoint {
                 txid: pre_stake_txid,
                 vout: 0,
             },
             ..Default::default()
         };
-        trace!(?original_stake, "original stake");
+        trace!(?pre_stake_prevout, "pre-stake prevout");
         let wots_public_keys = [
             wots::Wots256PublicKey::new("0"),
             wots::Wots256PublicKey::new("1"),
@@ -785,7 +785,7 @@ mod tests {
             stake_hashes,
             operator_funds,
             operator_funds_previous_utxos,
-            original_stake,
+            pre_stake_prevout,
             pre_stake_output[0].clone(),
             params,
         );
