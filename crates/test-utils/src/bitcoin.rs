@@ -1,6 +1,6 @@
 //! Module to generate arbitrary values for testing.
 
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::HashSet, env, str::FromStr};
 
 use bitcoin::{
     absolute::LockTime,
@@ -12,9 +12,27 @@ use bitcoin::{
     transaction::Version,
     Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
-use corepc_node::{serde_json::json, Client};
+use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
-use strata_btcio::rpc::types::{ListUnspent, SignRawTransactionWithWallet};
+use strata_btcio::rpc::{
+    types::{ListUnspent, SignRawTransactionWithWallet},
+    BitcoinClient,
+};
+
+pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
+    // setting the ENV variable `BITCOIN_XPRIV_RETRIEVABLE` to retrieve the xpriv
+    env::set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
+    let url = bitcoind.rpc_url();
+    let (user, password) = get_auth(bitcoind);
+    BitcoinClient::new(url, user, password, None, None).unwrap()
+}
+
+/// Get the authentication credentials for a given `bitcoind` instance.
+fn get_auth(bitcoind: &Node) -> (String, String) {
+    let params = &bitcoind.params;
+    let cookie_values = params.get_cookie_values().unwrap().unwrap();
+    (cookie_values.user, cookie_values.password)
+}
 
 pub fn generate_txid() -> Txid {
     let mut txid = [0u8; 32];

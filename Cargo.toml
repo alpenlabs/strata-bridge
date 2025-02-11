@@ -9,6 +9,7 @@ members = [
   "crates/rpc/bridge",
   "crates/rpc/strata",
   "crates/bridge-proof/test-utils",
+  "crates/stake-chain",
   "crates/tx-graph",
   "crates/btc-notify",
   "bridge-guest-builder",
@@ -36,6 +37,7 @@ strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
 strata-bridge-proof-snark = { path = "crates/bridge-proof/snark" }
 strata-bridge-rpc = { path = "crates/rpc/bridge" }
+strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 strata-rpc = { path = "crates/rpc/strata" }

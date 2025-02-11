@@ -197,19 +197,20 @@ mod tests {
         let msk = "test-parse-witness";
         let deposit_txid = generate_txid();
 
-        let wots_public_keys: wots::PublicKeys = wots::PublicKeys::new(msk, deposit_txid);
+        let wots_sk = get_deposit_master_secret_key(msk, deposit_txid);
+        let wots_public_key = wots::Wots256PublicKey::new(&wots_sk);
         let claim_tx = ClaimTx::new(
             ClaimData {
                 kickoff_txid: generate_txid(),
                 deposit_txid,
             },
-            ConnectorK::new(pubkey, network, wots_public_keys),
+            ConnectorK::new(pubkey, network, wots_public_key),
             ConnectorC0::new(pubkey, network),
             ConnectorC1::new(pubkey, network),
             ConnectorCpfp::new(pubkey, network),
         );
 
-        let connector_k = ConnectorK::new(pubkey, network, wots_public_keys);
+        let connector_k = ConnectorK::new(pubkey, network, wots_public_key);
         let withdrawal_fulfillment_txid = generate_txid();
 
         let mut signed_claim_tx =
@@ -224,7 +225,7 @@ mod tests {
                 { sig.to_vec() }
                 { digit }
             }
-            { wots256::checksig_verify(wots_public_keys.withdrawal_fulfillment_pk.0, true) }
+            { wots256::checksig_verify(wots_public_key.0, true) }
 
             OP_TRUE
         };

@@ -1,1 +1,1 @@
-pub use super::{connectors::*, tx::*};
+pub use super::{connectors::*, stake_chain::*, tx::*};
