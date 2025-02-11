@@ -1,4 +1,4 @@
-use sp1_helper::build_program;
+use sp1_helper::{build_program_with_args, BuildArgs};
 
 fn main() {
     // Tell Cargo to rerun this build script if SKIP_GUEST_BUILD changes.
@@ -12,5 +12,16 @@ fn main() {
         println!("cargo:rustc-cfg=skip_guest_build");
     }
 
-    build_program("bridge-guest");
+    let mut build_args = BuildArgs {
+        ..Default::default()
+    };
+
+    if std::env::var("SP1_PROVER")
+        .map(|v| v.to_lowercase() == "mock")
+        .unwrap_or(false)
+    {
+        build_args.features = vec!["mock".to_string()];
+    }
+
+    build_program_with_args("bridge-guest", build_args);
 }

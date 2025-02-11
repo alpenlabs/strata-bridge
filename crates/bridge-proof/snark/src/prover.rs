@@ -57,7 +57,7 @@ mod test {
     use strata_bridge_proof_protocol2::BridgeProofInput;
     use strata_primitives::buf::Buf64;
 
-    use super::sp1_prove;
+    use super::*;
 
     fn get_input() -> BridgeProofInput {
         let sig_bytes: Vec<u8> = hex::decode("47d264910cb48a1ca933f4fc3f55188c0fda70cef1216cd38a887e169e7faed03fc49ffacd645dd11ba68bbb038a782d1b21875f0e6ebd7eb7816ee642e642f7").unwrap();
@@ -75,10 +75,15 @@ mod test {
         }
     }
 
+    #[rustfmt::skip]
+    // RUST_LOG=info SP1_PROVER=mock cargo test --package strata-bridge-proof-snark --lib --features prover -- prover::test::test_sp1_prove --exact --show-output --nocapture
     #[test]
+    // #[cfg(not(debug_assertions)]
     fn test_sp1_prove() {
+        sp1_sdk::utils::setup_logger();
         let input = get_input();
-        let res = sp1_prove(&input);
-        assert!(res.is_ok());
+
+        let host = SP1Host::init(GUEST_BRIDGE_ELF);
+        let _ = BridgeProver::prove(&input, &host).expect("proof generation failed");
     }
 }
