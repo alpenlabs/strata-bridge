@@ -41,10 +41,7 @@ use strata_bridge_tx_graph::{
     transactions::prelude::*,
 };
 use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
-use strata_primitives::{
-    buf::{Buf32, Buf64},
-    params::RollupParams,
-};
+use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_rpc::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
@@ -2094,7 +2091,7 @@ where
             strata_checkpoint_tx: checkpoint.expect("must be able to find checkpoint"),
             withdrawal_fulfillment_tx: withdrawal_fulfillment
                 .expect("must be able to find withdrawal fulfillment tx"),
-            op_signature: Buf64::zero(), // TODO: fix this. get proper signature from right place
+            op_signature: self.agent.sign_txid(&withdrawal_fulfillment_txid).into(),
         };
 
         let (proof, public_inputs, public_output) = prover::prove(&input).unwrap();
