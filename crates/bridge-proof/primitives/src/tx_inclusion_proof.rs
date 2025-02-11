@@ -17,7 +17,7 @@ use crate::tx::BitcoinTx;
 /// its `txid` or `wtxid` is included in a given Merkle root. The proof data is carried
 /// by the [`L1TxInclusionProof`].
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub(crate) struct L1TxWithIdProof<T> {
+pub struct L1TxWithIdProof<T> {
     /// The transaction in question.
     tx: BitcoinTx,
     /// The Merkle inclusion proof associated with the transaction’s [`Txid`](bitcoin::Txid) or
@@ -59,11 +59,14 @@ pub struct L1TxWithProofBundle {
 }
 
 impl L1TxWithProofBundle {
-    pub(crate) fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
+    /// transaction that the bundle includes the proof of
+    /// if the tranaction desn't have any witness data this is None
+    pub fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
         &self.witness_tx
     }
 
-    pub(crate) fn transaction(&self) -> &Transaction {
+    /// this is the actual transaction that the bundle includes the proof of
+    pub fn transaction(&self) -> &Transaction {
         match &self.witness_tx {
             Some(tx) => tx.tx.as_ref(),
             None => self.base_tx.tx.as_ref(),

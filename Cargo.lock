@@ -7135,10 +7135,14 @@ dependencies = [
 name = "prover-test-utils"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "bitcoin",
  "borsh",
+ "hex",
  "serde",
+ "serde_json",
  "sp1-core-machine",
+ "strata-bridge-proof-protocol2",
  "strata-btcio",
  "strata-l1tx",
  "strata-primitives",
@@ -9254,6 +9258,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-proof-primitives"
+version = "0.1.0"
+dependencies = [
+ "arbitrary",
+ "bincode",
+ "bitcoin",
+ "borsh",
+ "hex",
+ "prover-test-utils",
+ "serde_json",
+ "strata-bridge-test-utils",
+ "strata-primitives",
+ "strata-proofimpl-btc-blockspace",
+ "strata-state",
+]
+
+[[package]]
 name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
@@ -9278,12 +9299,13 @@ dependencies = [
 name = "strata-bridge-proof-protocol2"
 version = "0.1.0"
 dependencies = [
- "arbitrary",
  "bincode",
  "bitcoin",
  "borsh",
  "hex",
+ "prover-test-utils",
  "serde_json",
+ "strata-bridge-proof-primitives",
  "strata-bridge-test-utils",
  "strata-crypto",
  "strata-l1tx",

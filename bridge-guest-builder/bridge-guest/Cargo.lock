@@ -1070,12 +1070,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-proof-protocol2"
+name = "strata-bridge-proof-primitives"
 version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
  "borsh",
+ "strata-primitives",
+ "strata-proofimpl-btc-blockspace",
+ "strata-state",
+]
+
+[[package]]
+name = "strata-bridge-proof-protocol2"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "strata-bridge-proof-primitives",
  "strata-crypto",
  "strata-l1tx",
  "strata-primitives",

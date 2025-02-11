@@ -1,165 +1,111 @@
-use bitcoin::block::Header;
-use strata_btcio::{
-    reader::query::get_verification_state,
-    rpc::{traits::ReaderRpc, BitcoinClient},
-};
-use strata_primitives::{buf::Buf32, l1::OutputRef};
+/// Test data module for loading Bitcoin blocks, headers, chain state, and specific
+/// transactions.
+use std::fs;
+
+use bitcoin::{block::Header, Block};
+use borsh::BorshDeserialize;
+use strata_bridge_proof_protocol2::L1TxWithProofBundle;
+use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_state::{
-    block::L2Block,
     chain_state::Chainstate,
-    l1::{compute_block_hash, get_btc_params, HeaderVerificationState},
+    l1::{HeaderVerificationState, L1BlockId, TimestampStore},
 };
 
-pub fn get_bitcoin_client() -> BitcoinClient {
-    BitcoinClient::new(
-        "http://127.0.0.1:18443".to_string(),
-        "rpcuser".to_string(),
-        "rpcpassword".to_string(),
-        None,
-        None,
-    )
-    .expect("failed to connect to the btc client")
+/// Loads and deserializes a list of Bitcoin blocks from a binary test data file.
+pub fn load_test_blocks() -> Vec<Block> {
+    let blocks_bytes =
+        fs::read("../../../test-data/blocks.bin").expect("Failed to read blocks.bin");
+    bincode::deserialize(&blocks_bytes).expect("Failed to deserialize blocks")
 }
 
-pub fn get_chain_state() -> (Chainstate, OutputRef) {
-    let witness_buf: Vec<u8> = vec![
-        24, 209, 229, 234, 210, 142, 168, 76, 60, 64, 27, 194, 13, 147, 87, 209, 247, 5, 96, 69,
-        53, 201, 76, 9, 52, 90, 161, 64, 214, 223, 248, 146, 213, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 50, 0, 0, 0, 0, 0, 0, 0, 54, 47, 146, 16, 94, 163, 141, 19, 82, 121, 14, 169,
-        226, 106, 224, 183, 31, 63, 69, 136, 215, 222, 199, 156, 140, 118, 130, 99, 182, 116, 132,
-        89, 80, 0, 0, 0, 0, 0, 0, 32, 83, 228, 238, 19, 235, 233, 66, 219, 19, 46, 189, 81, 14,
-        138, 145, 106, 119, 62, 72, 22, 27, 46, 85, 5, 126, 80, 100, 174, 125, 52, 168, 56, 200,
-        113, 48, 176, 231, 74, 193, 249, 101, 243, 56, 255, 33, 56, 51, 195, 197, 48, 209, 218, 30,
-        139, 77, 166, 8, 8, 108, 117, 169, 239, 82, 186, 51, 35, 47, 103, 255, 255, 127, 32, 3, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 110, 7, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 193, 156, 204, 99, 136, 190, 102, 95,
-        130, 43, 218, 64, 199, 235, 237, 131, 64, 52, 128, 197, 134, 69, 140, 178, 98, 230, 247, 0,
-        169, 14, 91, 84, 80, 0, 0, 0, 0, 0, 0, 32, 54, 47, 146, 16, 94, 163, 141, 19, 82, 121, 14,
-        169, 226, 106, 224, 183, 31, 63, 69, 136, 215, 222, 199, 156, 140, 118, 130, 99, 182, 116,
-        132, 89, 88, 180, 209, 112, 251, 94, 108, 25, 21, 175, 190, 56, 180, 30, 149, 172, 226, 68,
-        129, 11, 215, 251, 99, 98, 64, 12, 42, 191, 65, 64, 98, 244, 52, 35, 47, 103, 255, 255,
-        127, 32, 5, 0, 0, 0, 17, 122, 100, 156, 213, 209, 30, 185, 45, 151, 24, 251, 231, 224, 36,
-        8, 193, 99, 104, 95, 1, 20, 134, 41, 51, 99, 75, 143, 228, 65, 238, 173, 0, 0, 0, 0, 0, 0,
-        0, 0, 144, 159, 169, 132, 194, 104, 140, 240, 183, 128, 212, 133, 232, 111, 66, 65, 119,
-        16, 55, 90, 213, 132, 54, 142, 222, 73, 76, 179, 116, 161, 85, 56, 80, 0, 0, 0, 0, 0, 0,
-        32, 193, 156, 204, 99, 136, 190, 102, 95, 130, 43, 218, 64, 199, 235, 237, 131, 64, 52,
-        128, 197, 134, 69, 140, 178, 98, 230, 247, 0, 169, 14, 91, 84, 56, 215, 98, 120, 11, 219,
-        179, 48, 244, 238, 197, 183, 36, 200, 225, 240, 202, 16, 187, 12, 182, 178, 109, 168, 220,
-        129, 243, 253, 67, 94, 133, 175, 53, 35, 47, 103, 255, 255, 127, 32, 1, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 24, 35, 88, 126, 51, 50, 145, 91, 11, 120, 205, 255, 211, 195, 64, 98,
-        80, 126, 91, 160, 206, 9, 203, 167, 10, 6, 49, 181, 244, 167, 10, 25, 80, 0, 0, 0, 0, 0, 0,
-        32, 144, 159, 169, 132, 194, 104, 140, 240, 183, 128, 212, 133, 232, 111, 66, 65, 119, 16,
-        55, 90, 213, 132, 54, 142, 222, 73, 76, 179, 116, 161, 85, 56, 178, 118, 190, 184, 253, 58,
-        100, 129, 64, 51, 71, 88, 65, 201, 161, 80, 105, 173, 206, 120, 107, 166, 63, 213, 110,
-        171, 196, 252, 52, 192, 63, 230, 54, 35, 47, 103, 255, 255, 127, 32, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 156, 9, 252, 108, 113, 116, 24, 35, 42, 165, 218, 128, 223, 74, 51,
-        73, 216, 100, 252, 85, 69, 41, 182, 182, 25, 222, 72, 216, 193, 15, 137, 39, 80, 0, 0, 0,
-        0, 0, 0, 32, 24, 35, 88, 126, 51, 50, 145, 91, 11, 120, 205, 255, 211, 195, 64, 98, 80,
-        126, 91, 160, 206, 9, 203, 167, 10, 6, 49, 181, 244, 167, 10, 25, 251, 98, 188, 105, 217,
-        184, 255, 15, 12, 86, 55, 111, 14, 152, 132, 122, 169, 107, 242, 135, 157, 215, 223, 133,
-        136, 235, 54, 96, 180, 143, 165, 200, 55, 35, 47, 103, 255, 255, 127, 32, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        32, 0, 0, 0, 55, 173, 97, 207, 241, 54, 116, 103, 169, 140, 247, 197, 76, 74, 201, 158,
-        152, 159, 31, 187, 27, 193, 230, 70, 35, 94, 144, 192, 101, 197, 101, 186, 0, 0, 0, 0, 53,
-        23, 20, 175, 114, 215, 66, 89, 244, 92, 215, 234, 176, 176, 69, 39, 205, 64, 231, 72, 54,
-        164, 90, 188, 174, 80, 249, 45, 145, 157, 152, 143, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 141, 134,
-        131, 78, 111, 219, 69, 186, 107, 127, 253, 6, 122, 39, 185, 225, 214, 119, 120, 4, 117,
-        129, 215, 239, 117, 126, 217, 224, 250, 71, 64, 0, 214, 120, 170, 42, 213, 228, 242, 23,
-        64, 37, 170, 127, 119, 205, 67, 238, 102, 44, 205, 148, 73, 153, 130, 208, 195, 34, 167,
-        61, 31, 254, 205, 121, 1, 0, 0, 0, 10, 187, 0, 184, 177, 126, 39, 152, 221, 235, 208, 204,
-        187, 133, 139, 111, 98, 74, 31, 247, 217, 62, 193, 91, 170, 138, 123, 227, 241, 54, 71, 77,
-        23, 92, 178, 109, 239, 0, 234, 239, 64, 101, 12, 157, 97, 27, 230, 117, 15, 181, 119, 161,
-        12, 225, 248, 248, 94, 43, 40, 195, 70, 219, 137, 246, 2, 0, 0, 0, 42, 75, 116, 61, 194,
-        57, 58, 110, 224, 56, 53, 10, 110, 243, 165, 87, 65, 230, 199, 138, 198, 73, 20, 120, 216,
-        50, 244, 226, 162, 58, 166, 190, 1, 164, 160, 232, 209, 174, 75, 16, 184, 220, 35, 13, 92,
-        51, 14, 72, 148, 5, 135, 153, 139, 148, 247, 106, 94, 46, 115, 209, 68, 77, 74, 251, 2, 0,
-        0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 156, 101, 128, 211, 201, 90, 175, 234, 2, 2, 40, 213, 254,
-        113, 88, 235, 156, 110, 193, 207, 41, 101, 223, 32, 152, 107, 180, 253, 211, 40, 126, 72,
-        0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 0, 202, 154, 59, 0, 0, 0, 0, 0,
-        0, 0, 0, 2, 1, 0, 0, 0, 148, 178, 95, 235, 57, 15, 190, 250, 221, 104, 247, 193, 238, 231,
-        224, 196, 117, 254, 160, 209, 253, 222, 89, 186, 102, 171, 108, 168, 25, 252, 228, 124, 0,
-        202, 154, 59, 0, 0, 0, 0, 1, 0, 0, 0, 81, 69, 15, 0, 0, 0, 0, 0, 1, 0, 0, 0, 136, 39, 238,
-        133, 66, 213, 213, 240, 191, 54, 90, 186, 146, 33, 105, 112, 31, 161, 90, 109, 87, 147,
-        174, 182, 200, 172, 124, 31, 144, 0, 248, 179, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
-        0, 2, 0, 0, 0, 0, 202, 154, 59, 0, 0, 0, 0, 0, 0, 0, 0, 1, 214, 3, 0, 0, 0, 0, 0, 0, 148,
-        154, 33, 16, 147, 1, 0, 0, 24, 209, 229, 234, 210, 142, 168, 76, 60, 64, 27, 194, 13, 147,
-        87, 209, 247, 5, 96, 69, 53, 201, 76, 9, 52, 90, 161, 64, 214, 223, 248, 146, 186, 209, 77,
-        220, 214, 210, 159, 176, 18, 114, 55, 140, 96, 114, 81, 162, 242, 141, 21, 69, 91, 121,
-        187, 242, 249, 156, 219, 17, 126, 252, 38, 29, 214, 54, 111, 247, 148, 32, 212, 185, 69,
-        108, 254, 55, 178, 175, 191, 187, 149, 239, 74, 28, 132, 74, 200, 165, 64, 101, 203, 90,
-        105, 26, 111, 80, 126, 109, 172, 70, 136, 58, 116, 201, 52, 146, 122, 14, 94, 233, 59, 21,
-        164, 194, 142, 12, 208, 40, 175, 211, 174, 236, 116, 87, 142, 174, 73, 208, 215, 148, 143,
-        87, 36, 203, 56, 3, 34, 40, 213, 55, 114, 175, 233, 195, 29, 44, 86, 8, 206, 92, 72, 45,
-        70, 179, 190, 143, 151, 49, 132, 188, 134, 251, 130, 236, 124, 196, 1, 243, 25, 198, 121,
-        88, 19, 55, 234, 96, 30, 194, 89, 169, 212, 129, 126, 96, 252, 191, 228, 65, 212, 206, 225,
-        121, 1, 0, 0, 0, 114, 7, 0, 0, 0, 0, 0, 0, 124, 143, 28, 237, 37, 56, 94, 54, 49, 34, 237,
-        21, 198, 232, 79, 73, 125, 196, 221, 3, 154, 92, 176, 138, 93, 120, 234, 41, 204, 14, 219,
-        92, 80, 0, 0, 0, 0, 0, 0, 32, 156, 9, 252, 108, 113, 116, 24, 35, 42, 165, 218, 128, 223,
-        74, 51, 73, 216, 100, 252, 85, 69, 41, 182, 182, 25, 222, 72, 216, 193, 15, 137, 39, 121,
-        239, 87, 172, 123, 58, 58, 82, 91, 128, 254, 230, 210, 213, 215, 162, 238, 207, 91, 6, 48,
-        36, 247, 200, 94, 3, 7, 232, 86, 32, 6, 72, 56, 35, 47, 103, 255, 255, 127, 32, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 214, 3, 0, 0, 0, 0, 0, 0, 86, 232, 31, 23, 27, 204, 85, 166,
-        255, 131, 69, 230, 146, 192, 248, 110, 91, 72, 224, 27, 153, 108, 173, 192, 1, 98, 47, 181,
-        227, 99, 180, 33, 32, 0, 0, 0, 229, 250, 204, 149, 18, 99, 254, 68, 226, 163, 0, 49, 74,
-        108, 161, 111, 48, 229, 236, 17, 235, 228, 178, 45, 110, 145, 71, 213, 207, 72, 166, 49, 0,
-        0, 0, 0, 193, 32, 148, 30, 93, 255, 62, 200, 91, 187, 201, 241, 217, 252, 104, 75, 73, 17,
-        157, 50, 243, 30, 22, 216, 118, 172, 209, 249, 55, 72, 165, 52, 0, 0, 0, 0, 0, 0, 0, 0,
+/// Extracts the headers from the test blocks.
+pub fn extract_test_headers() -> Vec<Header> {
+    load_test_blocks().iter().map(|b| b.header).collect()
+}
+
+pub fn header_verification_state() -> HeaderVerificationState {
+    let mut timestamps = [
+        1738924903, 1738924903, 1738924903, 1738924903, 1738924907, 1738924907, 1738924907,
+        1738924907, 1738924911, 1738924899, 1738924899,
     ];
+    timestamps.sort();
 
-    let (chain_state, _): (Chainstate, L2Block) = borsh::from_slice(&witness_buf).unwrap();
-
-    // Get the output ref
-    let deposit_idx = 0;
-    let deposit_entry = chain_state
-        .deposits_table()
-        .get_deposit(deposit_idx)
-        .unwrap();
-    let output_ref = deposit_entry.output().clone();
-
-    (chain_state, output_ref)
-}
-
-pub async fn get_header_verification_data(
-    start_block: u64,
-    end_block: u64,
-) -> (HeaderVerificationState, Vec<Header>) {
-    let btc_client = get_bitcoin_client();
-    let params = get_btc_params();
-
-    let block_hvs = get_verification_state(&btc_client, start_block, &params)
-        .await
-        .unwrap();
-
-    let mut headers: Vec<Header> = Vec::new();
-    for block_num in start_block..=end_block {
-        let block = btc_client.get_block_at(block_num).await.unwrap();
-        let header = block.header;
-        headers.push(header);
+    HeaderVerificationState {
+        last_verified_block_num: 932,
+        last_verified_block_hash: L1BlockId::from(
+            Buf32::try_from_slice(
+                &hex::decode("e2c06d4ff03aadd3ee68c446743bb9ee55a816af8a39b6e393b0bca74d60b753")
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
+        next_block_target: 545259519,
+        interval_start_timestamp: 1296688602,
+        total_accumulated_pow: 0,
+        last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 9),
     }
-
-    (block_hvs, headers)
 }
 
-pub async fn get_checkpoint_data() {}
-
-async fn get_block_header(height: u64, client: &BitcoinClient) -> Header {
-    client.get_block_at(height).await.unwrap().header
+/// Loads and deserializes the chain state from a Borsh-encoded test data file.
+pub fn load_test_chainstate() -> Chainstate {
+    let chainstate_bytes =
+        fs::read("../../../test-data/chainstate.borsh").expect("Failed to read chainstate.borsh");
+    borsh::from_slice::<Chainstate>(&chainstate_bytes).expect("Failed to deserialize chainstate")
 }
 
-async fn get_block_header_hash(height: u64, client: &BitcoinClient) -> Buf32 {
-    compute_block_hash(&get_block_header(height, client).await)
+/// Loads the RollupParams from the json file.
+pub fn load_test_rollup_params() -> RollupParams {
+    let json = fs::read_to_string("../../../test-data/rollup_params.json")
+        .expect("rollup params file not found");
+    let rollup_params: RollupParams = serde_json::from_str(&json).unwrap();
+    rollup_params.check_well_formed().unwrap();
+    rollup_params
 }
 
-pub async fn get_block_headers_hash(heights: Vec<u64>, client: &BitcoinClient) -> Vec<Buf32> {
-    let mut header_hashes: Vec<Buf32> = Vec::new();
-    for block_num in heights {
-        header_hashes.push(get_block_header_hash(block_num, client).await);
-    }
-    header_hashes
+/// Retrieves the withdrawal fulfillment transaction from test blocks.
+///
+/// This transaction is found at block height 988, with index 1 in the block's transaction list.
+/// Returns the transaction along with the relative block index in the test blocks.
+pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
+    let block_height = 988;
+    let tx_index = 1;
+    fetch_test_transaction(block_height, tx_index)
+}
+
+/// Retrieves the strata checkpoint transaction from test blocks.
+///
+/// This transaction is found at block height 968, with index 2 in the block's transaction list.
+/// Returns the transaction along with the relative block index in the test blocks.
+pub fn get_strata_checkpoint_tx() -> (L1TxWithProofBundle, usize) {
+    let block_height = 968;
+    let tx_index = 2;
+    fetch_test_transaction(block_height, tx_index)
+}
+
+/// Retrieves a transaction from test blocks given a specific block height and transaction
+/// index.
+///
+/// # Arguments
+/// * `block_height` - The height of the block where the transaction is located.
+/// * `tx_index` - The index of the transaction in the block's transaction list.
+///
+/// # Returns
+/// A tuple containing:
+/// * `L1TxWithProofBundle` - The generated transaction bundle.
+/// * `usize` - The relative index of the block in the test blocks list.
+fn fetch_test_transaction(block_height: u64, tx_index: u32) -> (L1TxWithProofBundle, usize) {
+    let test_blocks = load_test_blocks();
+    let first_block_height = test_blocks
+        .first()
+        .expect("No test blocks found")
+        .bip34_block_height()
+        .expect("Missing block height from the first block");
+
+    let relative_block_index = (block_height - first_block_height) as usize;
+    let block_transactions = &test_blocks[relative_block_index].txdata;
+
+    (
+        L1TxWithProofBundle::generate(block_transactions, tx_index),
+        relative_block_index,
+    )
 }

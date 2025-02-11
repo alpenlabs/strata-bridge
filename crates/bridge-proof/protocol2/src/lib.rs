@@ -11,21 +11,18 @@
 mod error;
 mod prover;
 mod statement;
-mod test_data;
-mod tx;
-mod tx_inclusion_proof;
 mod tx_info;
 
 use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
 use statement::process_bridge_proof;
+use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
     proof::RollupVerifyingKey,
 };
 use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
-pub use tx_inclusion_proof::L1TxWithProofBundle;
 use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.

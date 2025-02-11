@@ -64,20 +64,23 @@ pub(crate) fn extract_withdrawal_info(
 
 #[cfg(test)]
 mod tests {
+    use prover_test_utils::{
+        extract_test_headers, get_strata_checkpoint_tx, load_test_rollup_params,
+    };
     use strata_proofimpl_btc_blockspace::tx::compute_txid;
 
     use super::*;
-    use crate::{test_data::test_data_loader, tx_info::extract_withdrawal_info};
+    use crate::tx_info::extract_withdrawal_info;
 
     #[test]
     fn test_extract_checkpoint() {
-        let headers = test_data_loader::extract_test_headers();
-        let (checkpoint_inscribed_tx_bundle, idx) = test_data_loader::get_strata_checkpoint_tx();
+        let headers = extract_test_headers();
+        let (checkpoint_inscribed_tx_bundle, idx) = get_strata_checkpoint_tx();
         assert!(checkpoint_inscribed_tx_bundle.verify(headers[idx]));
 
         let checkpoint_inscribed_tx = checkpoint_inscribed_tx_bundle.transaction();
 
-        let rollup_params = test_data_loader::load_test_rollup_params();
+        let rollup_params = load_test_rollup_params();
         let res = extract_checkpoint(checkpoint_inscribed_tx, &rollup_params);
         assert!(res.is_ok());
         dbg!(res.unwrap());
@@ -85,9 +88,8 @@ mod tests {
 
     #[test]
     fn test_extract_withdrawal_info() {
-        let headers = test_data_loader::extract_test_headers();
-        let (withdrawal_fulfillment_tx_bundle, idx) =
-            test_data_loader::get_withdrawal_fulfillment_tx();
+        let headers = extract_test_headers();
+        let (withdrawal_fulfillment_tx_bundle, idx) = get_withdrawal_fulfillment_tx();
         assert!(withdrawal_fulfillment_tx_bundle.verify(headers[idx]));
 
         let withdrawal_fulfillment_tx = withdrawal_fulfillment_tx_bundle.transaction();
