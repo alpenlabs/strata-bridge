@@ -1,7 +1,10 @@
-use musig2::errors::{RoundContributionError, RoundFinalizeError};
+use musig2::{
+    errors::{RoundContributionError, RoundFinalizeError},
+    KeyAggContext,
+};
 use rkyv::{with::Map, Archive, Deserialize, Serialize};
 
-use super::traits::Musig2SessionId;
+use super::traits::{Musig2SessionId, SignerIdxOutOfBounds};
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ServerMessage {
@@ -9,7 +12,10 @@ pub enum ServerMessage {
     OpaqueServerError,
 
     OperatorSignPsbt {
-        psbt: Vec<u8>,
+        sig: [u8; 64],
+    },
+    OperatorPubkey {
+        pubkey: [u8; 33],
     },
 
     SignP2P {
@@ -19,9 +25,7 @@ pub enum ServerMessage {
         pubkey: [u8; 33],
     },
 
-    Musig2NewSession {
-        session_id: Musig2SessionId,
-    },
+    Musig2NewSession(Result<Musig2SessionId, SignerIdxOutOfBounds>),
 
     Musig2FirstRoundOurNonce {
         our_nonce: [u8; 66],
@@ -95,17 +99,19 @@ impl From<Musig2SessionResult> for Result<[u8; 64], RoundFinalizeError> {
 
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ClientMessage {
-    OperatorSignPsbt {
-        psbt: Vec<u8>,
+    OperatorSign {
+        digest: [u8; 32],
     },
+    OperatorPubkey,
 
-    SignP2P {
-        hash: [u8; 32],
+    P2PSign {
+        digest: [u8; 32],
     },
     P2PPubkey,
 
     Musig2NewSession {
-        public_keys: Vec<[u8; 33]>,
+        ctx: KeyAggContext,
+        signer_idx: usize,
     },
 
     Musig2FirstRoundOurNonce {
@@ -150,6 +156,7 @@ pub enum ClientMessage {
 
     WotsGetKey {
         index: u64,
+        txid: [u8; 32],
     },
 
     StakeChainGetPreimage {

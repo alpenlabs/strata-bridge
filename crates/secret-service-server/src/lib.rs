@@ -12,15 +12,18 @@ use std::{
     task::{Context, Poll},
 };
 
-use bitcoin::{secp256k1::PublicKey, Psbt};
+use bitcoin::{hashes::Hash, secp256k1::PublicKey, Txid};
 use ms2sm::Musig2SessionManager;
-use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
+use musig2::{errors::RoundFinalizeError, KeyAggContext, PartialSignature, PubNonce};
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
     ConnectionError, Endpoint, Incoming, ReadExactError, RecvStream, SendStream, ServerConfig,
 };
-use rkyv::rancor::Error;
+use rkyv::{
+    deserialize,
+    rancor::{self, Error},
+};
 use secret_service_proto::{
     v1::{
         traits::{
@@ -56,16 +59,16 @@ impl Future for ServerHandle {
     }
 }
 
-pub fn run_server<FirstRound, SecondRound, Service>(
+pub fn run_server<FirstRound, SecondRound, Service, Persister>(
     c: Config,
     service: Arc<Service>,
+    round_persister: Arc<Persister>,
 ) -> Result<ServerHandle, OneOf<(NoInitialCipherSuite, io::Error)>>
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static + RoundPersister,
-    SecondRound: Musig2SignerSecondRound<Server> + 'static + RoundPersister,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
+    SecondRound: Musig2SignerSecondRound<Server> + 'static,
     Service: SecretService<Server, FirstRound, SecondRound> + Sync + 'static,
-    <Service as SecretService<Server, FirstRound, SecondRound>>::Musig2Signer:
-        Musig2RoundRecovery<FirstRound, SecondRound>,
+    Persister: RoundPersister<FirstRound, SecondRound> + Send + Sync + 'static,
 {
     let quic_server_config = ServerConfig::with_crypto(Arc::new(
         QuicServerConfig::try_from(c.tls_config).map_err(OneOf::new)?,
@@ -86,7 +89,13 @@ where
                 incoming.refuse();
             } else {
                 tokio::spawn(
-                    conn_handler(incoming, service.clone(), musig2_sm.clone()).instrument(span),
+                    conn_handler(
+                        incoming,
+                        service.clone(),
+                        round_persister.clone(),
+                        musig2_sm.clone(),
+                    )
+                    .instrument(span),
                 );
             }
         }
@@ -95,16 +104,16 @@ where
     Ok(ServerHandle { main: handle })
 }
 
-async fn conn_handler<FirstRound, SecondRound, Service>(
+async fn conn_handler<FirstRound, SecondRound, Service, Persister>(
     incoming: Incoming,
     service: Arc<Service>,
+    round_persister: Arc<Persister>,
     musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
 ) where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static + RoundPersister,
-    SecondRound: Musig2SignerSecondRound<Server> + 'static + RoundPersister,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
+    SecondRound: Musig2SignerSecondRound<Server> + 'static,
     Service: SecretService<Server, FirstRound, SecondRound> + Sync + 'static,
-    <Service as SecretService<Server, FirstRound, SecondRound>>::Musig2Signer:
-        Musig2RoundRecovery<FirstRound, SecondRound>,
+    Persister: RoundPersister<FirstRound, SecondRound> + Send + Sync + 'static,
 {
     let conn = match incoming.await {
         Ok(conn) => conn,
@@ -133,8 +142,13 @@ async fn conn_handler<FirstRound, SecondRound, Service>(
             request_manager(
                 tx,
                 tokio::spawn(
-                    request_handler(rx, service.clone(), musig2_sm.clone())
-                        .instrument(handler_span),
+                    request_handler(
+                        rx,
+                        service.clone(),
+                        round_persister.clone(),
+                        musig2_sm.clone(),
+                    )
+                    .instrument(handler_span),
                 ),
             )
             .instrument(manager_span),
@@ -171,17 +185,17 @@ async fn request_manager(
     }
 }
 
-async fn request_handler<Service, FirstRound, SecondRound>(
+async fn request_handler<Service, FirstRound, SecondRound, Persister>(
     mut rx: RecvStream,
     service: Arc<Service>,
+    round_persister: Arc<Persister>,
     musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
 ) -> Result<ServerMessage, ReadExactError>
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + RoundPersister,
-    SecondRound: Musig2SignerSecondRound<Server> + RoundPersister,
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+    SecondRound: Musig2SignerSecondRound<Server>,
     Service: SecretService<Server, FirstRound, SecondRound>,
-    <Service as SecretService<Server, FirstRound, SecondRound>>::Musig2Signer:
-        Musig2RoundRecovery<FirstRound, SecondRound>,
+    Persister: RoundPersister<FirstRound, SecondRound> + Send + Sync + 'static,
 {
     let len_to_read = {
         let mut buf = [0; size_of::<LengthUint>()];
@@ -196,54 +210,61 @@ where
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
         ArchivedVersionedClientMessage::V1(req) => match req {
-            ArchivedClientMessage::OperatorSignPsbt { psbt } => {
-                let psbt = Psbt::deserialize(&psbt).unwrap();
-                let psbt = service.operator_signer().sign_psbt(psbt).await;
+            ArchivedClientMessage::OperatorSign { digest } => {
+                let sig = service.operator_signer().sign(digest).await;
                 ServerMessage::OperatorSignPsbt {
-                    psbt: psbt.serialize(),
+                    sig: sig.serialize(),
                 }
             }
 
-            ArchivedClientMessage::SignP2P { hash } => {
-                let sig = service.p2p_signer().sign_p2p(*hash).await;
-                ServerMessage::SignP2P { sig }
+            ArchivedClientMessage::OperatorPubkey => {
+                let pubkey = service.operator_signer().pubkey().await;
+                ServerMessage::OperatorPubkey {
+                    pubkey: pubkey.serialize(),
+                }
+            }
+
+            ArchivedClientMessage::P2PSign { digest } => {
+                let sig = service.p2p_signer().sign(digest).await;
+                ServerMessage::SignP2P {
+                    sig: sig.serialize(),
+                }
             }
 
             ArchivedClientMessage::P2PPubkey => {
-                let pubkey = service.p2p_signer().p2p_pubkey().await;
-                ServerMessage::P2PPubkey { pubkey }
+                let pubkey = service.p2p_signer().pubkey().await;
+                ServerMessage::P2PPubkey {
+                    pubkey: pubkey.serialize(),
+                }
             }
 
-            ArchivedClientMessage::Musig2NewSession { public_keys } => 'block: {
+            ArchivedClientMessage::Musig2NewSession { ctx, signer_idx } => 'block: {
                 let signer = service.musig2_signer();
-                let public_keys: Result<Vec<_>, _> = public_keys
-                    .iter()
-                    .map(AsRef::<[u8]>::as_ref)
-                    .map(PublicKey::from_slice)
-                    .collect();
-
-                let Ok(mut public_keys) = public_keys else {
+                let Ok(ctx) = deserialize::<KeyAggContext, rancor::Error>(ctx) else {
                     break 'block ServerMessage::InvalidClientMessage;
                 };
-
-                // enforce sorting at the protocol level
-                public_keys.sort();
-
-                let first_round = signer.new_session(public_keys).await;
+                let first_round = match signer
+                    .new_session(ctx, signer_idx.to_native() as usize)
+                    .await
+                {
+                    Ok(fr) => fr,
+                    Err(e) => break 'block ServerMessage::Musig2NewSession(Err(e)),
+                };
                 let mut sm = musig2_sm.lock().await;
 
                 let Ok(write_perm) = sm.new_session(first_round) else {
                     break 'block ServerMessage::OpaqueServerError;
                 };
 
-                if let Err(e) = write_perm.value().persist(write_perm.session_id()).await {
+                if let Err(e) = round_persister
+                    .persist_first_round(write_perm.session_id(), &*write_perm.value().await)
+                    .await
+                {
                     error!("failed to persist first round: {e:?}");
                     break 'block ServerMessage::OpaqueServerError;
                 }
 
-                ServerMessage::Musig2NewSession {
-                    session_id: write_perm.session_id(),
-                }
+                ServerMessage::Musig2NewSession(Ok(write_perm.session_id()))
             }
             ArchivedClientMessage::Musig2FirstRoundOurNonce { session_id } => {
                 let r = musig2_sm
@@ -252,7 +273,7 @@ where
                     .first_round(session_id.to_native() as usize);
                 match r {
                     Ok(Some(first_round)) => {
-                        let our_nonce = first_round.our_nonce().await.serialize();
+                        let our_nonce = first_round.lock().await.our_nonce().await.serialize();
                         ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
                     }
                     _ => ServerMessage::InvalidClientMessage,
@@ -266,6 +287,8 @@ where
                 match r {
                     Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundHoldouts {
                         pubkeys: first_round
+                            .lock()
+                            .await
                             .holdouts()
                             .await
                             .iter()
@@ -282,7 +305,7 @@ where
                     .first_round(session_id.to_native() as usize);
                 match r {
                     Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundIsComplete {
-                        complete: first_round.is_complete().await,
+                        complete: first_round.lock().await.is_complete().await,
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
@@ -292,26 +315,29 @@ where
                 pubkey,
                 pubnonce,
             } => {
-                let r = musig2_sm
-                    .lock()
-                    .await
-                    .first_round(session_id.to_native() as usize);
+                let session_id = session_id.to_native() as usize;
+                let r = musig2_sm.lock().await.first_round(session_id);
                 let pubkey = PublicKey::from_slice(pubkey);
                 let pubnonce = PubNonce::from_bytes(pubnonce);
                 match (r, pubkey, pubnonce) {
                     (Ok(Some(first_round)), Ok(pubkey), Ok(pubnonce)) => {
-                        let r = first_round.receive_pub_nonce(pubkey, pubnonce).await;
-                        ServerMessage::Musig2FirstRoundReceivePubNonce(r.err())
+                        let mut fr = first_round.lock().await;
+                        let r = fr.receive_pub_nonce(pubkey, pubnonce).await;
+                        if let Err(e) = round_persister.persist_first_round(session_id, &*fr).await
+                        {
+                            error!("failed to persist first round: {e:?}");
+                            ServerMessage::OpaqueServerError
+                        } else {
+                            ServerMessage::Musig2FirstRoundReceivePubNonce(r.err())
+                        }
                     }
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
-            ArchivedClientMessage::Musig2FirstRoundFinalize { session_id, hash } => {
-                let r = musig2_sm
-                    .lock()
-                    .await
-                    .transition_first_to_second_round(session_id.to_native() as usize, *hash)
-                    .await;
+            ArchivedClientMessage::Musig2FirstRoundFinalize { session_id, hash } => 'block: {
+                let session_id = session_id.to_native() as usize;
+                let mut sm = musig2_sm.lock().await;
+                let r = sm.transition_first_to_second_round(session_id, *hash).await;
 
                 if let Err(e) = r {
                     use terrors::E3::*;
@@ -324,6 +350,19 @@ where
                         },
                     }
                 } else {
+                    let mutex = sm
+                        .second_round(session_id)
+                        .expect("in range")
+                        .expect("transitioned to second round");
+                    let sr = mutex.lock().await;
+                    if let Err(e) = round_persister.persist_second_round(session_id, &sr).await {
+                        error!("failed to persist second round: {e:?}");
+                        break 'block ServerMessage::OpaqueServerError;
+                    }
+                    if let Err(e) = round_persister.delete_first_round(session_id).await {
+                        error!("failed to delete first round: {e:?}");
+                        break 'block ServerMessage::OpaqueServerError;
+                    }
                     ServerMessage::Musig2FirstRoundFinalize(None)
                 }
             }
@@ -336,7 +375,7 @@ where
 
                 match sr {
                     Ok(Some(sr)) => ServerMessage::Musig2SecondRoundAggNonce {
-                        nonce: sr.agg_nonce().await.serialize(),
+                        nonce: sr.lock().await.agg_nonce().await.serialize(),
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
@@ -350,6 +389,8 @@ where
                 match sr {
                     Ok(Some(sr)) => ServerMessage::Musig2SecondRoundHoldouts {
                         pubkeys: sr
+                            .lock()
+                            .await
                             .holdouts()
                             .await
                             .iter()
@@ -367,7 +408,7 @@ where
 
                 match sr {
                     Ok(Some(sr)) => ServerMessage::Musig2SecondRoundOurSignature {
-                        sig: sr.our_signature().await.serialize(),
+                        sig: sr.lock().await.our_signature().await.serialize(),
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
@@ -380,7 +421,7 @@ where
 
                 match sr {
                     Ok(Some(sr)) => ServerMessage::Musig2SecondRoundIsComplete {
-                        complete: sr.is_complete().await,
+                        complete: sr.lock().await.is_complete().await,
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
@@ -390,16 +431,21 @@ where
                 pubkey,
                 signature,
             } => {
-                let sr = musig2_sm
-                    .lock()
-                    .await
-                    .second_round(session_id.to_native() as usize);
+                let session_id = session_id.to_native() as usize;
+                let sr = musig2_sm.lock().await.second_round(session_id);
                 let pubkey = PublicKey::from_slice(pubkey);
                 let signature = PartialSignature::from_slice(signature);
                 match (sr, pubkey, signature) {
                     (Ok(Some(sr)), Ok(pubkey), Ok(signature)) => {
+                        let mut sr = sr.lock().await;
                         let r = sr.receive_signature(pubkey, signature).await;
-                        ServerMessage::Musig2SecondRoundReceiveSignature(r.err())
+                        if let Err(e) = round_persister.persist_second_round(session_id, &sr).await
+                        {
+                            error!("failed to persist second round: {e:?}");
+                            ServerMessage::OpaqueServerError
+                        } else {
+                            ServerMessage::Musig2SecondRoundReceiveSignature(r.err())
+                        }
                     }
                     _ => ServerMessage::InvalidClientMessage,
                 }
@@ -410,20 +456,16 @@ where
                     .await
                     .finalize_second_round(session_id.to_native() as usize)
                     .await;
-                match r {
+                match r.map_err(|e| e.narrow::<RoundFinalizeError, _>()) {
                     Ok(sig) => ServerMessage::Musig2SecondRoundFinalize(Ok(sig.serialize()).into()),
-                    Err(e) => {
-                        if let Ok(e) = e.narrow::<RoundFinalizeError, _>() {
-                            ServerMessage::Musig2SecondRoundFinalize(Err(e).into())
-                        } else {
-                            ServerMessage::InvalidClientMessage
-                        }
-                    }
+                    Err(Ok(e)) => ServerMessage::Musig2SecondRoundFinalize(Err(e).into()),
+                    Err(Err(_e)) => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::WotsGetKey { index } => {
-                let key = service.wots_signer().get_key(index.into()).await;
+            ArchivedClientMessage::WotsGetKey { index, txid } => {
+                let txid = Txid::from_slice(txid).expect("correct length");
+                let key = service.wots_signer().get_key(index.into(), txid).await;
                 ServerMessage::WotsGetKey { key }
             }
 
@@ -435,17 +477,34 @@ where
     })
 }
 
-pub trait RoundPersister {
+pub trait RoundPersister<FirstRound, SecondRound>
+where
+    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+    SecondRound: Musig2SignerSecondRound<Server>,
+{
     type Error: Debug;
 
-    fn persist(
+    fn persist_first_round(
+        &self,
+        session_id: Musig2SessionId,
+        first_round: &FirstRound,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    fn persist_second_round(
+        &self,
+        session_id: Musig2SessionId,
+        second_round: &SecondRound,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
+
+    fn delete_first_round(
         &self,
         session_id: Musig2SessionId,
     ) -> impl Future<Output = Result<(), Self::Error>> + Send;
-}
 
-pub trait Musig2RoundRecovery<FirstRound, SecondRound> {
-    type Error: Debug;
+    fn delete_second_round(
+        &self,
+        session_id: Musig2SessionId,
+    ) -> impl Future<Output = Result<(), Self::Error>> + Send;
 
     fn load_first_rounds(
         &self,

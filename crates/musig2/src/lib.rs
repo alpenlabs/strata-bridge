@@ -13,7 +13,6 @@ mod bip340;
 mod key_agg;
 mod key_sort;
 mod nonces;
-mod rkyv_wrappers;
 mod rounds;
 mod sig_agg;
 mod signature;
@@ -33,6 +32,7 @@ pub mod deterministic;
 pub mod errors;
 pub mod tagged_hashes;
 
+pub mod rkyv_wrappers;
 pub use binary_encoding::*;
 pub use bip340::{sign_solo, verify_single};
 pub use key_agg::*;
