@@ -8,13 +8,15 @@ use bitcoin::{
     secp256k1::SECP256K1,
     sighash::{self, Prevouts, SighashCache},
     taproot::LeafVersion,
-    transaction, Address, Amount, FeeRate, Network, Psbt, TapLeafHash, Transaction, TxIn, TxOut,
-    Txid, XOnlyPublicKey,
+    transaction, Amount, FeeRate, Network, Psbt, TapLeafHash, Transaction, TxIn, TxOut, Txid,
+    XOnlyPublicKey,
 };
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::finalize_input;
-use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
+use strata_bridge_tx_graph::connectors::prelude::{
+    ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake,
+};
 use tracing::trace;
 
 use crate::{
@@ -25,6 +27,7 @@ use crate::{
 /// The [`StakeTx`] transaction is used to move stake across transactions.
 ///
 /// It includes a PSBT that contains the inputs and outputs for the transaction.
+/// Users can instantiate a [`StakeTx`] by calling the [`StakeTx::new`].
 ///
 /// # Input order
 ///
@@ -47,16 +50,8 @@ use crate::{
 ///    their stake has been slashed.
 /// 3. The stake amount, [`ConnectorStake`].This is used to move the stake from the previous
 ///    [`StakeTx`] transaction to the current one.
-/// 4. A dust output for the operator to use as CPFP in future transactions that spends this one.
-///
-/// # Implementation Details
-///
-/// Users can instantiate a [`StakeTx`] by calling the [`StakeTx::new`] function as in the example:
-///
-/// ```rust,ignore
-/// let stake_1 = StakeTxnew(1, stake_tx_in, connector_k, connector_p, connector_s);
-/// # drop(stake_1);
-/// ```
+/// 4. A dust output, [`ConnectorCpfp`], for the operator to use as CPFP in future transactions that
+///    spends this one.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct StakeTx {
     /// The index of the stake transaction, denoted by `k` in the docs and specifications.
@@ -89,18 +84,15 @@ impl StakeTx {
         stake_input: TxIn,
         stake_amount: Amount,
         operator_funds: TxIn,
-        operator_pubkey: XOnlyPublicKey,
         operator_funds_utxo: TxOut,
         stake_utxo: TxOut,
         connector_k: ConnectorK,
         connector_p: ConnectorP,
         connector_s: ConnectorStake,
-        network: Network,
+        connector_cpfp: ConnectorCpfp,
     ) -> Self {
         // The first input is the operator's funds.
         let inputs = vec![operator_funds, stake_input];
-        // Create a P2TR from the `operator_pubkey`.
-        let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, network);
         // The outputs are the `TxOut`s created from the connectors.
         let outputs = vec![
             TxOut {
@@ -123,7 +115,7 @@ impl StakeTx {
             },
             TxOut {
                 value: DUST_AMOUNT,
-                script_pubkey: operator_address.script_pubkey(),
+                script_pubkey: connector_cpfp.generate_taproot_address().script_pubkey(),
             },
         ];
         let transaction = Transaction {

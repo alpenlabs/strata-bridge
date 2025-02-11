@@ -5,7 +5,9 @@ use std::ops::{Deref, DerefMut};
 
 use bitcoin::{hashes::sha256, relative, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
 use strata_bridge_primitives::{params::stake_chain::StakeChainParams, wots};
-use strata_bridge_tx_graph::connectors::prelude::{ConnectorK, ConnectorP, ConnectorStake};
+use strata_bridge_tx_graph::connectors::prelude::{
+    ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake,
+};
 
 use crate::prelude::{StakeTx, STAKE_VOUT};
 
@@ -58,6 +60,8 @@ impl<const M: usize> StakeChain<M> {
             stake_inputs.params.delta,
             stake_inputs.params.network,
         );
+        let connector_cpfp =
+            ConnectorCpfp::new(stake_inputs.operator_pubkey, stake_inputs.params.network);
         let first_previous_utxos = [
             stake_inputs.operator_funds_utxo[0].clone(),
             stake_inputs.pre_stake_utxo.clone(),
@@ -67,13 +71,12 @@ impl<const M: usize> StakeChain<M> {
             stake_inputs.pre_stake_prevout.clone(),
             stake_inputs.params.stake_amount,
             stake_inputs.operator_funds[0].clone(),
-            stake_inputs.operator_pubkey,
             first_previous_utxos[0].clone(),
             first_previous_utxos[1].clone(),
             connector_k,
             connector_p,
             connector_s,
-            stake_inputs.params.network,
+            connector_cpfp,
         );
 
         // Instantiate a vector with the length `M`.
@@ -326,18 +329,18 @@ fn generate_new_stake_tx(
         params.delta,
         params.network,
     );
+    let connector_cpfp = ConnectorCpfp::new(operator_pubkey, params.network);
     StakeTx::new(
         current_index + 1,
         stake_input,
         params.stake_amount,
         operator_funds,
-        operator_pubkey,
         operator_funds_utxo,
         stake_utxo,
         connector_k,
         connector_p,
         connector_s,
-        params.network,
+        connector_cpfp,
     )
 }
 
