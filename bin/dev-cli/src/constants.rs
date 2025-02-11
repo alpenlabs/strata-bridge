@@ -1,6 +1,7 @@
+use std::sync::LazyLock;
+
 use alloy::consensus::constants::ETH_TO_WEI;
 use bitcoin::{secp256k1::XOnlyPublicKey, Amount, Network};
-use lazy_static::lazy_static;
 
 pub(crate) const AMOUNT: Amount = Amount::from_sat(1_000_100_000);
 
@@ -28,12 +29,10 @@ pub(crate) const NUMS_POINT: &str =
 //change to appropriate value
 pub(crate) const LOCKTIME: i64 = 1008;
 
-lazy_static! {
-    pub static ref AGGREGATED_PUBKEY: XOnlyPublicKey = {
-        let pubkey_hex = AGGREGATED_PUBKEY_HEX;
-        let pubkey_bytes = hex::decode(pubkey_hex).expect("Decoding hex failed");
-        assert_eq!(pubkey_bytes.len(), 32, "XOnlyPublicKey must be 32 bytes");
+pub(crate) static AGGREGATED_PUBKEY: LazyLock<XOnlyPublicKey> = LazyLock::new(|| {
+    let pubkey_hex = AGGREGATED_PUBKEY_HEX;
+    let pubkey_bytes = hex::decode(pubkey_hex).expect("Decoding hex failed");
+    assert_eq!(pubkey_bytes.len(), 32, "XOnlyPublicKey must be 32 bytes");
 
-        XOnlyPublicKey::from_slice(&pubkey_bytes).expect("Failed to create XOnlyPublicKey")
-    };
-}
+    XOnlyPublicKey::from_slice(&pubkey_bytes).expect("Failed to create XOnlyPublicKey")
+});

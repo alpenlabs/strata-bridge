@@ -1,6 +1,6 @@
 //! Params related to the bridge transactions.
 
-use std::{str::FromStr, time::Duration};
+use std::{str::FromStr, sync::LazyLock, time::Duration};
 
 use bitcoin::{secp256k1::XOnlyPublicKey, Amount, FeeRate};
 
@@ -40,11 +40,11 @@ pub const DISPROVER_REWARD: Amount = Amount::from_int_btc(2);
 /// Magic bytes to add to the metadata output in transactions to help identify them.
 pub const MAGIC_BYTES: &[u8; 11] = b"alpenstrata";
 
-lazy_static::lazy_static! {
-    /// This is an unspendable pubkey.
-    ///
-    /// This is generated via <https://github.com/alpenlabs/unspendable-pubkey-gen> following [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs)
-    /// with `r = 0x82758434e13488368e0781c4a94019d3d6722f854d26c15d2d157acd1f464723`.
-    pub static ref UNSPENDABLE_INTERNAL_KEY: XOnlyPublicKey =
-        XOnlyPublicKey::from_str("2be4d02127fedf4c956f8e6d8248420b9af78746232315f72894f0b263c80e81").unwrap();
-}
+/// This is an unspendable pubkey.
+///
+/// This is generated via <https://github.com/alpenlabs/unspendable-pubkey-gen> following [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs)
+/// with `r = 0x82758434e13488368e0781c4a94019d3d6722f854d26c15d2d157acd1f464723`.
+pub static UNSPENDABLE_INTERNAL_KEY: LazyLock<XOnlyPublicKey> = LazyLock::new(|| {
+    XOnlyPublicKey::from_str("2be4d02127fedf4c956f8e6d8248420b9af78746232315f72894f0b263c80e81")
+        .unwrap()
+});
