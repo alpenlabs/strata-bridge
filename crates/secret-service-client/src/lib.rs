@@ -6,11 +6,11 @@ use std::{
     time::Duration,
 };
 
-use bitcoin::Psbt;
+use bitcoin::{hashes::Hash, Txid};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::{Error, PublicKey},
-    AggNonce, LiftedSignature, PubNonce,
+    secp256k1::{schnorr::Signature, Error, PublicKey},
+    AggNonce, KeyAggContext, LiftedSignature, PubNonce,
 };
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
@@ -22,7 +22,7 @@ use secret_service_proto::{
         traits::{
             Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
             Musig2SignerSecondRound, OperatorSigner, Origin, P2PSigner, SecretService,
-            StakeChainPreimages, WotsSigner,
+            SignerIdxOutOfBounds, StakeChainPreimages, WotsSigner,
         },
         wire::{ClientMessage, ServerMessage},
     },
@@ -189,7 +189,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
     }
 
     fn receive_pub_nonce(
-        &self,
+        &mut self,
         pubkey: PublicKey,
         pubnonce: PubNonce,
     ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
@@ -303,7 +303,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
     }
 
     fn receive_signature(
-        &self,
+        &mut self,
         pubkey: PublicKey,
         signature: musig2::PartialSignature,
     ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
@@ -354,19 +354,34 @@ struct OperatorClient {
 }
 
 impl OperatorSigner<Client> for OperatorClient {
-    fn sign_psbt(
+    fn sign(
         &self,
-        psbt: Psbt,
-    ) -> impl Future<Output = <Client as Origin>::Container<Psbt>> + Send {
+        digest: &[u8; 32],
+    ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
         async move {
-            let msg = ClientMessage::OperatorSignPsbt {
-                psbt: psbt.serialize(),
+            let msg = ClientMessage::OperatorSign {
+                digest: digest.clone(),
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::OperatorSignPsbt { psbt } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Psbt::deserialize(&psbt).map_err(|_| ClientError::BadData)
+            match res {
+                ServerMessage::OperatorSignPsbt { sig } => {
+                    Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
+                }
+                _ => Err(ClientError::ProtocolError(res)),
+            }
+        }
+    }
+
+    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
+        async move {
+            let msg = ClientMessage::OperatorPubkey;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+            match res {
+                ServerMessage::OperatorPubkey { pubkey } => {
+                    PublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
+                }
+                _ => Err(ClientError::ProtocolError(res)),
+            }
         }
     }
 }
@@ -377,28 +392,30 @@ struct P2PClient {
 }
 
 impl P2PSigner<Client> for P2PClient {
-    fn sign_p2p(
+    fn sign(
         &self,
-        hash: [u8; 32],
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 64]>> + Send {
+        digest: &[u8; 32],
+    ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
         async move {
-            let msg = ClientMessage::SignP2P { hash };
+            let msg = ClientMessage::P2PSign {
+                digest: digest.clone(),
+            };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::SignP2P { sig } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
-            Ok(sig)
+            Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
         }
     }
 
-    fn p2p_pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<[u8; 33]>> + Send {
+    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
         async move {
             let msg = ClientMessage::P2PPubkey;
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::P2PPubkey { pubkey } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
-            Ok(pubkey)
+            PublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
         }
     }
 }
@@ -411,21 +428,24 @@ struct Musig2Client {
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     fn new_session(
         &self,
-        public_keys: Vec<PublicKey>,
-    ) -> impl Future<Output = Result<Musig2FirstRound, ClientError>> + Send {
+        ctx: KeyAggContext,
+        signer_idx: usize,
+    ) -> impl Future<Output = Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError>> + Send
+    {
         async move {
-            let msg = ClientMessage::Musig2NewSession {
-                public_keys: public_keys.into_iter().map(|pk| pk.serialize()).collect(),
-            };
+            let msg = ClientMessage::Musig2NewSession { ctx, signer_idx };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2NewSession { session_id } = res else {
+            let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
                 return Err(ClientError::ProtocolError(res));
             };
 
-            Ok(Musig2FirstRound {
-                session_id,
-                connection: self.conn.clone(),
-                config: self.config.clone(),
+            Ok(match maybe_session_id {
+                Ok(session_id) => Ok(Musig2FirstRound {
+                    session_id,
+                    connection: self.conn.clone(),
+                    config: self.config.clone(),
+                }),
+                Err(e) => Err(e),
             })
         }
     }
@@ -440,9 +460,13 @@ impl WotsSigner<Client> for WotsClient {
     fn get_key(
         &self,
         index: u64,
+        txid: Txid,
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 64]>> + Send {
         async move {
-            let msg = ClientMessage::WotsGetKey { index };
+            let msg = ClientMessage::WotsGetKey {
+                index,
+                txid: txid.as_raw_hash().to_byte_array(),
+            };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::WotsGetKey { key } = res else {
                 return Err(ClientError::ProtocolError(res));

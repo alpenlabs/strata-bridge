@@ -3,6 +3,7 @@ use std::{mem::MaybeUninit, ptr, sync::Arc};
 use musig2::{errors::RoundFinalizeError, LiftedSignature};
 use secret_service_proto::v1::traits::{Musig2SignerFirstRound, Musig2SignerSecondRound, Server};
 use terrors::OneOf;
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::bool_arr::DoubleBoolArray;
 
@@ -17,11 +18,11 @@ where
     /// Used to store first rounds of musig2 server instances. This is a Vec
     /// because we don't know how big FirstRound may be in memory so we will
     /// heap allocate and try keep this to a minimum
-    first_rounds: Vec<MaybeUninit<Arc<FirstRound>>>,
+    first_rounds: Vec<MaybeUninit<Arc<Mutex<FirstRound>>>>,
     /// Used to store second rounds of musig2 server instances. This is a Vec
     /// because we don't know how big SecondRound may be in memory so we will
     /// heap allocate and try keep this to a minimum
-    second_rounds: Vec<MaybeUninit<Arc<SecondRound>>>,
+    second_rounds: Vec<MaybeUninit<Arc<Mutex<SecondRound>>>>,
 }
 
 impl<FirstRound, SecondRound, const N: usize> Default
@@ -52,14 +53,14 @@ pub struct NotInCorrectRound {
 pub struct OtherReferencesActive;
 
 pub struct WritePermission<'a, T> {
-    slot: &'a mut MaybeUninit<Arc<T>>,
+    slot: &'a mut MaybeUninit<Arc<Mutex<T>>>,
     session_id: usize,
-    t: Arc<T>,
+    t: Arc<Mutex<T>>,
 }
 
 impl<T> WritePermission<'_, T> {
-    pub fn value(&self) -> &T {
-        &self.t
+    pub async fn value(&self) -> MutexGuard<'_, T> {
+        self.t.lock().await
     }
 
     pub fn session_id(&self) -> usize {
@@ -94,7 +95,7 @@ where
         Ok(WritePermission {
             slot,
             session_id: next_empty,
-            t: first_round.into(),
+            t: Arc::new(first_round.into()),
         })
     }
 
@@ -135,8 +136,12 @@ where
                         return Err(OneOf::new(OtherReferencesActive));
                     }
                 };
-                let second_round = first_round.finalize(hash).await.map_err(OneOf::new)?;
-                self.second_rounds[session_id] = MaybeUninit::new(second_round.into());
+                let second_round = first_round
+                    .into_inner()
+                    .finalize(hash)
+                    .await
+                    .map_err(OneOf::new)?;
+                self.second_rounds[session_id] = MaybeUninit::new(Arc::new(second_round.into()));
                 self.tracker.set(session_id, SlotState::SecondRound);
                 Ok(())
             }
@@ -176,7 +181,11 @@ where
                     }
                 };
                 self.tracker.set(session_id, SlotState::Empty);
-                Ok(second_round.finalize().await.map_err(OneOf::new)?)
+                Ok(second_round
+                    .into_inner()
+                    .finalize()
+                    .await
+                    .map_err(OneOf::new)?)
             }
             slot_state => Err(OneOf::new(NotInCorrectRound {
                 wanted: SlotState::SecondRound,
@@ -185,7 +194,10 @@ where
         }
     }
 
-    pub fn first_round(&self, session_id: usize) -> Result<Option<Arc<FirstRound>>, OutOfRange> {
+    pub fn first_round(
+        &self,
+        session_id: usize,
+    ) -> Result<Option<Arc<Mutex<FirstRound>>>, OutOfRange> {
         match self.slot_state(session_id)? {
             SlotState::FirstRound => {
                 let first_round = unsafe { self.first_rounds[session_id].assume_init_ref() };
@@ -195,7 +207,10 @@ where
         }
     }
 
-    pub fn second_round(&self, session_id: usize) -> Result<Option<Arc<SecondRound>>, OutOfRange> {
+    pub fn second_round(
+        &self,
+        session_id: usize,
+    ) -> Result<Option<Arc<Mutex<SecondRound>>>, OutOfRange> {
         match self.slot_state(session_id)? {
             SlotState::SecondRound => {
                 let second_round = unsafe { self.second_rounds[session_id].assume_init_ref() };

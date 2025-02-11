@@ -1,13 +1,13 @@
 use std::future::Future;
 
-use bitcoin::Psbt;
+use bitcoin::Txid;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::PublicKey,
-    AggNonce, LiftedSignature, PartialSignature, PubNonce,
+    secp256k1::{schnorr::Signature, PublicKey},
+    AggNonce, KeyAggContext, LiftedSignature, PartialSignature, PubNonce,
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
-use rkyv::rancor;
+use rkyv::{rancor, Archive, Deserialize, Serialize};
 
 use super::wire::ServerMessage;
 
@@ -43,32 +43,29 @@ where
 }
 
 pub trait OperatorSigner<O: Origin>: Send {
-    // type OperatorSigningError: Debug
-    //     + Send
-    //     + Clone
-    //     + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>;
-
-    fn sign_psbt(&self, psbt: Psbt) -> impl Future<Output = O::Container<Psbt>> + Send;
+    fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
+    fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
 }
 
 pub trait P2PSigner<O: Origin>: Send {
-    // type P2PSigningError: Debug
-    //     + Send
-    //     + Clone
-    //     + for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>;
-
-    fn sign_p2p(&self, hash: [u8; 32]) -> impl Future<Output = O::Container<[u8; 64]>> + Send;
-
-    fn p2p_pubkey(&self) -> impl Future<Output = O::Container<[u8; 33]>> + Send;
+    fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
+    fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
 }
 
 pub type Musig2SessionId = usize;
 
+#[derive(Debug, Archive, Serialize, Deserialize, Clone)]
+pub struct SignerIdxOutOfBounds {
+    pub index: usize,
+    pub n_signers: usize,
+}
+
 pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
     fn new_session(
         &self,
-        public_keys: Vec<PublicKey>,
-    ) -> impl Future<Output = O::Container<FirstRound>> + Send;
+        ctx: KeyAggContext,
+        signer_idx: usize,
+    ) -> impl Future<Output = O::Container<Result<FirstRound, SignerIdxOutOfBounds>>> + Send;
 }
 
 pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
@@ -79,7 +76,7 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
     fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
 
     fn receive_pub_nonce(
-        &self,
+        &mut self,
         pubkey: PublicKey,
         pubnonce: PubNonce,
     ) -> impl Future<Output = O::Container<Result<(), RoundContributionError>>> + Send;
@@ -100,7 +97,7 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
     fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
 
     fn receive_signature(
-        &self,
+        &mut self,
         pubkey: PublicKey,
         signature: PartialSignature,
     ) -> impl Future<Output = O::Container<Result<(), RoundContributionError>>> + Send;
@@ -111,7 +108,11 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
 }
 
 pub trait WotsSigner<O: Origin>: Send {
-    fn get_key(&self, index: u64) -> impl Future<Output = O::Container<[u8; 64]>> + Send;
+    fn get_key(
+        &self,
+        index: u64,
+        txid: Txid,
+    ) -> impl Future<Output = O::Container<[u8; 64]>> + Send;
 }
 
 pub trait StakeChainPreimages<O: Origin>: Send {
