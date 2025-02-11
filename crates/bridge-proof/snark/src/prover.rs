@@ -4,81 +4,41 @@ use anyhow::Context;
 use ark_bn254::Fr;
 use ark_ff::{BigInt, PrimeField};
 use bitvm::groth16::g16;
-use sp1_sdk::{
-    network::FulfillmentStrategy, HashableKey, Prover, ProverClient, SP1ProofWithPublicValues,
-    SP1VerifyingKey,
-};
-use sp1_verifier::Groth16Verifier;
+use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
-use strata_bridge_proof_protocol::{BridgeProofInput, BridgeProofPublicParams, StrataBridgeState};
-use strata_primitives::params::RollupParams;
+use strata_bridge_proof_protocol2::{BridgeProofInput, BridgeProofOutput, BridgeProver};
 use tracing::info;
-use zkaleido::{ZkVmError, ZkVmInputBuilder};
-use zkaleido_sp1_adapter::SP1ProofInputBuilder;
+use zkaleido::{ZkVmHost, ZkVmProver};
+use zkaleido_sp1_adapter::{verify_groth16, SP1Host};
 
 use crate::sp1;
 
-pub fn prove(
-    input: &[u8],
-    strata_bridge_state: &StrataBridgeState,
-    rollup_params: &RollupParams,
-) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofPublicParams)> {
-    let bridge_proof_input: BridgeProofInput =
-        bincode::deserialize(input).context("should be able to deserialize input")?;
-
-    let (mut sp1prf, sp1vk) = default_prove(bridge_proof_input, rollup_params, strata_bridge_state)
-        .context("cannot generate proof")?;
-
-    info!(action = "verifying proof");
-    Groth16Verifier::verify(
-        &sp1prf.bytes(),
-        sp1prf.public_values.as_slice(),
-        &sp1vk.bytes32(),
-        &sp1_verifier::GROTH16_VK_BYTES,
-    )
-    .context("proof verification failed")?;
-
-    let bridge_proof_public_params: BridgeProofPublicParams = sp1prf.public_values.read();
-    let groth16 = sp1prf.proof.try_as_groth_16().unwrap();
-    let proof = sp1::load_groth16_proof_from_bytes(&hex::decode(groth16.raw_proof).unwrap());
-    let public_inputs =
-        [Fr::from_bigint(BigInt::from_str(&groth16.public_inputs[1]).unwrap()).unwrap()];
-
-    Ok((proof, public_inputs, bridge_proof_public_params))
-}
-
-pub fn default_prove(
-    bridge_proof_input: BridgeProofInput,
-    rollup_params: &RollupParams,
-    strata_bridge_state: &StrataBridgeState,
-) -> anyhow::Result<(SP1ProofWithPublicValues, SP1VerifyingKey)> {
-    let input = {
-        let mut input_builder = SP1ProofInputBuilder::new();
-        input_builder.write_serde(&bridge_proof_input)?;
-        input_builder.write_serde(&rollup_params)?;
-        input_builder.write_borsh(strata_bridge_state)?;
-        input_builder.build()?
-    };
+pub fn prove(input: BridgeProofInput) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofOutput)> {
+    info!(action = "generating proof");
 
     if std::env::var("SP1_PROVER").is_err() {
         panic!("Only network prover is supported");
     }
 
-    // Prover network
-    let prover_client = ProverClient::builder().network().build();
-    let (proving_key, verifying_key) = prover_client.setup(GUEST_BRIDGE_ELF);
+    let host = SP1Host::init(GUEST_BRIDGE_ELF);
+    let proof_receipt = BridgeProver::prove(&input, &host)?;
 
-    let network_prover_builder = prover_client
-        .prove(&proving_key, &input)
-        .strategy(FulfillmentStrategy::Reserved);
+    let vk: SP1VerifyingKey = bincode::deserialize(host.get_verification_key().as_bytes())?;
 
-    let network_prover = network_prover_builder.groth16().skip_simulation(true);
+    info!(action = "verifying proof");
+    verify_groth16(&proof_receipt, &vk.bytes32_raw()).context("proof verification failed")?;
 
-    let proof = network_prover
-        .run()
-        .map_err(|e| ZkVmError::ProofGenerationError(e.to_string()))?;
+    let output = BridgeProver::process_output::<SP1Host>(proof_receipt.public_values())?;
 
-    anyhow::Ok((proof, verifying_key))
+    let proof = sp1::load_groth16_proof_from_bytes(proof_receipt.proof().as_bytes());
+
+    // TODO: fix this
+    // let public_inputs =
+    //     [Fr::from_bigint(BigInt::from_str(&groth16.public_inputs[1]).unwrap()).unwrap()];
+
+    let public_inputs = [Fr::from_bigint(BigInt::from_str("0").unwrap()).unwrap()];
+
+    Ok((proof, public_inputs, output))
 }
 
 // #[cfg(test)]

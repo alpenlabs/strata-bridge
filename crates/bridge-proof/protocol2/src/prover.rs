@@ -3,7 +3,10 @@ use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResult}
 
 use crate::{BridgeProofInput, BridgeProofInputBorsh, BridgeProofOutput};
 
-pub(crate) struct BridgeProver;
+/// This is responsible for generating the proof
+// TODO: zkaleido maybe add a display/debug trait to ZkVmProver
+#[derive(Debug)]
+pub struct BridgeProver;
 
 impl ZkVmProver for BridgeProver {
     type Input = BridgeProofInput;

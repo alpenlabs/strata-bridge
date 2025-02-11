@@ -138,3 +138,5 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
 
     zkvm.commit_borsh(&output);
 }
+
+pub use prover::BridgeProver;
