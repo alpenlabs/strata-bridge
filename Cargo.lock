@@ -2854,6 +2854,7 @@ dependencies = [
  "futures",
  "strata-btcio",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]

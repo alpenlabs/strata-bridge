@@ -3,9 +3,22 @@ name = "duty-tracker"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.missing_docs = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unexpected_cfgs = { level = "warn", check-cfg = [
+  'cfg(coverage, coverage_nightly)',
+] }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rustdoc.all = "warn"
+
 [dependencies]
 btc-notify.workspace = true
 bitcoin.workspace = true
 futures = "0.3.31"
 strata-btcio.workspace = true
 tokio = "1.43.0"
+tokio-stream = "0.1.17"
