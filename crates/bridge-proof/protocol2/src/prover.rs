@@ -1,7 +1,12 @@
+use std::sync::Arc;
+
 use bitcoin::consensus::serialize;
 use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResult};
+use zkaleido_native_adapter::{NativeHost, NativeMachine};
 
-use crate::{BridgeProofInput, BridgeProofInputBorsh, BridgeProofOutput};
+use crate::{
+    process_bridge_proof_outer, BridgeProofInput, BridgeProofInputBorsh, BridgeProofOutput,
+};
 
 /// This is responsible for generating the proof
 // TODO: zkaleido maybe add a display/debug trait to ZkVmProver
@@ -51,33 +56,31 @@ impl ZkVmProver for BridgeProver {
     }
 }
 
+/// get native host. This can be used for testing
+pub fn get_native_host() -> NativeHost {
+    NativeHost {
+        process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
+            process_bridge_proof_outer(zkvm);
+            Ok(())
+        })),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
 
     use borsh::BorshDeserialize;
     use strata_primitives::buf::Buf64;
     use zkaleido::ZkVmProver;
-    use zkaleido_native_adapter::{NativeHost, NativeMachine};
 
-    use super::BridgeProver;
+    use super::*;
     use crate::{
-        process_bridge_proof_outer,
         test_data::test_data_loader::{
             extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
             header_verification_state, load_test_chainstate, load_test_rollup_params,
         },
         BridgeProofInput,
     };
-
-    fn get_native_host() -> NativeHost {
-        NativeHost {
-            process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
-                process_bridge_proof_outer(zkvm);
-                Ok(())
-            })),
-        }
-    }
 
     fn get_input() -> BridgeProofInput {
         let sig_bytes: Vec<u8> = hex::decode("0efe555da06ed50a752cd5721dbc35acb296d8a38879dc0ddb6c5dffeb157575c243d444f0b2e56caccc6865a800b81b205ebc9346ee7a7a592467431da2fb17").unwrap();

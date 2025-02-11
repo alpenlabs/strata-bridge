@@ -25,7 +25,7 @@ use strata_primitives::{
     proof::RollupVerifyingKey,
 };
 use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
-use tx_inclusion_proof::L1TxWithProofBundle;
+pub use tx_inclusion_proof::L1TxWithProofBundle;
 use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
@@ -37,33 +37,33 @@ use zkaleido::ZkVmEnv;
 #[derive(Debug, Clone)]
 pub struct BridgeProofInput {
     /// The [RollupParams] of the strata rollup
-    rollup_params: RollupParams,
+    pub rollup_params: RollupParams,
 
     /// Vector of Bitcoin headers starting after the one that has been verified by the `header_vs`
-    headers: Vec<Header>,
+    pub headers: Vec<Header>,
 
     /// The [Chainstate] that can be verified by the strata checkpoint proof.
-    chain_state: Chainstate,
+    pub chain_state: Chainstate,
 
     /// The [HeaderVerificationState] used to validate the chain of headers.  
     /// The proof that this HeaderVerificationState is valid must be done extracted from the
     /// `strata_checkpoint_tx`.
-    header_vs: HeaderVerificationState,
+    pub header_vs: HeaderVerificationState,
 
     /// The index of the deposit within the [Chainstate] deposit table.  
     /// Must match the corresponding information in the withdrawal fulfillment transaction.
-    deposit_idx: u32,
+    pub deposit_idx: u32,
 
     /// Transaction (and its inclusion proof) containing the strata checkpoint proof.  
     /// The `usize` represents the position of this transaction in the header chain.
-    strata_checkpoint_tx: (L1TxWithProofBundle, usize),
+    pub strata_checkpoint_tx: (L1TxWithProofBundle, usize),
 
     /// Transaction (and its inclusion proof) fulfilling the withdrawal.  
     /// The `usize` represents the position of this transaction in the header chain.
-    withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
+    pub withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
 
     /// Signature of the operator to prove that the withdrawal info was indeed performed
-    op_signature: Buf64,
+    pub op_signature: Buf64,
 }
 
 /// Subset of [`BridgeProofInput`] that is [borsh]-serializable
@@ -99,9 +99,9 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct BridgeProofOutput {
     /// The transaction ID of the deposit transaction.
-    deposit_txid: Buf32,
+    pub deposit_txid: Buf32,
     /// The transaction ID of the withdrawal fulfillment transaction.
-    withdrawal_txid: Buf32,
+    pub withdrawal_txid: Buf32,
 }
 
 /// Processes the bridge proof by reading necessary data from the provided ZkVM environment,
@@ -139,4 +139,4 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
     zkvm.commit_borsh(&output);
 }
 
-pub use prover::BridgeProver;
+pub use prover::{get_native_host, BridgeProver};

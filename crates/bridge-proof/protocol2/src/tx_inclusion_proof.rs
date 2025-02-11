@@ -47,7 +47,7 @@ impl<T: TxIdComputable> L1TxWithIdProof<T> {
 /// 2. **Proving a transaction with witness data:** we provide a [`wtxid`] Merkle proof, plus a
 ///    coinbase transaction (the “base” transaction) that commits to the witness Merkle root.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub(crate) struct L1TxWithProofBundle {
+pub struct L1TxWithProofBundle {
     /// If `witness_tx` is `None`, this is the actual transaction we want to prove.
     /// If `witness_tx` is `Some`, this becomes the coinbase transaction that commits
     /// to the witness transaction’s `wtxid` in its witness Merkle root.
@@ -83,8 +83,7 @@ impl L1TxWithProofBundle {
     /// Panics if `idx` is out of bounds for the `txs` array (e.g., `idx as usize >= txs.len()`).
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) fn generate(txs: &[Transaction], idx: u32) -> Self {
+    pub fn generate(txs: &[Transaction], idx: u32) -> Self {
         // Clone the transaction we want to prove.
         let tx = txs[idx as usize].clone();
 

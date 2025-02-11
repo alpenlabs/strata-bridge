@@ -6,22 +6,27 @@ use ark_ff::{BigInt, PrimeField};
 use bitvm::groth16::g16;
 use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
-use strata_bridge_proof_protocol2::{BridgeProofInput, BridgeProofOutput, BridgeProver};
+use strata_bridge_proof_protocol2::{
+    get_native_host, BridgeProofInput, BridgeProofOutput, BridgeProver,
+};
 use tracing::info;
 use zkaleido::{ZkVmHost, ZkVmProver};
 use zkaleido_sp1_adapter::{verify_groth16, SP1Host};
 
 use crate::sp1;
 
-pub fn prove(input: BridgeProofInput) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofOutput)> {
-    info!(action = "generating proof");
+pub fn prove(input: &BridgeProofInput) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofOutput)> {
+    info!(action = "simulating proof in native mode");
+    let native_host = get_native_host();
+    let _ = BridgeProver::prove(input, &native_host).expect("failed to assert proof statements");
 
     if std::env::var("SP1_PROVER").is_err() {
         panic!("Only network prover is supported");
     }
 
+    info!(action = "generating proof");
     let host = SP1Host::init(GUEST_BRIDGE_ELF);
-    let proof_receipt = BridgeProver::prove(&input, &host)?;
+    let proof_receipt = BridgeProver::prove(input, &host)?;
 
     let vk: SP1VerifyingKey = bincode::deserialize(host.get_verification_key().as_bytes())?;
 
