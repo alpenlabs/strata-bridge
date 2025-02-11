@@ -184,7 +184,7 @@ impl StakeTx {
         ))
     }
 
-    /// Adds the preimage and signature for the previous [`StakeTx`] transaction is an input to the
+    /// Adds the preimage and signature for the previous [`StakeTx`] transaction as an input to the
     /// current [`StakeTx`] transaction.
     ///
     /// This is used to advance a [`StakeChain`](crate::StakeChain) by revealing the preimage.
