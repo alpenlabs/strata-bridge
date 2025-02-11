@@ -1,3 +1,4 @@
+#![feature(result_flattening)]
 mod tx_driver;
 use std::{
     collections::VecDeque,
