@@ -47,6 +47,7 @@ pub fn sp1_prove(
     Ok((proof, public_inputs, output))
 }
 
+#[cfg(not(debug_assertions))]
 #[cfg(test)]
 mod test {
     use borsh::BorshDeserialize;
@@ -78,7 +79,6 @@ mod test {
     #[rustfmt::skip]
     // RUST_LOG=info SP1_PROVER=mock cargo test --package strata-bridge-proof-snark --lib --features prover -- prover::test::test_sp1_prove --exact --show-output --nocapture
     #[test]
-    // #[cfg(not(debug_assertions)]
     fn test_sp1_prove() {
         sp1_sdk::utils::setup_logger();
         let input = get_input();
