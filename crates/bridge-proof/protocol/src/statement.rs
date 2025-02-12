@@ -92,7 +92,8 @@ pub(crate) fn process_bridge_proof(
 
     // 2. Verify that the chain state root matches the checkpoint's state root. This ensures the
     //    provided chain state aligns with the checkpoint data.
-    if input.chain_state.compute_state_root() != *checkpoint.batch_info().final_l2_state_hash() {
+    let final_l2_state_hash = checkpoint.batch_transition().l2_transition.1;
+    if input.chain_state.compute_state_root() != final_l2_state_hash {
         return Err(BridgeProofError::ChainStateMismatch);
     }
 

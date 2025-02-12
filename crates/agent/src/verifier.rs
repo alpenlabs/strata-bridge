@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::TxOut;
-use bitvm::{groth16::g16, signatures::wots::SignatureImpl};
+use bitvm::groth16::g16;
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
@@ -129,21 +129,17 @@ where
                     // 1. public input hash validation
                     info!(action = "validating public input hash");
 
-                    let withdrawa_txid: [u8; 32] = bridge_out_txid.parse();
+                    let withdrawal_txid: [u8; 32] = wots_to_byte_array(bridge_out_txid).into();
                     let public_inputs = BridgeProofPublicOutput {
                         deposit_txid: deposit_txid.into(),
-                        withdrawal_fulfillment_txid: withdrawa_txid.into(),
+                        withdrawal_fulfillment_txid: withdrawal_txid.into(),
                     };
 
                     // NOTE: This is zkvm-specific logic
                     let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
                     let public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
 
-                    let committed_public_inputs_hash = groth16.0[0].parse();
-
-                    // TODO: remove this: fix nibble flipping
-                    let committed_public_inputs_hash =
-                        committed_public_inputs_hash.map(|b| ((b & 0xf0) >> 4) | ((b & 0x0f) << 4));
+                    let committed_public_inputs_hash = wots_to_byte_array(groth16.0[0]);
 
                     if public_inputs_hash != committed_public_inputs_hash {
                         warn!(msg = "public inputs hash mismatch");

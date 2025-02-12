@@ -27,5 +27,6 @@ borsh.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-hex.workspace = true
+strata-common.workspace = true
+tracing.workspace = true
 prover-test-utils.workspace = true
