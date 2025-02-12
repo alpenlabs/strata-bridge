@@ -9385,7 +9385,7 @@ dependencies = [
  "rkyv",
  "secp256k1",
  "serde",
- "sha2",
+ "sp1-verifier",
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-proof-protocol2",
