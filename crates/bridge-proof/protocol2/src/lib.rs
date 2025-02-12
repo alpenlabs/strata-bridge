@@ -98,7 +98,7 @@ pub struct BridgeProofOutput {
     /// The transaction ID of the deposit transaction.
     pub deposit_txid: Buf32,
     /// The transaction ID of the withdrawal fulfillment transaction.
-    pub withdrawal_txid: Buf32,
+    pub withdrawal_fulfillment_txid: Buf32,
 }
 
 /// Processes the bridge proof by reading necessary data from the provided ZkVM environment,

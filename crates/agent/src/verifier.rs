@@ -131,7 +131,7 @@ where
                     let withdrawa_txid: [u8; 32] = bridge_out_txid.parse();
                     let public_inputs = BridgeProofOutput {
                         deposit_txid: deposit_txid.into(),
-                        withdrawal_txid: withdrawa_txid.into(),
+                        withdrawal_fulfillment_txid: withdrawa_txid.into(),
                     };
 
                     // NOTE: This is zkvm-specific logic

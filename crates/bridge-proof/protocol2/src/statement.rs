@@ -193,7 +193,7 @@ pub(crate) fn process_bridge_proof(
     // 8. Construct the proof output.
     let output = BridgeProofOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        withdrawal_txid: withdrawal_fulfillment_txid,
+        withdrawal_fulfillment_txid,
     };
 
     Ok((output, checkpoint))

@@ -2117,7 +2117,7 @@ where
         let (proof, public_inputs, public_output) = prover::sp1_prove(&input).unwrap();
 
         Assertions {
-            bridge_out_txid: public_output.withdrawal_txid.0,
+            bridge_out_txid: public_output.withdrawal_fulfillment_txid.0,
             groth16: g16::generate_proof_assertions(
                 bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,
