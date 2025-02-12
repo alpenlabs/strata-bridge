@@ -18,11 +18,10 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::{BridgeDuty, BridgeDutyStatus, VerifierDuty},
-    types::PublickeyTable,
 };
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
-use strata_primitives::params::RollupParams;
-use strata_rpc::StrataApiClient;
+use strata_primitives::{bridge::PublickeyTable, params::RollupParams};
+use strata_rpc_api::StrataApiClient;
 use tokio::{
     sync::{broadcast, mpsc},
     task::JoinSet,

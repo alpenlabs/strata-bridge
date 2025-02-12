@@ -47,7 +47,7 @@ use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
 };
-use strata_rpc::StrataApiClient;
+use strata_rpc_api::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
     broadcast::{self, error::RecvError},
@@ -1978,8 +1978,7 @@ where
             .strata_client
             .get_cl_block_witness_raw(L2BlockId::from(Buf32(l2_block_id)))
             .await
-            .expect("should be able to query for CL block witness")
-            .expect("cl block witness must exist");
+            .expect("should be able to query for CL block witness");
 
         let chain_state = borsh::from_slice::<(Chainstate, L2Block)>(&cl_block_witness)
             .expect("should be able to deserialize CL block witness")

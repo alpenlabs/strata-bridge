@@ -1,10 +1,11 @@
 use bitcoin::Network;
 use secp256k1::XOnlyPublicKey;
+use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
     errors::BridgeTxBuilderResult,
     scripts::general::get_aggregated_pubkey,
-    types::{OperatorIdx, PublickeyTable, TxSigningData},
+    types::{OperatorIdx, TxSigningData},
 };
 
 /// Provides methods that allows access to components required to build a transaction in the context
