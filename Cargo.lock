@@ -967,6 +967,7 @@ source = "git+https://github.com/chainwayxyz/algebra/?branch=new-ate-loop#ac23fd
 dependencies = [
  "ark-ec",
  "ark-ff 0.4.2",
+ "ark-r1cs-std",
  "ark-std 0.4.0",
 ]
 
@@ -1132,6 +1133,23 @@ dependencies = [
  "fnv",
  "hashbrown 0.15.2",
  "rayon",
+]
+
+[[package]]
+name = "ark-r1cs-std"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de1d1472e5cb020cb3405ce2567c91c8d43f21b674aef37b0202f5c3304761db"
+dependencies = [
+ "ark-ec",
+ "ark-ff 0.4.2",
+ "ark-relations",
+ "ark-std 0.4.0",
+ "derivative",
+ "num-bigint 0.4.6",
+ "num-integer",
+ "num-traits",
+ "tracing",
 ]
 
 [[package]]
@@ -1502,7 +1520,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1766,6 +1784,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "block"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1797,6 +1821,19 @@ dependencies = [
  "glob",
  "threadpool",
  "zeroize",
+]
+
+[[package]]
+name = "bonsai-sdk"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e274325e6251c944fad96881a9744d82d6cee67244e284f62ebd1d4ede287bd"
+dependencies = [
+ "duplicate",
+ "maybe-async",
+ "reqwest",
+ "serde",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2237,6 +2274,17 @@ name = "core-foundation-sys"
 version = "0.8.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
+
+[[package]]
+name = "core-graphics-types"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "45390e6114f68f718cc7a830514a96f903cccd70d02a8f6d9f643ac4ba45afaf"
+dependencies = [
+ "bitflags 1.3.2",
+ "core-foundation 0.9.4",
+ "libc",
+]
 
 [[package]]
 name = "corepc-client"
@@ -2733,6 +2781,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "docker-generate"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccf673e0848ef09fa4aeeba78e681cf651c0c7d35f76ee38cec8e55bc32fa111"
+
+[[package]]
 name = "doctest-file"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2769,6 +2823,16 @@ name = "dunce"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
+
+[[package]]
+name = "duplicate"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de78e66ac9061e030587b2a2e75cc88f22304913c907b11307bca737141230cb"
+dependencies = [
+ "heck 0.4.1",
+ "proc-macro-error",
+]
 
 [[package]]
 name = "ecdsa"
@@ -2900,7 +2964,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33d852cb9b869c2a9b3df2f71a3074817f01e1844f839a144f5fcef059a4eb5d"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3061,7 +3125,28 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f6f339eb8adc052cd2ca78910fda869aefa38d22d5cb648e6485e4d3fc06f3b1"
 dependencies = [
- "foreign-types-shared",
+ "foreign-types-shared 0.1.1",
+]
+
+[[package]]
+name = "foreign-types"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d737d9aa519fb7b749cbc3b962edcf310a8dd1f4b67c91c4f83975dbdd17d965"
+dependencies = [
+ "foreign-types-macros",
+ "foreign-types-shared 0.3.1",
+]
+
+[[package]]
+name = "foreign-types-macros"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a5c6c585bc94aaf2c7b51dd4c2ba22680844aba4c687be581871a6f518c5742"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.95",
 ]
 
 [[package]]
@@ -3069,6 +3154,12 @@ name = "foreign-types-shared"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b0228411908ca8685dba7fc2cdd70ec9990a6e753e89b6ac91a84c40fbaf4b"
+
+[[package]]
+name = "foreign-types-shared"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "form_urlencoded"
@@ -3466,6 +3557,12 @@ checksum = "5313b072ce3c597065a808dbf612c4c8e8590bdbf8b579508bf7a762c5eae6cd"
 dependencies = [
  "arrayvec",
 ]
+
+[[package]]
+name = "hex-literal"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6fe2267d4ed49bc07b63801559be28c718ea06c4738b7a03c94df7386d2cde46"
 
 [[package]]
 name = "hex_lit"
@@ -4231,6 +4328,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "lazy-regex"
+version = "3.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60c7310b93682b36b98fa7ea4de998d3463ccbebd94d935d6b48ba5b6ffa7126"
+dependencies = [
+ "lazy-regex-proc_macros",
+ "once_cell",
+ "regex",
+]
+
+[[package]]
+name = "lazy-regex-proc_macros"
+version = "3.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ba01db5ef81e17eb10a5e0f2109d1b3a3e29bac3070fdbd7d156bf7dbd206a1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "regex",
+ "syn 2.0.95",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4264,7 +4384,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.52.6",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -4345,6 +4465,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "malloc_buf"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62bb907fe88d54d8d9ce32a3cceab4218ed2f6b7d35617cafe9adf84e43919cb"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4358,6 +4487,17 @@ name = "matchit"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
+
+[[package]]
+name = "maybe-async"
+version = "0.2.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5cf92c10c7e361d6b99666ec1c6f9805b0bea2c3bd8c78dc6fe98ac5bd78db11"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.95",
+]
 
 [[package]]
 name = "md-5"
@@ -4391,6 +4531,21 @@ dependencies = [
  "keccak",
  "rand_core",
  "zeroize",
+]
+
+[[package]]
+name = "metal"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ecfd3296f8c56b7c1f6fbac3c71cefa9d78ce009850c45000015f206dc7fa21"
+dependencies = [
+ "bitflags 2.6.0",
+ "block",
+ "core-graphics-types",
+ "foreign-types 0.5.0",
+ "log",
+ "objc",
+ "paste",
 ]
 
 [[package]]
@@ -4776,7 +4931,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af1844ef2428cc3e1cb900be36181049ef3d3193c63e43026cfe202983b27a56"
 dependencies = [
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate 3.2.0",
  "proc-macro2",
  "quote",
  "syn 2.0.95",
@@ -4809,6 +4964,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "915b1b472bc21c53464d6c8461c9d3af805ba1ef837e1cac254428f4a77177b1"
+dependencies = [
+ "malloc_buf",
+]
+
+[[package]]
 name = "object"
 version = "0.36.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4831,7 +4995,7 @@ checksum = "6174bc48f102d208783c2c84bf931bb75927a617866870de8a4ea85597f871f5"
 dependencies = [
  "bitflags 2.6.0",
  "cfg-if 1.0.0",
- "foreign-types",
+ "foreign-types 0.3.2",
  "libc",
  "once_cell",
  "openssl-macros",
@@ -5590,7 +5754,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.95",
@@ -5692,7 +5856,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5877,6 +6041,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "encoding_rs",
+ "futures-channel",
  "futures-core",
  "futures-util",
  "h2",
@@ -5959,6 +6124,189 @@ dependencies = [
 ]
 
 [[package]]
+name = "risc0-binfmt"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc047ec0ec944104bf94cf55efa3a697aca63cff506cc949ec8d345c48ef0706"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "elf",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-build"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2336678ab6701f737522f153050c8c688860a2db29ef8fea7a42ae0a1de614d6"
+dependencies = [
+ "anyhow",
+ "cargo_metadata",
+ "dirs",
+ "docker-generate",
+ "hex",
+ "risc0-binfmt",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
+name = "risc0-circuit-keccak"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cc983c81ee51af9bde296eb1b4dff73501fb436c3401d30d5548e00b2c0a354"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "paste",
+ "risc0-binfmt",
+ "risc0-circuit-recursion",
+ "risc0-core",
+ "risc0-zkp",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-circuit-recursion"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7d68e1a5344eb83553a6a465fcec5ceb4ab751e7b3b96c46a6c03b697f70856"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "hex",
+ "metal",
+ "risc0-core",
+ "risc0-zkp",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-circuit-rv32im"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8ca07c57b1b0eff21288a7b193a06b2b5943b3eceda6dafa0c087cbe0fcfcfa6"
+dependencies = [
+ "anyhow",
+ "metal",
+ "risc0-binfmt",
+ "risc0-core",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
+ "serde",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-core"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a3ba5078ac767bb5cf35505e6d4da24eff76807fa73bb6ffb88e794654dd4dc"
+dependencies = [
+ "bytemuck",
+ "rand_core",
+]
+
+[[package]]
+name = "risc0-groth16"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa2df58accff2fde7e8bad9d144ae91cdfb5d0101addd3365f013fe3e33dccd8"
+dependencies = [
+ "anyhow",
+ "ark-bn254",
+ "ark-ec",
+ "ark-groth16",
+ "ark-serialize 0.4.2",
+ "bytemuck",
+ "hex",
+ "num-bigint 0.4.6",
+ "num-traits",
+ "risc0-binfmt",
+ "risc0-zkp",
+ "serde",
+ "stability",
+]
+
+[[package]]
+name = "risc0-zkp"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53e429d1cdb86a702eba04a02b3929bdd62a9a1859ec23b281ba2a8d0c6f418f"
+dependencies = [
+ "anyhow",
+ "blake2",
+ "borsh",
+ "bytemuck",
+ "cfg-if 1.0.0",
+ "digest 0.10.7",
+ "hex",
+ "hex-literal",
+ "metal",
+ "paste",
+ "rand_core",
+ "risc0-core",
+ "risc0-zkvm-platform",
+ "serde",
+ "sha2",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-zkvm"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e7ecc97ec255ad47e1de41b9691a8d92fa48efb779b611d28c3a1c4b7c79abd0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "bonsai-sdk",
+ "borsh",
+ "bytemuck",
+ "bytes",
+ "getrandom",
+ "hex",
+ "lazy-regex",
+ "prost",
+ "risc0-binfmt",
+ "risc0-build",
+ "risc0-circuit-keccak",
+ "risc0-circuit-recursion",
+ "risc0-circuit-rv32im",
+ "risc0-core",
+ "risc0-groth16",
+ "risc0-zkp",
+ "risc0-zkvm-platform",
+ "rrs-lib",
+ "semver 1.0.24",
+ "serde",
+ "sha2",
+ "stability",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
+name = "risc0-zkvm-platform"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3707a298cacf4d665258b9e976d422401dcfe833f50794fa1e7c20d15ab45e7f"
+dependencies = [
+ "bytemuck",
+ "cfg-if 1.0.0",
+ "getrandom",
+ "libm",
+ "stability",
+]
+
+[[package]]
 name = "rkyv"
 version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6003,6 +6351,16 @@ name = "route-recognizer"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afab94fb28594581f62d981211a9a4d53cc8130bbcbbb89a0440d9b8e81a7746"
+
+[[package]]
+name = "rrs-lib"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4382d3af3a4ebdae7f64ba6edd9114fff92c89808004c4943b393377a25d001"
+dependencies = [
+ "downcast-rs",
+ "paste",
+]
 
 [[package]]
 name = "rrs-succinct"
@@ -6126,7 +6484,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -7462,6 +7820,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "stability"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d904e7009df136af5297832a3ace3370cd14ff1546a232f4f185036c2736fcac"
+dependencies = [
+ "quote",
+ "syn 2.0.95",
+]
+
+[[package]]
 name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7500,7 +7868,7 @@ dependencies = [
  "strata-btcio",
  "strata-common",
  "strata-primitives",
- "strata-rpc",
+ "strata-rpc-api",
  "tokio",
  "tracing",
 ]
@@ -7530,7 +7898,8 @@ dependencies = [
  "strata-btcio",
  "strata-l1tx",
  "strata-primitives",
- "strata-rpc",
+ "strata-rpc-api",
+ "strata-rpc-types",
  "strata-state",
  "tokio",
  "tracing",
@@ -7578,6 +7947,7 @@ dependencies = [
  "secp256k1",
  "serde",
  "sha2",
+ "strata-primitives",
  "thiserror 2.0.11",
 ]
 
@@ -7601,15 +7971,16 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
- "hex",
  "prover-test-utils",
  "strata-bridge-proof-primitives",
+ "strata-common",
  "strata-crypto",
  "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
  "thiserror 2.0.11",
+ "tracing",
  "zkaleido",
  "zkaleido-native-adapter",
 ]
@@ -7655,6 +8026,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-sig-manager"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
+dependencies = [
+ "bitcoin",
+ "musig2",
+ "strata-db",
+ "strata-primitives",
+ "strata-storage",
+ "thiserror 2.0.11",
+ "tracing",
+]
+
+[[package]]
 name = "strata-bridge-stake-chain"
 version = "0.1.0"
 dependencies = [
@@ -7687,7 +8072,7 @@ dependencies = [
 [[package]]
 name = "strata-bridge-tx-builder"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "musig2",
@@ -7726,7 +8111,7 @@ dependencies = [
 [[package]]
 name = "strata-btcio"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7758,9 +8143,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-chaintsn"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "rand_chacha",
+ "rand_core",
+ "strata-eectl",
+ "strata-primitives",
+ "strata-state",
+ "thiserror 2.0.11",
+ "tracing",
+]
+
+[[package]]
 name = "strata-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "deadpool",
@@ -7778,16 +8179,48 @@ dependencies = [
 [[package]]
 name = "strata-config"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "serde",
 ]
 
 [[package]]
+name = "strata-consensus-logic"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "borsh",
+ "futures",
+ "secp256k1",
+ "strata-btcio",
+ "strata-chaintsn",
+ "strata-common",
+ "strata-crypto",
+ "strata-db",
+ "strata-eectl",
+ "strata-l1tx",
+ "strata-primitives",
+ "strata-rpc-types",
+ "strata-state",
+ "strata-status",
+ "strata-storage",
+ "strata-tasks",
+ "thiserror 2.0.11",
+ "threadpool",
+ "tokio",
+ "tracing",
+ "zkaleido",
+ "zkaleido-risc0-adapter",
+ "zkaleido-sp1-adapter",
+]
+
+[[package]]
 name = "strata-crypto"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -7797,7 +8230,7 @@ dependencies = [
 [[package]]
 name = "strata-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -7816,9 +8249,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-eectl"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
+dependencies = [
+ "strata-primitives",
+ "strata-state",
+ "thiserror 2.0.11",
+]
+
+[[package]]
 name = "strata-l1tx"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -7836,7 +8279,7 @@ dependencies = [
 [[package]]
 name = "strata-mmr"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -7849,7 +8292,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -7875,7 +8318,7 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -7890,19 +8333,31 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-rpc"
+name = "strata-rpc-api"
 version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
+ "bitcoin",
+ "hex",
  "jsonrpsee",
- "strata-bridge-primitives",
+ "serde",
+ "serde_with",
+ "strata-bridge-sig-manager",
+ "strata-bridge-tx-builder",
+ "strata-common",
+ "strata-db",
+ "strata-primitives",
  "strata-rpc-types",
+ "strata-sequencer",
  "strata-state",
+ "thiserror 2.0.11",
+ "zkaleido",
 ]
 
 [[package]]
 name = "strata-rpc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "hex",
@@ -7917,9 +8372,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-sequencer"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "parking_lot",
+ "serde",
+ "strata-chaintsn",
+ "strata-consensus-logic",
+ "strata-db",
+ "strata-eectl",
+ "strata-primitives",
+ "strata-state",
+ "strata-status",
+ "strata-storage",
+ "strata-tasks",
+ "thiserror 2.0.11",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "strata-state"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -7939,7 +8417,7 @@ dependencies = [
 [[package]]
 name = "strata-status"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "strata-primitives",
  "strata-rpc-types",
@@ -7952,7 +8430,7 @@ dependencies = [
 [[package]]
 name = "strata-storage"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7971,7 +8449,7 @@ dependencies = [
 [[package]]
 name = "strata-tasks"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -8170,7 +8648,7 @@ dependencies = [
  "getrandom",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -9068,7 +9546,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -9512,6 +9990,21 @@ dependencies = [
  "borsh",
  "serde",
  "tracing",
+ "zkaleido",
+]
+
+[[package]]
+name = "zkaleido-risc0-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc1#132da748d0789cd5799d5f949d017141926802e7"
+dependencies = [
+ "bincode",
+ "borsh",
+ "hex",
+ "risc0-zkvm",
+ "serde",
+ "sha2",
+ "tracing-subscriber 0.3.19",
  "zkaleido",
 ]
 

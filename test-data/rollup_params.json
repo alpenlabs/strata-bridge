@@ -22,8 +22,8 @@
             }
         ]
     },
-    "evm_genesis_block_hash": "0xdebf7422deb9a84341da8cd64fcfc3867404b303920dc54d3f8444e48c168d43",
-    "evm_genesis_block_state_root": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+    "evm_genesis_block_hash": "0x37ad61cff1367467a98cf7c54c4ac99e989f1fbb1bc1e646235e90c065c565ba",
+    "evm_genesis_block_state_root": "0x351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f",
     "l1_reorg_safe_depth": 6,
     "target_l2_batch_size": 3,
     "address_length": 20,

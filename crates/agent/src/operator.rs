@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{collections::HashSet, fs::File, sync::Arc, time::Duration};
+use std::{collections::HashSet, fs::File, io::Write, sync::Arc, time::Duration};
 
 use anyhow::bail;
 use bitcoin::{
@@ -11,7 +11,6 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitvm::groth16::g16;
-use borsh::BorshSerialize;
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
@@ -2077,20 +2076,6 @@ where
             tokio::time::sleep(poll_interval).await;
         }
 
-        // Dump the proof to file if flag is enabled
-        if std::env::var("ZKVM_PROOF_DUMP")
-            .map(|v| v == "1" || v.to_lowercase() == "true")
-            .unwrap_or(false)
-        {
-            // Save chainstate
-            let mut file = File::create("../chainstate.borsh").unwrap();
-            let data = borsh::to_vec(&chain_state).expect("chainstate borsh serialization failed");
-            data.serialize(&mut file).unwrap();
-
-            // Save blocks
-            bincode::serialize_into(File::create("../blocks.bin").unwrap(), &blocks).unwrap();
-        }
-
         let deposit_idx = chain_state
             .deposits_table()
             .deposits()
@@ -2101,6 +2086,14 @@ where
         let pk = self.agent.public_key();
         info!(action = "signing txid", ?withdrawal_fulfillment_txid, %pk);
         let op_signature: Buf64 = self.agent.sign_txid(&withdrawal_fulfillment_txid).into();
+
+        if std::env::var("ZKVM_PROOF_DUMP")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false)
+        {
+            dump_proof_input_data(&chain_state, blocks, op_signature);
+        }
+
         let input = BridgeProofInput {
             rollup_params: self.rollup_params.clone(),
             headers,
@@ -2157,4 +2150,29 @@ where
 
         Ok(())
     }
+}
+
+fn dump_proof_input_data(chain_state: &Chainstate, blocks: Vec<Block>, op_signature: Buf64) {
+    // Dump the proof to file if flag is enabled
+    // Save chainstate
+    let chainstate_file = "chainstate.borsh";
+    let mut file = File::create("chainstate.borsh").unwrap();
+    let data = borsh::to_vec(chain_state).expect("chainstate borsh serialization failed");
+    file.write_all(&data)
+        .expect("must be able to write chainstate to file");
+    info!(event = "dumped chainstate to file", filename = %chainstate_file);
+
+    // Save blocks
+    let blocks_file = "blocks.bin";
+    bincode::serialize_into(File::create("blocks.bin").unwrap(), &blocks).unwrap();
+    info!(event = "dumped blocks to file", filename = %blocks_file);
+
+    let op_signature_file = "op_signature.borsh";
+    let mut file = File::create("op_signature.borsh").unwrap();
+    let data = op_signature.as_slice();
+    file.write_all(data)
+        .expect("must be able to write op_signature to file");
+    info!(event = "dumped op_signature to file", filename = %op_signature_file);
+
+    panic!("done dumping proof input data");
 }
