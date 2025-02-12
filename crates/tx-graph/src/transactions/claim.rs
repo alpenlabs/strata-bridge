@@ -1,5 +1,5 @@
 use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
-use bitvm::signatures::wots::wots256;
+use bitvm::signatures::wots_api::wots256;
 use strata_bridge_primitives::{params::prelude::OPERATOR_STAKE, scripts::prelude::*};
 
 use super::{
@@ -225,7 +225,8 @@ mod tests {
                 { sig.to_vec() }
                 { digit }
             }
-            { wots256::checksig_verify(wots_public_key.0, true) }
+            { wots256::checksig_verify(wots_public_key.0) }
+            for _ in 0..256/4 { OP_DROP } // drop all nibbles
 
             OP_TRUE
         };

@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use bitcoin::Txid;
 use bitvm::{
     groth16::g16::{self},
-    signatures::wots::{wots160, wots256, wots32},
+    signatures::wots_api::{wots160, wots256, wots32},
 };
 
 use crate::scripts::{

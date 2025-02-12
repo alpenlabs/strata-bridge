@@ -8,6 +8,7 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
     params::tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
+    scripts::prelude::wots_to_byte_array,
     wots::Signatures,
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
@@ -156,16 +157,18 @@ where
                     } else {
                         // 2. groth16 proof validation
                         info!(action = "verifying groth16 assertions");
+                        let complete_disprove_scripts = g16::generate_disprove_scripts(
+                            *public_keys.groth16,
+                            &PARTIAL_VERIFIER_SCRIPTS,
+                        );
+
                         if let Some((tapleaf_index, witness_script)) = g16::verify_signed_assertions(
                             bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                             *public_keys.groth16,
                             signatures.groth16,
+                            &complete_disprove_scripts,
                         ) {
-                            let disprove_script = g16::generate_disprove_scripts(
-                                *public_keys.groth16,
-                                &PARTIAL_VERIFIER_SCRIPTS,
-                            )[tapleaf_index]
-                                .clone();
+                            let disprove_script = complete_disprove_scripts[tapleaf_index].clone();
                             Some(ConnectorA31Leaf::DisproveProof {
                                 disprove_script,
                                 witness_script: Some(witness_script),

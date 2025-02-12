@@ -8,7 +8,7 @@ use bitvm::{
     groth16::g16::{self, N_TAPLEAVES},
     hash::sha256::sha256,
     pseudo::NMUL,
-    signatures::wots::{wots256, SignatureImpl},
+    signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
 };
 use strata_bridge_primitives::{
@@ -340,16 +340,16 @@ mod tests {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
         let withdrawal_fulfillment_txid_sk = secret_key_for_bridge_out_txid(&deposit_msk);
-        let sig_withdrawal_fulfillment_txid = wots256::sign(
+        let sig_withdrawal_fulfillment_txid = wots256::get_signature(
             &withdrawal_fulfillment_txid_sk,
             &withdrawal_fulfillment_txid.to_byte_array()[..],
-        );
+        ).to_script();
         let sig_withdrawal_fulfillment_txid =
             parse_wots256_signatures::<1>(sig_withdrawal_fulfillment_txid).unwrap()[0];
 
         let public_inputs_hash_sk = secret_key_for_public_inputs_hash(&deposit_msk);
         let sig_public_inputs_hash =
-            wots256::sign(&public_inputs_hash_sk, &committed_public_inputs_hash[..]);
+            wots256::get_signature(&public_inputs_hash_sk, &committed_public_inputs_hash[..]).to_script();
         let sig_public_inputs_hash =
             parse_wots256_signatures::<1>(sig_public_inputs_hash).unwrap()[0];
 

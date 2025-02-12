@@ -1,5 +1,5 @@
 use assert_splitter::{average_size, field_elements_witness_size, hash_witness_size, LayoutData};
-use bitvm::chunk::config::{NUM_U160, NUM_U256};
+use bitvm::chunk::compile::{NUM_U160, NUM_U256};
 
 fn main() {
     let count = 100;

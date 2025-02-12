@@ -10,15 +10,15 @@ use tracing::{info, warn};
 const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-poc-vk.scripts";
 
 /// The verifier scripts for the groth16 verifier program.
-pub static PARTIAL_VERIFIER_SCRIPTS: LazyLock<[Script; 579]> =
+pub static PARTIAL_VERIFIER_SCRIPTS: LazyLock<[Script; 387]> =
     LazyLock::new(load_or_create_verifier_scripts);
 
 /// Loads tapscripts for the groth16 verifier program.
-pub fn load_or_create_verifier_scripts() -> [Script; 579] {
+pub fn load_or_create_verifier_scripts() -> [Script; 387] {
     if cfg!(feature = "mock") {
         warn!("Detected mock feature, returning empty verifier scripts");
 
-        return vec![script!(); 579].try_into().expect("size must match");
+        return vec![script!(); 387].try_into().expect("size must match");
     }
 
     let verifier_scripts: [Script; g16::N_TAPLEAVES] = if fs::exists(PARTIAL_VERIFIER_SCRIPTS_PATH)
@@ -78,6 +78,6 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
 /// Get the verifier scripts for the groth16 verifier program.
 ///
 /// This returns a memoized version of the verifier scripts.
-pub fn get_verifier_scripts() -> &'static [Script; 579] {
+pub fn get_verifier_scripts() -> &'static [Script; 387] {
     &PARTIAL_VERIFIER_SCRIPTS
 }

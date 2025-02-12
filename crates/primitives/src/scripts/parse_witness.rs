@@ -1,6 +1,6 @@
 use bitvm::{
     groth16::g16,
-    signatures::wots::{wots160, wots256, wots32},
+    signatures::wots_api::{wots160, wots256, wots32},
     treepp::*,
 };
 
@@ -130,7 +130,7 @@ pub fn parse_assertion_witnesses(
 #[cfg(test)]
 mod tests {
     use bitvm::{
-        signatures::wots::{wots160, wots256},
+        signatures::wots_api::{wots160, wots256, SignatureImpl},
         treepp::*,
     };
 
@@ -151,7 +151,7 @@ mod tests {
 
         let signatures_script = script! {
             for i in 0..N_SIGS {
-                { wots256::sign(&secrets[i], &create_message::<32>(i)) }
+                { wots256::get_signature(&secrets[i], &create_message::<32>(i)).to_script() }
             }
         };
         let parsed_signatures = parse_wots256_signatures::<N_SIGS>(signatures_script);
@@ -170,7 +170,7 @@ mod tests {
 
         let signatures_script = script! {
             for i in 0..N_SIGS {
-                { wots160::sign(&secrets[i], &create_message::<20>(i)) }
+                { wots160::get_signature(&secrets[i], &create_message::<20>(i)).to_script() }
             }
         };
         let parsed_signatures = parse_wots160_signatures::<N_SIGS>(signatures_script);
