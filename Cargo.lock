@@ -9195,11 +9195,10 @@ dependencies = [
  "rand",
  "secp256k1",
  "serde",
- "sha2",
+ "sp1-verifier",
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-proof-primitives",
- "strata-bridge-proof-protocol",
  "strata-bridge-proof-protocol2",
  "strata-bridge-proof-snark",
  "strata-bridge-tx-graph",
@@ -9269,27 +9268,6 @@ dependencies = [
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
-]
-
-[[package]]
-name = "strata-bridge-proof-protocol"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "bitcoin",
- "borsh",
- "hex",
- "prover-test-utils",
- "serde",
- "serde_json",
- "sp1-verifier",
- "strata-l1tx",
- "strata-primitives",
- "strata-proofimpl-btc-blockspace",
- "strata-state",
- "tokio",
- "tower 0.4.13",
- "zkaleido",
 ]
 
 [[package]]
@@ -9402,14 +9380,15 @@ dependencies = [
  "bitcoin-bosd",
  "bitcoin-script 0.3.0",
  "bitvm",
+ "borsh",
  "corepc-node",
  "rkyv",
  "secp256k1",
  "serde",
- "sha2",
+ "sp1-verifier",
  "strata-bridge-db",
  "strata-bridge-primitives",
- "strata-bridge-proof-protocol",
+ "strata-bridge-proof-protocol2",
  "strata-bridge-proof-snark",
  "strata-bridge-test-utils",
  "strata-btcio",

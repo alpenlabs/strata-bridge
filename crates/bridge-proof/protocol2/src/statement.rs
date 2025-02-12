@@ -8,7 +8,7 @@ use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_b
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
     tx_info::{extract_checkpoint, extract_withdrawal_info},
-    BridgeProofInputBorsh, BridgeProofOutput,
+    BridgeProofInputBorsh, BridgeProofPublicOutput,
 };
 
 /// The number of headers after withdrawal fulfillment transaction that must be provided as private
@@ -76,7 +76,7 @@ pub(crate) fn process_bridge_proof(
     input: BridgeProofInputBorsh,
     headers: Vec<Header>,
     rollup_params: RollupParams,
-) -> Result<(BridgeProofOutput, BatchCheckpoint), BridgeProofError> {
+) -> Result<(BridgeProofPublicOutput, BatchCheckpoint), BridgeProofError> {
     // 1a. Extract checkpoint info.
     let (strata_checkpoint_tx, strata_checkpoint_idx) = &input.strata_checkpoint_tx;
     let checkpoint = extract_checkpoint(strata_checkpoint_tx.transaction(), &rollup_params)?;
@@ -191,9 +191,9 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 8. Construct the proof output.
-    let output = BridgeProofOutput {
+    let output = BridgeProofPublicOutput {
         deposit_txid: entry.output().outpoint().txid.into(),
-        withdrawal_txid: withdrawal_fulfillment_txid,
+        withdrawal_fulfillment_txid,
     };
 
     Ok((output, checkpoint))

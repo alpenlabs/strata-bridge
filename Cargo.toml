@@ -3,7 +3,6 @@ members = [
   "crates/agent",
   "crates/db",
   "crates/primitives",
-  "crates/bridge-proof/protocol",
   "crates/bridge-proof/protocol2",
   "crates/bridge-proof/primitives",
   "crates/bridge-proof/snark",
@@ -36,7 +35,6 @@ strata-bridge-db = { path = "crates/db" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof-primitives = { path = "crates/bridge-proof/primitives" }
-strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
 strata-bridge-proof-protocol2 = { path = "crates/bridge-proof/protocol2" }
 strata-bridge-proof-snark = { path = "crates/bridge-proof/snark" }
 strata-bridge-rpc = { path = "crates/rpc/bridge" }

@@ -222,9 +222,9 @@ impl ConnectorA31 {
 
 #[cfg(test)]
 mod tests {
-    use sha2::{Digest, Sha256};
+    use sp1_verifier::hash_public_inputs;
     use strata_bridge_primitives::scripts::parse_witness::parse_wots256_signatures;
-    use strata_bridge_proof_protocol::BridgeProofPublicParams;
+    use strata_bridge_proof_protocol2::BridgeProofPublicOutput;
     use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
@@ -234,13 +234,13 @@ mod tests {
         let deposit_txid = generate_txid();
         let withdrawal_fulfillment_txid = generate_txid();
 
-        let public_inputs = BridgeProofPublicParams {
-            deposit_txid: deposit_txid.to_byte_array(),
-            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.to_byte_array(),
+        let public_inputs = BridgeProofPublicOutput {
+            deposit_txid: deposit_txid.into(),
+            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
 
-        let serialized_public_inputs = bincode::serialize(&public_inputs).unwrap();
-        let public_inputs_hash = hash_public_inputs(serialized_public_inputs);
+        let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
+        let public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
 
         let committed_public_inputs_hash = public_inputs_hash;
 
@@ -264,12 +264,11 @@ mod tests {
             result.error
         );
 
-        let faulty_public_inputs = BridgeProofPublicParams {
-            withdrawal_fulfillment_txid: generate_txid().to_byte_array(),
-            deposit_txid: deposit_txid.to_byte_array(),
+        let faulty_public_inputs = BridgeProofPublicOutput {
+            withdrawal_fulfillment_txid: generate_txid().into(),
+            deposit_txid: deposit_txid.into(),
         };
-        let faulty_inputs_hash =
-            hash_public_inputs(bincode::serialize(&faulty_public_inputs).unwrap());
+        let faulty_inputs_hash = hash_public_inputs(&borsh::to_vec(&faulty_public_inputs).unwrap());
 
         let valid_disprove_leaf = get_disprove_leaf(
             msk,
@@ -289,12 +288,11 @@ mod tests {
             result.error
         );
 
-        let faulty_public_inputs = BridgeProofPublicParams {
-            deposit_txid: generate_txid().to_byte_array(),
-            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.to_byte_array(),
+        let faulty_public_inputs = BridgeProofPublicOutput {
+            deposit_txid: generate_txid().into(),
+            withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
-        let faulty_inputs_hash =
-            hash_public_inputs(bincode::serialize(&faulty_public_inputs).unwrap());
+        let faulty_inputs_hash = hash_public_inputs(&borsh::to_vec(&faulty_public_inputs).unwrap());
 
         let valid_disprove_leaf = get_disprove_leaf(
             msk,
@@ -313,16 +311,6 @@ mod tests {
             "disprove script must not error but got: {:?}",
             result.error
         );
-    }
-
-    fn hash_public_inputs(serialized_public_inputs: Vec<u8>) -> [u8; 32] {
-        let data: &[u8] = &serialized_public_inputs;
-        let mut hasher = Sha256::new();
-        hasher.update(data);
-        let mut hash: [u8; 32] = hasher.finalize().into();
-        hash[0] &= 0b00011111;
-        // mask 3 most significant bits
-        hash
     }
 
     fn execute_disprove(

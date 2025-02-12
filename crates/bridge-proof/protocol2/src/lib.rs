@@ -27,7 +27,7 @@ use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
 ///
-/// Unlike [`BridgeProofOutput`], which consists of publicly verifiable parameters,
+/// Unlike [`BridgeProofPublicOutput`], which consists of publicly verifiable parameters,
 /// this structure contains the confidential data necessary for proof generation.
 /// These private inputs are only known to the prover and are not part of the publicly
 /// accessible proof validation process.
@@ -94,11 +94,11 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
 /// These outputs, also known as public inputs/outputs or public parameters, are used to verify
 /// the correctness of the proof without revealing confidential details.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub struct BridgeProofOutput {
+pub struct BridgeProofPublicOutput {
     /// The transaction ID of the deposit transaction.
     pub deposit_txid: Buf32,
     /// The transaction ID of the withdrawal fulfillment transaction.
-    pub withdrawal_txid: Buf32,
+    pub withdrawal_fulfillment_txid: Buf32,
 }
 
 /// Processes the bridge proof by reading necessary data from the provided ZkVM environment,
