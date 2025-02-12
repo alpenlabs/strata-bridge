@@ -6,7 +6,7 @@ use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 use strata_bridge_proof_protocol2::{
-    get_native_host, BridgeProofInput, BridgeProofOutput, BridgeProver,
+    get_native_host, BridgeProofInput, BridgeProofPublicOutput, BridgeProver,
 };
 use tracing::info;
 use zkaleido::{ZkVmHost, ZkVmProver};
@@ -16,7 +16,7 @@ use crate::sp1;
 
 pub fn sp1_prove(
     input: &BridgeProofInput,
-) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofOutput)> {
+) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofPublicOutput)> {
     info!(action = "simulating proof in native mode");
     let native_host = get_native_host();
     let _ = BridgeProver::prove(input, &native_host).expect("failed to assert proof statements");

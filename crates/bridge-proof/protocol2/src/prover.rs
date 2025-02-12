@@ -5,7 +5,7 @@ use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResult}
 use zkaleido_native_adapter::{NativeHost, NativeMachine};
 
 use crate::{
-    process_bridge_proof_outer, BridgeProofInput, BridgeProofInputBorsh, BridgeProofOutput,
+    process_bridge_proof_outer, BridgeProofInput, BridgeProofInputBorsh, BridgeProofPublicOutput,
 };
 
 /// This is responsible for generating the proof
@@ -16,7 +16,7 @@ pub struct BridgeProver;
 impl ZkVmProver for BridgeProver {
     type Input = BridgeProofInput;
 
-    type Output = BridgeProofOutput;
+    type Output = BridgeProofPublicOutput;
 
     fn name() -> String {
         "Bridge Proof".to_string()

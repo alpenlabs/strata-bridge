@@ -224,7 +224,7 @@ impl ConnectorA31 {
 mod tests {
     use sha2::{Digest, Sha256};
     use strata_bridge_primitives::scripts::parse_witness::parse_wots256_signatures;
-    use strata_bridge_proof_protocol2::BridgeProofOutput;
+    use strata_bridge_proof_protocol2::BridgeProofPublicOutput;
     use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
@@ -234,7 +234,7 @@ mod tests {
         let deposit_txid = generate_txid();
         let withdrawal_fulfillment_txid = generate_txid();
 
-        let public_inputs = BridgeProofOutput {
+        let public_inputs = BridgeProofPublicOutput {
             deposit_txid: deposit_txid.into(),
             withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
@@ -264,7 +264,7 @@ mod tests {
             result.error
         );
 
-        let faulty_public_inputs = BridgeProofOutput {
+        let faulty_public_inputs = BridgeProofPublicOutput {
             withdrawal_fulfillment_txid: generate_txid().into(),
             deposit_txid: deposit_txid.into(),
         };
@@ -288,7 +288,7 @@ mod tests {
             result.error
         );
 
-        let faulty_public_inputs = BridgeProofOutput {
+        let faulty_public_inputs = BridgeProofPublicOutput {
             deposit_txid: generate_txid().into(),
             withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };

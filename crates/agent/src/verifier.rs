@@ -10,7 +10,7 @@ use strata_bridge_primitives::{
     params::tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
     wots::Signatures,
 };
-use strata_bridge_proof_protocol2::BridgeProofOutput;
+use strata_bridge_proof_protocol2::BridgeProofPublicOutput;
 use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_tx_graph::{
     connectors::prelude::{
@@ -129,7 +129,7 @@ where
                     info!(action = "validating public input hash");
 
                     let withdrawa_txid: [u8; 32] = bridge_out_txid.parse();
-                    let public_inputs = BridgeProofOutput {
+                    let public_inputs = BridgeProofPublicOutput {
                         deposit_txid: deposit_txid.into(),
                         withdrawal_fulfillment_txid: withdrawa_txid.into(),
                     };
