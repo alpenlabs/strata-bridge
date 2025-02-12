@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bitcoin::{hashes::Hash, TxOut};
+use bitcoin::TxOut;
 use bitvm::{groth16::g16, signatures::wots::SignatureImpl};
-use sha2::{Digest, Sha256};
+use sp1_verifier::hash_public_inputs;
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
@@ -10,7 +10,7 @@ use strata_bridge_primitives::{
     params::tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
     wots::Signatures,
 };
-use strata_bridge_proof_protocol::BridgeProofPublicParams;
+use strata_bridge_proof_protocol2::BridgeProofOutput;
 use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_tx_graph::{
     connectors::prelude::{
@@ -128,19 +128,16 @@ where
                     // 1. public input hash validation
                     info!(action = "validating public input hash");
 
-                    let public_inputs = BridgeProofPublicParams {
-                        deposit_txid: deposit_txid.to_byte_array(),
-                        withdrawal_fulfillment_txid: bridge_out_txid.parse(),
+                    let withdrawa_txid: [u8; 32] = bridge_out_txid.parse();
+                    let public_inputs = BridgeProofOutput {
+                        deposit_txid: deposit_txid.into(),
+                        withdrawal_txid: withdrawa_txid.into(),
                     };
-                    let serialized_public_inputs = bincode::serialize(&public_inputs).unwrap();
-                    let public_inputs_hash = {
-                        let data: &[u8] = &serialized_public_inputs;
-                        let mut hasher = Sha256::new();
-                        hasher.update(data);
-                        let mut hash: [u8; 32] = hasher.finalize().into();
-                        hash[0] &= 0b00011111; // mask 3 most significant bits
-                        hash
-                    };
+
+                    // NOTE: This is zkvm-specific logic
+                    let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
+                    let public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
+
                     let committed_public_inputs_hash = groth16.0[0].parse();
 
                     // TODO: remove this: fix nibble flipping

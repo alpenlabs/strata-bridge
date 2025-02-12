@@ -14,7 +14,6 @@ rust.unused_must_use = "deny"
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-primitives.workspace = true
-strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-protocol2.workspace = true
 strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
 strata-bridge-tx-graph.workspace = true
@@ -36,6 +35,6 @@ musig2 = { workspace = true, features = ["serde"] }
 rand.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
-sha2.workspace = true
+sp1-verifier = "4.0.0"
 tokio.workspace = true
 tracing.workspace = true
