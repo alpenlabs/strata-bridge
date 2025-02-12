@@ -9249,7 +9249,6 @@ dependencies = [
  "bitcoin-bosd",
  "bitcoin-script 0.3.0",
  "bitvm",
- "lazy_static",
  "musig2",
  "rkyv",
  "secp256k1",
