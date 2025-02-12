@@ -35,7 +35,7 @@ build: ## Build the workspace into the `target` directory.
 
 ##@ Test
 
-UNIT_TEST_ARGS := --locked --workspace -E 'kind(lib)' -E 'kind(bin)' -E 'kind(proc-macro)' -F mock
+UNIT_TEST_ARGS := --locked --workspace --profile ci -F mock --retries 2 --status-level fail --no-capture
 COV_FILE := lcov.info
 
 .PHONY: test-unit
