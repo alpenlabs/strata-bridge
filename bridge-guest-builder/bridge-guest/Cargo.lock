@@ -1065,7 +1065,7 @@ name = "strata-bridge-guest"
 version = "0.1.0"
 dependencies = [
  "sp1-zkvm",
- "strata-bridge-proof-protocol2",
+ "strata-bridge-proof-protocol",
  "zkaleido-sp1-adapter",
 ]
 
@@ -1082,7 +1082,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-proof-protocol2"
+name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
  "bitcoin",

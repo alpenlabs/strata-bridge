@@ -28,7 +28,7 @@ tracing.workspace = true
 sp1-verifier = "4.0.0"
 strata-bridge-db.workspace = true
 strata-bridge-test-utils.workspace = true
-strata-bridge-proof-protocol2.workspace = true
+strata-bridge-proof-protocol.workspace = true
 strata-btcio.workspace = true
 strata-common.workspace = true
 
