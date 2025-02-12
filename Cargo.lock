@@ -9271,27 +9271,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-proof-protocol"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "bitcoin",
- "borsh",
- "hex",
- "prover-test-utils",
- "serde",
- "serde_json",
- "sp1-verifier",
- "strata-l1tx",
- "strata-primitives",
- "strata-proofimpl-btc-blockspace",
- "strata-state",
- "tokio",
- "tower 0.4.13",
- "zkaleido",
-]
-
-[[package]]
 name = "strata-bridge-proof-protocol2"
 version = "0.1.0"
 dependencies = [
