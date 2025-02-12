@@ -578,6 +578,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -764,9 +765,9 @@ dependencies = [
 
 [[package]]
 name = "proptest"
-version = "1.6.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14cae93065090804185d3b75f0bf93b8eeda30c7a9b4a33d3bdb3988d6229e50"
+checksum = "b4c2511913b88df1637da85cc8d96ec8e43a3f8bb8ccb71ee1ac240d6f3df58d"
 dependencies = [
  "bitflags",
  "lazy_static",
@@ -1014,9 +1015,9 @@ dependencies = [
 
 [[package]]
 name = "sp1-verifier"
-version = "4.0.1"
+version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "626324b2772bbc318d1673b31faa3880891536677d531911f497867e3c94753d"
+checksum = "0f26e2e6e08f97857f4814f904a60763cce7bfe0dc89dea26e4fa920793942de"
 dependencies = [
  "hex",
  "lazy_static",
@@ -1063,27 +1064,38 @@ dependencies = [
 name = "strata-bridge-guest"
 version = "0.1.0"
 dependencies = [
- "borsh",
  "sp1-zkvm",
- "strata-bridge-proof-protocol",
- "strata-primitives",
+ "strata-bridge-proof-protocol2",
+ "zkaleido-sp1-adapter",
 ]
 
 [[package]]
-name = "strata-bridge-proof-protocol"
+name = "strata-bridge-proof-primitives"
 version = "0.1.0"
 dependencies = [
- "bincode",
+ "arbitrary",
  "bitcoin",
  "borsh",
- "hex",
- "serde",
- "sp1-verifier",
+ "strata-primitives",
+ "strata-proofimpl-btc-blockspace",
+ "strata-state",
+]
+
+[[package]]
+name = "strata-bridge-proof-protocol2"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "strata-bridge-proof-primitives",
+ "strata-crypto",
  "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
  "strata-state",
+ "thiserror 2.0.11",
  "zkaleido",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
@@ -1400,4 +1412,33 @@ dependencies = [
  "borsh",
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido-native-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc1#132da748d0789cd5799d5f949d017141926802e7"
+dependencies = [
+ "bincode",
+ "borsh",
+ "serde",
+ "tracing",
+ "zkaleido",
+]
+
+[[package]]
+name = "zkaleido-sp1-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc1#132da748d0789cd5799d5f949d017141926802e7"
+dependencies = [
+ "bincode",
+ "borsh",
+ "hex",
+ "serde",
+ "sha2",
+ "sp1-primitives",
+ "sp1-verifier",
+ "sp1-zkvm",
+ "tracing",
+ "zkaleido",
 ]

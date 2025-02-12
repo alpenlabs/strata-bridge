@@ -5,13 +5,13 @@ use anyhow::bail;
 use bitcoin::{
     block::Header,
     consensus,
-    hashes::Hash,
     hex::DisplayHex,
     sighash::{Prevouts, SighashCache},
     Block, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitcoin_bosd::Descriptor;
 use bitvm::groth16::g16;
+use borsh::BorshSerialize;
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
@@ -34,9 +34,8 @@ use strata_bridge_primitives::{
     withdrawal::WithdrawalInfo,
     wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
-use strata_bridge_proof_protocol::{
-    run_process_bridge_proof, BridgeProofPublicParams, StrataBridgeState,
-};
+use strata_bridge_proof_primitives::L1TxWithProofBundle;
+use strata_bridge_proof_protocol2::BridgeProofInput;
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_tx_graph::{
     connectors::prelude::ConnectorA30Leaf,
@@ -44,7 +43,10 @@ use strata_bridge_tx_graph::{
     transactions::prelude::*,
 };
 use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
-use strata_primitives::{buf::Buf32, params::RollupParams};
+use strata_primitives::{
+    buf::{Buf32, Buf64},
+    params::RollupParams,
+};
 use strata_rpc::StrataApiClient;
 use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
 use tokio::sync::{
@@ -55,9 +57,7 @@ use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     base::Agent,
-    proof_interop::{
-        self, checkpoint_last_verified_l1_height, get_verification_state, WithInclusionProof,
-    },
+    proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,
         CovenantSigRequest, CovenantSigRequestFulfilled, CovenantSignatureSignal, DepositSignal,
@@ -1991,14 +1991,14 @@ where
         let btc_params = get_btc_params();
 
         // FIXME: bring `get_verification_state` impl into the loop below
-        let initial_header_state = get_verification_state(
+        let header_vs = get_verification_state(
             self.agent.btc_client.as_ref(),
             l1_start_height as u64,
             &btc_params,
         )
         .await
         .expect("should be able to initial header state");
-        info!(event = "got initial header state", %l1_start_height, ?initial_header_state);
+        info!(event = "got initial header state", %l1_start_height, ?header_vs);
 
         let mut height = l1_start_height as u32;
         let mut headers: Vec<Header> = vec![];
@@ -2018,30 +2018,50 @@ where
 
             let block = block.unwrap();
 
-            if checkpoint.is_none() {
-                // check and get checkpoint idx with proof
-                if let Some(tx) = block.txdata.iter().find(|&tx| {
-                    checkpoint_last_verified_l1_height(tx, &self.rollup_params)
-                        .is_some_and(|h| h == initial_header_state.last_verified_block_num)
-                }) {
-                    let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found checkpoint", %height, checkpoint_txid=%tx.compute_txid());
-                    checkpoint = Some((height, tx.with_inclusion_proof(&block)));
-                }
-            }
-
-            if withdrawal_fulfillment.is_none() {
-                // check and get withdrawal fulfillment txid with proof
-                if let Some(tx) = block
+            // Only set `checkpoint` if it's currently `None` and we find a matching tx
+            checkpoint = checkpoint.or_else(|| {
+                block
                     .txdata
                     .iter()
-                    .find(|tx| tx.compute_txid() == withdrawal_fulfillment_txid)
-                {
-                    let height = block.bip34_block_height().unwrap() as u32;
-                    info!(event = "found withdrawal fulfillment", %height, %withdrawal_fulfillment_txid);
-                    withdrawal_fulfillment = Some((height, tx.with_inclusion_proof(&block)));
-                }
-            }
+                    .enumerate()
+                    .find(|(_, tx)| {
+                        checkpoint_last_verified_l1_height(tx, &self.rollup_params)
+                            .is_some_and(|h| h == header_vs.last_verified_block_num)
+                    })
+                    .map(|(idx, tx)| {
+                        let height = block.bip34_block_height().unwrap() as u32;
+                        info!(
+                            event = "found checkpoint",
+                            %height,
+                            checkpoint_txid = %tx.compute_txid()
+                        );
+                        (
+                            L1TxWithProofBundle::generate(&block.txdata, idx as u32),
+                            (height - l1_start_height) as usize,
+                        )
+                    })
+            });
+
+            // Only set `withdrawal_fulfillment` if it's currently `None` and we find a matching tx
+            withdrawal_fulfillment = withdrawal_fulfillment.or_else(|| {
+                block
+                    .txdata
+                    .iter()
+                    .enumerate()
+                    .find(|(_, tx)| tx.compute_txid() == withdrawal_fulfillment_txid)
+                    .map(|(idx, _)| {
+                        let height = block.bip34_block_height().unwrap() as u32;
+                        info!(
+                            event = "found withdrawal fulfillment",
+                            %height,
+                            %withdrawal_fulfillment_txid
+                        );
+                        (
+                            L1TxWithProofBundle::generate(&block.txdata, idx as u32),
+                            (height - l1_start_height) as usize,
+                        )
+                    })
+            });
 
             let header = block.header;
             headers.push(header);
@@ -2058,41 +2078,46 @@ where
             tokio::time::sleep(poll_interval).await;
         }
 
-        bincode::serialize_into(File::create("../blocks.bin").unwrap(), &blocks).unwrap();
+        // Dump the proof to file if flag is enabled
+        if std::env::var("ZKVM_PROOF_DUMP")
+            .map(|v| v == "1" || v.to_lowercase() == "true")
+            .unwrap_or(false)
+        {
+            // Save chainstate
+            let mut file = File::create("../chainstate.borsh").unwrap();
+            let data = borsh::to_vec(&chain_state).expect("chainstate borsh serialization failed");
+            data.serialize(&mut file).unwrap();
 
-        let input = proof_interop::BridgeProofInput {
+            // Save blocks
+            bincode::serialize_into(File::create("../blocks.bin").unwrap(), &blocks).unwrap();
+        }
+
+        let deposit_idx = chain_state
+            .deposits_table()
+            .deposits()
+            .find(|deposit| deposit.output().outpoint().txid == deposit_txid)
+            .expect("expected a deposit idx")
+            .idx();
+
+        let pk = self.agent.public_key();
+        info!(action = "signing txid", ?withdrawal_fulfillment_txid, %pk);
+        let op_signature: Buf64 = self.agent.sign_txid(&withdrawal_fulfillment_txid).into();
+        let input = BridgeProofInput {
+            rollup_params: self.rollup_params.clone(),
             headers,
-            deposit_txid: deposit_txid.to_byte_array(),
-            checkpoint: checkpoint.expect("must be able to find checkpoint"),
-            withdrawal_fulfillment: withdrawal_fulfillment
-                .expect("must be able to find withdrawal fulfillment txid"),
-        };
-
-        let strata_bridge_state = StrataBridgeState {
             chain_state,
-            initial_header_state,
+            header_vs,
+            deposit_idx,
+            strata_checkpoint_tx: checkpoint.expect("must be able to find checkpoint"),
+            withdrawal_fulfillment_tx: withdrawal_fulfillment
+                .expect("must be able to find withdrawal fulfillment tx"),
+            op_signature,
         };
 
-        let input = bincode::serialize(&input).expect("should serialize BridgeProofInput");
-
-        // check if proof is valid
-        let _local_public_params = run_process_bridge_proof(
-            &input,
-            strata_bridge_state.clone(),
-            self.rollup_params.clone(),
-        )
-        .expect("failed to assert proof statements");
-
-        let (proof, public_inputs, public_params) =
-            prover::prove(&input, &strata_bridge_state, &self.rollup_params).unwrap();
-
-        let BridgeProofPublicParams {
-            deposit_txid: _,
-            withdrawal_fulfillment_txid: bridge_out_txid,
-        } = public_params;
+        let (proof, public_inputs, public_output) = prover::sp1_prove(&input).unwrap();
 
         Assertions {
-            bridge_out_txid,
+            bridge_out_txid: public_output.withdrawal_txid.0,
             groth16: g16::generate_proof_assertions(
                 bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,

@@ -9,7 +9,7 @@ use bitcoin::{
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use musig2::{KeyAggContext, SecNonce};
 use rand::{rngs::OsRng, RngCore};
-use secp256k1::{schnorr::Signature, Keypair, PublicKey, SecretKey, SECP256K1};
+use secp256k1::{schnorr::Signature, Keypair, Message, PublicKey, SecretKey, SECP256K1};
 use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
 use strata_btcio::rpc::{
     error::ClientError,
@@ -74,6 +74,11 @@ impl Agent {
         )
         .expect("should be able to create message hash");
 
+        SECP256K1.sign_schnorr(&msg, &self.keypair)
+    }
+
+    pub fn sign_txid(&self, txid: &Txid) -> Signature {
+        let msg = Message::from_digest(txid.to_byte_array());
         SECP256K1.sign_schnorr(&msg, &self.keypair)
     }
 

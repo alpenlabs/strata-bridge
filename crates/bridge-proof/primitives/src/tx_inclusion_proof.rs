@@ -1,6 +1,5 @@
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
-use strata_bridge_primitives::bitcoin::BitcoinTx;
 use strata_primitives::{
     buf::Buf32,
     hash::sha256d,
@@ -9,6 +8,8 @@ use strata_primitives::{
 use strata_proofimpl_btc_blockspace::block::witness_commitment_from_coinbase;
 use strata_state::l1::{L1TxInclusionProof, L1TxProof, L1WtxProof};
 
+use crate::tx::BitcoinTx;
+
 /// A transaction along with its [L1TxInclusionProof], parameterized by a `Marker` type
 /// (either [`TxIdMarker`] or [`WtxIdMarker`]).
 ///
@@ -16,7 +17,7 @@ use strata_state::l1::{L1TxInclusionProof, L1TxProof, L1WtxProof};
 /// its `txid` or `wtxid` is included in a given Merkle root. The proof data is carried
 /// by the [`L1TxInclusionProof`].
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub(crate) struct L1TxWithIdProof<T> {
+pub struct L1TxWithIdProof<T> {
     /// The transaction in question.
     tx: BitcoinTx,
     /// The Merkle inclusion proof associated with the transaction’s [`Txid`](bitcoin::Txid) or
@@ -42,11 +43,13 @@ impl<T: TxIdComputable> L1TxWithIdProof<T> {
 /// - an optional “witness” transaction ([`L1TxWithIdProof<WtxIdMarker>`]).
 ///
 /// This structure is meant to unify the concept of:
-/// 1. **Proving a transaction without witness data:** we only need a [`txid`] Merkle proof.
-/// 2. **Proving a transaction with witness data:** we provide a [`wtxid`] Merkle proof, plus a
-///    coinbase transaction (the “base” transaction) that commits to the witness Merkle root.
+/// 1. **Proving a transaction without witness data:** we only need a [`Txid`](bitcoin::Txid) Merkle
+///    proof.
+/// 2. **Proving a transaction with witness data:** we provide a [`Wtxid`](bitcoin::Wtxid) Merkle
+///    proof, plus a coinbase transaction (the “base” transaction) that commits to the witness
+///    Merkle root.
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
-pub(crate) struct L1TxWithProofBundle {
+pub struct L1TxWithProofBundle {
     /// If `witness_tx` is `None`, this is the actual transaction we want to prove.
     /// If `witness_tx` is `Some`, this becomes the coinbase transaction that commits
     /// to the witness transaction’s `wtxid` in its witness Merkle root.
@@ -58,11 +61,16 @@ pub(crate) struct L1TxWithProofBundle {
 }
 
 impl L1TxWithProofBundle {
-    pub(crate) fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
+    /// Returns the transaction for which this bundle includes a proof.
+    /// If the transaction does not have any witness data, this returns `None`.
+    pub fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
         &self.witness_tx
     }
 
-    pub(crate) fn transaction(&self) -> &Transaction {
+    /// Returns the actual transaction included in this bundle.
+    /// If witness data is available, it returns the transaction from `witness_tx`,
+    /// otherwise, it falls back to the base transaction.
+    pub fn transaction(&self) -> &Transaction {
         match &self.witness_tx {
             Some(tx) => tx.tx.as_ref(),
             None => self.base_tx.tx.as_ref(),
@@ -82,8 +90,7 @@ impl L1TxWithProofBundle {
     /// Panics if `idx` is out of bounds for the `txs` array (e.g., `idx as usize >= txs.len()`).
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
-    #[cfg_attr(not(test), expect(dead_code))]
-    pub(crate) fn generate(txs: &[Transaction], idx: u32) -> Self {
+    pub fn generate(txs: &[Transaction], idx: u32) -> Self {
         // Clone the transaction we want to prove.
         let tx = txs[idx as usize].clone();
 
@@ -121,7 +128,7 @@ impl L1TxWithProofBundle {
     /// - If `witness_tx` is `Some`, this checks that the coinbase transaction (the “base_tx”) is
     ///   correctly included in `header.merkle_root`, and that the coinbase commits to the witness
     ///   transaction’s `wtxid` in its witness Merkle root.
-    pub(crate) fn verify(&self, header: Header) -> bool {
+    pub fn verify(&self, header: Header) -> bool {
         // First, verify that the `base_tx` is in the Merkle tree given by `header.merkle_root`.
         let merkle_root: Buf32 = header.merkle_root.to_byte_array().into();
         if !self.base_tx.verify(merkle_root) {

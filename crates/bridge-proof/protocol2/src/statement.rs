@@ -1,4 +1,5 @@
 use bitcoin::block::Header;
+use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_crypto::verify_schnorr_sig;
 use strata_primitives::{l1::BitcoinAmount, params::RollupParams};
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
@@ -6,7 +7,6 @@ use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_b
 
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
-    tx_inclusion_proof::L1TxWithProofBundle,
     tx_info::{extract_checkpoint, extract_withdrawal_info},
     BridgeProofInputBorsh, BridgeProofOutput,
 };
@@ -148,7 +148,7 @@ pub(crate) fn process_bridge_proof(
         // TODO: optimization, maybe use `entry_at_pos` to avoid searching
         // Deferred for now because the number of operators will be small
         .unwrap()
-        .signing_pk();
+        .wallet_pk();
 
     // 4b. Verify the signature against the operator pub key in the chain state
     let withdrawal_fulfillment_txid = compute_txid(withdrawal_fulfillment_tx.transaction());
