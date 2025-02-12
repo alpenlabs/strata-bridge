@@ -224,7 +224,7 @@ impl ConnectorA31 {
 mod tests {
     use sp1_verifier::hash_public_inputs;
     use strata_bridge_primitives::scripts::parse_witness::parse_wots256_signatures;
-    use strata_bridge_proof_protocol2::BridgeProofPublicOutput;
+    use strata_bridge_proof_protocol::BridgeProofPublicOutput;
     use strata_bridge_test_utils::prelude::generate_txid;
 
     use super::*;
