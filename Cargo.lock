@@ -9199,7 +9199,7 @@ dependencies = [
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-proof-primitives",
- "strata-bridge-proof-protocol2",
+ "strata-bridge-proof-protocol",
  "strata-bridge-proof-snark",
  "strata-bridge-tx-graph",
  "strata-btcio",
@@ -9271,7 +9271,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-bridge-proof-protocol2"
+name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
@@ -9314,7 +9314,7 @@ dependencies = [
  "sp1-verifier",
  "strata-bridge-guest-builder",
  "strata-bridge-primitives",
- "strata-bridge-proof-protocol2",
+ "strata-bridge-proof-protocol",
  "strata-primitives",
  "strata-state",
  "tracing",
@@ -9388,7 +9388,7 @@ dependencies = [
  "sp1-verifier",
  "strata-bridge-db",
  "strata-bridge-primitives",
- "strata-bridge-proof-protocol2",
+ "strata-bridge-proof-protocol",
  "strata-bridge-proof-snark",
  "strata-bridge-test-utils",
  "strata-btcio",

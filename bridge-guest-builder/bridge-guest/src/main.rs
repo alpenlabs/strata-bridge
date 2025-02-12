@@ -5,7 +5,7 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use strata_bridge_proof_protocol2::process_bridge_proof_outer;
+use strata_bridge_proof_protocol::process_bridge_proof_outer;
 use zkaleido_sp1_adapter::Sp1ZkVmEnv;
 
 fn main() {

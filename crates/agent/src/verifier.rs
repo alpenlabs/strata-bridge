@@ -10,7 +10,7 @@ use strata_bridge_primitives::{
     params::tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
     wots::Signatures,
 };
-use strata_bridge_proof_protocol2::BridgeProofPublicOutput;
+use strata_bridge_proof_protocol::BridgeProofPublicOutput;
 use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_tx_graph::{
     connectors::prelude::{

@@ -1,5 +1,5 @@
 [package]
-name = "strata-bridge-proof-protocol2" # TODO: rename this from protocol2 -> protocol
+name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 edition = "2021"
 

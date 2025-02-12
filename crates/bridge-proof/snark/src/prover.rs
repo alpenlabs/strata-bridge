@@ -5,7 +5,7 @@ use bitvm::groth16::g16;
 use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
-use strata_bridge_proof_protocol2::{
+use strata_bridge_proof_protocol::{
     get_native_host, BridgeProofInput, BridgeProofPublicOutput, BridgeProver,
 };
 use tracing::info;
@@ -55,7 +55,7 @@ mod test {
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         header_verification_state, load_test_chainstate, load_test_rollup_params,
     };
-    use strata_bridge_proof_protocol2::BridgeProofInput;
+    use strata_bridge_proof_protocol::BridgeProofInput;
     use strata_primitives::buf::Buf64;
 
     use super::*;
