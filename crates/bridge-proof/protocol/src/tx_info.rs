@@ -1,5 +1,5 @@
 use bitcoin::{ScriptBuf, Transaction};
-use strata_l1tx::envelope::parser::parse_envelope_payloads;
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::{
     block_credential::CredRule, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
 };
@@ -11,9 +11,12 @@ pub(crate) fn extract_checkpoint(
     tx: &Transaction,
     rollup_params: &RollupParams,
 ) -> Result<BatchCheckpoint, BridgeProofError> {
+    let filter_config = TxFilterConfig::derive_from(rollup_params)
+        .map_err(|e| BridgeProofError::InvalidParams(e.to_string()))?;
+
     for inp in &tx.input {
         if let Some(scr) = inp.witness.tapscript() {
-            if let Ok(payload) = parse_envelope_payloads(&scr.into(), rollup_params) {
+            if let Ok(payload) = parse_envelope_payloads(&scr.into(), &filter_config) {
                 if let Ok(checkpoint) =
                     // TODO: fix this
                     borsh::from_slice::<SignedBatchCheckpoint>(payload[0].data())

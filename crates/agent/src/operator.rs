@@ -1956,7 +1956,7 @@ where
 
         info!(event = "got checkpoint info", %latest_checkpoint_at_payout, ?l1_range, ?l2_range);
 
-        let next_l2_block = l2_range.1 + 1;
+        let next_l2_block = l2_range.1.slot() + 1;
         info!(action = "getting block id for the next L2 Block", %next_l2_block);
         let l2_block_id = self
             .agent
@@ -1985,7 +1985,7 @@ where
             .expect("should be able to deserialize CL block witness")
             .0;
 
-        let l1_start_height = (checkpoint_info.l1_range.1 + 1) as u32;
+        let l1_start_height = (checkpoint_info.l1_range.1.height() + 1) as u32;
         let mut block_count = 0;
 
         let btc_params = get_btc_params();
