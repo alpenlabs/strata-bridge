@@ -70,6 +70,7 @@ pub(crate) fn extract_withdrawal_info(
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::hashes::Hash;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         load_test_rollup_params,
@@ -114,6 +115,15 @@ mod tests {
         // in different debug/display methods.
         info!(txid = ?compute_txid(withdrawal_fulfillment_tx), "computed txid using custom impl");
         info!(txid = %withdrawal_fulfillment_tx.compute_txid(), "computed txid using rust-bitcoin impl");
+
+        let custom_computed_txid = compute_txid(withdrawal_fulfillment_tx);
+        let rust_bitcoin_computed_txid = withdrawal_fulfillment_tx.compute_txid();
+
+        assert_eq!(
+            custom_computed_txid.0,
+            rust_bitcoin_computed_txid.to_raw_hash().to_byte_array(),
+            "custom computed txid must match rust-bitcoin computed txid"
+        );
 
         let res = extract_withdrawal_info(withdrawal_fulfillment_tx);
         assert!(
