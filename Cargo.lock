@@ -7878,6 +7878,7 @@ name = "strata-bridge-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "ark-serialize 0.4.2",
  "bincode",
  "bitcoin",
  "bitcoin-bosd",
@@ -7886,6 +7887,7 @@ dependencies = [
  "jsonrpsee",
  "musig2",
  "rand",
+ "rkyv",
  "secp256k1",
  "serde",
  "serde_json",

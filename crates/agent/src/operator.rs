@@ -1,7 +1,14 @@
 use core::fmt;
-use std::{collections::HashSet, fs::File, io::Write, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    fs::{self, File},
+    io::Write,
+    sync::Arc,
+    time::Duration,
+};
 
 use anyhow::bail;
+use ark_serialize::CanonicalSerialize;
 use bitcoin::{
     block::Header,
     consensus,
@@ -38,6 +45,7 @@ use strata_bridge_proof_protocol::BridgeProofInput;
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_tx_graph::{
     connectors::prelude::ConnectorA30Leaf,
+    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
@@ -62,6 +70,9 @@ use crate::{
         CovenantSigRequest, CovenantSigRequestFulfilled, CovenantSignatureSignal, DepositSignal,
     },
 };
+
+const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
+const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -1588,24 +1599,58 @@ where
         if let Some(bridge_out_txid) = should_assert {
             info!(action = "creating assertion signatures", %bridge_out_txid, %own_index);
 
-            let assert_data_signatures = {
-                let mut assertions: Assertions = self
-                    .prove_and_generate_assertions(deposit_txid, bridge_out_txid)
-                    .await;
-                if self.am_i_faulty() {
-                    warn!(action = "making a faulty assertion");
-                    for _ in 0..assertions.groth16.2.len() {
-                        let proof_index_to_tweak =
-                            rand::thread_rng().gen_range(0..assertions.groth16.2.len());
-                        warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
-                        if assertions.groth16.2[proof_index_to_tweak] != [0u8; 20] {
-                            assertions.groth16.2[proof_index_to_tweak] = [0u8; 20];
-                            break;
-                        }
+            let mut assertions = self
+                .prove_and_generate_assertions(deposit_txid, bridge_out_txid)
+                .await;
+
+            let mut assert_data_signatures =
+                WotsSignatures::new(&self.msk, deposit_txid, assertions);
+
+            if std::env::var(ENV_DUMP_TEST_DATA).is_ok() {
+                fs::write(
+                    "assertions.bin",
+                    rkyv::to_bytes::<rkyv::rancor::Error>(&assertions).unwrap(),
+                )
+                .unwrap();
+            }
+
+            if std::env::var(ENV_SKIP_VALIDATION).is_err() {
+                let public_keys = self
+                    .public_db
+                    .get_wots_public_keys(own_index, deposit_txid)
+                    .await
+                    .unwrap()
+                    .unwrap(); // FIXME: Handle me
+
+                let complete_disprove_scripts =
+                    g16::generate_disprove_scripts(*public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
+
+                if let Some((tapleaf_index, _witness_script)) = g16::verify_signed_assertions(
+                    bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
+                    *public_keys.groth16,
+                    assert_data_signatures.groth16,
+                    &complete_disprove_scripts,
+                ) {
+                    error!(event = "assertions verification failed", %tapleaf_index, %own_index);
+                } else {
+                    info!(event = "assertions verification succeeded", %own_index);
+                }
+            }
+
+            if self.am_i_faulty() {
+                warn!(action = "making a faulty assertion");
+                for _ in 0..assertions.groth16.2.len() {
+                    let proof_index_to_tweak =
+                        rand::thread_rng().gen_range(0..assertions.groth16.2.len());
+                    warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
+                    if assertions.groth16.2[proof_index_to_tweak] != [0u8; 20] {
+                        assertions.groth16.2[proof_index_to_tweak] = [0u8; 20];
+                        break;
                     }
                 }
-                WotsSignatures::new(&self.msk, deposit_txid, assertions)
-            };
+
+                assert_data_signatures = WotsSignatures::new(&self.msk, deposit_txid, assertions);
+            }
 
             let signed_assert_data_txs = assert_data.finalize(
                 connectors.assert_data160_factory,
@@ -1620,15 +1665,18 @@ where
             );
 
             info!(action = "estimating finalized assert data tx sizes", %own_index);
+            let mut total_assertion_size = 0;
             for (index, signed_assert_data_tx) in signed_assert_data_txs.iter().enumerate() {
                 let txid = signed_assert_data_tx.compute_txid();
                 let vsize = signed_assert_data_tx.vsize();
                 let total_size = signed_assert_data_tx.total_size();
                 let weight = signed_assert_data_tx.weight();
                 info!(event = "assert-data tx", %index, %txid, %vsize, %total_size, %weight, %own_index);
+
+                total_assertion_size += vsize;
             }
 
-            info!(action = "broadcasting finalized assert data txs", %own_index);
+            info!(action = "broadcasting finalized assert data txs", %own_index, %total_assertion_size);
             let mut broadcasted_assert_data_txids = Vec::with_capacity(TOTAL_CONNECTORS);
 
             for (index, signed_assert_data_tx) in signed_assert_data_txs.iter().enumerate() {
@@ -2087,7 +2135,7 @@ where
         info!(action = "signing txid", ?withdrawal_fulfillment_txid, %pk);
         let op_signature: Buf64 = self.agent.sign_txid(&withdrawal_fulfillment_txid).into();
 
-        if std::env::var("ZKVM_PROOF_DUMP")
+        if std::env::var(ENV_DUMP_TEST_DATA)
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false)
         {
@@ -2107,6 +2155,15 @@ where
         };
 
         let (proof, public_inputs, public_output) = prover::sp1_prove(&input).unwrap();
+
+        if std::env::var(ENV_DUMP_TEST_DATA).is_ok() {
+            let proof_file = File::create("proof.bin").unwrap();
+            let public_inputs_file = File::create("public_inputs.bin").unwrap();
+            proof.serialize_uncompressed(proof_file).unwrap();
+            public_inputs[0]
+                .serialize_uncompressed(public_inputs_file)
+                .unwrap();
+        }
 
         Assertions {
             bridge_out_txid: public_output.withdrawal_fulfillment_txid.0,
