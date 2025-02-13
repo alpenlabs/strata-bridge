@@ -68,8 +68,8 @@ impl ConnectorA31Leaf {
 
                     // second, verify that the WOTS for public inputs hash is correct.
                     { wots256::compact::checksig_verify(public_inputs_hash_public_key) }
-                    // same as above
-                    for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
+                    // same as above but the public inputs hash is in the reverse order.
+                    for _ in 0..32 { { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
                     // get the committed public inputs hash from the altstack.
                     for _ in 0..32 { OP_FROMALTSTACK }
@@ -240,9 +240,7 @@ mod tests {
         };
 
         let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
-        let public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
-
-        let committed_public_inputs_hash = public_inputs_hash;
+        let committed_public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
 
         let msk: &str = "test-disprove-public-inputs-hash";
 
@@ -311,6 +309,20 @@ mod tests {
             "disprove script must not error but got: {:?}",
             result.error
         );
+
+        let faulty_msk = msk.to_owned() + "faulty";
+        let invalid_disprove_leaf = get_disprove_leaf(
+            &faulty_msk,
+            deposit_txid,
+            withdrawal_fulfillment_txid,
+            faulty_inputs_hash,
+        );
+
+        let result = execute_disprove(msk, deposit_txid, invalid_disprove_leaf);
+        assert!(
+            result.error.is_some(),
+            "disprove script must error if signature (commitment) is invalid",
+        );
     }
 
     fn execute_disprove(
@@ -343,13 +355,19 @@ mod tests {
         let sig_withdrawal_fulfillment_txid = wots256::get_signature(
             &withdrawal_fulfillment_txid_sk,
             &withdrawal_fulfillment_txid.to_byte_array()[..],
-        ).to_script();
+        )
+        .to_script();
         let sig_withdrawal_fulfillment_txid =
             parse_wots256_signatures::<1>(sig_withdrawal_fulfillment_txid).unwrap()[0];
 
         let public_inputs_hash_sk = secret_key_for_public_inputs_hash(&deposit_msk);
+        // FIXME: fix and remove nibble flipping
+        let committed_public_inputs_hash =
+            committed_public_inputs_hash.map(|b| ((b & 0xf0) >> 4) | ((b & 0x0f) << 4));
+
         let sig_public_inputs_hash =
-            wots256::get_signature(&public_inputs_hash_sk, &committed_public_inputs_hash[..]).to_script();
+            wots256::get_signature(&public_inputs_hash_sk, &committed_public_inputs_hash[..])
+                .to_script();
         let sig_public_inputs_hash =
             parse_wots256_signatures::<1>(sig_public_inputs_hash).unwrap()[0];
 

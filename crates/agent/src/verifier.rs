@@ -141,8 +141,17 @@ where
 
                     let committed_public_inputs_hash = wots_to_byte_array(groth16.0[0]);
 
+                    // FIXME: fix nibble flipping and remove this
+                    let committed_public_inputs_hash =
+                        committed_public_inputs_hash.map(|b| ((b & 0xf0) >> 4) | ((b & 0x0f) << 4));
+
                     if public_inputs_hash != committed_public_inputs_hash {
-                        warn!(msg = "public inputs hash mismatch");
+                        warn!(
+                            expected = ?public_inputs_hash,
+                            committed = ?committed_public_inputs_hash,
+                            msg = "public inputs hash mismatch"
+                        );
+
                         Some(ConnectorA31Leaf::DisprovePublicInputsCommitment {
                             deposit_txid,
                             witness: Some(DisprovePublicInputsCommitmentWitness {
