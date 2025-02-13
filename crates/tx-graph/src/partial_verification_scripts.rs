@@ -7,7 +7,7 @@ use bitvm::{groth16::g16, treepp::*};
 use strata_bridge_proof_snark::bridge_vk;
 use tracing::{info, warn};
 
-const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-poc-vk.scripts";
+const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-vk.scripts";
 
 /// The verifier scripts for the groth16 verifier program.
 pub static PARTIAL_VERIFIER_SCRIPTS: LazyLock<[Script; 387]> =
