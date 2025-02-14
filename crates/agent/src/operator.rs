@@ -1449,7 +1449,6 @@ where
         let own_index = self.build_context.own_index();
 
         let deposit_txid = withdrawal_info.deposit_outpoint().txid;
-        let deposit_idx = 0; // FIXME: this must be extracted from the state
 
         let own_pubkey = self.agent.public_key().x_only_public_key().0;
 
@@ -1460,7 +1459,7 @@ where
             info!(action = "paying out the user", %user_destination, %own_index);
 
             let withdrawal_fulfillment_txid = self
-                .pay_user(user_destination, network, own_index, deposit_idx)
+                .pay_user(user_destination, network, own_index)
                 .await
                 .expect("must be able to pay user");
 
@@ -1915,7 +1914,6 @@ where
         user_destination: &Descriptor,
         network: bitcoin::Network,
         own_index: OperatorIdx,
-        deposit_idx: u32,
     ) -> anyhow::Result<Txid> {
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
@@ -1932,7 +1930,6 @@ where
         debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
         let withdrawal_metadata = WithdrawalMetadata {
-            deposit_idx,
             operator_idx: own_index,
         };
         let change = TxOut {
