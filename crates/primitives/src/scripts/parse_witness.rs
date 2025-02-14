@@ -1,6 +1,6 @@
 use bitvm::{
     groth16::g16,
-    signatures::wots_api::{wots160, wots256, wots32},
+    signatures::wots_api::{wots160, wots256},
     treepp::*,
 };
 
@@ -47,41 +47,6 @@ pub fn parse_wots256_signatures<const N_SIGS: usize>(
             ))
         })
     })
-}
-
-pub fn parse_claim_witness(
-    script: Script,
-) -> (
-    ParseResult<wots32::Signature>,
-    ParseResult<wots256::Signature>,
-) {
-    let res = execute_script(script);
-    (
-        std::array::try_from_fn(|j| {
-            let k = 2 * j;
-            let preimage = res.final_stack.get(k);
-            let digit = res.final_stack.get(k + 1);
-            let digit = if digit.is_empty() { 0u8 } else { digit[0] };
-            Ok((
-                preimage
-                    .try_into()
-                    .map_err(|_| ParseError::InvalidWitness("claim32".to_string()))?,
-                digit,
-            ))
-        }),
-        std::array::try_from_fn(|j| {
-            let k = 2 * wots32::N_DIGITS as usize + 2 * j;
-            let preimage = res.final_stack.get(k);
-            let digit = res.final_stack.get(k + 1);
-            let digit = if digit.is_empty() { 0u8 } else { digit[0] };
-            Ok((
-                preimage
-                    .try_into()
-                    .map_err(|_| ParseError::InvalidWitness("claim256".to_string()))?,
-                digit,
-            ))
-        }),
-    )
 }
 
 pub fn parse_assertion_witnesses(

@@ -3,7 +3,7 @@ use std::ops::{Deref, DerefMut};
 use bitcoin::Txid;
 use bitvm::{
     groth16::g16::{self},
-    signatures::wots_api::{wots160, wots256, wots32},
+    signatures::wots_api::{wots160, wots256},
 };
 
 use crate::scripts::{
@@ -81,9 +81,6 @@ impl PublicKeys {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256Signature(wots256::Signature);
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots32Signature(wots32::Signature);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16Signatures(g16::Signatures);
