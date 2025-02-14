@@ -1520,7 +1520,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -1721,7 +1721,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/BitVM.git?branch=feat%2F213_chunked_verifier_with_folded_fp12#ea2c673990c611aaf3cc6e5f8ea7d2d8d9b15421"
+source = "git+https://github.com/alpenlabs/BitVM.git?branch=testnet-i#b8d349f789b59f2e6fd45738d281c713f3d68328"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -1735,6 +1735,7 @@ dependencies = [
  "bitcoin-script",
  "bitcoin-script-stack",
  "bitcoin-scriptexec",
+ "bitvm-common",
  "blake3",
  "colored",
  "hex",
@@ -1748,6 +1749,16 @@ dependencies = [
  "serde",
  "sha2",
  "tqdm",
+ "tracing",
+]
+
+[[package]]
+name = "bitvm-common"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/BitVM.git?branch=testnet-i#b8d349f789b59f2e6fd45738d281c713f3d68328"
+dependencies = [
+ "tracing",
+ "tracing-subscriber 0.3.19",
 ]
 
 [[package]]
@@ -2173,7 +2184,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4384,7 +4395,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
 dependencies = [
  "cfg-if 1.0.0",
- "windows-targets 0.48.5",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -5754,7 +5765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.95",
@@ -9549,7 +9560,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

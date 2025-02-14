@@ -75,7 +75,7 @@ bincode = "1.3.3"
 bitcoin = { version = "0.32.5", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
-bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "feat/213_chunked_verifier_with_folded_fp12" }
+bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "testnet-i" }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
