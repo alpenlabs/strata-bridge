@@ -4,7 +4,10 @@ use bitcoin::{
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, Txid,
 };
-use bitvm::{signatures::wots::wots256, treepp::*};
+use bitvm::{
+    signatures::wots_api::{wots256, SignatureImpl},
+    treepp::*,
+};
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::{scripts::prelude::*, wots};
 
@@ -42,7 +45,9 @@ impl ConnectorK {
 
         script! {
             // bridge_out_tx_id
-            { wots256::checksig_verify(withdrawal_fulfillment_pk, true) }
+            { wots256::checksig_verify(withdrawal_fulfillment_pk) }
+
+            for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
 
             OP_TRUE
         }
@@ -90,9 +95,11 @@ impl ConnectorK {
         control_block: ControlBlock,
     ) {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
+        let withdrawal_fulfillment_txid_sk = secret_key_for_bridge_out_txid(&deposit_msk);
+        let withdrawal_fulfillment_txid_raw = withdrawal_fulfillment_txid.to_byte_array();
 
         let witness = script! {
-            { wots256::sign(&secret_key_for_bridge_out_txid(&deposit_msk), &withdrawal_fulfillment_txid.to_byte_array()) }
+            { wots256::get_signature(&withdrawal_fulfillment_txid_sk, &withdrawal_fulfillment_txid_raw).to_script() }
         };
 
         let result = execute_script(witness.clone());

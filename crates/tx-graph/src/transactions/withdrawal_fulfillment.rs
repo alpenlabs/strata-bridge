@@ -15,7 +15,6 @@ pub struct WithdrawalFulfillment(Transaction);
 #[derive(Debug, Clone, Copy)]
 pub struct WithdrawalMetadata {
     pub operator_idx: OperatorIdx,
-    pub deposit_idx: u32,
 }
 
 impl WithdrawalFulfillment {
@@ -35,16 +34,10 @@ impl WithdrawalFulfillment {
 
         let op_return_amount = Amount::from_int_btc(0);
 
-        let WithdrawalMetadata {
-            operator_idx,
-            deposit_idx,
-        } = metadata;
+        let WithdrawalMetadata { operator_idx } = metadata;
         let prefix: [u8; 4] = operator_idx.to_be_bytes();
-        let deposit_idx: [u8; 4] = deposit_idx.to_be_bytes();
 
-        let data = [prefix, deposit_idx].concat();
-
-        let op_return_script = op_return_nonce(&data[..]);
+        let op_return_script = op_return_nonce(&prefix[..]);
 
         let mut scripts_and_amounts = vec![
             (op_return_script, op_return_amount),
@@ -112,12 +105,8 @@ mod tests {
 
         // Call the `new` function to create a transaction
         let operator_idx: u32 = OsRng.gen();
-        let deposit_idx: u32 = OsRng.gen();
 
-        let withdrawal_metadata = WithdrawalMetadata {
-            operator_idx,
-            deposit_idx,
-        };
+        let withdrawal_metadata = WithdrawalMetadata { operator_idx };
         let change = TxOut {
             script_pubkey: change_address.script_pubkey(),
             value: change_amount,
@@ -154,12 +143,10 @@ mod tests {
         );
 
         let operator_idx = operator_idx.to_be_bytes().to_lower_hex_string();
-        let deposit_dx = deposit_idx.to_be_bytes().to_lower_hex_string();
-        let data = [operator_idx, deposit_dx].concat();
         assert!(
             tx.output.iter().any(|out| out.value == op_return_amount
                 && out.script_pubkey.is_op_return()
-                && out.script_pubkey[2..].to_hex_string().starts_with(&data)),
+                && out.script_pubkey[2..].to_hex_string() == operator_idx),
             "OP_RETURN output is missing or invalid"
         );
     }

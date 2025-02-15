@@ -10,12 +10,13 @@ use bitcoin::{
     taproot::{self, TaprootBuilder},
     Address, Network, TapNodeHash,
 };
+use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
     bitcoin::BitcoinAddress,
     params::tx::UNSPENDABLE_INTERNAL_KEY,
     scripts::general::{get_aggregated_pubkey, metadata_script, n_of_n_script},
-    types::{OperatorIdx, PublickeyTable},
+    types::OperatorIdx,
 };
 
 /// Generate `count` (public key, private key) pairs as two separate [`Vec`].

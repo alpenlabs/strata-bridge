@@ -3,7 +3,7 @@
 use bitcoin::key::rand::{rngs::OsRng, Rng, RngCore};
 use bitvm::{
     groth16::g16::{N_VERIFIER_FQS, N_VERIFIER_HASHES, N_VERIFIER_PUBLIC_INPUTS},
-    signatures::wots::{wots160, wots256},
+    signatures::wots_api::{wots160, wots256},
 };
 use strata_bridge_primitives::wots::{self, Groth16PublicKeys, Wots256PublicKey};
 
@@ -66,11 +66,11 @@ mod tests {
     #[test]
     fn test_generate_byte_slice_array() {
         let wots256_public_key: wots256::PublicKey =
-            generate_byte_slice_array::<20, 67>(&mut OsRng);
+            generate_byte_slice_array::<20, 68>(&mut OsRng);
         let wots160_public_key: wots160::PublicKey =
-            generate_byte_slice_array::<20, 43>(&mut OsRng);
+            generate_byte_slice_array::<20, 44>(&mut OsRng);
 
-        assert_eq!(wots256_public_key.len(), 67, "wots256 size should match");
-        assert_eq!(wots160_public_key.len(), 43, "wots160 size should match");
+        assert_eq!(wots256_public_key.len(), 68, "wots256 size should match");
+        assert_eq!(wots160_public_key.len(), 44, "wots160 size should match");
     }
 }

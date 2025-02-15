@@ -281,8 +281,7 @@ provers/sp1/proofs/
 
 # binary dumps
 *.bin
+*.borsh
 
 # test data
-!blocks.bin
-!proof.bin
 !test-data/*.bin

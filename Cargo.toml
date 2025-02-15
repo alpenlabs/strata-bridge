@@ -7,7 +7,6 @@ members = [
   "crates/bridge-proof/primitives",
   "crates/bridge-proof/snark",
   "crates/rpc/bridge",
-  "crates/rpc/strata",
   "crates/bridge-proof/test-utils",
   "crates/stake-chain",
   "crates/tx-graph",
@@ -41,7 +40,6 @@ strata-bridge-rpc = { path = "crates/rpc/bridge" }
 strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
-strata-rpc = { path = "crates/rpc/strata" }
 
 # deps from original strata repo
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git" }
@@ -52,6 +50,7 @@ strata-crypto = { git = "https://github.com/alpenlabs/strata.git" }
 strata-l1tx = { git = "https://github.com/alpenlabs/strata.git" }
 strata-primitives = { git = "https://github.com/alpenlabs/strata.git" }
 strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.git" }
+strata-rpc-api = { git = "https://github.com/alpenlabs/strata.git" }
 strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
 strata-state = { git = "https://github.com/alpenlabs/strata.git" }
 
@@ -75,8 +74,8 @@ base64 = "0.22.1"
 bincode = "1.3.3"
 bitcoin = { version = "0.32.5", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"
-bitcoin-script = { git = "https://github.com/alpenlabs/rust-bitcoin-script", branch = "strata-bridge-poc-bitcoin-0.32.5" }
-bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "bridge-poc" }
+bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
+bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "testnet-i" }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }

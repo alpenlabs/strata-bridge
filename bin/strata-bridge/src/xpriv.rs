@@ -4,7 +4,8 @@ use std::{fs, path::Path};
 
 use bitcoin::bip32::{ChildNumber, DerivationPath, Xpriv};
 use secp256k1::{Keypair, Parity, PublicKey, SecretKey, XOnlyPublicKey, SECP256K1};
-use strata_bridge_primitives::types::{OperatorIdx, PublickeyTable};
+use strata_bridge_primitives::types::OperatorIdx;
+use strata_primitives::bridge::PublickeyTable;
 use tracing::info;
 
 const DERIV_BASE_IDX: u32 = 56;

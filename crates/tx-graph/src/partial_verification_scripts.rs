@@ -1,24 +1,24 @@
 //! This module contains utility to load or create verifier scripts for the groth16 verifier
 //! program.
-use std::{fs, sync::LazyLock};
+use std::{fs, sync::LazyLock, time};
 
 use bitcoin::ScriptBuf;
 use bitvm::{groth16::g16, treepp::*};
 use strata_bridge_proof_snark::bridge_vk;
-use tracing::{info, warn};
+use tracing::warn;
 
-const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-poc-vk.scripts";
+const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-vk.scripts";
 
 /// The verifier scripts for the groth16 verifier program.
-pub static PARTIAL_VERIFIER_SCRIPTS: LazyLock<[Script; 579]> =
+pub static PARTIAL_VERIFIER_SCRIPTS: LazyLock<[Script; 381]> =
     LazyLock::new(load_or_create_verifier_scripts);
 
 /// Loads tapscripts for the groth16 verifier program.
-pub fn load_or_create_verifier_scripts() -> [Script; 579] {
+pub fn load_or_create_verifier_scripts() -> [Script; 381] {
     if cfg!(feature = "mock") {
         warn!("Detected mock feature, returning empty verifier scripts");
 
-        return vec![script!(); 579].try_into().expect("size must match");
+        return vec![script!(); 381].try_into().expect("size must match");
     }
 
     let verifier_scripts: [Script; g16::N_TAPLEAVES] = if fs::exists(PARTIAL_VERIFIER_SCRIPTS_PATH)
@@ -28,6 +28,8 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
             action = "loading verifier script from file cache...this will take some time",
             estimated_time = "1 min"
         );
+
+        let loading_time = time::Instant::now();
 
         let contents: Vec<u8> = fs::read(PARTIAL_VERIFIER_SCRIPTS_PATH)
             .expect("should be able to read verifier scripts from file");
@@ -40,7 +42,7 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
             .collect::<Vec<Script>>();
 
         let num_scripts = verifier_scripts.len();
-        info!(event = "loaded verifier scripts", %num_scripts);
+        warn!(event = "loaded verifier scripts", %num_scripts, time_taken = ?loading_time.elapsed());
 
         verifier_scripts.try_into().unwrap_or_else(|_| {
             panic!(
@@ -54,8 +56,11 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
             estimated_time = "3 mins"
         );
 
+        let compilation_start_time = time::Instant::now();
+
         let verifier_scripts = g16::compile_verifier(bridge_vk::GROTH16_VERIFICATION_KEY.clone());
 
+        warn!(action = "caching verifier scripts for later", cache_file=%PARTIAL_VERIFIER_SCRIPTS_PATH);
         let serialized: Vec<Vec<u8>> = verifier_scripts
             .clone()
             .into_iter()
@@ -65,10 +70,10 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
         let serialized: Vec<u8> =
             bincode::serialize(&serialized).expect("should be able to serialize verifier scripts");
 
-        warn!(action = "caching verifier scripts for later", cache_file=%PARTIAL_VERIFIER_SCRIPTS_PATH);
         fs::write(PARTIAL_VERIFIER_SCRIPTS_PATH, serialized)
             .expect("should be able to write verifier scripts to file");
 
+        warn!(action = "finished compiling verifier scripts", time_taken = ?compilation_start_time.elapsed());
         verifier_scripts
     };
 
@@ -78,6 +83,6 @@ pub fn load_or_create_verifier_scripts() -> [Script; 579] {
 /// Get the verifier scripts for the groth16 verifier program.
 ///
 /// This returns a memoized version of the verifier scripts.
-pub fn get_verifier_scripts() -> &'static [Script; 579] {
+pub fn get_verifier_scripts() -> &'static [Script; 381] {
     &PARTIAL_VERIFIER_SCRIPTS
 }

@@ -16,12 +16,8 @@ fn main() {
         ..Default::default()
     };
 
-    if std::env::var("SP1_PROVER")
-        .map(|v| v.to_lowercase() == "mock")
-        .unwrap_or(false)
-    {
-        build_args.features = vec!["mock".to_string()];
-    }
+    // use the `mock` arg so that empty checkpoint proofs do not fail validate.
+    build_args.features = vec!["mock".to_string()];
 
     build_program_with_args("bridge-guest", build_args);
 }

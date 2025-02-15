@@ -2,8 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use bitcoin::Txid;
 use strata_bridge_db::tracker::DutyTrackerDb;
-use strata_bridge_primitives::duties::{BridgeDuties, BridgeDuty, BridgeDutyStatus};
-use strata_rpc::StrataApiClient;
+use strata_bridge_primitives::duties::{BridgeDuty, BridgeDutyStatus};
+use strata_rpc_api::StrataApiClient;
+use strata_rpc_types::RpcBridgeDuties;
 use tokio::{
     sync::{broadcast, mpsc},
     task::JoinSet,
@@ -75,7 +76,7 @@ where
                     .get_bridge_duties(operator_idx, last_fetched_duty_index)
                     .await
                 {
-                    Ok(BridgeDuties {
+                    Ok(RpcBridgeDuties {
                         duties,
                         start_index,
                         stop_index,
@@ -85,6 +86,14 @@ where
 
                         for duty in duties {
                             debug!(action = "dispatching duty", ?duty);
+                            // HACK: convert from `strata` type to `strata-bridge` type
+                            // to avoid having to use all the deposit/withdrawal types from
+                            // `strata`. This is fine for now since these duties will be generated
+                            // by `strata-bridge` directly in the immediate future.
+                            let duty: BridgeDuty =
+                                serde_json::from_str(&serde_json::to_string(&duty).unwrap())
+                                    .unwrap();
+
                             duty_sender.send(duty).expect("should be able to send duty");
                         }
 

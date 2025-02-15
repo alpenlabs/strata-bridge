@@ -6,7 +6,7 @@ use bitcoin::{
     Address, Network, ScriptBuf,
 };
 use bitvm::{
-    signatures::wots::{wots160, wots256, SignatureImpl},
+    signatures::wots_api::{wots160, wots256, SignatureImpl},
     treepp::*,
 };
 use strata_bridge_primitives::scripts::prelude::*;
@@ -93,7 +93,9 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     pub fn create_locking_script(&self) -> ScriptBuf {
         script! {
             for &public_key in self.public_keys.iter().rev() {
-                { wots256::checksig_verify(public_key, true) }
+                { wots256::checksig_verify(public_key) }
+
+                for _ in 0..256/4 { OP_DROP } // drop the nibbles
             }
 
             OP_TRUE
@@ -228,7 +230,9 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
     pub fn create_locking_script(&self) -> ScriptBuf {
         script! {
             for &public_key in self.public_keys.iter().rev() {
-                { wots160::checksig_verify(public_key, true) }
+                { wots160::checksig_verify(public_key) }
+
+                for _ in 0..160/4 { OP_DROP } // drop the nibbles
             }
             OP_TRUE
         }

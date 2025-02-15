@@ -1,5 +1,5 @@
 use bitcoin::{ScriptBuf, Transaction};
-use strata_l1tx::envelope::parser::parse_envelope_payloads;
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::{
     block_credential::CredRule, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
 };
@@ -11,11 +11,17 @@ pub(crate) fn extract_checkpoint(
     tx: &Transaction,
     rollup_params: &RollupParams,
 ) -> Result<BatchCheckpoint, BridgeProofError> {
+    let filter_config = TxFilterConfig::derive_from(rollup_params)
+        .map_err(|e| BridgeProofError::InvalidParams(e.to_string()))?;
+
     for inp in &tx.input {
         if let Some(scr) = inp.witness.tapscript() {
-            if let Ok(payload) = parse_envelope_payloads(&scr.into(), rollup_params) {
+            if let Ok(payload) = parse_envelope_payloads(&scr.into(), &filter_config) {
+                if payload.is_empty() {
+                    continue;
+                }
+
                 if let Ok(checkpoint) =
-                    // TODO: fix this
                     borsh::from_slice::<SignedBatchCheckpoint>(payload[0].data())
                 {
                     if let CredRule::SchnorrKey(seq_pubkey) = &rollup_params.cred_rule {
@@ -64,11 +70,14 @@ pub(crate) fn extract_withdrawal_info(
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::hashes::Hash;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         load_test_rollup_params,
     };
+    use strata_common::logging::{self, LoggerConfig};
     use strata_proofimpl_btc_blockspace::tx::compute_txid;
+    use tracing::info;
 
     use super::*;
     use crate::tx_info::extract_withdrawal_info;
@@ -83,12 +92,18 @@ mod tests {
 
         let rollup_params = load_test_rollup_params();
         let res = extract_checkpoint(checkpoint_inscribed_tx, &rollup_params);
-        assert!(res.is_ok());
-        dbg!(res.unwrap());
+        assert!(
+            res.is_ok(),
+            "must be able to extract checkpoint but got: {:?}",
+            res.unwrap_err()
+        );
     }
 
     #[test]
     fn test_extract_withdrawal_info() {
+        logging::init(LoggerConfig::new(
+            "test-extract-withdrawal-info".to_string(),
+        ));
         let headers = extract_test_headers();
         let (withdrawal_fulfillment_tx_bundle, idx) = get_withdrawal_fulfillment_tx();
         assert!(withdrawal_fulfillment_tx_bundle.verify(headers[idx]));
@@ -98,11 +113,23 @@ mod tests {
         // NOTE: Although these two outputs look different, they refer to the same transaction ID.
         // The discrepancy is due to how the bytes are represented (e.g., endianness or formatting)
         // in different debug/display methods.
-        dbg!(compute_txid(withdrawal_fulfillment_tx));
-        dbg!(withdrawal_fulfillment_tx.compute_txid());
+        info!(txid = ?compute_txid(withdrawal_fulfillment_tx), "computed txid using custom impl");
+        info!(txid = %withdrawal_fulfillment_tx.compute_txid(), "computed txid using rust-bitcoin impl");
+
+        let custom_computed_txid = compute_txid(withdrawal_fulfillment_tx);
+        let rust_bitcoin_computed_txid = withdrawal_fulfillment_tx.compute_txid();
+
+        assert_eq!(
+            custom_computed_txid.0,
+            rust_bitcoin_computed_txid.to_raw_hash().to_byte_array(),
+            "custom computed txid must match rust-bitcoin computed txid"
+        );
 
         let res = extract_withdrawal_info(withdrawal_fulfillment_tx);
-        assert!(res.is_ok());
-        dbg!(res.unwrap());
+        assert!(
+            res.is_ok(),
+            "must be able to extract withdrawal info but got {:?}",
+            res.unwrap_err()
+        );
     }
 }

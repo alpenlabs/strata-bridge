@@ -6,7 +6,7 @@ use ark_ff::UniformRand;
 use bitcoin::{hex::DisplayHex, taproot::TAPROOT_CONTROL_BASE_SIZE, VarInt, Weight};
 use bitvm::{
     execute_script_without_stack_limit,
-    signatures::wots::{wots160, wots256},
+    signatures::wots_api::{wots160, wots256},
     treepp::*,
 };
 use chunker_primitives::*;
@@ -158,7 +158,11 @@ pub fn field_elements_witness_size(num_inputs: usize, num_elements: usize) -> Si
     assert_eq!(fq_bytes.len(), 32);
 
     let fq_sig = wots256::get_signature(&secret, &fq_bytes);
-    let fq_lock_script = wots256::checksig_verify(pubkey, true);
+    let fq_lock_script = script! {
+        { wots256::checksig_verify(pubkey) }
+
+        for _ in 0..256/4 { OP_DROP } // drop the nibbles
+    };
 
     let witness_script = script! {
         for (sig, digit) in fq_sig {
@@ -208,7 +212,11 @@ pub fn hash_witness_size(num_inputs: usize, num_elements: usize) -> SizeData {
 
     let fq_bytes: [u8; 20] = fq_bytes[12..32].try_into().unwrap();
     let fq_sig = wots160::get_signature(&secret, &fq_bytes);
-    let fq_lock_script = wots160::checksig_verify(pubkey, true);
+    let fq_lock_script = script! {
+        { wots160::checksig_verify(pubkey) }
+
+        for _ in 0..160/4 { OP_DROP } // drop the nibbles
+    };
 
     let witness_script = script! {
         for (sig, digit) in fq_sig {

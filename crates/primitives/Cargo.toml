@@ -11,6 +11,8 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+strata-primitives.workspace = true
+
 anyhow.workspace = true
 arbitrary.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }

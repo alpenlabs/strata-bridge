@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use bitcoin::TxOut;
-use bitvm::{groth16::g16, signatures::wots::SignatureImpl};
+use bitvm::groth16::g16;
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
     params::tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
+    scripts::prelude::wots_to_byte_array,
     wots::Signatures,
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
@@ -128,24 +129,29 @@ where
                     // 1. public input hash validation
                     info!(action = "validating public input hash");
 
-                    let withdrawa_txid: [u8; 32] = bridge_out_txid.parse();
+                    let withdrawal_txid: [u8; 32] = wots_to_byte_array(bridge_out_txid).into();
                     let public_inputs = BridgeProofPublicOutput {
                         deposit_txid: deposit_txid.into(),
-                        withdrawal_fulfillment_txid: withdrawa_txid.into(),
+                        withdrawal_fulfillment_txid: withdrawal_txid.into(),
                     };
 
                     // NOTE: This is zkvm-specific logic
                     let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
                     let public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
 
-                    let committed_public_inputs_hash = groth16.0[0].parse();
+                    let committed_public_inputs_hash = wots_to_byte_array(groth16.0[0]);
 
-                    // TODO: remove this: fix nibble flipping
+                    // FIXME: fix nibble flipping and remove this
                     let committed_public_inputs_hash =
                         committed_public_inputs_hash.map(|b| ((b & 0xf0) >> 4) | ((b & 0x0f) << 4));
 
                     if public_inputs_hash != committed_public_inputs_hash {
-                        warn!(msg = "public inputs hash mismatch");
+                        warn!(
+                            expected = ?public_inputs_hash,
+                            committed = ?committed_public_inputs_hash,
+                            msg = "public inputs hash mismatch"
+                        );
+
                         Some(ConnectorA31Leaf::DisprovePublicInputsCommitment {
                             deposit_txid,
                             witness: Some(DisprovePublicInputsCommitmentWitness {
@@ -156,16 +162,18 @@ where
                     } else {
                         // 2. groth16 proof validation
                         info!(action = "verifying groth16 assertions");
+                        let complete_disprove_scripts = g16::generate_disprove_scripts(
+                            *public_keys.groth16,
+                            &PARTIAL_VERIFIER_SCRIPTS,
+                        );
+
                         if let Some((tapleaf_index, witness_script)) = g16::verify_signed_assertions(
                             bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                             *public_keys.groth16,
                             signatures.groth16,
+                            &complete_disprove_scripts,
                         ) {
-                            let disprove_script = g16::generate_disprove_scripts(
-                                *public_keys.groth16,
-                                &PARTIAL_VERIFIER_SCRIPTS,
-                            )[tapleaf_index]
-                                .clone();
+                            let disprove_script = complete_disprove_scripts[tapleaf_index].clone();
                             Some(ConnectorA31Leaf::DisproveProof {
                                 disprove_script,
                                 witness_script: Some(witness_script),

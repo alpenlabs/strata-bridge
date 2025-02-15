@@ -100,9 +100,10 @@ jobs:
 
       - name: Publish Test Coverage
         uses: codecov/codecov-action@v5.1.2
+        with:
+          files: lcov.info
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-          files: lcov.info
 
   unit-success:
     name: Check that unit tests pass

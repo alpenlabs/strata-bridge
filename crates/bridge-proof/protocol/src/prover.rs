@@ -68,21 +68,18 @@ pub fn get_native_host() -> NativeHost {
 
 #[cfg(test)]
 mod tests {
-
-    use borsh::BorshDeserialize;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
-        header_verification_state, load_test_chainstate, load_test_rollup_params,
+        header_verification_state, load_op_signature, load_test_chainstate,
+        load_test_rollup_params,
     };
-    use strata_primitives::buf::Buf64;
+    use strata_common::logging::{self, LoggerConfig};
+    use tracing::debug;
     use zkaleido::ZkVmProver;
 
     use super::*;
 
     fn get_input() -> BridgeProofInput {
-        let sig_bytes: Vec<u8> = hex::decode("47d264910cb48a1ca933f4fc3f55188c0fda70cef1216cd38a887e169e7faed03fc49ffacd645dd11ba68bbb038a782d1b21875f0e6ebd7eb7816ee642e642f7").unwrap();
-        let sig_buf64 = Buf64::try_from_slice(&sig_bytes).unwrap();
-
         BridgeProofInput {
             rollup_params: load_test_rollup_params(),
             headers: extract_test_headers(),
@@ -91,15 +88,16 @@ mod tests {
             deposit_idx: 0,
             strata_checkpoint_tx: get_strata_checkpoint_tx(),
             withdrawal_fulfillment_tx: get_withdrawal_fulfillment_tx(),
-            op_signature: sig_buf64,
+            op_signature: load_op_signature(),
         }
     }
 
     #[test]
     fn test_native() {
+        logging::init(LoggerConfig::new("test-native".to_string()));
         let input = get_input();
         let host = get_native_host();
         let receipt = BridgeProver::prove(&input, &host).unwrap();
-        dbg!(receipt);
+        debug!(?receipt, "received proof receipt from native host");
     }
 }

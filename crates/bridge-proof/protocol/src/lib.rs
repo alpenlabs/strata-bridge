@@ -42,20 +42,20 @@ pub struct BridgeProofInput {
     /// The [Chainstate] that can be verified by the strata checkpoint proof.
     pub chain_state: Chainstate,
 
-    /// The [HeaderVerificationState] used to validate the chain of headers.  
+    /// The [HeaderVerificationState] used to validate the chain of headers.
     /// The proof that this HeaderVerificationState is valid must be done extracted from the
     /// `strata_checkpoint_tx`.
     pub header_vs: HeaderVerificationState,
 
-    /// The index of the deposit within the [Chainstate] deposit table.  
+    /// The index of the deposit within the [Chainstate] deposit table.
     /// Must match the corresponding information in the withdrawal fulfillment transaction.
     pub deposit_idx: u32,
 
-    /// Transaction (and its inclusion proof) containing the strata checkpoint proof.  
+    /// Transaction (and its inclusion proof) containing the strata checkpoint proof.
     /// The `usize` represents the position of this transaction in the header chain.
     pub strata_checkpoint_tx: (L1TxWithProofBundle, usize),
 
-    /// Transaction (and its inclusion proof) fulfilling the withdrawal.  
+    /// Transaction (and its inclusion proof) fulfilling the withdrawal.
     /// The `usize` represents the position of this transaction in the header chain.
     pub withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
 
@@ -131,7 +131,7 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
         process_bridge_proof(input, headers, rollup_params).expect("expect output");
 
     // Verify the strata checkpoint proof
-    zkvm.verify_groth16_receipt(&checkpoint.into_proof_receipt(), &rollup_vk.0);
+    zkvm.verify_groth16_receipt(&checkpoint.get_proof_receipt(), &rollup_vk.0);
 
     zkvm.commit_borsh(&output);
 }

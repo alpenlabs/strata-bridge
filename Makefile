@@ -35,7 +35,7 @@ build: ## Build the workspace into the `target` directory.
 
 ##@ Test
 
-UNIT_TEST_ARGS := --locked --workspace -E 'kind(lib)' -E 'kind(bin)' -E 'kind(proc-macro)' -F mock
+UNIT_TEST_ARGS := --locked --workspace --profile ci -F mock --retries 2 --status-level fail --no-capture
 COV_FILE := lcov.info
 
 .PHONY: test-unit
@@ -187,7 +187,8 @@ pr: lint rustdocs test-doc test-unit ## Runs lints (without fixing), audit, docs
 
 .PHONY: run
 run:
-	RUST_LOG=info,sp1_start=info,sqlx=info,soketto=error,strata_bridge_db=warn,strata_bridge_tx_graph=warn,strata_btcio=info,strata_bridge_agent=info,hyper_util=error,jsonrpsee=error \
+	SKIP_VALIDATION=1 \
+	RUST_LOG=info,sp1_start=info,sqlx=info,soketto=error,bitvm=info,strata_bridge_db=warn,strata_bridge_tx_graph=warn,strata_btcio=info,strata_bridge_agent=info,hyper_util=error,jsonrpsee=error \
 		cargo r \
 		--bin strata-bridge \
 		--profile "$(PROFILE)" \

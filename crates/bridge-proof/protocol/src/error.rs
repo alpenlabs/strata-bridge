@@ -3,6 +3,10 @@ use thiserror::Error;
 /// Represents all possible errors that can occur during the verification of a bridge proof.
 #[derive(Error, Debug)]
 pub(crate) enum BridgeProofError {
+    /// The rollup params are invalid.
+    #[error("invalid rollup params: {0}")]
+    InvalidParams(String),
+
     /// Error extracting transaction-related information.
     /// Contains the specific transaction type that triggered the error.
     #[error("Could not extract info from tx: {0:?}")]

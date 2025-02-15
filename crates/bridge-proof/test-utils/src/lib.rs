@@ -5,7 +5,10 @@ use std::fs;
 use bitcoin::{block::Header, Block};
 use borsh::BorshDeserialize;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_primitives::{buf::Buf32, params::RollupParams};
+use strata_primitives::{
+    buf::{Buf32, Buf64},
+    params::RollupParams,
+};
 use strata_state::{
     chain_state::Chainstate,
     l1::{HeaderVerificationState, L1BlockId, TimestampStore},
@@ -25,16 +28,16 @@ pub fn extract_test_headers() -> Vec<Header> {
 
 pub fn header_verification_state() -> HeaderVerificationState {
     let mut timestamps = [
-        1738924903, 1738924903, 1738924903, 1738924903, 1738924907, 1738924907, 1738924907,
-        1738924907, 1738924911, 1738924899, 1738924899,
+        1739381881, 1739381885, 1739381885, 1739381885, 1739381885, 1739381889, 1739381889,
+        1739381889, 1739381889, 1739381893, 1739381881,
     ];
     timestamps.sort();
 
     HeaderVerificationState {
-        last_verified_block_num: 932,
+        last_verified_block_num: 900,
         last_verified_block_hash: L1BlockId::from(
             Buf32::try_from_slice(
-                &hex::decode("e2c06d4ff03aadd3ee68c446743bb9ee55a816af8a39b6e393b0bca74d60b753")
+                &hex::decode("956869b2bb0b42e737933d6090f0204a804dcddf4ce11f2e8c14036a27344c4c")
                     .unwrap(),
             )
             .unwrap(),
@@ -42,7 +45,7 @@ pub fn header_verification_state() -> HeaderVerificationState {
         next_block_target: 545259519,
         interval_start_timestamp: 1296688602,
         total_accumulated_pow: 0,
-        last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 9),
+        last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 10),
     }
 }
 
@@ -50,7 +53,7 @@ pub fn header_verification_state() -> HeaderVerificationState {
 pub fn load_test_chainstate() -> Chainstate {
     let chainstate_bytes =
         fs::read("../../../test-data/chainstate.borsh").expect("Failed to read chainstate.borsh");
-    borsh::from_slice::<Chainstate>(&chainstate_bytes).expect("Failed to deserialize chainstate")
+    borsh::from_slice(&chainstate_bytes).expect("Failed to deserialize chainstate")
 }
 
 /// Loads the RollupParams from the json file.
@@ -62,12 +65,20 @@ pub fn load_test_rollup_params() -> RollupParams {
     rollup_params
 }
 
+/// Loads the operator signature from the binary file.
+pub fn load_op_signature() -> Buf64 {
+    let sig_bytes: Vec<u8> =
+        fs::read("../../../test-data/op_signature.bin").expect("Failed to read op_signature.bin");
+
+    Buf64::try_from_slice(&sig_bytes).unwrap()
+}
+
 /// Retrieves the withdrawal fulfillment transaction from test blocks.
 ///
 /// This transaction is found at block height 988, with index 1 in the block's transaction list.
 /// Returns the transaction along with the relative block index in the test blocks.
 pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
-    let block_height = 988;
+    let block_height = 952;
     let tx_index = 1;
     fetch_test_transaction(block_height, tx_index)
 }
@@ -77,7 +88,7 @@ pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
 /// This transaction is found at block height 968, with index 2 in the block's transaction list.
 /// Returns the transaction along with the relative block index in the test blocks.
 pub fn get_strata_checkpoint_tx() -> (L1TxWithProofBundle, usize) {
-    let block_height = 968;
+    let block_height = 932;
     let tx_index = 2;
     fetch_test_transaction(block_height, tx_index)
 }

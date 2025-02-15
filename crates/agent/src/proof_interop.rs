@@ -8,7 +8,7 @@ use bitcoin::{
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 use strata_btcio::rpc::traits::ReaderRpc;
-use strata_l1tx::envelope::parser::parse_envelope_payloads;
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::{
     batch::{BatchCheckpoint, SignedBatchCheckpoint},
@@ -191,9 +191,11 @@ pub fn checkpoint_last_verified_l1_height(
     tx: &Transaction,
     rollup_params: &RollupParams,
 ) -> Option<u32> {
+    let filter_config =
+        TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
     if let Some(script) = tx.input[0].witness.tapscript() {
         let script = script.to_bytes();
-        if let Ok(inscription) = parse_envelope_payloads(&script.into(), rollup_params) {
+        if let Ok(inscription) = parse_envelope_payloads(&script.into(), &filter_config) {
             if inscription.is_empty() {
                 return None;
             }
@@ -201,7 +203,7 @@ pub fn checkpoint_last_verified_l1_height(
                 borsh::from_slice::<SignedBatchCheckpoint>(inscription[0].data())
             {
                 let batch_checkpoint: BatchCheckpoint = signed_batch_checkpoint.into();
-                return Some(batch_checkpoint.batch_info().l1_range.1 as u32);
+                return Some(batch_checkpoint.batch_info().l1_range.1.height() as u32);
             }
         }
     }
