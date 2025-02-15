@@ -3188,7 +3188,9 @@ dependencies = [
  "bitcoin",
  "btc-notify",
  "futures",
+ "strata-bridge-primitives",
  "strata-btcio",
+ "strata-state",
  "tokio",
  "tokio-stream",
 ]
