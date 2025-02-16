@@ -3,10 +3,7 @@ use bitcoin::{
     taproot::{ControlBlock, TaprootError},
     ScriptBuf, TapNodeHash,
 };
-use musig2::{
-    errors::{RoundContributionError, RoundFinalizeError},
-    KeyAggContext,
-};
+use musig2::errors::{RoundContributionError, RoundFinalizeError};
 use rkyv::{with::Map, Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
