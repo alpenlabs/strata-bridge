@@ -18,6 +18,7 @@ secret-service-server = { version = "0.1.0", path = "../secret-service-server" }
 serde.workspace = true
 sha2.workspace = true
 sled = "0.34.7"
+strata-bridge-primitives.workspace = true
 strata-key-derivation = { git = "https://github.com/alpenlabs/strata", version = "0.1.0" }
 terrors.workspace = true
 

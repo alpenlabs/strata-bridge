@@ -1,8 +1,9 @@
 use std::future::Future;
 
+use bitcoin::key::Keypair;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::{PublicKey, SecretKey},
+    secp256k1::{PublicKey, SecretKey, SECP256K1},
     FirstRound, KeyAggContext, LiftedSignature, SecNonceSpices, SecondRound,
 };
 use rand::{thread_rng, Rng};
@@ -13,32 +14,58 @@ use secret_service_proto::v1::traits::{
 };
 use secret_service_server::RoundPersister;
 use sled::Tree;
+use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
 
 pub struct Ms2Signer {
-    key: SecretKey,
+    kp: Keypair,
 }
 
 impl Ms2Signer {
     pub fn new(key: SecretKey) -> Self {
-        Self { key }
+        Self {
+            kp: Keypair::from_secret_key(SECP256K1, &key),
+        }
     }
 }
 
 impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
     fn new_session(
         &self,
-        ctx: KeyAggContext,
-        signer_idx: usize,
+        mut pubkeys: Vec<PublicKey>,
+        witness: TaprootWitness,
     ) -> impl Future<Output = Result<ServerFirstRound, SignerIdxOutOfBounds>> + Send {
         async move {
             let nonce_seed = thread_rng().gen::<[u8; 32]>();
-            let ordered_public_keys = ctx.pubkeys().iter().cloned().map(|p| p.into()).collect();
+            if !pubkeys.contains(&self.kp.public_key()) {
+                pubkeys.push(self.kp.public_key());
+            }
+            pubkeys.sort();
+            let signer_index = pubkeys
+                .iter()
+                .position(|pk| pk == &self.kp.public_key())
+                .unwrap();
+            let mut ctx = KeyAggContext::new(pubkeys.clone()).unwrap();
+
+            match witness {
+                TaprootWitness::Key => {
+                    ctx = ctx
+                        .with_unspendable_taproot_tweak()
+                        .expect("must be able to tweak the key agg context")
+                }
+                TaprootWitness::Tweaked { tweak } => {
+                    ctx = ctx
+                        .with_taproot_tweak(tweak.as_ref())
+                        .expect("must be able to tweak the key agg context")
+                }
+                _ => {}
+            }
+
             let first_round = FirstRound::new(
                 ctx,
                 nonce_seed,
-                signer_idx,
-                SecNonceSpices::new().with_seckey(self.key.clone()),
+                signer_index,
+                SecNonceSpices::new().with_seckey(self.kp.secret_key()),
             )
             .map_err(|e| SignerIdxOutOfBounds {
                 index: e.index,
@@ -46,10 +73,14 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
             })?;
             Ok(ServerFirstRound {
                 first_round,
-                ordered_public_keys,
-                seckey: self.key.clone(),
+                ordered_public_keys: pubkeys,
+                seckey: self.kp.secret_key(),
             })
         }
+    }
+
+    fn pubkey(&self) -> impl Future<Output = <Server as Origin>::Container<PublicKey>> + Send {
+        async move { self.kp.public_key() }
     }
 }
 
