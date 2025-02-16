@@ -1260,6 +1260,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 dependencies = [
  "serde",
+ "zeroize",
 ]
 
 [[package]]
@@ -1273,7 +1274,7 @@ dependencies = [
  "bitvm",
  "blake3",
  "proptest",
- "secp256k1 0.29.1",
+ "secp256k1",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
 ]
@@ -1508,43 +1509,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c3c1a368f70d6cf7302d78f8f7093da241fb8e8807c05cc9e51a125895a6d5b"
 
 [[package]]
-name = "bdk_chain"
-version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4955734f97b2baed3f36d16ae7c203fdde31ae85391ac44ee3cbcaf0886db5ce"
-dependencies = [
- "bdk_core",
- "bitcoin",
- "miniscript",
- "serde",
-]
-
-[[package]]
-name = "bdk_core"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b545aea1efc090e4f71f1dd5468090d9f54c3de48002064c04895ef811fbe0b2"
-dependencies = [
- "bitcoin",
- "hashbrown 0.14.5",
- "serde",
-]
-
-[[package]]
-name = "bdk_wallet"
-version = "1.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a13c947be940d32a91b876fc5223a6d839a40bc219496c5c78af74714b1b3f7"
-dependencies = [
- "bdk_chain",
- "bitcoin",
- "miniscript",
- "rand_core",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "bech32"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1615,7 +1579,7 @@ dependencies = [
  "bitcoin_hashes",
  "hex-conservative",
  "hex_lit",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
 ]
 
@@ -1629,7 +1593,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "hex-conservative",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "thiserror 2.0.11",
 ]
@@ -1846,6 +1810,7 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "constant_time_eq 0.3.1",
+ "zeroize",
 ]
 
 [[package]]
@@ -2515,7 +2480,7 @@ dependencies = [
  "crossterm_winapi",
  "libc",
  "mio 0.8.11",
- "parking_lot",
+ "parking_lot 0.12.3",
  "signal-hook",
  "signal-hook-mio",
  "winapi 0.3.9",
@@ -2614,7 +2579,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.10",
 ]
 
 [[package]]
@@ -3257,6 +3222,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "fuchsia-zircon"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3328,7 +3303,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot",
+ "parking_lot 0.12.3",
 ]
 
 [[package]]
@@ -3393,6 +3368,15 @@ name = "futures-utils-wasm"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
+
+[[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
 
 [[package]]
 name = "gcd"
@@ -4240,7 +4224,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "jsonrpsee-types",
- "parking_lot",
+ "parking_lot 0.12.3",
  "pin-project",
  "rand",
  "rustc-hash 2.1.1",
@@ -4493,7 +4477,7 @@ checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
 dependencies = [
  "bitflags 2.8.0",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.8",
 ]
 
 [[package]]
@@ -4629,49 +4613,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mi6"
-version = "0.1.0"
-dependencies = [
- "bdk_wallet",
- "mi6-proto",
- "musig2 0.2.3",
- "tokio",
-]
-
-[[package]]
-name = "mi6-client"
-version = "0.1.0"
-dependencies = [
- "kanal",
- "mi6-proto",
- "quinn",
- "rkyv",
- "terrors",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "mi6-proto"
-version = "0.1.0"
-dependencies = [
- "rkyv",
-]
-
-[[package]]
-name = "mi6-server"
-version = "0.1.0"
-dependencies = [
- "kanal",
- "mi6-proto",
- "quinn",
- "rkyv",
- "terrors",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4691,7 +4632,6 @@ checksum = "5bd3c9608217b0d6fa9c9c8ddd875b85ab72bd4311cfc8db35e1b5a08fc11f4d"
 dependencies = [
  "bech32",
  "bitcoin",
- "serde",
 ]
 
 [[package]]
@@ -4802,25 +4742,10 @@ dependencies = [
  "hmac",
  "once_cell",
  "rand",
- "secp 0.3.0",
- "secp256k1 0.29.1",
+ "secp",
+ "secp256k1",
  "serde",
  "serdect",
- "sha2",
- "subtle",
-]
-
-[[package]]
-name = "musig2"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd55e6cfd1ddd92698a3e456432e16310f0810faad83ac732e2466ed0961b46d"
-dependencies = [
- "base16ct",
- "hmac",
- "once_cell",
- "secp 0.4.1",
- "secp256k1 0.30.0",
  "sha2",
  "subtle",
 ]
@@ -5543,12 +5468,37 @@ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "parking_lot"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
+dependencies = [
+ "instant",
+ "lock_api",
+ "parking_lot_core 0.8.6",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bf18183cf54e8d6059647fc3063646a1801cf30896933ec2311622cc4b9a27"
 dependencies = [
  "lock_api",
- "parking_lot_core",
+ "parking_lot_core 0.9.10",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
+dependencies = [
+ "cfg-if 1.0.0",
+ "instant",
+ "libc",
+ "redox_syscall 0.2.16",
+ "smallvec",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -5559,7 +5509,7 @@ checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.8",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -5627,6 +5577,16 @@ dependencies = [
  "hmac",
  "password-hash",
  "sha2",
+]
+
+[[package]]
+name = "pem"
+version = "3.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8e459365e590736a54c3fa561947c84837534b8e9af6fc5bf781307e82658fae"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
 ]
 
 [[package]]
@@ -6086,10 +6046,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "rcgen"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75e669e5202259b5314d1ea5397316ad400819437857b90861765f24c4cf80a2"
+dependencies = [
+ "pem",
+ "ring",
+ "rustls-pki-types",
+ "time",
+ "yasna",
+]
+
+[[package]]
 name = "recvmsg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
+
+[[package]]
+name = "redox_syscall"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
+dependencies = [
+ "bitflags 1.3.2",
+]
 
 [[package]]
 name = "redox_syscall"
@@ -6891,21 +6873,9 @@ dependencies = [
  "base16ct",
  "once_cell",
  "rand",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serdect",
- "subtle",
-]
-
-[[package]]
-name = "secp"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85ed54b1141d8cec428d8a4abf01282755ba4e4c8a621dd23fa2e0ed761814c2"
-dependencies = [
- "base16ct",
- "once_cell",
- "secp256k1 0.30.0",
  "subtle",
 ]
 
@@ -6922,23 +6892,84 @@ dependencies = [
 ]
 
 [[package]]
-name = "secp256k1"
-version = "0.30.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b50c5943d326858130af85e049f2661ba3c78b26589b8ab98e65e80ae44a1252"
-dependencies = [
- "bitcoin_hashes",
- "rand",
- "secp256k1-sys",
-]
-
-[[package]]
 name = "secp256k1-sys"
 version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4387882333d3aa8cb20530a17c69a3752e97837832f34f6dccc760e715001d9"
 dependencies = [
  "cc",
+]
+
+[[package]]
+name = "secret-service"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "blake3",
+ "hkdf",
+ "musig2",
+ "parking_lot 0.12.3",
+ "rand",
+ "rcgen",
+ "rkyv",
+ "rustls-pemfile",
+ "secret-service-proto",
+ "secret-service-server",
+ "serde",
+ "sha2",
+ "sled",
+ "strata-bridge-primitives",
+ "strata-key-derivation",
+ "terrors",
+ "tokio",
+ "toml",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+]
+
+[[package]]
+name = "secret-service-client"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "kanal",
+ "musig2",
+ "quinn",
+ "rkyv",
+ "secret-service-proto",
+ "strata-bridge-primitives",
+ "terrors",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "secret-service-proto"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "musig2",
+ "quinn",
+ "rkyv",
+ "strata-bridge-primitives",
+]
+
+[[package]]
+name = "secret-service-server"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "futures",
+ "kanal",
+ "musig2",
+ "parking_lot 0.12.3",
+ "quinn",
+ "rkyv",
+ "secret-service-proto",
+ "strata-bridge-primitives",
+ "terrors",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -7140,7 +7171,7 @@ dependencies = [
  "futures",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.3",
  "scc",
  "serial_test_derive",
 ]
@@ -7272,6 +7303,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
+]
+
+[[package]]
+name = "sled"
+version = "0.34.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f96b4737c2ce5987354855aed3797279def4ebf734436c6aa4552cf8e169935"
+dependencies = [
+ "crc32fast",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "fs2",
+ "fxhash",
+ "libc",
+ "log",
+ "parking_lot 0.11.2",
 ]
 
 [[package]]
@@ -8035,7 +8082,7 @@ dependencies = [
  "clap",
  "jsonrpsee",
  "rand",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde_json",
  "sqlx",
  "strata-bridge-agent",
@@ -8062,10 +8109,10 @@ dependencies = [
  "bitvm",
  "borsh",
  "jsonrpsee",
- "musig2 0.1.0",
+ "musig2",
  "rand",
  "rkyv",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "sp1-verifier",
@@ -8092,9 +8139,9 @@ dependencies = [
  "arbitrary",
  "async-trait",
  "bitcoin",
- "musig2 0.1.0",
+ "musig2",
  "rkyv",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde_json",
  "sqlx",
  "strata-bridge-primitives",
@@ -8122,9 +8169,9 @@ dependencies = [
  "bitcoin-bosd",
  "bitcoin-script",
  "bitvm",
- "musig2 0.1.0",
+ "musig2",
  "rkyv",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "sha2",
  "strata-primitives",
@@ -8211,7 +8258,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata.git#42592a9f3ce1ca53c7ed27df090868617493b411"
 dependencies = [
  "bitcoin",
- "musig2 0.1.0",
+ "musig2",
  "strata-db",
  "strata-primitives",
  "strata-storage",
@@ -8225,7 +8272,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "corepc-node",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
@@ -8243,7 +8290,7 @@ dependencies = [
  "bitcoin",
  "bitvm",
  "corepc-node",
- "musig2 0.1.0",
+ "musig2",
  "rand_core",
  "strata-bridge-primitives",
  "strata-btcio",
@@ -8255,7 +8302,7 @@ version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata.git#42592a9f3ce1ca53c7ed27df090868617493b411"
 dependencies = [
  "bitcoin",
- "musig2 0.1.0",
+ "musig2",
  "serde",
  "strata-primitives",
  "thiserror 2.0.11",
@@ -8273,7 +8320,7 @@ dependencies = [
  "borsh",
  "corepc-node",
  "rkyv",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "sp1-verifier",
  "strata-bridge-db",
@@ -8300,10 +8347,10 @@ dependencies = [
  "bytes",
  "digest 0.10.7",
  "hex",
- "musig2 0.1.0",
+ "musig2",
  "rand",
  "reqwest",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha2",
@@ -8376,7 +8423,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "futures",
- "secp256k1 0.29.1",
+ "secp256k1",
  "strata-btcio",
  "strata-chaintsn",
  "strata-common",
@@ -8404,7 +8451,7 @@ name = "strata-crypto"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata.git#42592a9f3ce1ca53c7ed27df090868617493b411"
 dependencies = [
- "secp256k1 0.29.1",
+ "secp256k1",
  "sha2",
  "strata-primitives",
 ]
@@ -8419,8 +8466,8 @@ dependencies = [
  "bitcoin",
  "borsh",
  "hex",
- "musig2 0.1.0",
- "parking_lot",
+ "musig2",
+ "parking_lot 0.12.3",
  "serde",
  "strata-mmr",
  "strata-primitives",
@@ -8441,6 +8488,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-key-derivation"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata.git#42592a9f3ce1ca53c7ed27df090868617493b411"
+dependencies = [
+ "bitcoin",
+ "secp256k1",
+ "strata-primitives",
+ "thiserror 2.0.11",
+ "zeroize",
+]
+
+[[package]]
 name = "strata-l1tx"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata.git#42592a9f3ce1ca53c7ed27df090868617493b411"
@@ -8450,7 +8509,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "hex",
- "musig2 0.1.0",
+ "musig2",
  "strata-bridge-tx-builder",
  "strata-primitives",
  "strata-state",
@@ -8485,10 +8544,10 @@ dependencies = [
  "const-hex",
  "digest 0.10.7",
  "hex",
- "musig2 0.1.0",
+ "musig2",
  "num_enum 0.7.3",
  "rand",
- "secp256k1 0.29.1",
+ "secp256k1",
  "serde",
  "serde_json",
  "sha2",
@@ -8560,7 +8619,7 @@ source = "git+https://github.com/alpenlabs/strata.git#42592a9f3ce1ca53c7ed27df09
 dependencies = [
  "anyhow",
  "borsh",
- "parking_lot",
+ "parking_lot 0.12.3",
  "serde",
  "strata-chaintsn",
  "strata-consensus-logic",
@@ -8620,7 +8679,7 @@ dependencies = [
  "async-trait",
  "bitcoin",
  "lru",
- "parking_lot",
+ "parking_lot 0.12.3",
  "paste",
  "strata-db",
  "strata-primitives",
@@ -8975,7 +9034,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.0.3",
- "parking_lot",
+ "parking_lot 0.12.3",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -9699,7 +9758,7 @@ version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "372d5b87f58ec45c384ba03563b03544dc5fadc3983e434b286913f5b4a9bb6d"
 dependencies = [
- "redox_syscall",
+ "redox_syscall 0.5.8",
  "wasite",
 ]
 
@@ -10035,6 +10094,15 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "rustix",
+]
+
+[[package]]
+name = "yasna"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e17bb3549cc1321ae1296b9cdc2698e2b6cb1992adfa19a8c72e5b7a738f44cd"
+dependencies = [
+ "time",
 ]
 
 [[package]]
