@@ -1,8 +1,14 @@
+use bitcoin::{
+    hashes::Hash,
+    taproot::{ControlBlock, TaprootError},
+    ScriptBuf, TapNodeHash,
+};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     KeyAggContext,
 };
 use rkyv::{with::Map, Archive, Deserialize, Serialize};
+use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
 use super::traits::{Musig2SessionId, SignerIdxOutOfBounds};
 
@@ -26,6 +32,9 @@ pub enum ServerMessage {
     },
 
     Musig2NewSession(Result<Musig2SessionId, SignerIdxOutOfBounds>),
+    Musig2Pubkey {
+        pubkey: [u8; 33],
+    },
 
     Musig2FirstRoundOurNonce {
         our_nonce: [u8; 66],
@@ -110,9 +119,10 @@ pub enum ClientMessage {
     P2PPubkey,
 
     Musig2NewSession {
-        ctx: KeyAggContext,
-        signer_idx: usize,
+        pubkeys: Vec<[u8; 33]>,
+        witness: SerializableTaprootWitness,
     },
+    Musig2Pubkey,
 
     Musig2FirstRoundOurNonce {
         session_id: usize,
@@ -162,4 +172,63 @@ pub enum ClientMessage {
     StakeChainGetPreimage {
         deposit_idx: u64,
     },
+}
+
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub enum SerializableTaprootWitness {
+    Key,
+    Script {
+        script_buf: Vec<u8>,
+        control_block: Vec<u8>,
+    },
+    Tweaked {
+        tweak: [u8; 32],
+    },
+}
+
+impl From<TaprootWitness> for SerializableTaprootWitness {
+    fn from(witness: TaprootWitness) -> Self {
+        match witness {
+            TaprootWitness::Key => SerializableTaprootWitness::Key,
+            TaprootWitness::Script {
+                script_buf,
+                control_block,
+            } => SerializableTaprootWitness::Script {
+                script_buf: script_buf.into_bytes(),
+                control_block: control_block.serialize(),
+            },
+            TaprootWitness::Tweaked { tweak } => SerializableTaprootWitness::Tweaked {
+                tweak: tweak.to_raw_hash().to_byte_array(),
+            },
+        }
+    }
+}
+
+pub enum TaprootWitnessError {
+    InvalidWitnessType,
+    InvalidScriptControlBlock(TaprootError),
+}
+
+impl TryFrom<SerializableTaprootWitness> for TaprootWitness {
+    type Error = TaprootWitnessError;
+    fn try_from(value: SerializableTaprootWitness) -> Result<Self, Self::Error> {
+        match value {
+            SerializableTaprootWitness::Key => Ok(TaprootWitness::Key),
+            SerializableTaprootWitness::Script {
+                script_buf,
+                control_block,
+            } => {
+                let script_buf = ScriptBuf::from_bytes(script_buf);
+                let control_block = ControlBlock::decode(&control_block)
+                    .map_err(TaprootWitnessError::InvalidScriptControlBlock)?;
+                Ok(TaprootWitness::Script {
+                    script_buf,
+                    control_block,
+                })
+            }
+            SerializableTaprootWitness::Tweaked { tweak } => Ok(TaprootWitness::Tweaked {
+                tweak: TapNodeHash::from_byte_array(tweak),
+            }),
+        }
+    }
 }

@@ -34,6 +34,7 @@ use secret_service_proto::{
     },
     wire::{ArchivedVersionedClientMessage, LengthUint, VersionedServerMessage, WireMessage},
 };
+use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
 use tokio::{
     sync::Mutex,
@@ -238,15 +239,25 @@ where
                 }
             }
 
-            ArchivedClientMessage::Musig2NewSession { ctx, signer_idx } => 'block: {
+            ArchivedClientMessage::Musig2NewSession { pubkeys, witness } => 'block: {
                 let signer = service.musig2_signer();
-                let Ok(ctx) = deserialize::<KeyAggContext, rancor::Error>(ctx) else {
+                let Ok(ser_witness) = deserialize::<_, rancor::Error>(witness) else {
                     break 'block ServerMessage::InvalidClientMessage;
                 };
-                let first_round = match signer
-                    .new_session(ctx, signer_idx.to_native() as usize)
-                    .await
-                {
+                let Ok(witness) = TaprootWitness::try_from(ser_witness)
+                    .map_err(|_| ServerMessage::InvalidClientMessage)
+                else {
+                    break 'block ServerMessage::InvalidClientMessage;
+                };
+                let Ok(pubkeys) = pubkeys
+                    .into_iter()
+                    .map(|data| PublicKey::from_slice(data))
+                    .collect::<Result<Vec<_>, _>>()
+                else {
+                    break 'block ServerMessage::InvalidClientMessage;
+                };
+
+                let first_round = match signer.new_session(pubkeys, witness).await {
                     Ok(fr) => fr,
                     Err(e) => break 'block ServerMessage::Musig2NewSession(Err(e)),
                 };
@@ -266,6 +277,10 @@ where
 
                 ServerMessage::Musig2NewSession(Ok(write_perm.session_id()))
             }
+            ArchivedClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {
+                pubkey: service.musig2_signer().pubkey().await.serialize(),
+            },
+
             ArchivedClientMessage::Musig2FirstRoundOurNonce { session_id } => {
                 let r = musig2_sm
                     .lock()

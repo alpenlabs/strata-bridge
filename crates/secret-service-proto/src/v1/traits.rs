@@ -8,6 +8,7 @@ use musig2::{
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
+use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
 use super::wire::ServerMessage;
 
@@ -63,9 +64,10 @@ pub struct SignerIdxOutOfBounds {
 pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
     fn new_session(
         &self,
-        ctx: KeyAggContext,
-        signer_idx: usize,
+        pubkeys: Vec<PublicKey>,
+        witness: TaprootWitness,
     ) -> impl Future<Output = O::Container<Result<FirstRound, SignerIdxOutOfBounds>>> + Send;
+    fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
 }
 
 pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {

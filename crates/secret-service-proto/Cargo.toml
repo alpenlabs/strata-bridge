@@ -8,3 +8,4 @@ bitcoin.workspace = true
 musig2 = { path = "../musig2" }
 quinn.workspace = true
 rkyv.workspace = true
+strata-bridge-primitives.workspace = true

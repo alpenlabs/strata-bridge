@@ -31,6 +31,7 @@ use secret_service_proto::{
         WireMessage,
     },
 };
+use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
 use tokio::time::timeout;
 
@@ -428,12 +429,15 @@ struct Musig2Client {
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     fn new_session(
         &self,
-        ctx: KeyAggContext,
-        signer_idx: usize,
+        pubkeys: Vec<PublicKey>,
+        witness: TaprootWitness,
     ) -> impl Future<Output = Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError>> + Send
     {
         async move {
-            let msg = ClientMessage::Musig2NewSession { ctx, signer_idx };
+            let msg = ClientMessage::Musig2NewSession {
+                pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
+                witness: witness.into(),
+            };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
                 return Err(ClientError::ProtocolError(res));
@@ -447,6 +451,18 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
                 }),
                 Err(e) => Err(e),
             })
+        }
+    }
+
+    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
+        async move {
+            let msg = ClientMessage::Musig2Pubkey;
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+            let ServerMessage::Musig2Pubkey { pubkey } = res else {
+                return Err(ClientError::ProtocolError(res));
+            };
+
+            PublicKey::from_slice(&pubkey).map_err(|_| ClientError::ProtocolError(res))
         }
     }
 }
