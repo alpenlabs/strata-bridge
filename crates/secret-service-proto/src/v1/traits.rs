@@ -4,7 +4,7 @@ use bitcoin::Txid;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, PublicKey},
-    AggNonce, KeyAggContext, LiftedSignature, PartialSignature, PubNonce,
+    AggNonce, LiftedSignature, PartialSignature, PubNonce,
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};

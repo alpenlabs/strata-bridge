@@ -7,15 +7,11 @@ use musig2::{
     FirstRound, KeyAggContext, LiftedSignature, SecNonceSpices, SecondRound,
 };
 use rand::{thread_rng, Rng};
-use rkyv::{rancor, with::Map, Archive, Deserialize, Serialize};
 use secret_service_proto::v1::traits::{
-    Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
+    Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
     SignerIdxOutOfBounds,
 };
-use secret_service_server::RoundPersister;
-use sled::Tree;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-use terrors::OneOf;
 
 pub struct Ms2Signer {
     kp: Keypair,
@@ -84,134 +80,9 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
     }
 }
 
-pub struct SledRoundPersist {
-    first_rounds: Tree,
-    second_rounds: Tree,
-}
-
-impl SledRoundPersist {
-    pub fn new(first_rounds: Tree, second_rounds: Tree) -> Self {
-        Self {
-            first_rounds,
-            second_rounds,
-        }
-    }
-}
-
-impl RoundPersister<ServerFirstRound, ServerSecondRound> for SledRoundPersist {
-    type Error = OneOf<(rancor::Error, sled::Error)>;
-
-    fn persist_first_round(
-        &self,
-        session_id: Musig2SessionId,
-        first_round: &ServerFirstRound,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            let bytes = rkyv::to_bytes::<rancor::Error>(first_round).map_err(OneOf::new)?;
-            self.first_rounds
-                .insert(&session_id.to_be_bytes(), bytes.as_ref())
-                .map_err(OneOf::new)?;
-            self.first_rounds.flush_async().await.map_err(OneOf::new)?;
-            Ok(())
-        }
-    }
-
-    fn persist_second_round(
-        &self,
-        session_id: Musig2SessionId,
-        second_round: &ServerSecondRound,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            let bytes = rkyv::to_bytes::<rancor::Error>(second_round).map_err(OneOf::new)?;
-            self.second_rounds
-                .insert(&session_id.to_be_bytes(), bytes.as_ref())
-                .map_err(OneOf::new)?;
-            self.second_rounds.flush_async().await.map_err(OneOf::new)?;
-            Ok(())
-        }
-    }
-
-    fn delete_first_round(
-        &self,
-        session_id: Musig2SessionId,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            self.first_rounds
-                .remove(&session_id.to_be_bytes())
-                .map_err(OneOf::new)?;
-            self.first_rounds.flush_async().await.map_err(OneOf::new)?;
-            Ok(())
-        }
-    }
-
-    fn delete_second_round(
-        &self,
-        session_id: Musig2SessionId,
-    ) -> impl Future<Output = Result<(), Self::Error>> + Send {
-        async move {
-            self.second_rounds
-                .remove(&session_id.to_be_bytes())
-                .map_err(OneOf::new)?;
-            self.second_rounds.flush_async().await.map_err(OneOf::new)?;
-            Ok(())
-        }
-    }
-
-    fn load_first_rounds(
-        &self,
-    ) -> impl Future<Output = Result<Vec<(Musig2SessionId, ServerFirstRound)>, Self::Error>> + Send
-    {
-        async move {
-            Ok(self
-                .first_rounds
-                .iter()
-                .map(|res| {
-                    let (session_id_bytes, bytes) = res.map_err(OneOf::new)?;
-                    let session_id = Musig2SessionId::from_be_bytes(
-                        session_id_bytes
-                            .as_ref()
-                            .try_into()
-                            .expect("valid session id"),
-                    );
-                    let first_round = rkyv::from_bytes::<ServerFirstRound, rancor::Error>(&bytes)
-                        .map_err(OneOf::new)?;
-                    Ok((session_id, first_round))
-                })
-                .collect::<Result<Vec<_>, Self::Error>>()?)
-        }
-    }
-
-    fn load_second_rounds(
-        &self,
-    ) -> impl Future<Output = Result<Vec<(Musig2SessionId, ServerSecondRound)>, Self::Error>> + Send
-    {
-        async move {
-            Ok(self
-                .second_rounds
-                .iter()
-                .map(|res| {
-                    let (session_id_bytes, bytes) = res.map_err(OneOf::new)?;
-                    let session_id = Musig2SessionId::from_be_bytes(
-                        session_id_bytes
-                            .as_ref()
-                            .try_into()
-                            .expect("valid session id"),
-                    );
-                    let second_round = rkyv::from_bytes::<ServerSecondRound, rancor::Error>(&bytes)
-                        .map_err(OneOf::new)?;
-                    Ok((session_id, second_round))
-                })
-                .collect::<Result<Vec<_>, Self::Error>>()?)
-        }
-    }
-}
-
-#[derive(Archive, Serialize, Deserialize)]
 pub struct ServerFirstRound {
     first_round: FirstRound,
-    #[rkyv(with = Map<musig2::rkyv_wrappers::PublicKey>)]
     ordered_public_keys: Vec<PublicKey>,
-    #[rkyv(with = musig2::rkyv_wrappers::SecretKey)]
     seckey: SecretKey,
 }
 
@@ -271,10 +142,8 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
     }
 }
 
-#[derive(Archive, Serialize, Deserialize)]
 pub struct ServerSecondRound {
     second_round: SecondRound<[u8; 32]>,
-    #[rkyv(with = Map<musig2::rkyv_wrappers::PublicKey>)]
     ordered_public_keys: Vec<PublicKey>,
 }
 

@@ -1,4 +1,4 @@
-use std::{mem::MaybeUninit, ptr, sync::Arc};
+use std::{mem::MaybeUninit, sync::Arc};
 
 use musig2::{errors::RoundFinalizeError, LiftedSignature};
 use secret_service_proto::v1::traits::{Musig2SignerFirstRound, Musig2SignerSecondRound, Server};

@@ -1,15 +1,14 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use bitcoin::{bip32::Xpriv, Network};
-use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound, SledRoundPersist};
+use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
 use operator::Operator;
 use p2p::ServerP2PSigner;
 use rand::Rng;
 use secret_service_proto::v1::traits::{SecretService, Server};
-use sled::Db;
 use stakechain::StakeChain;
 use strata_key_derivation::operator::OperatorKeys;
-use tokio::{fs, io, task::spawn_blocking};
+use tokio::{fs, io};
 use wots::SeededWotsSigner;
 
 pub mod musig2;
@@ -20,13 +19,12 @@ pub mod wots;
 
 pub struct Service {
     keys: OperatorKeys,
-    db: Db,
 }
 
 const NETWORK: Network = Network::Signet;
 
 impl Service {
-    pub async fn load_from_seed_and_db(seed_path: &Path, db_path: PathBuf) -> io::Result<Self> {
+    pub async fn load_from_seed(seed_path: &Path) -> io::Result<Self> {
         let mut seed = [0; 32];
 
         if let Some(parent) = seed_path.parent() {
@@ -43,20 +41,9 @@ impl Service {
             Err(e) => return Err(e),
         };
 
-        let db = spawn_blocking(move || sled::open(db_path))
-            .await
-            .expect("thread ok")?;
-
         let keys = OperatorKeys::new(&Xpriv::new_master(NETWORK, &seed).expect("valid xpriv"))
             .expect("valid keychain");
-        Ok(Self { keys, db })
-    }
-
-    pub fn round_persister(&self) -> io::Result<SledRoundPersist> {
-        Ok(SledRoundPersist::new(
-            self.db.open_tree(b"musig2_first_rounds")?,
-            self.db.open_tree(b"musig2_second_rounds")?,
-        ))
+        Ok(Self { keys })
     }
 }
 

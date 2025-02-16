@@ -69,19 +69,13 @@ async fn main() {
         connection_limit: conf.transport.conn_limit,
     };
 
-    let service = Service::load_from_seed_and_db(
+    let service = Service::load_from_seed(
         &conf
             .seed
             .unwrap_or(PathBuf::from_str("seed").expect("valid path")),
-        conf.db
-            .unwrap_or(PathBuf::from_str("db").expect("valid path")),
     )
     .await
     .expect("good service");
 
-    let persister = service.round_persister().expect("good persister");
-
-    run_server(config, service.into(), persister.into())
-        .unwrap()
-        .await;
+    run_server(config, service.into()).unwrap().await.unwrap();
 }

@@ -10,7 +10,7 @@ use bitcoin::{hashes::Hash, Txid};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, Error, PublicKey},
-    AggNonce, KeyAggContext, LiftedSignature, PubNonce,
+    AggNonce, LiftedSignature, PubNonce,
 };
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},

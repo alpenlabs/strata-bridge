@@ -7,7 +7,7 @@ edition = "2021"
 bitcoin.workspace = true
 blake3.workspace = true
 hkdf = "0.12.4"
-musig2 = { path = "../musig2" }
+musig2.workspace = true
 parking_lot.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"

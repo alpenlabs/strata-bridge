@@ -16,7 +16,6 @@ members = [
   "crates/secret-service-proto",
   "crates/secret-service-client",
   "crates/secret-service-server",
-  "crates/musig2",
 
   # binaries listed separately
   "bin/strata-bridge",
