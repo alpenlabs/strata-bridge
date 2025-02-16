@@ -1,11 +1,11 @@
 use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*, types::OperatorIdx};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`PostAssertTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]

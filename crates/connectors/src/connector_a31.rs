@@ -1,3 +1,7 @@
+//! This module contains the connector from the first output of the PostAssert transaction.
+//!
+//! This connector is spent by the Disprove transaction to disprove the proof committed in the
+//! AssertData transactions and the Claim transaction by the operator.
 use bitcoin::{
     hashes::Hash,
     psbt::Input,
@@ -30,20 +34,36 @@ pub struct ConnectorA31 {
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum ConnectorA31Leaf {
+    /// The leaf used to disprove the proof committed in the AssertData transactions.
     DisproveProof {
+        /// The locking script corresponding to the faulty proof execution.
         disprove_script: Script,
+        /// The witness script used in the disprove that shows a faulty execution i.e., an
+        /// execution segment where the f(z_k) != z_{k+1}.
         witness_script: Option<Script>,
     },
 
+    /// The leaf used to disprove the proof public params committed in the AssertData transactions.
     DisprovePublicInputsCommitment {
+        /// The deposit transaction ID for which the current tx graph has been constructed and
+        /// signed.
         deposit_txid: Txid,
+        /// The witness data for the disprove script.
+        ///
+        /// This is the same data that is committed in the public inputs of the proof by the
+        /// operator making the claim.
         witness: Option<DisprovePublicInputsCommitmentWitness>,
     },
 }
 
+/// The witness used to disprove the public inputs commitment.
 #[derive(Debug, Clone, Copy)]
 pub struct DisprovePublicInputsCommitmentWitness {
+    /// The WOTS value for the withdrawal fulfillment txid committed by the assigned operator in
+    /// the Claim Transaction.
     pub sig_withdrawal_fulfillment_txid: wots256::Signature,
+    /// The WOTS value for the public inputs hash committed by the assigned operator in one of the
+    /// AssertData transactions.
     pub sig_public_inputs_hash: wots256::Signature,
 }
 

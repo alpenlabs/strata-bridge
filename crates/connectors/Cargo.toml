@@ -1,7 +1,7 @@
 [package]
-edition = "2021"
-name = "strata-bridge-stake-chain"
+name = "strata-bridge-connectors"
 version = "0.1.0"
+edition = "2021"
 
 [lints]
 rust.missing_debug_implementations = "warn"
@@ -13,17 +13,26 @@ rust.missing_docs = "warn"
 rustdoc.all = "warn"
 
 [dependencies]
-strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof-snark.workspace = true
 
-bitcoin = { workspace = true, features = ["rand-std"] }
-serde.workspace = true
-thiserror.workspace = true
+bincode.workspace = true
+bitcoin.workspace = true
+bitcoin-script.workspace = true
+bitvm.workspace = true
+secp256k1.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
-strata-common.workspace = true
+strata-bridge-proof-protocol.workspace = true
 
+strata-common.workspace = true
+strata-btcio.workspace = true
+
+borsh.workspace = true
 corepc-node.workspace = true
-secp256k1.workspace = true
-tracing.workspace = true
+sp1-verifier.workspace = true
+
+[features]
+mock = ["strata-bridge-proof-snark/mock"]

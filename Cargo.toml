@@ -9,6 +9,7 @@ members = [
   "crates/rpc/bridge",
   "crates/bridge-proof/test-utils",
   "crates/stake-chain",
+  "crates/connectors",
   "crates/tx-graph",
   "crates/btc-notify",
   "bridge-guest-builder",
@@ -30,6 +31,7 @@ resolver = "2"
 # deps in this workspace
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 strata-bridge-agent = { path = "crates/agent" }
+strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-primitives = { path = "crates/primitives" }
@@ -111,6 +113,8 @@ serde_json = { version = "1.0", default-features = false, features = [
 ] }
 serde_with = "3.12.0"
 sha2 = "0.10"
+sp1-sdk = "4.0.0"
+sp1-verifier = "4.1.1"
 sqlx = { version = "0.8.2", features = [
   "sqlite",
   "runtime-tokio",

@@ -3,10 +3,10 @@ use bitcoin::{
     Transaction, TxOut, Txid,
 };
 use secp256k1::schnorr;
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{params::prelude::UNSPENDABLE_INTERNAL_KEY, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`DisproveTx`].
 #[derive(Debug, Clone)]

@@ -4,10 +4,8 @@
 use std::ops::{Deref, DerefMut};
 
 use bitcoin::{hashes::sha256, relative, Amount, OutPoint, TxIn, TxOut, XOnlyPublicKey};
+use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{params::stake_chain::StakeChainParams, wots};
-use strata_bridge_tx_graph::connectors::prelude::{
-    ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake,
-};
 
 use crate::prelude::{StakeTx, STAKE_VOUT};
 

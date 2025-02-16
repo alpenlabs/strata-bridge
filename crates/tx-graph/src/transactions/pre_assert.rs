@@ -3,11 +3,11 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`PreAssertTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]

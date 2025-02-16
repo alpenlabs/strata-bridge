@@ -2,6 +2,7 @@ use std::array;
 
 use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::{groth16::g16, signatures::wots_api::wots256, treepp::*};
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     params::prelude::*,
     scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
@@ -12,7 +13,6 @@ use super::{
     errors::{TxError, TxResult},
     pre_assert::PRE_ASSERT_OUTS,
 };
-use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`AssertDataTxBatch`].
 #[derive(Debug, Clone)]

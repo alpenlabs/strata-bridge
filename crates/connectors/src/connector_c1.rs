@@ -1,3 +1,7 @@
+//! This module contains the connector for the second output of the Claim Transaction.
+//!
+//! This connector is used to challenge the operator in case of an invalid claim.
+// FIXME: remove this connector once the stake chain is integrated.
 use bitcoin::{
     psbt::Input,
     taproot::{self, ControlBlock, LeafVersion, TaprootSpendInfo},

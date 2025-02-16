@@ -20,8 +20,8 @@ num-traits = "0.2.19"
 rs_merkle = { version = "1.4.2", default-features = false }
 serde = { workspace = true, features = ["derive"] }
 sha2.workspace = true
-sp1-sdk = "4.0.0"
-sp1-verifier = { version = "4.0.0" }
+sp1-sdk.workspace = true
+sp1-verifier.workspace = true
 strata-bridge-guest-builder.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true

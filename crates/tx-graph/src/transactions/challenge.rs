@@ -7,6 +7,7 @@ use bitcoin::{
     Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use secp256k1::XOnlyPublicKey;
+use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
 use strata_bridge_primitives::scripts::{
     prelude::{create_tx, create_tx_ins, create_tx_outs},
     taproot::TaprootWitness,
@@ -16,7 +17,6 @@ use super::{
     errors::{TxError, TxResult},
     prelude::CovenantTx,
 };
-use crate::connectors::prelude::{ConnectorC1, ConnectorC1Path};
 
 /// Data needed to construct a [`ChallengeTx`].
 #[derive(Debug, Clone)]

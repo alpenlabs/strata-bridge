@@ -1520,7 +1520,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -5765,7 +5765,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.95",
@@ -7613,9 +7613,9 @@ dependencies = [
 
 [[package]]
 name = "sp1-verifier"
-version = "4.0.0"
+version = "4.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "613b9d79e1dd8d1b584654710a462340ff6b4b1ad8762830c4c9f772892467f8"
+checksum = "94bf3296a784f68f51caaa9d79a5dd4046c507bdcc54ca26e14c41c4ea7d844a"
 dependencies = [
  "hex",
  "lazy_static",
@@ -7903,6 +7903,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp1-verifier",
+ "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-proof-primitives",
@@ -7916,6 +7917,27 @@ dependencies = [
  "strata-rpc-types",
  "strata-state",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "strata-bridge-connectors"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin",
+ "bitcoin-script",
+ "bitvm",
+ "borsh",
+ "corepc-node",
+ "secp256k1",
+ "sp1-verifier",
+ "strata-bridge-primitives",
+ "strata-bridge-proof-protocol",
+ "strata-bridge-proof-snark",
+ "strata-bridge-test-utils",
+ "strata-btcio",
+ "strata-common",
  "tracing",
 ]
 
@@ -8061,9 +8083,9 @@ dependencies = [
  "corepc-node",
  "secp256k1",
  "serde",
+ "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
- "strata-bridge-tx-graph",
  "strata-common",
  "thiserror 2.0.11",
  "tracing",
@@ -8099,21 +8121,17 @@ dependencies = [
 name = "strata-bridge-tx-graph"
 version = "0.1.0"
 dependencies = [
- "bincode",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoin-script",
  "bitvm",
- "borsh",
  "corepc-node",
  "rkyv",
  "secp256k1",
  "serde",
- "sp1-verifier",
+ "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-primitives",
- "strata-bridge-proof-protocol",
- "strata-bridge-proof-snark",
  "strata-bridge-test-utils",
  "strata-btcio",
  "strata-common",

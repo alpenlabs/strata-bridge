@@ -1,3 +1,5 @@
+//! This connector is used to connect the Kickoff and Claim transactions.
+// FIXME: remove this once the stake chain is integrated.
 use bitcoin::{
     hashes::Hash,
     psbt::Input,

@@ -4,6 +4,7 @@
 use bitcoin::{Amount, Txid};
 use secp256k1::XOnlyPublicKey;
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     params::connectors::*,
@@ -13,7 +14,6 @@ use strata_bridge_primitives::{
 use tracing::{debug, info};
 
 use crate::{
-    connectors::prelude::*,
     errors::TxGraphResult,
     transactions::{
         payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},

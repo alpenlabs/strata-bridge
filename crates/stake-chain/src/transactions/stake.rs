@@ -7,10 +7,8 @@ use bitcoin::{
     XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::scripts::taproot::finalize_input;
-use strata_bridge_tx_graph::connectors::prelude::{
-    ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake,
-};
 
 use crate::{
     prelude::{DUST_AMOUNT, OPERATOR_FUNDS},

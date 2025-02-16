@@ -1,3 +1,7 @@
+//! This module contains the connector from the first output of the Claim transaction.
+//!
+//! This connector is spent by either the Pre-Assert transaction if challenged or the
+//! PayoutOptimistic transaction if unchallenged.
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},

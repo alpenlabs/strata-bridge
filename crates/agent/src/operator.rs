@@ -23,6 +23,9 @@ use musig2::{
 };
 use rand::Rng;
 use secp256k1::schnorr::Signature;
+use strata_bridge_connectors::{
+    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS, prelude::ConnectorA30Leaf,
+};
 use strata_bridge_db::{
     errors::DbError,
     operator::{KickoffInfo, OperatorDb},
@@ -44,8 +47,6 @@ use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_bridge_proof_protocol::BridgeProofInput;
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_tx_graph::{
-    connectors::prelude::ConnectorA30Leaf,
-    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };

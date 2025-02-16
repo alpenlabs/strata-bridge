@@ -4,10 +4,12 @@ use bitcoin::{
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::{
+    ConnectorA30, ConnectorA30Leaf, ConnectorCpfp, ConnectorS,
+};
 use strata_bridge_primitives::{params::connectors::PAYOUT_TIMELOCK, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorCpfp, ConnectorS};
 
 /// Data needed to construct a [`PayoutTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]

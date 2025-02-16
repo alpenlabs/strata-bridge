@@ -1,12 +1,12 @@
 use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::signatures::wots_api::wots256;
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{params::prelude::OPERATOR_STAKE, scripts::prelude::*};
 
 use super::{
     errors::{TxError, TxResult},
     prelude::CovenantTx,
 };
-use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`ClaimTx`].
 #[derive(Debug, Clone)]

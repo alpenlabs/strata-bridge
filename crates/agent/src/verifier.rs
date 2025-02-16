@@ -3,6 +3,13 @@ use std::sync::Arc;
 use bitcoin::TxOut;
 use bitvm::groth16::g16;
 use sp1_verifier::hash_public_inputs;
+use strata_bridge_connectors::{
+    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
+    prelude::{
+        ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf,
+        DisprovePublicInputsCommitmentWitness,
+    },
+};
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
@@ -13,16 +20,9 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
 use strata_bridge_proof_snark::bridge_vk;
-use strata_bridge_tx_graph::{
-    connectors::prelude::{
-        ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf,
-        DisprovePublicInputsCommitmentWitness,
-    },
-    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
-    transactions::{
-        claim::ClaimTx,
-        prelude::{AssertDataTxBatch, CovenantTx, DisproveData, DisproveTx},
-    },
+use strata_bridge_tx_graph::transactions::{
+    claim::ClaimTx,
+    prelude::{AssertDataTxBatch, CovenantTx, DisproveData, DisproveTx},
 };
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, trace, warn};
