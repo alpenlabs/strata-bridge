@@ -1,4 +1,7 @@
-use bitcoin::{OutPoint, Script, Transaction, TxOut, Txid};
+use std::sync::Arc;
+
+use bitcoin::{opcodes::all::OP_RETURN, OutPoint, Script, Transaction, Txid};
+use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::types::OperatorIdx;
 use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx,
@@ -44,41 +47,34 @@ fn is_deposit_request(tx: &Transaction) -> bool {
     })
 }
 
-fn is_strata_checkpoint_transaction(tx: &Transaction) -> bool {
-    todo!()
+pub(crate) fn is_txid(txid: Txid) -> TxPredicate {
+    Arc::new(move |tx| tx.compute_txid() == txid)
 }
 
-pub(crate) fn is_txid(txid: Txid) -> impl Fn(&Transaction) -> bool {
-    move |tx| tx.compute_txid() == txid
-}
-
-pub(crate) fn is_challenge(claim: &ClaimTx) -> impl Fn(&Transaction) -> bool {
+pub(crate) fn is_challenge(claim: &ClaimTx) -> TxPredicate {
     let claim_txid = claim.psbt().unsigned_tx.compute_txid();
-    move |tx| {
+    Arc::new(move |tx| {
         tx.input
             .first()
             .map(|txin| txin.previous_output == OutPoint::new(claim_txid, 1))
             .unwrap_or(false)
             && tx.output.len() == 1
-    }
+    })
 }
 
-pub(crate) fn is_disprove(post_assert: &PostAssertTx) -> impl Fn(&Transaction) -> bool {
+pub(crate) fn is_disprove(post_assert: &PostAssertTx) -> TxPredicate {
     let post_assert_txid = post_assert.psbt().unsigned_tx.compute_txid();
-    move |tx| {
+    Arc::new(move |tx| {
         tx.input
             .first()
             .map(|txin| txin.previous_output == OutPoint::new(post_assert_txid, 0))
             .unwrap_or(false)
             && tx.input.len() == 2
             && tx.output.len() == 2
-    }
+    })
 }
 
-pub(crate) fn is_fulfillment_tx(
-    deposit_idx: u32,
-    operator_idx: OperatorIdx,
-) -> impl Fn(&Transaction) -> bool {
+pub(crate) fn is_fulfillment_tx(deposit_idx: u32, operator_idx: OperatorIdx) -> TxPredicate {
     //TODO(proofofkeags): implement
-    |_| false
+    Arc::new(|_| false)
 }
