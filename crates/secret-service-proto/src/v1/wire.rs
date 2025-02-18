@@ -121,6 +121,8 @@ pub enum ClientMessage {
     Musig2NewSession {
         pubkeys: Vec<[u8; 33]>,
         witness: SerializableTaprootWitness,
+        input_txid: [u8; 32],
+        input_vout: u32,
     },
     Musig2Pubkey,
 

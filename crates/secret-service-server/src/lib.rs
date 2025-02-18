@@ -221,7 +221,12 @@ where
                 }
             }
 
-            ArchivedClientMessage::Musig2NewSession { pubkeys, witness } => 'block: {
+            ArchivedClientMessage::Musig2NewSession {
+                pubkeys,
+                witness,
+                input_txid,
+                input_vout,
+            } => 'block: {
                 let signer = service.musig2_signer();
                 let Ok(ser_witness) = deserialize::<_, rancor::Error>(witness) else {
                     break 'block ServerMessage::InvalidClientMessage;
@@ -239,7 +244,15 @@ where
                     break 'block ServerMessage::InvalidClientMessage;
                 };
 
-                let first_round = match signer.new_session(pubkeys, witness).await {
+                let first_round = match signer
+                    .new_session(
+                        pubkeys,
+                        witness,
+                        Txid::from_byte_array(*input_txid),
+                        input_vout.into(),
+                    )
+                    .await
+                {
                     Ok(fr) => fr,
                     Err(e) => break 'block ServerMessage::Musig2NewSession(Err(e)),
                 };

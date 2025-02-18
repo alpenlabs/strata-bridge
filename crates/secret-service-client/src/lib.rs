@@ -431,12 +431,16 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
         &self,
         pubkeys: Vec<PublicKey>,
         witness: TaprootWitness,
+        input_txid: Txid,
+        input_vout: u32,
     ) -> impl Future<Output = Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError>> + Send
     {
         async move {
             let msg = ClientMessage::Musig2NewSession {
                 pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
                 witness: witness.into(),
+                input_txid: input_txid.to_byte_array(),
+                input_vout,
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::Musig2NewSession(maybe_session_id) = res else {

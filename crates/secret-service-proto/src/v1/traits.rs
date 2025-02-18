@@ -66,6 +66,8 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
         &self,
         pubkeys: Vec<PublicKey>,
         witness: TaprootWitness,
+        input_txid: Txid,
+        input_vout: u32,
     ) -> impl Future<Output = O::Container<Result<FirstRound, SignerIdxOutOfBounds>>> + Send;
     fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
 }

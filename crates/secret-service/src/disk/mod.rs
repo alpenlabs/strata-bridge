@@ -71,18 +71,7 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
     }
 
     fn musig2_signer(&self) -> Self::Musig2Signer {
-        let xpriv = self
-            .keys
-            .base_xpriv()
-            .derive_priv(
-                SECP256K1,
-                &[
-                    ChildNumber::from_hardened_idx(20).unwrap(),
-                    ChildNumber::from_hardened_idx(101).unwrap(),
-                ],
-            )
-            .expect("valid key");
-        Ms2Signer::new(xpriv.private_key)
+        Ms2Signer::new(self.keys.base_xpriv())
     }
 
     fn wots_signer(&self) -> Self::WotsSigner {

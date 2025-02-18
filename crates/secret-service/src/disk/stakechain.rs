@@ -44,8 +44,8 @@ impl StakeChainPreimages<Server> for StakeChain {
             let info = {
                 let mut buf = [0; 40];
                 buf[..32].copy_from_slice(&prestake_txid.as_raw_hash().to_byte_array());
-                buf[32..36].copy_from_slice(&prestake_vout.to_be_bytes());
-                buf[36..].copy_from_slice(&stake_index.to_be_bytes());
+                buf[32..36].copy_from_slice(&prestake_vout.to_le_bytes());
+                buf[36..].copy_from_slice(&stake_index.to_le_bytes());
                 buf
             };
             hk.expand(&info, &mut okm)
