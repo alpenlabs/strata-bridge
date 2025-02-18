@@ -20,6 +20,7 @@ btc-notify.workspace = true
 bitcoin.workspace = true
 futures = "0.3.31"
 strata-bridge-primitives.workspace = true
+strata-bridge-tx-graph.workspace = true
 strata-btcio.workspace = true
 strata-state.workspace = true
 tokio = "1.43.0"
