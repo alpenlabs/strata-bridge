@@ -1,6 +1,10 @@
 use std::path::Path;
 
-use bitcoin::{bip32::Xpriv, Network};
+use bitcoin::{
+    bip32::{ChildNumber, Xpriv},
+    secp256k1::SECP256K1,
+    Network,
+};
 use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
 use operator::Operator;
 use p2p::ServerP2PSigner;
@@ -67,12 +71,22 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
     }
 
     fn musig2_signer(&self) -> Self::Musig2Signer {
-        Ms2Signer::new(self.keys.wallet_xpriv().private_key)
+        let xpriv = self
+            .keys
+            .base_xpriv()
+            .derive_priv(
+                SECP256K1,
+                &[
+                    ChildNumber::from_hardened_idx(20).unwrap(),
+                    ChildNumber::from_hardened_idx(101).unwrap(),
+                ],
+            )
+            .expect("valid key");
+        Ms2Signer::new(xpriv.private_key)
     }
 
     fn wots_signer(&self) -> Self::WotsSigner {
-        let seed = self.keys.base_xpriv().private_key.secret_bytes();
-        SeededWotsSigner::new(seed)
+        SeededWotsSigner::new(self.keys.base_xpriv())
     }
 
     fn stake_chain(&self) -> Self::StakeChain {

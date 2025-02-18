@@ -68,8 +68,11 @@ pub enum ServerMessage {
     ),
     Musig2SecondRoundFinalize(Musig2SessionResult),
 
-    WotsGetKey {
-        key: [u8; 64],
+    WotsGet160Key {
+        key: [u8; 20 * 160],
+    },
+    WotsGet256Key {
+        key: [u8; 20 * 256],
     },
 
     StakeChainGetPreimage {
@@ -161,8 +164,14 @@ pub enum ClientMessage {
         session_id: usize,
     },
 
-    WotsGetKey {
-        index: u64,
+    WotsGet160Key {
+        index: u32,
+        vout: u32,
+        txid: [u8; 32],
+    },
+    WotsGet256Key {
+        index: u32,
+        vout: u32,
         txid: [u8; 32],
     },
 

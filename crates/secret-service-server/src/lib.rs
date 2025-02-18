@@ -427,10 +427,21 @@ where
                 }
             }
 
-            ArchivedClientMessage::WotsGetKey { index, txid } => {
+            ArchivedClientMessage::WotsGet160Key { index, vout, txid } => {
                 let txid = Txid::from_slice(txid).expect("correct length");
-                let key = service.wots_signer().get_key(index.into(), txid).await;
-                ServerMessage::WotsGetKey { key }
+                let key = service
+                    .wots_signer()
+                    .get_160_key(index.into(), vout.into(), txid)
+                    .await;
+                ServerMessage::WotsGet160Key { key }
+            }
+            ArchivedClientMessage::WotsGet256Key { index, vout, txid } => {
+                let txid = Txid::from_slice(txid).expect("correct length");
+                let key = service
+                    .wots_signer()
+                    .get_256_key(index.into(), vout.into(), txid)
+                    .await;
+                ServerMessage::WotsGet256Key { key }
             }
 
             ArchivedClientMessage::StakeChainGetPreimage { deposit_idx } => {

@@ -110,11 +110,19 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
 }
 
 pub trait WotsSigner<O: Origin>: Send {
-    fn get_key(
+    fn get_160_key(
         &self,
-        index: u64,
+        index: u32,
+        vout: u32,
         txid: Txid,
-    ) -> impl Future<Output = O::Container<[u8; 64]>> + Send;
+    ) -> impl Future<Output = O::Container<[u8; 20 * 160]>> + Send;
+
+    fn get_256_key(
+        &self,
+        index: u32,
+        vout: u32,
+        txid: Txid,
+    ) -> impl Future<Output = O::Container<[u8; 20 * 256]>> + Send;
 }
 
 pub trait StakeChainPreimages<O: Origin>: Send {

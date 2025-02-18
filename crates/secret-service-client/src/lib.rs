@@ -473,18 +473,40 @@ struct WotsClient {
 }
 
 impl WotsSigner<Client> for WotsClient {
-    fn get_key(
+    fn get_160_key(
         &self,
-        index: u64,
+        index: u32,
+        vout: u32,
         txid: Txid,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 64]>> + Send {
+    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 160]>> + Send {
         async move {
-            let msg = ClientMessage::WotsGetKey {
+            let msg = ClientMessage::WotsGet160Key {
                 index,
+                vout,
                 txid: txid.as_raw_hash().to_byte_array(),
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::WotsGetKey { key } = res else {
+            let ServerMessage::WotsGet160Key { key } = res else {
+                return Err(ClientError::ProtocolError(res));
+            };
+            Ok(key)
+        }
+    }
+
+    fn get_256_key(
+        &self,
+        index: u32,
+        vout: u32,
+        txid: Txid,
+    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 256]>> + Send {
+        async move {
+            let msg = ClientMessage::WotsGet256Key {
+                index,
+                vout,
+                txid: txid.as_raw_hash().to_byte_array(),
+            };
+            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+            let ServerMessage::WotsGet256Key { key } = res else {
                 return Err(ClientError::ProtocolError(res));
             };
             Ok(key)
