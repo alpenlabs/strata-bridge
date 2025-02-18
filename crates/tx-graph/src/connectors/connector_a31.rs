@@ -19,7 +19,7 @@ use strata_bridge_primitives::{
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
 
-// define a U512 type to enable transformation fucntions on the 64 byte inputs to the hash functions
+// define a U512 type to enable transformation functions on the 64 byte inputs to the hash functions
 pub type U512 = BigIntImpl<512, 8>;
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
@@ -88,7 +88,7 @@ impl ConnectorA31Leaf {
 
                     // OPTIMIZE: Currently, treated the code above as a blackbox and a drop in replacement
                     // to the previous version of sha256 to get ensure there are no more hiccups in switching over to
-                    // sha256_u4_stack. Will look into above stack elememts and get rid of redundant stack operations.
+                    // sha256_u4_stack. Will look into above stack elements and get rid of redundant stack operations.
 
 
                     //The stack version of sha256 requires that the most significant nibble be on the top of the stack
