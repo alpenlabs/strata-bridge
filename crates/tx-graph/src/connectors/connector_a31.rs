@@ -5,8 +5,9 @@ use bitcoin::{
     Address, Network, ScriptBuf, Txid,
 };
 use bitvm::{
+    bigint::{BigIntImpl, U256},
     groth16::g16::{self, N_TAPLEAVES},
-    hash::sha256::sha256,
+    hash::sha256_u4_stack::sha256_script,
     pseudo::NMUL,
     signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
@@ -17,6 +18,9 @@ use strata_bridge_primitives::{
 };
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
+
+// define a U512 type to enable transformation fucntions on the 64 byte inputs to the hash functions
+pub type U512 = BigIntImpl<512, 8>;
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
 #[derive(Debug, Clone, Copy)]
@@ -81,9 +85,39 @@ impl ConnectorA31Leaf {
                     // withdrawal_fulfillment txid.
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
+
+                    // OPTIMIZE: Currently, treated the code above as a blackbox and a drop in replacement
+                    // to the previous version of sha256 to get ensure there are no more hiccups in switching over to
+                    // sha256_u4_stack. Will look into above stack elememts and get rid of redundant stack operations.
+
+
+                    //The stack version of sha256 requires that the most significant nibble be on the top of the stack
+                    // the 64 bytes to be hashed is reversed first
+                    for i in (1..=63).rev(){
+                        {i} OP_ROLL
+                        OP_TOALTSTACK
+                    }
+                    for _ in 0..63{ OP_FROMALTSTACK }
+
+
+                    //convert bytes to nibbles
+                    {U512::transform_limbsize(8, 4)}
+
+
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
-                    { sha256(2 * 32) }
+                    { sha256_script(2 * 32)}
+
+                    // convert the hash from nibble representation to bytes
+                    {U256::transform_limbsize(4, 8)}
+
+                    //reverse the hash on stack
+                    for i in (1..=31).rev(){
+                        {i} OP_ROLL
+                        OP_TOALTSTACK
+                    }
+                    for _ in 0..31{ OP_FROMALTSTACK }
+
                     // convert the hash to a bn254 field element
                     hash_to_bn254_fq
 
