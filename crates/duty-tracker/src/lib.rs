@@ -10,6 +10,7 @@ use btc_notify::client::TxPredicate;
 use predicates::{is_challenge, is_disprove, is_fulfillment_tx, is_txid};
 use strata_bridge_primitives::{
     build_context::BuildContext,
+    params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
     types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_tx_graph::{peg_out_graph::PegOutGraph, transactions::prelude::CovenantTx};
@@ -33,6 +34,10 @@ enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
     /// the deposit confirms.
     Requested {
+        /// This is the height where the requester can relcaim the request output if it has not yet
+        /// been converted to a deposit.
+        abort_deadline: BitcoinBlockHeight,
+
         /// This is the collection of signatures for the peg-out graph on a per-operator basis.
         graph_sigs: BTreeMap<OperatorIdx, GraphSignatures>,
 
@@ -50,13 +55,14 @@ enum ContractState {
     Assigned {
         fulfiller: OperatorIdx,
         deadline: BitcoinBlockHeight,
+        active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
         fulfiller: OperatorIdx,
-        fulfillment_tx: Transaction,
+        active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the claim transaction confirms, to the
@@ -65,21 +71,14 @@ enum ContractState {
     Claimed {
         claim_height: BitcoinBlockHeight,
         fulfiller: OperatorIdx,
-        fulfillment_tx: Transaction,
-    },
-
-    /// This state describes everything from the moment the claim transaction confirms, to the
-    /// moment the chain dispute transaction confirms.
-    ChainDisputed {
-        fulfiller: OperatorIdx,
-        fulfillment_tx: Transaction,
+        active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
         fulfiller: OperatorIdx,
-        fulfillment_tx: Transaction,
+        active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the post-assert transaction confirms, to
@@ -87,7 +86,7 @@ enum ContractState {
     Asserted {
         post_assert_height: BitcoinBlockHeight,
         fulfiller: OperatorIdx,
-        fulfillment_tx: Transaction,
+        active_graph: PegOutGraph,
     },
 
     /// This state describes the state after the disprove transaction confirms.
@@ -161,12 +160,27 @@ pub enum VerifierDuty {
 
 /// Instructs us what to do and what the state machine wants to hear about next.
 pub struct NextStep {
-    action: Option<OperatorDuty>,
-    listen_for: Option<TxPredicate>,
+    /// This describes to the caller what action, if any, should be performed next.
+    pub action: Option<OperatorDuty>,
+
+    /// This describes to the caller what transactions, if any, should be given to this state
+    /// machine.
+    pub listen_for: Option<TxPredicate>,
 }
 impl NextStep {
     fn new(action: Option<OperatorDuty>, listen_for: Option<TxPredicate>) -> Self {
         NextStep { action, listen_for }
+    }
+}
+impl std::fmt::Debug for NextStep {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NextStep")
+            .field("action", &self.action)
+            .field(
+                "listen_for",
+                &format!("{:?}", self.listen_for.as_ref().map(Arc::as_ptr)),
+            )
+            .finish()
     }
 }
 
@@ -176,7 +190,7 @@ pub struct TransitionErr;
 
 #[derive(Debug)]
 /// This is the core state machine for a given deposit contract.
-pub struct ContractSM<PointedOperatorSet: BuildContext, Db> {
+pub struct ContractSM<PointedOperatorSet: BuildContext> {
     // Readers
     ctx: PointedOperatorSet,
     deposit_tx: Transaction,
@@ -186,24 +200,22 @@ pub struct ContractSM<PointedOperatorSet: BuildContext, Db> {
     // States
     block_height: BitcoinBlockHeight,
     state: ContractState,
-
-    // Writers
-    db: Db,
 }
 
-impl<C: BuildContext, Db> ContractSM<C, Db> {
+impl<C: BuildContext> ContractSM<C> {
     /// Builds a new ContractSM around a given deposit transaction.
     ///
     /// This will be constructible once we have a deposit request.
     pub fn new(
         ctx: C,
         block_height: BitcoinBlockHeight,
+        abort_deadline: BitcoinBlockHeight,
         deposit_tx: Transaction,
         deposit_idx: u32,
         peg_out_graphs: BTreeMap<OperatorIdx, PegOutGraph>,
-        db: Db,
     ) -> Result<(Self, OperatorDuty), TransitionErr> {
         let state = ContractState::Requested {
+            abort_deadline,
             graph_sigs: BTreeMap::new(),
             root_sigs: BTreeMap::new(),
         };
@@ -215,7 +227,6 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
                 deposit_idx,
                 state,
                 peg_out_graphs,
-                db,
             },
             OperatorDuty::PublishGraphSignatures,
         ))
@@ -237,37 +248,32 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
             ContractState::Deposited => Err(TransitionErr),
             ContractState::Assigned { fulfiller, .. } => {
                 if is_fulfillment_tx(self.deposit_idx, *fulfiller)(tx) {
-                    self.process_fulfillment_confirmation(tx.clone())
+                    self.process_fulfillment_confirmation(tx)
                 } else {
                     Err(TransitionErr)
                 }
             }
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
-            ContractState::Claimed { fulfiller, .. } => {
-                let graph = match self.peg_out_graphs.get(fulfiller) {
-                    None => return Err(TransitionErr),
-                    Some(a) => a,
-                };
-
-                if is_challenge(&graph.claim_tx)(tx) {
+            ContractState::Claimed { active_graph, .. } => {
+                if is_challenge(&active_graph.claim_tx)(tx) {
                     self.process_challenge_confirmation(tx)
-                } else if is_txid(graph.assert_chain.post_assert.compute_txid())(tx) {
+                } else if is_txid(active_graph.payout_optimistic.compute_txid())(tx) {
+                    self.process_optimistic_payout_confirmation(tx)
+                } else {
+                    Err(TransitionErr)
+                }
+            }
+            ContractState::Challenged { active_graph, .. } => {
+                if is_txid(active_graph.assert_chain.post_assert.compute_txid())(tx) {
                     self.process_assert_chain_confirmation(height, tx)
                 } else {
                     Err(TransitionErr)
                 }
             }
-            ContractState::ChainDisputed { .. } => Err(TransitionErr),
-            ContractState::Challenged { .. } => Err(TransitionErr),
-            ContractState::Asserted { fulfiller, .. } => {
-                let graph = match self.peg_out_graphs.get(fulfiller) {
-                    None => return Err(TransitionErr),
-                    Some(a) => a,
-                };
-
-                if is_disprove(&graph.assert_chain.post_assert)(tx) {
+            ContractState::Asserted { active_graph, .. } => {
+                if is_disprove(&active_graph.assert_chain.post_assert)(tx) {
                     self.process_disprove_confirmation(tx)
-                } else if is_txid(graph.payout_tx.compute_txid())(tx) {
+                } else if is_txid(active_graph.payout_tx.compute_txid())(tx) {
                     self.process_defended_payout_confirmation(tx)
                 } else {
                     Err(TransitionErr)
@@ -334,46 +340,71 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
     }
 
     /// Increment the internally tracked block height.
-    pub fn notify_new_block(&mut self) -> Result<NextStep, TransitionErr> {
+    pub fn notify_new_block(&mut self) -> Result<Option<NextStep>, TransitionErr> {
         self.block_height += 1;
         match self.state.clone() {
-            ContractState::Requested { .. } => {
-                let request_outpoint = self.deposit_tx.input.first().unwrap().previous_output;
-                Ok(NextStep::new(
-                    None,
-                    Some(Arc::new(move |tx: &Transaction| {
-                        tx.input
-                            .iter()
-                            .any(|txin| txin.previous_output == request_outpoint)
-                    })),
-                ))
+            ContractState::Requested { abort_deadline, .. } => {
+                if self.block_height >= abort_deadline {
+                    Ok(Some(NextStep::new(None, None)))
+                } else {
+                    Ok(None)
+                }
             }
-            ContractState::Deposited => todo!(),
-            ContractState::Assigned { deadline, .. } => {
+            ContractState::Deposited => Ok(None),
+            ContractState::Assigned {
+                fulfiller,
+                deadline,
+                ..
+            } => {
                 if self.block_height >= deadline {
                     self.state = ContractState::Deposited;
                 }
-                Ok(NextStep::new(None, todo!()))
+                Ok(Some(NextStep::new(
+                    None,
+                    Some(is_fulfillment_tx(self.deposit_idx, fulfiller)),
+                )))
             }
-            ContractState::Fulfilled { .. } => todo!(),
-            ContractState::Claimed { .. } => todo!(),
-            ContractState::ChainDisputed { .. } => todo!(),
-            ContractState::Challenged { .. } => todo!(),
-            ContractState::Asserted { .. } => todo!(),
-            ContractState::Disproved {} => todo!(),
-            ContractState::Resolved {} => todo!(),
+            ContractState::Fulfilled { .. } => Ok(None),
+            ContractState::Claimed {
+                fulfiller,
+                claim_height,
+                active_graph,
+                ..
+            } => {
+                if self.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
+                    && fulfiller == self.ctx.own_index()
+                {
+                    Ok(Some(NextStep::new(
+                        Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::PublishPayoutOptimistic,
+                        )),
+                        Some(is_txid(active_graph.payout_optimistic.compute_txid())),
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
+            ContractState::Challenged { .. } => Ok(None),
+            ContractState::Asserted {
+                post_assert_height,
+                fulfiller,
+                active_graph,
+                ..
+            } => {
+                if self.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
+                    && fulfiller == self.ctx.own_index()
+                {
+                    Ok(Some(NextStep::new(
+                        Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout)),
+                        Some(is_txid(active_graph.payout_tx.compute_txid())),
+                    )))
+                } else {
+                    Ok(None)
+                }
+            }
+            ContractState::Disproved {} => Ok(None),
+            ContractState::Resolved {} => Ok(None),
         }
-        // Increment tracked height, compare to relative timelocks of current state.
-        // Scan for:
-        // 1. Deposit Confirmations
-        // 2. Rollup Checkpoint Confirmations (Assignments)
-        // 3. Fulfillment Confirmations
-        // 4. Claim Confirmations
-        // 5. Challenge Confirmations
-        // 6. Assert Confirmations
-        // 7. Disprove Confirmations
-        // 8. Payout Optimistic Confirmations
-        // 9. Payout Confirmations
     }
 
     /// Processes an assignment from the strata state commitment.
@@ -393,9 +424,15 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
             DepositState::Dispatched(dispatched_state) => {
                 let fulfiller = dispatched_state.assignee();
                 let deadline = dispatched_state.exec_deadline();
+                let active_graph = self
+                    .peg_out_graphs
+                    .get(&fulfiller)
+                    .ok_or(TransitionErr)?
+                    .clone();
                 self.state = ContractState::Assigned {
                     fulfiller,
                     deadline,
+                    active_graph,
                 };
                 if fulfiller == self.ctx.own_index() {
                     Ok(Some(OperatorDuty::FulfillerDuty(
@@ -412,25 +449,32 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
     fn process_fulfillment_confirmation(
         // Analyze fulfillment transaction to determine
         &mut self,
-        tx: Transaction,
+        tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state {
-            ContractState::Assigned { fulfiller, .. } => {
-                // TODO(proofofkeags): validate that this is transaction meets the requirements for
-                // a fulfillment transaction.
+        match self.state.clone() {
+            ContractState::Assigned {
+                fulfiller,
+                active_graph,
+                ..
+            } => {
+                if !is_fulfillment_tx(self.deposit_idx, fulfiller)(tx) {
+                    return Err(TransitionErr);
+                }
+
+                let match_claim = Some(is_txid(active_graph.claim_tx.compute_txid()));
+
                 self.state = ContractState::Fulfilled {
                     fulfiller,
-                    fulfillment_tx: tx,
+                    active_graph,
                 };
 
-                if fulfiller == self.ctx.own_index() {
-                    Ok(NextStep::new(
-                        Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim)),
-                        todo!(),
-                    ))
+                let duty = if fulfiller == self.ctx.own_index() {
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
                 } else {
-                    Ok(NextStep::new(None, todo!()))
-                }
+                    None
+                };
+
+                Ok(NextStep::new(duty, match_claim))
             }
             _ => Err(TransitionErr),
         }
@@ -441,29 +485,31 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
         height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        // TODO(proofofkeags): figure out why this had to be cloned.
-        match self.state.clone() {
+        match std::mem::replace(&mut self.state, ContractState::Deposited) {
             ContractState::Fulfilled {
                 fulfiller,
-                fulfillment_tx,
+                active_graph,
+                ..
             } => {
-                // TODO(proofofkeags): Verify that the claim transaction fits the requirements for
-                // a valid claim.
+                if tx.compute_txid() != active_graph.claim_tx.compute_txid() {
+                    return Err(TransitionErr);
+                }
+
+                let match_challenge = is_challenge(&active_graph.claim_tx);
+
                 self.state = ContractState::Claimed {
                     claim_height: height,
                     fulfiller,
-                    fulfillment_tx,
+                    active_graph,
                 };
 
-                if fulfiller != self.ctx.own_index() {
-                    // Verify claim
-                    Ok(NextStep::new(
-                        Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim)),
-                        todo!(),
-                    ))
+                let duty = if fulfiller != self.ctx.own_index() {
+                    Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim))
                 } else {
-                    Ok(NextStep::new(todo!(), todo!()))
-                }
+                    None
+                };
+
+                Ok(NextStep::new(duty, Some(match_challenge)))
             }
             _ => Err(TransitionErr),
         }
@@ -472,9 +518,9 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
     /// Tells the state machine that the claim was assessed to be fraudulent.
     pub fn process_claim_verification_failure(&mut self) -> Result<NextStep, TransitionErr> {
         match &self.state {
-            ContractState::Claimed { .. } => Ok(NextStep::new(
+            ContractState::Claimed { active_graph, .. } => Ok(NextStep::new(
                 Some(OperatorDuty::VerifierDuty(VerifierDuty::PublishChallenge)),
-                todo!(),
+                Some(is_challenge(&active_graph.claim_tx)),
             )),
             _ => Err(TransitionErr),
         }
@@ -487,25 +533,29 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
         match self.state.clone() {
             ContractState::Claimed {
                 fulfiller,
-                fulfillment_tx,
+                active_graph,
                 ..
             } => {
-                // TODO(proofofkeags): verify that the transaction is the correct challenge
-                // transaction.
+                if !is_challenge(&active_graph.claim_tx)(tx) {
+                    return Err(TransitionErr);
+                }
+
+                let is_post_assert = is_txid(active_graph.assert_chain.post_assert.compute_txid());
+
                 self.state = ContractState::Challenged {
                     fulfiller,
-                    fulfillment_tx,
+                    active_graph,
                 };
-                if fulfiller == self.ctx.own_index() {
-                    Ok(NextStep::new(
-                        Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::PublishAssertChain,
-                        )),
-                        todo!(),
+
+                let duty = if fulfiller == self.ctx.own_index() {
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishAssertChain,
                     ))
                 } else {
-                    Ok(NextStep::new(None, todo!()))
-                }
+                    None
+                };
+
+                Ok(NextStep::new(duty, Some(is_post_assert)))
             }
             _ => Err(TransitionErr),
         }
@@ -519,24 +569,28 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
         match self.state.clone() {
             ContractState::Challenged {
                 fulfiller,
-                fulfillment_tx,
+                active_graph,
+                ..
             } => {
-                // TODO(proofofkeags): verify that the transaction is the correct post-assert
-                // transaction.
+                if tx.compute_txid() != active_graph.assert_chain.post_assert.compute_txid() {
+                    return Err(TransitionErr);
+                }
+
+                let match_disprove = is_disprove(&active_graph.assert_chain.post_assert);
+
                 self.state = ContractState::Asserted {
                     post_assert_height,
                     fulfiller,
-                    fulfillment_tx,
+                    active_graph,
                 };
 
-                if fulfiller != self.ctx.own_index() {
-                    Ok(NextStep::new(
-                        Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion)),
-                        todo!(),
-                    ))
+                let duty = if fulfiller != self.ctx.own_index() {
+                    Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion))
                 } else {
-                    Ok(NextStep::new(None, todo!()))
-                }
+                    None
+                };
+
+                Ok(NextStep::new(duty, Some(match_disprove)))
             }
             _ => Err(TransitionErr),
         }
@@ -559,15 +613,14 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
         match self.state.clone() {
-            ContractState::Asserted {
-                fulfiller,
-                fulfillment_tx,
-                ..
-            } => {
-                // TODO(proofofkeags): Verify that this is the correct disproof transaction.
+            ContractState::Asserted { active_graph, .. } => {
+                if !is_disprove(&active_graph.assert_chain.post_assert)(tx) {
+                    return Err(TransitionErr);
+                }
+
                 self.state = ContractState::Disproved {};
 
-                Ok(NextStep::new(None, todo!()))
+                Ok(NextStep::new(None, None))
             }
             _ => Err(TransitionErr),
         }
@@ -576,13 +629,16 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
     fn process_optimistic_payout_confirmation(
         &mut self,
         tx: &Transaction,
-    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+    ) -> Result<NextStep, TransitionErr> {
         match self.state.clone() {
-            ContractState::Claimed { .. } => {
-                // TODO(proofofkeags): verify that this is the correct optimistic payout
+            ContractState::Claimed { active_graph, .. } => {
+                if tx.compute_txid() != active_graph.payout_optimistic.compute_txid() {
+                    return Err(TransitionErr);
+                }
+
                 self.state = ContractState::Resolved {};
 
-                Ok(None)
+                Ok(NextStep::new(None, None))
             }
             _ => Err(TransitionErr),
         }
@@ -593,11 +649,14 @@ impl<C: BuildContext, Db> ContractSM<C, Db> {
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
         match self.state.clone() {
-            ContractState::Asserted { .. } => {
-                // TODO(proofofkeags): verify that this is the correct defended payout
+            ContractState::Asserted { active_graph, .. } => {
+                if tx.compute_txid() != active_graph.payout_tx.compute_txid() {
+                    return Err(TransitionErr);
+                }
+
                 self.state = ContractState::Resolved {};
 
-                Ok(NextStep::new(None, todo!()))
+                Ok(NextStep::new(None, None))
             }
             _ => Err(TransitionErr),
         }
