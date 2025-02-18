@@ -3189,6 +3189,7 @@ dependencies = [
  "btc-notify",
  "futures",
  "strata-bridge-primitives",
+ "strata-bridge-tx-graph",
  "strata-btcio",
  "strata-state",
  "tokio",
