@@ -90,7 +90,6 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
     }
 
     fn stake_chain(&self) -> Self::StakeChain {
-        let seed = self.keys.base_xpriv().private_key.secret_bytes();
-        StakeChain::new(seed)
+        StakeChain::new(self.keys.base_xpriv())
     }
 }

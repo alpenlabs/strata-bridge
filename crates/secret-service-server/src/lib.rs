@@ -444,8 +444,19 @@ where
                 ServerMessage::WotsGet256Key { key }
             }
 
-            ArchivedClientMessage::StakeChainGetPreimage { deposit_idx } => {
-                let preimg = service.stake_chain().get_preimg(deposit_idx.into()).await;
+            ArchivedClientMessage::StakeChainGetPreimage {
+                prestake_txid,
+                prestake_vout,
+                stake_index,
+            } => {
+                let preimg = service
+                    .stake_chain()
+                    .get_preimg(
+                        Txid::from_slice(prestake_txid).expect("correct length"),
+                        prestake_vout.into(),
+                        stake_index.into(),
+                    )
+                    .await;
                 ServerMessage::StakeChainGetPreimage { preimg }
             }
         },

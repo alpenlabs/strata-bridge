@@ -126,8 +126,12 @@ pub trait WotsSigner<O: Origin>: Send {
 }
 
 pub trait StakeChainPreimages<O: Origin>: Send {
-    fn get_preimg(&self, deposit_index: u64)
-        -> impl Future<Output = O::Container<[u8; 32]>> + Send;
+    fn get_preimg(
+        &self,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        stake_index: u32,
+    ) -> impl Future<Output = O::Container<[u8; 32]>> + Send;
 }
 
 pub trait Origin {

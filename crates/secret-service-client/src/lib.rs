@@ -522,10 +522,16 @@ struct StakeChainClient {
 impl StakeChainPreimages<Client> for StakeChainClient {
     fn get_preimg(
         &self,
-        deposit_idx: u64,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        stake_index: u32,
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 32]>> + Send {
         async move {
-            let msg = ClientMessage::StakeChainGetPreimage { deposit_idx };
+            let msg = ClientMessage::StakeChainGetPreimage {
+                prestake_txid: prestake_txid.to_byte_array(),
+                prestake_vout,
+                stake_index,
+            };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::StakeChainGetPreimage { preimg } = res else {
                 return Err(ClientError::ProtocolError(res));

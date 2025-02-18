@@ -176,7 +176,9 @@ pub enum ClientMessage {
     },
 
     StakeChainGetPreimage {
-        deposit_idx: u64,
+        prestake_txid: [u8; 32],
+        prestake_vout: u32,
+        stake_index: u32,
     },
 }
 
