@@ -1,15 +1,7 @@
 pub mod bool_arr;
 pub mod ms2sm;
 
-use std::{
-    future::Future,
-    io,
-    marker::Sync,
-    net::SocketAddr,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
 use bitcoin::{hashes::Hash, secp256k1::PublicKey, Txid};
 use ms2sm::Musig2SessionManager;
@@ -35,10 +27,7 @@ use secret_service_proto::{
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
-use tokio::{
-    sync::Mutex,
-    task::{JoinError, JoinHandle},
-};
+use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{error, span, warn, Instrument, Level};
 
 pub struct Config {
@@ -47,22 +36,10 @@ pub struct Config {
     pub tls_config: rustls::ServerConfig,
 }
 
-pub struct ServerHandle {
-    main: JoinHandle<()>,
-}
-
-impl Future for ServerHandle {
-    type Output = Result<(), JoinError>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.get_mut().main).poll(cx)
-    }
-}
-
-pub fn run_server<FirstRound, SecondRound, Service>(
+pub async fn run_server<FirstRound, SecondRound, Service>(
     c: Config,
     service: Arc<Service>,
-) -> Result<ServerHandle, OneOf<(NoInitialCipherSuite, io::Error)>>
+) -> Result<(), OneOf<(NoInitialCipherSuite, io::Error)>>
 where
     FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
     SecondRound: Musig2SignerSecondRound<Server> + 'static,
@@ -72,28 +49,25 @@ where
         QuicServerConfig::try_from(c.tls_config).map_err(OneOf::new)?,
     ));
     let endpoint = Endpoint::server(quic_server_config, c.addr).map_err(OneOf::new)?;
-    let main_task = async move {
-        let musig2_sm = Arc::new(Mutex::new(
-            Musig2SessionManager::<FirstRound, SecondRound>::default(),
-        ));
-        while let Some(incoming) = endpoint.accept().await {
-            let span = span!(Level::INFO,
-                "connection",
-                cid = %incoming.orig_dst_cid(),
-                remote = %incoming.remote_address(),
-                remote_validated = %incoming.remote_address_validated()
+    let musig2_sm = Arc::new(Mutex::new(
+        Musig2SessionManager::<FirstRound, SecondRound>::default(),
+    ));
+    while let Some(incoming) = endpoint.accept().await {
+        let span = span!(Level::INFO,
+            "connection",
+            cid = %incoming.orig_dst_cid(),
+            remote = %incoming.remote_address(),
+            remote_validated = %incoming.remote_address_validated()
+        );
+        if matches!(c.connection_limit, Some(n) if endpoint.open_connections() >= n) {
+            incoming.refuse();
+        } else {
+            tokio::spawn(
+                conn_handler(incoming, service.clone(), musig2_sm.clone()).instrument(span),
             );
-            if matches!(c.connection_limit, Some(n) if endpoint.open_connections() >= n) {
-                incoming.refuse();
-            } else {
-                tokio::spawn(
-                    conn_handler(incoming, service.clone(), musig2_sm.clone()).instrument(span),
-                );
-            }
         }
-    };
-    let handle = tokio::spawn(main_task);
-    Ok(ServerHandle { main: handle })
+    }
+    Ok(())
 }
 
 async fn conn_handler<FirstRound, SecondRound, Service>(

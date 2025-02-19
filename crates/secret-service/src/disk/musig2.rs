@@ -12,7 +12,6 @@ use musig2::{
     secp256k1::{PublicKey, SecretKey, SECP256K1},
     FirstRound, KeyAggContext, LiftedSignature, SecNonceSpices, SecondRound,
 };
-use rand::{thread_rng, Rng};
 use secret_service_proto::v1::traits::{
     Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
     SignerIdxOutOfBounds,

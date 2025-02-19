@@ -2,66 +2,32 @@
 
 pub mod config;
 pub mod disk;
+mod tls;
 
-use std::{env::args, path::PathBuf, str::FromStr};
+use std::{env::args, path::PathBuf, str::FromStr, sync::LazyLock};
 
-use config::{TlsConfig, TomlConfig};
+use config::TomlConfig;
 use disk::Service;
-use secret_service_server::{
-    run_server,
-    rustls::{
-        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
-        ServerConfig,
-    },
-    Config,
-};
-use tokio::fs;
+use secret_service_server::{run_server, Config};
+use tls::load_tls;
 use tracing::info;
+
+pub static DEV_MODE: LazyLock<bool> =
+    LazyLock::new(|| std::env::var("S2_DEV").is_ok_and(|v| &v == "1"));
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+    if *DEV_MODE {
+        info!("DEV_MODE active");
+    }
     let config_path =
         PathBuf::from_str(&args().nth(1).unwrap_or_else(|| "config.toml".to_string()))
             .expect("valid config path");
 
     let text = std::fs::read_to_string(&config_path).expect("read config file");
     let conf: TomlConfig = toml::from_str(&text).expect("valid toml");
-
-    let (certs, key) = if let Some(TlsConfig {
-        cert: Some(ref crt_path),
-        key: Some(ref key_path),
-    }) = conf.tls
-    {
-        let key = fs::read(key_path).await.expect("readable key");
-        let key = if key_path.extension().is_some_and(|x| x == "der") {
-            PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key))
-        } else {
-            rustls_pemfile::private_key(&mut &*key)
-                .expect("valid PEM-encoded private key")
-                .expect("non-empty private key")
-        };
-        let cert_chain = fs::read(crt_path).await.expect("readable certificate");
-        let cert_chain = if crt_path.extension().is_some_and(|x| x == "der") {
-            vec![CertificateDer::from(cert_chain)]
-        } else {
-            rustls_pemfile::certs(&mut &*cert_chain)
-                .collect::<Result<_, _>>()
-                .expect("valid PEM-encoded certificate")
-        };
-
-        (cert_chain, key)
-    } else {
-        info!("using self-signed certificate");
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
-        let key = PrivatePkcs8KeyDer::from(cert.key_pair.serialize_der());
-        let cert = cert.cert.into();
-        (vec![cert], key.into())
-    };
-
-    let tls = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(certs, key)
-        .expect("valid rustls config");
+    let tls = load_tls(conf.tls).await;
 
     let config = Config {
         addr: conf.transport.addr,
@@ -77,5 +43,10 @@ async fn main() {
     .await
     .expect("good service");
 
-    run_server(config, service.into()).unwrap().await.unwrap();
+    info!("Running on {}", config.addr);
+    match config.connection_limit {
+        Some(conn_limit) => info!("Connection limit: {}", conn_limit),
+        None => info!("No connection limit"),
+    }
+    run_server(config, service.into()).await.unwrap();
 }

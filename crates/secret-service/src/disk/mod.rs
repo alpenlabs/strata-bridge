@@ -1,10 +1,6 @@
 use std::path::Path;
 
-use bitcoin::{
-    bip32::{ChildNumber, Xpriv},
-    secp256k1::SECP256K1,
-    Network,
-};
+use bitcoin::{bip32::Xpriv, Network};
 use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
 use operator::Operator;
 use p2p::ServerP2PSigner;
@@ -13,6 +9,7 @@ use secret_service_proto::v1::traits::{SecretService, Server};
 use stakechain::StakeChain;
 use strata_key_derivation::operator::OperatorKeys;
 use tokio::{fs, io};
+use tracing::info;
 use wots::SeededWotsSigner;
 
 pub mod musig2;
@@ -36,17 +33,23 @@ impl Service {
         }
 
         match fs::read(seed_path).await {
-            Ok(vec) => seed.copy_from_slice(&vec),
+            Ok(vec) => {
+                seed.copy_from_slice(&vec);
+                info!("Loaded seed from {}", seed_path.display());
+            }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let mut rng = rand::thread_rng();
                 rng.fill(&mut seed);
                 fs::write(seed_path, &seed).await?;
+                info!("Generated new seed at {}", seed_path.display());
             }
             Err(e) => return Err(e),
         };
 
         let keys = OperatorKeys::new(&Xpriv::new_master(NETWORK, &seed).expect("valid xpriv"))
             .expect("valid keychain");
+
+        info!("Master fingerprint: {}", keys.master_xpub().fingerprint());
         Ok(Self { keys })
     }
 }
