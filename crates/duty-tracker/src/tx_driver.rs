@@ -1,43 +1,41 @@
 //! TODO(proofofkeags): mod level documentation.
-use std::{collections::BTreeMap, ops::Sub, sync::Arc};
+use std::collections::BTreeMap;
 
-use bitcoin::{Block, Transaction, Txid};
+use bitcoin::Transaction;
 use btc_notify::{
     client::{BtcZmqClient, TxEvent},
     subscription::Subscription,
 };
-use futures::{
-    channel::oneshot,
-    stream::{select_all, SelectAll},
-    FutureExt, StreamExt,
-};
+use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
 use strata_btcio::rpc::{traits::BroadcasterRpc, BitcoinClient};
 use tokio::{
     select,
-    sync::{
-        mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
-        Mutex,
-    },
+    sync::mpsc::{unbounded_channel, UnboundedSender},
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
+/// Error type for the TxDriver.
+#[derive(Debug)]
 pub enum DriveErr {
+    /// Indicates that the TxDriver has been dropped and no more events should be expected.
     DriverAborted,
 }
 
+struct TxDriveJob {
+    tx: Transaction,
+    _deadline: usize,
+    respond_on: oneshot::Sender<Result<(), DriveErr>>,
+}
+/// System for driving a signed transaction to confirmation.
+#[derive(Debug)]
 pub struct TxDriver {
     new_jobs_sender: UnboundedSender<TxDriveJob>,
     driver: JoinHandle<()>,
 }
-pub struct TxDriveJob {
-    tx: Transaction,
-    deadline: usize,
-    respond_on: oneshot::Sender<Result<(), DriveErr>>,
-}
-
 impl TxDriver {
-    async fn new(zmq_client: BtcZmqClient, rpc_client: BitcoinClient) -> Self {
+    /// Initializes the TxDriver.
+    pub async fn new(zmq_client: BtcZmqClient, rpc_client: BitcoinClient) -> Self {
         let new_jobs = unbounded_channel::<TxDriveJob>();
         let new_jobs_sender = new_jobs.0;
         let mut block_subscription = zmq_client.subscribe_blocks().await;
@@ -89,7 +87,7 @@ impl TxDriver {
                                     }
                                 }
                             }
-                            btc_notify::client::TxStatus::Mined { blockhash } => {
+                            btc_notify::client::TxStatus::Buried { .. } => {
                                 // Since our responsibility ends at block inclusion we will send an
                                 // answer on the response channel now. It is the API caller's
                                 // responsibility for handling reorgs after inclusion.
@@ -115,12 +113,13 @@ impl TxDriver {
         }
     }
 
-    async fn drive(&self, tx: Transaction, deadline: usize) -> Result<(), DriveErr> {
+    /// Instructs the TxDriver to drive a new transaction to confirmation by the supplied deadline.
+    pub async fn drive(&self, tx: Transaction, _deadline: usize) -> Result<(), DriveErr> {
         let (sender, receiver) = oneshot::channel();
         self.new_jobs_sender
             .send(TxDriveJob {
                 tx,
-                deadline,
+                _deadline,
                 respond_on: sender,
             })
             .map_err(|_| DriveErr::DriverAborted)?;
@@ -128,5 +127,10 @@ impl TxDriver {
             .await
             .map_err(|_| DriveErr::DriverAborted)
             .flatten()
+    }
+}
+impl Drop for TxDriver {
+    fn drop(&mut self) {
+        self.driver.abort();
     }
 }
