@@ -1,3 +1,4 @@
+//! TODO(proofofkeags): mod level documentation.
 use std::{collections::BTreeMap, ops::Sub, sync::Arc};
 
 use bitcoin::{Block, Transaction, Txid};
