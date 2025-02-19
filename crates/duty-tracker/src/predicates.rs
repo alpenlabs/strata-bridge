@@ -1,3 +1,4 @@
+//! TODO(proofofkeags): mod level documentation
 use std::sync::Arc;
 
 use bitcoin::{opcodes::all::OP_RETURN, OutPoint, Script, Transaction, Txid};
@@ -36,7 +37,7 @@ fn magic_tagged_data(script: &Script) -> Option<&[u8]> {
 
 const EL_ADDR_SIZE: usize = 20;
 
-fn is_deposit_request(tx: &Transaction) -> bool {
+pub(crate) fn is_deposit_request(tx: &Transaction) -> bool {
     const MERKLE_PROOF_SIZE: usize = 32;
     tx.output.iter().any(|output| {
         if let Some(meta) = magic_tagged_data(&output.script_pubkey) {
