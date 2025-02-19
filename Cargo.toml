@@ -89,7 +89,7 @@ esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default
 ] }
 ethnum = "1.5.0"
 futures = "0.3.31"
-hex = { version = "0.4", features = ["serde"] }
+hex = { version = "0.4.3", features = ["serde"] }
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"
 musig2 = { version = "0.1.0", features = [
