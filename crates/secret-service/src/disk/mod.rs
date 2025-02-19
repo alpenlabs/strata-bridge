@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use bitcoin::{bip32::Xpriv, Network};
+use colored::Colorize;
 use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
 use operator::Operator;
 use p2p::ServerP2PSigner;
@@ -35,13 +36,19 @@ impl Service {
         match fs::read(seed_path).await {
             Ok(vec) => {
                 seed.copy_from_slice(&vec);
-                info!("Loaded seed from {}", seed_path.display());
+                info!(
+                    "Loaded seed from {}",
+                    seed_path.display().to_string().bold()
+                );
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {
                 let mut rng = rand::thread_rng();
                 rng.fill(&mut seed);
                 fs::write(seed_path, &seed).await?;
-                info!("Generated new seed at {}", seed_path.display());
+                info!(
+                    "Generated new seed at {}",
+                    seed_path.display().to_string().bold()
+                );
             }
             Err(e) => return Err(e),
         };
@@ -49,7 +56,10 @@ impl Service {
         let keys = OperatorKeys::new(&Xpriv::new_master(NETWORK, &seed).expect("valid xpriv"))
             .expect("valid keychain");
 
-        info!("Master fingerprint: {}", keys.master_xpub().fingerprint());
+        info!(
+            "Master fingerprint: {}",
+            keys.master_xpub().fingerprint().to_string().bold()
+        );
         Ok(Self { keys })
     }
 }

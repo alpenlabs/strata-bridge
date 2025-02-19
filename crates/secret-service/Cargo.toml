@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 bitcoin.workspace = true
 blake3.workspace = true
+colored = "3.0.0"
 hkdf = "0.12.4"
 musig2.workspace = true
 parking_lot.workspace = true
