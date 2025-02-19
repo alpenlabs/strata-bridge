@@ -3,7 +3,7 @@
 //! This connector is used to either settle the payout transactions or to burn them.
 use bitcoin::{
     hashes::{sha256, Hash},
-    opcodes::all::{OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
+    opcodes::all::{OP_EQUAL, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf,
@@ -93,8 +93,7 @@ impl ConnectorP {
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
             .push_slice(self.stake_hash.to_byte_array())
-            .push_opcode(OP_EQUALVERIFY)
-            .push_int(1)
+            .push_opcode(OP_EQUAL)
             .into_script()
     }
 
@@ -126,12 +125,11 @@ impl ConnectorP {
             &self.network,
             SpendPath::Both {
                 internal_key: self.n_of_n_agg_pubkey,
-                scripts: &[script],
+                scripts: &[script.clone()],
             },
         )
         .expect("should be able to create taproot address");
 
-        let script = self.generate_script();
         let control_block = taproot_spending_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -155,7 +153,15 @@ impl ConnectorP {
                 finalize_input(input, [&signature.serialize().to_vec()]);
             }
             WitnessData::Preimage(preimage) => {
-                finalize_input(input, [&preimage]);
+                let (hashlock_script, control_block) = self.generate_spend_info();
+                finalize_input(
+                    input,
+                    [
+                        preimage.to_vec(),
+                        hashlock_script.to_bytes(),
+                        control_block.serialize(),
+                    ],
+                );
             }
             _ => (), // other variants are no-op.
         }
@@ -165,8 +171,8 @@ impl ConnectorP {
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        absolute, consensus, transaction, Amount, BlockHash, OutPoint, Transaction, TxIn, TxOut,
-        Witness,
+        absolute, consensus, transaction, Amount, BlockHash, OutPoint, Psbt, Transaction, TxIn,
+        TxOut,
     };
     use corepc_node::{serde_json::json, Conf, Node};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -294,7 +300,7 @@ mod tests {
             script_pubkey: change_address.script_pubkey(),
         };
 
-        let mut spending_tx = Transaction {
+        let spending_tx = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
             input: vec![TxIn {
@@ -304,20 +310,16 @@ mod tests {
             output: vec![spending_output],
         };
 
-        // Create the locking script
-        let locking_script = connector_p.generate_script();
-
-        // Get taproot spend info
-        let (_, control_block) = connector_p.generate_spend_info();
-
-        // Construct the witness stack
-        let mut witness = Witness::new();
-        witness.push(stake_preimage);
-        witness.push(locking_script.to_bytes());
-        witness.push(control_block.serialize());
-
         // Set the witness in the transaction
-        spending_tx.input[0].witness = witness;
+        let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: funding_amount.checked_sub(fees).unwrap(),
+            script_pubkey: connector_p.generate_address().script_pubkey(),
+        });
+
+        let witness_data = WitnessData::Preimage(stake_preimage);
+        connector_p.create_tx_input(witness_data, &mut psbt.inputs[0]);
+        let spending_tx = psbt.extract_tx().expect("must be signed");
 
         // Broadcast spending transaction
         let spending_txid = btc_client

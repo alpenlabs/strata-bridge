@@ -24,6 +24,13 @@ pub const ASSERT_DATA_FEE_RATE: FeeRate =
     FeeRate::from_sat_per_vb_unchecked(FeeRate::DUST.to_sat_per_vb_ceil() * 80); // 80 is based on
                                                                                  // experiment
 
+/// The minimum value a segwit output script should have in order to be
+/// broadcastable on today's Bitcoin network.
+///
+/// Dust depends on the -dustrelayfee value of the Bitcoin Core node you are broadcasting to.
+/// This function uses the default value of 0.00003 BTC/kB (3 sat/vByte).
+pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
+
 pub const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
 
 pub const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);

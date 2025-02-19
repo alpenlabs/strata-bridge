@@ -1,5 +1,5 @@
 use arbitrary::{Arbitrary, Unstructured};
-use rand_core::{CryptoRngCore, OsRng};
+use rand_core::{OsRng, TryCryptoRng};
 
 /// The default buffer size for the `ArbitraryGenerator`.
 const ARB_GEN_LEN: usize = 1024;
@@ -65,9 +65,10 @@ impl ArbitraryGenerator {
     pub fn generate_with_rng<'a, T, R>(&'a mut self, rng: &mut R) -> T
     where
         T: Arbitrary<'a> + Clone,
-        R: CryptoRngCore,
+        R: TryCryptoRng,
     {
-        rng.fill_bytes(&mut self.buf);
+        rng.try_fill_bytes(&mut self.buf)
+            .expect("must be able to generate random bytes");
         let mut u = Unstructured::new(&self.buf);
         T::arbitrary(&mut u).expect("Failed to generate arbitrary instance")
     }
