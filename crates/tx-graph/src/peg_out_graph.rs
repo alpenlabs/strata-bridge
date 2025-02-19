@@ -315,11 +315,8 @@ mod tests {
     };
 
     use bitcoin::{
-        consensus,
-        policy::MAX_STANDARD_TX_WEIGHT,
-        sighash::SighashCache,
-        taproot::{self},
-        transaction, FeeRate, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
+        consensus, policy::MAX_STANDARD_TX_WEIGHT, sighash::SighashCache, taproot, transaction,
+        FeeRate, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
     };
     use corepc_node::{
         serde_json::{self, json},

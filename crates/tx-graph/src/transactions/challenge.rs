@@ -3,8 +3,8 @@
 use std::marker::PhantomData;
 
 use bitcoin::{
-    key::TapTweak, sighash::Prevouts, taproot, Address, Amount, Network, OutPoint, Psbt, ScriptBuf,
-    Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    key::TapTweak, psbt::ExtractTxError, sighash::Prevouts, taproot, Address, Amount, Network,
+    OutPoint, Psbt, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
@@ -137,6 +137,34 @@ impl ChallengeTx<Unfunded> {
             status: PhantomData,
         })
     }
+
+    /// Finalizes the presigned input in the Challenge transaction.
+    ///
+    /// # Caution
+    ///
+    /// The transaction returned by this method cannot be broadcasted as is since its output value
+    /// exceeds the input value. Therefore, the caller must ensure that the transaction is funded
+    /// (for example, by calling the `fundrawtransaction` RPC method) and signed before it can be
+    /// broadcasted.
+    pub fn finalize_presigned(
+        mut self,
+        connector_c1: ConnectorC1,
+        challenge_leaf: ConnectorC1Path<taproot::Signature>,
+    ) -> Transaction {
+        connector_c1.finalize_input(
+            &mut self.psbt.inputs[challenge_leaf.get_input_index() as usize],
+            challenge_leaf,
+        );
+
+        match self.psbt.extract_tx() {
+            Ok(tx) => tx,
+            // ignore the fact that the output is way beyond the input amount assuming that the
+            // caller will fund this transaction later.
+            Err(ExtractTxError::SendingTooMuch { psbt }) => psbt.extract_tx_unchecked_fee_rate(),
+
+            Err(e) => unreachable!("unexpected error: {:?}", e),
+        }
+    }
 }
 
 impl ChallengeTx<Funded> {
@@ -196,13 +224,14 @@ mod tests {
     use std::{collections::BTreeMap, str::FromStr};
 
     use bitcoin::{consensus, sighash::SighashCache, Network};
-    use corepc_node::{serde_json::json, Conf, Node};
+    use corepc_node::{serde_json::json, Client, Conf, Node};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
         params::tx::CHALLENGE_COST,
         scripts::taproot::create_message_hash,
     };
     use strata_bridge_test_utils::{
+        bitcoin_rpc::fund_and_sign_raw_tx,
         musig2::generate_agg_signature,
         prelude::{generate_keypair, generate_txid, get_funding_utxo_exact},
         tx::FEES,
@@ -219,6 +248,110 @@ mod tests {
         let bitcoind =
             Node::from_downloaded_with_conf(&conf).expect("must be able to start bitcoind");
         let btc_client = &bitcoind.client;
+        let PrepareChallengeTxResult {
+            operator_address,
+            challenge_connector,
+            input_amount,
+            challenge_tx,
+            signed_challenge_leaf,
+        } = prepare_challenge_tx(btc_client);
+
+        let insufficient_outpoint = OutPoint {
+            txid: generate_txid(),
+            vout: 0,
+        };
+        let insufficient_prevout = TxOut {
+            value: Amount::from_sat(100),
+            script_pubkey: operator_address.script_pubkey().clone(),
+        };
+
+        assert!(challenge_tx
+            .clone()
+            .add_funding_input(insufficient_outpoint, insufficient_prevout.clone())
+            .is_err_and(|err| {
+                match err {
+                    TxError::InsufficientInputAmount(input, output) => {
+                        assert_eq!(input, input_amount + insufficient_prevout.value);
+                        assert_eq!(output, CHALLENGE_COST);
+
+                        true
+                    }
+                    _ => panic!("unexpected error: {:?}", err),
+                }
+            }));
+
+        let required_amount: Amount = challenge_tx
+            .psbt()
+            .unsigned_tx
+            .output
+            .iter()
+            .map(|output| output.value)
+            .sum();
+        let (funding_input, funding_outpoint) =
+            get_funding_utxo_exact(btc_client, required_amount + FEES);
+
+        let funded_challenge_tx = challenge_tx
+            .add_funding_input(funding_outpoint, funding_input)
+            .expect("must be able to fund the challenge");
+
+        let signed_challenge_tx = funded_challenge_tx
+            .finalize(challenge_connector, signed_challenge_leaf)
+            .expect("must be able to finalize tx");
+
+        let signed_challenge_tx_result = btc_client
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(consensus::encode::serialize_hex(
+                    &signed_challenge_tx
+                )
+                .to_string())],
+            )
+            .expect("must be able to sign tx");
+
+        let signed_challenge_tx: Transaction =
+            consensus::encode::deserialize_hex(&signed_challenge_tx_result.hex)
+                .expect("must be able to deserialize tx");
+
+        btc_client
+            .send_raw_transaction(&signed_challenge_tx)
+            .expect("must be able to send tx");
+    }
+
+    #[test]
+    fn test_challenge_tx_psbt() {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+
+        let bitcoind =
+            Node::from_downloaded_with_conf(&conf).expect("must be able to start bitcoind");
+        let btc_client = &bitcoind.client;
+        let PrepareChallengeTxResult {
+            challenge_connector,
+            challenge_tx,
+            signed_challenge_leaf,
+            ..
+        } = prepare_challenge_tx(btc_client);
+
+        let finalized_challenge_tx =
+            challenge_tx.finalize_presigned(challenge_connector, signed_challenge_leaf);
+
+        let signed_challenge_tx =
+            fund_and_sign_raw_tx(btc_client, &finalized_challenge_tx, None, Some(true));
+
+        btc_client
+            .send_raw_transaction(&signed_challenge_tx)
+            .expect("must be able to send tx");
+    }
+
+    struct PrepareChallengeTxResult {
+        operator_address: Address,
+        challenge_connector: ConnectorC1,
+        input_amount: Amount,
+        challenge_tx: ChallengeTx,
+        signed_challenge_leaf: ConnectorC1Path<taproot::Signature>,
+    }
+
+    fn prepare_challenge_tx(btc_client: &Client) -> PrepareChallengeTxResult {
         let network = btc_client
             .get_blockchain_info()
             .expect("must get blockchain info")
@@ -292,66 +425,14 @@ mod tests {
             signature,
             sighash_type: challenge_leaf.get_sighash_type(),
         };
-
-        let insufficient_outpoint = OutPoint {
-            txid: generate_txid(),
-            vout: 0,
-        };
-        let insufficient_prevout = TxOut {
-            value: Amount::from_sat(100),
-            script_pubkey: operator_address.script_pubkey().clone(),
-        };
-
-        assert!(challenge_tx
-            .clone()
-            .add_funding_input(insufficient_outpoint, insufficient_prevout.clone())
-            .is_err_and(|err| {
-                match err {
-                    TxError::InsufficientInputAmount(input, output) => {
-                        assert_eq!(input, input_amount + insufficient_prevout.value);
-                        assert_eq!(output, CHALLENGE_COST);
-
-                        true
-                    }
-                    _ => panic!("unexpected error: {:?}", err),
-                }
-            }));
-
-        let required_amount: Amount = challenge_tx
-            .psbt()
-            .unsigned_tx
-            .output
-            .iter()
-            .map(|output| output.value)
-            .sum();
-        let (funding_input, funding_outpoint) =
-            get_funding_utxo_exact(btc_client, required_amount + FEES);
-
-        let funded_challenge_tx = challenge_tx
-            .add_funding_input(funding_outpoint, funding_input)
-            .expect("must be able to fund the challenge");
-
         let signed_challenge_leaf = challenge_leaf.add_witness_data(n_of_n_sig);
-        let signed_challenge_tx = funded_challenge_tx
-            .finalize(challenge_connector, signed_challenge_leaf)
-            .expect("must be able to finalize tx");
 
-        let signed_challenge_tx_result = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(consensus::encode::serialize_hex(
-                    &signed_challenge_tx
-                )
-                .to_string())],
-            )
-            .expect("must be able to sign tx");
-
-        let signed_challenge_tx: Transaction =
-            consensus::encode::deserialize_hex(&signed_challenge_tx_result.hex)
-                .expect("must be able to deserialize tx");
-
-        btc_client
-            .send_raw_transaction(&signed_challenge_tx)
-            .expect("must be able to send tx");
+        PrepareChallengeTxResult {
+            operator_address,
+            challenge_connector,
+            input_amount,
+            challenge_tx,
+            signed_challenge_leaf,
+        }
     }
 }
