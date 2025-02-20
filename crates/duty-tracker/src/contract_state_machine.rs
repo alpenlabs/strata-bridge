@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use bitcoin::{taproot::Signature, Transaction};
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::{
-    build_context::BuildContext,
+    build_context::{BuildContext, TxBuildContext},
     params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
     types::{BitcoinBlockHeight, OperatorIdx},
 };
@@ -55,7 +55,7 @@ pub enum ContractEvent {
 /// - Asserted -> Disproved
 /// - Asserted -> Resolved
 #[derive(Debug, Clone)]
-enum ContractState {
+pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
     /// the deposit confirms.
     Requested {
@@ -78,15 +78,23 @@ enum ContractState {
     /// This state describes everything from the moment the withdrawal is assigned, to the moment
     /// the fulfillment transaction confirms.
     Assigned {
+        /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
+
+        /// The deadline by which the operator must fulfill the withdrawal before it is reassigned.
         deadline: BitcoinBlockHeight,
+
+        /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
+        /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
+
+        /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraph,
     },
 
@@ -94,23 +102,36 @@ enum ContractState {
     /// moment either the challenge transaction confirms, or the optimistic payout transaction
     /// confirms.
     Claimed {
+        /// The height at which the claim transaction was confirmed.
         claim_height: BitcoinBlockHeight,
+
+        /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
+
+        /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
+        /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
+
+        /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraph,
     },
 
     /// This state describes everything from the moment the post-assert transaction confirms, to
     /// the moment either the disprove transaction confirms or the payout transaction confirms.
     Asserted {
+        /// The height at which the post-assert transaction was confirmed.
         post_assert_height: BitcoinBlockHeight,
+
+        /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
+
+        /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraph,
     },
 
@@ -213,48 +234,74 @@ impl std::fmt::Debug for NextStep {
 #[derive(Debug)]
 pub struct TransitionErr;
 
+/// Holds the state machine values that remain static for the lifetime of the contract.
 #[derive(Debug)]
-/// This is the core state machine for a given deposit contract.
-pub struct ContractSM<PointedOperatorSet: BuildContext> {
-    // Readers
-    ctx: PointedOperatorSet,
-    deposit_tx: Transaction,
-    deposit_idx: u32,
-    peg_out_graphs: BTreeMap<OperatorIdx, PegOutGraph>,
+pub struct ContractCfg {
+    /// The pointed operator set.
+    pub ctx: TxBuildContext,
 
-    // States
-    block_height: BitcoinBlockHeight,
-    state: ContractState,
+    /// The predetermined deposit transaction that the rest of the graph is built from.
+    pub deposit_tx: Transaction,
+
+    /// The globally unique deposit index.
+    pub deposit_idx: u32,
+
+    /// The set of all possible withdrawal graphs indexed by operator.
+    pub peg_out_graphs: BTreeMap<OperatorIdx, PegOutGraph>,
 }
 
-impl<C: BuildContext> ContractSM<C> {
+/// Holds the state machine values that change over the lifetime of the contract.
+#[derive(Debug)]
+pub struct MachineState {
+    /// The most recent block height the state machine is aware of.
+    pub block_height: BitcoinBlockHeight,
+
+    /// The state of the contract itself.
+    pub state: ContractState,
+}
+
+#[derive(Debug)]
+/// This is the core state machine for a given deposit contract.
+pub struct ContractSM {
+    cfg: ContractCfg,
+    state: MachineState,
+}
+
+impl ContractSM {
     /// Builds a new ContractSM around a given deposit transaction.
     ///
     /// This will be constructible once we have a deposit request.
     pub fn new(
-        ctx: C,
+        ctx: TxBuildContext,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_tx: Transaction,
         deposit_idx: u32,
         peg_out_graphs: BTreeMap<OperatorIdx, PegOutGraph>,
     ) -> Result<(Self, OperatorDuty), TransitionErr> {
+        let cfg = ContractCfg {
+            ctx,
+            deposit_tx,
+            deposit_idx,
+            peg_out_graphs,
+        };
         let state = ContractState::Requested {
             abort_deadline,
             graph_sigs: BTreeMap::new(),
             root_sigs: BTreeMap::new(),
         };
+        let state = MachineState {
+            block_height,
+            state,
+        };
         Ok((
-            ContractSM {
-                ctx,
-                block_height,
-                deposit_tx,
-                deposit_idx,
-                state,
-                peg_out_graphs,
-            },
+            ContractSM { cfg, state },
             OperatorDuty::PublishGraphSignatures,
         ))
+    }
+
+    pub fn restore(cfg: ContractCfg, state: MachineState) -> Self {
+        ContractSM { cfg, state }
     }
 
     /// Processes the unified event type for the ContractSM.
@@ -289,7 +336,7 @@ impl<C: BuildContext> ContractSM<C> {
         height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match &self.state {
+        match &self.state.state {
             ContractState::Requested { .. } => self.process_deposit_confirmation(tx),
             ContractState::Deposited => Err(TransitionErr),
             ContractState::Assigned { .. } => self.process_fulfillment_confirmation(tx),
@@ -312,10 +359,10 @@ impl<C: BuildContext> ContractSM<C> {
         signer: OperatorIdx,
         sig: GraphSignatures,
     ) -> Result<NextStep, TransitionErr> {
-        match &mut self.state {
+        match &mut self.state.state {
             ContractState::Requested { graph_sigs, .. } => {
                 graph_sigs.insert(signer, sig);
-                let duty = if graph_sigs.len() == self.ctx.pubkey_table().0.len() {
+                let duty = if graph_sigs.len() == self.cfg.ctx.pubkey_table().0.len() {
                     // we have all the sigs now
                     // issue deposit signature
                     Some(OperatorDuty::PublishDepositSignature)
@@ -335,10 +382,10 @@ impl<C: BuildContext> ContractSM<C> {
         signer: OperatorIdx,
         sig: Signature,
     ) -> Result<NextStep, TransitionErr> {
-        match &mut self.state {
+        match &mut self.state.state {
             ContractState::Requested { root_sigs, .. } => {
                 root_sigs.insert(signer, sig);
-                let duty = if root_sigs.len() == self.ctx.pubkey_table().0.len() {
+                let duty = if root_sigs.len() == self.cfg.ctx.pubkey_table().0.len() {
                     // we have all the deposit sigs now
                     // we can publish the deposit
                     Some(OperatorDuty::PublishDeposit)
@@ -348,7 +395,7 @@ impl<C: BuildContext> ContractSM<C> {
 
                 Ok(NextStep::new(
                     duty,
-                    Some(is_txid(self.deposit_tx.compute_txid())),
+                    Some(is_txid(self.cfg.deposit_tx.compute_txid())),
                 ))
             }
             _ => Err(TransitionErr),
@@ -359,21 +406,21 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        if tx.compute_txid() != self.deposit_tx.compute_txid() {
+        if tx.compute_txid() != self.cfg.deposit_tx.compute_txid() {
             return Err(TransitionErr);
         }
 
-        self.state = ContractState::Deposited;
+        self.state.state = ContractState::Deposited;
 
         Ok(NextStep::new(None, None))
     }
 
     /// Increment the internally tracked block height.
     fn notify_new_block(&mut self) -> Result<Option<NextStep>, TransitionErr> {
-        self.block_height += 1;
-        match self.state.clone() {
+        self.state.block_height += 1;
+        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Requested { abort_deadline, .. } => {
-                if self.block_height >= abort_deadline {
+                if self.state.block_height >= abort_deadline {
                     Ok(Some(NextStep::new(None, None)))
                 } else {
                     Ok(None)
@@ -385,12 +432,12 @@ impl<C: BuildContext> ContractSM<C> {
                 deadline,
                 ..
             } => {
-                if self.block_height >= deadline {
-                    self.state = ContractState::Deposited;
+                if self.state.block_height >= deadline {
+                    self.state.state = ContractState::Deposited;
                 }
                 Ok(Some(NextStep::new(
                     None,
-                    Some(is_fulfillment_tx(self.deposit_idx, fulfiller)),
+                    Some(is_fulfillment_tx(self.cfg.deposit_idx, fulfiller)),
                 )))
             }
             ContractState::Fulfilled { .. } => Ok(None),
@@ -400,8 +447,8 @@ impl<C: BuildContext> ContractSM<C> {
                 active_graph,
                 ..
             } => {
-                if self.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
-                    && fulfiller == self.ctx.own_index()
+                if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
+                    && fulfiller == self.cfg.ctx.own_index()
                 {
                     Ok(Some(NextStep::new(
                         Some(OperatorDuty::FulfillerDuty(
@@ -420,8 +467,8 @@ impl<C: BuildContext> ContractSM<C> {
                 active_graph,
                 ..
             } => {
-                if self.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
-                    && fulfiller == self.ctx.own_index()
+                if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
+                    && fulfiller == self.cfg.ctx.own_index()
                 {
                     Ok(Some(NextStep::new(
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout)),
@@ -441,11 +488,11 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         assignment: &DepositEntry,
     ) -> Result<NextStep, TransitionErr> {
-        if !matches!(self.state, ContractState::Deposited) {
+        if !matches!(self.state.state, ContractState::Deposited) {
             return Err(TransitionErr);
         }
 
-        if assignment.idx() != self.deposit_idx {
+        if assignment.idx() != self.cfg.deposit_idx {
             return Err(TransitionErr);
         }
 
@@ -454,16 +501,17 @@ impl<C: BuildContext> ContractSM<C> {
                 let fulfiller = dispatched_state.assignee();
                 let deadline = dispatched_state.exec_deadline();
                 let active_graph = self
+                    .cfg
                     .peg_out_graphs
                     .get(&fulfiller)
                     .ok_or(TransitionErr)?
                     .clone();
-                self.state = ContractState::Assigned {
+                self.state.state = ContractState::Assigned {
                     fulfiller,
                     deadline,
                     active_graph,
                 };
-                let duty = if fulfiller == self.ctx.own_index() {
+                let duty = if fulfiller == self.cfg.ctx.own_index() {
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishFulfillment,
                     ))
@@ -473,7 +521,7 @@ impl<C: BuildContext> ContractSM<C> {
 
                 Ok(NextStep::new(
                     duty,
-                    Some(is_fulfillment_tx(self.deposit_idx, fulfiller)),
+                    Some(is_fulfillment_tx(self.cfg.deposit_idx, fulfiller)),
                 ))
             }
             _ => Err(TransitionErr),
@@ -485,24 +533,24 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Assigned {
                 fulfiller,
                 active_graph,
                 ..
             } => {
-                if !is_fulfillment_tx(self.deposit_idx, fulfiller)(tx) {
+                if !is_fulfillment_tx(self.cfg.deposit_idx, fulfiller)(tx) {
                     return Err(TransitionErr);
                 }
 
                 let match_claim = Some(is_txid(active_graph.claim_tx.compute_txid()));
 
-                self.state = ContractState::Fulfilled {
+                self.state.state = ContractState::Fulfilled {
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller == self.ctx.own_index() {
+                let duty = if fulfiller == self.cfg.ctx.own_index() {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
                 } else {
                     None
@@ -519,7 +567,7 @@ impl<C: BuildContext> ContractSM<C> {
         height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match std::mem::replace(&mut self.state, ContractState::Deposited) {
+        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Fulfilled {
                 fulfiller,
                 active_graph,
@@ -531,13 +579,13 @@ impl<C: BuildContext> ContractSM<C> {
 
                 let match_challenge = is_challenge(&active_graph.claim_tx);
 
-                self.state = ContractState::Claimed {
+                self.state.state = ContractState::Claimed {
                     claim_height: height,
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller != self.ctx.own_index() {
+                let duty = if fulfiller != self.cfg.ctx.own_index() {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim))
                 } else {
                     None
@@ -551,7 +599,7 @@ impl<C: BuildContext> ContractSM<C> {
 
     /// Tells the state machine that the claim was assessed to be fraudulent.
     fn process_claim_verification_failure(&mut self) -> Result<NextStep, TransitionErr> {
-        match &self.state {
+        match &self.state.state {
             ContractState::Claimed { active_graph, .. } => Ok(NextStep::new(
                 Some(OperatorDuty::VerifierDuty(VerifierDuty::PublishChallenge)),
                 Some(is_challenge(&active_graph.claim_tx)),
@@ -564,7 +612,7 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Claimed {
                 fulfiller,
                 active_graph,
@@ -576,12 +624,12 @@ impl<C: BuildContext> ContractSM<C> {
 
                 let is_post_assert = is_txid(active_graph.assert_chain.post_assert.compute_txid());
 
-                self.state = ContractState::Challenged {
+                self.state.state = ContractState::Challenged {
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller == self.ctx.own_index() {
+                let duty = if fulfiller == self.cfg.ctx.own_index() {
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishAssertChain,
                     ))
@@ -600,7 +648,7 @@ impl<C: BuildContext> ContractSM<C> {
         post_assert_height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Challenged {
                 fulfiller,
                 active_graph,
@@ -612,13 +660,13 @@ impl<C: BuildContext> ContractSM<C> {
 
                 let match_disprove = is_disprove(&active_graph.assert_chain.post_assert);
 
-                self.state = ContractState::Asserted {
+                self.state.state = ContractState::Asserted {
                     post_assert_height,
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller != self.ctx.own_index() {
+                let duty = if fulfiller != self.cfg.ctx.own_index() {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion))
                 } else {
                     None
@@ -632,7 +680,7 @@ impl<C: BuildContext> ContractSM<C> {
 
     /// Tells the state machine that the assertion chain is invalid.
     fn process_assertion_verification_failure(&mut self) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Asserted { active_graph, .. } => Ok(NextStep::new(
                 Some(OperatorDuty::VerifierDuty(VerifierDuty::PublishDisprove)),
                 Some(is_disprove(&active_graph.assert_chain.post_assert)),
@@ -645,13 +693,13 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match self.state.state.clone() {
             ContractState::Asserted { active_graph, .. } => {
                 if !is_disprove(&active_graph.assert_chain.post_assert)(tx) {
                     return Err(TransitionErr);
                 }
 
-                self.state = ContractState::Disproved {};
+                self.state.state = ContractState::Disproved {};
 
                 Ok(NextStep::new(None, None))
             }
@@ -663,13 +711,13 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match self.state.state.clone() {
             ContractState::Claimed { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.payout_optimistic.compute_txid() {
                     return Err(TransitionErr);
                 }
 
-                self.state = ContractState::Resolved {};
+                self.state.state = ContractState::Resolved {};
 
                 Ok(NextStep::new(None, None))
             }
@@ -681,18 +729,28 @@ impl<C: BuildContext> ContractSM<C> {
         &mut self,
         tx: &Transaction,
     ) -> Result<NextStep, TransitionErr> {
-        match self.state.clone() {
+        match self.state.state.clone() {
             ContractState::Asserted { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.payout_tx.compute_txid() {
                     return Err(TransitionErr);
                 }
 
-                self.state = ContractState::Resolved {};
+                self.state.state = ContractState::Resolved {};
 
                 Ok(NextStep::new(None, None))
             }
             _ => Err(TransitionErr),
         }
+    }
+
+    /// Dumps the config parameters of the state machine.
+    pub fn cfg(&self) -> &ContractCfg {
+        &self.cfg
+    }
+
+    /// Dumps the current state of the state machine.
+    pub fn state(&self) -> &MachineState {
+        &self.state
     }
 }
 
