@@ -90,7 +90,7 @@ impl ConnectorA31Leaf {
                     {U256::transform_limbsize(8, 4)}
 
 
-                    //The stack version of sha256 requires that the most significant nibble be on the top of the stack
+                    // The stack version of sha256 requires that the most significant nibble be on the top of the stack
                     // the 128 nibbles to be hashed is reversed first
                     for i in (1..=127).rev(){
                         {i} OP_ROLL
