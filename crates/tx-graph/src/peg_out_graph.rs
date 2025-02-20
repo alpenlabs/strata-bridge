@@ -41,6 +41,32 @@ pub struct PegOutGraphInput {
     pub kickoff_data: KickoffTxData,
 }
 
+/// The minimum necessary information to recognize all of the relevant transactions in a given
+/// [`PegOutGraph`].
+#[derive(Debug)]
+pub struct PegOutGraphSummary {
+    /// Txid of [`PegOutGraph::kickoff_tx`]
+    pub kickoff_txid: Txid,
+
+    /// Txid of [`PegOutGraph::claim_tx`]
+    pub claim_txid: Txid,
+
+    /// Txid of [`PegOutGraph::payout_optimistic`]
+    pub payout_optimistic_txid: Txid,
+
+    /// Txid of [`AssertChain::pre_assert`] contained in [`PegOutGraph::assert_chain`]
+    pub pre_assert_txid: Txid,
+
+    /// Txids of [`AssertChain::assert_data`] contained in [`PegOutGraph::assert_chain`]
+    pub assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
+
+    /// Txid of [`AssertChain::post_assert`] contained in [`PegOutGraph::assert_chain`]
+    pub post_assert_txid: Txid,
+
+    /// Txid of [`PegOutGraph::payout_tx`]
+    pub payout_txid: Txid,
+}
+
 /// A container for the transactions in the peg-out graph.
 ///
 /// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxiliary data required to
@@ -191,6 +217,18 @@ impl PegOutGraph {
             },
             connectors,
         ))
+    }
+
+    pub fn summarize(&self) -> PegOutGraphSummary {
+        PegOutGraphSummary {
+            kickoff_txid: self.kickoff_tx.compute_txid(),
+            claim_txid: self.claim_tx.compute_txid(),
+            payout_optimistic_txid: self.payout_optimistic.compute_txid(),
+            pre_assert_txid: self.assert_chain.pre_assert.compute_txid(),
+            assert_data_txids: self.assert_chain.assert_data.compute_txids(),
+            post_assert_txid: self.assert_chain.post_assert.compute_txid(),
+            payout_txid: self.payout_tx.compute_txid(),
+        }
     }
 }
 
