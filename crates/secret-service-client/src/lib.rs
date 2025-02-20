@@ -98,7 +98,7 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
 
     type WotsSigner = WotsClient;
 
-    type StakeChain = StakeChainClient;
+    type StakeChainPreimages = StakeChainClient;
 
     fn operator_signer(&self) -> Self::OperatorSigner {
         OperatorClient {
@@ -128,7 +128,7 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
         }
     }
 
-    fn stake_chain(&self) -> Self::StakeChain {
+    fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
         StakeChainClient {
             conn: self.conn.clone(),
             config: self.config.clone(),

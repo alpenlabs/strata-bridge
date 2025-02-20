@@ -5,25 +5,31 @@ edition = "2021"
 
 [dependencies]
 bitcoin.workspace = true
-blake3.workspace = true
 colored = "3.0.0"
 hkdf = "0.12.4"
+make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
 musig2.workspace = true
-parking_lot.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"
-rkyv.workspace = true
 rustls-pemfile = "2.2.0"
 secret-service-proto = { version = "0.1.0", path = "../secret-service-proto" }
 secret-service-server = { version = "0.1.0", path = "../secret-service-server" }
 serde.workspace = true
 sha2.workspace = true
-sled = "0.34.7"
 strata-bridge-primitives.workspace = true
 strata-key-derivation = { git = "https://github.com/alpenlabs/strata", version = "0.1.0" }
-terrors.workspace = true
 
 tokio.workspace = true
 toml = "0.8.19"
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.unsafe_op_in_unsafe_fn = "warn"
+rust.missing_docs = "warn"
+rustdoc.all = "warn"

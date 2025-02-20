@@ -6,6 +6,7 @@ use bitcoin::{
     Txid,
 };
 use hkdf::Hkdf;
+use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
 use secret_service_proto::v1::traits::{Server, StakeChainPreimages};
 use sha2::Sha256;
@@ -41,12 +42,10 @@ impl StakeChainPreimages<Server> for StakeChain {
         async move {
             let hk = Hkdf::<Sha256>::new(None, &self.ikm);
             let mut okm = [0u8; 32];
-            let info = {
-                let mut buf = [0; 40];
-                buf[..32].copy_from_slice(&prestake_txid.as_raw_hash().to_byte_array());
-                buf[32..36].copy_from_slice(&prestake_vout.to_le_bytes());
-                buf[36..].copy_from_slice(&stake_index.to_le_bytes());
-                buf
+            let info = make_buf! {
+                (prestake_txid.as_raw_hash().as_byte_array(), 32),
+                (&prestake_vout.to_le_bytes(), 4),
+                (&stake_index.to_le_bytes(), 4)
             };
             hk.expand(&info, &mut okm)
                 .expect("32 is a valid length for Sha256 to output");

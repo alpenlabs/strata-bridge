@@ -1,3 +1,7 @@
+//! This module contains the Musig2SessionManager which manages in-memory Musig2
+//! sessions globally for a given server. This allows ergonomic (and correct) usage
+//! of S2's musig2 features.
+
 use std::{mem::MaybeUninit, sync::Arc};
 
 use musig2::{errors::RoundFinalizeError, LiftedSignature};
@@ -7,6 +11,9 @@ use tokio::sync::{Mutex, MutexGuard};
 
 use crate::bool_arr::DoubleBoolArray;
 
+/// Musig2SessionManager is responsible for tracking and managing secret service
+/// musig2 sessions.
+#[derive(Debug)]
 pub struct Musig2SessionManager<FirstRound, SecondRound, const N: usize = 128>
 where
     SecondRound: Musig2SignerSecondRound<Server>,
@@ -40,18 +47,32 @@ where
     }
 }
 
+/// The provided session index is out of range
 #[derive(Debug)]
 pub struct OutOfRange;
 
+/// The session manager is full and cannot accept any more sessions
+#[derive(Debug)]
+pub struct Full;
+
+/// The session was assumed to be in a round that it was not in
 #[derive(Debug)]
 pub struct NotInCorrectRound {
+    /// The state the session was assumed to be in
     pub wanted: SlotState,
+    /// The state the session was actually in
     pub got: SlotState,
 }
 
+/// We couldn't take ownership of the session because something else was still
+/// using it. Try again.
 #[derive(Debug)]
 pub struct OtherReferencesActive;
 
+/// A struct representing a permission from the session manager to write to a given slot.
+/// This allows inspection of the allocated session ID and value before it is transferred
+/// to the session manager's ownership.
+#[derive(Debug)]
 pub struct WritePermission<'a, T> {
     slot: &'a mut MaybeUninit<Arc<Mutex<T>>>,
     session_id: usize,
@@ -59,10 +80,12 @@ pub struct WritePermission<'a, T> {
 }
 
 impl<T> WritePermission<'_, T> {
+    /// Returns a reference to the value inside the mutex.
     pub async fn value(&self) -> MutexGuard<'_, T> {
         self.t.lock().await
     }
 
+    /// Returns the session ID allocated by the session manager.
     pub fn session_id(&self) -> usize {
         self.session_id
     }
@@ -79,11 +102,15 @@ where
     SecondRound: Musig2SignerSecondRound<Server>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
 {
+    /// Requests a new session ID from the session manager for a given first round.
     pub fn new_session(
         &mut self,
         first_round: FirstRound,
-    ) -> Result<WritePermission<FirstRound>, OutOfRange> {
-        let next_empty = self.tracker.find_next_empty_slot().ok_or(OutOfRange)?;
+    ) -> Result<WritePermission<'_, FirstRound>, Full> {
+        let next_empty = self
+            .tracker
+            .find_first_slot_with(SlotState::Empty)
+            .ok_or(Full)?;
         let slot = if next_empty <= self.first_rounds.len() {
             // we're replacing an existing session
             self.first_rounds.get_mut(next_empty).unwrap()
@@ -107,6 +134,8 @@ where
         }
     }
 
+    /// Attempts to transition a musig2 session from the first round by
+    /// finalizing it.
     pub async fn transition_first_to_second_round(
         &mut self,
         session_id: usize,
@@ -152,6 +181,7 @@ where
         }
     }
 
+    /// Attempts to finalize the second round of a musig2 session.
     pub async fn finalize_second_round(
         &mut self,
         session_id: usize,
@@ -194,6 +224,7 @@ where
         }
     }
 
+    /// Attempts to retrieve the first round of a musig2 session.
     pub fn first_round(
         &self,
         session_id: usize,
@@ -207,6 +238,7 @@ where
         }
     }
 
+    /// Attempts to retrieve the second round of a musig2 session.
     pub fn second_round(
         &self,
         session_id: usize,
@@ -221,10 +253,15 @@ where
     }
 }
 
+/// Represents the state of a slot in the musig2 session manager. Used with the
+/// bool_arr to improve scan performance.
 #[derive(Debug)]
 pub enum SlotState {
+    /// There's no musig2 session in this slot.
     Empty,
+    /// There's a musig2 session in this slot in its first round stage.
     FirstRound,
+    /// There's a musig2 session in this slot in its second round stage.
     SecondRound,
 }
 

@@ -73,7 +73,7 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
 
     type WotsSigner = SeededWotsSigner;
 
-    type StakeChain = StakeChain;
+    type StakeChainPreimages = StakeChain;
 
     fn operator_signer(&self) -> Self::OperatorSigner {
         Operator::new(self.keys.wallet_xpriv().private_key)
@@ -91,7 +91,7 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
         SeededWotsSigner::new(self.keys.base_xpriv())
     }
 
-    fn stake_chain(&self) -> Self::StakeChain {
+    fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
         StakeChain::new(self.keys.base_xpriv())
     }
 }

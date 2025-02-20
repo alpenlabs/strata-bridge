@@ -1260,7 +1260,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
 dependencies = [
  "serde",
- "zeroize",
 ]
 
 [[package]]
@@ -1810,7 +1809,6 @@ dependencies = [
  "cc",
  "cfg-if 1.0.0",
  "constant_time_eq 0.3.1",
- "zeroize",
 ]
 
 [[package]]
@@ -2489,7 +2487,7 @@ dependencies = [
  "crossterm_winapi",
  "libc",
  "mio 0.8.11",
- "parking_lot 0.12.3",
+ "parking_lot",
  "signal-hook",
  "signal-hook-mio",
  "winapi 0.3.9",
@@ -2588,7 +2586,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core 0.9.10",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -3231,16 +3229,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fs2"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
-dependencies = [
- "libc",
- "winapi 0.3.9",
-]
-
-[[package]]
 name = "fuchsia-zircon"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3312,7 +3300,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot 0.12.3",
+ "parking_lot",
 ]
 
 [[package]]
@@ -3377,15 +3365,6 @@ name = "futures-utils-wasm"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
-
-[[package]]
-name = "fxhash"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
-dependencies = [
- "byteorder",
-]
 
 [[package]]
 name = "gcd"
@@ -4233,7 +4212,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "jsonrpsee-types",
- "parking_lot 0.12.3",
+ "parking_lot",
  "pin-project",
  "rand",
  "rustc-hash 2.1.1",
@@ -4386,16 +4365,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kanal"
-version = "0.1.0-pre8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b05d55519627edaf7fd0f29981f6dc03fb52df3f5b257130eb8d0bf2801ea1d7"
-dependencies = [
- "futures-core",
- "lock_api",
-]
-
-[[package]]
 name = "keccak"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4486,7 +4455,7 @@ checksum = "c0ff37bd590ca25063e35af745c343cb7a0271906fb7b37e4813e8f79f00268d"
 dependencies = [
  "bitflags 2.8.0",
  "libc",
- "redox_syscall 0.5.8",
+ "redox_syscall",
 ]
 
 [[package]]
@@ -4536,6 +4505,11 @@ checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
 dependencies = [
  "hashbrown 0.15.2",
 ]
+
+[[package]]
+name = "make_buf"
+version = "1.0.1"
+source = "git+https://github.com/alpenlabs/make_buf#bede90c866883153bb5e3705e1d2d1c7602d06b2"
 
 [[package]]
 name = "malloc_buf"
@@ -5477,37 +5451,12 @@ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "parking_lot"
-version = "0.11.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
-dependencies = [
- "instant",
- "lock_api",
- "parking_lot_core 0.8.6",
-]
-
-[[package]]
-name = "parking_lot"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1bf18183cf54e8d6059647fc3063646a1801cf30896933ec2311622cc4b9a27"
 dependencies = [
  "lock_api",
- "parking_lot_core 0.9.10",
-]
-
-[[package]]
-name = "parking_lot_core"
-version = "0.8.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
-dependencies = [
- "cfg-if 1.0.0",
- "instant",
- "libc",
- "redox_syscall 0.2.16",
- "smallvec",
- "winapi 0.3.9",
+ "parking_lot_core",
 ]
 
 [[package]]
@@ -5518,7 +5467,7 @@ checksum = "1e401f977ab385c9e4e3ab30627d6f26d00e2c73eef317493c4ec6d468726cf8"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "redox_syscall 0.5.8",
+ "redox_syscall",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -6072,15 +6021,6 @@ name = "recvmsg"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
-
-[[package]]
-name = "redox_syscall"
-version = "0.2.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
-dependencies = [
- "bitflags 1.3.2",
-]
 
 [[package]]
 name = "redox_syscall"
@@ -6914,23 +6854,19 @@ name = "secret-service"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "blake3",
  "colored 3.0.0",
  "hkdf",
+ "make_buf",
  "musig2",
- "parking_lot 0.12.3",
  "rand",
  "rcgen",
- "rkyv",
  "rustls-pemfile",
  "secret-service-proto",
  "secret-service-server",
  "serde",
  "sha2",
- "sled",
  "strata-bridge-primitives",
  "strata-key-derivation",
- "terrors",
  "tokio",
  "toml",
  "tracing",
@@ -6942,7 +6878,6 @@ name = "secret-service-client"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "kanal",
  "musig2",
  "quinn",
  "rkyv",
@@ -6950,7 +6885,6 @@ dependencies = [
  "strata-bridge-primitives",
  "terrors",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -6969,10 +6903,7 @@ name = "secret-service-server"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "futures",
- "kanal",
  "musig2",
- "parking_lot 0.12.3",
  "quinn",
  "rkyv",
  "secret-service-proto",
@@ -7181,7 +7112,7 @@ dependencies = [
  "futures",
  "log",
  "once_cell",
- "parking_lot 0.12.3",
+ "parking_lot",
  "scc",
  "serial_test_derive",
 ]
@@ -7313,22 +7244,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "sled"
-version = "0.34.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f96b4737c2ce5987354855aed3797279def4ebf734436c6aa4552cf8e169935"
-dependencies = [
- "crc32fast",
- "crossbeam-epoch",
- "crossbeam-utils",
- "fs2",
- "fxhash",
- "libc",
- "log",
- "parking_lot 0.11.2",
 ]
 
 [[package]]
@@ -8477,7 +8392,7 @@ dependencies = [
  "borsh",
  "hex",
  "musig2",
- "parking_lot 0.12.3",
+ "parking_lot",
  "serde",
  "strata-mmr",
  "strata-primitives",
@@ -8629,7 +8544,7 @@ source = "git+https://github.com/alpenlabs/strata.git#8f743b59a7b541ba4b3cebe78d
 dependencies = [
  "anyhow",
  "borsh",
- "parking_lot 0.12.3",
+ "parking_lot",
  "serde",
  "strata-chaintsn",
  "strata-consensus-logic",
@@ -8689,7 +8604,7 @@ dependencies = [
  "async-trait",
  "bitcoin",
  "lru",
- "parking_lot 0.12.3",
+ "parking_lot",
  "paste",
  "strata-db",
  "strata-primitives",
@@ -9044,7 +8959,7 @@ dependencies = [
  "bytes",
  "libc",
  "mio 1.0.3",
- "parking_lot 0.12.3",
+ "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2",
@@ -9768,7 +9683,7 @@ version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "372d5b87f58ec45c384ba03563b03544dc5fadc3983e434b286913f5b4a9bb6d"
 dependencies = [
- "redox_syscall 0.5.8",
+ "redox_syscall",
  "wasite",
 ]
 

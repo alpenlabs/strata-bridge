@@ -1,11 +1,15 @@
+//! This module contains the implementation of the secret service server.
+//! This handles networking and communication with clients, but does not implement the traits
+//! for the secret service protocol.
+
 pub mod bool_arr;
-pub mod ms2sm;
+pub mod musig2_session_mgr;
 
 use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
 use bitcoin::{hashes::Hash, secp256k1::PublicKey, Txid};
-use ms2sm::Musig2SessionManager;
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
+use musig2_session_mgr::Musig2SessionManager;
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
@@ -30,12 +34,18 @@ use terrors::OneOf;
 use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{error, span, warn, Instrument, Level};
 
+/// Configuration for the secret service server.
+#[derive(Debug)]
 pub struct Config {
+    /// The address to bind the server to.
     pub addr: SocketAddr,
+    /// The maximum number of concurrent connections allowed.
     pub connection_limit: Option<usize>,
+    /// The TLS configuration for the server.
     pub tls_config: rustls::ServerConfig,
 }
 
+/// Run the secret service server given the service and a server configuration.
 pub async fn run_server<FirstRound, SecondRound, Service>(
     c: Config,
     service: Arc<Service>,
@@ -437,7 +447,7 @@ where
                 stake_index,
             } => {
                 let preimg = service
-                    .stake_chain()
+                    .stake_chain_preimages()
                     .get_preimg(
                         Txid::from_slice(prestake_txid).expect("correct length"),
                         prestake_vout.into(),

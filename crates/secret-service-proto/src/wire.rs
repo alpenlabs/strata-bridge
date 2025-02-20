@@ -13,23 +13,30 @@ trait WireMessageMarker:
 {
 }
 
+/// A trait for serializing wire messages
 pub trait WireMessage {
+    /// Serialize the wire message into an aligned vector using rkyv.
     fn serialize(&self) -> Result<AlignedVec, rancor::Error>;
 }
 
+/// The length unit used for wire messages.
 pub type LengthUint = u16;
 
+/// The global data structure used for wire messages from a client.
 #[repr(u8)]
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum VersionedClientMessage {
+    /// Version 1 of the client message.
     V1(v1::wire::ClientMessage),
 }
 
 impl WireMessageMarker for VersionedClientMessage {}
 
+/// The global data structure used for wire messages from a server.
 #[repr(u8)]
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum VersionedServerMessage {
+    /// Version 1 of the server message.
     V1(v1::wire::ServerMessage),
 }
 

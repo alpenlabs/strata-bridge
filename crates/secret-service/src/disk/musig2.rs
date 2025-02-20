@@ -7,6 +7,7 @@ use bitcoin::{
     Txid,
 };
 use hkdf::Hkdf;
+use make_buf::make_buf;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{PublicKey, SecretKey, SECP256K1},
@@ -88,11 +89,9 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
             }
 
             let nonce_seed = {
-                let info = {
-                    let mut buf = [0; 36];
-                    buf[0..32].copy_from_slice(&input_txid.as_raw_hash().to_byte_array());
-                    buf[32..36].copy_from_slice(&input_vout.to_le_bytes());
-                    buf
+                let info = make_buf! {
+                    (&input_txid.as_raw_hash().to_byte_array(), 32),
+                    (&input_vout.to_le_bytes(), 4)
                 };
                 let hk = Hkdf::<Sha256>::new(None, &self.ikm);
                 let mut okm = [0u8; 32];

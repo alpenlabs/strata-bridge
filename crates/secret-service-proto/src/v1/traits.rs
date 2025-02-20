@@ -12,19 +12,11 @@ use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
 use super::wire::ServerMessage;
 
-pub trait SecretServiceFactory<FirstRound, SecondRound>: Send + Clone
-where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + Clone,
-    SecondRound: Musig2SignerSecondRound<Server>,
-{
-    type Context: Send + Clone;
-    type Service: SecretService<Server, FirstRound, SecondRound> + Send;
-    fn produce(ctx: Self::Context) -> Self::Service;
-}
-
 // possible when https://github.com/rust-lang/rust/issues/63063 is stabliized
 // pub type AsyncResult<T, E = ()> = impl Future<Output = Result<T, E>>;
 
+/// The SecretService trait is the core interface for the Secret Service,
+/// implemented by both the client and the server with different versions.
 pub trait SecretService<O, FirstRound, SecondRound>: Send
 where
     O: Origin,
@@ -34,13 +26,13 @@ where
     type P2PSigner: P2PSigner<O>;
     type Musig2Signer: Musig2Signer<O, FirstRound>;
     type WotsSigner: WotsSigner<O>;
-    type StakeChain: StakeChainPreimages<O>;
+    type StakeChainPreimages: StakeChainPreimages<O>;
 
     fn operator_signer(&self) -> Self::OperatorSigner;
     fn p2p_signer(&self) -> Self::P2PSigner;
     fn musig2_signer(&self) -> Self::Musig2Signer;
     fn wots_signer(&self) -> Self::WotsSigner;
-    fn stake_chain(&self) -> Self::StakeChain;
+    fn stake_chain_preimages(&self) -> Self::StakeChainPreimages;
 }
 
 pub trait OperatorSigner<O: Origin>: Send {
