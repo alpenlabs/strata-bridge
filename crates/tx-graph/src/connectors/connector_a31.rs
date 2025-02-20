@@ -64,45 +64,43 @@ impl ConnectorA31Leaf {
                     // first, verify that the WOTS for withdrawal fulfillment txid is correct.
                     { wots256::compact::checksig_verify(withdrawal_fulfillment_pk.0) }
 
-                    // `checksig_verify` pushes the committed data onto the stack as nibbles in big-endian form.
-                    // so, first `swap` to reverse the order of the nibbles.
-                    // then, multiply each nibble by 16 and add them to together to get the byte.
-                    // finally, push the byte to the ALTSTACK.
-                    for _ in 0..32 { OP_SWAP { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
+                    // `checksig_verify` pushes the committed data onto the stack as nibbles.
+                    // send the 64 nibbles to altstack
+                    for _ in 0..64{ OP_TOALTSTACK }
 
                     // second, verify that the WOTS for public inputs hash is correct.
                     { wots256::compact::checksig_verify(public_inputs_hash_public_key) }
-                    // same as above but the public inputs hash is in the reverse order.
+                    // `checksig_verify` pushes the committed data onto the stack as nibbles.
+                    // multiply each nibble by 16 and add them to together to get the byte.
+                    // finally, push the byte to the ALTSTACK.
                     for _ in 0..32 { { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
                     // get the committed public inputs hash from the altstack.
                     for _ in 0..32 { OP_FROMALTSTACK }
                     // get the committed withdrawal fulfillment txid from the altstack.
-                    for _ in 0..32 { OP_FROMALTSTACK }
+                    for _ in 0..64 { OP_FROMALTSTACK }
 
                     // include the deposit txid in the script to couple proofs with deposits.
                     // this is part of the commitment to the public inputs (along with the
                     // withdrawal_fulfillment txid.
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
-
-                    // OPTIMIZE: Currently, treated the code above as a blackbox and a drop in replacement
-                    // to the previous version of sha256 to get ensure there are no more hiccups in switching over to
-                    // sha256_u4_stack. Will look into above stack elements and get rid of redundant stack operations.
+                    // since sha256_stack requires input in nibble form.
+                    // convert 32 bytes (256 bits) deposit txid to nibbles
+                    {U256::transform_limbsize(8, 4)}
 
 
                     //The stack version of sha256 requires that the most significant nibble be on the top of the stack
-                    // the 64 bytes to be hashed is reversed first
-                    for i in (1..=63).rev(){
+                    // the 128 nibbles to be hashed is reversed first
+                    for i in (1..=127).rev(){
                         {i} OP_ROLL
                         OP_TOALTSTACK
                     }
-                    for _ in 0..63{ OP_FROMALTSTACK }
+                    for _ in 0..127{ OP_FROMALTSTACK }
 
-
-                    //convert bytes to nibbles
-                    {U512::transform_limbsize(8, 4)}
-
+                    // change the endianness
+                    for _ in 0..64{OP_SWAP OP_TOALTSTACK OP_TOALTSTACK}
+                    for _ in 0..128 {OP_FROMALTSTACK}
 
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
