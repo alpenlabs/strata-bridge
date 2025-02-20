@@ -5,7 +5,7 @@ use bitcoin::{
     Address, Network, ScriptBuf, Txid,
 };
 use bitvm::{
-    bigint::{BigIntImpl, U256},
+    bigint::U256,
     groth16::g16::{self, N_TAPLEAVES},
     hash::sha256_u4_stack::sha256_script,
     pseudo::NMUL,
@@ -18,9 +18,6 @@ use strata_bridge_primitives::{
 };
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
-
-// define a U512 type to enable transformation functions on the 64 byte inputs to the hash functions
-pub type U512 = BigIntImpl<512, 8>;
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
 #[derive(Debug, Clone, Copy)]
