@@ -297,7 +297,6 @@ where
             own_index,
             wots_public_keys,
         )
-        .await
         .expect("must be able to generate tx graph");
 
         info!(action = "registering txids on the watcher", %deposit_txid, %own_index);
@@ -531,7 +530,6 @@ where
                         sender_id,
                         wots_public_keys,
                     )
-                    .await
                     .expect("should be able to generate tx graph");
 
                     let AssertChain {
@@ -894,7 +892,6 @@ where
                         sender_id,
                         wots_public_keys,
                     )
-                    .await
                     .expect("should be able to generate tx graph");
 
                     self.register_graph(&peg_out_graph, sender_id, deposit_txid)
@@ -1518,7 +1515,6 @@ where
             own_index,
             wots_public_keys,
         )
-        .await
         .expect("should be able to generate tx graph");
 
         self.register_graph(&peg_out_graph, own_index, deposit_txid)

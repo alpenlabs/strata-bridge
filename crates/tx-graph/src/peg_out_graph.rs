@@ -98,7 +98,7 @@ impl PegOutGraph {
     /// Each graph can be generated deterministically provided that the WOTS public keys are
     /// available for the operator for the given deposit transaction, and the input data is
     /// available.
-    pub async fn generate<Context>(
+    pub fn generate<Context>(
         input: PegOutGraphInput,
         context: &Context,
         deposit_txid: Txid,
@@ -428,7 +428,6 @@ mod tests {
             operator_idx,
             wots_public_keys,
         )
-        .await
         .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
@@ -976,7 +975,6 @@ mod tests {
             .expect("must have wots public keys");
         let (graph, connectors) =
             PegOutGraph::generate(input, context, deposit_txid, operator_idx, wots_public_keys)
-                .await
                 .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
