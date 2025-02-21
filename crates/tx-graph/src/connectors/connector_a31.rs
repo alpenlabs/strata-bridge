@@ -84,35 +84,35 @@ impl ConnectorA31Leaf {
 
                     // since sha256_stack requires input in nibble form.
                     // convert 32 bytes (256 bits) deposit txid to nibbles
-                    {U256::transform_limbsize(8, 4)}
+                    { U256::transform_limbsize(8, 4) }
 
 
                     // The stack version of sha256 requires that the most significant nibble be on the top of the stack
                     // the 128 nibbles to be hashed is reversed first
                     for i in (1..=127).rev(){
-                        {i} OP_ROLL
+                        { i } OP_ROLL
                         OP_TOALTSTACK
                     }
                     for _ in 1..=127{ OP_FROMALTSTACK }
 
                     // change the endianness
                     for _ in (0..128).step_by(2) {
-                        OP_SWAP 
-                        OP_TOALTSTACK 
+                        OP_SWAP
+                        OP_TOALTSTACK
                         OP_TOALTSTACK
                     }
-                    for _ in 0..128 {OP_FROMALTSTACK}
+                    for _ in 0..128 { OP_FROMALTSTACK }
 
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
                     { sha256_script(2 * 32)}
 
                     // convert the hash from nibble representation to bytes
-                    {U256::transform_limbsize(4, 8)}
+                    { U256::transform_limbsize(4, 8) }
 
                     //reverse the hash on stack
                     for i in (1..=31).rev(){
-                        {i} OP_ROLL
+                        { i } OP_ROLL
                         OP_TOALTSTACK
                     }
                     for _ in 1..=31 { OP_FROMALTSTACK }
@@ -123,7 +123,7 @@ impl ConnectorA31Leaf {
                     // verify that the computed hash and the committed inputs hash don't match
                     for i in (1..32).rev() {
                         // compare the last bytes first
-                        {i + 1} OP_ROLL
+                        { i + 1 } OP_ROLL
                         // check if they are equal and push the result to the altstack
                         OP_EQUAL OP_TOALTSTACK
                     }
