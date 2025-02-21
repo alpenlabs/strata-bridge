@@ -59,43 +59,55 @@ impl ConnectorA31Leaf {
             ConnectorA31Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
                     // first, verify that the WOTS for withdrawal fulfillment txid is correct.
+                    // `checksig_verify` pushes the committed data onto the stack as nibbles in big-endian form.
+                    // Assuming front as the top of stack we get Stack : [a,b,...,1,2] ; Alt-stack : []
                     { wots256::compact::checksig_verify(withdrawal_fulfillment_pk.0) }
 
-                    // `checksig_verify` pushes the committed data onto the stack as nibbles.
                     // send the 64 nibbles to altstack
+                    // Stack : [] ; Alt-Stack : [2,1,...,b,a]
                     for _ in 0..64{ OP_TOALTSTACK }
 
                     // second, verify that the WOTS for public inputs hash is correct.
+                    // Stack : [c,d,...,3,4] Alt-stack : [2,1,...,b,a]
                     { wots256::compact::checksig_verify(public_inputs_hash_public_key) }
-                    // `checksig_verify` pushes the committed data onto the stack as nibbles.
+
                     // multiply each nibble by 16 and add them to together to get the byte.
                     // finally, push the byte to the ALTSTACK.
+                    // Stack : [] Alt-stack : [34,...,cd,2,1,...,b,a]
                     for _ in 0..32 { { NMUL(1 << 4) } OP_ADD OP_TOALTSTACK }
 
-                    // get the committed public inputs hash from the altstack.
+                    // get the 32 bytes of committed public inputs hash from the altstack.
+                    // Stack : [cd,...,34] Alt-stack : [2,1,...,b,a]
                     for _ in 0..32 { OP_FROMALTSTACK }
-                    // get the committed withdrawal fulfillment txid from the altstack.
+
+                    // get the 64 nibbles of committed withdrawal fulfillment txid from the altstack.
+                    // Stack : [a,b,...,1,2,cd,...,34] Alt-stack : []
                     for _ in 0..64 { OP_FROMALTSTACK }
 
                     // include the deposit txid in the script to couple proofs with deposits.
                     // this is part of the commitment to the public inputs (along with the
                     // withdrawal_fulfillment txid.
+                    // Stack : [ef,...,56,a,b,...,1,2,cd,...,34] Alt-stack : []
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
                     // since sha256_stack requires input in nibble form.
                     // convert 32 bytes (256 bits) deposit txid to nibbles
+                    // Stack : [e,f,...,5,6,a,b,...,1,2,cd,...,34] Alt-stack : []
                     { U256::transform_limbsize(8, 4) }
 
 
                     // The stack version of sha256 requires that the most significant nibble be on the top of the stack
                     // the 128 nibbles to be hashed is reversed first
+                    // Stack : [2,1,...,b,a,6,5,...,f,e,cd,...,34] Alt-stack : []
                     for i in (1..=127).rev(){
                         { i } OP_ROLL
                         OP_TOALTSTACK
                     }
                     for _ in 1..=127{ OP_FROMALTSTACK }
 
-                    // change the endianness
+                    // The above message is in little-endian which needs to be converted to big-endian.
+                    // This is done by swapping the adjacent nibbles of each byte
+                    // Stack : [1,2,...,a,b,5,6,...,e,f,cd,...,34] Alt-stack : []
                     for _ in (0..128).step_by(2) {
                         OP_SWAP
                         OP_TOALTSTACK
