@@ -1721,7 +1721,7 @@ dependencies = [
 [[package]]
 name = "bitvm"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/BitVM.git?branch=testnet-i#b8d349f789b59f2e6fd45738d281c713f3d68328"
+source = "git+https://github.com/alpenlabs/BitVM.git?branch=testnet-i#f7fd93e9c9187100e7c9b7b68e07f9f7c568a843"
 dependencies = [
  "ark-bn254",
  "ark-crypto-primitives",
@@ -1755,7 +1755,7 @@ dependencies = [
 [[package]]
 name = "bitvm-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/BitVM.git?branch=testnet-i#b8d349f789b59f2e6fd45738d281c713f3d68328"
+source = "git+https://github.com/alpenlabs/BitVM.git?branch=testnet-i#f7fd93e9c9187100e7c9b7b68e07f9f7c568a843"
 dependencies = [
  "tracing",
  "tracing-subscriber 0.3.19",
