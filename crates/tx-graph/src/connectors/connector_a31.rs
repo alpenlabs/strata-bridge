@@ -93,10 +93,14 @@ impl ConnectorA31Leaf {
                         {i} OP_ROLL
                         OP_TOALTSTACK
                     }
-                    for _ in 0..127{ OP_FROMALTSTACK }
+                    for _ in 1..=127{ OP_FROMALTSTACK }
 
                     // change the endianness
-                    for _ in 0..64{OP_SWAP OP_TOALTSTACK OP_TOALTSTACK}
+                    for _ in (0..128).step_by(2) {
+                        OP_SWAP 
+                        OP_TOALTSTACK 
+                        OP_TOALTSTACK
+                    }
                     for _ in 0..128 {OP_FROMALTSTACK}
 
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
@@ -111,7 +115,7 @@ impl ConnectorA31Leaf {
                         {i} OP_ROLL
                         OP_TOALTSTACK
                     }
-                    for _ in 0..31{ OP_FROMALTSTACK }
+                    for _ in 1..=31 { OP_FROMALTSTACK }
 
                     // convert the hash to a bn254 field element
                     hash_to_bn254_fq
