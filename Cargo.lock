@@ -3185,13 +3185,18 @@ dependencies = [
 name = "duty-tracker"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "bitcoin",
  "btc-notify",
  "futures",
+ "serde",
+ "sqlx",
  "strata-bridge-primitives",
  "strata-bridge-tx-graph",
  "strata-btcio",
+ "strata-primitives",
  "strata-state",
+ "thiserror 2.0.11",
  "tokio",
  "tokio-stream",
 ]

@@ -4,10 +4,6 @@ use std::sync::Arc;
 use bitcoin::{opcodes::all::OP_RETURN, OutPoint, Script, Transaction, Txid};
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::types::OperatorIdx;
-use strata_bridge_tx_graph::transactions::{
-    claim::ClaimTx,
-    prelude::{CovenantTx, PostAssertTx},
-};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -52,8 +48,7 @@ pub(crate) fn is_txid(txid: Txid) -> TxPredicate {
     Arc::new(move |tx| tx.compute_txid() == txid)
 }
 
-pub(crate) fn is_challenge(claim: &ClaimTx) -> TxPredicate {
-    let claim_txid = claim.psbt().unsigned_tx.compute_txid();
+pub(crate) fn is_challenge(claim_txid: Txid) -> TxPredicate {
     Arc::new(move |tx| {
         tx.input
             .first()
@@ -63,8 +58,7 @@ pub(crate) fn is_challenge(claim: &ClaimTx) -> TxPredicate {
     })
 }
 
-pub(crate) fn is_disprove(post_assert: &PostAssertTx) -> TxPredicate {
-    let post_assert_txid = post_assert.psbt().unsigned_tx.compute_txid();
+pub(crate) fn is_disprove(post_assert_txid: Txid) -> TxPredicate {
     Arc::new(move |tx| {
         tx.input
             .first()
