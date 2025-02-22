@@ -1,3 +1,4 @@
+//! Secret service wire protocol
 use rkyv::{
     api::high::{to_bytes_in, HighSerializer},
     rancor,

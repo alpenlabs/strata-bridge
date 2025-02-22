@@ -179,7 +179,7 @@ where
         ArchivedVersionedClientMessage::V1(req) => match req {
             ArchivedClientMessage::OperatorSign { digest } => {
                 let sig = service.operator_signer().sign(digest).await;
-                ServerMessage::OperatorSignPsbt {
+                ServerMessage::OperatorSign {
                     sig: sig.serialize(),
                 }
             }
@@ -193,7 +193,7 @@ where
 
             ArchivedClientMessage::P2PSign { digest } => {
                 let sig = service.p2p_signer().sign(digest).await;
-                ServerMessage::SignP2P {
+                ServerMessage::P2PSign {
                     sig: sig.serialize(),
                 }
             }
@@ -314,10 +314,12 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
-            ArchivedClientMessage::Musig2FirstRoundFinalize { session_id, hash } => {
+            ArchivedClientMessage::Musig2FirstRoundFinalize { session_id, digest } => {
                 let session_id = session_id.to_native() as usize;
                 let mut sm = musig2_sm.lock().await;
-                let r = sm.transition_first_to_second_round(session_id, *hash).await;
+                let r = sm
+                    .transition_first_to_second_round(session_id, *digest)
+                    .await;
 
                 if let Err(e) = r {
                     use terrors::E3::*;

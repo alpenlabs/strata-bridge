@@ -1,17 +1,22 @@
+//! The client crate for the secret service. Provides implementations of the traits that use a QUIC
+//! connection and wire protocol defined in the [`secret_service_proto`] crate to connect with a
+//! remote secret service.
+pub mod musig2;
+pub mod operator;
+pub mod p2p;
+pub mod stakechain;
+pub mod wots;
+
 use std::{
-    future::Future,
     io,
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
 };
 
-use bitcoin::{hashes::Hash, Txid};
-use musig2::{
-    errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::{schnorr::Signature, Error, PublicKey},
-    AggNonce, LiftedSignature, PubNonce,
-};
+use musig2::{Musig2Client, Musig2FirstRound, Musig2SecondRound};
+use operator::OperatorClient;
+use p2p::P2PClient;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
     rustls, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
@@ -19,11 +24,7 @@ use quinn::{
 use rkyv::{deserialize, rancor};
 use secret_service_proto::{
     v1::{
-        traits::{
-            Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
-            Musig2SignerSecondRound, OperatorSigner, Origin, P2PSigner, SecretService,
-            SignerIdxOutOfBounds, StakeChainPreimages, WotsSigner,
-        },
+        traits::{Client, ClientError, SecretService},
         wire::{ClientMessage, ServerMessage},
     },
     wire::{
@@ -31,27 +32,36 @@ use secret_service_proto::{
         WireMessage,
     },
 };
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use stakechain::StakeChainPreimgClient;
 use terrors::OneOf;
 use tokio::time::timeout;
+use wots::WotsClient;
 
-#[derive(Clone)]
+/// Configuration for the S2 client
+#[derive(Clone, Debug)]
 pub struct Config {
+    /// Server to connect to
     server_addr: SocketAddr,
+    /// Hostname present on the server's certificate
     server_hostname: String,
+    /// Optional local socket to connect via
     local_addr: Option<SocketAddr>,
+    /// Config for TLS. Note that you should be verifying the server's identity via this to prevent
+    /// MITM attacks.
     tls_config: rustls::ClientConfig,
+    /// Timeout for requests
     timeout: Duration,
 }
 
-#[derive(Clone)]
+/// A client that connects to a remote secret service via QUIC
+#[derive(Clone, Debug)]
 pub struct SecretServiceClient {
-    endpoint: Endpoint,
     config: Arc<Config>,
     conn: Connection,
 }
 
 impl SecretServiceClient {
+    /// Create a new client and attempt to connect to the server.
     pub async fn new(
         config: Config,
     ) -> Result<
@@ -82,7 +92,6 @@ impl SecretServiceClient {
         let conn = connecting.await.map_err(OneOf::new)?;
 
         Ok(SecretServiceClient {
-            endpoint,
             config: Arc::new(config),
             conn,
         })
@@ -98,454 +107,31 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
 
     type WotsSigner = WotsClient;
 
-    type StakeChainPreimages = StakeChainClient;
+    type StakeChainPreimages = StakeChainPreimgClient;
 
     fn operator_signer(&self) -> Self::OperatorSigner {
-        OperatorClient {
-            conn: self.conn.clone(),
-            config: self.config.clone(),
-        }
+        OperatorClient::new(self.conn.clone(), self.config.clone())
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {
-        P2PClient {
-            conn: self.conn.clone(),
-            config: self.config.clone(),
-        }
+        P2PClient::new(self.conn.clone(), self.config.clone())
     }
 
     fn musig2_signer(&self) -> Self::Musig2Signer {
-        Musig2Client {
-            conn: self.conn.clone(),
-            config: self.config.clone(),
-        }
+        Musig2Client::new(self.conn.clone(), self.config.clone())
     }
 
     fn wots_signer(&self) -> Self::WotsSigner {
-        WotsClient {
-            conn: self.conn.clone(),
-            config: self.config.clone(),
-        }
+        WotsClient::new(self.conn.clone(), self.config.clone())
     }
 
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
-        StakeChainClient {
-            conn: self.conn.clone(),
-            config: self.config.clone(),
-        }
+        StakeChainPreimgClient::new(self.conn.clone(), self.config.clone())
     }
 }
 
-#[derive(Clone)]
-struct Musig2FirstRound {
-    session_id: Musig2SessionId,
-    connection: Connection,
-    config: Arc<Config>,
-}
-
-impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
-    fn our_nonce(&self) -> impl Future<Output = <Client as Origin>::Container<PubNonce>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundOurNonce {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundOurNonce { our_nonce } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            PubNonce::from_bytes(&our_nonce).map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn holdouts(
-        &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<Vec<PublicKey>>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundHoldouts {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundHoldouts { pubkeys } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            pubkeys
-                .into_iter()
-                .map(|pk| PublicKey::from_slice(&pk))
-                .collect::<Result<Vec<PublicKey>, Error>>()
-                .map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn is_complete(&self) -> impl Future<Output = <Client as Origin>::Container<bool>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundIsComplete {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundIsComplete { complete } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(complete)
-        }
-    }
-
-    fn receive_pub_nonce(
-        &mut self,
-        pubkey: PublicKey,
-        pubnonce: PubNonce,
-    ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
-    {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundReceivePubNonce {
-                session_id: self.session_id,
-                pubkey: pubkey.serialize(),
-                pubnonce: pubnonce.serialize(),
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundReceivePubNonce(maybe_err) = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(maybe_err.map_or(Ok(()), Err))
-        }
-    }
-
-    fn finalize(
-        self,
-        hash: [u8; 32],
-    ) -> impl Future<
-        Output = <Client as Origin>::Container<Result<Musig2SecondRound, RoundFinalizeError>>,
-    > + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundFinalize {
-                session_id: self.session_id,
-                hash,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundFinalize(maybe_err) = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(match maybe_err {
-                Some(e) => Err(e),
-                None => Ok(Musig2SecondRound {
-                    session_id: self.session_id,
-                    connection: self.connection,
-                    config: self.config,
-                }),
-            })
-        }
-    }
-}
-
-struct Musig2SecondRound {
-    session_id: Musig2SessionId,
-    connection: Connection,
-    config: Arc<Config>,
-}
-
-impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
-    fn agg_nonce(&self) -> impl Future<Output = <Client as Origin>::Container<AggNonce>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundAggNonce {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundAggNonce { nonce } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            AggNonce::from_bytes(&nonce).map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn holdouts(
-        &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<Vec<PublicKey>>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundHoldouts {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundHoldouts { pubkeys } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            pubkeys
-                .into_iter()
-                .map(|pk| PublicKey::from_slice(&pk))
-                .collect::<Result<Vec<PublicKey>, Error>>()
-                .map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn our_signature(
-        &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<musig2::PartialSignature>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundOurSignature {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundOurSignature { sig } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            musig2::PartialSignature::from_slice(&sig).map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn is_complete(&self) -> impl Future<Output = <Client as Origin>::Container<bool>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundIsComplete {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundIsComplete { complete } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(complete)
-        }
-    }
-
-    fn receive_signature(
-        &mut self,
-        pubkey: PublicKey,
-        signature: musig2::PartialSignature,
-    ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
-    {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundReceiveSignature {
-                session_id: self.session_id,
-                pubkey: pubkey.serialize(),
-                signature: signature.serialize(),
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundReceiveSignature(maybe_err) = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(maybe_err.map_or(Ok(()), Err))
-        }
-    }
-
-    fn finalize(
-        self,
-    ) -> impl Future<
-        Output = <Client as Origin>::Container<Result<musig2::LiftedSignature, RoundFinalizeError>>,
-    > + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundFinalize {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundFinalize(res) = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            let res: Result<_, _> = res.into();
-            Ok(match res {
-                Ok(sig) => {
-                    let sig =
-                        LiftedSignature::from_bytes(&sig).map_err(|_| ClientError::BadData)?;
-                    Ok(sig)
-                }
-                Err(e) => Err(e),
-            })
-        }
-    }
-}
-
-struct OperatorClient {
-    conn: Connection,
-    config: Arc<Config>,
-}
-
-impl OperatorSigner<Client> for OperatorClient {
-    fn sign(
-        &self,
-        digest: &[u8; 32],
-    ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
-        async move {
-            let msg = ClientMessage::OperatorSign {
-                digest: digest.clone(),
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            match res {
-                ServerMessage::OperatorSignPsbt { sig } => {
-                    Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
-                }
-                _ => Err(ClientError::ProtocolError(res)),
-            }
-        }
-    }
-
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
-        async move {
-            let msg = ClientMessage::OperatorPubkey;
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            match res {
-                ServerMessage::OperatorPubkey { pubkey } => {
-                    PublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
-                }
-                _ => Err(ClientError::ProtocolError(res)),
-            }
-        }
-    }
-}
-
-struct P2PClient {
-    conn: Connection,
-    config: Arc<Config>,
-}
-
-impl P2PSigner<Client> for P2PClient {
-    fn sign(
-        &self,
-        digest: &[u8; 32],
-    ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
-        async move {
-            let msg = ClientMessage::P2PSign {
-                digest: digest.clone(),
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::SignP2P { sig } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
-        async move {
-            let msg = ClientMessage::P2PPubkey;
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::P2PPubkey { pubkey } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            PublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
-        }
-    }
-}
-
-struct Musig2Client {
-    conn: Connection,
-    config: Arc<Config>,
-}
-
-impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
-    fn new_session(
-        &self,
-        pubkeys: Vec<PublicKey>,
-        witness: TaprootWitness,
-        input_txid: Txid,
-        input_vout: u32,
-    ) -> impl Future<Output = Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError>> + Send
-    {
-        async move {
-            let msg = ClientMessage::Musig2NewSession {
-                pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
-                witness: witness.into(),
-                input_txid: input_txid.to_byte_array(),
-                input_vout,
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-
-            Ok(match maybe_session_id {
-                Ok(session_id) => Ok(Musig2FirstRound {
-                    session_id,
-                    connection: self.conn.clone(),
-                    config: self.config.clone(),
-                }),
-                Err(e) => Err(e),
-            })
-        }
-    }
-
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2Pubkey;
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2Pubkey { pubkey } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-
-            PublicKey::from_slice(&pubkey).map_err(|_| ClientError::ProtocolError(res))
-        }
-    }
-}
-
-struct WotsClient {
-    conn: Connection,
-    config: Arc<Config>,
-}
-
-impl WotsSigner<Client> for WotsClient {
-    fn get_160_key(
-        &self,
-        index: u32,
-        vout: u32,
-        txid: Txid,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 160]>> + Send {
-        async move {
-            let msg = ClientMessage::WotsGet160Key {
-                index,
-                vout,
-                txid: txid.as_raw_hash().to_byte_array(),
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::WotsGet160Key { key } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(key)
-        }
-    }
-
-    fn get_256_key(
-        &self,
-        index: u32,
-        vout: u32,
-        txid: Txid,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 256]>> + Send {
-        async move {
-            let msg = ClientMessage::WotsGet256Key {
-                index,
-                vout,
-                txid: txid.as_raw_hash().to_byte_array(),
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::WotsGet256Key { key } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(key)
-        }
-    }
-}
-
-struct StakeChainClient {
-    conn: Connection,
-    config: Arc<Config>,
-}
-
-impl StakeChainPreimages<Client> for StakeChainClient {
-    fn get_preimg(
-        &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
-        stake_index: u32,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 32]>> + Send {
-        async move {
-            let msg = ClientMessage::StakeChainGetPreimage {
-                prestake_txid: prestake_txid.to_byte_array(),
-                prestake_vout,
-                stake_index,
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::StakeChainGetPreimage { preimg } = res else {
-                return Err(ClientError::ProtocolError(res));
-            };
-            Ok(preimg)
-        }
-    }
-}
-
-async fn make_v1_req(
+/// Makes a v1 secret service request via quic
+pub async fn make_v1_req(
     conn: &Connection,
     msg: ClientMessage,
     timeout_dur: Duration,
