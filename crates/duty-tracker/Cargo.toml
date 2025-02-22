@@ -16,12 +16,17 @@ rust.unused_must_use = "deny"
 rustdoc.all = "warn"
 
 [dependencies]
-btc-notify.workspace = true
+bincode = "1.3.3"
 bitcoin.workspace = true
+btc-notify.workspace = true
 futures.workspace = true
+serde.workspace = true
+sqlx.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-tx-graph.workspace = true
 strata-btcio.workspace = true
+strata-primitives.workspace = true
 strata-state.workspace = true
+thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = "0.1.17"
