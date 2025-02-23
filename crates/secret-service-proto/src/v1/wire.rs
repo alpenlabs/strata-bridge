@@ -27,7 +27,7 @@ pub enum ServerMessage {
     /// Response for OperatorSigner::pubkey
     OperatorPubkey {
         /// Serialized Schnorr compressed public key for operator signatures
-        pubkey: [u8; 33],
+        pubkey: [u8; 32],
     },
 
     /// Response for P2PSigner::sign
@@ -38,7 +38,7 @@ pub enum ServerMessage {
     /// Response for P2PSigner::pubkey
     P2PPubkey {
         /// Serialized Schnorr compressed public key for P2P signatures
-        pubkey: [u8; 33],
+        pubkey: [u8; 32],
     },
 
     /// Response for Musig2Signer::new_session
@@ -46,7 +46,7 @@ pub enum ServerMessage {
     /// Response for Musig2Signer::pubkey
     Musig2Pubkey {
         /// Serialized Schnorr compressed public key for Musig2 signatures
-        pubkey: [u8; 33],
+        pubkey: [u8; 32],
     },
 
     /// Response for Musig2SignerFirstRound::our_nonce
@@ -58,7 +58,7 @@ pub enum ServerMessage {
     Musig2FirstRoundHoldouts {
         /// Serialized Schnorr compressed public keys of signers whose pub nonces
         /// we do not have
-        pubkeys: Vec<[u8; 33]>,
+        pubkeys: Vec<[u8; 32]>,
     },
     /// Response for Musig2SignerFirstRound::is_complete
     Musig2FirstRoundIsComplete {
@@ -84,7 +84,7 @@ pub enum ServerMessage {
     Musig2SecondRoundHoldouts {
         /// Serialized Schnorr compressed public keys of signers whose partial signatures
         /// we do not have for this signing session
-        pubkeys: Vec<[u8; 33]>,
+        pubkeys: Vec<[u8; 32]>,
     },
     /// Response for Musig2SignerSecondRound::our_signature
     Musig2SecondRoundOurSignature {
@@ -174,7 +174,7 @@ pub enum ClientMessage {
     Musig2NewSession {
         /// Public keys for the signing session. May or may not include our own
         /// public key. If not present, it should be added. May or may not be sorted.
-        pubkeys: Vec<[u8; 33]>,
+        pubkeys: Vec<[u8; 32]>,
         /// The taproot witness of the input
         witness: SerializableTaprootWitness,
         /// Serialized txid of the input tx
@@ -205,7 +205,7 @@ pub enum ClientMessage {
         /// Session that we're requesting for
         session_id: usize,
         /// The serialized compressed schnorr pubkey of the signer whose pubnonce this is
-        pubkey: [u8; 33],
+        pubkey: [u8; 32],
         /// Serialized public nonce
         pubnonce: [u8; 66],
     },
@@ -242,7 +242,7 @@ pub enum ClientMessage {
         /// Session that we're requesting for
         session_id: usize,
         /// The serialized compressed schnorr pubkey of the signer whose pubnonce this is
-        pubkey: [u8; 33],
+        pubkey: [u8; 32],
         /// That signer's musig2 partial sig
         signature: [u8; 32],
     },

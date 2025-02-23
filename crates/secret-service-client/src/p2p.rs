@@ -1,6 +1,7 @@
 //! P2P signer client
 use std::{future::Future, sync::Arc};
 
+use bitcoin::XOnlyPublicKey;
 use musig2::secp256k1::{schnorr::Signature, PublicKey};
 use quinn::Connection;
 use secret_service_proto::v1::{
@@ -38,14 +39,14 @@ impl P2PSigner<Client> for P2PClient {
         }
     }
 
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
+    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<XOnlyPublicKey>> + Send {
         async move {
             let msg = ClientMessage::P2PPubkey;
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::P2PPubkey { pubkey } = res else {
                 return Err(ClientError::WrongMessage(res));
             };
-            PublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
+            XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
         }
     }
 }

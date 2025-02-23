@@ -2,6 +2,8 @@
 
 pub mod config;
 pub mod disk;
+#[cfg(test)]
+mod tests;
 mod tls;
 
 use std::{env::args, path::PathBuf, str::FromStr, sync::LazyLock};

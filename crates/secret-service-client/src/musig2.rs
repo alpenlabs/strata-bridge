@@ -1,7 +1,7 @@
 //! Musig2 signer client
 use std::{future::Future, sync::Arc};
 
-use bitcoin::{hashes::Hash, Txid};
+use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::PublicKey,
@@ -33,7 +33,7 @@ impl Musig2Client {
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     fn new_session(
         &self,
-        pubkeys: Vec<PublicKey>,
+        pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
@@ -62,7 +62,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
         }
     }
 
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
+    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<XOnlyPublicKey>> + Send {
         async move {
             let msg = ClientMessage::Musig2Pubkey;
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
@@ -70,7 +70,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
                 return Err(ClientError::WrongMessage(res));
             };
 
-            PublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res))
+            XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res))
         }
     }
 }
@@ -98,7 +98,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
 
     fn holdouts(
         &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<Vec<PublicKey>>> + Send {
+    ) -> impl Future<Output = <Client as Origin>::Container<Vec<XOnlyPublicKey>>> + Send {
         async move {
             let msg = ClientMessage::Musig2FirstRoundHoldouts {
                 session_id: self.session_id,
@@ -109,8 +109,8 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             };
             pubkeys
                 .into_iter()
-                .map(|pk| PublicKey::from_slice(&pk))
-                .collect::<Result<Vec<PublicKey>, musig2::secp256k1::Error>>()
+                .map(|pk| XOnlyPublicKey::from_slice(&pk))
+                .collect::<Result<Vec<XOnlyPublicKey>, musig2::secp256k1::Error>>()
                 .map_err(|_| ClientError::BadData)
         }
     }
@@ -130,7 +130,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
 
     fn receive_pub_nonce(
         &mut self,
-        pubkey: PublicKey,
+        pubkey: XOnlyPublicKey,
         pubnonce: PubNonce,
     ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
     {
@@ -197,7 +197,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
 
     fn holdouts(
         &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<Vec<PublicKey>>> + Send {
+    ) -> impl Future<Output = <Client as Origin>::Container<Vec<XOnlyPublicKey>>> + Send {
         async move {
             let msg = ClientMessage::Musig2SecondRoundHoldouts {
                 session_id: self.session_id,
@@ -208,8 +208,8 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             pubkeys
                 .into_iter()
-                .map(|pk| PublicKey::from_slice(&pk))
-                .collect::<Result<Vec<PublicKey>, musig2::secp256k1::Error>>()
+                .map(|pk| XOnlyPublicKey::from_slice(&pk))
+                .collect::<Result<Vec<XOnlyPublicKey>, musig2::secp256k1::Error>>()
                 .map_err(|_| ClientError::BadData)
         }
     }
@@ -244,7 +244,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
 
     fn receive_signature(
         &mut self,
-        pubkey: PublicKey,
+        pubkey: XOnlyPublicKey,
         signature: musig2::PartialSignature,
     ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
     {

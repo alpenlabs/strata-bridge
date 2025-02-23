@@ -3,8 +3,8 @@ use std::future::Future;
 use bitcoin::{
     bip32::{ChildNumber, Xpriv},
     hashes::Hash,
-    key::Keypair,
-    Txid,
+    key::{Keypair, Parity},
+    Txid, XOnlyPublicKey,
 };
 use hkdf::Hkdf;
 use make_buf::make_buf;
@@ -58,21 +58,20 @@ impl Ms2Signer {
 impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
     fn new_session(
         &self,
-        mut pubkeys: Vec<PublicKey>,
+        mut pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
     ) -> impl Future<Output = Result<ServerFirstRound, SignerIdxOutOfBounds>> + Send {
         async move {
-            if !pubkeys.contains(&self.kp.public_key()) {
-                pubkeys.push(self.kp.public_key());
+            let my_pub_key = self.kp.x_only_public_key().0;
+            if !pubkeys.contains(&my_pub_key) {
+                pubkeys.push(my_pub_key);
             }
             pubkeys.sort();
-            let signer_index = pubkeys
-                .iter()
-                .position(|pk| pk == &self.kp.public_key())
-                .unwrap();
-            let mut ctx = KeyAggContext::new(pubkeys.clone()).unwrap();
+            let signer_index = pubkeys.iter().position(|pk| pk == &my_pub_key).unwrap();
+            let mut ctx =
+                KeyAggContext::new(pubkeys.iter().map(|pk| pk.public_key(Parity::Even))).unwrap();
 
             match witness {
                 TaprootWitness::Key => {
@@ -118,14 +117,14 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
         }
     }
 
-    fn pubkey(&self) -> impl Future<Output = <Server as Origin>::Container<PublicKey>> + Send {
-        async move { self.kp.public_key() }
+    fn pubkey(&self) -> impl Future<Output = <Server as Origin>::Container<XOnlyPublicKey>> + Send {
+        async move { self.kp.x_only_public_key().0 }
     }
 }
 
 pub struct ServerFirstRound {
     first_round: FirstRound,
-    ordered_public_keys: Vec<PublicKey>,
+    ordered_public_keys: Vec<XOnlyPublicKey>,
     seckey: SecretKey,
 }
 
@@ -138,7 +137,7 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
 
     fn holdouts(
         &self,
-    ) -> impl Future<Output = <Server as Origin>::Container<Vec<PublicKey>>> + Send {
+    ) -> impl Future<Output = <Server as Origin>::Container<Vec<XOnlyPublicKey>>> + Send {
         async move {
             self.first_round
                 .holdouts()
@@ -154,7 +153,7 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
 
     fn receive_pub_nonce(
         &mut self,
-        pubkey: PublicKey,
+        pubkey: XOnlyPublicKey,
         pubnonce: musig2::PubNonce,
     ) -> impl Future<Output = <Server as Origin>::Container<Result<(), RoundContributionError>>> + Send
     {
@@ -187,7 +186,7 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
 
 pub struct ServerSecondRound {
     second_round: SecondRound<[u8; 32]>,
-    ordered_public_keys: Vec<PublicKey>,
+    ordered_public_keys: Vec<XOnlyPublicKey>,
 }
 
 impl Musig2SignerSecondRound<Server> for ServerSecondRound {
@@ -199,7 +198,7 @@ impl Musig2SignerSecondRound<Server> for ServerSecondRound {
 
     fn holdouts(
         &self,
-    ) -> impl Future<Output = <Server as Origin>::Container<Vec<PublicKey>>> + Send {
+    ) -> impl Future<Output = <Server as Origin>::Container<Vec<XOnlyPublicKey>>> + Send {
         async move {
             self.second_round
                 .holdouts()
@@ -221,7 +220,7 @@ impl Musig2SignerSecondRound<Server> for ServerSecondRound {
 
     fn receive_signature(
         &mut self,
-        pubkey: PublicKey,
+        pubkey: XOnlyPublicKey,
         signature: musig2::PartialSignature,
     ) -> impl Future<Output = <Server as Origin>::Container<Result<(), RoundContributionError>>> + Send
     {

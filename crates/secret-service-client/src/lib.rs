@@ -5,6 +5,7 @@ pub mod musig2;
 pub mod operator;
 pub mod p2p;
 pub mod stakechain;
+
 pub mod wots;
 
 use std::{
@@ -21,7 +22,7 @@ use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
     rustls, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
 };
-use rkyv::{deserialize, rancor};
+use rkyv::{deserialize, rancor, util::AlignedVec};
 use secret_service_proto::{
     v1::{
         traits::{Client, ClientError, SecretService},
@@ -41,16 +42,16 @@ use wots::WotsClient;
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Server to connect to
-    server_addr: SocketAddr,
+    pub server_addr: SocketAddr,
     /// Hostname present on the server's certificate
-    server_hostname: String,
+    pub server_hostname: String,
     /// Optional local socket to connect via
-    local_addr: Option<SocketAddr>,
+    pub local_addr: Option<SocketAddr>,
     /// Config for TLS. Note that you should be verifying the server's identity via this to prevent
     /// MITM attacks.
-    tls_config: rustls::ClientConfig,
+    pub tls_config: rustls::ClientConfig,
     /// Timeout for requests
-    timeout: Duration,
+    pub timeout: Duration,
 }
 
 /// A client that connects to a remote secret service via QUIC
@@ -137,17 +138,17 @@ pub async fn make_v1_req(
     timeout_dur: Duration,
 ) -> Result<ServerMessage, ClientError> {
     let (mut tx, mut rx) = conn.open_bi().await.map_err(ClientError::ConnectionError)?;
-    timeout(
-        timeout_dur,
-        tx.write_all(
-            &VersionedClientMessage::V1(msg)
-                .serialize()
-                .map_err(ClientError::SerializationError)?,
-        ),
-    )
-    .await
-    .map_err(|_| ClientError::Timeout)?
-    .map_err(ClientError::WriteError)?;
+    let (len_bytes, msg_bytes) = VersionedClientMessage::V1(msg)
+        .serialize()
+        .map_err(ClientError::SerializationError)?;
+    timeout(timeout_dur, tx.write_all(&len_bytes))
+        .await
+        .map_err(|_| ClientError::Timeout)?
+        .map_err(ClientError::WriteError)?;
+    timeout(timeout_dur, tx.write_all(&msg_bytes))
+        .await
+        .map_err(|_| ClientError::Timeout)?
+        .map_err(ClientError::WriteError)?;
 
     let len_to_read = {
         let mut buf = [0; size_of::<LengthUint>()];
@@ -158,7 +159,8 @@ pub async fn make_v1_req(
         LengthUint::from_le_bytes(buf)
     };
 
-    let mut buf = vec![0; len_to_read as usize];
+    let mut buf: AlignedVec<16> = AlignedVec::with_capacity(len_to_read as usize);
+    buf.resize(len_to_read as usize, 0);
     timeout(timeout_dur, rx.read_exact(&mut buf))
         .await
         .map_err(|_| ClientError::Timeout)?

@@ -6861,6 +6861,7 @@ dependencies = [
  "rand",
  "rcgen",
  "rustls-pemfile",
+ "secret-service-client",
  "secret-service-proto",
  "secret-service-server",
  "serde",

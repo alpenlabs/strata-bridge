@@ -1,6 +1,7 @@
 //! Operator signer client
 use std::{future::Future, sync::Arc};
 
+use bitcoin::XOnlyPublicKey;
 use musig2::secp256k1::{schnorr::Signature, PublicKey};
 use quinn::Connection;
 use secret_service_proto::v1::{
@@ -40,13 +41,13 @@ impl OperatorSigner<Client> for OperatorClient {
         }
     }
 
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<PublicKey>> + Send {
+    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<XOnlyPublicKey>> + Send {
         async move {
             let msg = ClientMessage::OperatorPubkey;
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             match res {
                 ServerMessage::OperatorPubkey { pubkey } => {
-                    PublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
+                    XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
                 }
                 _ => Err(ClientError::WrongMessage(res)),
             }

@@ -7,17 +7,20 @@ pub mod musig2_session_mgr;
 
 use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
-use bitcoin::{hashes::Hash, secp256k1::PublicKey, Txid};
+use bitcoin::{hashes::Hash, secp256k1::PublicKey, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
 use musig2_session_mgr::Musig2SessionManager;
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
     ConnectionError, Endpoint, Incoming, ReadExactError, RecvStream, SendStream, ServerConfig,
+    WriteError,
 };
 use rkyv::{
     deserialize,
     rancor::{self, Error},
+    to_bytes,
+    util::AlignedVec,
 };
 use secret_service_proto::{
     v1::{
@@ -139,14 +142,19 @@ async fn request_manager(
 
     match handler_res {
         Ok(msg) => {
-            let byte_response = match WireMessage::serialize(&VersionedServerMessage::V1(msg)) {
+            let (len_bytes, msg_bytes) = match VersionedServerMessage::V1(msg).serialize() {
                 Ok(r) => r,
                 Err(e) => {
                     error!("failed to serialize response: {e:?}");
                     return;
                 }
             };
-            if let Err(e) = tx.write_all(&byte_response).await {
+            let write = || async move {
+                tx.write_all(&len_bytes).await?;
+                tx.write_all(&msg_bytes).await?;
+                Ok::<_, WriteError>(())
+            };
+            if let Err(e) = write().await {
                 warn!("failed to send response: {e:?}");
             }
         }
@@ -170,7 +178,8 @@ where
         LengthUint::from_le_bytes(buf)
     };
 
-    let mut buf = vec![0u8; len_to_read as usize];
+    let mut buf = AlignedVec::<16>::with_capacity(len_to_read as usize);
+    buf.resize(len_to_read as usize, 0);
     rx.read_exact(&mut buf).await?;
 
     let msg = rkyv::access::<ArchivedVersionedClientMessage, Error>(&buf).unwrap();
@@ -222,7 +231,7 @@ where
                 };
                 let Ok(pubkeys) = pubkeys
                     .into_iter()
-                    .map(|data| PublicKey::from_slice(data))
+                    .map(|data| XOnlyPublicKey::from_slice(data))
                     .collect::<Result<Vec<_>, _>>()
                 else {
                     break 'block ServerMessage::InvalidClientMessage;
@@ -278,7 +287,7 @@ where
                             .holdouts()
                             .await
                             .iter()
-                            .map(PublicKey::serialize)
+                            .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
                     _ => ServerMessage::InvalidClientMessage,
@@ -303,7 +312,7 @@ where
             } => {
                 let session_id = session_id.to_native() as usize;
                 let r = musig2_sm.lock().await.first_round(session_id);
-                let pubkey = PublicKey::from_slice(pubkey);
+                let pubkey = XOnlyPublicKey::from_slice(pubkey);
                 let pubnonce = PubNonce::from_bytes(pubnonce);
                 match (r, pubkey, pubnonce) {
                     (Ok(Some(first_round)), Ok(pubkey), Ok(pubnonce)) => {
@@ -363,7 +372,7 @@ where
                             .holdouts()
                             .await
                             .iter()
-                            .map(PublicKey::serialize)
+                            .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
                     _ => ServerMessage::InvalidClientMessage,
@@ -402,7 +411,7 @@ where
             } => {
                 let session_id = session_id.to_native() as usize;
                 let sr = musig2_sm.lock().await.second_round(session_id);
-                let pubkey = PublicKey::from_slice(pubkey);
+                let pubkey = XOnlyPublicKey::from_slice(pubkey);
                 let signature = PartialSignature::from_slice(signature);
                 match (sr, pubkey, signature) {
                     (Ok(Some(sr)), Ok(pubkey), Ok(signature)) => {

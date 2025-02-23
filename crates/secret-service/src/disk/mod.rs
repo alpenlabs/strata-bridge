@@ -53,14 +53,17 @@ impl Service {
             Err(e) => return Err(e),
         };
 
+        Ok(Self::new_with_seed(seed))
+    }
+
+    pub fn new_with_seed(seed: [u8; 32]) -> Self {
         let keys = OperatorKeys::new(&Xpriv::new_master(NETWORK, &seed).expect("valid xpriv"))
             .expect("valid keychain");
-
         info!(
             "Master fingerprint: {}",
             keys.master_xpub().fingerprint().to_string().bold()
         );
-        Ok(Self { keys })
+        Self { keys }
     }
 }
 

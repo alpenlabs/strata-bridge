@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use bitcoin::Txid;
+use bitcoin::{Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, PublicKey},
@@ -63,7 +63,7 @@ pub trait OperatorSigner<O: Origin>: Send {
     /// Signs a digest using the operator's private key.
     fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
     /// Returns the public key of the operator's secret key.
-    fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
+    fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
 
 /// The P2P signer is used for signing messages between operators on the peer-to-peer network.
@@ -73,7 +73,7 @@ pub trait P2PSigner<O: Origin>: Send {
     /// Signs a digest using the operator's private key.
     fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
     /// Returns the public key of the operator's secret key.
-    fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
+    fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
 
 /// Uniquely identifies an in-memory musig2 session on the signing server.
@@ -98,13 +98,13 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
     /// determistically (after addition of our own pubkey if required) before session creation
     fn new_session(
         &self,
-        pubkeys: Vec<PublicKey>,
+        pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
     ) -> impl Future<Output = O::Container<Result<FirstRound, SignerIdxOutOfBounds>>> + Send;
     /// Retrieve the public key associated with this musig2 signer.
-    fn pubkey(&self) -> impl Future<Output = O::Container<PublicKey>> + Send;
+    fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
 
 /// Represents a state-machine-like API for performing musig2 signing. This first round is returned
@@ -119,7 +119,7 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
 
     /// Returns a vector of all signer public keys who we have yet to receive a [`PubNonce`] from.
     /// Note that this will never return our own public key.
-    fn holdouts(&self) -> impl Future<Output = O::Container<Vec<PublicKey>>> + Send;
+    fn holdouts(&self) -> impl Future<Output = O::Container<Vec<XOnlyPublicKey>>> + Send;
 
     /// Returns true once all public nonces have been received from every signer.
     fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
@@ -129,7 +129,7 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
     /// different nonce on-file for that signer.
     fn receive_pub_nonce(
         &mut self,
-        pubkey: PublicKey,
+        pubkey: XOnlyPublicKey,
         pubnonce: PubNonce,
     ) -> impl Future<Output = O::Container<Result<(), RoundContributionError>>> + Send;
 
@@ -165,7 +165,7 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
     /// Returns a vector of signer public keys from whom we have yet to receive a
     /// [`PartialSignature`]. Note that since our signature was constructed at the end of the
     /// first round, this vector will never contain our own public key.
-    fn holdouts(&self) -> impl Future<Output = O::Container<Vec<PublicKey>>> + Send;
+    fn holdouts(&self) -> impl Future<Output = O::Container<Vec<XOnlyPublicKey>>> + Send;
 
     /// Returns the partial signature created during finalization of the first round.
     fn our_signature(&self) -> impl Future<Output = O::Container<PartialSignature>> + Send;
@@ -179,7 +179,7 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
     /// signer.
     fn receive_signature(
         &mut self,
-        pubkey: PublicKey,
+        pubkey: XOnlyPublicKey,
         signature: PartialSignature,
     ) -> impl Future<Output = O::Container<Result<(), RoundContributionError>>> + Send;
 

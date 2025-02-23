@@ -1,6 +1,6 @@
 use std::future::Future;
 
-use bitcoin::key::Keypair;
+use bitcoin::{key::Keypair, XOnlyPublicKey};
 use musig2::secp256k1::{schnorr::Signature, Message, PublicKey, SecretKey, SECP256K1};
 use secret_service_proto::v1::traits::{OperatorSigner, Origin, Server};
 
@@ -26,7 +26,7 @@ impl OperatorSigner<Server> for Operator {
         }
     }
 
-    fn pubkey(&self) -> impl Future<Output = <Server as Origin>::Container<PublicKey>> + Send {
-        async move { self.kp.public_key() }
+    fn pubkey(&self) -> impl Future<Output = <Server as Origin>::Container<XOnlyPublicKey>> + Send {
+        async move { self.kp.x_only_public_key().0 }
     }
 }

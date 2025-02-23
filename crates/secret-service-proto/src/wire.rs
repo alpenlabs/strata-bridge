@@ -3,6 +3,7 @@ use rkyv::{
     api::high::{to_bytes_in, HighSerializer},
     rancor,
     ser::allocator::ArenaHandle,
+    to_bytes,
     util::AlignedVec,
     Archive, Deserialize, Serialize,
 };
@@ -17,7 +18,7 @@ trait WireMessageMarker:
 /// A trait for serializing wire messages
 pub trait WireMessage {
     /// Serialize the wire message into an aligned vector using rkyv.
-    fn serialize(&self) -> Result<AlignedVec, rancor::Error>;
+    fn serialize(&self) -> Result<([u8; 2], AlignedVec), rancor::Error>;
 }
 
 /// The length unit used for wire messages.
@@ -44,19 +45,7 @@ pub enum VersionedServerMessage {
 impl WireMessageMarker for VersionedServerMessage {}
 
 impl<T: WireMessageMarker> WireMessage for T {
-    fn serialize(&self) -> Result<AlignedVec, rancor::Error> {
-        let mut aligned_buf = AlignedVec::new();
-        aligned_buf.extend_from_slice(&LengthUint::MAX.to_le_bytes());
-        let mut aligned_buf = to_bytes_in(self, aligned_buf)?;
-        let len = aligned_buf.len() - size_of::<LengthUint>();
-        assert!(len <= LengthUint::MAX as usize);
-        (len as LengthUint)
-            .to_le_bytes()
-            .into_iter()
-            .enumerate()
-            .for_each(|byte| {
-                aligned_buf[byte.0] = byte.1;
-            });
-        Ok(aligned_buf)
+    fn serialize(&self) -> Result<([u8; 2], AlignedVec), rancor::Error> {
+        to_bytes(self).map(|b| ((b.len() as LengthUint).to_le_bytes(), b))
     }
 }
