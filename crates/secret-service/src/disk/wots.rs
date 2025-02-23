@@ -1,3 +1,5 @@
+//! In-memory persistence for the Winternitz One-Time Signature (WOTS) keys.
+
 use std::future::Future;
 
 use bitcoin::{
@@ -28,6 +30,7 @@ impl SeededWotsSigner {
                 .derive_priv(
                     SECP256K1,
                     &[
+                        // TODO: move to constants.
                         ChildNumber::from_hardened_idx(79).unwrap(),
                         ChildNumber::from_hardened_idx(160).unwrap(),
                         ChildNumber::from_hardened_idx(0).unwrap(),
@@ -40,6 +43,7 @@ impl SeededWotsSigner {
                 .derive_priv(
                     SECP256K1,
                     &[
+                        // TODO: move to constants.
                         ChildNumber::from_hardened_idx(79).unwrap(),
                         ChildNumber::from_hardened_idx(256).unwrap(),
                         ChildNumber::from_hardened_idx(0).unwrap(),
@@ -55,9 +59,9 @@ impl SeededWotsSigner {
 impl WotsSigner<Server> for SeededWotsSigner {
     fn get_160_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = [u8; 20 * 160]> + Send {
         async move {
             let hk = Hkdf::<Sha256>::new(None, &self.ikm_160);
@@ -74,9 +78,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
 
     fn get_256_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = [u8; 20 * 256]> + Send {
         async move {
             let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
