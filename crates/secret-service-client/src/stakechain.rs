@@ -1,4 +1,5 @@
-//! Stakechain preimages client
+//! Stake Chain preimages client
+
 use std::{future::Future, sync::Arc};
 
 use bitcoin::{hashes::Hash, Txid};
@@ -10,13 +11,19 @@ use secret_service_proto::v1::{
 
 use crate::{make_v1_req, Config};
 
+/// Stake Chain preimages client.
+#[derive(Debug, Clone)]
 pub struct StakeChainPreimgClient {
+    /// QUIC connection to the server.
     conn: Connection,
+
+    /// Configuration for the client.
     config: Arc<Config>,
 }
 
 impl StakeChainPreimgClient {
-    /// Guess?
+    /// Creates a new Stake Chain preimages client with an existing QUIC connection and
+    /// configuration.
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }

@@ -1,4 +1,5 @@
 //! P2P signer client
+
 use std::{future::Future, sync::Arc};
 
 use bitcoin::XOnlyPublicKey;
@@ -11,12 +12,18 @@ use secret_service_proto::v1::{
 
 use crate::{make_v1_req, Config};
 
+/// P2P signer client.
+#[derive(Debug, Clone)]
 pub struct P2PClient {
+    /// QUIC connection to the server.
     conn: Connection,
+
+    /// Configuration for the client.
     config: Arc<Config>,
 }
 
 impl P2PClient {
+    /// Creates a new P2P client with an existing QUIC connection and configuration.
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
