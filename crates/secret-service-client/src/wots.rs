@@ -1,4 +1,4 @@
-//! WOTS signer client
+//! Winternitz One-time Signature (WOTS) signer client
 use std::{future::Future, sync::Arc};
 
 use bitcoin::{hashes::Hash, Txid};
@@ -10,13 +10,18 @@ use secret_service_proto::v1::{
 
 use crate::{make_v1_req, Config};
 
+/// Winternitz One-time Signature (WOTS) signer client.
+#[derive(Debug, Clone)]
 pub struct WotsClient {
+    /// QUIC connection to the server.
     conn: Connection,
+
+    /// Configuration for the client.
     config: Arc<Config>,
 }
 
 impl WotsClient {
-    /// Creates a new wots client with an existing quic connection and config
+    /// Creates a new WOTS client with an existing QUIC connection and configuration.
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
