@@ -285,3 +285,6 @@ provers/sp1/proofs/
 
 # test data
 !test-data/*.bin
+
+# secret service
+seed
