@@ -7,12 +7,15 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
+/// Wrapper for [`musig2::errors::RoundContributionError`].
 #[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
 #[rkyv(remote = musig2::errors::RoundContributionError)]
 #[rkyv(archived = ArchivedRoundContributionError)]
 pub struct RoundContributionError {
+    /// The index of the contributor.
     pub index: usize,
 
+    /// The reason for the error.
     #[rkyv(with = ContributionFaultReason)]
     pub reason: musig2::errors::ContributionFaultReason,
 }
@@ -35,12 +38,18 @@ impl From<RoundContributionError> for musig2::errors::RoundContributionError {
     }
 }
 
+/// Wrapper for [`musig2::errors::ContributionFaultReason`].
 #[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
 #[rkyv(remote = musig2::errors::ContributionFaultReason)]
 #[rkyv(archived = ArchivedContributionFaultReason)]
 pub enum ContributionFaultReason {
+    /// The index is out of range.
     OutOfRange(usize),
+
+    /// The contribution is inconsistent.
     InconsistentContribution,
+
+    /// The signature is invalid.
     InvalidSignature,
 }
 
@@ -66,12 +75,18 @@ impl From<ContributionFaultReason> for musig2::errors::ContributionFaultReason {
     }
 }
 
+/// Wrapper for [`musig2::errors::RoundFinalizeError`].
 #[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
 #[rkyv(remote = musig2::errors::RoundFinalizeError)]
 #[rkyv(archived = ArchivedRoundFinalizeError)]
 pub enum RoundFinalizeError {
+    /// The round was not completed.
     Incomplete,
+
+    /// Wrapper for [`musig2::errors::SigningError`].
     SigningError(#[rkyv(with = SigningError)] musig2::errors::SigningError),
+
+    /// Wrapper for [`musig2::errors::VerifyError`].
     InvalidAggregatedSignature(#[rkyv(with = VerifyError)] musig2::errors::VerifyError),
 }
 
@@ -101,11 +116,15 @@ impl From<RoundFinalizeError> for musig2::errors::RoundFinalizeError {
     }
 }
 
+/// Wrapper for [`musig2::errors::SigningError`].
 #[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
 #[rkyv(remote = musig2::errors::SigningError)]
 #[rkyv(archived = ArchivedSigningError)]
 pub enum SigningError {
+    /// Unknown key.
     UnknownKey,
+
+    /// Self verification failed.
     SelfVerifyFail,
 }
 
@@ -127,11 +146,15 @@ impl From<SigningError> for musig2::errors::SigningError {
     }
 }
 
+/// Wrapper for [`musig2::errors::VerifyError`].
 #[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
 #[rkyv(remote = musig2::errors::VerifyError)]
 #[rkyv(archived = ArchivedVerifyError)]
 pub enum VerifyError {
+    /// Unknown key.
     UnknownKey,
+
+    /// Bad signature.
     BadSignature,
 }
 
