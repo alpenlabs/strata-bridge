@@ -1,6 +1,6 @@
-//! This module contains the Musig2SessionManager which manages in-memory Musig2
+//! This module contains the Musig2SessionManager which manages in-memory MuSig2
 //! sessions globally for a given server. This allows ergonomic (and correct) usage
-//! of S2's musig2 features.
+//! of Secret Service's musig2 features.
 
 use std::{mem::MaybeUninit, sync::Arc};
 
@@ -11,8 +11,8 @@ use tokio::sync::{Mutex, MutexGuard};
 
 use crate::bool_arr::DoubleBoolArray;
 
-/// Musig2SessionManager is responsible for tracking and managing secret service
-/// musig2 sessions.
+/// [`Musig2SessionManager`] is responsible for tracking and managing Secret Service's
+/// MuSig2 sessions.
 #[derive(Debug)]
 pub struct Musig2SessionManager<FirstRound, SecondRound, const N: usize = 128>
 where
@@ -20,15 +20,25 @@ where
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
 {
     /// Tracker is used for tracking whether a session is in first round,
-    /// second round or completed. N=128 means we can track 128*32=4096 sessions
+    /// second round or completed.
+    ///
+    /// Example: when `N=128` means we can track `128 * 32 = 4_096` sessions.
     tracker: DoubleBoolArray<N, SlotState>,
-    /// Used to store first rounds of musig2 server instances. This is a Vec
-    /// because we don't know how big FirstRound may be in memory so we will
-    /// heap allocate and try keep this to a minimum
+
+    /// Used to store first rounds of musig2 server instances.
+    ///
+    /// # Implementation Details
+    ///
+    /// This is a [`Vec`] because the server doesn't know how big `FirstRound` may be in memory
+    /// so it will heap allocate and try keep this to a minimum.
     first_rounds: Vec<MaybeUninit<Arc<Mutex<FirstRound>>>>,
-    /// Used to store second rounds of musig2 server instances. This is a Vec
-    /// because we don't know how big SecondRound may be in memory so we will
-    /// heap allocate and try keep this to a minimum
+
+    /// Used to store second rounds of MuSig2 server instances.
+    ///
+    /// # Implementation Details
+    ///
+    /// This is a [`Vec`] because the server doesn't know how big `SecondRound` may be in memory so
+    /// it will heap allocate and try keep this to a minimum.
     second_rounds: Vec<MaybeUninit<Arc<Mutex<SecondRound>>>>,
 }
 
@@ -47,29 +57,31 @@ where
     }
 }
 
-/// The provided session index is out of range
+/// The provided session index is out of range.
 #[derive(Debug)]
 pub struct OutOfRange;
 
-/// The session manager is full and cannot accept any more sessions
+/// The session manager is full and cannot accept any more sessions.
 #[derive(Debug)]
 pub struct Full;
 
-/// The session was assumed to be in a round that it was not in
+/// The session was assumed to be in a round that it was not in.
 #[derive(Debug)]
 pub struct NotInCorrectRound {
-    /// The state the session was assumed to be in
+    /// The state the session was assumed to be in.
     pub wanted: SlotState,
-    /// The state the session was actually in
+
+    /// The state the session was actually in.
     pub got: SlotState,
 }
 
-/// We couldn't take ownership of the session because something else was still
+/// The server couldn't take ownership of the session because something else was still
 /// using it. Try again.
 #[derive(Debug)]
 pub struct OtherReferencesActive;
 
-/// A struct representing a permission from the session manager to write to a given slot.
+/// Permission from the session manager to write to a given slot.
+///
 /// This allows inspection of the allocated session ID and value before it is transferred
 /// to the session manager's ownership.
 #[derive(Debug)]
@@ -80,7 +92,7 @@ pub struct WritePermission<'a, T> {
 }
 
 impl<T> WritePermission<'_, T> {
-    /// Returns a reference to the value inside the mutex.
+    /// Returns a reference to the value inside the Mutex.
     pub async fn value(&self) -> MutexGuard<'_, T> {
         self.t.lock().await
     }
@@ -134,7 +146,7 @@ where
         }
     }
 
-    /// Attempts to transition a musig2 session from the first round by
+    /// Attempts to transition a MuSig2 session from the first round by
     /// finalizing it.
     pub async fn transition_first_to_second_round(
         &mut self,
@@ -181,7 +193,7 @@ where
         }
     }
 
-    /// Attempts to finalize the second round of a musig2 session.
+    /// Attempts to finalize the second round of a MuSig2 session.
     pub async fn finalize_second_round(
         &mut self,
         session_id: usize,
@@ -224,7 +236,7 @@ where
         }
     }
 
-    /// Attempts to retrieve the first round of a musig2 session.
+    /// Attempts to retrieve the first round of a MuSig2 session.
     pub fn first_round(
         &self,
         session_id: usize,
@@ -238,7 +250,7 @@ where
         }
     }
 
-    /// Attempts to retrieve the second round of a musig2 session.
+    /// Attempts to retrieve the second round of a MuSig2 session.
     pub fn second_round(
         &self,
         session_id: usize,
@@ -253,15 +265,18 @@ where
     }
 }
 
-/// Represents the state of a slot in the musig2 session manager. Used with the
-/// bool_arr to improve scan performance.
+/// Represents the state of a slot in the MuSig2 session manager.
+///
+/// Used with the [`bool_arr`](crate::bool_arr) to improve scan performance.
 #[derive(Debug)]
 pub enum SlotState {
-    /// There's no musig2 session in this slot.
+    /// There's no MuSig2 session in this slot.
     Empty,
-    /// There's a musig2 session in this slot in its first round stage.
+
+    /// There's a MuSig2 session in this slot in its first round stage.
     FirstRound,
-    /// There's a musig2 session in this slot in its second round stage.
+
+    /// There's a MuSig2 session in this slot in its second round stage.
     SecondRound,
 }
 

@@ -7,6 +7,7 @@
 //! over the array for scanning for a slot in a particular state.
 //!
 //! # Examples
+//!
 //! ```
 //! use std::convert::Infallible;
 //!
@@ -57,6 +58,7 @@ use std::{
 /// Compact storage for types representable as two boolean values (four possible states).
 ///
 /// Each entry is stored as two bits, with the following mapping:
+///
 /// - Bit 0: First boolean value (LSB)
 /// - Bit 1: Second boolean value
 ///
@@ -64,11 +66,13 @@ use std::{
 /// IMPORTANT: When T is `(false, false)`, it represents an empty state.
 ///
 /// # Type Parameters
-/// - `N`: Number of `u64` chunks used for storage (capacity = N × 32)
+///
+/// - `N`: Number of `u64` chunks used for storage (capacity = `N × 32`)
 /// - `T`: Stored type that can be converted to/from `(bool, bool)` pairs
 ///
 /// # Implementation Details
-/// - Stores values in N `u64` integers (8N bytes total)
+///
+/// - Stores values in N `u64` integers (`8N` bytes total)
 /// - Provides O(1) access time for get/set operations
 /// - Implements space-efficient storage with 2 bits per entry
 pub struct DoubleBoolArray<const N: usize, T>([u64; N], PhantomData<T>)
@@ -122,12 +126,13 @@ where
     T: Into<(bool, bool)> + TryFrom<(bool, bool)> + Debug,
     <T as TryFrom<(bool, bool)>>::Error: Debug,
 {
-    /// Returns the capacity of the array in terms of the number of (bool, bool) slots it can hold.
+    /// Returns the capacity of the array in terms of the number of `(bool, bool)` slots it can
+    /// hold.
     pub const fn capacity() -> usize {
         N * (std::mem::size_of::<u64>() * 8 / 2)
     }
 
-    /// Find the index of the first slot with the specified value.
+    /// Finds the index of the first slot with the specified value.
     pub fn find_first_slot_with(&self, target: T) -> Option<usize> {
         let (target_0, target_1) = target.into();
         let target = (target_0 as u64) | ((target_1 as u64) << 1);
@@ -142,8 +147,8 @@ where
         None
     }
 
-    /// Get the two boolean values at specified index
-    /// Panics if index >= N * 32
+    /// Gets the two boolean values at specified index.
+    /// Panics if `index >= N * 32`.
     pub fn get(&self, index: usize) -> T {
         assert!(index < N * 32, "Index out of bounds");
         let chunk_idx = index / 32;
@@ -155,8 +160,8 @@ where
             .expect("T::try_from(T::Into) should always succeed")
     }
 
-    /// Set the two boolean values at specified index
-    /// Panics if index >= N * 32
+    /// Sets the two boolean values at specified index.
+    /// Panics if `index >= N * 32`.
     pub fn set(&mut self, index: usize, value: T) {
         assert!(index < N * 32, "Index out of bounds");
         let chunk_idx = index / 32;
