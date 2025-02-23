@@ -1,3 +1,5 @@
+//! Runs the Secret Service.
+
 // use secret_service_server::rustls::ServerConfig;
 
 pub mod config;
@@ -15,6 +17,7 @@ use secret_service_server::{run_server, Config};
 use tls::load_tls;
 use tracing::{info, warn, Level};
 
+/// Runs the Secret Service in development mode if the `S2_DEV` environment variable is set to `1`.
 pub static DEV_MODE: LazyLock<bool> =
     LazyLock::new(|| std::env::var("S2_DEV").is_ok_and(|v| &v == "1"));
 

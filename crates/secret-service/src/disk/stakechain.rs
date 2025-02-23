@@ -1,3 +1,5 @@
+//! In-memory persistence for Stake Chain preimages.
+
 use std::future::Future;
 
 use bitcoin::{
@@ -11,16 +13,21 @@ use musig2::secp256k1::SECP256K1;
 use secret_service_proto::v1::traits::{Server, StakeChainPreimages};
 use sha2::Sha256;
 
+/// Secret data for the Stake Chain preimages.
+#[derive(Debug)]
 pub struct StakeChain {
+    /// The initial key material to derive Stake Chain preimages.
     ikm: [u8; 32],
 }
 
 impl StakeChain {
+    /// Creates a new [`StakeChain`] given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
         let xpriv = base
             .derive_priv(
                 SECP256K1,
                 &[
+                    // TODO: move to constants.
                     ChildNumber::from_hardened_idx(80).unwrap(),
                     ChildNumber::from_hardened_idx(0).unwrap(),
                 ],
@@ -33,6 +40,8 @@ impl StakeChain {
 }
 
 impl StakeChainPreimages<Server> for StakeChain {
+    /// Gets a preimage for a Stake Chain, given a pre-stake transaction ID, and output index; and
+    /// stake index.
     fn get_preimg(
         &self,
         prestake_txid: Txid,

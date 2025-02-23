@@ -1,3 +1,5 @@
+//! In-memory persistence for the Winternitz One-Time Signature (WOTS) keys.
+
 use std::future::Future;
 
 use bitcoin::{
@@ -28,6 +30,7 @@ impl SeededWotsSigner {
                 .derive_priv(
                     SECP256K1,
                     &[
+                        // TODO: move to constants.
                         ChildNumber::from_hardened_idx(79).unwrap(),
                         ChildNumber::from_hardened_idx(160).unwrap(),
                         ChildNumber::from_hardened_idx(0).unwrap(),
@@ -40,6 +43,7 @@ impl SeededWotsSigner {
                 .derive_priv(
                     SECP256K1,
                     &[
+                        // TODO: move to constants.
                         ChildNumber::from_hardened_idx(79).unwrap(),
                         ChildNumber::from_hardened_idx(256).unwrap(),
                         ChildNumber::from_hardened_idx(0).unwrap(),
