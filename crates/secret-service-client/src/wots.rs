@@ -30,9 +30,9 @@ impl WotsClient {
 impl WotsSigner<Client> for WotsClient {
     fn get_160_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 160]>> + Send {
         async move {
             let msg = ClientMessage::WotsGet160Key {
@@ -50,9 +50,9 @@ impl WotsSigner<Client> for WotsClient {
 
     fn get_256_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 256]>> + Send {
         async move {
             let msg = ClientMessage::WotsGet256Key {

@@ -55,9 +55,9 @@ impl SeededWotsSigner {
 impl WotsSigner<Server> for SeededWotsSigner {
     fn get_160_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = [u8; 20 * 160]> + Send {
         async move {
             let hk = Hkdf::<Sha256>::new(None, &self.ikm_160);
@@ -74,9 +74,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
 
     fn get_256_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = [u8; 20 * 256]> + Send {
         async move {
             let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
