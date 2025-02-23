@@ -1,14 +1,26 @@
+//! Configuration for the Secret Service.
+
 use std::{net::SocketAddr, path::PathBuf};
 
-#[derive(serde::Deserialize)]
+use serde::Deserialize;
+
+/// Configuration for the Secret Service.
+///
+/// It is parsed from a TOML file.
+#[derive(Debug, Deserialize)]
 pub struct TomlConfig {
+    /// Configuration for TLS.
     pub tls: TlsConfig,
+
+    /// Configuration for the transport layer.
     pub transport: TransportConfig,
-    /// A file path to a 32 byte seed file.
+
+    /// A file path to a 32-byte seed file.
     pub seed: Option<PathBuf>,
 }
 
-#[derive(serde::Deserialize)]
+/// Configuration for the transport layer.
+#[derive(Debug, Deserialize)]
 pub struct TransportConfig {
     /// Address to listen on for incoming connections.
     pub addr: SocketAddr,
@@ -17,7 +29,7 @@ pub struct TransportConfig {
 }
 
 /// Configuration for TLS.
-#[derive(serde::Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct TlsConfig {
     /// Path to the certificate file.
     pub cert: Option<PathBuf>,
