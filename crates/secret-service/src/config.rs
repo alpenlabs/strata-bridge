@@ -36,6 +36,6 @@ pub struct TlsConfig {
     /// Path to the private key file.
     pub key: Option<PathBuf>,
     /// Path to the CA certificate to verify client certificates against.
-    /// Note that S2 is insecure without client authentication.
+    /// Note that Secret Service is insecure without client authentication.
     pub ca: Option<PathBuf>,
 }
