@@ -439,7 +439,7 @@ where
                 let txid = Txid::from_slice(txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_160_key(index.into(), vout.into(), txid)
+                    .get_160_key(txid, vout.into(), index.into())
                     .await;
                 ServerMessage::WotsGet160Key { key }
             }
@@ -447,7 +447,7 @@ where
                 let txid = Txid::from_slice(txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_key(index.into(), vout.into(), txid)
+                    .get_256_key(txid, vout.into(), index.into())
                     .await;
                 ServerMessage::WotsGet256Key { key }
             }
