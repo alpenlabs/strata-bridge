@@ -5,7 +5,7 @@ use std::future::Future;
 use bitcoin::{Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::{schnorr::Signature, PublicKey},
+    secp256k1::schnorr::Signature,
     AggNonce, LiftedSignature, PartialSignature, PubNonce,
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
@@ -102,7 +102,7 @@ pub struct SignerIdxOutOfBounds {
 /// A single secret key should be used across all sessions initiated by this signer,
 /// whose public key should be accessible via the [`Musig2Signer::pubkey`] method.
 pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
-    /// Initializes a new musig2 session with the given public keys, witness, input transaction ID,
+    /// Initializes a new MuSig2 session with the given public keys, witness, input transaction ID,
     /// and input vout.
     ///
     /// # Warning
@@ -117,7 +117,8 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
         input_txid: Txid,
         input_vout: u32,
     ) -> impl Future<Output = O::Container<Result<FirstRound, SignerIdxOutOfBounds>>> + Send;
-    /// Retrieve the public key associated with this musig2 signer.
+
+    /// Retrieves the public key associated with this MuSig2 signer.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
 
@@ -174,7 +175,7 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
     ) -> impl Future<Output = O::Container<Result<SecondRound, RoundFinalizeError>>> + Send;
 }
 
-/// This trait represents the second round of the musig2 signing process.
+/// This trait represents the second round of the MuSig2 signing process.
 /// It is responsible for aggregating the partial signatures into a single
 /// signature, and for verifying the aggregated signature.
 pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {

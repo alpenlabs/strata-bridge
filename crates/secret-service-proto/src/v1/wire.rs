@@ -31,7 +31,7 @@ pub enum ServerMessage {
 
     /// Response for [`OperatorSigner::pubkey`](super::traits::OperatorSigner::pubkey).
     OperatorPubkey {
-        /// Serialized Schnorr compressed public key for operator signatures
+        /// Serialized Schnorr [`XOnlyPublicKey`] for operator signatures.
         pubkey: [u8; 32],
     },
 
@@ -43,7 +43,7 @@ pub enum ServerMessage {
 
     /// Response for [`P2PSigner::pubkey`](super::traits::P2PSigner::pubkey).
     P2PPubkey {
-        /// Serialized Schnorr compressed public key for P2P signatures
+        /// Serialized Schnorr [`XOnlyPublicKey`] for P2P signatures.
         pubkey: [u8; 32],
     },
 
@@ -52,7 +52,7 @@ pub enum ServerMessage {
 
     /// Response for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
     Musig2Pubkey {
-        /// Serialized Schnorr compressed public key for Musig2 signatures
+        /// Serialized Schnorr [`XOnlyPublicKey`] for MuSig2 signatures.
         pubkey: [u8; 32],
     },
 
@@ -66,8 +66,8 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2SignerFirstRound::holdouts`](super::traits::Musig2SignerFirstRound::holdouts).
     Musig2FirstRoundHoldouts {
-        /// Serialized Schnorr compressed public keys of signers whose pub nonces
-        /// we do not have
+        /// Serialized Schnorr [`XOnlyPublicKey`] of signers whose public nonces
+        /// we do not have.
         pubkeys: Vec<[u8; 32]>,
     },
     /// Response for
@@ -103,8 +103,8 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2SignerSecondRound::holdouts`](super::traits::Musig2SignerSecondRound::holdouts).
     Musig2SecondRoundHoldouts {
-        /// Serialized Schnorr compressed public keys of signers whose partial signatures
-        /// we do not have for this signing session
+        /// Serialized Schnorr [`XOnlyPublicKey`] of signers whose partial signatures
+        /// we do not have for this signing session.
         pubkeys: Vec<[u8; 32]>,
     },
 
@@ -159,10 +159,10 @@ pub enum ServerMessage {
 #[allow(missing_docs)]
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum Musig2SessionResult {
-    /// The result of a musig2 session.
+    /// The result of a MuSig2 session.
     Ok([u8; 64]),
 
-    /// The error that occurred during a musig2 session.
+    /// The error that occurred during a MuSig2 session.
     Err(#[rkyv(with = super::rkyv_wrappers::RoundFinalizeError)] RoundFinalizeError),
 }
 
@@ -210,6 +210,7 @@ pub enum ClientMessage {
         /// Public keys for the signing session. May or may not include our own
         /// public key. If not present, it should be added. May or may not be sorted.
         pubkeys: Vec<[u8; 32]>,
+
         /// The taproot witness of the input
         witness: SerializableTaprootWitness,
 
@@ -249,8 +250,10 @@ pub enum ClientMessage {
     Musig2FirstRoundReceivePubNonce {
         /// Session that this server is requesting for.
         session_id: usize,
-        /// The serialized compressed schnorr pubkey of the signer whose pubnonce this is
+
+        /// The serialized [`XOnlyPublicKey`] of the signer whose public nonce this is.
         pubkey: [u8; 32],
+
         /// Serialized public nonce
         pubnonce: [u8; 66],
     },
@@ -298,9 +301,11 @@ pub enum ClientMessage {
     Musig2SecondRoundReceiveSignature {
         /// Session that this server is requesting for.
         session_id: usize,
-        /// The serialized compressed schnorr pubkey of the signer whose pubnonce this is
+
+        /// The serialized [`XOnlyPublicKey`] of the signer whose public nonce this is.
         pubkey: [u8; 32],
-        /// That signer's musig2 partial sig
+
+        /// That signer's MuSig2 partial signature.
         signature: [u8; 32],
     },
 
