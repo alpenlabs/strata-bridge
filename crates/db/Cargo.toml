@@ -12,6 +12,7 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 strata-bridge-primitives.workspace = true
+strata-bridge-stake-chain.workspace = true
 
 arbitrary.workspace = true
 async-trait.workspace = true

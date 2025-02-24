@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::{params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use crate::errors::DbResult;
 
@@ -54,6 +55,19 @@ pub trait PublicDb {
         input_index: u32,
         signature: Signature,
     ) -> DbResult<()>;
+
+    async fn add_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+        deposit_index: u32,
+        stake_data: StakeTxData,
+    ) -> DbResult<()>;
+
+    async fn get_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+        deposit_index: u32,
+    ) -> DbResult<Option<StakeTxData>>;
 
     async fn register_claim_txid(
         &self,

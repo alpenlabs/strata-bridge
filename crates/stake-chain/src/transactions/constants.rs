@@ -33,3 +33,9 @@ pub const DUST_AMOUNT: Amount = Amount::from_sat(330);
 ///
 /// This is the third output.
 pub const STAKE_VOUT: u32 = 2;
+
+/// [`StakeTx`](crate::transactions::StakeTx) withdrawal fulfillment output, i.e. the output used to
+/// commit to the txid of the withdrawal fulfillment transaction.
+///
+/// This is the first output.
+pub const WITHDRAWAL_FULFILLMENT_VOUT: u32 = 0;

@@ -15,12 +15,14 @@ use strata_bridge_primitives::{
     bitcoin::BitcoinAddress, duties::BridgeDutyStatus, params::prelude::NUM_ASSERT_DATA_TX,
     types::OperatorIdx, wots,
 };
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use super::{
     errors::StorageError,
+    models::DbStakeTxData,
     types::{
-        DbAmount, DbDutyStatus, DbInputIndex, DbPartialSig, DbScriptBuf, DbSecNonce, DbSignature,
-        DbTransaction, DbTxid, DbWotsPublicKeys, DbWotsSignatures,
+        DbAmount, DbDutyStatus, DbHash, DbInputIndex, DbPartialSig, DbScriptBuf, DbSecNonce,
+        DbSignature, DbTransaction, DbTxid, DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures,
     },
 };
 use crate::{
@@ -199,6 +201,59 @@ impl PublicDb for SqliteDb {
         tx.commit().await.map_err(StorageError::from)?;
 
         Ok(())
+    }
+
+    async fn add_stake_data(
+        &self,
+        operator_id: OperatorIdx,
+        deposit_index: u32,
+        stake_data: StakeTxData,
+    ) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
+        let stake_data = DbStakeTxData::from(stake_data);
+
+        sqlx::query!(
+            "INSERT OR REPLACE INTO operator_stake_data
+                (operator_id, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
+                VALUES ($1, $2, $3, $4, $5, $6)",
+            operator_id,
+            deposit_index,
+            stake_data.funding_txid,
+            stake_data.funding_vout,
+            stake_data.hash,
+            stake_data.withdrawal_fulfillment_pk,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(StorageError::from)?;
+
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
+    }
+
+    async fn get_stake_data(
+        &self,
+        operator_id: OperatorIdx,
+        deposit_index: u32,
+    ) -> DbResult<Option<StakeTxData>> {
+        Ok(sqlx::query_as!(
+            models::DbStakeTxData,
+            r#"SELECT
+                funding_txid AS "funding_txid: DbTxid",
+                funding_vout AS "funding_vout: DbInputIndex",
+                hash AS "hash: DbHash",
+                withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
+                FROM operator_stake_data
+                WHERE operator_id = $1 AND deposit_id = $2"#,
+            operator_id,
+            deposit_index
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(Into::into))
     }
 
     async fn register_claim_txid(
@@ -1243,8 +1298,6 @@ mod tests {
 
         let withdrawal_fulfillment_txid = generate_txid();
         let claim_txid = generate_txid();
-        // This might change later after [STR-821](https://alpenlabs.atlassian.net/browse/STR-754).
-        // So, hardcoding the value for now.
         let bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
             withdrawal_fulfillment_txid,
             claim_txid,
@@ -1266,9 +1319,9 @@ mod tests {
             "duty status must exist after updating"
         );
 
-        let new_bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Kickoff {
+        let new_bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
             withdrawal_fulfillment_txid: generate_txid(),
-            kickoff_txid: generate_txid(),
+            claim_txid: generate_txid(),
         });
         assert!(
             db.update_duty_status(duty_id, new_bridge_duty_status.clone())

@@ -21,7 +21,6 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-bridge-test-utils.workspace = true
 strata-common.workspace = true
 
 corepc-node.workspace = true

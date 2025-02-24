@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use bitcoin::Txid;
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::{params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use tokio::sync::RwLock;
 use tracing::trace;
 
@@ -23,6 +24,9 @@ pub struct PublicDbInMemory {
 
     // signature cache per txid and input index per operator
     signatures: Arc<RwLock<OperatorIdxToTxInputSigMap>>,
+
+    // operator_id -> deposit_id -> stake_data
+    stake_data: Arc<RwLock<HashMap<OperatorIdx, HashMap<u32, StakeTxData>>>>,
 
     // reverse mapping
     claim_txid_to_operator_index_and_deposit_txid: Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
@@ -147,6 +151,40 @@ impl PublicDb for PublicDbInMemory {
         }
 
         Ok(())
+    }
+
+    async fn add_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+        deposit_id: u32,
+        stake_data: StakeTxData,
+    ) -> DbResult<()> {
+        let mut operator_stake_data = self.stake_data.write().await;
+
+        if let Some(data) = operator_stake_data.get_mut(&operator_idx) {
+            data.insert(deposit_id, stake_data);
+        } else {
+            let mut data = HashMap::new();
+            data.insert(deposit_id, stake_data);
+
+            operator_stake_data.insert(operator_idx, data);
+        }
+
+        Ok(())
+    }
+
+    async fn get_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+        deposit_id: u32,
+    ) -> DbResult<Option<StakeTxData>> {
+        Ok(self
+            .stake_data
+            .read()
+            .await
+            .get(&operator_idx)
+            .and_then(|m| m.get(&deposit_id))
+            .copied())
     }
 
     async fn register_claim_txid(
