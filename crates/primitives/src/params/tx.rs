@@ -35,6 +35,9 @@ pub const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
 
 pub const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
 
+/// The number of ongoing past `Claim` transactions that can be used to slash an operator's stake.
+pub const NUM_SLASH_STAKE_TX: usize = 24;
+
 /// The fee charged by the operator to process a withdrawal.
 ///
 /// This has the type [`Amount`] for convenience.
@@ -42,6 +45,7 @@ pub const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
 
 pub const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
 
+/// The reward for a successful disprover.
 pub const DISPROVER_REWARD: Amount = Amount::from_int_btc(2);
 
 /// Magic bytes to add to the metadata output in transactions to help identify them.

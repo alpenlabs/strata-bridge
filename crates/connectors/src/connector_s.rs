@@ -6,59 +6,12 @@ use bitcoin::{
     psbt::Input,
     relative,
     taproot::{ControlBlock, LeafVersion},
-    Address, Network, ScriptBuf,
+    Address, Network, ScriptBuf, TapNodeHash, TapSighashType,
 };
-use secp256k1::{schnorr::Signature, XOnlyPublicKey};
+use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::scripts::prelude::*;
 
-use crate::witness_data::WitnessData;
-
-/// The connector to move the operator's stake across transactions.
-// TODO: Replace this with `ConnectorStake`.
-#[derive(Debug, Clone, Copy)]
-pub struct ConnectorS {
-    /// The N-of-N aggregated public key for the operator set.
-    n_of_n_agg_pubkey: XOnlyPublicKey,
-
-    /// The bitcoin network on which the connector operates.
-    network: Network,
-}
-
-impl ConnectorS {
-    /// Creates a new `ConnectorS` with the given N-of-N aggregated public key and the
-    /// bitcoin network.
-    pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
-        Self {
-            n_of_n_agg_pubkey,
-            network,
-        }
-    }
-
-    /// Creates a taproot address with key spend path for the given operator set.
-    pub fn create_taproot_address(&self) -> Address {
-        let (addr, _spend_info) = create_taproot_addr(
-            &self.network,
-            SpendPath::KeySpend {
-                internal_key: self.n_of_n_agg_pubkey,
-            },
-        )
-        .expect("must be able to create taproot address");
-
-        addr
-    }
-
-    /// Finalizes a psbt input where this connector is used with the provided signature.
-    ///
-    /// # Note
-    ///
-    /// This method does not check if the signature is valid for the input. It is the caller's
-    /// responsibility to ensure that the signature is valid.
-    ///
-    /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, signature: Signature, input: &mut Input) {
-        finalize_input(input, [signature.as_ref()]);
-    }
-}
+use crate::stake_path::StakeSpendPath;
 
 /// The connector to move the operator's stake across Stake transactions.
 ///
@@ -193,12 +146,11 @@ impl ConnectorStake {
             &self.network,
             SpendPath::Both {
                 internal_key: self.n_of_n_agg_pubkey,
-                scripts: &[script],
+                scripts: &[script.clone()],
             },
         )
         .expect("should be able to create taproot address");
 
-        let script = self.generate_script();
         let control_block = taproot_spending_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -206,9 +158,18 @@ impl ConnectorStake {
         (script, control_block)
     }
 
+    /// Generates the merkle root for this connector.
+    ///
+    /// This can be used to tweak the public/private keys used for spending.
+    pub fn generate_merkle_root(&self) -> TapNodeHash {
+        let script = self.generate_script();
+
+        TapNodeHash::from_script(&script, LeafVersion::TapScript)
+    }
+
     /// Finalizes a psbt input where this connector is used with the provided `witness_data`.
     ///
-    /// Depending on the `witness_data` it will be used either a key or scripth path spend.
+    /// Depending on the `witness_data` it will be used either a key or script path spend.
     ///
     /// # Note
     ///
@@ -216,19 +177,39 @@ impl ConnectorStake {
     /// validation to the caller.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, witness_data: WitnessData, input: &mut Input) {
+    pub fn finalize_input(&self, input: &mut Input, witness_data: StakeSpendPath) {
         match witness_data {
-            WitnessData::Signature(signature) => {
-                finalize_input(input, [&signature.serialize().to_vec()]);
+            StakeSpendPath::Disprove(signature) => {
+                let signature = if let TapSighashType::All = signature.sighash_type {
+                    signature.signature.serialize().to_vec()
+                } else {
+                    signature.serialize().to_vec()
+                };
+
+                finalize_input(input, [signature]);
             }
-            WitnessData::Both {
+            StakeSpendPath::Advance {
                 signature,
                 preimage,
-            } => finalize_input(
-                input,
-                // NOTE: Order matters here.
-                vec![&preimage.to_vec(), &signature.serialize().to_vec()],
-            ),
+            } => {
+                let (script_buf, control_block) = self.generate_spend_info();
+                let signature = if let TapSighashType::All = signature.sighash_type {
+                    signature.signature.serialize().to_vec()
+                } else {
+                    signature.serialize().to_vec()
+                };
+
+                finalize_input(
+                    input,
+                    // NOTE: Order matters here.
+                    [
+                        preimage.to_vec(),
+                        signature,
+                        script_buf.to_bytes(),
+                        control_block.serialize(),
+                    ],
+                )
+            }
             _ => (), // other variants are no-op.
         }
     }
@@ -240,8 +221,9 @@ mod tests {
         absolute, consensus,
         hashes::Hash,
         sighash::{self, Prevouts, SighashCache},
-        taproot::LeafVersion,
-        transaction, Amount, BlockHash, OutPoint, TapLeafHash, Transaction, TxIn, TxOut, Witness,
+        taproot::{self, LeafVersion},
+        transaction, Amount, BlockHash, OutPoint, Psbt, TapLeafHash, TapSighashType, Transaction,
+        TxIn, TxOut,
     };
     use corepc_node::{serde_json::json, Conf, Node};
     use secp256k1::{Message, SECP256K1};
@@ -382,7 +364,7 @@ mod tests {
             script_pubkey: change_address.script_pubkey(),
         };
 
-        let mut spending_tx = Transaction {
+        let spending_tx = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
             input: vec![TxIn {
@@ -399,15 +381,12 @@ mod tests {
         // Create the prevouts
         let prevouts = [TxOut {
             value: funding_amount,
-            script_pubkey: taproot_script,
+            script_pubkey: taproot_script.clone(),
         }];
         let prevouts = Prevouts::All(&prevouts);
 
         // Create the locking script
         let locking_script = connector_s.generate_script();
-
-        // Get taproot spend info
-        let (_, control_block) = connector_s.generate_spend_info();
 
         let leaf_hash =
             TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
@@ -423,18 +402,29 @@ mod tests {
         trace!(%signature, "Signature");
 
         // Construct the witness stack
-        let mut witness = Witness::new();
-        witness.push(stake_preimage);
-        witness.push(signature.as_ref());
-        witness.push(locking_script.to_bytes());
-        witness.push(control_block.serialize());
+        let mut spending_psbt = Psbt::from_unsigned_tx(spending_tx).expect("must be unsigned");
+        spending_psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: funding_amount,
+            script_pubkey: taproot_script,
+        });
 
-        // Set the witness in the transaction
-        spending_tx.input[0].witness = witness;
+        connector_s.finalize_input(
+            &mut spending_psbt.inputs[0],
+            StakeSpendPath::Advance {
+                signature: taproot::Signature {
+                    signature,
+                    sighash_type: TapSighashType::All,
+                },
+                preimage: stake_preimage,
+            },
+        );
+        let signed_spending_tx = spending_psbt
+            .extract_tx()
+            .expect("must be able to extract tx");
 
         // Try to broadcast the spending transaction
         let spending_txid = btc_client
-            .send_raw_transaction(&spending_tx)
+            .send_raw_transaction(&signed_spending_tx)
             .expect("must be able to broadcast spending transaction")
             .txid()
             .expect("must have txid");

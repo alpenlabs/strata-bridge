@@ -39,8 +39,10 @@ where
     /// Generates the locking script for this leaf.
     pub fn generate_locking_script(&self, n_of_n_agg_pubkey: &XOnlyPublicKey) -> ScriptBuf {
         match self {
-            ConnectorA30Leaf::Payout(_) => n_of_n_with_timelock(n_of_n_agg_pubkey, PAYOUT_TIMELOCK),
-            ConnectorA30Leaf::Disprove(_) => n_of_n_script(n_of_n_agg_pubkey),
+            ConnectorA30Leaf::Payout(_) => {
+                n_of_n_with_timelock(n_of_n_agg_pubkey, PAYOUT_TIMELOCK).compile()
+            }
+            ConnectorA30Leaf::Disprove(_) => n_of_n_script(n_of_n_agg_pubkey).compile(),
         }
     }
 

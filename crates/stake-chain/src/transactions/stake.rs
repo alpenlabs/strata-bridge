@@ -3,7 +3,7 @@
 use bitcoin::{
     hashes::sha256,
     secp256k1::{schnorr, SECP256K1},
-    taproot::LeafVersion,
+    taproot::{self, LeafVersion},
     transaction, Address, Amount, FeeRate, OutPoint, Psbt, Sequence, TapNodeHash, Transaction,
     TxIn, TxOut, Txid, XOnlyPublicKey,
 };
@@ -168,13 +168,9 @@ impl StakeTx {
         psbt.inputs[0].witness_utxo = Some(funding_prevout);
         psbt.inputs[1].witness_utxo = Some(stake_prevout);
 
-        let (script_buf, control_block) = connector_s.generate_spend_info();
         let witnesses = [
             TaprootWitness::Key,
-            TaprootWitness::Script {
-                script_buf,
-                control_block,
-            },
+            TaprootWitness::Key, // the first stake transaction spends via key-spend from PreStake.
         ];
 
         Self { psbt, witnesses }
@@ -321,6 +317,29 @@ impl StakeTx {
         ))
     }
 
+    /// Finalizes the first stake transaction.
+    ///
+    /// Unlike the rest of the stake transactions in the stake chain, the first stake transaction
+    /// spends via key-spend path the PreStake transaction input and does not need a preimage.
+    pub fn finalize_initial(
+        mut self,
+        funds_signature: taproot::Signature,
+        stake_signature: taproot::Signature,
+    ) -> Transaction {
+        finalize_input(
+            self.psbt.inputs.first_mut().expect("must have first input"),
+            [funds_signature.to_vec()],
+        );
+        finalize_input(
+            self.psbt.inputs.get_mut(1).expect("must have second input"),
+            [stake_signature.to_vec()],
+        );
+
+        self.psbt
+            .extract_tx()
+            .expect("must be able to extract signed tx")
+    }
+
     /// Adds the preimage and signature for the previous [`StakeTx`] transaction as an input to the
     /// current [`StakeTx`] transaction.
     ///
@@ -329,6 +348,10 @@ impl StakeTx {
     /// # Implementation Details
     ///
     /// Under the hood, it spents the underlying [`ConnectorStake`] from the previous [`StakeTx`].
+    ///
+    /// # Note: This function can only be used to finalize the first stake transaction if the
+    /// `pre-stake` transaction output that it spends also uses the same script as the stake output
+    /// script in each stake transaction.
     pub fn finalize(
         mut self,
         preimage: &[u8; 32],

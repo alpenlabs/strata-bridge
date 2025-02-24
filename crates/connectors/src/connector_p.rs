@@ -11,7 +11,7 @@ use bitcoin::{
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::scripts::prelude::*;
 
-use crate::witness_data::WitnessData;
+use crate::stake_path::StakeSpendPath;
 
 /// The connector to decide whether the operator's stake can be used for a withdrawal (Payout
 /// Optimistic) or not (Burn Payouts).
@@ -147,12 +147,12 @@ impl ConnectorP {
     /// validation to the caller.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, witness_data: WitnessData, input: &mut Input) {
+    pub fn create_tx_input(&self, witness_data: StakeSpendPath, input: &mut Input) {
         match witness_data {
-            WitnessData::Signature(signature) => {
+            StakeSpendPath::Disprove(signature) => {
                 finalize_input(input, [&signature.serialize().to_vec()]);
             }
-            WitnessData::Preimage(preimage) => {
+            StakeSpendPath::BurnPayouts(preimage) => {
                 let (hashlock_script, control_block) = self.generate_spend_info();
                 finalize_input(
                     input,
@@ -317,7 +317,7 @@ mod tests {
             script_pubkey: connector_p.generate_address().script_pubkey(),
         });
 
-        let witness_data = WitnessData::Preimage(stake_preimage);
+        let witness_data = StakeSpendPath::BurnPayouts(stake_preimage);
         connector_p.create_tx_input(witness_data, &mut psbt.inputs[0]);
         let spending_tx = psbt.extract_tx().expect("must be signed");
 

@@ -4,7 +4,7 @@ use bitcoin::{
     script::{Builder, PushBytesBuf},
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
-use bitcoin_script::script;
+use bitcoin_script::{script, Script};
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
 
@@ -15,15 +15,14 @@ use crate::params::prelude::MAGIC_BYTES;
 ///
 /// NOTE: This script only requires an [`XOnlyPublicKey`] which may or may not be be a musig2
 /// aggregated public key. No additional validation is performed on the key.
-pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> ScriptBuf {
+pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
     script! {
         { *aggregated_pubkey }
         OP_CHECKSIG
     }
-    .compile()
 }
 
-pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> ScriptBuf {
+pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> Script {
     script! {
         { timelock }
         OP_CSV
@@ -31,7 +30,6 @@ pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -
         { *aggregated_pubkey}
         OP_CHECKSIG
     }
-    .compile()
 }
 
 pub fn op_return_nonce(data: &[u8]) -> ScriptBuf {

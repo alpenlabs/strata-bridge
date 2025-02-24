@@ -15,25 +15,22 @@ use bitvm::{
     signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
 };
+use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::{
+    params::prelude::PAYOUT_TIMELOCK,
     scripts::prelude::*,
     wots::{self, Groth16PublicKeys},
 };
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
 
-/// Connector from the PostAssert transaction to the Disprove transaction.
-#[derive(Debug, Clone, Copy)]
-pub struct ConnectorA31 {
-    network: Network,
-
-    wots_public_keys: wots::PublicKeys,
-}
-
 /// Possible spending paths for the [`ConnectorA31`].
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
-pub enum ConnectorA31Leaf {
+pub enum ConnectorA3Leaf {
+    /// The leaf used in the Payout transaction if there is no disprove.
+    Payout(Option<schnorr::Signature>),
+
     /// The leaf used to disprove the proof committed in the AssertData transactions.
     DisproveProof {
         /// The locking script corresponding to the faulty proof execution.
@@ -67,15 +64,21 @@ pub struct DisprovePublicInputsCommitmentWitness {
     pub sig_public_inputs_hash: wots256::Signature,
 }
 
-impl ConnectorA31Leaf {
+impl ConnectorA3Leaf {
     /// Generate the locking script for the leaf.
-    pub(crate) fn generate_locking_script(&self, public_keys: wots::PublicKeys) -> Script {
+    pub(crate) fn generate_locking_script(
+        &self,
+        public_keys: wots::PublicKeys,
+        n_of_n_agg_pubkey: XOnlyPublicKey,
+    ) -> Script {
         let wots::PublicKeys {
             withdrawal_fulfillment_pk,
             groth16: Groth16PublicKeys(([public_inputs_hash_public_key], _, _)),
         } = public_keys;
         match self {
-            ConnectorA31Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
+            ConnectorA3Leaf::Payout(_) => n_of_n_with_timelock(&n_of_n_agg_pubkey, PAYOUT_TIMELOCK),
+
+            ConnectorA3Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
                     // first, verify that the WOTS for withdrawal fulfillment txid is correct.
                     { wots256::compact::checksig_verify(withdrawal_fulfillment_pk.0) }
@@ -123,7 +126,7 @@ impl ConnectorA31Leaf {
                     OP_NOT
                 }
             }
-            ConnectorA31Leaf::DisproveProof {
+            ConnectorA3Leaf::DisproveProof {
                 disprove_script, ..
             } => disprove_script.clone(),
         }
@@ -132,7 +135,7 @@ impl ConnectorA31Leaf {
     /// Generate the witness script for the leaf.
     pub fn generate_witness_script(&self) -> Script {
         match self {
-            ConnectorA31Leaf::DisprovePublicInputsCommitment {
+            ConnectorA3Leaf::DisprovePublicInputsCommitment {
                 witness:
                     Some(DisprovePublicInputsCommitmentWitness {
                         sig_withdrawal_fulfillment_txid,
@@ -145,7 +148,7 @@ impl ConnectorA31Leaf {
                     { sig_withdrawal_fulfillment_txid.to_compact_script() }
                 }
             }
-            ConnectorA31Leaf::DisproveProof {
+            ConnectorA3Leaf::DisproveProof {
                 witness_script: Some(witness_script),
                 ..
             } => witness_script.clone(),
@@ -154,12 +157,31 @@ impl ConnectorA31Leaf {
     }
 }
 
-impl ConnectorA31 {
+/// Connector from the PostAssert transaction to the Disprove transaction.
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectorA3 {
+    network: Network,
+
+    deposit_txid: Txid,
+
+    wots_public_keys: wots::PublicKeys,
+
+    n_of_n_agg_pubkey: XOnlyPublicKey,
+}
+
+impl ConnectorA3 {
     /// Constructs a new instance of the connector.
-    pub fn new(network: Network, wots_public_keys: wots::PublicKeys) -> Self {
+    pub fn new(
+        network: Network,
+        deposit_txid: Txid,
+        wots_public_keys: wots::PublicKeys,
+        n_of_n_agg_pubkey: XOnlyPublicKey,
+    ) -> Self {
         Self {
             network,
+            deposit_txid,
             wots_public_keys,
+            n_of_n_agg_pubkey,
         }
     }
 
@@ -173,13 +195,13 @@ impl ConnectorA31 {
     /// Generates the taproot spend info for this connector.
     pub fn generate_spend_info(
         &self,
-        tapleaf: ConnectorA31Leaf,
+        tapleaf: ConnectorA3Leaf,
         deposit_txid: Txid,
     ) -> (ScriptBuf, ControlBlock) {
         let (_, taproot_spend_info) = self.generate_taproot_address(deposit_txid);
 
         let script = tapleaf
-            .generate_locking_script(self.wots_public_keys)
+            .generate_locking_script(self.wots_public_keys, self.n_of_n_agg_pubkey)
             .compile();
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
@@ -198,36 +220,41 @@ impl ConnectorA31 {
     }
 
     fn generate_taproot_address(&self, deposit_txid: Txid) -> (Address, TaprootSpendInfo) {
+        let scripts = [
+            ConnectorA3Leaf::Payout(None),
+            ConnectorA3Leaf::DisprovePublicInputsCommitment {
+                deposit_txid,
+                witness: None,
+            },
+        ]
+        .map(|leaf| {
+            leaf.generate_locking_script(self.wots_public_keys, self.n_of_n_agg_pubkey)
+                .compile()
+        })
+        .into_iter();
+
         let disprove_scripts = self.generate_disprove_scripts();
+        let invalidate_proof_tapleaves = disprove_scripts
+            .map(|disprove_script| ConnectorA3Leaf::DisproveProof {
+                disprove_script,
+                witness_script: None,
+            })
+            .map(|leaf| {
+                leaf.generate_locking_script(self.wots_public_keys, self.n_of_n_agg_pubkey)
+                    .compile()
+            });
 
-        let mut scripts = vec![ConnectorA31Leaf::DisprovePublicInputsCommitment {
-            deposit_txid,
-            witness: None,
-        }
-        .generate_locking_script(self.wots_public_keys)
-        .compile()];
-
-        let mut invalidate_proof_tapleaves = Vec::with_capacity(N_TAPLEAVES);
-        for disprove_script in disprove_scripts.into_iter() {
-            invalidate_proof_tapleaves.push(
-                ConnectorA31Leaf::DisproveProof {
-                    disprove_script,
-                    witness_script: None,
-                }
-                .generate_locking_script(self.wots_public_keys)
-                .compile(),
-            );
-        }
-
-        scripts.extend(invalidate_proof_tapleaves);
+        let scripts = scripts
+            .chain(invalidate_proof_tapleaves)
+            .collect::<Vec<ScriptBuf>>();
 
         create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts: &scripts })
             .expect("should be able to create taproot address")
     }
 
     /// Finalizes the input for the psbt that spends this connector.
-    pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorA31Leaf, deposit_txid: Txid) {
-        let (script, control_block) = self.generate_spend_info(tapleaf.clone(), deposit_txid);
+    pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorA3Leaf) {
+        let (script, control_block) = self.generate_spend_info(tapleaf.clone(), self.deposit_txid);
 
         let witness_script = tapleaf.generate_witness_script();
 
@@ -245,7 +272,7 @@ mod tests {
     use sp1_verifier::hash_public_inputs;
     use strata_bridge_primitives::scripts::parse_witness::parse_wots256_signatures;
     use strata_bridge_proof_protocol::BridgeProofPublicOutput;
-    use strata_bridge_test_utils::prelude::generate_txid;
+    use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
     use super::*;
 
@@ -348,11 +375,14 @@ mod tests {
     fn execute_disprove(
         msk: &str,
         deposit_txid: Txid,
-        invalid_disprove_leaf: ConnectorA31Leaf,
+        invalid_disprove_leaf: ConnectorA3Leaf,
     ) -> bitvm::ExecuteInfo {
         let wots_public_keys = wots::PublicKeys::new(msk, deposit_txid);
 
-        let locking_script = invalid_disprove_leaf.generate_locking_script(wots_public_keys);
+        let n_of_n_keypair = generate_keypair();
+        let n_of_n_agg_pubkey = n_of_n_keypair.public_key().x_only_public_key().0;
+        let locking_script =
+            invalid_disprove_leaf.generate_locking_script(wots_public_keys, n_of_n_agg_pubkey);
         let witness_script = invalid_disprove_leaf.generate_witness_script();
         let witness_script = taproot_witness_signatures(witness_script);
         let full_script = script! {
@@ -368,7 +398,7 @@ mod tests {
         deposit_txid: Txid,
         withdrawal_fulfillment_txid: Txid,
         committed_public_inputs_hash: [u8; 32],
-    ) -> ConnectorA31Leaf {
+    ) -> ConnectorA3Leaf {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
         let withdrawal_fulfillment_txid_sk = secret_key_for_bridge_out_txid(&deposit_msk);
@@ -391,7 +421,7 @@ mod tests {
         let sig_public_inputs_hash =
             parse_wots256_signatures::<1>(sig_public_inputs_hash).unwrap()[0];
 
-        ConnectorA31Leaf::DisprovePublicInputsCommitment {
+        ConnectorA3Leaf::DisprovePublicInputsCommitment {
             deposit_txid,
             witness: Some(DisprovePublicInputsCommitmentWitness {
                 sig_withdrawal_fulfillment_txid,

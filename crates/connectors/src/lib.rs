@@ -9,16 +9,17 @@
 #![feature(generic_const_exprs)] // this feature is used in size computations
 #![feature(array_try_from_fn)] // this feature is used to generate arrays in a fallible way
 
+pub mod connector_a3;
 pub mod connector_a30;
-pub mod connector_a31;
 pub mod connector_c0;
 pub mod connector_c1;
 pub mod connector_cpfp;
 pub mod connector_k;
+pub mod connector_n_of_n;
 pub mod connector_p;
 pub mod connector_s;
 pub mod connectors_a;
 pub mod partial_verification_scripts;
-pub mod witness_data;
+pub mod stake_path;
 
 pub mod prelude;

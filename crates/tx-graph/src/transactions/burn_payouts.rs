@@ -5,7 +5,7 @@
 
 use bitcoin::{sighash::Prevouts, Amount, Network, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitcoin_bosd::Descriptor;
-use strata_bridge_connectors::prelude::{ConnectorP, WitnessData};
+use strata_bridge_connectors::prelude::{ConnectorP, StakeSpendPath};
 use strata_bridge_primitives::{
     params::tx::SEGWIT_MIN_AMOUNT,
     scripts::{
@@ -84,7 +84,7 @@ impl BurnPayoutsTx {
     /// transaction externally with the appropriate fees (for example, via the `fundrawtransaction`
     /// bitcoin RPC call).
     pub fn finalize(mut self, preimage: [u8; 32], hashlock_connector: ConnectorP) -> Transaction {
-        let witness_data = WitnessData::Preimage(preimage);
+        let witness_data = StakeSpendPath::BurnPayouts(preimage);
         hashlock_connector.create_tx_input(witness_data, &mut self.psbt_mut().inputs[0]);
 
         self.psbt

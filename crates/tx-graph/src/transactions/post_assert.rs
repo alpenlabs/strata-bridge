@@ -31,7 +31,7 @@ pub struct PostAssertTxData {
 pub struct PostAssertTx {
     psbt: Psbt,
 
-    remaining_stake: Amount,
+    output_amount: Amount,
 
     prevouts: Vec<TxOut>,
 
@@ -43,19 +43,11 @@ impl PostAssertTx {
     pub fn new(
         data: PostAssertTxData,
         operator_idx: OperatorIdx,
-        connector_a2: ConnectorS,
-        connector_a30: ConnectorA30,
-        connector_a31: ConnectorA31,
+        connector_a2: ConnectorNOfN,
+        connector_a3: ConnectorA3,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
-        // +1 for stake
-        let total_inputs = NUM_ASSERT_DATA_TX + 1;
-        let mut utxos = Vec::with_capacity(total_inputs);
-        utxos.push(OutPoint {
-            txid: data.pre_assert_txid,
-            vout: 0,
-        });
-
+        let mut utxos = Vec::with_capacity(NUM_ASSERT_DATA_TX);
         utxos.extend(data.assert_data_txids.iter().map(|txid| OutPoint {
             txid: *txid,
             vout: 0,
@@ -65,7 +57,7 @@ impl PostAssertTx {
 
         trace!(event = "created tx ins", count = tx_ins.len(), %operator_idx);
 
-        let connector_a31_script = connector_a31.generate_locking_script(data.deposit_txid);
+        let connector_a31_script = connector_a3.generate_locking_script(data.deposit_txid);
         trace!(
             event = "generated a31 locking script",
             size = connector_a31_script.len(), %operator_idx,
@@ -74,21 +66,11 @@ impl PostAssertTx {
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
-        let mut scripts_and_amounts = [
-            (
-                connector_a30.generate_locking_script(),
-                Amount::from_int_btc(0), // set net amount later
-            ),
-            (
-                connector_a31_script.clone(),
-                connector_a31_script.minimal_non_dust(),
-            ),
+        let net_amount = data.input_amount - cpfp_amount;
+        let scripts_and_amounts = [
+            (connector_a31_script.clone(), net_amount),
             (cpfp_script, cpfp_amount),
         ];
-
-        let net_stake = data.input_amount - scripts_and_amounts.iter().map(|(_, amt)| *amt).sum();
-        trace!(%net_stake, %operator_idx, event = "calculated net stake for post-assert");
-        scripts_and_amounts[0].1 = net_stake;
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
         trace!(event = "created tx outs", count = tx_outs.len(), %operator_idx);
@@ -100,14 +82,12 @@ impl PostAssertTx {
 
         let assert_data_output_script = connector_a2.create_taproot_address().script_pubkey();
 
-        let mut prevouts = (0..total_inputs)
+        let prevouts = (0..NUM_ASSERT_DATA_TX)
             .map(|_| TxOut {
                 script_pubkey: assert_data_output_script.clone(),
                 value: assert_data_output_script.minimal_non_dust(),
             })
             .collect::<Vec<TxOut>>();
-
-        prevouts[0].value = data.input_amount; // from the stake
 
         trace!(event = "created prevouts", count = prevouts.len(), %operator_idx);
 
@@ -115,11 +95,11 @@ impl PostAssertTx {
             input.witness_utxo = Some(utxo);
         }
 
-        let witnesses = vec![TaprootWitness::Key; total_inputs];
+        let witnesses = vec![TaprootWitness::Key; NUM_ASSERT_DATA_TX];
 
         Self {
             psbt,
-            remaining_stake: net_stake,
+            output_amount: net_amount,
 
             prevouts,
             witnesses,
@@ -127,8 +107,8 @@ impl PostAssertTx {
     }
 
     /// Returns the remaining stake after the post-assert transaction.
-    pub fn remaining_stake(&self) -> Amount {
-        self.remaining_stake
+    pub fn output_amount(&self) -> Amount {
+        self.output_amount
     }
 
     pub fn cpfp_vout(&self) -> u32 {

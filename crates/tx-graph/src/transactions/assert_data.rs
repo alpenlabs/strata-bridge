@@ -34,20 +34,18 @@ impl AssertDataTxBatch {
     /// order.
     pub fn new(
         input: AssertDataTxInput,
-        connector_a2: ConnectorS,
+        connector_a2: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
-        const STAKE_VOUT_OFFSET: usize = 1;
-
         Self(array::from_fn(|i| {
             let (outpoint, prevout) = input
                 .pre_assert_txouts
-                .get(STAKE_VOUT_OFFSET + i)
+                .get(i)
                 .map(|txout| {
                     (
                         OutPoint {
                             txid: input.pre_assert_txid,
-                            vout: (STAKE_VOUT_OFFSET + i) as u32,
+                            vout: (i) as u32,
                         },
                         txout.clone(),
                     )
@@ -339,7 +337,7 @@ mod tests {
             pre_assert_txouts: std::array::from_fn(|_| pre_assert_txout.clone()),
         };
 
-        let connector_a2 = ConnectorS::new(generate_keypair().x_only_public_key().0, network);
+        let connector_a2 = ConnectorNOfN::new(generate_keypair().x_only_public_key().0, network);
         let connector_cpfp = ConnectorCpfp::new(generate_keypair().x_only_public_key().0, network);
 
         let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2, connector_cpfp);

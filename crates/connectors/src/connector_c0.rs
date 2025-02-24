@@ -79,7 +79,7 @@ impl ConnectorC0 {
 
     /// Generate the payout script.
     fn generate_payout_script(&self) -> ScriptBuf {
-        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK)
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK).compile()
     }
 
     /// Generates the locking script for this connector.

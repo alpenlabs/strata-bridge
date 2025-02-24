@@ -82,7 +82,7 @@ impl ConnectorC1 {
     }
 
     fn generate_payout_script(&self) -> ScriptBuf {
-        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK)
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK).compile()
     }
 
     /// Constructs the taproot address for this connector along with the spending info.

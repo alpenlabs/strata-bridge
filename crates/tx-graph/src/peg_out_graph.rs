@@ -1,7 +1,7 @@
 //! This module constructs the peg-out graph which is a series of transactions that allow for the
 //! withdrawal of funds from the bridge address given a valid claim.
 
-use bitcoin::{Amount, Txid};
+use bitcoin::{hashes::sha256, relative, Amount, OutPoint, Txid};
 use secp256k1::XOnlyPublicKey;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -27,6 +27,22 @@ use crate::{
 /// graph deterministically. This assumes that the WOTS public keys have already been shared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
+    /// The [`OutPoint`] of the stake transaction
+    pub stake_outpoint: OutPoint,
+
+    /// The [`OutPoint`] of the stake transaction used to commit to the withdrawal fulfillment
+    /// txid.
+    pub withdrawal_fulfillment_outpoint: OutPoint,
+
+    /// The hash for the hashlock used in the Stake Transaction.
+    pub stake_hash: sha256::Hash,
+
+    /// The timelock between two successive stake transactions.
+    pub delta: relative::LockTime,
+
+    /// The amount used to fund all the dust outputs in the peg-out graph.
+    pub funding_amount: Amount,
+
     /// The deposit amount for the peg-out graph.
     ///
     /// This is kept as an input instead of a constant to allow for flexibility in the future.
@@ -34,11 +50,6 @@ pub struct PegOutGraphInput {
 
     /// The public key of the operator.
     pub operator_pubkey: XOnlyPublicKey,
-
-    /// The data required to construct the kickoff transaction.
-    ///
-    /// This data is generated uniquely by each operator and shared with others.
-    pub kickoff_data: KickoffTxData,
 }
 
 /// A container for the transactions in the peg-out graph.
@@ -47,10 +58,7 @@ pub struct PegOutGraphInput {
 /// construct the fully signed transaction provided a signature.
 #[derive(Debug, Clone)]
 pub struct PegOutGraph {
-    /// The kickoff transaction that starts the graph.
-    pub kickoff_tx: KickOffTx,
-
-    /// The claim transaction that commits to a valid withdrawal.
+    /// The claim transaction that commits to a valid withdrawal fulfillment txid.
     pub claim_tx: ClaimTx,
 
     /// The transaction used to reimburse operators when no challenge occurs.
@@ -82,14 +90,18 @@ impl PegOutGraph {
     where
         Context: BuildContext,
     {
-        let connectors = PegOutGraphConnectors::new(context, operator_idx, wots_public_keys);
-
-        let kickoff_tx = KickOffTx::new(input.kickoff_data, connectors.kickoff)?;
-        let kickoff_txid = kickoff_tx.compute_txid();
-        debug!(event = "created kickoff tx", %operator_idx, %kickoff_txid);
+        let connectors = PegOutGraphConnectors::new(
+            context,
+            deposit_txid,
+            operator_idx,
+            input.stake_hash,
+            input.delta,
+            wots_public_keys,
+        );
 
         let claim_data = ClaimData {
-            kickoff_txid,
+            stake_outpoint: input.withdrawal_fulfillment_outpoint,
+            input_amount: input.funding_amount,
             deposit_txid,
         };
 
@@ -108,7 +120,7 @@ impl PegOutGraph {
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
             deposit_txid,
-            input_stake: claim_tx.remaining_stake(),
+            input_stake: claim_tx.output_amount(),
             deposit_amount: input.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
@@ -118,14 +130,14 @@ impl PegOutGraph {
             payout_optimistic_data,
             connectors.claim_out_0,
             connectors.claim_out_1,
-            connectors.stake,
+            connectors.n_of_n,
             connectors.connector_cpfp,
         );
 
         let assert_chain_data = AssertChainData {
             pre_assert_data: PreAssertData {
                 claim_txid,
-                input_stake: claim_tx.remaining_stake(),
+                input_amount: claim_tx.output_amount(),
             },
             deposit_txid,
         };
@@ -134,23 +146,22 @@ impl PegOutGraph {
             assert_chain_data,
             operator_idx,
             connectors.claim_out_0,
-            connectors.stake,
+            connectors.n_of_n,
             connectors.post_assert_out_0,
-            connectors.post_assert_out_1,
             connectors.connector_cpfp,
             connectors.assert_data160_factory,
             connectors.assert_data256_factory,
         );
 
         let post_assert_txid = assert_chain.post_assert.compute_txid();
-        let post_assert_out_stake = assert_chain.post_assert.remaining_stake();
+        let post_assert_out_amt = assert_chain.post_assert.output_amount();
 
         debug!(event = "created assert chain", %operator_idx, %post_assert_txid);
 
         let payout_data = PayoutData {
             post_assert_txid,
             deposit_txid,
-            input_stake: post_assert_out_stake,
+            input_amount: post_assert_out_amt,
             deposit_amount: input.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
@@ -159,7 +170,7 @@ impl PegOutGraph {
         let payout_tx = PayoutTx::new(
             payout_data,
             connectors.post_assert_out_0,
-            connectors.stake,
+            connectors.n_of_n,
             connectors.connector_cpfp,
         );
         let payout_txid = payout_tx.compute_txid();
@@ -168,21 +179,21 @@ impl PegOutGraph {
         let disprove_data = DisproveData {
             post_assert_txid,
             deposit_txid,
-            input_stake: post_assert_out_stake,
+            input_amount: post_assert_out_amt,
+            stake_outpoint: input.stake_outpoint,
             network: context.network(),
         };
 
         let disprove_tx = DisproveTx::new(
             disprove_data,
             connectors.post_assert_out_0,
-            connectors.post_assert_out_1,
+            connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
         debug!(event = "created disprove tx", %operator_idx, %disprove_txid);
 
         Ok((
             Self {
-                kickoff_tx,
                 claim_tx,
                 payout_optimistic,
                 assert_chain,
@@ -197,6 +208,9 @@ impl PegOutGraph {
 /// Connectors represent UTXOs in the peg-out graph.
 ///
 /// These UTXOs have specific spending conditions to emulate covenants.
+///
+/// Note that this does not include the stake chain connectors as those are shared at setup time at
+/// regular intervals and not during the peg-out graph generation.
 #[derive(Debug, Clone, Copy)]
 pub struct PegOutGraphConnectors {
     /// The output of the kickoff tx.
@@ -208,17 +222,14 @@ pub struct PegOutGraphConnectors {
     /// The second output of the claim tx.
     pub claim_out_1: ConnectorC1,
 
-    /// The connector that moves the stake across the graph.
-    pub stake: ConnectorS,
+    /// The connector that locks funds in an N-of-N keyspend path.
+    pub n_of_n: ConnectorNOfN,
 
     /// The connector for the CPFP output.
     pub connector_cpfp: ConnectorCpfp,
 
     /// The first output of the post-assert tx used to get the stake.
-    pub post_assert_out_0: ConnectorA30,
-
-    /// The second output of the post-assert tx used for disprove commitment.
-    pub post_assert_out_1: ConnectorA31,
+    pub post_assert_out_0: ConnectorA3,
 
     /// The factory for the 160-bit assertion data connectors.
     pub assert_data160_factory: ConnectorA160Factory<
@@ -235,13 +246,18 @@ pub struct PegOutGraphConnectors {
         NUM_FIELD_CONNECTORS_BATCH_2,
         NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
     >,
+
+    pub stake: ConnectorStake,
 }
 
 impl PegOutGraphConnectors {
     /// Create a new set of connectors for the peg-out graph.
     pub(crate) fn new(
         build_context: &impl BuildContext,
+        deposit_txid: Txid,
         operator_idx: OperatorIdx,
+        stake_hash: sha256::Hash,
+        delta: relative::LockTime,
         wots_public_keys: wots::PublicKeys,
     ) -> Self {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
@@ -257,7 +273,7 @@ impl PegOutGraphConnectors {
 
         let claim_out_1 = ConnectorC1::new(n_of_n_agg_pubkey, network);
 
-        let stake = ConnectorS::new(n_of_n_agg_pubkey, network);
+        let n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
         let operator_pubkey = build_context
             .pubkey_table()
             .0
@@ -267,8 +283,8 @@ impl PegOutGraphConnectors {
             .0;
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
-        let post_assert_out_0 = ConnectorA30::new(n_of_n_agg_pubkey, network);
-        let post_assert_out_1 = ConnectorA31::new(network, wots_public_keys);
+        let post_assert_out_1 =
+            ConnectorA3::new(network, deposit_txid, wots_public_keys, n_of_n_agg_pubkey);
 
         let wots::PublicKeys {
             withdrawal_fulfillment_pk: _,
@@ -291,16 +307,24 @@ impl PegOutGraphConnectors {
             public_keys: public_keys_256,
         };
 
+        let stake = ConnectorStake::new(
+            n_of_n_agg_pubkey,
+            operator_pubkey,
+            stake_hash,
+            delta,
+            network,
+        );
+
         Self {
             kickoff,
             claim_out_0,
             claim_out_1,
-            stake,
+            n_of_n,
             connector_cpfp,
-            post_assert_out_0,
-            post_assert_out_1,
+            post_assert_out_0: post_assert_out_1,
             assert_data160_factory,
             assert_data256_factory,
+            stake,
         }
     }
 }
@@ -315,28 +339,36 @@ mod tests {
     };
 
     use bitcoin::{
-        consensus, policy::MAX_STANDARD_TX_WEIGHT, sighash::SighashCache, taproot, transaction,
-        FeeRate, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, TxOut,
+        consensus,
+        hashes::{self, Hash},
+        key::TapTweak,
+        policy::MAX_STANDARD_TX_WEIGHT,
+        psbt::PsbtSighashType,
+        sighash::{Prevouts, SighashCache},
+        taproot, transaction, Address, FeeRate, Network, OutPoint, TapSighashType, Transaction,
+        TxOut,
     };
-    use corepc_node::{
-        serde_json::{self, json},
-        Client, Conf, Node,
-    };
+    use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
     use secp256k1::{
         rand::{rngs::OsRng, Rng},
-        Keypair,
+        Keypair, SECP256K1,
     };
     use strata_bridge_db::{inmemory::public::PublicDbInMemory, public::PublicDb};
     use strata_bridge_primitives::{
-        bitcoin::BitcoinAddress,
         build_context::TxBuildContext,
         params::{
-            prelude::{NUM_ASSERT_DATA_TX, PAYOUT_TIMELOCK},
-            tx::{CHALLENGE_COST, OPERATOR_STAKE},
+            prelude::{StakeChainParams, NUM_ASSERT_DATA_TX, PAYOUT_TIMELOCK},
+            tx::{CHALLENGE_COST, DISPROVER_REWARD, NUM_SLASH_STAKE_TX, OPERATOR_STAKE},
         },
-        scripts::taproot::create_message_hash,
-        wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
+        scripts::taproot::{create_message_hash, TaprootWitness},
+        wots::{
+            Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures,
+            Wots256PublicKey,
+        },
+    };
+    use strata_bridge_stake_chain::prelude::{
+        StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT,
     };
     use strata_bridge_test_utils::{
         musig2::generate_agg_signature,
@@ -346,7 +378,7 @@ mod tests {
         },
         tx::{get_mock_deposit, FEES},
     };
-    use strata_btcio::rpc::types::{GetTxOut, ListUnspent, SignRawTransactionWithWallet};
+    use strata_btcio::rpc::types::{GetTxOut, SignRawTransactionWithWallet};
     use strata_common::logging;
     use tracing::warn;
 
@@ -378,8 +410,12 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let input =
-            create_tx_graph_input(btc_client, context.network(), operator_pubkey, deposit_txid);
+        let input = create_tx_graph_input(
+            btc_client,
+            &context,
+            n_of_n_keypair,
+            wots_public_keys.withdrawal_fulfillment_pk,
+        );
         let (graph, connectors) = PegOutGraph::generate(
             input,
             &context,
@@ -391,32 +427,10 @@ mod tests {
         .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
-            kickoff_tx,
             claim_tx,
             payout_optimistic,
             ..
         } = graph;
-
-        let signed_kickoff_tx = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[serde_json::Value::String(consensus::encode::serialize_hex(
-                    &kickoff_tx.psbt().unsigned_tx,
-                ))],
-            )
-            .expect("must be able to sign kickoff tx");
-
-        let signed_kickoff_tx =
-            &consensus::encode::deserialize_hex::<Transaction>(&signed_kickoff_tx.hex)
-                .expect("must be able to deserialize raw signed kickoff tx");
-
-        info!(vsize = signed_kickoff_tx.vsize(), "broadcasting kickoff tx");
-        btc_client
-            .send_raw_transaction(signed_kickoff_tx)
-            .expect("must be able to send kickoff tx");
-        btc_client
-            .generate_to_address(1, &btc_addr)
-            .expect("must be able to mine blocks");
 
         let PegOutGraphConnectors {
             kickoff,
@@ -437,7 +451,6 @@ mod tests {
         let claim_child_tx = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
-            &btc_addr,
             connector_cpfp,
             &signed_claim_tx,
             claim_input_amount,
@@ -512,7 +525,6 @@ mod tests {
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
-            &btc_addr,
             connector_cpfp,
             &signed_payout_tx,
             payout_input_amount,
@@ -578,11 +590,20 @@ mod tests {
             public_db,
         } = setup().await;
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
-        let network = context.network();
         let btc_client = &bitcoind.client;
-        let btc_addr = btc_client.new_address().expect("must generate new address");
 
-        let input = create_tx_graph_input(btc_client, network, operator_pubkey, deposit_txid);
+        let wots_public_keys = public_db
+            .get_wots_public_keys(0, deposit_txid)
+            .await
+            .expect("must be able to get wots public keys")
+            .expect("must have wots public keys");
+
+        let input = create_tx_graph_input(
+            btc_client,
+            &context,
+            n_of_n_keypair,
+            wots_public_keys.withdrawal_fulfillment_pk,
+        );
 
         let assertions = load_assertions();
         let SubmitAssertionsResult {
@@ -626,11 +647,10 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
-            &btc_addr,
             connector_cpfp,
             &signed_payout_tx,
             payout_input_amount,
@@ -690,11 +710,20 @@ mod tests {
             deposit_txid,
             public_db,
         } = setup().await;
-        let network = context.network();
         let btc_client = &bitcoind.client;
-        let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let input = create_tx_graph_input(btc_client, network, operator_pubkey, deposit_txid);
+        let public_keys = public_db
+            .get_wots_public_keys(0, deposit_txid)
+            .await
+            .expect("must be able to get wots public keys")
+            .expect("must have wots public keys");
+
+        let input = create_tx_graph_input(
+            btc_client,
+            &context,
+            n_of_n_keypair,
+            public_keys.withdrawal_fulfillment_pk,
+        );
 
         let mut faulty_assertions = load_assertions();
         for _ in 0..faulty_assertions.groth16.2.len() {
@@ -714,7 +743,7 @@ mod tests {
             signed_post_assert,
             post_assert_out_0,
             disprove_tx,
-            post_assert_out_1,
+            stake,
             ..
         } = submit_assertions(
             btc_client,
@@ -730,7 +759,6 @@ mod tests {
         let signed_assert_txs = signed_post_assert
             .input
             .iter()
-            .skip(1)
             .map(|input| {
                 let assert_txid = input.previous_output.txid;
 
@@ -763,7 +791,7 @@ mod tests {
         // static file in `test-data`.
 
         info!("constructing disprove leaf");
-        let input_disprove_leaf = ConnectorA31Leaf::DisprovePublicInputsCommitment {
+        let input_disprove_leaf = ConnectorA3Leaf::DisprovePublicInputsCommitment {
             deposit_txid,
             witness: Some(DisprovePublicInputsCommitmentWitness {
                 sig_withdrawal_fulfillment_txid,
@@ -771,41 +799,56 @@ mod tests {
             }),
         };
 
+        info!("finalizing disprove transaction");
+        let mut sighash_cache = SighashCache::new(&disprove_tx.psbt().unsigned_tx);
+        let prevouts = disprove_tx.prevouts();
+        let input_index = 0;
+
+        let witness_type = &disprove_tx.witnesses()[input_index];
+        assert!(
+            matches!(witness_type, TaprootWitness::Tweaked { .. }),
+            "witness on the first input must be tweaked"
+        );
+
+        let sighash_type = disprove_tx.psbt().inputs[input_index]
+            .sighash_type
+            .expect("sighash type must be set on the first index of the disprove tx")
+            .taproot_hash_ty()
+            .unwrap();
+        assert_eq!(sighash_type, TapSighashType::Single);
+
+        let disprove_msg = create_message_hash(
+            &mut sighash_cache,
+            prevouts,
+            witness_type,
+            sighash_type,
+            input_index,
+        )
+        .unwrap();
+        let disprove_sig = generate_agg_signature(&disprove_msg, &n_of_n_keypair, witness_type);
+        let disprove_sig = taproot::Signature {
+            signature: disprove_sig,
+            sighash_type,
+        };
+
+        let disprove_witness = StakeSpendPath::Disprove(disprove_sig);
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let reward = TxOut {
-            value: Amount::from_int_btc(1),
+            value: DISPROVER_REWARD,
             script_pubkey: btc_addr.script_pubkey(),
         };
 
-        let mut sighash_cache = SighashCache::new(&disprove_tx.psbt().unsigned_tx);
-        let witness = disprove_tx.witnesses()[0].clone();
-        let input_index = 0;
-        let message = create_message_hash(
-            &mut sighash_cache,
-            disprove_tx.prevouts(),
-            &witness,
-            disprove_tx.psbt().inputs[input_index]
-                .sighash_type
-                .expect("sighash type must be set")
-                .taproot_hash_ty()
-                .expect("must be valid taproot sighash type"),
-            input_index,
-        )
-        .expect("must be able to create a message hash");
-        let n_of_n_sig = generate_agg_signature(&message, &n_of_n_keypair, &witness);
-
-        info!("finalizing disprove transaction");
         let signed_disprove_tx = disprove_tx.finalize(
-            post_assert_out_0,
-            post_assert_out_1,
             reward,
-            deposit_txid,
+            disprove_witness,
             input_disprove_leaf,
-            n_of_n_sig,
+            stake,
+            post_assert_out_0,
         );
 
         info!(
             vsize = signed_disprove_tx.vsize(),
+            reward = %DISPROVER_REWARD,
             "broadcasting disprove transaction"
         );
         btc_client
@@ -842,7 +885,8 @@ mod tests {
         let context = TxBuildContext::new(network, pubkey_table.into(), 0);
 
         let n_of_n_agg_pubkey = context.aggregated_pubkey();
-        let bridge_address = ConnectorS::new(n_of_n_agg_pubkey, network).create_taproot_address();
+        let bridge_address =
+            ConnectorNOfN::new(n_of_n_agg_pubkey, network).create_taproot_address();
 
         let deposit_tx = get_mock_deposit(btc_client, DEPOSIT_AMOUNT, &bridge_address);
         let deposit_txid: Txid = deposit_tx.compute_txid();
@@ -870,40 +914,185 @@ mod tests {
 
     fn create_tx_graph_input(
         btc_client: &Client,
-        network: Network,
-        operator_pubkey: XOnlyPublicKey,
-        deposit_txid: Txid,
+        context: &TxBuildContext,
+        operator_keypair: Keypair,
+        withdrawal_fulfillment_pk: Wots256PublicKey,
     ) -> PegOutGraphInput {
-        let utxos = btc_client
-            .call::<Vec<ListUnspent>>("listunspent", &[])
-            .expect("must be able to get utxos");
+        let operator_pubkey = operator_keypair.x_only_public_key().0;
+        let wallet_addr = btc_client.new_address().expect("must generate new address");
 
-        let utxo = utxos
+        let stake_preimage: [u8; 32] = OsRng.gen();
+        let stake_hash = hashes::sha256::Hash::hash(&stake_preimage);
+
+        let delta = relative::LockTime::from_height(6);
+        let stake_chain_params = StakeChainParams {
+            stake_amount: OPERATOR_STAKE,
+            delta,
+            slash_stake_count: NUM_SLASH_STAKE_TX,
+        };
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+
+        info!("creating transaction to fund dust outputs");
+        let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
+        let result = btc_client
+            .send_to_address(&operator_address, OPERATOR_FUNDS)
+            .unwrap();
+        btc_client.generate_to_address(1, &wallet_addr).unwrap();
+        let operator_funds_tx = btc_client.get_transaction(result.txid().unwrap()).unwrap();
+        let operator_funds_tx =
+            consensus::encode::deserialize_hex::<Transaction>(&operator_funds_tx.hex).unwrap();
+        let operator_funds = operator_funds_tx
+            .output
             .iter()
-            .find(|utxo| utxo.amount > DEPOSIT_AMOUNT)
-            .expect("must have at least one valid utxo");
+            .enumerate()
+            .find_map(|(i, o)| {
+                if o.value == OPERATOR_FUNDS {
+                    Some(OutPoint {
+                        txid: operator_funds_tx.compute_txid(),
+                        vout: i as u32,
+                    })
+                } else {
+                    None
+                }
+            })
+            .unwrap();
 
-        let funding_inputs = vec![OutPoint {
-            txid: utxo.txid,
-            vout: utxo.vout,
-        }];
-        let funding_utxos = vec![TxOut {
-            value: utxo.amount,
-            script_pubkey: ScriptBuf::from_hex(&utxo.script_pubkey).expect("must be valid hex"),
-        }];
+        info!("creating transaction for operator's stake");
+        let result = btc_client
+            .send_to_address(&operator_address, OPERATOR_STAKE)
+            .unwrap();
+        btc_client.generate_to_address(1, &wallet_addr).unwrap();
+        let operator_stake_tx = btc_client.get_transaction(result.txid().unwrap()).unwrap();
+        let operator_stake_tx =
+            consensus::encode::deserialize_hex::<Transaction>(&operator_stake_tx.hex).unwrap();
+        let pre_stake = operator_stake_tx
+            .output
+            .iter()
+            .enumerate()
+            .find_map(|(i, o)| {
+                if o.value == OPERATOR_STAKE {
+                    Some(OutPoint {
+                        txid: operator_stake_tx.compute_txid(),
+                        vout: i as u32,
+                    })
+                } else {
+                    None
+                }
+            })
+            .unwrap();
 
-        let btc_addr = btc_client.new_address().expect("must generate new address");
+        let first_stake = StakeTx::create_initial(
+            context,
+            stake_chain_params,
+            stake_hash,
+            withdrawal_fulfillment_pk,
+            pre_stake,
+            operator_funds,
+            operator_pubkey,
+            connector_cpfp,
+        );
+
+        info!("signing and broadcasting the first stake tx");
+        let prevouts = vec![
+            TxOut {
+                value: OPERATOR_FUNDS,
+                script_pubkey: operator_address.script_pubkey(),
+            },
+            TxOut {
+                value: OPERATOR_STAKE,
+                script_pubkey: operator_address.script_pubkey(),
+            },
+        ];
+        let prevouts = Prevouts::All(&prevouts);
+
+        let mut sighash_cache = SighashCache::new(&first_stake.psbt.unsigned_tx);
+        let witnesses = first_stake.witnesses();
+
+        let message_hash_0 = create_message_hash(
+            &mut sighash_cache,
+            prevouts.clone(),
+            &witnesses[0],
+            TapSighashType::All,
+            0,
+        )
+        .unwrap();
+
+        let tweaked_operator_keypair = operator_keypair.tap_tweak(SECP256K1, None);
+
+        let op_signature_0 =
+            SECP256K1.sign_schnorr(&message_hash_0, &tweaked_operator_keypair.to_inner());
+        let op_signature_0 = taproot::Signature {
+            signature: op_signature_0,
+            sighash_type: first_stake.psbt.inputs[0]
+                .sighash_type
+                .unwrap_or(PsbtSighashType::from(TapSighashType::All))
+                .taproot_hash_ty()
+                .unwrap(),
+        };
+
+        let message_hash_1 = create_message_hash(
+            &mut sighash_cache,
+            prevouts,
+            &witnesses[1],
+            TapSighashType::All,
+            1,
+        )
+        .unwrap();
+        let op_signature_1 =
+            SECP256K1.sign_schnorr(&message_hash_1, &tweaked_operator_keypair.to_inner());
+        let op_signature_1 = taproot::Signature {
+            signature: op_signature_1,
+            sighash_type: first_stake.psbt.inputs[1]
+                .sighash_type
+                .unwrap_or(PsbtSighashType::from(TapSighashType::All))
+                .taproot_hash_ty()
+                .unwrap(),
+        };
+
+        let signed_first_stake_tx = first_stake.finalize_initial(op_signature_0, op_signature_1);
+
+        let input_amount = OPERATOR_FUNDS + OPERATOR_STAKE;
+        let graph_funding_amount =
+            signed_first_stake_tx.output[WITHDRAWAL_FULFILLMENT_VOUT as usize].value;
+        let cpfp_child = create_cpfp_child(
+            btc_client,
+            &operator_keypair,
+            connector_cpfp,
+            &signed_first_stake_tx,
+            input_amount,
+            (signed_first_stake_tx.output.len() - 1) as u32,
+        );
+
+        let first_stake_txid = signed_first_stake_tx.compute_txid();
+        info!(txid = %first_stake_txid, "submitting stake transaction");
+
+        let result = btc_client
+            .submit_package(&[signed_first_stake_tx, cpfp_child], None, None)
+            .expect("must be able to submit first stake tx package");
+
+        assert_eq!(
+            result.package_msg, "success",
+            "must be able to submit first stake package but got: {:?}",
+            result
+        );
+
+        btc_client.generate_to_address(1, &wallet_addr).unwrap();
+
         PegOutGraphInput {
             deposit_amount: DEPOSIT_AMOUNT,
             operator_pubkey,
-            kickoff_data: KickoffTxData {
-                funding_inputs,
-                funding_utxos,
-                change_address: BitcoinAddress::parse(&btc_addr.to_string(), network)
-                    .expect("address must be valid for network"),
-                change_amt: utxo.amount - OPERATOR_STAKE - Amount::from_sat(1_000),
-                deposit_txid,
+            stake_outpoint: OutPoint {
+                txid: first_stake_txid,
+                vout: STAKE_VOUT,
             },
+            withdrawal_fulfillment_outpoint: OutPoint {
+                txid: first_stake_txid,
+                vout: WITHDRAWAL_FULFILLMENT_VOUT,
+            },
+            stake_hash,
+            delta,
+            funding_amount: graph_funding_amount,
         }
     }
 
@@ -911,9 +1100,9 @@ mod tests {
         signed_claim_tx: Transaction,
         signed_post_assert: Transaction,
         payout_tx: PayoutTx,
-        post_assert_out_0: ConnectorA30,
+        post_assert_out_0: ConnectorA3,
         disprove_tx: DisproveTx,
-        post_assert_out_1: ConnectorA31,
+        stake: ConnectorStake,
     }
 
     async fn submit_assertions(
@@ -939,7 +1128,6 @@ mod tests {
                 .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
-            kickoff_tx,
             claim_tx,
             assert_chain,
             payout_tx,
@@ -947,37 +1135,17 @@ mod tests {
             ..
         } = graph;
 
-        let signed_kickoff_tx = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[serde_json::Value::String(consensus::encode::serialize_hex(
-                    &kickoff_tx.psbt().unsigned_tx,
-                ))],
-            )
-            .expect("must be able to sign kickoff tx");
-
-        let signed_kickoff_tx =
-            &consensus::encode::deserialize_hex::<Transaction>(&signed_kickoff_tx.hex)
-                .expect("must be able to deserialize raw signed kickoff tx");
-
-        info!(vsize = signed_kickoff_tx.vsize(), "broadcasting kickoff tx");
-        btc_client
-            .send_raw_transaction(signed_kickoff_tx)
-            .expect("must be able to send kickoff tx");
-        btc_client
-            .generate_to_address(1, &btc_addr)
-            .expect("must be able to mine blocks");
-
         let PegOutGraphConnectors {
             kickoff,
             claim_out_0,
             claim_out_1,
-            stake: _,
+            n_of_n: _,
             connector_cpfp,
             post_assert_out_0,
-            post_assert_out_1,
             assert_data160_factory,
             assert_data256_factory,
+            stake,
+            ..
         } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
@@ -990,7 +1158,6 @@ mod tests {
         let claim_child_tx = create_cpfp_child(
             btc_client,
             keypair,
-            &btc_addr,
             connector_cpfp,
             &signed_claim_tx,
             claim_input_amount,
@@ -1003,7 +1170,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission but got: {:?}",
+            "must have successful package submission for claim but got: {:?}",
             result
         );
         assert_eq!(
@@ -1112,7 +1279,6 @@ mod tests {
         let signed_pre_assert_cpfp = create_cpfp_child(
             btc_client,
             keypair,
-            &btc_addr,
             connector_cpfp,
             &signed_pre_assert,
             pre_assert_input_amount,
@@ -1181,7 +1347,6 @@ mod tests {
                 let signed_child_tx = create_cpfp_child(
                     btc_client,
                     keypair,
-                    &btc_addr,
                     connector_cpfp,
                     &tx,
                     input_amount,
@@ -1223,7 +1388,7 @@ mod tests {
 
         let prevouts = post_assert.prevouts();
         let witnesses = post_assert.witnesses();
-        let post_assert_sigs = (0..num_signed_assert_data_txs + 1)
+        let post_assert_sigs = (0..num_signed_assert_data_txs)
             .map(|i| {
                 let message = create_message_hash(
                     &mut sighash_cache,
@@ -1240,12 +1405,12 @@ mod tests {
 
         let post_assert_input_amount = post_assert.input_amount();
         let post_assert_cpf_vout = post_assert.cpfp_vout();
+        let post_assert_output_amount = post_assert.output_amount();
         let signed_post_assert = post_assert.finalize(&post_assert_sigs);
 
         let signed_post_assert_child_tx = create_cpfp_child(
             btc_client,
             keypair,
-            &btc_addr,
             connector_cpfp,
             &signed_post_assert,
             post_assert_input_amount,
@@ -1254,6 +1419,7 @@ mod tests {
 
         info!(
             txid = signed_post_assert.compute_txid().to_string(),
+            final_output_amount = %post_assert_output_amount,
             "broadcasting post-assert tx"
         );
         let result = btc_client
@@ -1285,7 +1451,7 @@ mod tests {
             payout_tx,
             post_assert_out_0,
             disprove_tx,
-            post_assert_out_1,
+            stake,
         }
     }
 
@@ -1293,12 +1459,12 @@ mod tests {
     fn create_cpfp_child(
         btc_client: &Client,
         operator_keypair: &Keypair,
-        btc_addr: &bitcoin::Address,
         connector_cpfp: ConnectorCpfp,
         parent_tx: &Transaction,
         parent_input_amount: Amount,
         parent_output_index: u32,
     ) -> Transaction {
+        let btc_addr = btc_client.new_address().expect("must generate new address");
         let cpfp_details = CpfpInput::new(parent_tx, parent_input_amount, parent_output_index)
             .expect("inputs must be valid");
         let assert_data_cpfp = Cpfp::new(cpfp_details, connector_cpfp);

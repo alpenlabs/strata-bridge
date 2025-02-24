@@ -5,7 +5,7 @@ use bitcoin::{
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
-    ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorS,
+    ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorNOfN,
 };
 use strata_bridge_primitives::{params::prelude::PAYOUT_OPTIMISTIC_TIMELOCK, scripts::prelude::*};
 
@@ -53,7 +53,7 @@ impl PayoutOptimisticTx {
         data: PayoutOptimisticData,
         connector_c0: ConnectorC0,
         connector_c1: ConnectorC1,
-        connector_b: ConnectorS,
+        connector_b: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
         let utxos = [

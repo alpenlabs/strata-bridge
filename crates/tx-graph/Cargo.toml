@@ -25,6 +25,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-db.workspace = true
+strata-bridge-stake-chain.workspace = true
 strata-bridge-test-utils.workspace = true
 strata-btcio.workspace = true
 strata-common.workspace = true
@@ -32,3 +33,6 @@ strata-common.workspace = true
 corepc-node.workspace = true
 rkyv.workspace = true
 tokio.workspace = true
+
+[features]
+mock = ["strata-bridge-connectors/mock"]

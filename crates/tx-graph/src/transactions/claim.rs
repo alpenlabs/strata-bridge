@@ -1,7 +1,7 @@
 use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::signatures::wots_api::wots256;
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::{params::prelude::OPERATOR_STAKE, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
 
 use super::{
     errors::{TxError, TxResult},
@@ -11,16 +11,21 @@ use super::{
 /// Data needed to construct a [`ClaimTx`].
 #[derive(Debug, Clone)]
 pub struct ClaimData {
-    pub kickoff_txid: Txid,
+    /// The [`OutPoint`] of the stake transaction that is being spent.
+    pub stake_outpoint: OutPoint,
 
+    /// The deposit transaction id.
     pub deposit_txid: Txid,
+
+    /// The amount in the input (from the stake transaction).
+    pub input_amount: Amount,
 }
 
 #[derive(Debug, Clone)]
 pub struct ClaimTx {
     psbt: Psbt,
 
-    remaining_stake: Amount,
+    output_amount: Amount,
 
     prevouts: Vec<TxOut>,
     witnesses: Vec<TaprootWitness>,
@@ -34,10 +39,7 @@ impl ClaimTx {
         connector_c1: ConnectorC1,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
-        let tx_ins = create_tx_ins([OutPoint {
-            txid: data.kickoff_txid,
-            vout: 0,
-        }]);
+        let tx_ins = create_tx_ins([data.stake_outpoint]);
 
         let c1_out = connector_c1.generate_locking_script();
         let c1_amt = c1_out.minimal_non_dust();
@@ -45,7 +47,7 @@ impl ClaimTx {
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amt = cpfp_script.minimal_non_dust();
 
-        let c0_amt = OPERATOR_STAKE - c1_amt - cpfp_amt;
+        let c0_amt = data.input_amount - c1_amt - cpfp_amt;
 
         let scripts_and_amounts = [
             (connector_c0.generate_locking_script(), c0_amt),
@@ -61,7 +63,7 @@ impl ClaimTx {
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("tx should have an empty witness");
 
         let prevout = TxOut {
-            value: OPERATOR_STAKE,
+            value: data.input_amount,
             script_pubkey: connector_k.create_taproot_address().script_pubkey(),
         };
 
@@ -75,14 +77,14 @@ impl ClaimTx {
 
         Self {
             psbt,
-            remaining_stake: c0_amt,
+            output_amount: c0_amt,
             prevouts: vec![prevout],
             witnesses,
         }
     }
 
-    pub fn remaining_stake(&self) -> Amount {
-        self.remaining_stake
+    pub fn output_amount(&self) -> Amount {
+        self.output_amount
     }
 
     pub fn cpfp_vout(&self) -> u32 {
@@ -184,6 +186,7 @@ impl CovenantTx for ClaimTx {
 mod tests {
     use bitcoin::{Network, Witness};
     use bitvm::treepp::*;
+    use secp256k1::rand::{rngs::OsRng, Rng};
     use strata_bridge_primitives::wots;
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
@@ -201,8 +204,12 @@ mod tests {
         let wots_public_key = wots::Wots256PublicKey::new(&wots_sk);
         let claim_tx = ClaimTx::new(
             ClaimData {
-                kickoff_txid: generate_txid(),
+                stake_outpoint: OutPoint {
+                    txid: generate_txid(),
+                    vout: 0,
+                },
                 deposit_txid,
+                input_amount: Amount::from_sat(OsRng.gen_range(1..100_000)),
             },
             ConnectorK::new(pubkey, network, wots_public_key),
             ConnectorC0::new(pubkey, network),
