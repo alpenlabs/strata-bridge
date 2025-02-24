@@ -57,7 +57,7 @@ impl ArbitraryGenerator {
     /// # Arguments
     ///
     /// * `rng` - An RNG to be used for generating the arbitrary instance. Provided RNG must
-    ///   implement the [`CryptoRngCore`] trait.
+    ///   implement the [`TryCryptoRng`] trait.
     ///
     /// # Returns
     ///

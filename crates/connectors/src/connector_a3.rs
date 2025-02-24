@@ -24,7 +24,7 @@ use strata_bridge_primitives::{
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
 
-/// Possible spending paths for the [`ConnectorA31`].
+/// Possible spending paths for the [`ConnectorA3`].
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum ConnectorA3Leaf {

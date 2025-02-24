@@ -43,7 +43,9 @@ pub struct StakeTxData {
 /// The [`StakeTx`] transaction is used to move stake across transactions.
 ///
 /// It includes a PSBT that contains the inputs and outputs for the transaction.
-/// Users can instantiate a [`StakeTx`] by calling the [`StakeTx::new`].
+/// Users can instantiate a [`StakeTx`] by calling the [`StakeTx::create_initial`] for the first
+/// stake transaction that spends the [`PreStakeTx`](crate::transactions::pre_stake::PreStakeTx) and
+/// [`StakeTx::advance`] to advance the stake chain beyond that.
 ///
 /// # Input order
 ///

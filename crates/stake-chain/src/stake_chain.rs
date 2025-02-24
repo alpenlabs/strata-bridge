@@ -39,9 +39,9 @@ use crate::{
 pub struct StakeChain<const M: usize>([StakeTx; M]);
 
 impl<const M: usize> StakeChain<M> {
-    /// Creates a new [`StakeChain`] from the provided [`StakeInputs`].
+    /// Creates a new [`StakeChain`] from the provided [`StakeChainInputs`].
     ///
-    /// The provided [`StakeInputs`] must be of length `N`.
+    /// The provided [`StakeChainInputs`] must be of length `N`.
     pub fn new<const N: usize>(
         context: &impl BuildContext,
         stake_chain_inputs: &StakeChainInputs<N>,
@@ -117,7 +117,7 @@ impl<const M: usize> DerefMut for StakeChain<M> {
     }
 }
 
-/// An `N`-length [`StakeInputs`] holds all the necessary data to construct an `M < N`-length
+/// An `N`-length [`StakeChainInputs`] holds all the necessary data to construct an `M < N`-length
 /// [`StakeChain`].
 ///
 /// The data that it needs are:
@@ -172,23 +172,23 @@ impl<const N: usize> StakeChainInputs<N> {
         self.params.stake_amount
     }
 
-    /// Stake hashes for all the [`StakeInputs`]s.
+    /// Stake hashes for all the [`StakeChainInputs`]s.
     ///
     /// The stake hashes are used to derive the locking script and must be shared with between
     /// operators so that each operator can compute the transactions deterministically.
     ///
     /// If you only need the stake hash for a single stake, use
-    /// [`StakeInputs::stake_hash_at_index`].
+    /// [`StakeChainInputs::stake_hash_at_index`].
     pub fn stake_hashes(&self) -> [sha256::Hash; N] {
         self.stake_inputs.map(|input| input.hash)
     }
 
-    /// Stake hash for the [`StakeInputs`] at the given index.
+    /// Stake hash for the [`StakeChainInputs`] at the given index.
     ///
     /// The stake hashes are used to derive the locking script and must be shared with between
     /// operators so that each operator can compute the transactions deterministically.
     ///
-    /// If you need the stake hash for all the stakes, use [`StakeInputs::stake_hashes`].
+    /// If you need the stake hash for all the stakes, use [`StakeChainInputs::stake_hashes`].
     ///
     /// # Panics
     ///
@@ -197,13 +197,13 @@ impl<const N: usize> StakeChainInputs<N> {
         self.stake_inputs[index].hash
     }
 
-    /// Operator funds for all the [`StakeInputs`]s.
+    /// Operator funds for all the [`StakeChainInputs`]s.
     ///
     /// The operator funds are the inputs to cover the dust outputs for the entirety of the
-    /// [`StakeInputs`]s.
+    /// [`StakeChainInputs`]s.
     ///
     /// If you only need the operator funds for a single stake, use
-    /// [`StakeInputs::operator_funds_at_index`] since it vastly reduces the allocations.
+    /// [`StakeChainInputs::operator_funds_at_index`] since it vastly reduces the allocations.
     ///
     /// # Panics
     ///
@@ -212,12 +212,12 @@ impl<const N: usize> StakeChainInputs<N> {
         self.stake_inputs.map(|input| input.operator_funds)
     }
 
-    /// Operator funds for the [`StakeInputs`] at the given index.
+    /// Operator funds for the [`StakeChainInputs`] at the given index.
     ///
     /// The operator funds are the inputs to cover the dust outputs for the entirety of the
-    /// [`StakeInputs`]s.
+    /// [`StakeChainInputs`]s.
     ///
-    /// If you need the operator funds for all the stakes, use [`StakeInputs::operator_funds`].
+    /// If you need the operator funds for all the stakes, use [`StakeChainInputs::operator_funds`].
     ///
     /// # Panics
     ///
