@@ -1,6 +1,6 @@
 //! MuSig2 signer client
 
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
 use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
 use musig2::{
@@ -37,47 +37,42 @@ impl Musig2Client {
 }
 
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
-    fn new_session(
+    async fn new_session(
         &self,
         pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
-    ) -> impl Future<Output = Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError>> + Send
-    {
-        async move {
-            let msg = ClientMessage::Musig2NewSession {
-                pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
-                witness: witness.into(),
-                input_txid: input_txid.to_byte_array(),
-                input_vout,
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
+    ) -> Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError> {
+        let msg = ClientMessage::Musig2NewSession {
+            pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
+            witness: witness.into(),
+            input_txid: input_txid.to_byte_array(),
+            input_vout,
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
 
-            Ok(match maybe_session_id {
-                Ok(session_id) => Ok(Musig2FirstRound {
-                    session_id,
-                    connection: self.conn.clone(),
-                    config: self.config.clone(),
-                }),
-                Err(e) => Err(e),
-            })
-        }
+        Ok(match maybe_session_id {
+            Ok(session_id) => Ok(Musig2FirstRound {
+                session_id,
+                connection: self.conn.clone(),
+                config: self.config.clone(),
+            }),
+            Err(e) => Err(e),
+        })
     }
 
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<XOnlyPublicKey>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2Pubkey;
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2Pubkey { pubkey } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
+    async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
+        let msg = ClientMessage::Musig2Pubkey;
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2Pubkey { pubkey } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
 
-            XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res.into()))
-        }
+        XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res.into()))
     }
 }
 
@@ -95,95 +90,80 @@ pub struct Musig2FirstRound {
 }
 
 impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
-    fn our_nonce(&self) -> impl Future<Output = <Client as Origin>::Container<PubNonce>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundOurNonce {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundOurNonce { our_nonce } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            PubNonce::from_bytes(&our_nonce).map_err(|_| ClientError::BadData)
-        }
+    async fn our_nonce(&self) -> <Client as Origin>::Container<PubNonce> {
+        let msg = ClientMessage::Musig2FirstRoundOurNonce {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2FirstRoundOurNonce { our_nonce } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        PubNonce::from_bytes(&our_nonce).map_err(|_| ClientError::BadData)
     }
 
-    fn holdouts(
-        &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<Vec<XOnlyPublicKey>>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundHoldouts {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundHoldouts { pubkeys } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            pubkeys
-                .into_iter()
-                .map(|pk| XOnlyPublicKey::from_slice(&pk))
-                .collect::<Result<Vec<XOnlyPublicKey>, musig2::secp256k1::Error>>()
-                .map_err(|_| ClientError::BadData)
-        }
+    async fn holdouts(&self) -> <Client as Origin>::Container<Vec<XOnlyPublicKey>> {
+        let msg = ClientMessage::Musig2FirstRoundHoldouts {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2FirstRoundHoldouts { pubkeys } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        pubkeys
+            .into_iter()
+            .map(|pk| XOnlyPublicKey::from_slice(&pk))
+            .collect::<Result<Vec<XOnlyPublicKey>, musig2::secp256k1::Error>>()
+            .map_err(|_| ClientError::BadData)
     }
 
-    fn is_complete(&self) -> impl Future<Output = <Client as Origin>::Container<bool>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundIsComplete {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundIsComplete { complete } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(complete)
-        }
+    async fn is_complete(&self) -> <Client as Origin>::Container<bool> {
+        let msg = ClientMessage::Musig2FirstRoundIsComplete {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2FirstRoundIsComplete { complete } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(complete)
     }
 
-    fn receive_pub_nonce(
+    async fn receive_pub_nonce(
         &mut self,
         pubkey: XOnlyPublicKey,
         pubnonce: PubNonce,
-    ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
-    {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundReceivePubNonce {
-                session_id: self.session_id,
-                pubkey: pubkey.serialize(),
-                pubnonce: pubnonce.serialize(),
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundReceivePubNonce(maybe_err) = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(maybe_err.map_or(Ok(()), Err))
-        }
+    ) -> <Client as Origin>::Container<Result<(), RoundContributionError>> {
+        let msg = ClientMessage::Musig2FirstRoundReceivePubNonce {
+            session_id: self.session_id,
+            pubkey: pubkey.serialize(),
+            pubnonce: pubnonce.serialize(),
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2FirstRoundReceivePubNonce(maybe_err) = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(maybe_err.map_or(Ok(()), Err))
     }
 
-    fn finalize(
+    async fn finalize(
         self,
         hash: [u8; 32],
-    ) -> impl Future<
-        Output = <Client as Origin>::Container<Result<Musig2SecondRound, RoundFinalizeError>>,
-    > + Send {
-        async move {
-            let msg = ClientMessage::Musig2FirstRoundFinalize {
+    ) -> <Client as Origin>::Container<Result<Musig2SecondRound, RoundFinalizeError>> {
+        let msg = ClientMessage::Musig2FirstRoundFinalize {
+            session_id: self.session_id,
+            digest: hash,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2FirstRoundFinalize(maybe_err) = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(match maybe_err {
+            Some(e) => Err(e),
+            None => Ok(Musig2SecondRound {
                 session_id: self.session_id,
-                digest: hash,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2FirstRoundFinalize(maybe_err) = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(match maybe_err {
-                Some(e) => Err(e),
-                None => Ok(Musig2SecondRound {
-                    session_id: self.session_id,
-                    connection: self.connection,
-                    config: self.config,
-                }),
-            })
-        }
+                connection: self.connection,
+                config: self.config,
+            }),
+        })
     }
 }
 
@@ -201,108 +181,88 @@ pub struct Musig2SecondRound {
 }
 
 impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
-    fn agg_nonce(&self) -> impl Future<Output = <Client as Origin>::Container<AggNonce>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundAggNonce {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundAggNonce { nonce } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            AggNonce::from_bytes(&nonce).map_err(|_| ClientError::BadData)
-        }
+    async fn agg_nonce(&self) -> <Client as Origin>::Container<AggNonce> {
+        let msg = ClientMessage::Musig2SecondRoundAggNonce {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2SecondRoundAggNonce { nonce } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        AggNonce::from_bytes(&nonce).map_err(|_| ClientError::BadData)
     }
 
-    fn holdouts(
-        &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<Vec<XOnlyPublicKey>>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundHoldouts {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundHoldouts { pubkeys } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            pubkeys
-                .into_iter()
-                .map(|pk| XOnlyPublicKey::from_slice(&pk))
-                .collect::<Result<Vec<XOnlyPublicKey>, musig2::secp256k1::Error>>()
-                .map_err(|_| ClientError::BadData)
-        }
+    async fn holdouts(&self) -> <Client as Origin>::Container<Vec<XOnlyPublicKey>> {
+        let msg = ClientMessage::Musig2SecondRoundHoldouts {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2SecondRoundHoldouts { pubkeys } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        pubkeys
+            .into_iter()
+            .map(|pk| XOnlyPublicKey::from_slice(&pk))
+            .collect::<Result<Vec<XOnlyPublicKey>, musig2::secp256k1::Error>>()
+            .map_err(|_| ClientError::BadData)
     }
 
-    fn our_signature(
-        &self,
-    ) -> impl Future<Output = <Client as Origin>::Container<musig2::PartialSignature>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundOurSignature {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundOurSignature { sig } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            musig2::PartialSignature::from_slice(&sig).map_err(|_| ClientError::BadData)
-        }
+    async fn our_signature(&self) -> <Client as Origin>::Container<musig2::PartialSignature> {
+        let msg = ClientMessage::Musig2SecondRoundOurSignature {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2SecondRoundOurSignature { sig } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        musig2::PartialSignature::from_slice(&sig).map_err(|_| ClientError::BadData)
     }
 
-    fn is_complete(&self) -> impl Future<Output = <Client as Origin>::Container<bool>> + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundIsComplete {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundIsComplete { complete } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(complete)
-        }
+    async fn is_complete(&self) -> <Client as Origin>::Container<bool> {
+        let msg = ClientMessage::Musig2SecondRoundIsComplete {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2SecondRoundIsComplete { complete } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(complete)
     }
 
-    fn receive_signature(
+    async fn receive_signature(
         &mut self,
         pubkey: XOnlyPublicKey,
         signature: musig2::PartialSignature,
-    ) -> impl Future<Output = <Client as Origin>::Container<Result<(), RoundContributionError>>> + Send
-    {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundReceiveSignature {
-                session_id: self.session_id,
-                pubkey: pubkey.serialize(),
-                signature: signature.serialize(),
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundReceiveSignature(maybe_err) = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(maybe_err.map_or(Ok(()), Err))
-        }
+    ) -> <Client as Origin>::Container<Result<(), RoundContributionError>> {
+        let msg = ClientMessage::Musig2SecondRoundReceiveSignature {
+            session_id: self.session_id,
+            pubkey: pubkey.serialize(),
+            signature: signature.serialize(),
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2SecondRoundReceiveSignature(maybe_err) = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(maybe_err.map_or(Ok(()), Err))
     }
 
-    fn finalize(
+    async fn finalize(
         self,
-    ) -> impl Future<
-        Output = <Client as Origin>::Container<Result<musig2::LiftedSignature, RoundFinalizeError>>,
-    > + Send {
-        async move {
-            let msg = ClientMessage::Musig2SecondRoundFinalize {
-                session_id: self.session_id,
-            };
-            let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
-            let ServerMessage::Musig2SecondRoundFinalize(res) = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            let res: Result<_, _> = res.into();
-            Ok(match res {
-                Ok(sig) => {
-                    let sig =
-                        LiftedSignature::from_bytes(&sig).map_err(|_| ClientError::BadData)?;
-                    Ok(sig)
-                }
-                Err(e) => Err(e),
-            })
-        }
+    ) -> <Client as Origin>::Container<Result<musig2::LiftedSignature, RoundFinalizeError>> {
+        let msg = ClientMessage::Musig2SecondRoundFinalize {
+            session_id: self.session_id,
+        };
+        let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
+        let ServerMessage::Musig2SecondRoundFinalize(res) = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        let res: Result<_, _> = res.into();
+        Ok(match res {
+            Ok(sig) => {
+                let sig = LiftedSignature::from_bytes(&sig).map_err(|_| ClientError::BadData)?;
+                Ok(sig)
+            }
+            Err(e) => Err(e),
+        })
     }
 }

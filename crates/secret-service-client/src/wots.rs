@@ -1,5 +1,5 @@
 //! Winternitz One-time Signature (WOTS) signer client
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
 use bitcoin::{hashes::Hash, Txid};
 use quinn::Connection;
@@ -28,43 +28,39 @@ impl WotsClient {
 }
 
 impl WotsSigner<Client> for WotsClient {
-    fn get_160_key(
+    async fn get_160_key(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 160]>> + Send {
-        async move {
-            let msg = ClientMessage::WotsGet160Key {
-                index,
-                vout,
-                txid: txid.as_raw_hash().to_byte_array(),
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::WotsGet160Key { key } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(key)
-        }
+    ) -> <Client as Origin>::Container<[u8; 20 * 160]> {
+        let msg = ClientMessage::WotsGet160Key {
+            index,
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::WotsGet160Key { key } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(key)
     }
 
-    fn get_256_key(
+    async fn get_256_key(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 256]>> + Send {
-        async move {
-            let msg = ClientMessage::WotsGet256Key {
-                index,
-                vout,
-                txid: txid.as_raw_hash().to_byte_array(),
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::WotsGet256Key { key } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(key)
-        }
+    ) -> <Client as Origin>::Container<[u8; 20 * 256]> {
+        let msg = ClientMessage::WotsGet256Key {
+            index,
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::WotsGet256Key { key } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(key)
     }
 }

@@ -1,6 +1,6 @@
 //! Stake Chain preimages client
 
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
 use bitcoin::{hashes::Hash, Txid};
 use quinn::Connection;
@@ -30,23 +30,21 @@ impl StakeChainPreimgClient {
 }
 
 impl StakeChainPreimages<Client> for StakeChainPreimgClient {
-    fn get_preimg(
+    async fn get_preimg(
         &self,
         prestake_txid: Txid,
         prestake_vout: u32,
         stake_index: u32,
-    ) -> impl Future<Output = <Client as Origin>::Container<[u8; 32]>> + Send {
-        async move {
-            let msg = ClientMessage::StakeChainGetPreimage {
-                prestake_txid: prestake_txid.to_byte_array(),
-                prestake_vout,
-                stake_index,
-            };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::StakeChainGetPreimage { preimg } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Ok(preimg)
-        }
+    ) -> <Client as Origin>::Container<[u8; 32]> {
+        let msg = ClientMessage::StakeChainGetPreimage {
+            prestake_txid: prestake_txid.to_byte_array(),
+            prestake_vout,
+            stake_index,
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::StakeChainGetPreimage { preimg } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(preimg)
     }
 }

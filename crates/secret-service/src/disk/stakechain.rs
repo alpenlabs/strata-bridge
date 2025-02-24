@@ -1,7 +1,5 @@
 //! In-memory persistence for Stake Chain preimages.
 
-use std::future::Future;
-
 use bitcoin::{
     bip32::{ChildNumber, Xpriv},
     hashes::Hash,
@@ -42,23 +40,21 @@ impl StakeChain {
 impl StakeChainPreimages<Server> for StakeChain {
     /// Gets a preimage for a Stake Chain, given a pre-stake transaction ID, and output index; and
     /// stake index.
-    fn get_preimg(
+    async fn get_preimg(
         &self,
         prestake_txid: Txid,
         prestake_vout: u32,
         stake_index: u32,
-    ) -> impl Future<Output = [u8; 32]> + Send {
-        async move {
-            let hk = Hkdf::<Sha256>::new(None, &self.ikm);
-            let mut okm = [0u8; 32];
-            let info = make_buf! {
-                (prestake_txid.as_raw_hash().as_byte_array(), 32),
-                (&prestake_vout.to_le_bytes(), 4),
-                (&stake_index.to_le_bytes(), 4)
-            };
-            hk.expand(&info, &mut okm)
-                .expect("32 is a valid length for Sha256 to output");
-            okm
-        }
+    ) -> [u8; 32] {
+        let hk = Hkdf::<Sha256>::new(None, &self.ikm);
+        let mut okm = [0u8; 32];
+        let info = make_buf! {
+            (prestake_txid.as_raw_hash().as_byte_array(), 32),
+            (&prestake_vout.to_le_bytes(), 4),
+            (&stake_index.to_le_bytes(), 4)
+        };
+        hk.expand(&info, &mut okm)
+            .expect("32 is a valid length for Sha256 to output");
+        okm
     }
 }

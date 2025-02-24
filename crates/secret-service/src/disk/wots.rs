@@ -1,7 +1,5 @@
 //! In-memory persistence for the Winternitz One-Time Signature (WOTS) keys.
 
-use std::future::Future;
-
 use bitcoin::{
     bip32::{ChildNumber, Xpriv},
     hashes::Hash,
@@ -57,41 +55,27 @@ impl SeededWotsSigner {
 }
 
 impl WotsSigner<Server> for SeededWotsSigner {
-    fn get_160_key(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-    ) -> impl Future<Output = [u8; 20 * 160]> + Send {
-        async move {
-            let hk = Hkdf::<Sha256>::new(None, &self.ikm_160);
-            let mut okm = [0u8; 20 * 160];
-            let info = make_buf! {
-                (txid.as_raw_hash().as_byte_array(), 32),
-                (&vout.to_le_bytes(), 4),
-                (&index.to_le_bytes(), 4),
-            };
-            hk.expand(&info, &mut okm).expect("valid output length");
-            okm
-        }
+    async fn get_160_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 160] {
+        let hk = Hkdf::<Sha256>::new(None, &self.ikm_160);
+        let mut okm = [0u8; 20 * 160];
+        let info = make_buf! {
+            (txid.as_raw_hash().as_byte_array(), 32),
+            (&vout.to_le_bytes(), 4),
+            (&index.to_le_bytes(), 4),
+        };
+        hk.expand(&info, &mut okm).expect("valid output length");
+        okm
     }
 
-    fn get_256_key(
-        &self,
-        txid: Txid,
-        vout: u32,
-        index: u32,
-    ) -> impl Future<Output = [u8; 20 * 256]> + Send {
-        async move {
-            let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
-            let mut okm = [0u8; 20 * 256];
-            let info = make_buf! {
-                (txid.as_raw_hash().as_byte_array(), 32),
-                (&vout.to_le_bytes(), 4),
-                (&index.to_le_bytes(), 4),
-            };
-            hk.expand(&info, &mut okm).expect("valid output length");
-            okm
-        }
+    async fn get_256_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 256] {
+        let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
+        let mut okm = [0u8; 20 * 256];
+        let info = make_buf! {
+            (txid.as_raw_hash().as_byte_array(), 32),
+            (&vout.to_le_bytes(), 4),
+            (&index.to_le_bytes(), 4),
+        };
+        hk.expand(&info, &mut okm).expect("valid output length");
+        okm
     }
 }
