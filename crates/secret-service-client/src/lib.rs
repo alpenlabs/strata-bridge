@@ -55,7 +55,7 @@ pub struct Config {
     ///
     /// # Warning
     ///
-    /// Users should always be verifying the server's identity via this to prevent ITM attacks.
+    /// Users should always be verifying the server's identity via this to prevent MITM attacks.
     tls_config: rustls::ClientConfig,
 
     /// Timeout for requests.
