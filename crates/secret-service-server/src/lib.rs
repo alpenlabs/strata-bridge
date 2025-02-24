@@ -205,17 +205,10 @@ where
                 }
             }
 
-            ArchivedClientMessage::P2PSign { digest } => {
-                let sig = service.p2p_signer().sign(digest).await;
-                ServerMessage::P2PSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ArchivedClientMessage::P2PPubkey => {
-                let pubkey = service.p2p_signer().pubkey().await;
-                ServerMessage::P2PPubkey {
-                    pubkey: pubkey.serialize(),
+            ArchivedClientMessage::P2PSecretKey => {
+                let key = service.p2p_signer().secret_key().await;
+                ServerMessage::P2PSecretKey {
+                    key: key.secret_bytes(),
                 }
             }
 

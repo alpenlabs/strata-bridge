@@ -1,9 +1,8 @@
 //! P2P signer client
 
-use std::{future::Future, sync::Arc};
+use std::sync::Arc;
 
-use bitcoin::XOnlyPublicKey;
-use musig2::secp256k1::schnorr::Signature;
+use musig2::secp256k1::SecretKey;
 use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{Client, ClientError, Origin, P2PSigner},
@@ -30,28 +29,12 @@ impl P2PClient {
 }
 
 impl P2PSigner<Client> for P2PClient {
-    fn sign(
-        &self,
-        digest: &[u8; 32],
-    ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
-        async move {
-            let msg = ClientMessage::P2PSign { digest: *digest };
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::P2PSign { sig } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
-        }
-    }
-
-    fn pubkey(&self) -> impl Future<Output = <Client as Origin>::Container<XOnlyPublicKey>> + Send {
-        async move {
-            let msg = ClientMessage::P2PPubkey;
-            let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-            let ServerMessage::P2PPubkey { pubkey } = res else {
-                return Err(ClientError::WrongMessage(res.into()));
-            };
-            XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
-        }
+    async fn secret_key(&self) -> <Client as Origin>::Container<SecretKey> {
+        let msg = ClientMessage::P2PSecretKey;
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::P2PSecretKey { key } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(SecretKey::from_slice(&key).expect("correct length"))
     }
 }

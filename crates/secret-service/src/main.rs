@@ -1,5 +1,4 @@
 //! Runs the Secret Service.
-#![allow(clippy::manual_async_fn)]
 
 // use secret_service_server::rustls::ServerConfig;
 pub mod config;

@@ -73,12 +73,7 @@ async fn e2e() {
 
     // p2p signer
     let p2p_signer = client.p2p_signer();
-    let pubkey = p2p_signer.pubkey().await.expect("good response");
-    let to_sign = rng.gen();
-    let sig = p2p_signer.sign(&to_sign).await.expect("good response");
-    assert!(secp_ctx
-        .verify_schnorr(&sig, &Message::from_digest(to_sign), &pubkey)
-        .is_ok());
+    p2p_signer.secret_key().await.expect("good response");
 }
 
 /// Dummy certificate verifier that treats any certificate as valid.

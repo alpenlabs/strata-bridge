@@ -36,16 +36,10 @@ pub enum ServerMessage {
         pubkey: [u8; 32],
     },
 
-    /// Response for [`P2PSigner::sign`](super::traits::P2PSigner::sign).
-    P2PSign {
-        /// Schnorr signature of for a certain message.
-        sig: [u8; 64],
-    },
-
-    /// Response for [`P2PSigner::pubkey`](super::traits::P2PSigner::pubkey).
-    P2PPubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`] for P2P signatures.
-        pubkey: [u8; 32],
+    /// Response for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
+    P2PSecretKey {
+        /// Serialized [`SecretKey`](musig::secp256k1::SecretKey)
+        key: [u8; 32],
     },
 
     /// Response for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
@@ -197,14 +191,8 @@ pub enum ClientMessage {
     /// Request for [`OperatorSigner::pubkey`](super::traits::OperatorSigner::pubkey).
     OperatorPubkey,
 
-    /// Request for [`P2PSigner::sign`](super::traits::P2PSigner::sign).
-    P2PSign {
-        /// The digest of the data the client wants signed.
-        digest: [u8; 32],
-    },
-
-    /// Request for [`P2PSigner::pubkey`](super::traits::P2PSigner::pubkey).
-    P2PPubkey,
+    /// Request for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
+    P2PSecretKey,
 
     /// Request for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
     Musig2NewSession {

@@ -5,7 +5,7 @@ use std::future::Future;
 use bitcoin::{Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::schnorr::Signature,
+    secp256k1::{schnorr::Signature, SecretKey},
     AggNonce, LiftedSignature, PartialSignature, PubNonce,
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
@@ -77,11 +77,8 @@ pub trait OperatorSigner<O: Origin>: Send {
 /// The user should make sure the operator's secret key should have its own unique key that isn't
 /// used for any other purpose.
 pub trait P2PSigner<O: Origin>: Send {
-    /// Signs a `digest` using the operator's [`SecretKey`](bitcoin::secp256k1::SecretKey).
-    fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
-
-    /// Returns the public key of the operator's secret key.
-    fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
+    /// Returns the [`SecretKey`] that should be used for signing P2P messages
+    fn secret_key(&self) -> impl Future<Output = O::Container<SecretKey>> + Send;
 }
 
 /// Uniquely identifies an in-memory MuSig2 session on the signing server.
