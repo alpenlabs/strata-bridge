@@ -1,16 +1,19 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use bitcoin::{
-    hashes::Hash,
+    hashes::{self, Hash},
     key::TapTweak,
     sighash::{Prevouts, SighashCache},
     Address, Amount, Network, OutPoint, TapSighashType, Transaction, TxOut, Txid,
 };
+use bitvm::signatures::wots_api::wots256;
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use musig2::{KeyAggContext, SecNonce};
 use rand::{rngs::OsRng, RngCore};
 use secp256k1::{schnorr::Signature, Keypair, Message, PublicKey, SecretKey, SECP256K1};
-use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
+use strata_bridge_primitives::{
+    params::prelude::MIN_RELAY_FEE, scripts::prelude::*, wots::Wots256PublicKey,
+};
 use strata_btcio::rpc::{
     error::ClientError,
     traits::{BroadcasterRpc, ReaderRpc, WalletRpc},
@@ -187,5 +190,18 @@ impl Agent {
             .with_message(txid.as_byte_array())
             .with_aggregated_pubkey(aggregated_pubkey)
             .build()
+    }
+
+    /// Generates psuedo-random bytes that can be used as preimages deterministically.
+    pub fn generate_preimage(&self, seed: &str, data: Vec<u8>) -> [u8; 32] {
+        *hashes::sha256::Hash::hash(&[seed.as_bytes(), &data].concat()).as_byte_array()
+    }
+
+    /// Generates wots256 public key.
+    pub fn generate_wots256_pk(&self, msk: &str, txid: Txid) -> Wots256PublicKey {
+        let tx_sk = get_deposit_master_secret_key(msk, txid);
+        let derived_sk = secret_key_for_bridge_out_txid(&tx_sk);
+
+        Wots256PublicKey(wots256::generate_public_key(&derived_sk))
     }
 }

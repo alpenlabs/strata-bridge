@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
-use bitcoin::TxOut;
+use bitcoin::{relative, taproot, OutPoint, TxOut};
 use bitvm::groth16::g16;
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_connectors::{
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
     prelude::{
-        ConnectorA30, ConnectorA30Leaf, ConnectorA31, ConnectorA31Leaf,
-        DisprovePublicInputsCommitmentWitness,
+        ConnectorA3, ConnectorA3Leaf, ConnectorStake, DisprovePublicInputsCommitmentWitness,
+        StakeSpendPath,
     },
 };
 use strata_bridge_db::public::PublicDb;
@@ -20,6 +20,7 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
 use strata_bridge_proof_snark::bridge_vk;
+use strata_bridge_stake_chain::prelude::STAKE_VOUT;
 use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx,
     prelude::{AssertDataTxBatch, CovenantTx, DisproveData, DisproveTx},
@@ -152,7 +153,7 @@ where
                             msg = "public inputs hash mismatch"
                         );
 
-                        Some(ConnectorA31Leaf::DisprovePublicInputsCommitment {
+                        Some(ConnectorA3Leaf::DisprovePublicInputsCommitment {
                             deposit_txid,
                             witness: Some(DisprovePublicInputsCommitmentWitness {
                                 sig_withdrawal_fulfillment_txid: bridge_out_txid,
@@ -174,7 +175,7 @@ where
                             &complete_disprove_scripts,
                         ) {
                             let disprove_script = complete_disprove_scripts[tapleaf_index].clone();
-                            Some(ConnectorA31Leaf::DisproveProof {
+                            Some(ConnectorA3Leaf::DisproveProof {
                                 disprove_script,
                                 witness_script: Some(witness_script),
                             })
@@ -184,28 +185,63 @@ where
                     }
                 };
 
-                const STAKE_OUTPUT_INDEX: usize = 0;
                 if let Some(disprove_leaf) = connector_leaf {
                     info!(action = "constructing disprove tx", for_operator_id=%operator_id, %deposit_txid);
+                    let deposit_id = self
+                        .public_db
+                        .get_deposit_id(deposit_txid)
+                        .await
+                        .unwrap()
+                        .unwrap(); // FIXME:
+                                   // Handle me
+                    let stake_txid = self
+                        .public_db
+                        .get_stake_txid(operator_id, deposit_id)
+                        .await
+                        .unwrap()
+                        .unwrap(); // FIXME:
+                                   // Handle me
+
+                    let stake_data = self
+                        .public_db
+                        .get_stake_data(operator_id, deposit_id)
+                        .await
+                        .unwrap()
+                        .unwrap(); // FIXME: Handle me
+
                     let disprove_tx_data = DisproveData {
                         post_assert_txid: post_assert_tx.compute_txid(),
                         deposit_txid,
-                        input_stake: post_assert_tx
-                            .tx_out(STAKE_OUTPUT_INDEX)
-                            .expect("stake output must exist in post-assert tx")
+                        stake_outpoint: OutPoint {
+                            txid: stake_txid,
+                            vout: STAKE_VOUT,
+                        },
+                        input_amount: post_assert_tx
+                            .tx_out(0)
+                            .expect("first output must exist in post-assert tx")
                             .value,
                         network: self.build_context.network(),
                     };
 
-                    let connector_a30 = ConnectorA30::new(
+                    let connector_a3 = ConnectorA3::new(
+                        self.build_context.network(),
+                        deposit_txid,
+                        public_keys,
                         self.build_context.aggregated_pubkey(),
+                    );
+
+                    let delta = relative::LockTime::from_height(6);
+                    let stake_hash = stake_data.hash;
+                    let connector_stake = ConnectorStake::new(
+                        self.build_context.aggregated_pubkey(),
+                        self.agent.public_key().x_only_public_key().0,
+                        stake_hash,
+                        delta,
                         self.build_context.network(),
                     );
-                    let connector_a31 =
-                        ConnectorA31::new(self.build_context.network(), public_keys);
 
                     let disprove_tx =
-                        DisproveTx::new(disprove_tx_data, connector_a30, connector_a31);
+                        DisproveTx::new(disprove_tx_data, connector_a3, connector_stake);
 
                     let reward_out = TxOut {
                         value: DISPROVER_REWARD,
@@ -214,24 +250,33 @@ where
                             .taproot_address(self.build_context.network())
                             .script_pubkey(),
                     };
-                    let disprove_n_of_n_sig = self
+
+                    let disprove_sig = self
                         .public_db
-                        .get_signature(
-                            operator_id,
-                            disprove_tx.compute_txid(),
-                            ConnectorA30Leaf::Disprove(()).get_input_index(),
-                        )
+                        .get_signature(operator_id, disprove_tx.compute_txid(), 0)
                         .await
                         .unwrap()
                         .unwrap(); // FIXME: Handle me
-
-                    let signed_disprove_tx = disprove_tx.finalize(
-                        connector_a30,
-                        connector_a31,
-                        reward_out,
+                    let disprove_sig = taproot::Signature {
+                        signature: disprove_sig,
+                        sighash_type: disprove_tx.psbt().inputs[0]
+                            .sighash_type
+                            .map(|sig| sig.taproot_hash_ty().unwrap())
+                            .unwrap(),
+                    };
+                    let stake_spend_path = StakeSpendPath::Disprove(disprove_sig);
+                    let connector_a3 = ConnectorA3::new(
+                        self.build_context.network(),
                         deposit_txid,
+                        public_keys,
+                        self.build_context.aggregated_pubkey(),
+                    );
+                    let signed_disprove_tx = disprove_tx.finalize(
+                        reward_out,
+                        stake_spend_path,
                         disprove_leaf,
-                        disprove_n_of_n_sig,
+                        connector_stake,
+                        connector_a3,
                     );
 
                     {
