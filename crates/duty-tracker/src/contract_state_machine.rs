@@ -16,7 +16,7 @@ use strata_bridge_tx_graph::peg_out_graph::PegOutGraphSummary;
 use strata_primitives::bridge::PublickeyTable;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 
-use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx, is_txid};
+use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 
 /// This is the unified event type for this state machine.
 ///
@@ -150,6 +150,9 @@ pub enum ContractState {
 /// This is the superset of all possible operator duties.
 #[derive(Debug)]
 pub enum OperatorDuty {
+    /// Instructs us to terminate this contract
+    Abort,
+
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures,
 
@@ -206,32 +209,6 @@ pub enum VerifierDuty {
 
     /// Originates after Post-Assert is issued if Disprove script is satisfiable
     PublishDisprove,
-}
-
-/// Instructs us what to do and what the state machine wants to hear about next.
-pub struct NextStep {
-    /// This describes to the caller what action, if any, should be performed next.
-    pub action: Option<OperatorDuty>,
-
-    /// This describes to the caller what transactions, if any, should be given to this state
-    /// machine.
-    pub listen_for: Option<TxPredicate>,
-}
-impl NextStep {
-    fn new(action: Option<OperatorDuty>, listen_for: Option<TxPredicate>) -> Self {
-        NextStep { action, listen_for }
-    }
-}
-impl std::fmt::Debug for NextStep {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("NextStep")
-            .field("action", &self.action)
-            .field(
-                "listen_for",
-                &format!("{:?}", self.listen_for.as_ref().map(Arc::as_ptr)),
-            )
-            .finish()
-    }
 }
 
 /// Error representing an invalid state transition.
@@ -314,29 +291,47 @@ impl ContractSM {
         ContractSM { cfg, state }
     }
 
+    /// Filter that specifies which transactions should be delivered to this state machine.
+    pub fn transaction_filter(&self) -> TxPredicate {
+        let idx = self.cfg.deposit_idx;
+        let graphs = self
+            .cfg
+            .peg_out_graphs
+            .iter()
+            .map(|a| a.1)
+            .cloned()
+            .collect::<Vec<PegOutGraphSummary>>();
+        Arc::new(move |tx: &Transaction| {
+            let txid = tx.compute_txid();
+            graphs.iter().any(|g| {
+                g.claim_txid == txid
+                    || g.payout_optimistic_txid == txid
+                    || g.post_assert_txid == txid
+                    || g.payout_txid == txid
+                    || is_challenge(g.claim_txid)(tx)
+                    || is_disprove(g.post_assert_txid)(tx)
+                    || is_fulfillment_tx(idx)(tx)
+            })
+        })
+    }
+
     /// Processes the unified event type for the ContractSM.
     ///
     /// This is the primary state folding function.
     pub fn process_contract_event(
         &mut self,
         ev: ContractEvent,
-    ) -> Result<Option<NextStep>, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
-            ContractEvent::GraphSig(op, sigs) => {
-                self.process_graph_signature_payload(op, sigs).map(Some)
+            ContractEvent::GraphSig(op, sigs) => self.process_graph_signature_payload(op, sigs),
+            ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
+            ContractEvent::Confirmation(tx, height) => {
+                self.process_peg_out_graph_tx_confirmation(height, &tx)
             }
-            ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig).map(Some),
-            ContractEvent::Confirmation(tx, height) => self
-                .process_peg_out_graph_tx_confirmation(height, &tx)
-                .map(Some),
-            ContractEvent::Block => self.notify_new_block(),
-            ContractEvent::ClaimFailure => self.process_claim_verification_failure().map(Some),
-            ContractEvent::AssertionFailure => {
-                self.process_assertion_verification_failure().map(Some)
-            }
-            ContractEvent::Assignment(deposit_entry) => {
-                self.process_assignment(&deposit_entry).map(Some)
-            }
+            ContractEvent::Block => Ok(self.notify_new_block()),
+            ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
+            ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
+            ContractEvent::Assignment(deposit_entry) => self.process_assignment(&deposit_entry),
         }
     }
 
@@ -345,9 +340,9 @@ impl ContractSM {
         &mut self,
         height: BitcoinBlockHeight,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &self.state.state {
-            ContractState::Requested { .. } => self.process_deposit_confirmation(tx),
+            ContractState::Requested { .. } => self.process_deposit_confirmation(tx).map(|_| None),
             ContractState::Deposited => Err(TransitionErr),
             ContractState::Assigned { .. } => self.process_fulfillment_confirmation(tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
@@ -368,19 +363,17 @@ impl ContractSM {
         &mut self,
         signer: OperatorIdx,
         sig: GraphSignatures,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
             ContractState::Requested { graph_sigs, .. } => {
                 graph_sigs.insert(signer, sig);
-                let duty = if graph_sigs.len() == self.cfg.operator_set.0.len() {
+                Ok(if graph_sigs.len() == self.cfg.operator_set.0.len() {
                     // we have all the sigs now
                     // issue deposit signature
                     Some(OperatorDuty::PublishDepositSignature)
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(duty, None))
+                })
             }
             _ => Err(TransitionErr),
         }
@@ -391,105 +384,83 @@ impl ContractSM {
         &mut self,
         signer: OperatorIdx,
         sig: Signature,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
             ContractState::Requested { root_sigs, .. } => {
                 root_sigs.insert(signer, sig);
-                let duty = if root_sigs.len() == self.cfg.operator_set.0.len() {
+                Ok(if root_sigs.len() == self.cfg.operator_set.0.len() {
                     // we have all the deposit sigs now
                     // we can publish the deposit
                     Some(OperatorDuty::PublishDeposit)
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(
-                    duty,
-                    Some(is_txid(self.cfg.deposit_tx.compute_txid())),
-                ))
+                })
             }
             _ => Err(TransitionErr),
         }
     }
 
-    fn process_deposit_confirmation(
-        &mut self,
-        tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    fn process_deposit_confirmation(&mut self, tx: &Transaction) -> Result<(), TransitionErr> {
         if tx.compute_txid() != self.cfg.deposit_tx.compute_txid() {
             return Err(TransitionErr);
         }
 
         self.state.state = ContractState::Deposited;
 
-        Ok(NextStep::new(None, None))
+        Ok(())
     }
 
     /// Increment the internally tracked block height.
-    fn notify_new_block(&mut self) -> Result<Option<NextStep>, TransitionErr> {
+    fn notify_new_block(&mut self) -> Option<OperatorDuty> {
         self.state.block_height += 1;
         match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Requested { abort_deadline, .. } => {
                 if self.state.block_height >= abort_deadline {
-                    Ok(Some(NextStep::new(None, None)))
+                    Some(OperatorDuty::Abort)
                 } else {
-                    Ok(None)
+                    None
                 }
             }
-            ContractState::Deposited => Ok(None),
-            ContractState::Assigned {
-                fulfiller,
-                deadline,
-                ..
-            } => {
+            ContractState::Deposited => None,
+            ContractState::Assigned { deadline, .. } => {
                 if self.state.block_height >= deadline {
                     self.state.state = ContractState::Deposited;
                 }
-                Ok(Some(NextStep::new(
-                    None,
-                    Some(is_fulfillment_tx(self.cfg.deposit_idx, fulfiller)),
-                )))
+
+                None
             }
-            ContractState::Fulfilled { .. } => Ok(None),
+            ContractState::Fulfilled { .. } => None,
             ContractState::Claimed {
                 fulfiller,
                 claim_height,
-                active_graph,
                 ..
             } => {
                 if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
                     && fulfiller == self.cfg.perspective
                 {
-                    Ok(Some(NextStep::new(
-                        Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::PublishPayoutOptimistic,
-                        )),
-                        Some(is_txid(active_graph.payout_optimistic_txid)),
-                    )))
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishPayoutOptimistic,
+                    ))
                 } else {
-                    Ok(None)
+                    None
                 }
             }
-            ContractState::Challenged { .. } => Ok(None),
+            ContractState::Challenged { .. } => None,
             ContractState::Asserted {
                 post_assert_height,
                 fulfiller,
-                active_graph,
                 ..
             } => {
                 if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
                     && fulfiller == self.cfg.perspective
                 {
-                    Ok(Some(NextStep::new(
-                        Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout)),
-                        Some(is_txid(active_graph.payout_txid)),
-                    )))
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
                 } else {
-                    Ok(None)
+                    None
                 }
             }
-            ContractState::Disproved {} => Ok(None),
-            ContractState::Resolved {} => Ok(None),
+            ContractState::Disproved {} => None,
+            ContractState::Resolved {} => None,
         }
     }
 
@@ -497,7 +468,7 @@ impl ContractSM {
     pub fn process_assignment(
         &mut self,
         assignment: &DepositEntry,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if !matches!(self.state.state, ContractState::Deposited) {
             return Err(TransitionErr);
         }
@@ -521,18 +492,13 @@ impl ContractSM {
                     deadline,
                     active_graph,
                 };
-                let duty = if fulfiller == self.cfg.perspective {
+                Ok(if fulfiller == self.cfg.perspective {
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishFulfillment,
                     ))
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(
-                    duty,
-                    Some(is_fulfillment_tx(self.cfg.deposit_idx, fulfiller)),
-                ))
+                })
             }
             _ => Err(TransitionErr),
         }
@@ -542,31 +508,29 @@ impl ContractSM {
         // Analyze fulfillment transaction to determine
         &mut self,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Assigned {
                 fulfiller,
                 active_graph,
                 ..
             } => {
-                if !is_fulfillment_tx(self.cfg.deposit_idx, fulfiller)(tx) {
+                // TODO(proofofkeags): we need to verify that this is bound properly to the correct
+                // operator.
+                if !is_fulfillment_tx(self.cfg.deposit_idx)(tx) {
                     return Err(TransitionErr);
                 }
-
-                let match_claim = Some(is_txid(active_graph.claim_txid));
 
                 self.state.state = ContractState::Fulfilled {
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller == self.cfg.perspective {
+                Ok(if fulfiller == self.cfg.perspective {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(duty, match_claim))
+                })
             }
             _ => Err(TransitionErr),
         }
@@ -576,7 +540,7 @@ impl ContractSM {
         &mut self,
         height: BitcoinBlockHeight,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Fulfilled {
                 fulfiller,
@@ -587,33 +551,30 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let match_challenge = is_challenge(active_graph.claim_txid);
-
                 self.state.state = ContractState::Claimed {
                     claim_height: height,
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller != self.cfg.perspective {
+                Ok(if fulfiller != self.cfg.perspective {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim))
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(duty, Some(match_challenge)))
+                })
             }
             _ => Err(TransitionErr),
         }
     }
 
     /// Tells the state machine that the claim was assessed to be fraudulent.
-    fn process_claim_verification_failure(&mut self) -> Result<NextStep, TransitionErr> {
+    fn process_claim_verification_failure(
+        &mut self,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &self.state.state {
-            ContractState::Claimed { active_graph, .. } => Ok(NextStep::new(
-                Some(OperatorDuty::VerifierDuty(VerifierDuty::PublishChallenge)),
-                Some(is_challenge(active_graph.claim_txid)),
-            )),
+            ContractState::Claimed { .. } => Ok(Some(OperatorDuty::VerifierDuty(
+                VerifierDuty::PublishChallenge,
+            ))),
             _ => Err(TransitionErr),
         }
     }
@@ -621,7 +582,7 @@ impl ContractSM {
     fn process_challenge_confirmation(
         &mut self,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Claimed {
                 fulfiller,
@@ -632,22 +593,18 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let is_post_assert = is_txid(active_graph.post_assert_txid);
-
                 self.state.state = ContractState::Challenged {
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller == self.cfg.perspective {
+                Ok(if fulfiller == self.cfg.perspective {
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishAssertChain,
                     ))
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(duty, Some(is_post_assert)))
+                })
             }
             _ => Err(TransitionErr),
         }
@@ -657,7 +614,7 @@ impl ContractSM {
         &mut self,
         post_assert_height: BitcoinBlockHeight,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
             ContractState::Challenged {
                 fulfiller,
@@ -668,33 +625,30 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let match_disprove = is_disprove(active_graph.post_assert_txid);
-
                 self.state.state = ContractState::Asserted {
                     post_assert_height,
                     fulfiller,
                     active_graph,
                 };
 
-                let duty = if fulfiller != self.cfg.perspective {
+                Ok(if fulfiller != self.cfg.perspective {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion))
                 } else {
                     None
-                };
-
-                Ok(NextStep::new(duty, Some(match_disprove)))
+                })
             }
             _ => Err(TransitionErr),
         }
     }
 
     /// Tells the state machine that the assertion chain is invalid.
-    fn process_assertion_verification_failure(&mut self) -> Result<NextStep, TransitionErr> {
+    fn process_assertion_verification_failure(
+        &mut self,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
-            ContractState::Asserted { active_graph, .. } => Ok(NextStep::new(
-                Some(OperatorDuty::VerifierDuty(VerifierDuty::PublishDisprove)),
-                Some(is_disprove(active_graph.post_assert_txid)),
-            )),
+            ContractState::Asserted { .. } => Ok(Some(OperatorDuty::VerifierDuty(
+                VerifierDuty::PublishDisprove,
+            ))),
             _ => Err(TransitionErr),
         }
     }
@@ -702,7 +656,7 @@ impl ContractSM {
     fn process_disprove_confirmation(
         &mut self,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match self.state.state.clone() {
             ContractState::Asserted { active_graph, .. } => {
                 if !is_disprove(active_graph.post_assert_txid)(tx) {
@@ -711,7 +665,7 @@ impl ContractSM {
 
                 self.state.state = ContractState::Disproved {};
 
-                Ok(NextStep::new(None, None))
+                Ok(None)
             }
             _ => Err(TransitionErr),
         }
@@ -720,7 +674,7 @@ impl ContractSM {
     fn process_optimistic_payout_confirmation(
         &mut self,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match self.state.state.clone() {
             ContractState::Claimed { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.payout_optimistic_txid {
@@ -729,7 +683,7 @@ impl ContractSM {
 
                 self.state.state = ContractState::Resolved {};
 
-                Ok(NextStep::new(None, None))
+                Ok(None)
             }
             _ => Err(TransitionErr),
         }
@@ -738,7 +692,7 @@ impl ContractSM {
     fn process_defended_payout_confirmation(
         &mut self,
         tx: &Transaction,
-    ) -> Result<NextStep, TransitionErr> {
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match self.state.state.clone() {
             ContractState::Asserted { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.payout_txid {
@@ -747,7 +701,7 @@ impl ContractSM {
 
                 self.state.state = ContractState::Resolved {};
 
-                Ok(NextStep::new(None, None))
+                Ok(None)
             }
             _ => Err(TransitionErr),
         }
