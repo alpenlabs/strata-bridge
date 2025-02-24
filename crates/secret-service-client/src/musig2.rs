@@ -54,7 +54,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
 
             Ok(match maybe_session_id {
@@ -73,10 +73,10 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
             let msg = ClientMessage::Musig2Pubkey;
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::Musig2Pubkey { pubkey } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
 
-            XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res))
+            XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res.into()))
         }
     }
 }
@@ -102,7 +102,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundOurNonce { our_nonce } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             PubNonce::from_bytes(&our_nonce).map_err(|_| ClientError::BadData)
         }
@@ -117,7 +117,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundHoldouts { pubkeys } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             pubkeys
                 .into_iter()
@@ -134,7 +134,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundIsComplete { complete } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(complete)
         }
@@ -154,7 +154,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundReceivePubNonce(maybe_err) = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(maybe_err.map_or(Ok(()), Err))
         }
@@ -173,7 +173,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2FirstRoundFinalize(maybe_err) = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(match maybe_err {
                 Some(e) => Err(e),
@@ -208,7 +208,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundAggNonce { nonce } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             AggNonce::from_bytes(&nonce).map_err(|_| ClientError::BadData)
         }
@@ -223,7 +223,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundHoldouts { pubkeys } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             pubkeys
                 .into_iter()
@@ -242,7 +242,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundOurSignature { sig } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             musig2::PartialSignature::from_slice(&sig).map_err(|_| ClientError::BadData)
         }
@@ -255,7 +255,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundIsComplete { complete } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(complete)
         }
@@ -275,7 +275,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundReceiveSignature(maybe_err) = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(maybe_err.map_or(Ok(()), Err))
         }
@@ -292,7 +292,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
             };
             let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
             let ServerMessage::Musig2SecondRoundFinalize(res) = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             let res: Result<_, _> = res.into();
             Ok(match res {

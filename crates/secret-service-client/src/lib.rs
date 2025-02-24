@@ -1,3 +1,4 @@
+#![allow(clippy::manual_async_fn)]
 //! The client crate for the secret service. Provides implementations of the traits that use a QUIC
 //! connection and wire protocol defined in the [`secret_service_proto`] crate to connect with a
 //! remote secret service.

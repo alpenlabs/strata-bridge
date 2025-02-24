@@ -35,12 +35,10 @@ impl P2PSigner<Client> for P2PClient {
         digest: &[u8; 32],
     ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
         async move {
-            let msg = ClientMessage::P2PSign {
-                digest: digest.clone(),
-            };
+            let msg = ClientMessage::P2PSign { digest: *digest };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::P2PSign { sig } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
         }
@@ -51,7 +49,7 @@ impl P2PSigner<Client> for P2PClient {
             let msg = ClientMessage::P2PPubkey;
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::P2PPubkey { pubkey } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
         }

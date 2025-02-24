@@ -35,15 +35,13 @@ impl OperatorSigner<Client> for OperatorClient {
         digest: &[u8; 32],
     ) -> impl Future<Output = <Client as Origin>::Container<Signature>> + Send {
         async move {
-            let msg = ClientMessage::OperatorSign {
-                digest: digest.clone(),
-            };
+            let msg = ClientMessage::OperatorSign { digest: *digest };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             match res {
                 ServerMessage::OperatorSign { sig } => {
                     Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
                 }
-                _ => Err(ClientError::WrongMessage(res)),
+                _ => Err(ClientError::WrongMessage(res.into())),
             }
         }
     }
@@ -56,7 +54,7 @@ impl OperatorSigner<Client> for OperatorClient {
                 ServerMessage::OperatorPubkey { pubkey } => {
                     XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
                 }
-                _ => Err(ClientError::WrongMessage(res)),
+                _ => Err(ClientError::WrongMessage(res.into())),
             }
         }
     }

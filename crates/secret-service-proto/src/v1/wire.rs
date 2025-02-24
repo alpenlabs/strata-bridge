@@ -13,6 +13,7 @@ use super::traits::{Musig2SessionId, SignerIdxOutOfBounds};
 
 /// Various messages the server can send to the client.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
     /// The message the client sent was invalid.
     InvalidClientMessage,

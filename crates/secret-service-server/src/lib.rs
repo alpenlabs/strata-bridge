@@ -235,7 +235,7 @@ where
                     break 'block ServerMessage::InvalidClientMessage;
                 };
                 let Ok(pubkeys) = pubkeys
-                    .into_iter()
+                    .iter()
                     .map(|data| XOnlyPublicKey::from_slice(data))
                     .collect::<Result<Vec<_>, _>>()
                 else {

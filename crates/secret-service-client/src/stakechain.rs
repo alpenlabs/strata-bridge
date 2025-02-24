@@ -44,7 +44,7 @@ impl StakeChainPreimages<Client> for StakeChainPreimgClient {
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::StakeChainGetPreimage { preimg } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(preimg)
         }

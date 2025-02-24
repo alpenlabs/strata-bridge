@@ -91,7 +91,7 @@ where
             T: Into<(bool, bool)> + TryFrom<(bool, bool)> + Debug,
             <T as TryFrom<(bool, bool)>>::Error: Debug;
 
-        impl<'a, const N: usize, T> fmt::Debug for DebugValues<'a, N, T>
+        impl<const N: usize, T> fmt::Debug for DebugValues<'_, N, T>
         where
             T: Into<(bool, bool)> + TryFrom<(bool, bool)> + fmt::Debug,
             <T as TryFrom<(bool, bool)>>::Error: fmt::Debug,

@@ -42,7 +42,7 @@ impl WotsSigner<Client> for WotsClient {
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::WotsGet160Key { key } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(key)
         }
@@ -62,7 +62,7 @@ impl WotsSigner<Client> for WotsClient {
             };
             let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
             let ServerMessage::WotsGet256Key { key } = res else {
-                return Err(ClientError::WrongMessage(res));
+                return Err(ClientError::WrongMessage(res.into()));
             };
             Ok(key)
         }

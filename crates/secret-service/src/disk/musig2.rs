@@ -222,7 +222,7 @@ impl Musig2SignerSecondRound<Server> for ServerSecondRound {
         async move {
             self.second_round
                 .holdouts()
-                .into_iter()
+                .iter()
                 .map(|idx| self.ordered_public_keys[*idx])
                 .collect()
         }

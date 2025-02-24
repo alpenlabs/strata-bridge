@@ -33,7 +33,7 @@ async fn e2e() {
         .with_single_cert(vec![cert], key.into())
         .expect("valid config");
     let config = secret_service_server::Config {
-        addr: server_addr.clone(),
+        addr: server_addr,
         tls_config: server_tls_config,
         connection_limit: None,
     };

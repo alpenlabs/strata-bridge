@@ -315,7 +315,7 @@ pub enum ClientError {
     Timeout,
 
     /// The server sent a message that was not expected.
-    WrongMessage(ServerMessage),
+    WrongMessage(Box<ServerMessage>),
 
     /// The server sent a message with an unexpected protocol version.
     WrongVersion,
