@@ -119,4 +119,37 @@ impl ContractPersister {
             state,
         ))
     }
+
+    /// Loads both the [`ContractCfg`] and [`MachineState`] from disk for all contracts in the
+    /// system.
+    pub async fn load_all(&self) -> Result<Vec<(ContractCfg, MachineState)>, PersistErr> {
+        let rows = sqlx::query(
+            r#"
+            SELECT (deposit_idx, deposit_tx, operator_set, perspective, peg_out_graphs, state) FROM contracts
+            "#
+        ).fetch_all(&self.pool).await.map_err(|_|PersistErr)?;
+        rows.into_iter()
+            .map(|row| {
+                let deposit_idx = row.try_get("deposit_idx").map_err(|_| PersistErr)?;
+                let deposit_tx =
+                    bincode::deserialize(row.try_get("deposit_tx").map_err(|_| PersistErr)?)?;
+                let perspective = row.try_get("perspective").map_err(|_| PersistErr)?;
+                let operator_set =
+                    bincode::deserialize(row.try_get("operator_set").map_err(|_| PersistErr)?)?;
+                let peg_out_graphs =
+                    bincode::deserialize(row.try_get("peg_out_graphs").map_err(|_| PersistErr)?)?;
+                let state = bincode::deserialize(row.try_get("state").map_err(|_| PersistErr)?)?;
+                Ok((
+                    ContractCfg {
+                        perspective,
+                        operator_set,
+                        deposit_tx,
+                        deposit_idx,
+                        peg_out_graphs,
+                    },
+                    state,
+                ))
+            })
+            .collect::<Result<Vec<_>, _>>()
+    }
 }
