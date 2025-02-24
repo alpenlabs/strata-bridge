@@ -203,13 +203,150 @@ impl PublicDb for SqliteDb {
         Ok(())
     }
 
+    async fn add_deposit_txid(&self, deposit_txid: Txid) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
+        let new_index = sqlx::query!("SELECT COUNT(*) AS cnt FROM deposits")
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(StorageError::from)?
+            .first()
+            .map(|row| row.cnt)
+            .unwrap_or(0);
+
+        let deposit_txid = DbTxid::from(deposit_txid);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO deposits (deposit_txid, deposit_id) VALUES ($1, $2)",
+            deposit_txid,
+            new_index
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(StorageError::from)?;
+
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
+    }
+
+    async fn get_deposit_id(&self, deposit_txid: Txid) -> DbResult<Option<u32>> {
+        let deposit_txid = DbTxid::from(deposit_txid);
+        Ok(sqlx::query!(
+            r#"SELECT deposit_id AS "deposit_id: u32" FROM deposits WHERE deposit_txid = $1"#,
+            deposit_txid
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|row| row.deposit_id))
+    }
+
+    async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
+        let stake_id = sqlx::query!(
+            "SELECT COUNT(*) AS cnt FROM operator_stake_txids WHERE operator_id = $1",
+            operator_id
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(StorageError::from)?
+        .first()
+        .map(|row| row.cnt)
+        .unwrap_or(0);
+
+        let stake_txid = DbTxid::from(stake_txid);
+        sqlx::query!(
+            "INSERT OR REPLACE INTO operator_stake_txids
+                (operator_id, stake_id, stake_txid)
+                VALUES ($1, $2, $3)",
+            operator_id,
+            stake_id,
+            stake_txid
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(StorageError::from)?;
+
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
+    }
+
+    async fn get_stake_txid(
+        &self,
+        operator_id: OperatorIdx,
+        stake_id: u32,
+    ) -> DbResult<Option<Txid>> {
+        Ok(sqlx::query!(
+            r#"SELECT stake_txid AS "stake_txid: DbTxid"
+                FROM operator_stake_txids
+                WHERE operator_id = $1 AND stake_id = $2"#,
+            operator_id,
+            stake_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|row| *row.stake_txid))
+    }
+
+    async fn set_pre_stake(&self, operatorid: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
+        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
+        let pre_stake_txid = DbTxid::from(pre_stake.txid);
+        let pre_stake_vout = DbInputIndex::from(pre_stake.vout);
+
+        sqlx::query!(
+            "INSERT OR REPLACE INTO operator_pre_stake_data
+                (operator_id, pre_stake_txid, pre_stake_vout)
+                VALUES ($1, $2, $3)",
+            operatorid,
+            pre_stake_txid,
+            pre_stake_vout
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(StorageError::from)?;
+
+        tx.commit().await.map_err(StorageError::from)?;
+
+        Ok(())
+    }
+
+    async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>> {
+        Ok(sqlx::query!(
+            r#"SELECT pre_stake_txid AS "txid: DbTxid", pre_stake_vout AS "vout: DbInputIndex"
+                FROM operator_pre_stake_data
+                WHERE operator_id = $1"#,
+            operator_id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .map(|row| OutPoint {
+            txid: *row.txid,
+            vout: *row.vout,
+        }))
+    }
+
     async fn add_stake_data(
         &self,
         operator_id: OperatorIdx,
-        deposit_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+        // count the number of stake data for this operator
+        let stake_id = sqlx::query!(
+            "SELECT COUNT(*) AS cnt FROM operator_stake_data WHERE operator_id = $1",
+            operator_id
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(StorageError::from)?
+        .first()
+        .map(|row| row.cnt)
+        .unwrap_or(0);
 
         let stake_data = DbStakeTxData::from(stake_data);
 
@@ -218,7 +355,7 @@ impl PublicDb for SqliteDb {
                 (operator_id, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
                 VALUES ($1, $2, $3, $4, $5, $6)",
             operator_id,
-            deposit_index,
+            stake_id,
             stake_data.funding_txid,
             stake_data.funding_vout,
             stake_data.hash,
@@ -236,7 +373,7 @@ impl PublicDb for SqliteDb {
     async fn get_stake_data(
         &self,
         operator_id: OperatorIdx,
-        deposit_index: u32,
+        deposit_id: u32,
     ) -> DbResult<Option<StakeTxData>> {
         Ok(sqlx::query_as!(
             models::DbStakeTxData,
@@ -248,7 +385,7 @@ impl PublicDb for SqliteDb {
                 FROM operator_stake_data
                 WHERE operator_id = $1 AND deposit_id = $2"#,
             operator_id,
-            deposit_index
+            deposit_id
         )
         .fetch_optional(&self.pool)
         .await
@@ -1026,7 +1163,10 @@ impl BitcoinBlockTrackerDb for SqliteDb {
 #[cfg(test)]
 mod tests {
     use arbitrary::{Arbitrary, Unstructured};
-    use bitcoin::key::rand::{self, Rng};
+    use bitcoin::{
+        hashes::{self, Hash},
+        key::rand::{self, Rng},
+    };
     use secp256k1::rand::rngs::OsRng;
     use strata_bridge_primitives::{duties::WithdrawalStatus, params::prelude::NUM_ASSERT_DATA_TX};
     use strata_bridge_test_utils::prelude::*;
@@ -1161,6 +1301,105 @@ mod tests {
                 .is_ok_and(|v| v == Some((operator_id, deposit_txid))),
             "post assert txid must exist after registering"
         );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_deposits_table(pool: SqlitePool) {
+        let db = SqliteDb::new(pool);
+
+        let num_deposits = OsRng.gen_range(3..20);
+        for i in 0..num_deposits {
+            let deposit_txid = generate_txid();
+            assert!(db
+                .get_deposit_id(deposit_txid)
+                .await
+                .is_ok_and(|v| v.is_none()));
+            db.add_deposit_txid(deposit_txid)
+                .await
+                .expect("must be able to add deposit id");
+            assert!(
+                db.get_deposit_id(deposit_txid)
+                    .await
+                    .is_ok_and(|v| v == Some(i)),
+                "deposit id must exist after adding and must increment"
+            );
+        }
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_stake_db(pool: SqlitePool) {
+        let db = SqliteDb::new(pool);
+
+        let operator_id = OsRng.gen();
+        let pre_stake = OutPoint {
+            txid: generate_txid(),
+            vout: OsRng.gen_range(0..10),
+        };
+        assert!(
+            db.get_pre_stake(operator_id)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "pre stake must not exist initially"
+        );
+        db.set_pre_stake(operator_id, pre_stake)
+            .await
+            .expect("must be able to set pre stake");
+        assert!(
+            db.get_pre_stake(operator_id)
+                .await
+                .is_ok_and(|v| v == Some(pre_stake)),
+            "pre stake must exist after setting"
+        );
+
+        let num_stake = OsRng.gen_range(3..10);
+        let withdrawal_fulfillment_pk = generate_wots_public_keys().withdrawal_fulfillment_pk;
+
+        let operator_id: u32 = rand::thread_rng().gen();
+        for stake_id in 0..num_stake {
+            let stake_txid = generate_txid();
+            let stake_hash = hashes::sha256::Hash::from_slice(&OsRng.gen::<[u8; 32]>()).unwrap();
+            assert!(
+                db.get_stake_txid(operator_id, stake_id)
+                    .await
+                    .is_ok_and(|v| v.is_none()),
+                "stake id must not be set initially"
+            );
+            db.add_stake_txid(operator_id, stake_txid)
+                .await
+                .expect("must be able to set stake txid");
+            assert!(
+                db.get_stake_txid(operator_id, stake_id)
+                    .await
+                    .is_ok_and(|v| v == Some(stake_txid)),
+                "stake txid must exist after setting and stake_id must increment but got: {:?}",
+                db.get_stake_txid(operator_id, stake_id).await
+            );
+
+            let stake_data = StakeTxData {
+                operator_funds: OutPoint {
+                    txid: generate_txid(),
+                    vout: OsRng.gen_range(0..10),
+                },
+                hash: stake_hash,
+                withdrawal_fulfillment_pk,
+            };
+
+            assert!(
+                db.get_stake_data(operator_id, stake_id)
+                    .await
+                    .is_ok_and(|v| v.is_none()),
+                "stake data must not exist initially"
+            );
+            db.add_stake_data(operator_id, stake_data)
+                .await
+                .expect("must be able to set stake data");
+            assert!(
+                db.get_stake_data(operator_id, stake_id)
+                    .await
+                    .is_ok_and(|v| v == Some(stake_data)),
+                "stake data must exist after setting and stake_id must increment"
+            );
+        }
     }
 
     #[sqlx::test(migrations = "../../migrations")]

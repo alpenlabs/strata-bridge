@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use bitcoin::Txid;
+use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::{params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
@@ -25,7 +25,16 @@ pub struct PublicDbInMemory {
     // signature cache per txid and input index per operator
     signatures: Arc<RwLock<OperatorIdxToTxInputSigMap>>,
 
-    // operator_id -> deposit_id -> stake_data
+    // deposit_txid -> deposit_id
+    deposits_table: Arc<RwLock<HashMap<Txid, u32>>>,
+
+    // operator_id -> deposit_id -> stake_txid
+    stake_txid_table: Arc<RwLock<HashMap<OperatorIdx, HashMap<u32, Txid>>>>,
+
+    // operator_id -> pre stake txid
+    pre_stake_table: Arc<RwLock<HashMap<OperatorIdx, OutPoint>>>,
+
+    // operator_id -> stake_id -> stake_data
     stake_data: Arc<RwLock<HashMap<OperatorIdx, HashMap<u32, StakeTxData>>>>,
 
     // reverse mapping
@@ -153,21 +162,80 @@ impl PublicDb for PublicDbInMemory {
         Ok(())
     }
 
+    async fn add_deposit_txid(&self, deposit_txid: Txid) -> DbResult<()> {
+        let mut deposits_table = self.deposits_table.write().await;
+        let new_index = deposits_table.keys().count();
+        deposits_table.insert(deposit_txid, new_index as u32);
+
+        Ok(())
+    }
+
+    async fn get_deposit_id(&self, deposit_txid: Txid) -> DbResult<Option<u32>> {
+        Ok(self.deposits_table.read().await.get(&deposit_txid).copied())
+    }
+
+    async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
+        let mut stake_txid_table = self.stake_txid_table.write().await;
+        // get number of stake ids for this operator
+        let stake_id = stake_txid_table
+            .get(&operator_id)
+            .map_or(0, |m| m.keys().count() as u32);
+
+        if let Some(m) = stake_txid_table.get_mut(&operator_id) {
+            m.insert(stake_id, stake_txid);
+        } else {
+            let mut m = HashMap::new();
+            m.insert(stake_id, stake_txid);
+
+            stake_txid_table.insert(operator_id, m);
+        }
+
+        Ok(())
+    }
+
+    async fn get_stake_txid(
+        &self,
+        operator_id: OperatorIdx,
+        stake_id: u32,
+    ) -> DbResult<Option<Txid>> {
+        Ok(self
+            .stake_txid_table
+            .read()
+            .await
+            .get(&operator_id)
+            .and_then(|m| m.get(&stake_id))
+            .copied())
+    }
+
+    async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
+        let mut pre_stake_table = self.pre_stake_table.write().await;
+        pre_stake_table.insert(operator_id, pre_stake);
+
+        Ok(())
+    }
+
+    async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>> {
+        Ok(self.pre_stake_table.read().await.get(&operator_id).copied())
+    }
+
     async fn add_stake_data(
         &self,
-        operator_idx: OperatorIdx,
-        deposit_id: u32,
+        operator_id: OperatorIdx,
         stake_data: StakeTxData,
     ) -> DbResult<()> {
         let mut operator_stake_data = self.stake_data.write().await;
+        // count the number of stake data for this operator
+        let stake_id = operator_stake_data
+            .get(&operator_id)
+            .map_or(0, |m| m.keys().count() as u32);
 
-        if let Some(data) = operator_stake_data.get_mut(&operator_idx) {
-            data.insert(deposit_id, stake_data);
+        if let Some(data) = operator_stake_data.get_mut(&operator_id) {
+            data.insert(stake_id, stake_data);
         } else {
             let mut data = HashMap::new();
-            data.insert(deposit_id, stake_data);
+            data.insert(stake_id, stake_data);
 
-            operator_stake_data.insert(operator_idx, data);
+            operator_stake_data.insert(operator_id, data);
         }
 
         Ok(())

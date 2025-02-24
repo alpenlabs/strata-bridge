@@ -28,7 +28,23 @@ CREATE TABLE IF NOT EXISTS signatures (
 -- Table for deposits with a primary key on deposit_txid mapping to an index that increments monotonically.
 CREATE TABLE IF NOT EXISTS deposits (
     deposit_txid TEXT PRIMARY KEY,  -- Store as hex string
-    deposit_index INTEGER UNIQUE NOT NULL
+    deposit_id INTEGER UNIQUE NOT NULL
+);
+
+-- Table for stake transaction IDs.
+CREATE TABLE IF NOT EXISTS operator_stake_txids (
+    stake_id INTEGER NOT NULL,           -- Index that increments monotonically
+    operator_id INTEGER NOT NULL,
+    stake_txid TEXT NOT NULL,            -- Store as hex string
+
+    PRIMARY KEY (stake_id, operator_id)  -- Compound primary key
+);
+
+-- Table to store operator pre-stake data
+CREATE TABLE IF NOT EXISTS operator_pre_stake_data (
+    operator_id INTEGER PRIMARY KEY,            -- Unique operator id
+    pre_stake_txid TEXT NOT NULL,                -- Store as hex string
+    pre_stake_vout INTEGER NOT NULL
 );
 
 -- Table to store the stake chain txids for each operator id and deposit index in deposits table
@@ -40,8 +56,7 @@ CREATE TABLE IF NOT EXISTS operator_stake_data (
     hash TEXT NOT NULL,                        -- Store as hex string
     withdrawal_fulfillment_pk BLOB NOT NULL,   -- Serialized with rkyv
 
-    PRIMARY KEY (operator_id, deposit_id)  -- Compound primary key
-    FOREIGN KEY (deposit_id) References deposits(deposit_index) ON DELETE CASCADE
+    PRIMARY KEY (operator_id, deposit_id)      -- Compound primary key
 );
 
 -- Table for claim_txid_to_operator_index_and_deposit_txid
