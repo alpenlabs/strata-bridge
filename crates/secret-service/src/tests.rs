@@ -59,17 +59,25 @@ async fn e2e() {
         .await
         .expect("good conn");
 
-    let mut rng = thread_rng();
-    let secp_ctx = Secp256k1::verification_only();
-
     // operator signer
     let op_signer = client.operator_signer();
     let pubkey = op_signer.pubkey().await.expect("good response");
-    let to_sign = rng.gen();
-    let sig = op_signer.sign(&to_sign).await.expect("good response");
-    assert!(secp_ctx
-        .verify_schnorr(&sig, &Message::from_digest(to_sign), &pubkey)
-        .is_ok());
+    let handles = (0..1000)
+        .map(|_| {
+            let secp_ctx = Secp256k1::verification_only();
+            let op_signer = op_signer.clone();
+            tokio::spawn(async move {
+                let to_sign = thread_rng().gen();
+                let sig = op_signer.sign(&to_sign).await.expect("good response");
+                assert!(secp_ctx
+                    .verify_schnorr(&sig, &Message::from_digest(to_sign), &pubkey)
+                    .is_ok());
+            })
+        })
+        .collect::<Vec<_>>();
+    for handle in handles {
+        handle.await.unwrap();
+    }
 
     // p2p signer
     let p2p_signer = client.p2p_signer();
