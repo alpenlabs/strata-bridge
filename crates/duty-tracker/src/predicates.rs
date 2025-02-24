@@ -69,7 +69,7 @@ pub(crate) fn is_disprove(post_assert_txid: Txid) -> TxPredicate {
     })
 }
 
-pub(crate) fn is_fulfillment_tx(_deposit_idx: u32, _operator_idx: OperatorIdx) -> TxPredicate {
+pub(crate) fn is_fulfillment_tx(_deposit_idx: u32) -> TxPredicate {
     //TODO(proofofkeags): implement
     Arc::new(|_| false)
 }
