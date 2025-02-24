@@ -1,4 +1,5 @@
-//! Secret service wire protocol
+//! Secret Service wire protocol
+
 use rkyv::{
     api::high::{to_bytes_in, HighSerializer},
     rancor,
@@ -15,7 +16,7 @@ trait WireMessageMarker:
 {
 }
 
-/// A trait for serializing wire messages
+/// A trait for serializing wire messages.
 pub trait WireMessage {
     /// Serialize the wire message into an aligned vector using rkyv.
     fn serialize(&self) -> Result<([u8; 2], AlignedVec), rancor::Error>;

@@ -1,3 +1,5 @@
+//! In-memory persistence for MuSig2's secret data.
+
 use std::future::Future;
 
 use bitcoin::{
@@ -20,12 +22,18 @@ use secret_service_proto::v1::traits::{
 use sha2::Sha256;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
+/// Secret data for the MuSig2 signer.
+#[derive(Debug)]
 pub struct Ms2Signer {
+    /// Operator's [`Keypair`].
     kp: Keypair,
+
+    /// Initial key material to derive secret nonces.
     ikm: [u8; 32],
 }
 
 impl Ms2Signer {
+    /// Creates a new MuSig2 signer given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
         let key = base
             .derive_priv(
@@ -122,9 +130,16 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
     }
 }
 
+/// First round of the MuSig2 protocol for the server.
+#[allow(clippy::missing_debug_implementations)]
 pub struct ServerFirstRound {
+    /// The first round of the MuSig2 protocol.
     first_round: FirstRound,
+
+    /// Lexicographically-sorted X-only public keys of the signers.
     ordered_public_keys: Vec<XOnlyPublicKey>,
+
+    /// Operator's [`SecretKey`].
     seckey: SecretKey,
 }
 
@@ -184,8 +199,13 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
     }
 }
 
+/// Second round of the MuSig2 protocol for the server.
+#[allow(clippy::missing_debug_implementations)]
 pub struct ServerSecondRound {
+    /// The second round of the MuSig2 protocol.
     second_round: SecondRound<[u8; 32]>,
+
+    /// Lexicographically-sorted X-only public keys of the signers.
     ordered_public_keys: Vec<XOnlyPublicKey>,
 }
 

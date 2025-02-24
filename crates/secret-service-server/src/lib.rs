@@ -1,4 +1,5 @@
 //! This module contains the implementation of the secret service server.
+//!
 //! This handles networking and communication with clients, but does not implement the traits
 //! for the secret service protocol.
 
@@ -42,13 +43,15 @@ use tracing::{error, span, warn, Instrument, Level};
 pub struct Config {
     /// The address to bind the server to.
     pub addr: SocketAddr,
+
     /// The maximum number of concurrent connections allowed.
     pub connection_limit: Option<usize>,
+
     /// The TLS configuration for the server.
     pub tls_config: rustls::ServerConfig,
 }
 
-/// Run the secret service server given the service and a server configuration.
+/// Runs the secret service server given the service and a server configuration.
 pub async fn run_server<FirstRound, SecondRound, Service>(
     c: Config,
     service: Arc<Service>,
@@ -83,6 +86,7 @@ where
     Ok(())
 }
 
+/// Handles a single incoming connection.
 async fn conn_handler<FirstRound, SecondRound, Service>(
     incoming: Incoming,
     service: Arc<Service>,
@@ -128,6 +132,7 @@ async fn conn_handler<FirstRound, SecondRound, Service>(
     }
 }
 
+/// Manages the stream of requests.
 async fn request_manager(
     mut tx: SendStream,
     handler: JoinHandle<Result<ServerMessage, ReadExactError>>,
@@ -162,6 +167,7 @@ async fn request_manager(
     }
 }
 
+/// Manages the stream of requests.
 async fn request_handler<Service, FirstRound, SecondRound>(
     mut rx: RecvStream,
     service: Arc<Service>,
@@ -257,6 +263,7 @@ where
 
                 ServerMessage::Musig2NewSession(Ok(write_perm.session_id()))
             }
+
             ArchivedClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {
                 pubkey: service.musig2_signer().pubkey().await.serialize(),
             },
@@ -274,6 +281,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2FirstRoundHoldouts { session_id } => {
                 let r = musig2_sm
                     .lock()
@@ -293,6 +301,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2FirstRoundIsComplete { session_id } => {
                 let r = musig2_sm
                     .lock()
@@ -305,6 +314,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2FirstRoundReceivePubNonce {
                 session_id,
                 pubkey,
@@ -323,6 +333,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2FirstRoundFinalize { session_id, digest } => {
                 let session_id = session_id.to_native() as usize;
                 let mut sm = musig2_sm.lock().await;
@@ -378,6 +389,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2SecondRoundOurSignature { session_id } => {
                 let sr = musig2_sm
                     .lock()
@@ -391,6 +403,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2SecondRoundIsComplete { session_id } => {
                 let sr = musig2_sm
                     .lock()
@@ -404,6 +417,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2SecondRoundReceiveSignature {
                 session_id,
                 pubkey,
@@ -422,6 +436,7 @@ where
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
+
             ArchivedClientMessage::Musig2SecondRoundFinalize { session_id } => {
                 let r = musig2_sm
                     .lock()
@@ -439,15 +454,16 @@ where
                 let txid = Txid::from_slice(txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_160_key(index.into(), vout.into(), txid)
+                    .get_160_key(txid, vout.into(), index.into())
                     .await;
                 ServerMessage::WotsGet160Key { key }
             }
+
             ArchivedClientMessage::WotsGet256Key { index, vout, txid } => {
                 let txid = Txid::from_slice(txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_key(index.into(), vout.into(), txid)
+                    .get_256_key(txid, vout.into(), index.into())
                     .await;
                 ServerMessage::WotsGet256Key { key }
             }

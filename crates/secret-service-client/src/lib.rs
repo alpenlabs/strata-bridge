@@ -1,6 +1,7 @@
 //! The client crate for the secret service. Provides implementations of the traits that use a QUIC
 //! connection and wire protocol defined in the [`secret_service_proto`] crate to connect with a
 //! remote secret service.
+
 pub mod musig2;
 pub mod operator;
 pub mod p2p;
@@ -38,31 +39,41 @@ use terrors::OneOf;
 use tokio::time::timeout;
 use wots::WotsClient;
 
-/// Configuration for the S2 client
+/// Configuration for the Secret Service client.
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// Server to connect to
-    pub server_addr: SocketAddr,
-    /// Hostname present on the server's certificate
-    pub server_hostname: String,
-    /// Optional local socket to connect via
-    pub local_addr: Option<SocketAddr>,
-    /// Config for TLS. Note that you should be verifying the server's identity via this to prevent
-    /// MITM attacks.
-    pub tls_config: rustls::ClientConfig,
-    /// Timeout for requests
-    pub timeout: Duration,
+    /// Server to connect to.
+    server_addr: SocketAddr,
+
+    /// Hostname present on the server's certificate.
+    server_hostname: String,
+
+    /// Optional local socket to connect via.
+    local_addr: Option<SocketAddr>,
+
+    /// Config for TLS.
+    ///
+    /// # Warning
+    ///
+    /// Users should always be verifying the server's identity via this to prevent MITM attacks.
+    tls_config: rustls::ClientConfig,
+
+    /// Timeout for requests.
+    timeout: Duration,
 }
 
-/// A client that connects to a remote secret service via QUIC
+/// A client that connects to a remote secret service via QUIC.
 #[derive(Clone, Debug)]
 pub struct SecretServiceClient {
+    /// Client configuration.
     config: Arc<Config>,
+
+    /// QUIC connection to the server.
     conn: Connection,
 }
 
 impl SecretServiceClient {
-    /// Create a new client and attempt to connect to the server.
+    /// Creates a new client and attempt to connect to the server.
     pub async fn new(
         config: Config,
     ) -> Result<
@@ -131,7 +142,7 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
     }
 }
 
-/// Makes a v1 secret service request via quic
+/// Makes a v1 secret service request via QUIC.
 pub async fn make_v1_req(
     conn: &Connection,
     msg: ClientMessage,

@@ -1,4 +1,4 @@
-//! WOTS signer client
+//! Winternitz One-time Signature (WOTS) signer client
 use std::{future::Future, sync::Arc};
 
 use bitcoin::{hashes::Hash, Txid};
@@ -10,13 +10,18 @@ use secret_service_proto::v1::{
 
 use crate::{make_v1_req, Config};
 
+/// Winternitz One-time Signature (WOTS) signer client.
+#[derive(Debug, Clone)]
 pub struct WotsClient {
+    /// QUIC connection to the server.
     conn: Connection,
+
+    /// Configuration for the client.
     config: Arc<Config>,
 }
 
 impl WotsClient {
-    /// Creates a new wots client with an existing quic connection and config
+    /// Creates a new WOTS client with an existing QUIC connection and configuration.
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
@@ -25,9 +30,9 @@ impl WotsClient {
 impl WotsSigner<Client> for WotsClient {
     fn get_160_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 160]>> + Send {
         async move {
             let msg = ClientMessage::WotsGet160Key {
@@ -45,9 +50,9 @@ impl WotsSigner<Client> for WotsClient {
 
     fn get_256_key(
         &self,
-        index: u32,
-        vout: u32,
         txid: Txid,
+        vout: u32,
+        index: u32,
     ) -> impl Future<Output = <Client as Origin>::Container<[u8; 20 * 256]>> + Send {
         async move {
             let msg = ClientMessage::WotsGet256Key {

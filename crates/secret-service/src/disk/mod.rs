@@ -1,3 +1,5 @@
+//! In-memory persistence for the Secret Service.
+
 use std::path::Path;
 
 use bitcoin::{bip32::Xpriv, Network};
@@ -19,13 +21,17 @@ pub mod p2p;
 pub mod stakechain;
 pub mod wots;
 
+/// Secret data for the Secret Service.
+#[derive(Debug)]
 pub struct Service {
+    /// Operator's keys.
     keys: OperatorKeys,
 }
 
 const NETWORK: Network = Network::Signet;
 
 impl Service {
+    /// Loads the operator's keys from a seed file.
     pub async fn load_from_seed(seed_path: &Path) -> io::Result<Self> {
         let mut seed = [0; 32];
 

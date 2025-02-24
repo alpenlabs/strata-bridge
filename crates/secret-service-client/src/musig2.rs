@@ -1,4 +1,5 @@
-//! Musig2 signer client
+//! MuSig2 signer client
+
 use std::{future::Future, sync::Arc};
 
 use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
@@ -19,12 +20,18 @@ use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
 use crate::{make_v1_req, Config};
 
+/// MuSig2 client.
+#[derive(Debug, Clone)]
 pub struct Musig2Client {
+    /// QUIC connection to the server.
     conn: Connection,
+
+    /// Configuration for the client.
     config: Arc<Config>,
 }
 
 impl Musig2Client {
+    /// Creates a new MuSig2 client with an existing QUIC connection and configuration.
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
@@ -75,10 +82,16 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     }
 }
 
-#[derive(Clone)]
+/// The first round of the MuSig2 protocol.
+#[derive(Debug, Clone)]
 pub struct Musig2FirstRound {
+    /// The MuSig2 session ID.
     session_id: Musig2SessionId,
+
+    /// The connection to the server.
     connection: Connection,
+
+    /// The configuration for the client.
     config: Arc<Config>,
 }
 
@@ -175,9 +188,16 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
     }
 }
 
+/// The second round of the MuSig2 protocol.
+#[derive(Debug, Clone)]
 pub struct Musig2SecondRound {
+    /// The MuSig2 session ID.
     session_id: Musig2SessionId,
+
+    /// The connection to the server.
     connection: Connection,
+
+    /// The configuration for the client.
     config: Arc<Config>,
 }
 
