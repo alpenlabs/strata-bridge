@@ -66,9 +66,13 @@ zkaleido-sp1-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v
 anyhow = "1.0.95"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
+ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
 ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-ff = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16" }
+ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/" }
+ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
+ark-std = { git = "https://github.com/arkworks-rs/std/" }
 async-trait = "0.1.81"
 base64 = "0.22.1"
 bincode = "1.3.3"
@@ -76,18 +80,20 @@ bitcoin = { version = "0.32.5", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "testnet-i" }
-blake3 = { version = "1.5", features = ["zeroize"] }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.5.0", features = ["28_0", "download"] }
+dotenvy = "0.15.7"
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
   "async-https-rustls",
 ] }
+ethnum = "1.5.0"
 futures = "0.3.31"
 hex = { version = "0.4", features = ["serde"] }
 jsonrpsee = "0.24.7"
+jsonrpsee-types = "0.24.7"
 kanal = "0.1.0-pre8"
 musig2 = { version = "0.1.0", features = [
   "serde",
@@ -110,6 +116,7 @@ serde_json = { version = "1.0", default-features = false, features = [
   "alloc",
   "raw_value",
 ] }
+serde_with = "3.12.0"
 sha2 = "0.10"
 sqlx = { version = "0.8.2", features = [
   "sqlite",
@@ -119,6 +126,7 @@ sqlx = { version = "0.8.2", features = [
   "derive",
   "migrate",
 ] }
+tempfile = "3.10.1"
 terrors = "0.3.2"
 thiserror = "2.0.3"
 tokio = { version = "1.37", features = ["full"] }
