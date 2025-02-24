@@ -65,6 +65,7 @@ where
 pub trait OperatorSigner<O: Origin>: Send {
     /// Signs a `digest` using the operator's [`SecretKey`](bitcoin::secp256k1::SecretKey).
     fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
+
     /// Returns the public key of the operator's secret key.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
@@ -78,6 +79,7 @@ pub trait OperatorSigner<O: Origin>: Send {
 pub trait P2PSigner<O: Origin>: Send {
     /// Signs a `digest` using the operator's [`SecretKey`](bitcoin::secp256k1::SecretKey).
     fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
+
     /// Returns the public key of the operator's secret key.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
