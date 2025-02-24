@@ -5,7 +5,6 @@ use std::{future::Future, sync::Arc};
 use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::PublicKey,
     AggNonce, LiftedSignature, PubNonce,
 };
 use quinn::Connection;

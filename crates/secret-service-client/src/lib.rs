@@ -43,23 +43,23 @@ use wots::WotsClient;
 #[derive(Clone, Debug)]
 pub struct Config {
     /// Server to connect to.
-    server_addr: SocketAddr,
+    pub server_addr: SocketAddr,
 
     /// Hostname present on the server's certificate.
-    server_hostname: String,
+    pub server_hostname: String,
 
     /// Optional local socket to connect via.
-    local_addr: Option<SocketAddr>,
+    pub local_addr: Option<SocketAddr>,
 
     /// Config for TLS.
     ///
     /// # Warning
     ///
     /// Users should always be verifying the server's identity via this to prevent MITM attacks.
-    tls_config: rustls::ClientConfig,
+    pub tls_config: rustls::ClientConfig,
 
     /// Timeout for requests.
-    timeout: Duration,
+    pub timeout: Duration,
 }
 
 /// A client that connects to a remote secret service via QUIC.

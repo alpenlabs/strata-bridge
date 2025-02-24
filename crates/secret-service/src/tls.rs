@@ -13,7 +13,7 @@ use tracing::{error, info, warn};
 use crate::{config::TlsConfig, DEV_MODE};
 
 /// Loads a TLS configuration for the Secret Service server.
-pub async fn load_tls(conf: TlsConfig) -> ServerConfig {
+pub(crate) async fn load_tls(conf: TlsConfig) -> ServerConfig {
     let (certs, key) = if let (Some(crt_path), Some(key_path)) = (conf.cert, conf.key) {
         let key = fs::read(&key_path).await.expect("readable key");
         let key = if key_path.extension().is_some_and(|x| x == "der") {

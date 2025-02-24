@@ -62,6 +62,7 @@ impl Service {
         Ok(Self::new_with_seed(seed))
     }
 
+    /// Deterministically creates a new service using a given seed
     pub fn new_with_seed(seed: [u8; 32]) -> Self {
         let keys = OperatorKeys::new(&Xpriv::new_master(NETWORK, &seed).expect("valid xpriv"))
             .expect("valid keychain");

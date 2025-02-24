@@ -12,7 +12,7 @@ use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::{PublicKey, SecretKey, SECP256K1},
+    secp256k1::{SecretKey, SECP256K1},
     FirstRound, KeyAggContext, LiftedSignature, SecNonceSpices, SecondRound,
 };
 use secret_service_proto::v1::traits::{
@@ -131,7 +131,7 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
 }
 
 /// First round of the MuSig2 protocol for the server.
-#[allow(clippy::missing_debug_implementations)]
+#[allow(missing_debug_implementations)]
 pub struct ServerFirstRound {
     /// The first round of the MuSig2 protocol.
     first_round: FirstRound,
@@ -200,7 +200,7 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
 }
 
 /// Second round of the MuSig2 protocol for the server.
-#[allow(clippy::missing_debug_implementations)]
+#[allow(missing_debug_implementations)]
 pub struct ServerSecondRound {
     /// The second round of the MuSig2 protocol.
     second_round: SecondRound<[u8; 32]>,

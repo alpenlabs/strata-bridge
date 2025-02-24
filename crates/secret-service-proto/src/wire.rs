@@ -1,11 +1,7 @@
 //! Secret Service wire protocol
 
 use rkyv::{
-    api::high::{to_bytes_in, HighSerializer},
-    rancor,
-    ser::allocator::ArenaHandle,
-    to_bytes,
-    util::AlignedVec,
+    api::high::HighSerializer, rancor, ser::allocator::ArenaHandle, to_bytes, util::AlignedVec,
     Archive, Deserialize, Serialize,
 };
 

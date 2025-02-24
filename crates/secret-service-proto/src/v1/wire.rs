@@ -380,7 +380,10 @@ pub enum SerializableTaprootWitness {
     },
 
     /// Use the keypath spend tweaked with some known hash.
-    Tweaked { tweak: [u8; 32] },
+    Tweaked {
+        /// Tagged hash used in taproot trees.
+        tweak: [u8; 32],
+    },
 }
 
 impl From<TaprootWitness> for SerializableTaprootWitness {

@@ -3,7 +3,7 @@
 use std::{future::Future, sync::Arc};
 
 use bitcoin::XOnlyPublicKey;
-use musig2::secp256k1::{schnorr::Signature, PublicKey};
+use musig2::secp256k1::schnorr::Signature;
 use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{Client, ClientError, Origin, P2PSigner},

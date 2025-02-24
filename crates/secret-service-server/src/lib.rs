@@ -8,7 +8,7 @@ pub mod musig2_session_mgr;
 
 use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
-use bitcoin::{hashes::Hash, secp256k1::PublicKey, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
 use musig2_session_mgr::Musig2SessionManager;
 pub use quinn::rustls;
@@ -20,7 +20,6 @@ use quinn::{
 use rkyv::{
     deserialize,
     rancor::{self, Error},
-    to_bytes,
     util::AlignedVec,
 };
 use secret_service_proto::{

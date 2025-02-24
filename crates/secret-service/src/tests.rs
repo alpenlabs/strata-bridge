@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use bitcoin::{key::Secp256k1, XOnlyPublicKey};
+use bitcoin::key::Secp256k1;
 use musig2::secp256k1::Message;
 use rand::{thread_rng, Rng};
 use secret_service_client::SecretServiceClient;
