@@ -3,12 +3,16 @@
 //! a connector can be spent.
 
 use bitcoin::taproot;
+use secp256k1::schnorr;
 
 /// Ways that a connector in the stake chain can be spent given various conditions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StakeSpendPath {
-    /// The witness data is a single (aggregated) Schnorr [`Signature`](schnorr::Signature) in the
-    /// Disprove transaction.
+    /// The witness data is a single (aggregated) Schnorr [`Signature`](schnorr::Signature).
+    Payout(schnorr::Signature),
+
+    /// The witness data is a single (aggregated) Schnorr [`Signature`](taproot::Signature) in the
+    /// Disprove transaction with SIGHASH_SINGLE.
     Disprove(taproot::Signature),
 
     /// The witness data is a 32-byte hash preimage in BurnPayouts transaction.

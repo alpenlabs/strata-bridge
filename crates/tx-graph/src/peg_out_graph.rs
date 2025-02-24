@@ -11,7 +11,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx,
     wots::{self, Groth16PublicKeys},
 };
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::{
     errors::TxGraphResult,
@@ -115,12 +115,14 @@ impl PegOutGraph {
         let claim_txid = claim_tx.compute_txid();
         debug!(event = "created claim tx", %operator_idx, %claim_txid);
 
-        info!(action = "registering claim txid for bitcoin watcher", %claim_txid, own_index = %operator_idx);
-
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
             deposit_txid,
-            input_stake: claim_tx.output_amount(),
+            stake_outpoint: OutPoint {
+                txid: input.stake_outpoint.txid,
+                vout: 1,
+            },
+            input_amount: claim_tx.output_amount(),
             deposit_amount: input.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
@@ -131,6 +133,7 @@ impl PegOutGraph {
             connectors.claim_out_0,
             connectors.claim_out_1,
             connectors.n_of_n,
+            connectors.hashlock_payout,
             connectors.connector_cpfp,
         );
 
@@ -161,6 +164,10 @@ impl PegOutGraph {
         let payout_data = PayoutData {
             post_assert_txid,
             deposit_txid,
+            stake_outpoint: OutPoint {
+                txid: input.stake_outpoint.txid,
+                vout: 1,
+            },
             input_amount: post_assert_out_amt,
             deposit_amount: input.deposit_amount,
             operator_key: input.operator_pubkey,
@@ -171,6 +178,7 @@ impl PegOutGraph {
             payout_data,
             connectors.post_assert_out_0,
             connectors.n_of_n,
+            connectors.hashlock_payout,
             connectors.connector_cpfp,
         );
         let payout_txid = payout_tx.compute_txid();
@@ -213,7 +221,7 @@ impl PegOutGraph {
 /// regular intervals and not during the peg-out graph generation.
 #[derive(Debug, Clone, Copy)]
 pub struct PegOutGraphConnectors {
-    /// The output of the kickoff tx.
+    /// The first output of the stake transaction that kicks off the peg out graph.
     pub kickoff: ConnectorK,
 
     /// The first output of the claim tx.
@@ -248,6 +256,8 @@ pub struct PegOutGraphConnectors {
     >,
 
     pub stake: ConnectorStake,
+
+    pub hashlock_payout: ConnectorP,
 }
 
 impl PegOutGraphConnectors {
@@ -315,6 +325,8 @@ impl PegOutGraphConnectors {
             network,
         );
 
+        let hashlock_payout = ConnectorP::new(n_of_n_agg_pubkey, stake_hash, network);
+
         Self {
             kickoff,
             claim_out_0,
@@ -324,7 +336,10 @@ impl PegOutGraphConnectors {
             post_assert_out_0: post_assert_out_1,
             assert_data160_factory,
             assert_data256_factory,
+
+            // stake chain connectors
             stake,
+            hashlock_payout,
         }
     }
 }
@@ -380,7 +395,7 @@ mod tests {
     };
     use strata_btcio::rpc::types::{GetTxOut, SignRawTransactionWithWallet};
     use strata_common::logging;
-    use tracing::warn;
+    use tracing::{info, warn};
 
     use super::*;
     use crate::transactions::challenge::{ChallengeTx, ChallengeTxInput};
@@ -436,6 +451,7 @@ mod tests {
             kickoff,
             claim_out_0,
             claim_out_1,
+            hashlock_payout,
             connector_cpfp,
             ..
         } = connectors;
@@ -507,6 +523,7 @@ mod tests {
         let n_of_n_sig_c1 = signatures
             .next()
             .expect("must have n-of-n signature for c1");
+        let n_of_n_sig_p = signatures.next().expect("must have n-of-n signature for p");
 
         let payout_input_amount = payout_optimistic.input_amount();
         let payout_cpfp_vout = payout_optimistic.cpfp_vout();
@@ -514,8 +531,10 @@ mod tests {
         let signed_payout_tx = payout_optimistic.finalize(
             claim_out_0,
             claim_out_1,
+            hashlock_payout,
             n_of_n_sig_c0,
             n_of_n_sig_c1,
+            n_of_n_sig_p,
             deposit_signature,
         );
         let payout_amount = signed_payout_tx.output[0].value;
@@ -609,6 +628,7 @@ mod tests {
         let SubmitAssertionsResult {
             payout_tx,
             post_assert_out_0,
+            hashlock_payout,
             ..
         } = submit_assertions(
             btc_client,
@@ -640,10 +660,21 @@ mod tests {
         });
 
         let deposit_signature = signatures.next().expect("must have deposit signature");
-        let n_of_n_sig = signatures.next().expect("must have n-of-n signature");
+        let n_of_n_sig_a3 = signatures
+            .next()
+            .expect("must have n-of-n signature for post-assert prevout");
+        let n_of_n_sig_p = signatures
+            .next()
+            .expect("must have n-of-n signature for stake hashlock prevout");
         let payout_input_amount = payout_tx.input_amount();
         let payout_cpfp_vout = payout_tx.cpfp_vout();
-        let signed_payout_tx = payout_tx.finalize(post_assert_out_0, deposit_signature, n_of_n_sig);
+        let signed_payout_tx = payout_tx.finalize(
+            post_assert_out_0,
+            hashlock_payout,
+            deposit_signature,
+            n_of_n_sig_a3,
+            n_of_n_sig_p,
+        );
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
@@ -686,7 +717,8 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "submit package message must be success"
+            "submit package message must be success but got: {:?}",
+            result
         );
         assert_eq!(result.tx_results.len(), 2, "must have two tx results");
 
@@ -1103,6 +1135,7 @@ mod tests {
         post_assert_out_0: ConnectorA3,
         disprove_tx: DisproveTx,
         stake: ConnectorStake,
+        hashlock_payout: ConnectorP,
     }
 
     async fn submit_assertions(
@@ -1145,6 +1178,7 @@ mod tests {
             assert_data160_factory,
             assert_data256_factory,
             stake,
+            hashlock_payout,
             ..
         } = connectors;
 
@@ -1452,6 +1486,7 @@ mod tests {
             post_assert_out_0,
             disprove_tx,
             stake,
+            hashlock_payout,
         }
     }
 

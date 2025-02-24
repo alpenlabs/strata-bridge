@@ -6,7 +6,7 @@ use bitcoin::{
     opcodes::all::{OP_EQUAL, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
-    Address, Network, ScriptBuf,
+    Address, Network, ScriptBuf, TapNodeHash,
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::scripts::prelude::*;
@@ -137,6 +137,15 @@ impl ConnectorP {
         (script, control_block)
     }
 
+    /// Generate the merkle root for the connector.
+    ///
+    /// This is used to tweak the private/public keys when spending the connector output.
+    pub fn generate_merkle_root(&self) -> TapNodeHash {
+        let hashlock_script = self.generate_script();
+
+        TapNodeHash::from_script(&hashlock_script, LeafVersion::TapScript)
+    }
+
     /// Finalizes a psbt input where this connector is used with the provided `witness_data`.
     ///
     /// Depending on the `witness_data` it will be used either a key or scripth path spend.
@@ -147,8 +156,11 @@ impl ConnectorP {
     /// validation to the caller.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, witness_data: StakeSpendPath, input: &mut Input) {
+    pub fn finalize(&self, input: &mut Input, witness_data: StakeSpendPath) {
         match witness_data {
+            StakeSpendPath::Payout(signature) => {
+                finalize_input(input, [signature.serialize().to_vec()]);
+            }
             StakeSpendPath::Disprove(signature) => {
                 finalize_input(input, [&signature.serialize().to_vec()]);
             }
@@ -163,7 +175,9 @@ impl ConnectorP {
                     ],
                 );
             }
-            _ => (), // other variants are no-op.
+            StakeSpendPath::Advance { .. } => {
+                unreachable!("connector p cannot be used to advance the stake");
+            }
         }
     }
 }
@@ -318,7 +332,7 @@ mod tests {
         });
 
         let witness_data = StakeSpendPath::BurnPayouts(stake_preimage);
-        connector_p.create_tx_input(witness_data, &mut psbt.inputs[0]);
+        connector_p.finalize(&mut psbt.inputs[0], witness_data);
         let spending_tx = psbt.extract_tx().expect("must be signed");
 
         // Broadcast spending transaction

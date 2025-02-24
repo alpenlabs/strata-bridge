@@ -87,7 +87,7 @@ impl ConnectorK {
     }
 
     /// Finalizes the input to the transaction that spends this connector.
-    pub fn create_tx_input(
+    pub fn finalize_input(
         &self,
         input: &mut Input,
         msk: &str,

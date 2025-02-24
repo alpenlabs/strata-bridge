@@ -152,6 +152,12 @@ impl ConnectorA3Leaf {
                 witness_script: Some(witness_script),
                 ..
             } => witness_script.clone(),
+            ConnectorA3Leaf::Payout(sig) => {
+                let sig = sig.expect("signature must be present for payout");
+                script! {
+                    { sig.serialize().to_vec() }
+                }
+            }
             _ => panic!("no data provided to finalize input"),
         }
     }

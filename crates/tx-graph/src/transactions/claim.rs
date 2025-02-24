@@ -100,7 +100,7 @@ impl ClaimTx {
     ) -> Transaction {
         let (script, control_block) = connector_k.generate_spend_info();
 
-        connector_k.create_tx_input(
+        connector_k.finalize_input(
             &mut self.psbt.inputs[0],
             msk,
             withdrawal_fulfillment_txid,
