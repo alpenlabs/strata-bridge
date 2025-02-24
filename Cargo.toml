@@ -46,17 +46,17 @@ strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git" }
-strata-btcio = { git = "https://github.com/alpenlabs/strata.git" }
-strata-common = { git = "https://github.com/alpenlabs/strata.git" }
-strata-config = { git = "https://github.com/alpenlabs/strata.git" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata.git" }
-strata-l1tx = { git = "https://github.com/alpenlabs/strata.git" }
-strata-primitives = { git = "https://github.com/alpenlabs/strata.git" }
-strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.git" }
-strata-rpc-api = { git = "https://github.com/alpenlabs/strata.git" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
-strata-state = { git = "https://github.com/alpenlabs/strata.git" }
+strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-btcio = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-common = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-config = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-crypto = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-l1tx = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-primitives = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-rpc-api = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
+strata-state = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
@@ -72,7 +72,7 @@ ark-ff = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-lo
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16" }
 ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/" }
 ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
-ark-std = { git = "https://github.com/arkworks-rs/std/" }
+ark-std = { git = "https://github.com/arkworks-rs/std/", rev = "db4367e68ff60da31ac759831e38f60171f4e03d" }
 async-trait = "0.1.81"
 base64 = "0.22.1"
 bincode = "1.3.3"
@@ -145,4 +145,4 @@ ark-serialize = { git = "https://github.com/chainwayxyz/algebra/", branch = "new
 ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16" }
-ark-std = { git = "https://github.com/arkworks-rs/std/" }
+ark-std = { git = "https://github.com/arkworks-rs/std/", rev = "db4367e68ff60da31ac759831e38f60171f4e03d" }
