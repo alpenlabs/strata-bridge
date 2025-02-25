@@ -4,6 +4,7 @@ use std::{
     collections::{BTreeMap, HashSet},
     ops::Deref,
     str::FromStr,
+    time::Duration,
 };
 
 use async_trait::async_trait;
@@ -16,6 +17,7 @@ use strata_bridge_primitives::{
     types::OperatorIdx, wots,
 };
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
+use tracing::warn;
 
 use super::{
     errors::StorageError,
@@ -242,35 +244,57 @@ impl PublicDb for SqliteDb {
     }
 
     async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
-        let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+        const MAX_RETRIES: u32 = 3;
+        const BACKOFF_DURATION: Duration = Duration::from_millis(100);
 
-        let stake_id = sqlx::query!(
-            "SELECT COUNT(*) AS cnt FROM operator_stake_txids WHERE operator_id = $1",
-            operator_id
-        )
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(StorageError::from)?
-        .first()
-        .map(|row| row.cnt)
-        .unwrap_or(0);
+        async fn execute_transaction(
+            pool: &SqlitePool,
+            operator_id: OperatorIdx,
+            stake_txid: Txid,
+        ) -> Result<(), StorageError> {
+            let mut tx = pool.begin().await.map_err(StorageError::from)?;
 
-        let stake_txid = DbTxid::from(stake_txid);
-        sqlx::query!(
-            "INSERT OR REPLACE INTO operator_stake_txids
-                (operator_id, stake_id, stake_txid)
-                VALUES ($1, $2, $3)",
-            operator_id,
-            stake_id,
-            stake_txid
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
+            let stake_id = sqlx::query!(
+                "SELECT COUNT(*) AS cnt FROM operator_stake_txids WHERE operator_id = $1",
+                operator_id
+            )
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(StorageError::from)?
+            .first()
+            .map(|row| row.cnt)
+            .unwrap_or(0);
 
-        tx.commit().await.map_err(StorageError::from)?;
+            let stake_txid = DbTxid::from(stake_txid);
+            sqlx::query!(
+                "INSERT OR REPLACE INTO operator_stake_txids
+                    (operator_id, stake_id, stake_txid)
+                    VALUES ($1, $2, $3)",
+                operator_id,
+                stake_id,
+                stake_txid
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(StorageError::from)?;
 
-        Ok(())
+            tx.commit().await.map_err(StorageError::from)?;
+
+            Ok(())
+        }
+
+        let mut retries = 0;
+        loop {
+            match execute_transaction(&self.pool, operator_id, stake_txid).await {
+                Ok(_) => return Ok(()),
+                Err(err) if retries < MAX_RETRIES => {
+                    warn!(msg = "failed to add stake txid, retrying", ?err, %retries);
+                    retries += 1;
+                    tokio::time::sleep(BACKOFF_DURATION).await;
+                }
+                Err(e) => return Err(e)?,
+            }
+        }
     }
 
     async fn get_stake_txid(
@@ -291,7 +315,22 @@ impl PublicDb for SqliteDb {
         .map(|row| *row.stake_txid))
     }
 
-    async fn set_pre_stake(&self, operatorid: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
+    async fn get_all_stake_txids(&self, operator_id: OperatorIdx) -> DbResult<Vec<Txid>> {
+        Ok(sqlx::query!(
+            r#"SELECT stake_txid AS "stake_txid: DbTxid"
+                FROM operator_stake_txids
+                WHERE operator_id = $1"#,
+            operator_id
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(StorageError::from)?
+        .into_iter()
+        .map(|row| *row.stake_txid)
+        .collect())
+    }
+
+    async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
         let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
         let pre_stake_txid = DbTxid::from(pre_stake.txid);
@@ -301,7 +340,7 @@ impl PublicDb for SqliteDb {
             "INSERT OR REPLACE INTO operator_pre_stake_data
                 (operator_id, pre_stake_txid, pre_stake_vout)
                 VALUES ($1, $2, $3)",
-            operatorid,
+            operator_id,
             pre_stake_txid,
             pre_stake_vout
         )
