@@ -63,7 +63,7 @@ where
 /// The user should make sure the operator's secret key should have its own unique key that isn't
 /// used for any other purpose.
 pub trait OperatorSigner<O: Origin>: Send {
-    /// Signs a `digest` using the operator's [`SecretKey`](bitcoin::secp256k1::SecretKey).
+    /// Signs a `digest` using the operator's [`SecretKey`].
     fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
 
     /// Returns the public key of the operator's secret key.

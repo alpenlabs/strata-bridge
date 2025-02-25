@@ -32,13 +32,13 @@ pub enum ServerMessage {
 
     /// Response for [`OperatorSigner::pubkey`](super::traits::OperatorSigner::pubkey).
     OperatorPubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`] for operator signatures.
+        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
         pubkey: [u8; 32],
     },
 
     /// Response for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
     P2PSecretKey {
-        /// Serialized [`SecretKey`](musig::secp256k1::SecretKey)
+        /// Serialized [`SecretKey`](musig2::secp256k1::SecretKey)
         key: [u8; 32],
     },
 
@@ -47,7 +47,7 @@ pub enum ServerMessage {
 
     /// Response for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
     Musig2Pubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`] for MuSig2 signatures.
+        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for MuSig2 signatures.
         pubkey: [u8; 32],
     },
 
@@ -61,8 +61,8 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2SignerFirstRound::holdouts`](super::traits::Musig2SignerFirstRound::holdouts).
     Musig2FirstRoundHoldouts {
-        /// Serialized Schnorr [`XOnlyPublicKey`] of signers whose public nonces
-        /// we do not have.
+        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of signers whose public
+        /// nonces we do not have.
         pubkeys: Vec<[u8; 32]>,
     },
     /// Response for
@@ -98,8 +98,8 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2SignerSecondRound::holdouts`](super::traits::Musig2SignerSecondRound::holdouts).
     Musig2SecondRoundHoldouts {
-        /// Serialized Schnorr [`XOnlyPublicKey`] of signers whose partial signatures
-        /// we do not have for this signing session.
+        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of signers whose partial
+        /// signatures we do not have for this signing session.
         pubkeys: Vec<[u8; 32]>,
     },
 
@@ -240,7 +240,8 @@ pub enum ClientMessage {
         /// Session that this server is requesting for.
         session_id: usize,
 
-        /// The serialized [`XOnlyPublicKey`] of the signer whose public nonce this is.
+        /// The serialized [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of the signer whose public
+        /// nonce this is.
         pubkey: [u8; 32],
 
         /// Serialized public nonce
@@ -291,7 +292,8 @@ pub enum ClientMessage {
         /// Session that this server is requesting for.
         session_id: usize,
 
-        /// The serialized [`XOnlyPublicKey`] of the signer whose public nonce this is.
+        /// The serialized [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of the signer whose public
+        /// nonce this is.
         pubkey: [u8; 32],
 
         /// That signer's MuSig2 partial signature.

@@ -62,6 +62,7 @@ async fn e2e() {
     // operator signer
     let op_signer = client.operator_signer();
     let pubkey = op_signer.pubkey().await.expect("good response");
+
     let handles = (0..1000)
         .map(|_| {
             let secp_ctx = Secp256k1::verification_only();
