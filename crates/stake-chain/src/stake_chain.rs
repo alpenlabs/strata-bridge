@@ -33,23 +33,24 @@ use crate::{
 /// operator is not succcesfully challenged and has it's stake slashed.
 /// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
 ///
-/// The stake chain can be advanced forward by revealing a preimage to a locking script that is
-/// also relative timelocked to a certain `ΔS` interval.
+/// The stake chain can be advanced forward by revealing a preimage to a locking script and
+/// providing the operator's signature, that is also relative timelocked to a certain `ΔS` interval.
+///
+/// Note that the number of stake transactions in the chain cannot be known at compile-time for all
+/// use cases. Therefore for maximum flexibility, this type holds a heap-allocated [`Vec`] of
+/// [`StakeTx`] where each successive transaction spends the stake output from the previous.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StakeChain<const M: usize>([StakeTx; M]);
+pub struct StakeChain(Vec<StakeTx>);
 
-impl<const M: usize> StakeChain<M> {
+impl StakeChain {
     /// Creates a new [`StakeChain`] from the provided [`StakeChainInputs`].
     ///
-    /// The provided [`StakeChainInputs`] must be of length `N`.
-    pub fn new<const N: usize>(
+    /// This can be used to recreate a stake chain if the initial set of inputs are known.
+    pub fn new(
         context: &impl BuildContext,
-        stake_chain_inputs: &StakeChainInputs<N>,
+        stake_chain_inputs: &StakeChainInputs,
         connector_cpfp: ConnectorCpfp,
-    ) -> Self
-    where
-        [(); N - M]:,
-    {
+    ) -> Self {
         let first_stake_inputs = stake_chain_inputs.stake_inputs[0];
 
         let first_stake_tx = StakeTx::create_initial(
@@ -62,99 +63,88 @@ impl<const M: usize> StakeChain<M> {
             stake_chain_inputs.operator_pubkey,
             connector_cpfp,
         );
-        let first_stake_txid = first_stake_tx.compute_txid();
+        let mut stake_txid = first_stake_tx.compute_txid();
 
         // Instantiate a vector with the length `M`.
-        let mut stake_chain = Vec::with_capacity(M);
+        let stake_inputs = &stake_chain_inputs.stake_inputs;
+        let num_inputs = stake_inputs.len();
+
+        let mut stake_chain = Vec::with_capacity(num_inputs);
         stake_chain.push(first_stake_tx);
 
-        // for-loop to generate the rest of the `StakeTx`s from the second
-        for index in 1..M {
-            let stake_inputs = stake_chain_inputs.stake_inputs;
-            let prev_stake = OutPoint {
-                txid: first_stake_txid,
-                vout: STAKE_VOUT,
-            };
-            let prev_hash = stake_chain_inputs.stake_hash_at_index(index - 1);
+        stake_inputs
+            .iter()
+            .enumerate()
+            .skip(1)
+            .for_each(|(index, stake_input)| {
+                let prev_stake = OutPoint {
+                    txid: stake_txid,
+                    vout: STAKE_VOUT,
+                };
+                let prev_hash = stake_chain_inputs
+                    .stake_hash_at_index(index - 1)
+                    .expect("must exist since this loop runs from 1 to `num_inputs`");
 
-            let stake_input = StakeTxData {
-                operator_funds: stake_inputs[index].operator_funds,
-                hash: stake_chain_inputs.stake_hash_at_index(index),
-                withdrawal_fulfillment_pk: stake_inputs[index].withdrawal_fulfillment_pk,
-            };
+                let new_stake_tx = StakeTx::advance(
+                    context,
+                    stake_chain_inputs.params,
+                    *stake_input,
+                    prev_hash,
+                    prev_stake,
+                    stake_chain_inputs.operator_pubkey,
+                    connector_cpfp,
+                );
+                stake_txid = new_stake_tx.compute_txid();
 
-            let new_stake_tx = StakeTx::advance(
-                context,
-                stake_chain_inputs.params,
-                stake_input,
-                prev_hash,
-                prev_stake,
-                stake_chain_inputs.operator_pubkey,
-                connector_cpfp,
-            );
-            stake_chain.push(new_stake_tx);
-        }
+                stake_chain.push(new_stake_tx);
+            });
 
-        let arr: [StakeTx; M] = stake_chain
-            .try_into()
-            .expect("stake inputs did not contain exactly M transactions");
-
-        StakeChain(arr)
+        Self(stake_chain)
     }
 }
 
-impl<const M: usize> Deref for StakeChain<M> {
-    type Target = [StakeTx; M];
+impl Deref for StakeChain {
+    type Target = Vec<StakeTx>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl<const M: usize> DerefMut for StakeChain<M> {
+impl DerefMut for StakeChain {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-/// An `N`-length [`StakeChainInputs`] holds all the necessary data to construct an `M < N`-length
-/// [`StakeChain`].
+/// [`StakeChainInputs`] holds all the necessary data to construct a
+/// [`StakeChain`] whose length equals the length of the inputs.
 ///
 /// The data that it needs are:
 ///
 /// 1. Operator's public key.
-/// 2. `N`-length WOTS public keys.
-/// 3. `N`-length array of stake hashes.
-/// 4. `N`-length array of operator fund prevouts.
-/// 5. `N`-length array of operator fund previous UTXOs.
-/// 6. Pre-stake prevout.
-/// 7. Pre-stake utxo.
-/// 8. Stake Chain protocol parameters:
+/// 2. `WOTS public keys.
+/// 3. Stake hashes.
+/// 4. Operator funds to fund the dust values in the tx graph.
+/// 5. Pre-stake prevout.
+/// 6. Pre-stake utxo.
+/// 7. Stake Chain protocol parameters:
 ///    1. Stake amount.
-///    2. N-of-N aggregated bridge public key.
-///    3. `ΔS` relative timelock interval.
-///    4. Network.
+///    2. `ΔS` relative timelock interval.
 ///
-/// The `N`-length WOTS public keys, stake hashes, and operator funds prevouts arrays are needed to
-/// construct the transaction graph for the `N` deposits to be claimed while using and advancing the
-/// [`StakeChain`].
 ///
-/// The original stake is the first stake transaction in the chain, which is used to stake in the
-/// transaction graph for a single deposit and is moved after a successful deposit, i.e., the
-/// operator is not succcesfully challenged and has it's stake slashed.
-/// It is the first output of the [`PreStakeTx`](crate::prelude::PreStakeTx).
+/// The WOTS public keys, stake hashes, and operator funds are needed to
+/// construct the transaction graph for the corresponding deposit to be claimed while using and
+/// advancing the [`StakeChain`].
 ///
-/// The staking amount, N-of-N aggregated bridge public key, `ΔS` relative timelock interval, and
-/// network are configurable parameters which can be set at compile time to a contracted value.
-///
-/// The network is the bitcoin network on which the stake chain operates.
+/// The staking amount and `ΔS` relative timelock interval are consensus parameters.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StakeChainInputs<const N: usize> {
+pub struct StakeChainInputs {
     /// Operator's public key.
     pub operator_pubkey: XOnlyPublicKey,
 
     /// Inputs required for individual stake transactions.
-    pub stake_inputs: [StakeTxData; N],
+    pub stake_inputs: Vec<StakeTxData>,
 
     /// [`OutPoint`] from the [`PreStakeTx`](crate::transactions::PreStakeTx) that carries the
     /// stake.
@@ -164,7 +154,7 @@ pub struct StakeChainInputs<const N: usize> {
     pub params: StakeChainParams,
 }
 
-impl<const N: usize> StakeChainInputs<N> {
+impl StakeChainInputs {
     /// Stake amount.
     ///
     /// The staking amount is the amount that is staked in the transaction graph for a single stake.
@@ -179,8 +169,8 @@ impl<const N: usize> StakeChainInputs<N> {
     ///
     /// If you only need the stake hash for a single stake, use
     /// [`StakeChainInputs::stake_hash_at_index`].
-    pub fn stake_hashes(&self) -> [sha256::Hash; N] {
-        self.stake_inputs.map(|input| input.hash)
+    pub fn stake_hashes(&self) -> impl IntoIterator<Item = sha256::Hash> + use<'_> {
+        self.stake_inputs.iter().map(|input| input.hash)
     }
 
     /// Stake hash for the [`StakeChainInputs`] at the given index.
@@ -189,12 +179,8 @@ impl<const N: usize> StakeChainInputs<N> {
     /// operators so that each operator can compute the transactions deterministically.
     ///
     /// If you need the stake hash for all the stakes, use [`StakeChainInputs::stake_hashes`].
-    ///
-    /// # Panics
-    ///
-    /// If the index is out of bounds.
-    pub fn stake_hash_at_index(&self, index: usize) -> sha256::Hash {
-        self.stake_inputs[index].hash
+    pub fn stake_hash_at_index(&self, index: usize) -> Option<sha256::Hash> {
+        self.stake_inputs.get(index).map(|v| v.hash)
     }
 
     /// Operator funds for all the [`StakeChainInputs`]s.
@@ -208,8 +194,8 @@ impl<const N: usize> StakeChainInputs<N> {
     /// # Panics
     ///
     /// If the index is out of bounds.
-    pub fn operator_funds(&self) -> [OutPoint; N] {
-        self.stake_inputs.map(|input| input.operator_funds)
+    pub fn operator_funds(&self) -> impl IntoIterator<Item = OutPoint> + use<'_> {
+        self.stake_inputs.iter().map(|input| input.operator_funds)
     }
 
     /// Operator funds for the [`StakeChainInputs`] at the given index.
@@ -218,12 +204,8 @@ impl<const N: usize> StakeChainInputs<N> {
     /// [`StakeChainInputs`]s.
     ///
     /// If you need the operator funds for all the stakes, use [`StakeChainInputs::operator_funds`].
-    ///
-    /// # Panics
-    ///
-    /// If the index is out of bounds.
-    pub fn operator_funds_at_index(&self, index: usize) -> OutPoint {
-        self.stake_inputs[index].operator_funds
+    pub fn operator_funds_at_index(&self, index: usize) -> Option<OutPoint> {
+        self.stake_inputs.get(index).map(|v| v.operator_funds)
     }
 
     /// Prevout of the first stake transaction.
@@ -289,8 +271,8 @@ mod tests {
     /// 1. An operator fund prevout that has value [`OPERATOR_FUNDS`] and is a simple P2TR key path
     ///    spend.
     /// 2. The [`PreStakeTx`] first output.
-    fn sign_first_stake_tx<const M: usize>(
-        stake_chain: &StakeChain<M>,
+    fn sign_first_stake_tx(
+        stake_chain: &StakeChain,
         keypair_operator_funds: &Keypair,
         keypair_pre_stake: &Keypair,
         prevouts: [TxOut; 2],
@@ -310,7 +292,7 @@ mod tests {
             .expect("must create sighash");
         let message = Message::from(sighash);
         let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
-        trace!(%M, %signature, "Signature stake_tx operator funds");
+        trace!(%signature, "Signature stake_tx operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
             signature,
@@ -326,7 +308,7 @@ mod tests {
             .expect("must create sighash");
         let message = Message::from(sighash);
         let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
-        trace!(%M, %signature, "Signature stake_tx operator funds");
+        trace!(%signature, "Signature stake_tx operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
             signature,
@@ -336,17 +318,21 @@ mod tests {
         sighash_cache.into_transaction().to_owned()
     }
 
-    /// Signs a [`StakeTx`], i.e. `StakeChain::[x]` given an index `0 < x <= M`.
+    /// Signs a [`StakeTx`], i.e. `StakeChain::[x]` given an index.
     ///
     /// The prevouts must be the following:
     ///
     /// 1. An operator fund prevout that has value [`OPERATOR_FUNDS`] and is a simple P2TR key path
     ///    spend.
     /// 2. A connector `s` that is a P2TR script path spend.
+    ///
+    /// # Panics
+    ///
+    /// If the index is out of bounds.
     #[expect(clippy::too_many_arguments)]
-    fn sign_stake_tx<const M: usize>(
+    fn sign_stake_tx(
         index: usize,
-        stake_chain: &StakeChain<M>,
+        stake_chain: &StakeChain,
         keypair_operator_funds: &Keypair,
         keypair_connector_s: &Keypair,
         prevouts: [TxOut; 2],
@@ -379,7 +365,7 @@ mod tests {
             .expect("must create sighash");
         let message = Message::from(sighash);
         let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
-        trace!(%index, %M, %signature, "Signature stake_tx operator funds");
+        trace!(%index, %signature, "Signature stake_tx operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
             signature,
@@ -403,7 +389,7 @@ mod tests {
             Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
         // Sign the transaction with operator key
         let signature = SECP256K1.sign_schnorr(&message, keypair_connector_s);
-        trace!(%index, %M, %signature, "Signature stake_tx connector s");
+        trace!(%index, %signature, "Signature stake_tx connector s");
         // Construct the witness stack
         let mut witness = Witness::new();
         witness.push(stake_preimage);
@@ -495,17 +481,10 @@ mod tests {
         let tx_build_context = TxBuildContext::new(network, pubkey_table.into(), 0);
         let n_of_n_agg_pubkey = tx_build_context.aggregated_pubkey();
 
-        // Create relative timelock (e.g., 6 blocks)
-        let delta = relative::LockTime::from_height(6);
-        let slash_stake_count: usize = 24;
-
         // Create the StakeParams
-        let stake_amount = Amount::from_btc(25.0).expect("must be a valid amount");
-        let params = StakeChainParams {
-            stake_amount,
-            delta,
-            slash_stake_count,
-        };
+        let params = StakeChainParams::default();
+        let delta = params.delta;
+        let stake_amount = params.stake_amount;
 
         // Create funding transaction
         let pre_stake_keypair = xpriv
@@ -529,7 +508,7 @@ mod tests {
             previous_output: funding_input,
             ..Default::default()
         }];
-        // 2 OPERATOR_FUNDS outputs:
+        // 3 OPERATOR_FUNDS outputs:
         let operator_fund_1_keypair = xpriv
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(3).unwrap()])
             .unwrap()
@@ -550,7 +529,21 @@ mod tests {
             None,
             network,
         );
-        let operator_funds_addresses = [operator_fund_1_address, operator_fund_2_address];
+        let operator_fund_3_keypair = xpriv
+            .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(5).unwrap()])
+            .unwrap()
+            .to_keypair(SECP256K1);
+        let operator_fund_3_address = Address::p2tr(
+            SECP256K1,
+            operator_fund_3_keypair.x_only_public_key().0,
+            None,
+            network,
+        );
+        let operator_funds_addresses = [
+            operator_fund_1_address,
+            operator_fund_2_address,
+            operator_fund_3_address,
+        ];
         let operator_funds_previous_utxos = [
             TxOut {
                 value: OPERATOR_FUNDS,
@@ -560,6 +553,10 @@ mod tests {
                 value: OPERATOR_FUNDS,
                 script_pubkey: operator_funds_addresses[1].script_pubkey(),
             },
+            TxOut {
+                value: OPERATOR_FUNDS,
+                script_pubkey: operator_funds_addresses[2].script_pubkey(),
+            },
         ];
         let outputs_funding = vec![
             TxOut {
@@ -568,8 +565,12 @@ mod tests {
             },
             operator_funds_previous_utxos[0].clone(),
             operator_funds_previous_utxos[1].clone(),
+            operator_funds_previous_utxos[2].clone(),
             TxOut {
-                value: coinbase_amount - stake_amount - fees - OPERATOR_FUNDS - OPERATOR_FUNDS,
+                value: coinbase_amount
+                    - stake_amount
+                    - fees
+                    - OPERATOR_FUNDS * operator_funds_previous_utxos.len() as u64,
                 script_pubkey: change_address.script_pubkey(),
             },
         ];
@@ -647,11 +648,12 @@ mod tests {
             .expect("must be able to generate blocks");
 
         // Create a StakeChain with 3 inputs
-        let stake_preimages = [[0u8; 32], [1u8; 32]];
+        let stake_preimages = [[0u8; 32], [1u8; 32], [2u8; 32]];
         trace!(?stake_preimages, "stake preimages");
         let stake_hashes = [
             sha256::Hash::hash(&stake_preimages[0]),
             sha256::Hash::hash(&stake_preimages[1]),
+            sha256::Hash::hash(&stake_preimages[2]),
         ];
         trace!(?stake_hashes, "stake hashes");
         let operator_funds = [
@@ -669,6 +671,13 @@ mod tests {
                 },
                 ..Default::default()
             },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: funding_txid,
+                    vout: 3,
+                },
+                ..Default::default()
+            },
         ];
         trace!(?operator_funds, "operator funds");
         let pre_stake_prevout = TxIn {
@@ -682,18 +691,17 @@ mod tests {
         let wots_public_keys = [
             wots::Wots256PublicKey::new("0"),
             wots::Wots256PublicKey::new("1"),
+            wots::Wots256PublicKey::new("2"),
         ];
         trace!(?wots_public_keys, "wots public keys");
 
-        let stake_inputs: [StakeTxData; 2] = (0..stake_hashes.len())
+        let stake_inputs = (0..stake_hashes.len())
             .map(|i| StakeTxData {
                 operator_funds: operator_funds[i].previous_output,
                 hash: stake_hashes[i],
                 withdrawal_fulfillment_pk: wots_public_keys[i],
             })
-            .collect::<Vec<StakeTxData>>()
-            .try_into()
-            .expect("sizes must match");
+            .collect::<Vec<StakeTxData>>();
 
         let stake_chain_inputs = StakeChainInputs {
             operator_pubkey,
@@ -703,8 +711,7 @@ mod tests {
         };
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
-        let stake_chain =
-            StakeChain::<2>::new(&tx_build_context, &stake_chain_inputs, connector_cpfp);
+        let stake_chain = StakeChain::new(&tx_build_context, &stake_chain_inputs, connector_cpfp);
 
         // Sign the StakeTx 0
         let prevouts = [
@@ -717,14 +724,14 @@ mod tests {
                 script_pubkey: stake_0_address.script_pubkey(),
             },
         ];
-        let stake_chain_0_tx = sign_first_stake_tx::<2>(
+        let stake_chain_0_tx = sign_first_stake_tx(
             &stake_chain,
             &operator_fund_1_keypair,
             &stake_0_keypair,
             prevouts,
         );
         let stake_chain_0_txid = stake_chain_0_tx.compute_txid();
-        info!(%stake_chain_0_txid, "StakeTx 0 txid created and signed");
+        info!(%stake_chain_0_txid, ?stake_chain_0_tx, "StakeTx 0 txid created and signed");
 
         // Broadcast the StakeTx 0
         let stake_chain_0_txid = btc_client
@@ -757,7 +764,7 @@ mod tests {
                 script_pubkey: connector_s.script_pubkey(),
             },
         ];
-        let stake_chain_1_tx = sign_stake_tx::<2>(
+        let stake_chain_1_tx = sign_stake_tx(
             1,
             &stake_chain,
             &operator_fund_2_keypair,
@@ -777,10 +784,10 @@ mod tests {
         assert!(stake_chain_1_txid.is_err());
 
         // Mine the blockchain delta-1 blocks
-        info!(%delta, %stake_chain_0_txid, "StakeTx 0 mined and blockchain advanced to spendable delta relative timelock");
+        info!(%delta, %stake_chain_0_txid, "mine some blocks before broadcasting stake 1 tx");
 
         let _ = btc_client
-            .generate_to_address((delta.to_consensus_u32() as usize) - 1, &funded_address)
+            .generate_to_address(delta.to_consensus_u32() as usize, &funded_address)
             .expect("must be able to generate blocks");
         let stake_chain_1_txid = btc_client
             .send_raw_transaction(&stake_chain_1_tx)
@@ -789,5 +796,57 @@ mod tests {
             .expect("must have txid");
 
         info!(%stake_chain_1_txid, "StakeTx 1 broadcasted");
+
+        let connector_s = create_connector_stake(
+            n_of_n_agg_pubkey,
+            operator_pubkey,
+            stake_hashes[1],
+            delta,
+            network,
+        );
+        let prevouts = [
+            outputs_funding[3].clone(),
+            TxOut {
+                value: stake_amount,
+                script_pubkey: connector_s.script_pubkey(),
+            },
+        ];
+        let stake_chain_2_tx = sign_stake_tx(
+            2,
+            &stake_chain,
+            &operator_fund_3_keypair,
+            &operator_keypair,
+            prevouts,
+            &stake_preimages[1],
+            n_of_n_agg_pubkey,
+            operator_pubkey,
+            delta,
+            network,
+        );
+
+        let stake_chain_2_txid = stake_chain_2_tx.compute_txid();
+        info!(%stake_chain_2_txid, "StakeTx 2 txid created and signed");
+
+        // Broadcast the StakeTx 1 which will error because of the delta relative timelock
+        let stake_chain_2_txid = btc_client.send_raw_transaction(&stake_chain_2_tx);
+        assert!(
+            stake_chain_2_txid.is_err(),
+            "must not be able to send raw transaction due to timelock",
+        );
+
+        // Mine the blockchain delta-1 blocks
+        info!(%delta, %stake_chain_0_txid, "StakeTx 1 mined and blockchain advanced to spendable delta relative timelock");
+
+        btc_client
+            .generate_to_address(delta.to_consensus_u32() as usize, &funded_address)
+            .expect("must be able to generate blocks");
+
+        let stake_chain_2_txid = btc_client
+            .send_raw_transaction(&stake_chain_2_tx)
+            .expect("must be able to broadcast stake tx 2 after timelock")
+            .txid()
+            .expect("must have txid");
+
+        info!(%stake_chain_2_txid, "StakeTx 2 broadcasted");
     }
 }
