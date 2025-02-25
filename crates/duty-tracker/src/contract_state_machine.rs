@@ -294,6 +294,7 @@ impl ContractSM {
     /// Filter that specifies which transactions should be delivered to this state machine.
     pub fn transaction_filter(&self) -> TxPredicate {
         let idx = self.cfg.deposit_idx;
+        let deposit_txid = self.cfg.deposit_tx.compute_txid();
         let graphs = self
             .cfg
             .peg_out_graphs
@@ -304,7 +305,8 @@ impl ContractSM {
         Arc::new(move |tx: &Transaction| {
             let txid = tx.compute_txid();
             graphs.iter().any(|g| {
-                g.claim_txid == txid
+                deposit_txid == txid
+                    || g.claim_txid == txid
                     || g.payout_optimistic_txid == txid
                     || g.post_assert_txid == txid
                     || g.payout_txid == txid
