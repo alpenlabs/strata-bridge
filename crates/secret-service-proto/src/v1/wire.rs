@@ -38,7 +38,7 @@ pub enum ServerMessage {
 
     /// Response for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
     P2PSecretKey {
-        /// Serialized [`SecretKey`](musig2::secp256k1::SecretKey)
+        /// Serialized [`SecretKey`](bitcoin::secp256k1::SecretKey)
         key: [u8; 32],
     },
 

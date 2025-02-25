@@ -1,3 +1,5 @@
+#![allow(incomplete_features)]
+#![feature(generic_const_exprs)]
 //! This module contains the implementation of the secret service server.
 //!
 //! This handles networking and communication with clients, but does not implement the traits
@@ -249,11 +251,11 @@ where
                 };
                 let mut sm = musig2_sm.lock().await;
 
-                let Ok(write_perm) = sm.new_session(first_round) else {
+                let Ok(session_id) = sm.new_session(first_round) else {
                     break 'block ServerMessage::OpaqueServerError;
                 };
 
-                ServerMessage::Musig2NewSession(Ok(write_perm.session_id()))
+                ServerMessage::Musig2NewSession(Ok(session_id))
             }
 
             ArchivedClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {

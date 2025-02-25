@@ -44,7 +44,7 @@
 //!     }
 //! }
 //!
-//! let mut arr = DoubleBoolArray::<2, State>::default();
+//! let mut arr = DoubleBoolArray::<64, State>::default();
 //! arr.set(0, State::B);
 //! arr.set(31, State::C);
 //! assert_eq!(arr.get(0), State::B);
@@ -75,26 +75,30 @@ use std::{
 /// - Stores values in N `u64` integers (`8N` bytes total)
 /// - Provides O(1) access time for get/set operations
 /// - Implements space-efficient storage with 2 bits per entry
-pub struct DoubleBoolArray<const N: usize, T>([u64; N], PhantomData<T>)
+pub struct DoubleBoolArray<const N: usize, T>([u64; N / 32], PhantomData<T>)
 where
     T: Into<(bool, bool)> + TryFrom<(bool, bool)> + Debug,
-    <T as TryFrom<(bool, bool)>>::Error: Debug;
+    <T as TryFrom<(bool, bool)>>::Error: Debug,
+    [(); N / 32]:;
 
 impl<const N: usize, T> fmt::Debug for DoubleBoolArray<N, T>
 where
     T: Into<(bool, bool)> + TryFrom<(bool, bool)> + fmt::Debug,
     <T as TryFrom<(bool, bool)>>::Error: fmt::Debug,
+    [(); N / 32]:,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         struct DebugValues<'a, const N: usize, T>(&'a DoubleBoolArray<N, T>)
         where
             T: Into<(bool, bool)> + TryFrom<(bool, bool)> + Debug,
-            <T as TryFrom<(bool, bool)>>::Error: Debug;
+            <T as TryFrom<(bool, bool)>>::Error: Debug,
+            [(); N / 32]:;
 
         impl<const N: usize, T> fmt::Debug for DebugValues<'_, N, T>
         where
             T: Into<(bool, bool)> + TryFrom<(bool, bool)> + fmt::Debug,
             <T as TryFrom<(bool, bool)>>::Error: fmt::Debug,
+            [(); N / 32]:,
         {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 let mut list = f.debug_list();
@@ -115,9 +119,10 @@ impl<const N: usize, T> Default for DoubleBoolArray<N, T>
 where
     T: Into<(bool, bool)> + TryFrom<(bool, bool)> + Debug,
     <T as TryFrom<(bool, bool)>>::Error: Debug,
+    [(); N / 32]:,
 {
     fn default() -> Self {
-        Self([0; N], PhantomData)
+        Self([0; N / 32], PhantomData)
     }
 }
 
@@ -125,11 +130,12 @@ impl<const N: usize, T> DoubleBoolArray<N, T>
 where
     T: Into<(bool, bool)> + TryFrom<(bool, bool)> + Debug,
     <T as TryFrom<(bool, bool)>>::Error: Debug,
+    [(); N / 32]:,
 {
     /// Returns the capacity of the array in terms of the number of `(bool, bool)` slots it can
     /// hold.
     pub const fn capacity() -> usize {
-        N * (std::mem::size_of::<u64>() * 8 / 2)
+        N
     }
 
     /// Finds the index of the first slot with the specified value.
@@ -148,9 +154,8 @@ where
     }
 
     /// Gets the two boolean values at specified index.
-    /// Panics if `index >= N * 32`.
+    /// Panics if `index >= N`.
     pub fn get(&self, index: usize) -> T {
-        assert!(index < N * 32, "Index out of bounds");
         let chunk_idx = index / 32;
         let slot = index % 32;
         let chunk = self.0[chunk_idx];
@@ -161,9 +166,8 @@ where
     }
 
     /// Sets the two boolean values at specified index.
-    /// Panics if `index >= N * 32`.
+    /// Panics if `index >= N`.
     pub fn set(&mut self, index: usize, value: T) {
-        assert!(index < N * 32, "Index out of bounds");
         let chunk_idx = index / 32;
         let slot = index % 32;
         let chunk = &mut self.0[chunk_idx];
@@ -215,19 +219,19 @@ mod tests {
 
     #[test]
     fn capacity_calculation() {
-        assert_eq!(DoubleBoolArray::<1, TestState>::capacity(), 32);
-        assert_eq!(DoubleBoolArray::<3, TestState>::capacity(), 96);
+        assert_eq!(DoubleBoolArray::<128, TestState>::capacity(), 128);
+        assert_eq!(DoubleBoolArray::<32, TestState>::capacity(), 32);
     }
 
     #[test]
     fn default_initialization() {
-        let arr = DoubleBoolArray::<2, TestState>::default();
+        let arr = DoubleBoolArray::<128, TestState>::default();
         assert_eq!(arr.find_first_slot_with(TestState::A), Some(0));
     }
 
     #[test]
     fn basic_set_get() {
-        let mut arr = DoubleBoolArray::<2, TestState>::default();
+        let mut arr = DoubleBoolArray::<128, TestState>::default();
 
         arr.set(0, TestState::B);
         assert_eq!(arr.get(0), TestState::B);
@@ -240,22 +244,22 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Index out of bounds")]
+    #[should_panic(expected = "out of bounds")]
     fn get_out_of_bounds() {
-        let arr = DoubleBoolArray::<1, TestState>::default();
-        arr.get(32);
+        let arr = DoubleBoolArray::<128, TestState>::default();
+        arr.get(129);
     }
 
     #[test]
-    #[should_panic(expected = "Index out of bounds")]
+    #[should_panic(expected = "out of bounds")]
     fn set_out_of_bounds() {
-        let mut arr = DoubleBoolArray::<1, TestState>::default();
-        arr.set(32, TestState::A);
+        let mut arr = DoubleBoolArray::<128, TestState>::default();
+        arr.set(129, TestState::A);
     }
 
     #[test]
     fn find_empty_slots() {
-        let mut arr = DoubleBoolArray::<2, TestState>::default();
+        let mut arr = DoubleBoolArray::<64, TestState>::default();
 
         arr.set(5, TestState::B);
         assert_eq!(arr.find_first_slot_with(TestState::A), Some(0));
@@ -271,7 +275,7 @@ mod tests {
 
     #[test]
     fn slot_independence() {
-        let mut arr = DoubleBoolArray::<1, TestState>::default();
+        let mut arr = DoubleBoolArray::<128, TestState>::default();
 
         arr.set(0, TestState::B);
         arr.set(1, TestState::C);
@@ -284,7 +288,7 @@ mod tests {
 
     #[test]
     fn all_state_combinations() {
-        let mut arr = DoubleBoolArray::<1, TestState>::default();
+        let mut arr = DoubleBoolArray::<128, TestState>::default();
         let states = [TestState::A, TestState::B, TestState::C, TestState::D];
 
         for (i, state) in states.iter().enumerate() {

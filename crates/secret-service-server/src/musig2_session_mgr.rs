@@ -18,6 +18,7 @@ pub struct Musig2SessionManager<FirstRound, SecondRound, const N: usize = 128>
 where
     SecondRound: Musig2SignerSecondRound<Server>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+    [(); N / 32]:,
 {
     /// Tracker is used for tracking whether a session is in first round,
     /// second round or completed.
@@ -31,7 +32,7 @@ where
     ///
     /// This is a [`Vec`] because the server doesn't know how big `FirstRound` may be in memory
     /// so it will heap allocate and try keep this to a minimum.
-    first_rounds: Vec<MaybeUninit<Arc<Mutex<FirstRound>>>>,
+    first_rounds: [MaybeUninit<Arc<Mutex<FirstRound>>>; N],
 
     /// Used to store second rounds of MuSig2 server instances.
     ///
@@ -39,7 +40,7 @@ where
     ///
     /// This is a [`Vec`] because the server doesn't know how big `SecondRound` may be in memory so
     /// it will heap allocate and try keep this to a minimum.
-    second_rounds: Vec<MaybeUninit<Arc<Mutex<SecondRound>>>>,
+    second_rounds: [MaybeUninit<Arc<Mutex<SecondRound>>>; N],
 }
 
 impl<FirstRound, SecondRound, const N: usize> Default
@@ -47,12 +48,13 @@ impl<FirstRound, SecondRound, const N: usize> Default
 where
     SecondRound: Musig2SignerSecondRound<Server>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+    [(); N / 32]:,
 {
     fn default() -> Self {
         Self {
             tracker: DoubleBoolArray::default(),
-            first_rounds: Vec::new(),
-            second_rounds: Vec::new(),
+            first_rounds: std::array::from_fn(|_| MaybeUninit::uninit()),
+            second_rounds: std::array::from_fn(|_| MaybeUninit::uninit()),
         }
     }
 }
@@ -113,29 +115,18 @@ impl<FirstRound, SecondRound, const N: usize> Musig2SessionManager<FirstRound, S
 where
     SecondRound: Musig2SignerSecondRound<Server>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
+    [(); N / 32]:,
 {
     /// Requests a new session ID from the session manager for a given first round.
-    pub fn new_session(
-        &mut self,
-        first_round: FirstRound,
-    ) -> Result<WritePermission<'_, FirstRound>, Full> {
+    pub fn new_session(&mut self, first_round: FirstRound) -> Result<usize, Full> {
         let next_empty = self
             .tracker
             .find_first_slot_with(SlotState::Empty)
             .ok_or(Full)?;
-        let slot = if next_empty <= self.first_rounds.len() {
-            // we're replacing an existing session
-            self.first_rounds.get_mut(next_empty).unwrap()
-        } else {
-            // we're not replacing any existing session, so we need to grow
-            self.first_rounds.push(MaybeUninit::uninit());
-            self.first_rounds.last_mut().unwrap()
-        };
-        Ok(WritePermission {
-            slot,
-            session_id: next_empty,
-            t: Arc::new(first_round.into()),
-        })
+        let slot = self.first_rounds.get_mut(next_empty).unwrap();
+        slot.write(Arc::new(first_round.into()));
+        self.tracker.set(next_empty, SlotState::FirstRound);
+        Ok(next_empty)
     }
 
     #[inline]
