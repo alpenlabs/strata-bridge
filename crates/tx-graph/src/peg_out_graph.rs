@@ -1049,7 +1049,7 @@ mod tests {
             &mut sighash_cache,
             prevouts.clone(),
             &witnesses[0],
-            TapSighashType::All,
+            TapSighashType::Default,
             0,
         )
         .unwrap();
@@ -1058,33 +1058,17 @@ mod tests {
 
         let op_signature_0 =
             SECP256K1.sign_schnorr(&message_hash_0, &tweaked_operator_keypair.to_inner());
-        let op_signature_0 = taproot::Signature {
-            signature: op_signature_0,
-            sighash_type: first_stake.psbt.inputs[0]
-                .sighash_type
-                .unwrap_or(PsbtSighashType::from(TapSighashType::All))
-                .taproot_hash_ty()
-                .unwrap(),
-        };
 
         let message_hash_1 = create_message_hash(
             &mut sighash_cache,
             prevouts,
             &witnesses[1],
-            TapSighashType::All,
+            TapSighashType::Default,
             1,
         )
         .unwrap();
         let op_signature_1 =
             SECP256K1.sign_schnorr(&message_hash_1, &tweaked_operator_keypair.to_inner());
-        let op_signature_1 = taproot::Signature {
-            signature: op_signature_1,
-            sighash_type: first_stake.psbt.inputs[1]
-                .sighash_type
-                .unwrap_or(PsbtSighashType::from(TapSighashType::All))
-                .taproot_hash_ty()
-                .unwrap(),
-        };
 
         let signed_first_stake_tx = first_stake.finalize_initial(op_signature_0, op_signature_1);
 

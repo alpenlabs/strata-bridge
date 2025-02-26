@@ -103,6 +103,15 @@ impl StakeChain {
     }
 }
 
+impl IntoIterator for StakeChain {
+    type Item = StakeTx;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl Deref for StakeChain {
     type Target = Vec<StakeTx>;
 
@@ -257,8 +266,7 @@ mod tests {
             .expect("must create sighash");
         let message = Message::from_digest_slice(taproot_key_spend_signature_hash.as_byte_array())
             .expect("must create a message");
-        let tweaked = keypair.tap_tweak(SECP256K1, None);
-        let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
+        let signature = SECP256K1.sign_schnorr(&message, keypair);
         let mut transaction = transaction.clone();
         transaction.input[0].witness.push(signature.as_ref());
         transaction
@@ -286,12 +294,11 @@ mod tests {
 
         // OPERATOR_FUNDS witness (key path spend)
         let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let tweaked = keypair_operator_funds.tap_tweak(SECP256K1, None);
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
             .expect("must create sighash");
         let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
+        let signature = SECP256K1.sign_schnorr(&message, keypair_operator_funds);
         trace!(%signature, "Signature stake_tx operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
@@ -302,12 +309,11 @@ mod tests {
         let mut stake_tx = sighash_cache.into_transaction().to_owned();
 
         let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let tweaked = keypair_pre_stake.tap_tweak(SECP256K1, None);
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(1, &prevouts, sighash_type)
             .expect("must create sighash");
         let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
+        let signature = SECP256K1.sign_schnorr(&message, keypair_pre_stake);
         trace!(%signature, "Signature stake_tx operator funds");
         // Update the witness stack.
         let signature = taproot::Signature {
@@ -345,8 +351,8 @@ mod tests {
         let sighash_type = sighash::TapSighashType::Default;
         let stake_hash = sha256::Hash::hash(stake_preimage);
         // The key path spend for the first input
-        let stake = stake_chain[index].clone();
-        let mut stake_tx = stake.psbt.unsigned_tx.clone();
+        let stake_tx = stake_chain[index].clone();
+        let mut stake_tx_raw = stake_tx.psbt.unsigned_tx.clone();
         // Recreate the connector s.
         let connector_s =
             ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
@@ -358,28 +364,20 @@ mod tests {
         if index == 0 {
             panic!("The first stake must be signed using another function");
         }
-        let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let tweaked = keypair_operator_funds.tap_tweak(SECP256K1, None);
+        let mut sighash_cache = SighashCache::new(&mut stake_tx_raw);
         let sighash = sighash_cache
             .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
             .expect("must create sighash");
         let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, &tweaked.to_inner());
-        trace!(%index, %signature, "Signature stake_tx operator funds");
-        // Update the witness stack.
-        let signature = taproot::Signature {
-            signature,
-            sighash_type,
-        };
-        *sighash_cache.witness_mut(0).unwrap() = Witness::p2tr_key_spend(&signature);
-        let mut stake_tx = sighash_cache.into_transaction().to_owned();
+        let funds_signature = SECP256K1.sign_schnorr(&message, keypair_operator_funds);
+
+        trace!(%index, %funds_signature, "Signature stake_tx operator funds");
 
         // Connector S witness (script path spend)
         // Create the locking script
-        let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let locking_script = connector_s.generate_script();
+        let mut sighash_cache = SighashCache::new(&mut stake_tx_raw);
         // Get taproot spend info
-        let (_, control_block) = connector_s.generate_spend_info();
+        let locking_script = connector_s.generate_script();
         let leaf_hash =
             TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
         let sighash = sighash_cache
@@ -388,16 +386,16 @@ mod tests {
         let message =
             Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
         // Sign the transaction with operator key
-        let signature = SECP256K1.sign_schnorr(&message, keypair_connector_s);
-        trace!(%index, %signature, "Signature stake_tx connector s");
+        let stake_signature = SECP256K1.sign_schnorr(&message, keypair_connector_s);
+        trace!(%index, %stake_signature, "Signature stake_tx connector s");
         // Construct the witness stack
-        let mut witness = Witness::new();
-        witness.push(stake_preimage);
-        witness.push(signature.as_ref());
-        witness.push(locking_script.to_bytes());
-        witness.push(control_block.serialize());
-        *sighash_cache.witness_mut(1).unwrap() = witness;
-        sighash_cache.into_transaction().to_owned()
+
+        stake_tx.finalize(
+            stake_preimage,
+            funds_signature,
+            stake_signature,
+            connector_s,
+        )
     }
 
     /// Creates an [`Address`] from a [`ConnectorStake`].
@@ -445,20 +443,22 @@ mod tests {
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(0).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let funded_address = Address::p2tr(
-            SECP256K1,
-            funded_keypair.x_only_public_key().0,
-            None,
+        let funded_address = Address::p2tr_tweaked(
+            funded_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let change_keypair = xpriv
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(1).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let change_address = Address::p2tr(
-            SECP256K1,
-            change_keypair.x_only_public_key().0,
-            None,
+        let change_address = Address::p2tr_tweaked(
+            change_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let coinbase_block = btc_client
@@ -491,10 +491,11 @@ mod tests {
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(2).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let pre_stake_address = Address::p2tr(
-            SECP256K1,
-            pre_stake_keypair.x_only_public_key().0,
-            None,
+        let pre_stake_address = Address::p2tr_tweaked(
+            pre_stake_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let funding_input = OutPoint {
@@ -513,30 +514,33 @@ mod tests {
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(3).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let operator_fund_1_address = Address::p2tr(
-            SECP256K1,
-            operator_fund_1_keypair.x_only_public_key().0,
-            None,
+        let operator_fund_1_address = Address::p2tr_tweaked(
+            operator_fund_1_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let operator_fund_2_keypair = xpriv
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(4).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let operator_fund_2_address = Address::p2tr(
-            SECP256K1,
-            operator_fund_2_keypair.x_only_public_key().0,
-            None,
+        let operator_fund_2_address = Address::p2tr_tweaked(
+            operator_fund_2_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let operator_fund_3_keypair = xpriv
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(5).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let operator_fund_3_address = Address::p2tr(
-            SECP256K1,
-            operator_fund_3_keypair.x_only_public_key().0,
-            None,
+        let operator_fund_3_address = Address::p2tr_tweaked(
+            operator_fund_3_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let operator_funds_addresses = [
@@ -606,10 +610,11 @@ mod tests {
             .derive_priv(SECP256K1, &[ChildNumber::from_hardened_idx(4).unwrap()])
             .unwrap()
             .to_keypair(SECP256K1);
-        let stake_0_address = Address::p2tr(
-            SECP256K1,
-            stake_0_keypair.x_only_public_key().0,
-            None,
+        let stake_0_address = Address::p2tr_tweaked(
+            stake_0_keypair
+                .x_only_public_key()
+                .0
+                .dangerous_assume_tweaked(),
             network,
         );
         let prevout = TxOut {
@@ -689,9 +694,9 @@ mod tests {
         };
         trace!(?pre_stake_prevout, "pre-stake prevout");
         let wots_public_keys = [
-            wots::Wots256PublicKey::new("0"),
-            wots::Wots256PublicKey::new("1"),
-            wots::Wots256PublicKey::new("2"),
+            wots::Wots256PublicKey::new("0", pre_stake_txid),
+            wots::Wots256PublicKey::new("1", pre_stake_txid),
+            wots::Wots256PublicKey::new("2", pre_stake_txid),
         ];
         trace!(?wots_public_keys, "wots public keys");
 

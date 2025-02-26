@@ -1,11 +1,8 @@
 //! The [`StakeTx`] transaction is used to move stake across transactions.
 
 use bitcoin::{
-    hashes::sha256,
-    secp256k1::{schnorr, SECP256K1},
-    taproot::{self, LeafVersion},
-    transaction, Address, Amount, FeeRate, OutPoint, Psbt, Sequence, TapNodeHash, Transaction,
-    TxIn, TxOut, Txid, XOnlyPublicKey,
+    hashes::sha256, key::TapTweak, secp256k1::schnorr, transaction, Address, Amount, FeeRate,
+    OutPoint, Psbt, Sequence, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{
@@ -156,7 +153,10 @@ impl StakeTx {
         let mut psbt = Psbt::from_unsigned_tx(tx)
             .expect("cannot fail since transaction will be always unsigned");
 
-        let operator_addr = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
+        let operator_addr = Address::p2tr_tweaked(
+            operator_pubkey.dangerous_assume_tweaked(),
+            context.network(),
+        );
 
         let funding_prevout = TxOut {
             script_pubkey: operator_addr.script_pubkey(),
@@ -168,6 +168,7 @@ impl StakeTx {
         };
 
         psbt.inputs[0].witness_utxo = Some(funding_prevout);
+
         psbt.inputs[1].witness_utxo = Some(stake_prevout);
 
         let witnesses = [
@@ -257,7 +258,10 @@ impl StakeTx {
             value: params.stake_amount,
         };
 
-        let operator_addr = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
+        let operator_addr = Address::p2tr_tweaked(
+            operator_pubkey.dangerous_assume_tweaked(),
+            context.network(),
+        );
         psbt.inputs[0].witness_utxo = Some(TxOut {
             script_pubkey: operator_addr.script_pubkey(),
             value: OPERATOR_FUNDS,
@@ -265,12 +269,14 @@ impl StakeTx {
 
         psbt.inputs[1].witness_utxo = Some(prev_stake_out);
 
-        let tweak = TapNodeHash::from_script(
-            &prev_stake_connector.generate_script(),
-            LeafVersion::TapScript,
-        );
-
-        let witnesses = [TaprootWitness::Key, TaprootWitness::Tweaked { tweak }];
+        let (script_buf, control_block) = prev_stake_connector.generate_spend_info();
+        let witnesses = [
+            TaprootWitness::Key,
+            TaprootWitness::Script {
+                script_buf,
+                control_block,
+            },
+        ];
 
         Self { psbt, witnesses }
     }
@@ -325,15 +331,16 @@ impl StakeTx {
     /// spends via key-spend path the PreStake transaction input and does not need a preimage.
     pub fn finalize_initial(
         mut self,
-        funds_signature: taproot::Signature,
-        stake_signature: taproot::Signature,
+        funds_signature: schnorr::Signature,
+        stake_signature: schnorr::Signature,
     ) -> Transaction {
         finalize_input(
             self.psbt.inputs.first_mut().expect("must have first input"),
-            [funds_signature.to_vec()],
+            [funds_signature.as_ref()],
         );
         finalize_input(
             self.psbt.inputs.get_mut(1).expect("must have second input"),
+            [stake_signature.as_ref()],
         );
 
         self.psbt
@@ -355,13 +362,13 @@ impl StakeTx {
     /// script in each stake transaction.
     pub fn finalize(
         mut self,
-        preimage: &[u8; 32],
+        prev_preimage: &[u8; 32],
         funds_signature: schnorr::Signature,
         stake_signature: schnorr::Signature,
-        connector_s: ConnectorStake,
+        prev_connector_s: ConnectorStake,
     ) -> Transaction {
         // Get taproot spend info
-        let (locking_script, control_block) = connector_s.generate_spend_info();
+        let (locking_script, control_block) = prev_connector_s.generate_spend_info();
 
         // Need to change the inputs
         finalize_input(
@@ -371,7 +378,7 @@ impl StakeTx {
         finalize_input(
             self.psbt.inputs.get_mut(1).expect("must have second input"),
             [
-                preimage.to_vec(),
+                prev_preimage.to_vec(),
                 stake_signature.serialize().to_vec(),
                 locking_script.to_bytes(),
                 control_block.serialize(),

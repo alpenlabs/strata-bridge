@@ -93,21 +93,10 @@ impl ClaimTx {
 
     pub fn finalize(
         mut self,
-        deposit_txid: Txid,
-        connector_k: &ConnectorK,
-        msk: &str,
-        withdrawal_fulfillment_txid: Txid,
+        signature: wots256::Signature,
+        connector_k: ConnectorK,
     ) -> Transaction {
-        let (script, control_block) = connector_k.generate_spend_info();
-
-        connector_k.finalize_input(
-            &mut self.psbt.inputs[0],
-            msk,
-            withdrawal_fulfillment_txid,
-            deposit_txid,
-            script,
-            control_block,
-        );
+        connector_k.finalize_input(&mut self.psbt.inputs[0], signature);
 
         self.psbt
             .extract_tx()
@@ -184,10 +173,10 @@ impl CovenantTx for ClaimTx {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::{Network, Witness};
+    use bitcoin::{hashes::Hash, Network, Witness};
     use bitvm::treepp::*;
     use secp256k1::rand::{rngs::OsRng, Rng};
-    use strata_bridge_primitives::wots;
+    use strata_bridge_primitives::wots::{self, Wots256Signature};
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
     use super::*;
@@ -200,8 +189,7 @@ mod tests {
         let msk = "test-parse-witness";
         let deposit_txid = generate_txid();
 
-        let wots_sk = get_deposit_master_secret_key(msk, deposit_txid);
-        let wots_public_key = wots::Wots256PublicKey::new(&wots_sk);
+        let wots_public_key = wots::Wots256PublicKey::new(msk, deposit_txid);
         let claim_tx = ClaimTx::new(
             ClaimData {
                 stake_outpoint: OutPoint {
@@ -220,8 +208,12 @@ mod tests {
         let connector_k = ConnectorK::new(pubkey, network, wots_public_key);
         let withdrawal_fulfillment_txid = generate_txid();
 
-        let mut signed_claim_tx =
-            claim_tx.finalize(deposit_txid, &connector_k, msk, withdrawal_fulfillment_txid);
+        let signature = Wots256Signature::new(
+            msk,
+            deposit_txid,
+            withdrawal_fulfillment_txid.as_byte_array(),
+        );
+        let mut signed_claim_tx = claim_tx.finalize(*signature, connector_k);
 
         let parsed_wots256 = ClaimTx::parse_witness(&signed_claim_tx)
             .expect("must be able to parse")

@@ -1,10 +1,9 @@
 //! This connector is used to connect the Kickoff and Claim transactions.
 // FIXME: remove this once the stake chain is integrated.
 use bitcoin::{
-    hashes::Hash,
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
-    Address, Network, ScriptBuf, Txid,
+    Address, Network, ScriptBuf,
 };
 use bitvm::{
     signatures::wots_api::{wots256, SignatureImpl},
@@ -87,27 +86,17 @@ impl ConnectorK {
     }
 
     /// Finalizes the input to the transaction that spends this connector.
-    pub fn finalize_input(
-        &self,
-        input: &mut Input,
-        msk: &str,
-        withdrawal_fulfillment_txid: Txid,
-        deposit_txid: Txid,
-        script: ScriptBuf,
-        control_block: ControlBlock,
-    ) {
-        let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
-        let withdrawal_fulfillment_txid_sk = secret_key_for_bridge_out_txid(&deposit_msk);
-        let withdrawal_fulfillment_txid_raw = withdrawal_fulfillment_txid.to_byte_array();
-
+    pub fn finalize_input(&self, input: &mut Input, signature: wots256::Signature) {
         let witness = script! {
-            { wots256::get_signature(&withdrawal_fulfillment_txid_sk, &withdrawal_fulfillment_txid_raw).to_script() }
+            { signature.to_script() }
         };
 
         let result = execute_script(witness.clone());
         let mut witness_stack = (0..result.final_stack.len())
             .map(|index| result.final_stack.get(index))
             .collect::<Vec<_>>();
+
+        let (script, control_block) = self.generate_spend_info();
 
         witness_stack.push(script.to_bytes());
         witness_stack.push(control_block.serialize());

@@ -6,7 +6,7 @@ use bitcoin::{
     psbt::Input,
     relative,
     taproot::{ControlBlock, LeafVersion},
-    Address, Network, ScriptBuf, TapNodeHash, TapSighashType,
+    Address, Network, ScriptBuf, TapNodeHash,
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::scripts::prelude::*;
@@ -180,31 +180,20 @@ impl ConnectorStake {
     pub fn finalize_input(&self, input: &mut Input, witness_data: StakeSpendPath) {
         match witness_data {
             StakeSpendPath::Disprove(signature) => {
-                let signature = if let TapSighashType::All = signature.sighash_type {
-                    signature.signature.serialize().to_vec()
-                } else {
-                    signature.serialize().to_vec()
-                };
-
-                finalize_input(input, [signature]);
+                finalize_input(input, [signature.serialize()]);
             }
             StakeSpendPath::Advance {
                 signature,
                 preimage,
             } => {
                 let (script_buf, control_block) = self.generate_spend_info();
-                let signature = if let TapSighashType::All = signature.sighash_type {
-                    signature.signature.serialize().to_vec()
-                } else {
-                    signature.serialize().to_vec()
-                };
 
                 finalize_input(
                     input,
                     // NOTE: Order matters here.
                     [
                         preimage.to_vec(),
-                        signature,
+                        signature.to_vec(),
                         script_buf.to_bytes(),
                         control_block.serialize(),
                     ],
