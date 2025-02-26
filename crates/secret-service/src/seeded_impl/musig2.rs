@@ -1,7 +1,5 @@
 //! In-memory persistence for MuSig2's secret data.
 
-use std::usize;
-
 use bitcoin::{
     bip32::{ChildNumber, Xpriv},
     hashes::Hash,
