@@ -19,6 +19,9 @@ use bitcoin::Amount;
 /// The total is:
 ///
 /// ```
+/// # #![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
+/// # #![feature(generic_const_exprs)] // but necessary for using const generic bounds in
+/// #
 /// # use bitcoin::Amount;
 /// # use strata_bridge_stake_chain::transactions::constants::OPERATOR_FUNDS;
 /// assert_eq!(OPERATOR_FUNDS, Amount::from_sat(33_000));

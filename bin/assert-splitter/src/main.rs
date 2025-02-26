@@ -1,3 +1,6 @@
+#![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
+#![feature(generic_const_exprs)] // but necessary for using const generic bounds in
+
 use assert_splitter::{average_size, field_elements_witness_size, hash_witness_size, LayoutData};
 use bitvm::chunk::compile::{NUM_U160, NUM_U256};
 
