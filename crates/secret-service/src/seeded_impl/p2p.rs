@@ -3,6 +3,8 @@
 use musig2::secp256k1::SecretKey;
 use secret_service_proto::v1::traits::{Origin, P2PSigner, Server};
 
+use super::MakeEven;
+
 /// Secret data for the P2P signer.
 #[derive(Debug)]
 pub struct ServerP2PSigner {
@@ -13,7 +15,7 @@ pub struct ServerP2PSigner {
 impl ServerP2PSigner {
     /// Creates a new [`ServerP2PSigner`] with the given secret key.
     pub fn new(sk: SecretKey) -> Self {
-        Self { sk }
+        Self { sk: sk.make_even() }
     }
 }
 

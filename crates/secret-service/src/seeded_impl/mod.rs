@@ -1,8 +1,13 @@
-//! In-memory persistence for the Secret Service.
+//! Basic, seeded implementation of a secret service
 
 use std::path::Path;
 
-use bitcoin::{bip32::Xpriv, Network};
+use bitcoin::{
+    bip32::Xpriv,
+    key::Parity,
+    secp256k1::{SecretKey, SECP256K1},
+    Network,
+};
 use colored::Colorize;
 use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
 use operator::Operator;
@@ -103,5 +108,20 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
 
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
         StakeChain::new(self.keys.base_xpriv())
+    }
+}
+
+/// A helper trait to make [`SecretKey`]s even for BIP340 use
+pub trait MakeEven {
+    /// Makes self even, if it's not already
+    fn make_even(self) -> Self;
+}
+
+impl MakeEven for SecretKey {
+    fn make_even(self) -> Self {
+        match self.x_only_public_key(SECP256K1).1 == Parity::Odd {
+            true => self.negate(),
+            false => self,
+        }
     }
 }

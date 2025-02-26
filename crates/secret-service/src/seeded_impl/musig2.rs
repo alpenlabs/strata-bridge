@@ -20,6 +20,8 @@ use secret_service_proto::v1::traits::{
 use sha2::Sha256;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
+use super::MakeEven;
+
 /// Secret data for the MuSig2 signer.
 #[derive(Debug)]
 pub struct Ms2Signer {
@@ -55,7 +57,7 @@ impl Ms2Signer {
             .private_key
             .secret_bytes();
         Self {
-            kp: Keypair::from_secret_key(SECP256K1, &key),
+            kp: Keypair::from_secret_key(SECP256K1, &key.make_even()),
             ikm,
         }
     }

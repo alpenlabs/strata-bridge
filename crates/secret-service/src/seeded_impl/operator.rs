@@ -4,6 +4,8 @@ use bitcoin::{key::Keypair, XOnlyPublicKey};
 use musig2::secp256k1::{schnorr::Signature, Message, SecretKey, SECP256K1};
 use secret_service_proto::v1::traits::{OperatorSigner, Origin, Server};
 
+use super::MakeEven;
+
 /// Secret data for the operator.
 #[derive(Debug)]
 pub struct Operator {
@@ -14,7 +16,7 @@ pub struct Operator {
 impl Operator {
     /// Create a new operator with the given secret key.
     pub fn new(sk: SecretKey) -> Self {
-        let kp = Keypair::from_secret_key(SECP256K1, &sk);
+        let kp = Keypair::from_secret_key(SECP256K1, &sk.make_even());
         Self { kp }
     }
 }

@@ -2,7 +2,7 @@
 
 // use secret_service_server::rustls::ServerConfig;
 pub mod config;
-pub mod disk;
+pub mod seeded_impl;
 #[cfg(test)]
 mod tests;
 mod tls;
@@ -11,8 +11,8 @@ use std::{env::args, path::PathBuf, str::FromStr, sync::LazyLock};
 
 use colored::Colorize;
 use config::TomlConfig;
-use disk::Service;
 use secret_service_server::{run_server, Config};
+use seeded_impl::Service;
 use tls::load_tls;
 use tracing::{info, warn, Level};
 
