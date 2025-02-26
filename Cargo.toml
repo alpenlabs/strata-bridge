@@ -55,6 +55,10 @@ strata-rpc-api = { git = "https://github.com/alpenlabs/strata.git" }
 strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
 strata-state = { git = "https://github.com/alpenlabs/strata.git" }
 
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
 zkaleido-sp1-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }

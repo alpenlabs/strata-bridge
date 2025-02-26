@@ -11,3 +11,6 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+strata-p2p.workspace = true
+strata-p2p-types.workspace = true
+strata-p2p-wire.workspace = true
