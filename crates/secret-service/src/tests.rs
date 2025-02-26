@@ -98,18 +98,14 @@ async fn e2e() {
     // Stakechain preimages
     let sc_preimg = client.stake_chain_preimages();
     sc_preimg
-        .get_preimg(txid.clone(), 0, 0)
+        .get_preimg(txid, 0, 0)
         .await
         .expect("good response");
 
     // WOTS
     let wots = client.wots_signer();
-    wots.get_160_key(txid.clone(), 0, 0)
-        .await
-        .expect("good response");
-    wots.get_256_key(txid.clone(), 0, 0)
-        .await
-        .expect("good response");
+    wots.get_160_key(txid, 0, 0).await.expect("good response");
+    wots.get_256_key(txid, 0, 0).await.expect("good response");
 
     // Musig2
     let ms2_signer = client.musig2_signer();
@@ -122,28 +118,20 @@ async fn e2e() {
         })
         .collect::<Vec<_>>();
     let witness = TaprootWitness::Key;
-    let mut remote_first_round = ms2_signer
-        .new_session(
-            local_signers
-                .iter()
-                .map(|kp| kp.x_only_public_key().0)
-                .collect(),
-            witness.clone(),
-            txid,
-            0,
-        )
-        .await
-        .expect("good response")
-        .expect("valid keys");
-    let remote_public_key = ms2_signer.pubkey().await.expect("good response");
-    println!("remote pubkey: {remote_public_key:?}");
-
     let mut pubkeys = local_signers
         .iter()
         .map(|kp| kp.x_only_public_key().0)
         .collect::<Vec<_>>();
+    let remote_public_key = ms2_signer.pubkey().await.expect("good response");
     pubkeys.push(remote_public_key);
     pubkeys.sort();
+    let mut remote_first_round = ms2_signer
+        .new_session(pubkeys.clone(), witness.clone(), txid, 0)
+        .await
+        .expect("good response")
+        .expect("valid keys");
+    println!("remote pubkey: {remote_public_key:?}");
+
     let mut ctx = KeyAggContext::new(pubkeys.iter().map(|pk| pk.public_key(Parity::Even))).unwrap();
     match witness {
         TaprootWitness::Key => {
@@ -178,18 +166,17 @@ async fn e2e() {
     let remote_signer_index = pubkeys.binary_search(&remote_public_key).unwrap();
     let total_local_signers = local_first_rounds.len();
     for i in 0..total_local_signers {
-        let mut local_fr = local_first_rounds[i].borrow_mut();
+        let local_fr = &local_first_rounds[i];
+        let our_pub_nonce = local_fr.borrow().our_public_nonce();
         // send this signer's public nonce to secret service
         remote_first_round
-            .receive_pub_nonce(
-                local_signers[i].x_only_public_key().0,
-                local_fr.our_public_nonce(),
-            )
+            .receive_pub_nonce(local_signers[i].x_only_public_key().0, our_pub_nonce)
             .await
             .expect("good response")
             .expect("good nonce");
         // send secret service's pub nonce to this local signer
         local_fr
+            .borrow_mut()
             .receive_nonce(remote_signer_index, remote_pub_nonce.clone())
             .expect("our nonce to be good");
         // receive the other local pubnonces
@@ -200,6 +187,7 @@ async fn e2e() {
             println!("sharing pubnonce {j} -> {i}");
             let other = &local_first_rounds[j].borrow();
             local_fr
+                .borrow_mut()
                 .receive_nonce(
                     pubkeys
                         .binary_search(&local_signers[j].x_only_public_key().0)
@@ -239,15 +227,17 @@ async fn e2e() {
         .collect::<Vec<RefCell<_>>>();
     println!("pubkeys: {pubkeys:?}");
     for i in 0..total_local_signers {
-        let mut sr = local_second_rounds[i].borrow_mut();
+        let sr = &local_second_rounds[i];
+        let our_sig = sr.borrow().our_signature();
         // send secret service this signer's partial sig
         remote_second_round
-            .receive_signature(local_signers[i].x_only_public_key().0, sr.our_signature())
+            .receive_signature(local_signers[i].x_only_public_key().0, our_sig)
             .await
             .expect("good response")
             .expect("good sig");
         // give secret service's partial sig to this signer
-        sr.receive_signature(remote_signer_index, remote_partial_sig.clone())
+        sr.borrow_mut()
+            .receive_signature(remote_signer_index, remote_partial_sig)
             .expect("our partial sig to be good");
         // exchange partial sigs with the other local signers
         for j in 0..total_local_signers {
@@ -255,13 +245,14 @@ async fn e2e() {
                 continue;
             }
             let other = &local_second_rounds[j].borrow();
-            sr.receive_signature(
-                pubkeys
-                    .binary_search(&local_signers[j].x_only_public_key().0)
-                    .unwrap(),
-                other.our_signature::<PartialSignature>(),
-            )
-            .expect("other sig to be good");
+            sr.borrow_mut()
+                .receive_signature(
+                    pubkeys
+                        .binary_search(&local_signers[j].x_only_public_key().0)
+                        .unwrap(),
+                    other.our_signature::<PartialSignature>(),
+                )
+                .expect("other sig to be good");
         }
     }
     assert!(remote_second_round

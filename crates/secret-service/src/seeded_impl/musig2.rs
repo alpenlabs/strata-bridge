@@ -1,5 +1,7 @@
 //! In-memory persistence for MuSig2's secret data.
 
+use std::usize;
+
 use bitcoin::{
     bip32::{ChildNumber, Xpriv},
     hashes::Hash,
@@ -78,7 +80,7 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
                 .position(|pk| pk == &my_pub_key)
                 .ok_or(SignerIdxOutOfBounds {
                     index: usize::MAX,
-                    n_signers: pubkeys.len(),
+                    n_signers: usize::MAX,
                 })?;
         let mut ctx =
             KeyAggContext::new(pubkeys.iter().map(|pk| pk.public_key(Parity::Even))).unwrap();
