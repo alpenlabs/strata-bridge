@@ -74,11 +74,11 @@ impl PublicDb for SqliteDb {
             let result = sqlx::query_as!(
                 models::WotsPublicKey,
                 r#"SELECT
-                        public_keys as "public_keys: DbWotsPublicKeys",
-                        operator_id,
-                        deposit_txid AS "deposit_txid: DbTxid"
-                        FROM wots_public_keys
-                        WHERE operator_id = $1 AND deposit_txid = $2"#,
+                    public_keys as "public_keys: DbWotsPublicKeys",
+                    operator_id,
+                    deposit_txid AS "deposit_txid: DbTxid"
+                    FROM wots_public_keys
+                    WHERE operator_id = $1 AND deposit_txid = $2"#,
                 operator_id,
                 deposit_txid,
             )
@@ -105,8 +105,8 @@ impl PublicDb for SqliteDb {
 
             sqlx::query!(
                 "INSERT OR REPLACE INTO wots_public_keys
-                        (operator_id, deposit_txid, public_keys)
-                        VALUES ($1, $2, $3)",
+                    (operator_id, deposit_txid, public_keys)
+                    VALUES ($1, $2, $3)",
                 operator_id,
                 deposit_txid,
                 public_keys,
@@ -126,16 +126,16 @@ impl PublicDb for SqliteDb {
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-    ) -> DbResult<Option<wots::AssertSignatures>> {
+    ) -> DbResult<Option<wots::Signatures>> {
         execute_with_retries(self.config(), || async move {
             let deposit_txid = DbTxid::from(deposit_txid);
             let result = sqlx::query_as!(
                 models::WotsSignature,
                 r#"SELECT signatures AS "signatures: DbWotsSignatures",
-                        operator_id,
-                        deposit_txid AS "deposit_txid: DbTxid"
-                        FROM wots_signatures
-                        WHERE operator_id = $1 AND deposit_txid = $2"#,
+                    operator_id,
+                    deposit_txid AS "deposit_txid: DbTxid"
+                    FROM wots_signatures
+                    WHERE operator_id = $1 AND deposit_txid = $2"#,
                 operator_id,
                 deposit_txid,
             )
@@ -153,7 +153,7 @@ impl PublicDb for SqliteDb {
         &self,
         operator_id: u32,
         deposit_txid: Txid,
-        signatures: &wots::AssertSignatures,
+        signatures: &wots::Signatures,
     ) -> DbResult<()> {
         execute_with_retries(self.config(), || async {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
@@ -335,24 +335,6 @@ impl PublicDb for SqliteDb {
             .await
             .map_err(StorageError::from)?
             .map(|row| *row.stake_txid))
-        })
-        .await
-    }
-
-    async fn get_all_stake_txids(&self, operator_id: OperatorIdx) -> DbResult<Vec<Txid>> {
-        execute_with_retries(self.config(), || async {
-            Ok(sqlx::query!(
-                r#"SELECT stake_txid AS "stake_txid: DbTxid"
-                FROM operator_stake_txids
-                WHERE operator_id = $1"#,
-                operator_id
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .into_iter()
-            .map(|row| *row.stake_txid)
-            .collect())
         })
         .await
     }
@@ -1377,12 +1359,12 @@ where
         match operation().await {
             Ok(res) => return Ok(res),
             Err(err) if retries < config.max_retry_count() => {
-                warn!(msg = "operation failed, retrying", ?err, %retries);
+                warn!(msg = "operation failed, retrying", %err, %retries);
                 retries += 1;
                 tokio::time::sleep(config.backoff_period()).await;
             }
             Err(err) => {
-                error!(msg = "operation failed after retries", ?err, %retries);
+                error!(msg = "operation failed after retries", %err, %retries);
                 return Err(err)?;
             }
         }
@@ -1604,7 +1586,7 @@ mod tests {
         );
 
         let num_stake = OsRng.gen_range(3..10);
-        let withdrawal_fulfillment_pk = generate_wots_public_keys().withdrawal_fulfillment_pk;
+        let withdrawal_fulfillment_pk = generate_wots_public_keys().withdrawal_fulfillment;
 
         let operator_id: u32 = rand::thread_rng().gen();
         for stake_id in 0..num_stake {

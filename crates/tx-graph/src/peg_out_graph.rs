@@ -24,7 +24,10 @@ use crate::{
 /// The input data required to generate a peg-out graph.
 ///
 /// This data is shared between various operators and verifiers and is used to construct the peg out
-/// graph deterministically. This assumes that the WOTS public keys have already been shared.
+/// graph deterministically.
+///
+/// This assumes that the WOTS public keys for the claim/assertions/disprove have already been
+/// shared.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
     /// The [`OutPoint`] of the stake transaction
@@ -276,7 +279,7 @@ impl PegOutGraphConnectors {
         let kickoff = ConnectorK::new(
             n_of_n_agg_pubkey,
             network,
-            wots_public_keys.withdrawal_fulfillment_pk,
+            wots_public_keys.withdrawal_fulfillment,
         );
 
         let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network);
@@ -294,10 +297,10 @@ impl PegOutGraphConnectors {
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
         let post_assert_out_1 =
-            ConnectorA3::new(network, deposit_txid, wots_public_keys, n_of_n_agg_pubkey);
+            ConnectorA3::new(network, deposit_txid, n_of_n_agg_pubkey, wots_public_keys);
 
         let wots::PublicKeys {
-            withdrawal_fulfillment_pk: _,
+            withdrawal_fulfillment: _,
             groth16:
                 Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
         } = wots_public_keys;
@@ -358,7 +361,6 @@ mod tests {
         hashes::{self, Hash},
         key::TapTweak,
         policy::MAX_STANDARD_TX_WEIGHT,
-        psbt::PsbtSighashType,
         sighash::{Prevouts, SighashCache},
         taproot, transaction, Address, FeeRate, Network, OutPoint, TapSighashType, Transaction,
         TxOut,
@@ -377,10 +379,7 @@ mod tests {
             tx::{CHALLENGE_COST, DISPROVER_REWARD, NUM_SLASH_STAKE_TX, OPERATOR_STAKE},
         },
         scripts::taproot::{create_message_hash, TaprootWitness},
-        wots::{
-            Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures,
-            Wots256PublicKey,
-        },
+        wots::{Assertions, Wots256PublicKey, Wots256Signature},
     };
     use strata_bridge_stake_chain::prelude::{
         StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT,
@@ -429,7 +428,7 @@ mod tests {
             btc_client,
             &context,
             n_of_n_keypair,
-            wots_public_keys.withdrawal_fulfillment_pk,
+            wots_public_keys.withdrawal_fulfillment,
         );
         let (graph, connectors) = PegOutGraph::generate(
             input,
@@ -460,8 +459,13 @@ mod tests {
 
         let claim_input_amount = claim_tx.input_amount();
         let claim_cpfp_vout = claim_tx.cpfp_vout();
-        let signed_claim_tx =
-            claim_tx.finalize(deposit_txid, &kickoff, MSK, withdrawal_fulfillment_txid);
+
+        let claim_sig = Wots256Signature::new(
+            MSK,
+            deposit_txid,
+            withdrawal_fulfillment_txid.as_byte_array(),
+        );
+        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(
@@ -621,7 +625,7 @@ mod tests {
             btc_client,
             &context,
             n_of_n_keypair,
-            wots_public_keys.withdrawal_fulfillment_pk,
+            wots_public_keys.withdrawal_fulfillment,
         );
 
         let assertions = load_assertions();
@@ -754,7 +758,7 @@ mod tests {
             btc_client,
             &context,
             n_of_n_keypair,
-            public_keys.withdrawal_fulfillment_pk,
+            public_keys.withdrawal_fulfillment,
         );
 
         let mut faulty_assertions = load_assertions();
@@ -812,7 +816,7 @@ mod tests {
         .expect("must be able to parse assert data txs")
         .expect("must have assertion witness");
 
-        info!("extracting withdrawal fulfillment txid commitments from claim transactions");
+        info!("extracting withdrawal fulfillment txid commitment from claim transaction");
         let sig_withdrawal_fulfillment_txid = ClaimTx::parse_witness(&signed_claim_tx)
             .expect("must be able to parse claim witness")
             .expect("must have claim witness");
@@ -929,7 +933,7 @@ mod tests {
             .expect("deposit txout must be present");
 
         let public_db = PublicDbInMemory::default();
-        let wots_public_keys = WotsPublicKeys::new(MSK, deposit_txid);
+        let wots_public_keys = wots::PublicKeys::new(MSK, deposit_txid);
         public_db
             .set_wots_public_keys(0, deposit_txid, &wots_public_keys)
             .await
@@ -1185,8 +1189,13 @@ mod tests {
         let withdrawal_fulfillment_txid = generate_txid();
         let claim_input_amount = claim_tx.input_amount();
         let claim_cpfp_vout = claim_tx.cpfp_vout();
-        let signed_claim_tx =
-            claim_tx.finalize(deposit_txid, &kickoff, MSK, withdrawal_fulfillment_txid);
+
+        let claim_sig = Wots256Signature::new(
+            MSK,
+            deposit_txid,
+            withdrawal_fulfillment_txid.as_byte_array(),
+        );
+        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(
@@ -1344,17 +1353,14 @@ mod tests {
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine blocks");
 
-        let wots_signatures = WotsSignatures::new(MSK, deposit_txid, assertions);
+        let assert_sigs = wots::Signatures::new(MSK, deposit_txid, assertions);
         let assert_data_input_amounts = (0..assert_data.num_txs_in_batch())
             .map(|i| assert_data.total_input_amount(i).expect("input must exist"))
             .collect::<Vec<_>>();
         let assert_data_cpfp_vout = assert_data.cpfp_vout();
 
-        let signed_assert_data_txs = assert_data.finalize(
-            assert_data160_factory,
-            assert_data256_factory,
-            wots_signatures,
-        );
+        let signed_assert_data_txs =
+            assert_data.finalize(assert_data160_factory, assert_data256_factory, assert_sigs);
 
         assert_eq!(
             signed_assert_data_txs.len(),

@@ -138,7 +138,7 @@ impl AssertDataTxBatch {
             NUM_FIELD_CONNECTORS_BATCH_2,
             NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
         >,
-        signatures: wots::Signatures,
+        wots_signatures: wots::Signatures,
     ) -> [Transaction; NUM_ASSERT_DATA_TX] {
         let (connector160_batch1, connector160_batch2): (
             [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
@@ -151,8 +151,8 @@ impl AssertDataTxBatch {
         ) = connector_a256_factory.create_connectors();
 
         let signatures_256: [wots256::Signature; NUM_PKS_A256] = array::from_fn(|i| match i {
-            0 => signatures.groth16.0[0],
-            _ => signatures.groth16.1[i - 1],
+            0 => wots_signatures.groth16.0 .0[0],
+            _ => wots_signatures.groth16.1[i - 1],
         });
 
         connector256_batch1
@@ -203,7 +203,7 @@ impl AssertDataTxBatch {
 
                 conn.finalize_input(
                     input,
-                    signatures.groth16.2[start_index..end_index]
+                    wots_signatures.groth16.2[start_index..end_index]
                         .try_into()
                         .expect("must have NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1 signatures"),
                 );
@@ -222,7 +222,7 @@ impl AssertDataTxBatch {
 
                 conn.finalize_input(
                     input,
-                    signatures.groth16.2[start_index..end_index]
+                    wots_signatures.groth16.2[start_index..end_index]
                         .try_into()
                         .expect("must have NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2 signatures"),
                 );
@@ -309,9 +309,7 @@ mod tests {
 
     use bitcoin::{key::TapTweak, Address, Amount, Network, Witness};
     use rkyv::rancor::Error;
-    use strata_bridge_primitives::wots::{
-        Assertions as WotsAssertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures,
-    };
+    use strata_bridge_primitives::wots::Assertions as WotsAssertions;
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
     use wots::Groth16PublicKeys;
 
@@ -343,13 +341,10 @@ mod tests {
         let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2, connector_cpfp);
 
         let msk = "test-assert-data-parse-witnesses";
-        let wots_public_keys = WotsPublicKeys::new(msk, generate_txid());
+        let g16_pks = Groth16PublicKeys::new(msk, generate_txid());
 
-        let wots::PublicKeys {
-            withdrawal_fulfillment_pk: _,
-            groth16:
-                Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
-        } = wots_public_keys;
+        let Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)) =
+            g16_pks;
 
         let public_keys_256 = std::array::from_fn(|i| match i {
             0 => public_inputs_hash_public_key,
@@ -370,12 +365,12 @@ mod tests {
         let assertions = rkyv::from_bytes::<WotsAssertions, Error>(&assertions)
             .expect("assertion data must be valid");
         let deposit_txid = generate_txid();
-        let signatures = WotsSignatures::new(msk, deposit_txid, assertions);
+        let wots_signatures = wots::Signatures::new(msk, deposit_txid, assertions);
 
         let mut signed_assert_data_txs = assert_data_tx_batch.finalize(
             connector_a160_factory,
             connector_a256_factory,
-            signatures,
+            wots_signatures,
         );
 
         AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs)
