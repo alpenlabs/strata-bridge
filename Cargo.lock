@@ -8304,6 +8304,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-p2p-client"
+version = "0.1.0"
+
+[[package]]
 name = "strata-primitives"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata.git#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"

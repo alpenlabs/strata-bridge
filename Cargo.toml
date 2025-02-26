@@ -17,9 +17,10 @@ members = [
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
+  "bin/p2p-client",
 
   # test utilities
-  "crates/test-utils",
+  "crates/test-utils", "bin/p2p-client",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
