@@ -106,9 +106,7 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
     ///
     /// # Warning
     ///
-    /// `pubkeys` may or may not include our own pubkey and should be added if not
-    /// included by implementer. `pubkeys` may or may not be sorted, so should be sorted
-    /// deterministically (after addition of our own pubkey if required) before session creation.
+    /// `pubkeys` MUST include our own pubkey. The order of pubkeys will be untouched.
     fn new_session(
         &self,
         pubkeys: Vec<XOnlyPublicKey>,
