@@ -244,18 +244,18 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbWots256PublicKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct DbWotsSignatures(wots::Signatures);
+pub(super) struct DbWotsSignatures(wots::AssertSignatures);
 
 impl Deref for DbWotsSignatures {
-    type Target = wots::Signatures;
+    type Target = wots::AssertSignatures;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<wots::Signatures> for DbWotsSignatures {
-    fn from(value: wots::Signatures) -> Self {
+impl From<wots::AssertSignatures> for DbWotsSignatures {
+    fn from(value: wots::AssertSignatures) -> Self {
         Self(value)
     }
 }
@@ -269,7 +269,7 @@ impl sqlx::Type<Sqlite> for DbWotsSignatures {
 impl<'r> sqlx::Decode<'r, Sqlite> for DbWotsSignatures {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes: Vec<u8> = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
-        let signatures = rkyv::from_bytes::<wots::Signatures, RkyvError>(&bytes)
+        let signatures = rkyv::from_bytes::<wots::AssertSignatures, RkyvError>(&bytes)
             .map_err(|_| sqlx::Error::Decode("Failed to decode PublicKeys".into()))?;
 
         Ok(DbWotsSignatures(signatures))

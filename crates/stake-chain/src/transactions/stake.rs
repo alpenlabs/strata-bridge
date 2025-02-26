@@ -334,7 +334,6 @@ impl StakeTx {
         );
         finalize_input(
             self.psbt.inputs.get_mut(1).expect("must have second input"),
-            [stake_signature.to_vec()],
         );
 
         self.psbt
