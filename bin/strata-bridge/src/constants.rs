@@ -1,7 +1,10 @@
 pub(crate) const DEFAULT_RPC_HOST: &str = "127.0.0.1";
 pub(crate) const DEFAULT_RPC_PORT: u32 = 4781;
 
-pub(crate) const DUTY_QUEUE_SIZE: usize = 5; // probably overkill
+pub(crate) const DUTY_QUEUE_SIZE: usize = 100; // needed since the withdrawal duty never clears up
+                                               // in strata.
+                                               // TODO: adjust once fixed in strata or
+                                               // when the new duty tracker is merged, whichever happens first
 pub(crate) const DEPOSIT_QUEUE_MULTIPLIER: usize = 2;
 pub(crate) const COVENANT_QUEUE_MULTIPLIER: usize = 10;
 

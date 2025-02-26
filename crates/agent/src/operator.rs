@@ -26,7 +26,7 @@ use rand::Rng;
 use secp256k1::schnorr::Signature;
 use strata_bridge_connectors::{
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
-    prelude::{ConnectorA30Leaf, ConnectorCpfp, ConnectorP},
+    prelude::{ConnectorA30Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
 };
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
@@ -48,14 +48,19 @@ use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_bridge_proof_protocol::BridgeProofInput;
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_stake_chain::{
-    prelude::{PreStakeTx, StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    prelude::{PreStakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    stake_chain::StakeChainInputs,
     transactions::stake::StakeTxData,
+    StakeChain,
 };
 use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
-use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
+use strata_btcio::rpc::{
+    error::ClientError,
+    traits::{BroadcasterRpc, ReaderRpc, SignerRpc},
+};
 use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
@@ -79,7 +84,7 @@ use crate::{
 
 const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
-const STAKE_CHAIN_LENGTH: usize = 10;
+const STAKE_CHAIN_LENGTH: u32 = 10;
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -168,7 +173,15 @@ where
         match duty {
             BridgeDuty::SignDeposit(deposit_info) => {
                 let txid = deposit_info.deposit_request_outpoint().txid;
-                info!(event = "received deposit", %own_index, drt_txid = %txid);
+                info!(event = "received deposit duty", %own_index, drt_txid = %txid);
+
+                let data = deposit_info
+                    .construct_signing_data(&self.build_context)
+                    .unwrap(); // FIXME: Handle
+                let deposit_txid = data.psbt.unsigned_tx.compute_txid();
+
+                info!(action = "updating deposit table", %deposit_txid);
+                self.public_db.add_deposit_txid(deposit_txid).await.unwrap(); // FIXME: Handle me
 
                 self.handle_deposit(deposit_info).await;
             }
@@ -235,11 +248,9 @@ where
         }
 
         let mut deposit_tx = deposit_tx.unwrap();
-
         let deposit_txid = deposit_tx.psbt.unsigned_tx.compute_txid();
 
         info!(action = "retrieving stake chain information", %deposit_txid, %own_index);
-        self.public_db.add_deposit_txid(deposit_txid).await.unwrap(); // FIXME: Handle me
         let deposit_id = self
             .public_db
             .get_deposit_id(deposit_txid)
@@ -264,10 +275,10 @@ where
 
         info!(action = "generating wots public keys", %deposit_txid, %own_index);
         let mut public_keys = WotsPublicKeys::new(&self.msk, deposit_txid);
-        public_keys.withdrawal_fulfillment_pk = stake_data.withdrawal_fulfillment_pk;
+        public_keys.withdrawal_fulfillment = stake_data.withdrawal_fulfillment_pk;
 
         self.public_db
-            .set_wots_public_keys(self.build_context.own_index(), deposit_txid, &public_keys)
+            .set_wots_public_keys(own_index, deposit_txid, &public_keys)
             .await
             .unwrap(); // FIXME: Handle me
 
@@ -706,6 +717,10 @@ where
             .get_aggregated_nonce(payout_tx.compute_txid(), 1)
             .await
             .expect("payout nonce 1 must exist");
+        let payout_agg_nonce_2 = self
+            .get_aggregated_nonce(payout_tx.compute_txid(), 2)
+            .await
+            .expect("payout nonce 2 must exist");
 
         let agg_nonces = AggNonces {
             pre_assert: pre_assert_agg_nonce,
@@ -713,6 +728,7 @@ where
             disprove: disprove_agg_nonce,
             payout_0: payout_agg_nonce_0,
             payout_1: payout_agg_nonce_1,
+            payout_2: payout_agg_nonce_2,
         };
 
         // 3. Generate own signatures
@@ -780,7 +796,11 @@ where
             &key_agg_ctx,
             all_inputs,
             payout_tx,
-            &[agg_nonces.payout_0, agg_nonces.payout_1],
+            &[
+                agg_nonces.payout_0,
+                agg_nonces.payout_1,
+                agg_nonces.payout_2,
+            ],
         )
         .await;
         debug!(event = "computed aggregate signature for payout", deposit_txid = %deposit_txid, %own_index);
@@ -848,7 +868,11 @@ where
                 own_index,
                 operator_index,
                 payout_tx,
-                &[agg_nonces.payout_0, agg_nonces.payout_1],
+                &[
+                    agg_nonces.payout_0,
+                    agg_nonces.payout_1,
+                    agg_nonces.payout_2,
+                ],
             )
             .await;
 
@@ -1520,7 +1544,6 @@ where
 
         // 2. create tx graph from public data
         info!(action = "retrieving stake chain information", %deposit_txid, %own_index);
-        self.public_db.add_deposit_txid(deposit_txid).await.unwrap(); // FIXME: Handle me
         let deposit_id = self
             .public_db
             .get_deposit_id(deposit_txid)
@@ -1543,20 +1566,12 @@ where
             .unwrap(); // FIXME:
                        // Handle me
 
-        info!(action = "generating wots public keys", %deposit_txid, %own_index);
-        let mut public_keys = WotsPublicKeys::new(&self.msk, deposit_txid);
-        public_keys.withdrawal_fulfillment_pk = stake_data.withdrawal_fulfillment_pk;
-
-        self.public_db
-            .set_wots_public_keys(self.build_context.own_index(), deposit_txid, &public_keys)
-            .await
-            .unwrap(); // FIXME: Handle me
-
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
         let peg_out_graph_input = PegOutGraphInput {
             deposit_amount: BRIDGE_DENOMINATION,
             operator_pubkey: own_pubkey,
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT,
+            // *2 for the two dust outputs in each stake transaction
+            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
             stake_outpoint: OutPoint {
                 txid: stake_txid,
                 vout: STAKE_VOUT,
@@ -1585,9 +1600,9 @@ where
         .await
         .expect("should be able to generate tx graph");
 
-        self.register_graph(&peg_out_graph, own_index, deposit_txid)
-            .await
-            .expect("should be able to register graph");
+        // self.register_graph(&peg_out_graph, own_index, deposit_txid)
+        //     .await
+        //     .expect("should be able to register graph");
 
         let PegOutGraph {
             claim_tx,
@@ -1595,9 +1610,16 @@ where
             payout_tx,
             ..
         } = peg_out_graph;
-        // 3. publish kickoff -> claim
-        self.broadcast_claim(&connectors, own_index, deposit_txid, claim_tx, &mut status)
-            .await;
+        // 3. publish stake -> claim
+        self.broadcast_claim(
+            &connectors,
+            own_index,
+            deposit_txid,
+            claim_tx,
+            deposit_id,
+            &mut status,
+        )
+        .await;
 
         let AssertChain {
             pre_assert,
@@ -1683,7 +1705,7 @@ where
                 if let Some((tapleaf_index, _witness_script)) = g16::verify_signed_assertions(
                     bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                     *public_keys.groth16,
-                    assert_data_signatures.groth16,
+                    *assert_data_signatures.groth16,
                     &complete_disprove_scripts,
                 ) {
                     error!(event = "assertions verification failed", %tapleaf_index, %own_index);
@@ -1771,8 +1793,7 @@ where
         if status.should_post_assert() {
             let post_assert_txid = post_assert.compute_txid();
             let mut signatures = Vec::new();
-            // num_assert_data_tx + 1 for stake
-            for input_index in 0..=NUM_ASSERT_DATA_TX {
+            for input_index in 0..NUM_ASSERT_DATA_TX {
                 let n_of_n_sig = self
                     .public_db
                     .get_signature(own_index, post_assert_txid, input_index as u32)
@@ -1871,7 +1892,7 @@ where
                     // clause
                 }
                 Err(err) => {
-                    if !err.is_missing_or_invalid_input() {
+                    if matches!(err, ClientError::Server(-26, _)) {
                         warn!(msg = "unable to get reimbursement", %err, %deposit_txid, %own_index);
                         return; // try again later
                     }
@@ -1898,15 +1919,19 @@ where
         own_index: u32,
         deposit_txid: Txid,
         claim_tx: ClaimTx,
+        stake_id: u32,
         status: &mut WithdrawalStatus,
     ) {
         if let Some(withdrawal_fulfillment_txid) = status.should_claim() {
-            let claim_tx_with_commitment = claim_tx.finalize(
-                deposit_txid,
-                &connectors.kickoff,
+            info!(action = "broadcasting required stake txs", %deposit_txid, %own_index);
+            let _stake_tx = self.broadcast_stake_chain(deposit_txid).await;
+
+            let claim_commitment = self.agent.generate_withdrawal_fulfillment_signature(
                 &self.msk,
+                stake_id,
                 withdrawal_fulfillment_txid,
             );
+            let claim_tx_with_commitment = claim_tx.finalize(*claim_commitment, connectors.kickoff);
 
             let raw_claim_tx: String = consensus::encode::serialize_hex(&claim_tx_with_commitment);
             trace!(event = "finalized claim tx", %deposit_txid, ?claim_tx_with_commitment, %raw_claim_tx, %own_index);
@@ -2192,7 +2217,7 @@ where
         }
 
         Assertions {
-            bridge_out_txid: public_output.withdrawal_fulfillment_txid.0,
+            withdrawal_fulfillment: public_output.withdrawal_fulfillment_txid.0,
             groth16: g16::generate_proof_assertions(
                 bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,
@@ -2234,8 +2259,27 @@ where
         Ok(())
     }
 
-    async fn create_stake_chain(&self, stake_chain_length: usize) {
+    async fn create_stake_chain(&self, stake_chain_length: u32) {
         let own_index = self.build_context.own_index();
+
+        info!(action = "checking if stake chain data exists", %own_index);
+        let pre_stake = self.public_db.get_pre_stake(own_index).await.unwrap();
+        if pre_stake.is_some() {
+            // FIXME: needs logic for the case where some intermediate values are missing.
+            // for now, this just checks if the last one is present.
+            info!(action = "pre-stake data present, checking for stake chain", %own_index);
+            if self
+                .public_db
+                .get_stake_txid(own_index, stake_chain_length - 1)
+                .await
+                .unwrap()
+                .is_some()
+            {
+                info!(action = "stake chain present, skipping rebuild", %own_index);
+
+                return;
+            }
+        }
 
         let connector_cpfp = ConnectorCpfp::new(
             self.agent.public_key().x_only_public_key().0,
@@ -2319,26 +2363,7 @@ where
         info!(event = "broadcasted funding transaction", %own_index, txid=%signed_funding_tx.compute_txid());
 
         let funding_txid = signed_funding_tx.compute_txid();
-
         let pre_stake_txid = pre_stake_tx.compute_txid();
-
-        let stake_chain_params = StakeChainParams::default();
-        let preimage = self.agent.generate_preimage(
-            &self.msk,
-            pre_stake_txid.to_raw_hash().as_byte_array().to_vec(),
-        );
-        let hash = hashes::sha256::Hash::hash(&preimage);
-        let withdrawal_fulfillment_pk = self.agent.generate_wots256_pk(&self.msk, pre_stake_txid);
-
-        let operator_funds_outpoint = OutPoint {
-            txid: funding_txid,
-            vout: 0,
-        };
-        let mut stake_tx_data = StakeTxData {
-            operator_funds: operator_funds_outpoint,
-            hash,
-            withdrawal_fulfillment_pk,
-        };
 
         let pre_stake_outpoint = OutPoint {
             txid: pre_stake_txid,
@@ -2349,67 +2374,232 @@ where
             .await
             .unwrap();
 
-        let stake_tx = StakeTx::create_initial(
-            &self.build_context,
-            stake_chain_params,
-            hash,
-            withdrawal_fulfillment_pk,
-            pre_stake_outpoint,
-            operator_funds_outpoint,
-            operator_pubkey,
-            connector_cpfp,
-        );
-        let mut stake_txid = stake_tx.compute_txid();
-        self.public_db
-            .add_stake_txid(own_index, stake_txid)
+        if self
+            .public_db
+            .get_stake_txid(own_index, stake_chain_length - 1)
             .await
-            .unwrap();
-        self.public_db
-            .add_stake_data(own_index, stake_tx_data)
-            .await
-            .unwrap();
+            .unwrap()
+            .is_some()
+        {
+            info!(action = "stake chain present, skipping rebuild", %own_index);
+            return;
+        }
 
-        for i in 1..stake_chain_length {
-            let preimage = self
-                .agent
-                .generate_preimage(&self.msk, stake_txid.to_raw_hash().as_byte_array().to_vec());
+        info!(action = "creating stake chain", length = %stake_chain_length, %own_index);
+
+        let mut stake_inputs = Vec::with_capacity(stake_chain_length as usize);
+        for i in 0..stake_chain_length {
+            let preimage = self.agent.generate_preimage(&self.msk, i);
             let hash = hashes::sha256::Hash::hash(&preimage);
-            let withdrawal_fulfillment_pk = self.agent.generate_wots256_pk(&self.msk, stake_txid);
 
-            let new_stake_tx_data = StakeTxData {
+            let withdrawal_fulfillment_pk =
+                self.agent.generate_withdrawal_fulfillment_pk(&self.msk, i);
+
+            let stake_tx_data = StakeTxData {
                 operator_funds: OutPoint {
                     txid: funding_txid,
-                    vout: i as u32,
+                    vout: i,
                 },
                 hash,
                 withdrawal_fulfillment_pk,
             };
 
-            let stake_tx = StakeTx::advance(
-                &self.build_context,
-                stake_chain_params,
-                new_stake_tx_data,
-                stake_tx_data.hash,
-                OutPoint {
-                    txid: stake_txid,
-                    vout: STAKE_VOUT,
-                },
-                operator_pubkey,
-                connector_cpfp,
-            );
-
-            stake_tx_data = new_stake_tx_data;
-            stake_txid = stake_tx.compute_txid();
-
-            self.public_db
-                .add_stake_txid(own_index, stake_txid)
-                .await
-                .unwrap();
+            info!(action = "adding stake data to db", %own_index, index = %i);
             self.public_db
                 .add_stake_data(own_index, stake_tx_data)
                 .await
                 .unwrap();
+
+            stake_inputs.push(stake_tx_data);
         }
+
+        let stake_chain_params = StakeChainParams::default();
+        let stake_chain_inputs = StakeChainInputs {
+            operator_pubkey,
+            stake_inputs,
+            pre_stake_outpoint,
+            params: stake_chain_params,
+        };
+
+        let stake_chain = StakeChain::new(&self.build_context, &stake_chain_inputs, connector_cpfp);
+
+        for (index, stake_txid) in stake_chain
+            .iter()
+            .map(|stake_tx| stake_tx.compute_txid())
+            .enumerate()
+        {
+            info!(event = "adding stake txid to db", %own_index, %stake_txid, %index);
+            self.public_db
+                .add_stake_txid(own_index, stake_txid)
+                .await
+                .unwrap()
+        }
+    }
+
+    /// Broadcasts the required stake transactions and returns the stake transaction
+    /// corresponding to the deposit txid that can be spent by the claim transaction.
+    async fn broadcast_stake_chain(&self, deposit_txid: Txid) -> Transaction {
+        let own_index = self.build_context.own_index();
+        info!(action = "retrieving stake id from db", %own_index, %deposit_txid);
+        let stake_id = self
+            .public_db
+            .get_deposit_id(deposit_txid)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME: Handle
+                       // me
+
+        info!(action = "retrieving pre-stake from db", %own_index, %deposit_txid, %stake_id);
+        let pre_stake = self
+            .public_db
+            .get_pre_stake(own_index)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME: Handle
+                       // me
+
+        let n_of_n_agg_pubkey = self.build_context.aggregated_pubkey();
+        let operator_pubkey = self.agent.public_key().x_only_public_key().0;
+        let operator_address = self.agent.taproot_address(self.build_context.network());
+
+        let num_stake_txs = stake_id as usize + 1;
+        let mut stake_inputs = Vec::with_capacity(num_stake_txs);
+        for i in 0..num_stake_txs {
+            let stake_data = self
+                .public_db
+                .get_stake_data(own_index, i as u32)
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:
+                           // Handle me
+
+            stake_inputs.push(stake_data);
+        }
+
+        let params = StakeChainParams::default();
+        let stake_chain_inputs = StakeChainInputs {
+            operator_pubkey,
+            pre_stake_outpoint: pre_stake,
+            stake_inputs: stake_inputs.clone(),
+            params,
+        };
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, self.build_context.network());
+        let stake_chain = StakeChain::new(&self.build_context, &stake_chain_inputs, connector_cpfp);
+
+        // Broadcast all stake transactions.
+        // This is a dumb approach in that it does not check if a stake transaction was previously
+        // broadcasted.
+        // FIXME: use `getrawtransaction` to check if a transaction is broadcasted and also how long
+        // to wait before broadcasting the next one.
+
+        // first, broadcast the first stake transaction.
+        let first_stake_tx = stake_chain.first().unwrap().clone();
+        let prevouts = vec![
+            TxOut {
+                script_pubkey: operator_address.script_pubkey(),
+                value: OPERATOR_FUNDS,
+            },
+            TxOut {
+                script_pubkey: operator_address.script_pubkey(),
+                value: OPERATOR_STAKE,
+            },
+        ];
+        let first_stake_raw_tx = first_stake_tx.psbt.unsigned_tx.clone();
+        let first_funds_sig = self
+            .agent
+            .sign(&first_stake_raw_tx, &prevouts, 0, None, None);
+        let first_stake_sig = self
+            .agent
+            .sign(&first_stake_raw_tx, &prevouts, 1, None, None);
+
+        let mut signed_stake_tx = first_stake_tx.finalize_initial(first_funds_sig, first_stake_sig);
+
+        let mut stake_txid = signed_stake_tx.compute_txid();
+        let vsize = signed_stake_tx.vsize();
+        let weight = signed_stake_tx.weight();
+        match self
+            .agent
+            .btc_client
+            .send_raw_transaction(&signed_stake_tx)
+            .await
+        {
+            Ok(txid) => {
+                info!(event = "broadcasted first stake tx", %txid, %own_index);
+            }
+            Err(e) if matches!(e, ClientError::Server(-25, _)) => {
+                warn!(event = "stake tx already broadcasted", stake_index = 0, %e, %vsize, %weight, %stake_txid, %own_index);
+            }
+            Err(e) => {
+                unreachable!(
+                    "operator {own_index} must be able to broadcast first stake tx but encountered: {}",
+                    e
+                );
+            }
+        };
+
+        for (stake_index, stake_tx) in stake_chain.into_iter().enumerate().skip(1) {
+            let prevouts = stake_tx
+                .psbt
+                .inputs
+                .iter()
+                .filter_map(|input| input.witness_utxo.clone())
+                .collect::<Vec<_>>();
+
+            let raw_tx = &stake_tx.psbt.unsigned_tx;
+            let funds_sig =
+                self.agent
+                    .sign(raw_tx, &prevouts, 0, Some(&stake_tx.witnesses()[0]), None);
+            let stake_sig =
+                self.agent
+                    .sign(raw_tx, &prevouts, 1, Some(&stake_tx.witnesses()[1]), None);
+            let prev_preimage = self
+                .agent
+                .generate_preimage(&self.msk, stake_index as u32 - 1);
+            let computed_hash = hashes::sha256::Hash::hash(&prev_preimage);
+            let prev_stake_hash = stake_inputs[stake_index - 1].hash;
+            assert!(
+                computed_hash == prev_stake_hash,
+                "stake hash in db must match hash of computed preimage"
+            );
+
+            let prev_connector_s = ConnectorStake::new(
+                n_of_n_agg_pubkey,
+                operator_pubkey,
+                prev_stake_hash,
+                params.delta,
+                self.build_context.network(),
+            );
+
+            signed_stake_tx =
+                stake_tx.finalize(&prev_preimage, funds_sig, stake_sig, prev_connector_s);
+            stake_txid = signed_stake_tx.compute_txid();
+
+            let vsize = signed_stake_tx.vsize();
+            let weight = signed_stake_tx.weight();
+
+            let timelock = Duration::from_secs(params.delta.to_consensus_u32().into());
+            match self
+                .agent
+                .wait_and_broadcast(&signed_stake_tx, timelock)
+                .await
+            {
+                Ok(txid) => {
+                    info!(event = "broadcasted stake tx", %txid, %stake_index, %vsize, %weight, %own_index);
+                }
+                Err(e) if matches!(e, ClientError::Server(-25, _)) => {
+                    warn!(event = "stake tx already broadcasted", %stake_index, %e, %vsize, %weight, %stake_txid, %own_index);
+                }
+                Err(e) => {
+                    unreachable!(
+                        "operator {own_index} must be able to broadcast stake tx {stake_index} but encountered {}",
+                        e,
+                    );
+                }
+            }
+        }
+
+        signed_stake_tx
     }
 }
 

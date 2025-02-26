@@ -141,8 +141,8 @@ where
         let mut assert_data_txs = Vec::new();
 
         // skip the first input i.e., the stake
-        for txin in post_assert_tx.input.iter().skip(1) {
-            let txid = &txin.previous_output.txid;
+        for txin in post_assert_tx.input.iter() {
+            let txid = txin.previous_output.txid;
 
             let tx = self
                 .db
@@ -166,14 +166,14 @@ where
 
         let pre_assert_tx = self
             .db
-            .get_relevant_tx(&assert_data_txs[0].input[0].previous_output.txid)
+            .get_relevant_tx(assert_data_txs[0].input[0].previous_output.txid)
             .await
             .unwrap() // FIXME: Handle me
             .expect("pre-assert tx must exist");
 
         let claim_tx = self
             .db
-            .get_relevant_tx(&pre_assert_tx.input[0].previous_output.txid)
+            .get_relevant_tx(pre_assert_tx.input[0].previous_output.txid)
             .await
             .unwrap() // FIXME: Handle me
             .expect("claim tx must exist");

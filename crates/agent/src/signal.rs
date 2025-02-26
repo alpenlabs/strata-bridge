@@ -110,4 +110,5 @@ pub struct AggNonces {
     pub disprove: AggNonce,
     pub payout_0: AggNonce,
     pub payout_1: AggNonce,
+    pub payout_2: AggNonce,
 }
