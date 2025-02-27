@@ -1,6 +1,7 @@
 use bitcoin::Txid;
-use bitvm::signatures::wots_api::wots256;
 use sha2::Digest;
+
+use crate::wots_api::wots256;
 
 pub fn get_deposit_master_secret_key(msk: &str, deposit_txid: Txid) -> String {
     format!("{}:{}", msk, deposit_txid)

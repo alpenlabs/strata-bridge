@@ -4,12 +4,13 @@ use bitcoin::{
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, Txid,
 };
-use bitvm::{
-    signatures::wots_api::{wots256, SignatureImpl},
-    treepp::*,
-};
+use bitvm::treepp::*;
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_primitives::{scripts::prelude::*, wots};
+use strata_bridge_primitives::{
+    scripts::prelude::*,
+    wots,
+    wots_api::{wots256, SignatureImpl},
+};
 
 /// Connector between the Kickoff and Claim transactions.
 ///

@@ -94,6 +94,7 @@ musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
 ] } # can't be updated without updating bitcoin
+paste = "1.0.15"
 rand = "0.8.5"
 reqwest = { version = "0.12.12", default-features = false, features = [
   "http2",

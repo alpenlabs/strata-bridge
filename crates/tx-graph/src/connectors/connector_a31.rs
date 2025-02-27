@@ -9,12 +9,12 @@ use bitvm::{
     groth16::g16::{self, N_TAPLEAVES},
     hash::sha256_u4_stack::sha256_script,
     pseudo::NMUL,
-    signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
 };
 use strata_bridge_primitives::{
     scripts::prelude::*,
     wots::{self, Groth16PublicKeys},
+    wots_api::{wots256, SignatureImpl},
 };
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;

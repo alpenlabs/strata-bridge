@@ -1,6 +1,7 @@
 use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
-use bitvm::signatures::wots_api::wots256;
-use strata_bridge_primitives::{params::prelude::OPERATOR_STAKE, scripts::prelude::*};
+use strata_bridge_primitives::{
+    params::prelude::OPERATOR_STAKE, scripts::prelude::*, wots_api::wots256,
+};
 
 use super::{
     errors::{TxError, TxResult},

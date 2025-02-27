@@ -1,16 +1,17 @@
 use std::ops::{Deref, DerefMut};
 
 use bitcoin::Txid;
-use bitvm::{
-    groth16::g16::{self},
-    signatures::wots_api::{wots160, wots256},
-};
+use bitvm::groth16::g16::{self};
 
-use crate::scripts::{
-    commitments::{
-        get_deposit_master_secret_key, secret_key_for_bridge_out_txid, secret_key_for_proof_element,
+use crate::{
+    scripts::{
+        commitments::{
+            get_deposit_master_secret_key, secret_key_for_bridge_out_txid,
+            secret_key_for_proof_element,
+        },
+        prelude::secret_key_for_public_inputs_hash,
     },
-    prelude::secret_key_for_public_inputs_hash,
+    wots_api::{wots160, wots256},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
