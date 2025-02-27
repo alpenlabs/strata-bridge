@@ -1,11 +1,12 @@
 use std::array;
 
 use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
-use bitvm::{groth16::g16, signatures::wots_api::wots256, treepp::*};
+use bitvm::{groth16::g16, treepp::*};
 use strata_bridge_primitives::{
     params::prelude::*,
     scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
     wots,
+    wots_api::wots256,
 };
 
 use super::{

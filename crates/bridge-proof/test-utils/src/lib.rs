@@ -1,5 +1,9 @@
-/// Test data module for loading Bitcoin blocks, headers, chain state, and specific
-/// transactions.
+//! Test data module for loading Bitcoin blocks, headers, chain state, and specific
+//! transactions.
+
+#![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
+#![feature(generic_const_exprs)] // but necessary for using const generic bounds in
+
 use std::fs;
 
 use bitcoin::{block::Header, Block};

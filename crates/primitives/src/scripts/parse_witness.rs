@@ -1,12 +1,9 @@
-use bitvm::{
-    groth16::g16,
-    signatures::wots_api::{wots160, wots256},
-    treepp::*,
-};
+use bitvm::{groth16::g16, treepp::*};
 
 use crate::{
     errors::{ParseError, ParseResult},
     params::connectors::*,
+    wots_api::{wots160, wots256},
 };
 
 pub fn parse_wots160_signatures<const N_SIGS: usize>(
@@ -94,12 +91,10 @@ pub fn parse_assertion_witnesses(
 
 #[cfg(test)]
 mod tests {
-    use bitvm::{
-        signatures::wots_api::{wots160, wots256, SignatureImpl},
-        treepp::*,
-    };
+    use bitvm::treepp::*;
 
     use super::*;
+    use crate::wots_api::{wots160, wots256, SignatureImpl};
 
     fn create_message<const N_BYTES: usize>(i: usize) -> [u8; N_BYTES] {
         [i as u8; N_BYTES]

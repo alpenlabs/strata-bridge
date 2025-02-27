@@ -8,6 +8,9 @@
 //! - Validate checkpoints for the Strata rollup via zero-knowledge proofs.
 //! - Prove deposits, claims, and withdrawals between Bitcoin and the Strata rollup.
 
+#![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
+#![feature(generic_const_exprs)] // but necessary for using const generic bounds in
+
 mod error;
 mod prover;
 mod statement;

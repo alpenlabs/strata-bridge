@@ -20,6 +20,7 @@ pub mod scripts;
 pub mod types;
 pub mod withdrawal;
 pub mod wots;
+pub mod wots_api;
 
 #[cfg(test)]
 mod test_utils;

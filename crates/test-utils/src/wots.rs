@@ -1,11 +1,11 @@
 //! Test module related to `wots` keys and signatures.
 
 use bitcoin::key::rand::{rngs::OsRng, Rng, RngCore};
-use bitvm::{
-    groth16::g16::{N_VERIFIER_FQS, N_VERIFIER_HASHES, N_VERIFIER_PUBLIC_INPUTS},
-    signatures::wots_api::{wots160, wots256},
+use bitvm::groth16::g16::{N_VERIFIER_FQS, N_VERIFIER_HASHES, N_VERIFIER_PUBLIC_INPUTS};
+use strata_bridge_primitives::{
+    wots::{self, Groth16PublicKeys, Wots256PublicKey},
+    wots_api::{wots160, wots256},
 };
-use strata_bridge_primitives::wots::{self, Groth16PublicKeys, Wots256PublicKey};
 
 pub fn generate_wots_signatures() -> wots::Signatures {
     let wots256_signature: wots256::Signature = generate_byte_tuple_array(&mut OsRng);

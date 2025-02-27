@@ -129,13 +129,11 @@ mod tests {
         hashes::{self, Hash},
         hex::DisplayHex,
     };
-    use bitvm::{
-        signatures::wots_api::{wots160, wots256},
-        treepp::*,
-    };
+    use bitvm::treepp::*;
     use secp256k1::rand::{rngs::OsRng, Rng};
 
     use super::*;
+    use crate::wots_api::{wots160, wots256};
 
     #[test]
     fn test_flip_bytes_nibbles() {
