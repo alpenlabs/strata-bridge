@@ -26,6 +26,11 @@ jobs:
         with:
           toolchain: nightly-2024-11-01
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: taiki-e/install-action@cargo-hack
 
       - uses: Swatinem/rust-cache@v2
