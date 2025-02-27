@@ -1,9 +1,8 @@
 //! The p2p-client binary main entry point.
-#![expect(incomplete_features)] // the generic_const_exprs feature is incomplete
-#![feature(generic_const_exprs)] // but necessary for using const generic bounds in p2p crate
 
 use clap::Parser;
 use cli::Cli;
+use message_handler::MessageHandler;
 use strata_common::logging::{self, LoggerConfig};
 use tokio::runtime;
 use tracing::{info, trace};
@@ -13,10 +12,11 @@ use crate::bootstrap::bootstrap;
 mod bootstrap;
 mod cli;
 mod constants;
+mod message_handler;
 
 /// Main function for the p2p-client binary.
-fn main() {
-    logging::init(LoggerConfig::new("bridge-node".to_string()));
+fn main() -> anyhow::Result<()> {
+    logging::init(LoggerConfig::new("p2p-node".to_string()));
 
     let cli_args: Cli = Cli::parse();
 
@@ -32,6 +32,25 @@ fn main() {
         .expect("must be able to create runtime");
 
     runtime.block_on(async {
-        bootstrap(cli_args).await;
+        let (handle, cancel) = bootstrap(cli_args.clone())
+            .await
+            .expect("Failed to bootstrap");
+
+        // Generate a keypair for signing messages
+        let keypair = cli_args
+            .extract_config()
+            .expect("must be able to extract config")
+            .keypair;
+
+        // Create a message handler
+        let mut handler = MessageHandler::new(handle, keypair);
+
+        // Listen for events
+        handler.listen_for_events().await;
+
+        // Wait for cancellation
+        cancel.cancelled().await;
     });
+
+    Ok(())
 }
