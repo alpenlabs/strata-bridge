@@ -1649,7 +1649,7 @@ dependencies = [
  "bitflags 2.6.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -7103,8 +7103,8 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0f3e5beed80eb580c68e2c600937ac2c4eedabdfd5ef1e5b7ea4f3fba84497b"
 dependencies = [
- "heck 0.4.1",
- "itertools 0.12.1",
+ "heck 0.5.0",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -7124,7 +7124,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157c5a9d7ea5c2ed2d9fb8f495b64759f7816c7eaea54ba3978f0d63000162e3"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.95",
@@ -9833,7 +9833,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#b50ca05d6d24367651e2df4cb92c317b8517c25e"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -9856,15 +9856,21 @@ dependencies = [
 name = "strata-p2p-client"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "strata-common",
  "strata-p2p",
  "strata-p2p-types",
  "strata-p2p-wire",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
 name = "strata-p2p-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#b50ca05d6d24367651e2df4cb92c317b8517c25e"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -9884,7 +9890,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#b50ca05d6d24367651e2df4cb92c317b8517c25e"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "bitcoin",
  "hex",
@@ -9895,7 +9901,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#b50ca05d6d24367651e2df4cb92c317b8517c25e"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "bitcoin",
  "musig2",

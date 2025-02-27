@@ -14,3 +14,11 @@ rust.unused_must_use = "deny"
 strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 strata-p2p-wire.workspace = true
+
+strata-common.workspace = true
+
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
