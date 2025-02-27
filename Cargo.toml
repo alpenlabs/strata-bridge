@@ -12,12 +12,12 @@ members = [
   "crates/tx-graph",
   "crates/btc-notify",
   "bridge-guest-builder",
-  "crates/secret-service",
   "crates/secret-service-proto",
   "crates/secret-service-client",
   "crates/secret-service-server",
 
   # binaries listed separately
+  "bin/secret-service",
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",

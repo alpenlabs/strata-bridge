@@ -12,8 +12,8 @@ musig2.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"
 rustls-pemfile = "2.2.0"
-secret-service-proto = { version = "0.1.0", path = "../secret-service-proto" }
-secret-service-server = { version = "0.1.0", path = "../secret-service-server" }
+secret-service-proto = { version = "0.1.0", path = "../../crates/secret-service-proto" }
+secret-service-server = { version = "0.1.0", path = "../../crates/secret-service-server" }
 serde.workspace = true
 sha2.workspace = true
 strata-bridge-primitives.workspace = true
@@ -26,7 +26,7 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 rcgen = "0.13.2"
-secret-service-client = { path = "../secret-service-client" }
+secret-service-client = { path = "../../crates/secret-service-client" }
 
 [lints]
 rust.missing_debug_implementations = "warn"
