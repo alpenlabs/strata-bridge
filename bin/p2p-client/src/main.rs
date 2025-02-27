@@ -13,6 +13,8 @@ mod bootstrap;
 mod cli;
 mod constants;
 mod message_handler;
+#[cfg(test)]
+mod test;
 
 /// Main function for the p2p-client binary.
 fn main() -> anyhow::Result<()> {
