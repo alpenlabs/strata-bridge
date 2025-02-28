@@ -6,8 +6,11 @@ use bitcoin::{
     absolute::LockTime,
     consensus,
     hashes::Hash,
-    key::rand::{rngs::OsRng, Rng},
-    secp256k1::{schnorr::Signature, Keypair, XOnlyPublicKey, SECP256K1},
+    key::{
+        rand::{rngs::OsRng, thread_rng, Rng},
+        Parity,
+    },
+    secp256k1::{schnorr::Signature, Keypair, SecretKey, XOnlyPublicKey, SECP256K1},
     sighash::{Prevouts, SighashCache},
     transaction::Version,
     Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
@@ -57,8 +60,16 @@ pub fn generate_signature() -> Signature {
     Signature::from_slice(&sig).expect("should be able to generate arbitrary signature")
 }
 
+/// Generates a [`Keypair`] that is always guaranteed to have an even X-only public key.
 pub fn generate_keypair() -> Keypair {
-    Keypair::new(SECP256K1, &mut OsRng)
+    let mut rng = thread_rng();
+    let sk = SecretKey::new(&mut rng);
+    if sk.x_only_public_key(SECP256K1).1 == Parity::Odd {
+        let negated_sk = sk.negate();
+        Keypair::from_secret_key(SECP256K1, &negated_sk)
+    } else {
+        Keypair::from_secret_key(SECP256K1, &sk)
+    }
 }
 
 pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
