@@ -107,6 +107,7 @@ futures = "0.3.31"
 hex = { version = "0.4.3", features = ["serde"] }
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"
+kanal = "0.1.0-pre8"
 libp2p = { version = "0.54.1", features = [
   "noise",
   "gossipsub",
@@ -124,7 +125,6 @@ libp2p-identity = { version = "0.2.10", default-features = false, features = [
   "peerid",
   "rand",
 ] }
-kanal = "0.1.0-pre8"
 musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
