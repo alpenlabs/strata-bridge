@@ -1,0 +1,21 @@
+[package]
+name = "secret-service-proto"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin.workspace = true
+musig2.workspace = true
+quinn.workspace = true
+rkyv.workspace = true
+strata-bridge-primitives.workspace = true
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.unsafe_op_in_unsafe_fn = "warn"
+rust.missing_docs = "warn"
+rustdoc.all = "warn"

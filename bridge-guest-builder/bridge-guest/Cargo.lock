@@ -1101,7 +1101,7 @@ dependencies = [
 [[package]]
 name = "strata-bridge-tx-builder"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "musig2",
@@ -1113,7 +1113,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -1123,7 +1123,7 @@ dependencies = [
 [[package]]
 name = "strata-l1tx"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -1141,7 +1141,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -1167,7 +1167,7 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -1184,7 +1184,7 @@ dependencies = [
 [[package]]
 name = "strata-state"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#1e2b41ab625e68dde34458d97f89ebb21fc8c70e"
+source = "git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c#c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c"
 dependencies = [
  "arbitrary",
  "bitcoin",
