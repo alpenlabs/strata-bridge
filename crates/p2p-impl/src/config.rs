@@ -9,7 +9,7 @@ use strata_p2p_types::OperatorPubKey;
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]
 pub struct Configuration {
-    /// [`Keypair`] used as [`PeerId`].
+    /// [`Libp2pSecpKeypair`] used as [`PeerId`].
     pub keypair: Libp2pSecpKeypair,
 
     /// Idle connection timeout.
@@ -29,6 +29,6 @@ pub struct Configuration {
 
     /// The number of threads to use for the in memory database.
     ///
-    /// Default is [`DEFAULT_NUM_THREADS`].
+    /// Default is [`DEFAULT_NUM_THREADS`](crate::constants::DEFAULT_NUM_THREADS).
     pub num_threads: Option<usize>,
 }
