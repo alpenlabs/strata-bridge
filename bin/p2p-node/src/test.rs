@@ -2,15 +2,12 @@
 mod tests {
     use std::sync::LazyLock;
 
-    use bitcoin::{
-        key::{rand::thread_rng, Keypair, Parity},
-        secp256k1::SecretKey,
-        XOnlyPublicKey,
-    };
+    use bitcoin::{secp256k1::SecretKey, XOnlyPublicKey};
     use libp2p_identity::secp256k1::{
         Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey,
     };
     use musig2::secp256k1::SECP256K1;
+    use strata_bridge_test_utils::prelude::generate_keypair;
     use strata_common::logging::{self, LoggerConfig};
     use strata_p2p::events::Event;
     use strata_p2p_types::{Scope, Wots160PublicKey, Wots256PublicKey, WotsPublicKeys};
@@ -26,48 +23,24 @@ mod tests {
 
     static SK_A: LazyLock<SecretKey> = {
         LazyLock::new(|| {
-            loop {
-                let mut rng = thread_rng();
-                let keypair = Keypair::new(SECP256K1, &mut rng);
-                let (_, parity) = keypair.x_only_public_key();
-
-                // Check if the public key is even (first byte is 0x02)
-                if parity == Parity::Even {
-                    return keypair.secret_key();
-                }
-            }
+            let keypair = generate_keypair();
+            keypair.secret_key()
         })
     };
     static X_ONLY_PK_A: LazyLock<XOnlyPublicKey> =
         LazyLock::new(|| SK_A.x_only_public_key(SECP256K1).0);
     static SK_B: LazyLock<SecretKey> = {
         LazyLock::new(|| {
-            loop {
-                let mut rng = thread_rng();
-                let keypair = Keypair::new(SECP256K1, &mut rng);
-                let (_, parity) = keypair.x_only_public_key();
-
-                // Check if the public key is even (first byte is 0x02)
-                if parity == Parity::Even {
-                    return keypair.secret_key();
-                }
-            }
+            let keypair = generate_keypair();
+            keypair.secret_key()
         })
     };
     static X_ONLY_PK_B: LazyLock<XOnlyPublicKey> =
         LazyLock::new(|| SK_B.x_only_public_key(SECP256K1).0);
     static SK_C: LazyLock<SecretKey> = {
         LazyLock::new(|| {
-            loop {
-                let mut rng = thread_rng();
-                let keypair = Keypair::new(SECP256K1, &mut rng);
-                let (_, parity) = keypair.x_only_public_key();
-
-                // Check if the public key is even (first byte is 0x02)
-                if parity == Parity::Even {
-                    return keypair.secret_key();
-                }
-            }
+            let keypair = generate_keypair();
+            keypair.secret_key()
         })
     };
     static X_ONLY_PK_C: LazyLock<XOnlyPublicKey> =
@@ -123,15 +96,15 @@ mod tests {
         let port_c = 10_002;
 
         // Setup three nodes on different ports
+        // Connect nodes in a chain: A -> B -> C
+        // Node B connects to A
+        // Node C connects to B
         let (handler_a, cancel_a) = setup_node(port_a, peers_a, *SK_A, vec![port_b]).await;
         let (mut handler_b, cancel_b) = setup_node(port_b, peers_b, *SK_B, vec![port_c]).await;
         let (mut handler_c, cancel_c) = setup_node(port_c, peers_c, *SK_C, vec![port_b]).await;
 
-        // Connect nodes in a chain: A -> B -> C
-        // Node B connects to A
-        // Node C connects to B
-
         // Wait for connections to establish
+        // TODO(@storopoli): Make sure that this duration is long enough
         sleep(Duration::from_secs(2)).await;
 
         // Create channels to collect received messages

@@ -10096,6 +10096,7 @@ dependencies = [
  "libp2p-identity",
  "musig2",
  "sled",
+ "strata-bridge-test-utils",
  "strata-common",
  "strata-p2p",
  "strata-p2p-db",
