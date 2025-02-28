@@ -20,7 +20,7 @@ pub const MUSIG2_KEY_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 20 },
     ChildNumber::Hardened { index: 101 },
 ];
-/// Path for inital key material for secnonce generation in musig2
+/// Path for initial key material for secnonce generation in musig2
 pub const MUSIG2_NONCE_IKM_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 666 },
     ChildNumber::Hardened { index: 0 },

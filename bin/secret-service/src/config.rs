@@ -6,8 +6,6 @@ use bitcoin::Network;
 use serde::Deserialize;
 
 /// Configuration for the Secret Service.
-///
-/// It is parsed from a TOML file.
 #[derive(Debug, Deserialize)]
 pub struct Config {
     /// Configuration for TLS.
