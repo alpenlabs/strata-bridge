@@ -14,7 +14,10 @@ use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
-    params::tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
+    params::{
+        prelude::StakeChainParams,
+        tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
+    },
     scripts::prelude::wots_to_byte_array,
     wots::{self, Groth16Signatures, Wots256Signature},
 };
@@ -242,8 +245,13 @@ where
                         self.build_context.network(),
                     );
 
-                    let disprove_tx =
-                        DisproveTx::new(disprove_tx_data, connector_a3, connector_stake);
+                    let stake_chain_params = StakeChainParams::default();
+                    let disprove_tx = DisproveTx::new(
+                        disprove_tx_data,
+                        stake_chain_params,
+                        connector_a3,
+                        connector_stake,
+                    );
 
                     let reward_out = TxOut {
                         value: DISPROVER_REWARD,

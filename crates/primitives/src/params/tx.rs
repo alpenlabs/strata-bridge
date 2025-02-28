@@ -1,8 +1,12 @@
 //! Params related to the bridge transactions.
 
-use std::{str::FromStr, sync::LazyLock, time::Duration};
+use std::{sync::LazyLock, time::Duration};
 
-use bitcoin::{secp256k1::XOnlyPublicKey, Amount, FeeRate};
+use bitcoin::{
+    hashes::{sha256, Hash},
+    secp256k1::XOnlyPublicKey,
+    Amount, FeeRate,
+};
 
 /// The value of each UTXO in the Bridge Multisig Address.
 pub const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
@@ -33,7 +37,11 @@ pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
 
 pub const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
 
+/// The default amount of BTC that is staked by an operator.
 pub const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
+
+/// The default amount of BTC that is burnt when an operator's stake is slashed.
+pub const BURN_AMOUNT: Amount = Amount::from_int_btc(1);
 
 /// The number of ongoing past `Claim` transactions that can be used to slash an operator's stake.
 pub const NUM_SLASH_STAKE_TX: usize = 24;
@@ -46,16 +54,26 @@ pub const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
 pub const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
 
 /// The reward for a successful disprover.
-pub const DISPROVER_REWARD: Amount = Amount::from_int_btc(2);
+pub const DISPROVER_REWARD: Amount = Amount::from_int_btc(1);
+
+/// The reward for a successful slashing.
+pub const SLASH_STAKE_REWARD: Amount = Amount::from_sat(199_999_000); // 2 BTC - 1000 sats
 
 /// Magic bytes to add to the metadata output in transactions to help identify them.
 pub const MAGIC_BYTES: &[u8; 11] = b"alpenstrata";
 
-/// This is an unspendable pubkey.
+const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"strata bridge unspendable";
+
+/// A verifiably unspendable public key, produced by hashing a fixed string to a curve group
+/// generator.
 ///
-/// This is generated via <https://github.com/alpenlabs/unspendable-pubkey-gen> following [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs)
-/// with `r = 0x82758434e13488368e0781c4a94019d3d6722f854d26c15d2d157acd1f464723`.
+/// This is related to the technique used in [BIP-341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs).
+///
+/// Note that this is _not_ necessarily a uniformly-sampled curve point!
+///
+/// But this is fine; we only need a generator with no efficiently-computable discrete logarithm
+/// relation against the standard generator.
 pub static UNSPENDABLE_INTERNAL_KEY: LazyLock<XOnlyPublicKey> = LazyLock::new(|| {
-    XOnlyPublicKey::from_str("2be4d02127fedf4c956f8e6d8248420b9af78746232315f72894f0b263c80e81")
-        .unwrap()
+    XOnlyPublicKey::from_slice(sha256::Hash::hash(UNSPENDABLE_PUBLIC_KEY_INPUT).as_byte_array())
+        .expect("valid xonly public key")
 });

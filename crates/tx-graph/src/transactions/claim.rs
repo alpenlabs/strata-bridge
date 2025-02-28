@@ -91,6 +91,10 @@ impl ClaimTx {
         self.psbt.outputs.len() as u32 - 1
     }
 
+    pub const fn slash_stake_vout(&self) -> u32 {
+        2
+    }
+
     pub fn finalize(
         mut self,
         signature: wots256::Signature,

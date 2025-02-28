@@ -5,7 +5,7 @@ use bitcoin::{
 };
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
-    params::{prelude::UNSPENDABLE_INTERNAL_KEY, tx::OPERATOR_STAKE},
+    params::prelude::{StakeChainParams, UNSPENDABLE_INTERNAL_KEY},
     scripts::prelude::*,
 };
 
@@ -45,6 +45,7 @@ impl DisproveTx {
     /// Constructs a new instance of the disprove transaction.
     pub fn new(
         data: DisproveData,
+        stake_chain_params: StakeChainParams,
         connector_a3: ConnectorA3,
         connector_stake: ConnectorStake,
     ) -> Self {
@@ -66,7 +67,7 @@ impl DisproveTx {
         )
         .expect("should be able to create taproot address");
         let burn_script = burn_address.script_pubkey();
-        let burn_amount = burn_script.minimal_non_dust();
+        let burn_amount = stake_chain_params.burn_amount;
 
         let tx_outs = create_tx_outs([(burn_script, burn_amount)]);
 
@@ -78,7 +79,7 @@ impl DisproveTx {
 
         let prevouts = vec![
             TxOut {
-                value: OPERATOR_STAKE,
+                value: stake_chain_params.stake_amount,
                 script_pubkey: connector_stake.generate_address().script_pubkey(),
             },
             TxOut {

@@ -296,7 +296,6 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            delta: StakeChainParams::default().delta,
         };
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
@@ -312,6 +311,8 @@ where
             &self.build_context,
             deposit_txid,
             own_index,
+            StakeChainParams::default(),
+            vec![],
             wots_public_keys,
         )
         .await
@@ -564,6 +565,8 @@ where
                         &self.build_context,
                         deposit_txid,
                         sender_id,
+                        StakeChainParams::default(),
+                        vec![],
                         wots_public_keys,
                     )
                     .await
@@ -949,6 +952,8 @@ where
                         &self.build_context,
                         deposit_txid,
                         sender_id,
+                        StakeChainParams::default(),
+                        vec![],
                         wots_public_keys,
                     )
                     .await
@@ -1581,7 +1586,6 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            delta: StakeChainParams::default().delta,
         };
 
         let wots_public_keys = self
@@ -1595,6 +1599,8 @@ where
             &self.build_context,
             deposit_txid,
             own_index,
+            StakeChainParams::default(),
+            vec![],
             wots_public_keys,
         )
         .await

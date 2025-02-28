@@ -182,6 +182,9 @@ impl ConnectorStake {
             StakeSpendPath::Disprove(signature) => {
                 finalize_input(input, [signature.serialize()]);
             }
+            StakeSpendPath::SlashStake(signature) => {
+                finalize_input(input, [signature.serialize()]);
+            }
             StakeSpendPath::Advance {
                 signature,
                 preimage,
@@ -199,7 +202,9 @@ impl ConnectorStake {
                     ],
                 )
             }
-            _ => (), // other variants are no-op.
+            _ => unimplemented!(
+                "only disprove, slash stake and stake advancement paths are supported"
+            ),
         }
     }
 }

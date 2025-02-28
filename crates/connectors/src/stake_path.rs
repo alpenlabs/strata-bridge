@@ -15,6 +15,10 @@ pub enum StakeSpendPath {
     /// Disprove transaction with SIGHASH_SINGLE.
     Disprove(taproot::Signature),
 
+    /// The witness data is a single (aggregated) Schnorr [`Signature`](taproot::Signature) in the
+    /// Slash Stake transaction with SIGHASH_SINGLE.
+    SlashStake(taproot::Signature),
+
     /// The witness data is a 32-byte hash preimage in BurnPayouts transaction.
     BurnPayouts([u8; 32]),
 

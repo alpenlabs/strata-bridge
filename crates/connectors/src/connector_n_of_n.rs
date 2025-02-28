@@ -1,7 +1,7 @@
 //! This module contains the connector that locks funds in an N-of-N keyspend taproot address.
 
-use bitcoin::{psbt::Input, Address, Network};
-use secp256k1::{schnorr, XOnlyPublicKey};
+use bitcoin::{psbt::Input, taproot, Address, Network};
+use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::scripts::taproot::{create_taproot_addr, finalize_input, SpendPath};
 
 /// The connector to lock funds in an N-of-N keyspend taproot address.
@@ -46,7 +46,7 @@ impl ConnectorNOfN {
     /// responsibility to ensure that the signature is valid.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn finalize_input(&self, input: &mut Input, signature: schnorr::Signature) {
-        finalize_input(input, [signature.as_ref()]);
+    pub fn finalize_input(&self, input: &mut Input, signature: taproot::Signature) {
+        finalize_input(input, [signature.to_vec()]);
     }
 }

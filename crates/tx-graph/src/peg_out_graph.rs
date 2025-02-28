@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
-    params::connectors::*,
+    params::{connectors::*, prelude::StakeChainParams},
     types::OperatorIdx,
     wots::{self, Groth16PublicKeys},
 };
@@ -18,6 +18,7 @@ use crate::{
     transactions::{
         payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
         prelude::*,
+        slash_stake::{SlashStakeData, SlashStakeTx},
     },
 };
 
@@ -39,9 +40,6 @@ pub struct PegOutGraphInput {
 
     /// The hash for the hashlock used in the Stake Transaction.
     pub stake_hash: sha256::Hash,
-
-    /// The timelock between two successive stake transactions.
-    pub delta: relative::LockTime,
 
     /// The amount used to fund all the dust outputs in the peg-out graph.
     pub funding_amount: Amount,
@@ -75,19 +73,36 @@ pub struct PegOutGraph {
 
     /// The disprove transaction that invalidates a claim and slashes the operator's stake.
     pub disprove_tx: DisproveTx,
+
+    /// The slash stake transactions that slash the operator's stake upon faulty advancement of
+    /// the stake chain.
+    ///
+    /// This is a vector of transactions since the number of these transactions can vary depending
+    /// upon the consensus params for the bridge and the current deposit index. In general, the
+    /// number of slash stake transactions should be `min(deposit_index,
+    /// stake_chain_params.slash_stake_count)` (assuming that the deposit index is zero-indexed).
+    pub slash_stake_txs: Vec<SlashStakeTx>,
 }
 
 impl PegOutGraph {
     /// Generate the peg-out graph for a given operator.
     ///
-    /// Each graph can be generated deterministically provided that the WOTS public keys are
-    /// available for the operator for the given deposit transaction, and the input data is
+    /// Each graph can be generated deterministically provided that the WOTS public keys
+    /// for the operator for the given deposit transaction, and the input data are
     /// available.
+    ///
+    /// The `prev_claim_txids` are the transaction IDs of the previous claim transactions that can
+    /// be used to slash the operator's stake in case of a faulty advancement of the stake chain
+    /// i.e., if the operator advances the stake chain without fully executing the previous claims.
+    /// In general, the number of these transactions should be `min(deposit_index,
+    /// slash_stake_count)` (assuming that the deposit index is zero-indexed).
     pub async fn generate<Context>(
         input: PegOutGraphInput,
         context: &Context,
         deposit_txid: Txid,
         operator_idx: OperatorIdx,
+        stake_chain_params: StakeChainParams,
+        prev_claim_txids: Vec<Txid>,
         wots_public_keys: wots::PublicKeys,
     ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
     where
@@ -98,7 +113,7 @@ impl PegOutGraph {
             deposit_txid,
             operator_idx,
             input.stake_hash,
-            input.delta,
+            stake_chain_params.delta,
             wots_public_keys,
         );
 
@@ -197,11 +212,32 @@ impl PegOutGraph {
 
         let disprove_tx = DisproveTx::new(
             disprove_data,
+            stake_chain_params,
             connectors.post_assert_out_0,
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
         debug!(event = "created disprove tx", %operator_idx, %disprove_txid);
+
+        let slash_stake_txs = prev_claim_txids
+            .iter()
+            .map(|claim_txid| SlashStakeData {
+                stake_outpoint: input.stake_outpoint,
+                network: context.network(),
+                claim_outpoint: OutPoint {
+                    txid: *claim_txid,
+                    vout: claim_tx.slash_stake_vout(),
+                },
+            })
+            .map(|stake_data| {
+                SlashStakeTx::new(
+                    stake_data,
+                    stake_chain_params,
+                    connectors.n_of_n,
+                    connectors.stake,
+                )
+            })
+            .collect();
 
         Ok((
             Self {
@@ -210,6 +246,7 @@ impl PegOutGraph {
                 assert_chain,
                 payout_tx,
                 disprove_tx,
+                slash_stake_txs,
             },
             connectors,
         ))
@@ -376,7 +413,7 @@ mod tests {
         build_context::TxBuildContext,
         params::{
             prelude::{StakeChainParams, NUM_ASSERT_DATA_TX, PAYOUT_TIMELOCK},
-            tx::{CHALLENGE_COST, DISPROVER_REWARD, NUM_SLASH_STAKE_TX, OPERATOR_STAKE},
+            tx::{CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE},
         },
         scripts::taproot::{create_message_hash, TaprootWitness},
         wots::{Assertions, Wots256PublicKey, Wots256Signature},
@@ -430,11 +467,16 @@ mod tests {
             n_of_n_keypair,
             wots_public_keys.withdrawal_fulfillment,
         );
+        let stake_chain_params = StakeChainParams::default();
+        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
+
         let (graph, connectors) = PegOutGraph::generate(
             input,
             &context,
             deposit_txid,
             operator_idx,
+            stake_chain_params,
+            prev_claim_txids,
             wots_public_keys,
         )
         .await
@@ -960,12 +1002,7 @@ mod tests {
         let stake_preimage: [u8; 32] = OsRng.gen();
         let stake_hash = hashes::sha256::Hash::hash(&stake_preimage);
 
-        let delta = relative::LockTime::from_height(6);
-        let stake_chain_params = StakeChainParams {
-            stake_amount: OPERATOR_STAKE,
-            delta,
-            slash_stake_count: NUM_SLASH_STAKE_TX,
-        };
+        let stake_chain_params = StakeChainParams::default();
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
 
@@ -1111,7 +1148,6 @@ mod tests {
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash,
-            delta,
             funding_amount: graph_funding_amount,
         }
     }
@@ -1143,10 +1179,21 @@ mod tests {
             .await
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
-        let (graph, connectors) =
-            PegOutGraph::generate(input, context, deposit_txid, operator_idx, wots_public_keys)
-                .await
-                .expect("must be able to generate peg-out graph");
+
+        let stake_chain_params = StakeChainParams::default();
+        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count - 1];
+
+        let (graph, connectors) = PegOutGraph::generate(
+            input,
+            context,
+            deposit_txid,
+            operator_idx,
+            stake_chain_params,
+            prev_claim_txids,
+            wots_public_keys,
+        )
+        .await
+        .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
             claim_tx,

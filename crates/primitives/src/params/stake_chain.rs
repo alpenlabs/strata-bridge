@@ -3,7 +3,7 @@
 
 use bitcoin::{relative, Amount};
 
-use super::tx::{NUM_SLASH_STAKE_TX, OPERATOR_STAKE};
+use super::tx::{BURN_AMOUNT, NUM_SLASH_STAKE_TX, OPERATOR_STAKE};
 
 /// The Stake Chain public parameters that are inherent from the protocol and does not need to be
 /// interactively shared.
@@ -12,6 +12,9 @@ pub struct StakeChainParams {
     /// The Staking [`Amount`].
     // TODO: make this configurable with a fallback const `D_BTC`.
     pub stake_amount: Amount,
+
+    /// The portion of the stake that is burnt during disprove.
+    pub burn_amount: Amount,
 
     /// The delta value used for the stake chain.
     // TODO: make this configurable with a fallback const like FINALITY_DEPTH to something like
@@ -26,6 +29,7 @@ impl Default for StakeChainParams {
     fn default() -> Self {
         Self {
             stake_amount: OPERATOR_STAKE,
+            burn_amount: BURN_AMOUNT,
             delta: relative::LockTime::from_height(6),
             slash_stake_count: NUM_SLASH_STAKE_TX,
         }

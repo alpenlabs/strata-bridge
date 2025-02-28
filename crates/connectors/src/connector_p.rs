@@ -164,6 +164,9 @@ impl ConnectorP {
             StakeSpendPath::Disprove(signature) => {
                 finalize_input(input, [&signature.serialize().to_vec()]);
             }
+            StakeSpendPath::SlashStake(signature) => {
+                finalize_input(input, [&signature.serialize().to_vec()]);
+            }
             StakeSpendPath::BurnPayouts(preimage) => {
                 let (hashlock_script, control_block) = self.generate_spend_info();
                 finalize_input(
