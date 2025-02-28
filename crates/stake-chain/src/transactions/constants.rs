@@ -29,6 +29,16 @@ pub const OPERATOR_FUNDS: Amount =
 /// SegWit minimal non-dust value.
 pub const DUST_AMOUNT: Amount = Amount::from_sat(330);
 
+/// [`StakeTx`](crate::transactions::StakeTx) withdrawal fulfillment output, i.e. the output used to
+/// commit to the txid of the withdrawal fulfillment transaction.
+///
+/// This is the first output.
+pub const WITHDRAWAL_FULFILLMENT_VOUT: u32 = 0;
+
+/// [`StakeTx`](crate::transactions::StakeTx) payout output i.e., the output used either in the
+/// Payout transaction or in the Burn Payouts.
+pub const PAYOUT_VOUT: u32 = 1;
+
 /// [`StakeTx`](crate::transactions::StakeTx) stake output, i.e. the stake vout.
 ///
 /// This is the third output.

@@ -7,7 +7,7 @@ use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_b
 
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
-    tx_info::{extract_checkpoint, extract_withdrawal_info},
+    tx_info::{extract_checkpoint, extract_withdrawal_info, WithdrawalInfo},
     BridgeProofInputBorsh, BridgeProofPublicOutput,
 };
 
@@ -99,8 +99,12 @@ pub(crate) fn process_bridge_proof(
 
     // 3a. Extract withdrawal fulfillment info.
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
-    let (operator_idx, destination, amount) =
-        extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
+    let WithdrawalInfo {
+        operator_idx,
+        withdrawal_address: destination,
+        withdrawal_amount: amount,
+        ..
+    } = extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
     // transaction does not depend on witness data, hence `expect_witness` is `false`.

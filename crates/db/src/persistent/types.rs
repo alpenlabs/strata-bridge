@@ -5,12 +5,16 @@
 
 use std::{ops::Deref, str::FromStr};
 
-use bitcoin::{consensus, hex::DisplayHex, Amount, ScriptBuf, Transaction, Txid};
+use bitcoin::{consensus, hashes::sha256, hex::DisplayHex, Amount, ScriptBuf, Transaction, Txid};
 use musig2::{BinaryEncoding, PartialSignature, PubNonce, SecNonce};
 use rkyv::rancor::Error as RkyvError;
 use secp256k1::schnorr::Signature;
 use sqlx::{sqlite::SqliteValueRef, Sqlite};
-use strata_bridge_primitives::{duties::BridgeDutyStatus, types::OperatorIdx, wots};
+use strata_bridge_primitives::{
+    duties::BridgeDutyStatus,
+    types::OperatorIdx,
+    wots::{self, Wots256PublicKey},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
 #[sqlx(transparent)]
@@ -39,6 +43,12 @@ impl Deref for DbInputIndex {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl From<u32> for DbInputIndex {
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }
 
@@ -96,6 +106,52 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbTxid {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DbHash(sha256::Hash);
+
+impl Deref for DbHash {
+    type Target = sha256::Hash;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<sha256::Hash> for DbHash {
+    fn from(value: sha256::Hash) -> Self {
+        Self(value)
+    }
+}
+
+impl sqlx::Type<Sqlite> for DbHash {
+    fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
+        <String as sqlx::Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, Sqlite> for DbHash {
+    fn decode(
+        value: <Sqlite as sqlx::Database>::ValueRef<'r>,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let db_hash_str: String = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
+        let db_hash = sha256::Hash::from_str(&db_hash_str)
+            .map_err(|_| sqlx::Error::Decode("Failed to decode sha256::Hash".into()))?;
+
+        Ok(Self(db_hash))
+    }
+}
+
+impl<'q> sqlx::Encode<'q, Sqlite> for DbHash {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let hash_hex = self.0.to_string();
+
+        sqlx::Encode::<'q, Sqlite>::encode_by_ref(&hash_hex, buf)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct DbWotsPublicKeys(wots::PublicKeys);
 
 impl Deref for DbWotsPublicKeys {
@@ -135,6 +191,52 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbWotsPublicKeys {
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         let bytes = rkyv::to_bytes::<RkyvError>(&self.0)
             .map_err(|_| sqlx::Error::Decode("Failed to serialize wots public keys".into()))?
+            .to_vec();
+
+        sqlx::Encode::<'q, Sqlite>::encode_by_ref(&bytes, buf)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DbWots256PublicKey(Wots256PublicKey);
+
+impl Deref for DbWots256PublicKey {
+    type Target = Wots256PublicKey;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<Wots256PublicKey> for DbWots256PublicKey {
+    fn from(value: Wots256PublicKey) -> Self {
+        Self(value)
+    }
+}
+
+impl sqlx::Type<Sqlite> for DbWots256PublicKey {
+    fn type_info() -> sqlx::sqlite::SqliteTypeInfo {
+        <Vec<u8> as sqlx::Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, Sqlite> for DbWots256PublicKey {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let bytes: Vec<u8> = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
+        let keys = rkyv::from_bytes::<Wots256PublicKey, RkyvError>(&bytes)
+            .map_err(|_| sqlx::Error::Decode("Failed to decode Wots256PublicKey".into()))?;
+
+        Ok(DbWots256PublicKey(keys))
+    }
+}
+
+impl<'q> sqlx::Encode<'q, Sqlite> for DbWots256PublicKey {
+    fn encode_by_ref(
+        &self,
+        buf: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'q>>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let bytes = rkyv::to_bytes::<RkyvError>(&self.0)
+            .map_err(|_| sqlx::Error::Decode("Failed to serialize Wots256PublicKey".into()))?
             .to_vec();
 
         sqlx::Encode::<'q, Sqlite>::encode_by_ref(&bytes, buf)

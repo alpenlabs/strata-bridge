@@ -119,7 +119,7 @@ impl DepositInfo {
         build_context: &impl BuildContext,
     ) -> BridgeTxBuilderResult<TaprootWitness> {
         // The Deposit Request (DT) spends the n-of-n multisig leaf
-        let spend_script = n_of_n_script(&build_context.aggregated_pubkey());
+        let spend_script = n_of_n_script(&build_context.aggregated_pubkey()).compile();
         let spend_script_hash =
             TapNodeHash::from_script(&spend_script, taproot::LeafVersion::TapScript);
 

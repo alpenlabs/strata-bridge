@@ -17,8 +17,8 @@ A research implementation of Strata Bridge by your friends at [Alpen Labs](https
 The following is the transaction graph that has been implemented in this repository:
 
 <figure>
-    <img src="./assets/poc-tx-graph.jpg" alt = "Transaction graph" />
-    <figcaption>The transaction graph for this repository, focussing on the non-optimistic path.</figcaption>
+    <img src="./assets/testnet-i-tx-graph.jpg" alt = "Transaction graph" />
+    <figcaption>The transaction graph for this repository.</figcaption>
 </figure>
 
 ## System Diagram
@@ -35,7 +35,7 @@ The following is the system diagram for this repository:
 ### Prerequisites
 
 -   [cargo](https://doc.rust-lang.org/cargo/getting-started/installation.html).
--   [SP1 Toolchain](https://docs.succinct.xyz/docs/getting-started/install) and associated [linkers](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/tag/v14.2.0-2).
+-   [SP1 Toolchain](https://docs.succinct.xyz/docs/sp1/getting-started/install) and associated [linkers](https://github.com/xpack-dev-tools/riscv-none-elf-gcc-xpack/releases/tag/v14.2.0-2).
 -   Credentials to connect to SP1's [infra](https://explorer.succinct.xyz).
 -   [Docker](https://docs.docker.com/get-docker/).
 -   [`sqlx-cli`](https://lib.rs/crates/sqlx-cli) to run database migrations.

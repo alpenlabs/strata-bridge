@@ -25,7 +25,7 @@ struct TxLifecycle {
     raw: Transaction,
     /// An optional [`bitcoin::BlockHash`] that will be populated once the transaction has
     /// been included in a block.
-    block: Option<BlockHash>,
+    block: Option<(u64, BlockHash)>,
 }
 
 /// The pure state machine that processes all the relevant messages. From there it will
@@ -165,23 +165,23 @@ impl BtcZmqSM {
                 // hash, as well as adding a Mined transaction event to the diff.
                 None | Some(None) => {
                     let blockhash = block.block_hash();
+                    let height = block.bip34_block_height().unwrap_or(0);
                     let lifecycle = TxLifecycle {
                         raw: matched_tx.clone(),
-                        block: Some(blockhash),
+                        block: Some((height, blockhash)),
                     };
                     self.tx_lifecycles
                         .insert(matched_tx.compute_txid(), Some(lifecycle));
                     diff.push(TxEvent {
                         rawtx: matched_tx.clone(),
-                        status: TxStatus::Mined {
-                            blockhash: block.block_hash(),
-                        },
+                        status: TxStatus::Mined { blockhash, height },
                     });
                 }
                 // This means we have seen the rawtx event for this transaction before.
                 Some(Some(lifecycle)) => {
                     let blockhash = block.block_hash();
-                    if let Some(prior_blockhash) = lifecycle.block {
+                    let height = block.bip34_block_height().unwrap_or(0);
+                    if let Some((_, prior_blockhash)) = lifecycle.block {
                         // This means that it was previously mined. This is pretty weird and so we
                         // include some debug assertions to rule out
                         // violations in our core assumptions.
@@ -190,10 +190,10 @@ impl BtcZmqSM {
                     }
 
                     // Record the update and add it to the diff.
-                    lifecycle.block = Some(blockhash);
+                    lifecycle.block = Some((height, blockhash));
                     diff.push(TxEvent {
                         rawtx: matched_tx.clone(),
-                        status: TxStatus::Mined { blockhash },
+                        status: TxStatus::Mined { blockhash, height },
                     });
                 }
             }
@@ -206,12 +206,13 @@ impl BtcZmqSM {
                 // buried, and then finally we can clear the buried transactions
                 // from the current lifecycle map.
                 let blockhash = newly_buried.block_hash();
+                let height = newly_buried.bip34_block_height().unwrap_or(0);
                 for buried_tx in newly_buried.txdata {
                     self.tx_lifecycles.remove(&buried_tx.compute_txid());
                     if self.tx_filters.iter().any(|f| f(&buried_tx)) {
                         diff.push(TxEvent {
                             rawtx: buried_tx,
-                            status: TxStatus::Buried { blockhash },
+                            status: TxStatus::Buried { blockhash, height },
                         });
                     }
                 }
@@ -300,7 +301,7 @@ impl BtcZmqSM {
                         Some(lifecycle) => match lifecycle.block {
                             // Only clear the tx if its blockhash matches the blockhash of the
                             // disconnected block.
-                            Some(blk) if blk == blockhash => {
+                            Some((_, blk)) if blk == blockhash => {
                                 diff.push(TxEvent {
                                     rawtx: lifecycle.raw.clone(),
                                     status: TxStatus::Unknown,
@@ -401,6 +402,9 @@ mod prop_tests {
         absolute::{Height, LockTime},
         block,
         hashes::{sha256d, Hash},
+        key::Secp256k1,
+        script::{write_scriptint, Instruction, PushBytesBuf},
+        secp256k1::{All, SecretKey},
         transaction, Amount, Block, BlockHash, CompactTarget, OutPoint, ScriptBuf, Sequence,
         Transaction, TxIn, TxOut, Txid, Witness,
     };
@@ -501,10 +505,13 @@ mod prop_tests {
     // Generates a block that contains 32 random transactions. The argument defines the blockhash of
     // the block this block builds on top of.
     prop_compose! {
-        fn arb_block(prev_blockhash: BlockHash)(
+        fn arb_block(prev_height: u64, prev_blockhash: BlockHash)(
             txdata in uniform16(arb_transaction()),
             time in any::<u32>(),
         ) -> Block {
+            // TODO(proofofkeags): once 0.33.x lands this isn't necessary anymore. This is due to a
+            // bug in rust-bitcoin.
+            assert!(prev_height > 16, "can't encode bip34 height for blocks prior to 17");
             let header = block::Header {
                 version: block::Version::TWO,
                 prev_blockhash,
@@ -514,9 +521,45 @@ mod prop_tests {
                 nonce: 0,
             };
 
+            // This set of code is needed to ensure the blocks we produce in our test suite can have
+            // their heights extracted properly in the code under test.
+            let mut bip34_scriptsig = ScriptBuf::new();
+            let mut buf = PushBytesBuf::new();
+            let height = prev_height + 1;
+            let mut height_bytes = [0; 8];
+            let num_written = write_scriptint(&mut height_bytes, height as i64);
+
+            #[allow(clippy::needless_range_loop)]
+            for i in 0..num_written {
+                buf.push(height_bytes[i]).unwrap();
+            }
+
+            bip34_scriptsig.push_instruction(Instruction::PushBytes(&buf));
+            let pubkey = "0000000000000000000000000000000000000000000000000000000000000001"
+                .parse::<SecretKey>()
+                .unwrap()
+                .public_key(&Secp256k1::<All>::gen_new());
+            let mut txdata_with_coinbase = vec![Transaction{
+                version: transaction::Version::TWO,
+                lock_time: LockTime::ZERO,
+                input: vec![TxIn {
+                    previous_output: OutPoint::null(),
+                    script_sig: bip34_scriptsig,
+                    sequence: Sequence::MAX,
+                    witness: Witness::new(),
+                }],
+                output: vec![TxOut {
+                    value: Amount::from_btc(50.0).unwrap(),
+                    script_pubkey: ScriptBuf::new_p2pk(&bitcoin::PublicKey::new(pubkey)),
+                }]
+            }];
+
+            // Actually add the rest of the transaction data
+            txdata_with_coinbase.extend(txdata.into_iter());
+
             let mut blk = Block {
                 header,
-                txdata: txdata.to_vec(),
+                txdata: txdata_with_coinbase,
             };
 
             blk.header.merkle_root = blk.compute_merkle_root().unwrap();
@@ -525,18 +568,22 @@ mod prop_tests {
     }
 
     // Generates a chain of size "length" that is anchored to "prev_blockhash".
-    fn arb_chain(prev_blockhash: BlockHash, length: usize) -> BoxedStrategy<VecDeque<Block>> {
+    fn arb_chain(
+        prev_height: u64,
+        prev_blockhash: BlockHash,
+        length: usize,
+    ) -> BoxedStrategy<VecDeque<Block>> {
         if length == 0 {
             return Just(VecDeque::new()).boxed();
         }
 
-        let tail = arb_chain(prev_blockhash, length - 1);
+        let tail = arb_chain(prev_height, prev_blockhash, length - 1);
         tail.prop_flat_map(move |t| {
             let prev = match t.front() {
-                Some(b) => b.block_hash(),
-                None => prev_blockhash,
+                Some(b) => (b.bip34_block_height().unwrap_or(0), b.block_hash()),
+                None => (prev_height, prev_blockhash),
             };
-            arb_block(prev).prop_map(move |b| {
+            arb_block(prev.0, prev.1).prop_map(move |b| {
                 let mut v = t.clone();
                 v.push_front(b);
                 v
@@ -557,10 +604,16 @@ mod prop_tests {
     }
 
     proptest! {
+
+        #[test]
+        fn arb_block_has_height(block in arb_block(17, Hash::all_zeros())) {
+            prop_assert_eq!(block.bip34_block_height(), Ok(18))
+        }
+
         // Ensures that the transactions that appear in the diffs generated by the BtcZmqSM's state
         // transition functions all match the predicate we added. (Consistency)
         #[test]
-        fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
+        fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(17, Hash::all_zeros())) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block);
@@ -572,7 +625,7 @@ mod prop_tests {
         // Ensures that all of the transactions match the predicate we add to the state machine
         // appear in the diffs generated by the BtcZmqSM. (Completeness)
         #[test]
-        fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(Hash::all_zeros())) {
+        fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(17, Hash::all_zeros())) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
             let diff = sm.process_block(block.clone());
@@ -626,7 +679,7 @@ mod prop_tests {
         #[test]
         fn block_disconnect_drops_all_transactions(
             pred in arb_predicate(),
-            block in arb_block(Hash::all_zeros()),
+            block in arb_block(17, Hash::all_zeros()),
         ) {
             let blockhash = block.block_hash();
 
@@ -643,7 +696,7 @@ mod prop_tests {
         // Ensures that adding a full bury_depth length chain of blocks on top of a block yields a
         // Buried event for every transaction in that block.
         #[test]
-        fn transactions_eventually_buried(mut chain in arb_chain(Hash::all_zeros(), 7)) {
+        fn transactions_eventually_buried(mut chain in arb_chain(17, Hash::all_zeros(), 7)) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(std::sync::Arc::new(|_|true));
 
@@ -717,7 +770,7 @@ mod prop_tests {
         fn block_disconnect_inverts_block(
             mempool_tx in arb_transaction(),
             sequence_only in any::<bool>(),
-            mut chain in arb_chain(Hash::all_zeros(), 2),
+            mut chain in arb_chain(17, Hash::all_zeros(), 2),
         ) {
             let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_ref.add_filter(Arc::new(|_|true));
@@ -753,7 +806,7 @@ mod prop_tests {
         // Ensures that a `rawtx` event sampled from a `rawblock` event is idempotent following the
         // `rawblock` event. (block-tx Idempotence)
         #[test]
-        fn tx_after_block_idempotence(block in arb_block(Hash::all_zeros())) {
+        fn tx_after_block_idempotence(block in arb_block(17, Hash::all_zeros())) {
             let mut sm_ref = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_ref.add_filter(Arc::new(|_|true));
             sm_ref.process_block(block.clone());
@@ -768,7 +821,7 @@ mod prop_tests {
         // Ensures that we end up with the same result irrespective of the processing order of a
         // `rawblock` and its accompanying rawtx events. (tx-block Commutativity)
         #[test]
-        fn tx_block_commutativity(block in arb_block(Hash::all_zeros())) {
+        fn tx_block_commutativity(block in arb_block(17, Hash::all_zeros())) {
             let mut sm_base = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm_base.add_filter(Arc::new(|_|true));
             let mut sm_block_first = sm_base.clone();

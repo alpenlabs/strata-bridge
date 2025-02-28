@@ -1,0 +1,38 @@
+[package]
+name = "strata-bridge-connectors"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.missing_docs = "warn"
+rustdoc.all = "warn"
+
+[dependencies]
+strata-bridge-primitives.workspace = true
+strata-bridge-proof-snark.workspace = true
+
+bincode.workspace = true
+bitcoin.workspace = true
+bitcoin-script.workspace = true
+bitvm.workspace = true
+secp256k1.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true
+strata-bridge-proof-protocol.workspace = true
+
+strata-common.workspace = true
+strata-btcio.workspace = true
+
+borsh.workspace = true
+corepc-node.workspace = true
+sp1-verifier.workspace = true
+
+[features]
+mock = ["strata-bridge-proof-snark/mock"]

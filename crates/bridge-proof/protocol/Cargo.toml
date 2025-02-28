@@ -14,11 +14,13 @@ rustdoc.all = "warn"
 
 [dependencies]
 strata-bridge-proof-primitives.workspace = true
+
 strata-crypto.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true
 strata-proofimpl-btc-blockspace.workspace = true
 strata-state.workspace = true
+
 zkaleido.workspace = true
 zkaleido-native-adapter.workspace = true
 

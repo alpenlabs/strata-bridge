@@ -61,7 +61,7 @@ pub(crate) fn create_drt_taproot_output(pubkeys: PublickeyTable) -> (BitcoinAddr
         TapNodeHash::from_script(&op_return_script, taproot::LeafVersion::TapScript);
 
     let taproot_builder = TaprootBuilder::new()
-        .add_leaf(1, n_of_n_spend_script.clone())
+        .add_leaf(1, n_of_n_spend_script.compile())
         .unwrap()
         .add_leaf(1, op_return_script)
         .unwrap();

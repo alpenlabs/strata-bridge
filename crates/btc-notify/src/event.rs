@@ -23,6 +23,9 @@ pub enum TxStatus {
     Mined {
         /// This is the block hash of the block in which this transaction is included.
         blockhash: BlockHash,
+
+        /// This is the height of the block in which this transaction is included.
+        height: u64,
     },
     /// Terminal status. It will be emitted once the transaction's containing block has
     /// been buried under a sufficient number of subsequent blocks.
@@ -33,6 +36,11 @@ pub enum TxStatus {
         ///
         /// It is the same as the block hash in which it was mined but is included for redundancy.
         blockhash: BlockHash,
+
+        /// This is the height of the block in which this transaction is included.
+        ///
+        /// It is the same as the height in which it was mined but it is included for redundancy.
+        height: u64,
     },
 }
 

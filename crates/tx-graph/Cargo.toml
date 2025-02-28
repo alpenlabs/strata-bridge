@@ -11,10 +11,9 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
-strata-bridge-proof-snark.workspace = true
 
-bincode.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-bosd.workspace = true
 bitcoin-script = { workspace = true }
@@ -25,17 +24,16 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-sp1-verifier = "4.0.0"
 strata-bridge-db.workspace = true
+strata-bridge-stake-chain.workspace = true
 strata-bridge-test-utils.workspace = true
-strata-bridge-proof-protocol.workspace = true
 strata-btcio.workspace = true
 strata-common.workspace = true
 
-borsh.workspace = true
 corepc-node.workspace = true
 rkyv.workspace = true
+serde_json.workspace = true
 tokio.workspace = true
 
 [features]
-mock = ["strata-bridge-proof-snark/mock"]
+mock = ["strata-bridge-connectors/mock"]
