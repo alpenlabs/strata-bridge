@@ -1665,7 +1665,7 @@ dependencies = [
  "bitflags 2.9.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -7181,8 +7181,8 @@ version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0f3e5beed80eb580c68e2c600937ac2c4eedabdfd5ef1e5b7ea4f3fba84497b"
 dependencies = [
- "heck 0.5.0",
- "itertools 0.13.0",
+ "heck 0.4.1",
+ "itertools 0.12.1",
  "log",
  "multimap",
  "once_cell",
@@ -7202,7 +7202,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.98",
@@ -10046,7 +10046,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#9f35662a09b2c6a2a3856aa5001a456b6af7d644"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10068,7 +10068,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#9f35662a09b2c6a2a3856aa5001a456b6af7d644"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10109,7 +10109,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#9f35662a09b2c6a2a3856aa5001a456b6af7d644"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10120,7 +10120,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#9f35662a09b2c6a2a3856aa5001a456b6af7d644"
 dependencies = [
  "bitcoin",
  "musig2",
