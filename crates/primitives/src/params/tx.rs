@@ -62,7 +62,7 @@ pub const SLASH_STAKE_REWARD: Amount = Amount::from_sat(199_999_000); // 2 BTC -
 /// Magic bytes to add to the metadata output in transactions to help identify them.
 pub const MAGIC_BYTES: &[u8; 11] = b"alpenstrata";
 
-const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"strata bridge unspendable";
+const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"Strata Bridge Unspendable";
 
 /// A verifiably unspendable public key, produced by hashing a fixed string to a curve group
 /// generator.
