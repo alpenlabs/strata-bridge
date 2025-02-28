@@ -18,9 +18,7 @@ use secret_service_proto::v1::traits::{
     SignerIdxOutOfBounds,
 };
 use sha2::Sha256;
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-
-use super::MakeEven;
+use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
 
 /// Secret data for the MuSig2 signer.
 #[derive(Debug)]
@@ -32,32 +30,29 @@ pub struct Ms2Signer {
     ikm: [u8; 32],
 }
 
+const KEY_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 20 },
+    ChildNumber::Hardened { index: 101 },
+];
+const NONCE_IKM_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 666 },
+    ChildNumber::Hardened { index: 0 },
+];
+
 impl Ms2Signer {
     /// Creates a new MuSig2 signer given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
         let key = base
-            .derive_priv(
-                SECP256K1,
-                &[
-                    ChildNumber::from_hardened_idx(20).unwrap(),
-                    ChildNumber::from_hardened_idx(101).unwrap(),
-                ],
-            )
+            .derive_priv(SECP256K1, &KEY_PATH)
             .expect("valid key")
             .private_key;
         let ikm = base
-            .derive_priv(
-                SECP256K1,
-                &[
-                    ChildNumber::from_hardened_idx(666).unwrap(),
-                    ChildNumber::from_hardened_idx(0).unwrap(),
-                ],
-            )
+            .derive_priv(SECP256K1, &NONCE_IKM_PATH)
             .expect("valid child")
             .private_key
             .secret_bytes();
         Self {
-            kp: Keypair::from_secret_key(SECP256K1, &key.make_even()),
+            kp: Keypair::from_secret_key(SECP256K1, &EvenSecretKey::from(key)),
             ikm,
         }
     }
@@ -66,22 +61,22 @@ impl Ms2Signer {
 impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
     async fn new_session(
         &self,
-        pubkeys: Vec<XOnlyPublicKey>,
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
     ) -> Result<ServerFirstRound, SignerIdxOutOfBounds> {
         let my_pub_key = self.kp.x_only_public_key().0;
-        let signer_index =
-            pubkeys
-                .iter()
-                .position(|pk| pk == &my_pub_key)
-                .ok_or(SignerIdxOutOfBounds {
-                    index: usize::MAX,
-                    n_signers: usize::MAX,
-                })?;
+        let signer_index = ordered_pubkeys
+            .iter()
+            .position(|pk| pk == &my_pub_key)
+            .ok_or(SignerIdxOutOfBounds {
+                index: usize::MAX,
+                n_signers: usize::MAX,
+            })?;
         let mut ctx =
-            KeyAggContext::new(pubkeys.iter().map(|pk| pk.public_key(Parity::Even))).unwrap();
+            KeyAggContext::new(ordered_pubkeys.iter().map(|pk| pk.public_key(Parity::Even)))
+                .unwrap();
 
         match witness {
             TaprootWitness::Key => {
@@ -121,7 +116,7 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
         })?;
         Ok(ServerFirstRound {
             first_round,
-            ordered_public_keys: pubkeys,
+            ordered_public_keys: ordered_pubkeys,
             seckey: self.kp.secret_key(),
         })
     }
@@ -137,7 +132,7 @@ pub struct ServerFirstRound {
     /// The first round of the MuSig2 protocol.
     first_round: FirstRound,
 
-    /// Lexicographically-sorted X-only public keys of the signers.
+    /// Ordered X-only public keys of the signers.
     ordered_public_keys: Vec<XOnlyPublicKey>,
 
     /// Operator's [`SecretKey`].
@@ -193,7 +188,7 @@ pub struct ServerSecondRound {
     /// The second round of the MuSig2 protocol.
     second_round: SecondRound<[u8; 32]>,
 
-    /// Lexicographically-sorted X-only public keys of the signers.
+    /// Ordered X-only public keys of the signers.
     ordered_public_keys: Vec<XOnlyPublicKey>,
 }
 

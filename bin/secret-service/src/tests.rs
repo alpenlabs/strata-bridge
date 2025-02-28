@@ -1,6 +1,7 @@
 use std::{
     cell::RefCell,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
+    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -8,7 +9,7 @@ use std::{
 use bitcoin::{
     hashes::Hash,
     key::{Parity, Secp256k1},
-    Txid, XOnlyPublicKey,
+    Network, Txid, XOnlyPublicKey,
 };
 use musig2::{
     secp256k1::{Message, SecretKey, SECP256K1},
@@ -25,9 +26,9 @@ use secret_service_server::{
         ClientConfig, ServerConfig,
     },
 };
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
 
-use crate::seeded_impl::{MakeEven, Service};
+use crate::seeded_impl::Service;
 
 #[tokio::test]
 async fn e2e() {
@@ -46,7 +47,7 @@ async fn e2e() {
         tls_config: server_tls_config,
         connection_limit: None,
     };
-    let service = Service::new_with_seed([0u8; 32]);
+    let service = Service::new_with_seed([0u8; 32], Network::Signet);
 
     tokio::spawn(async move {
         run_server(config, service.into()).await.unwrap();
@@ -112,8 +113,8 @@ async fn e2e() {
 
     let local_signers = (0..2)
         .map(|_| {
-            SecretKey::new(&mut thread_rng())
-                .make_even()
+            EvenSecretKey::from(SecretKey::new(&mut thread_rng()))
+                .deref()
                 .keypair(SECP256K1)
         })
         .collect::<Vec<_>>();

@@ -18,18 +18,16 @@ pub struct StakeChain {
     ikm: [u8; 32],
 }
 
+const IKM_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 80 },
+    ChildNumber::Hardened { index: 0 },
+];
+
 impl StakeChain {
     /// Creates a new [`StakeChain`] given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
         let xpriv = base
-            .derive_priv(
-                SECP256K1,
-                &[
-                    // TODO: move to constants.
-                    ChildNumber::from_hardened_idx(80).unwrap(),
-                    ChildNumber::from_hardened_idx(0).unwrap(),
-                ],
-            )
+            .derive_priv(SECP256K1, &IKM_PATH)
             .expect("good child key");
         Self {
             ikm: xpriv.private_key.secret_bytes(),

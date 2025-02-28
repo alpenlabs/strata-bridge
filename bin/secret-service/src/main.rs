@@ -9,9 +9,10 @@ mod tls;
 
 use std::{env::args, path::PathBuf, str::FromStr, sync::LazyLock};
 
+use bitcoin::Network;
 use colored::Colorize;
-use config::TomlConfig;
-use secret_service_server::{run_server, Config};
+use config::Config;
+use secret_service_server::{run_server, Config as ServerConfig};
 use seeded_impl::Service;
 use tls::load_tls;
 use tracing::{info, warn, Level};
@@ -32,10 +33,10 @@ async fn main() {
             .expect("valid config path");
 
     let text = std::fs::read_to_string(&config_path).expect("read config file");
-    let conf: TomlConfig = toml::from_str(&text).expect("valid toml");
+    let conf: Config = toml::from_str(&text).expect("valid toml");
     let tls = load_tls(conf.tls).await;
 
-    let config = Config {
+    let config = ServerConfig {
         addr: conf.transport.addr,
         tls_config: tls,
         connection_limit: conf.transport.conn_limit,
@@ -45,6 +46,7 @@ async fn main() {
         &conf
             .seed
             .unwrap_or(PathBuf::from_str("seed").expect("valid path")),
+        conf.network.unwrap_or(Network::Signet),
     )
     .await
     .expect("good service");

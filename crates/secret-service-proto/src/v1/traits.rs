@@ -109,7 +109,7 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
     /// `pubkeys` MUST include our own pubkey. The order of pubkeys will be untouched.
     fn new_session(
         &self,
-        pubkeys: Vec<XOnlyPublicKey>,
+        ordered_pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,

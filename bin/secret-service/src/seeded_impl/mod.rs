@@ -2,12 +2,7 @@
 
 use std::path::Path;
 
-use bitcoin::{
-    bip32::Xpriv,
-    key::Parity,
-    secp256k1::{SecretKey, SECP256K1},
-    Network,
-};
+use bitcoin::{bip32::Xpriv, Network};
 use colored::Colorize;
 use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
 use operator::Operator;
@@ -33,11 +28,9 @@ pub struct Service {
     keys: OperatorKeys,
 }
 
-const NETWORK: Network = Network::Signet;
-
 impl Service {
     /// Loads the operator's keys from a seed file.
-    pub async fn load_from_seed(seed_path: &Path) -> io::Result<Self> {
+    pub async fn load_from_seed(seed_path: &Path, network: Network) -> io::Result<Self> {
         let mut seed = [0; 32];
 
         if let Some(parent) = seed_path.parent() {
@@ -64,12 +57,12 @@ impl Service {
             Err(e) => return Err(e),
         };
 
-        Ok(Self::new_with_seed(seed))
+        Ok(Self::new_with_seed(seed, network))
     }
 
     /// Deterministically creates a new service using a given seed
-    pub fn new_with_seed(seed: [u8; 32]) -> Self {
-        let keys = OperatorKeys::new(&Xpriv::new_master(NETWORK, &seed).expect("valid xpriv"))
+    pub fn new_with_seed(seed: [u8; 32], network: Network) -> Self {
+        let keys = OperatorKeys::new(&Xpriv::new_master(network, &seed).expect("valid xpriv"))
             .expect("valid keychain");
         info!(
             "Master fingerprint: {}",
@@ -108,20 +101,5 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
 
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages {
         StakeChain::new(self.keys.base_xpriv())
-    }
-}
-
-/// A helper trait to make [`SecretKey`]s even for BIP340 use
-pub trait MakeEven {
-    /// Makes self even, if it's not already
-    fn make_even(self) -> Self;
-}
-
-impl MakeEven for SecretKey {
-    fn make_even(self) -> Self {
-        match self.x_only_public_key(SECP256K1).1 == Parity::Odd {
-            true => self.negate(),
-            false => self,
-        }
     }
 }

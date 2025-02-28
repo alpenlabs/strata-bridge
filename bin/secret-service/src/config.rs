@@ -2,13 +2,14 @@
 
 use std::{net::SocketAddr, path::PathBuf};
 
+use bitcoin::Network;
 use serde::Deserialize;
 
 /// Configuration for the Secret Service.
 ///
 /// It is parsed from a TOML file.
 #[derive(Debug, Deserialize)]
-pub struct TomlConfig {
+pub struct Config {
     /// Configuration for TLS.
     pub tls: TlsConfig,
 
@@ -17,6 +18,9 @@ pub struct TomlConfig {
 
     /// A file path to a 32-byte seed file.
     pub seed: Option<PathBuf>,
+
+    /// Which bitcoin network to use
+    pub network: Option<Network>,
 }
 
 /// Configuration for the transport layer.

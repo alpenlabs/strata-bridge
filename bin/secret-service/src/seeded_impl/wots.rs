@@ -20,20 +20,18 @@ pub struct SeededWotsSigner {
     ikm_256: [u8; 32],
 }
 
+const IKM_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 79 },
+    ChildNumber::Hardened { index: 160 },
+    ChildNumber::Hardened { index: 0 },
+];
+
 impl SeededWotsSigner {
     /// Creates a new WOTS signer from an operator's base private key (m/20000').
     pub fn new(base: &Xpriv) -> Self {
         Self {
             ikm_160: base
-                .derive_priv(
-                    SECP256K1,
-                    &[
-                        // TODO: move to constants.
-                        ChildNumber::from_hardened_idx(79).unwrap(),
-                        ChildNumber::from_hardened_idx(160).unwrap(),
-                        ChildNumber::from_hardened_idx(0).unwrap(),
-                    ],
-                )
+                .derive_priv(SECP256K1, &IKM_PATH)
                 .unwrap()
                 .private_key
                 .secret_bytes(),
