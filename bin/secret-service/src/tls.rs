@@ -34,7 +34,7 @@ pub(crate) async fn load_tls(conf: TlsConfig) -> ServerConfig {
         (vec![cert], key.into())
     } else {
         error!("TLS configuration is missing certificate and key paths");
-        std::process::exit(10);
+        std::process::exit(1);
     };
 
     let tls_builder = if let Some(ca_path) = conf.ca {
@@ -54,7 +54,7 @@ pub(crate) async fn load_tls(conf: TlsConfig) -> ServerConfig {
         ServerConfig::builder().with_no_client_auth()
     } else {
         error!("TLS configuration is missing CA certificate path");
-        std::process::exit(11);
+        std::process::exit(1);
     };
 
     tls_builder
