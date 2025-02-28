@@ -25,8 +25,8 @@ use crate::constants::{
 /// CLI arguments for the p2p-client.
 #[derive(Debug, Clone, Parser, Default)]
 #[clap(
-    name = "strata-bridge",
-    about = "The bridge node for Strata",
+    name = "strata-p2p-node",
+    about = "The P2P node for Strata",
     version = crate_version!()
 )]
 pub(crate) struct Cli {
