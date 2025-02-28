@@ -111,7 +111,7 @@ mod tests {
 
     /// Tests message authentication and gossiping between nodes.
     #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
-    async fn test_message_authentication_and_gossip() {
+    async fn message_authentication_and_gossip() {
         logging::init(LoggerConfig::new("p2p-node".to_string()));
 
         let peers_a = vec![*X_ONLY_PK_B, *X_ONLY_PK_C];

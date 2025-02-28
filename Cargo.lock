@@ -9873,27 +9873,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-p2p-client"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bitcoin",
- "clap",
- "libp2p",
- "libp2p-identity",
- "musig2",
- "sled",
- "strata-common",
- "strata-p2p",
- "strata-p2p-db",
- "strata-p2p-types",
- "threadpool",
- "tokio",
- "tokio-util",
- "tracing",
-]
-
-[[package]]
 name = "strata-p2p-db"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
@@ -9910,6 +9889,27 @@ dependencies = [
  "thiserror 2.0.11",
  "threadpool",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "strata-p2p-node"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "clap",
+ "libp2p",
+ "libp2p-identity",
+ "musig2",
+ "sled",
+ "strata-common",
+ "strata-p2p",
+ "strata-p2p-db",
+ "strata-p2p-types",
+ "threadpool",
+ "tokio",
+ "tokio-util",
  "tracing",
 ]
 

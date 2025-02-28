@@ -17,18 +17,17 @@ members = [
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
-  "bin/p2p-client",
+  "bin/p2p-node",
 
   # test utilities
   "crates/test-utils",
-  "bin/p2p-client",
 ]
 
 default-members = [
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
-  "bin/p2p-client",
+  "bin/p2p-node",
 ]
 
 resolver = "2"

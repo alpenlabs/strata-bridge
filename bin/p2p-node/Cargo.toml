@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "strata-p2p-client"
+name = "strata-p2p-node"
 version = "0.1.0"
 
 [lints]
