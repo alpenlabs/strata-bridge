@@ -1,6 +1,6 @@
 use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
-    Transaction, TxOut, Txid,
+    TapSighashType, Transaction, TxOut, Txid,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
@@ -58,7 +58,7 @@ impl PayoutOptimisticTx {
         data: PayoutOptimisticData,
         connector_c0: ConnectorC0,
         connector_c1: ConnectorC1,
-        connector_b: ConnectorNOfN,
+        connector_n_of_n: ConnectorNOfN,
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
@@ -74,6 +74,10 @@ impl PayoutOptimisticTx {
             OutPoint {
                 txid: data.claim_txid,
                 vout: 1,
+            },
+            OutPoint {
+                txid: data.claim_txid,
+                vout: 2,
             },
             data.stake_outpoint,
         ];
@@ -95,10 +99,11 @@ impl PayoutOptimisticTx {
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
+        let n_of_n_addr = connector_n_of_n.create_taproot_address();
         let prevouts = vec![
             TxOut {
                 value: data.deposit_amount,
-                script_pubkey: connector_b.create_taproot_address().script_pubkey(),
+                script_pubkey: n_of_n_addr.script_pubkey(),
             },
             TxOut {
                 value: data.input_amount,
@@ -107,6 +112,10 @@ impl PayoutOptimisticTx {
             TxOut {
                 value: connector_c1.generate_locking_script().minimal_non_dust(),
                 script_pubkey: connector_c1.generate_locking_script(),
+            },
+            TxOut {
+                value: n_of_n_addr.script_pubkey().minimal_non_dust(),
+                script_pubkey: n_of_n_addr.script_pubkey(),
             },
             TxOut {
                 value: connector_p
@@ -144,6 +153,7 @@ impl PayoutOptimisticTx {
                 script_buf: payout_script,
                 control_block,
             },
+            TaprootWitness::Key,
             TaprootWitness::Tweaked {
                 tweak: connector_p_tweak,
             },
@@ -168,13 +178,15 @@ impl PayoutOptimisticTx {
     #[expect(clippy::too_many_arguments)]
     pub fn finalize(
         mut self,
-        connector_c0: ConnectorC0,
-        connector_c1: ConnectorC1,
-        connector_p: ConnectorP,
+        deposit_signature: schnorr::Signature,
         n_of_n_sig_c0: schnorr::Signature,
         n_of_n_sig_c1: schnorr::Signature,
+        n_of_n_sig_c2: schnorr::Signature,
         n_of_n_sig_p: schnorr::Signature,
-        deposit_signature: schnorr::Signature,
+        connector_c0: ConnectorC0,
+        connector_c1: ConnectorC1,
+        connector_c2: ConnectorNOfN,
+        connector_p: ConnectorP,
     ) -> Transaction {
         finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
 
@@ -189,6 +201,12 @@ impl PayoutOptimisticTx {
         });
         let c1_input_index = c1_path.get_input_index() as usize;
         connector_c1.finalize_input(&mut self.psbt.inputs[c1_input_index], c1_path);
+
+        let n_of_n_sig_c2 = taproot::Signature {
+            signature: n_of_n_sig_c2,
+            sighash_type: TapSighashType::Default,
+        };
+        connector_c2.finalize_input(&mut self.psbt.inputs[2], n_of_n_sig_c2);
 
         let p_witness = StakeSpendPath::Payout(n_of_n_sig_p);
         connector_p.finalize(&mut self.psbt.inputs[3], p_witness);

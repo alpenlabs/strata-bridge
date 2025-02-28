@@ -481,12 +481,17 @@ where
             .await;
 
         trace!(action = "creating secnonce and pubnonce for payout tx input 2", %operator_index);
+        let payout_pubnonce_2 = self
+            .generate_nonces(operator_index, &key_agg_ctx_keypath, 2, &payout_tx)
+            .await;
+
+        trace!(action = "creating secnonce and pubnonce for payout tx input 3", %operator_index);
         let payout_key_agg_ctx = key_agg_ctx
             .clone()
             .with_taproot_tweak(payout_tweak.as_ref())
             .expect("should be able to create key agg ctx with tweak");
-        let payout_pubnonce_2 = self
-            .generate_nonces(operator_index, &payout_key_agg_ctx, 2, &payout_tx)
+        let payout_pubnonce_3 = self
+            .generate_nonces(operator_index, &payout_key_agg_ctx, 3, &payout_tx)
             .await;
 
         trace!(action = "creating secnonce and pubnonce for disprove tx", %operator_index);
@@ -501,6 +506,7 @@ where
             payout_0: payout_pubnonce_0,
             payout_1: payout_pubnonce_1,
             payout_2: payout_pubnonce_2,
+            payout_3: payout_pubnonce_3,
         }
     }
 
@@ -640,6 +646,7 @@ where
                         payout_0,
                         payout_1,
                         payout_2,
+                        payout_3,
                     } = details;
                     info!(event = "received covenant fulfillment data for nonce", %deposit_txid, %sender_id, %own_index);
 
@@ -650,6 +657,7 @@ where
                         (payout_txid, 0, payout_0),
                         (payout_txid, 1, payout_1),
                         (payout_txid, 2, payout_2),
+                        (payout_txid, 3, payout_3),
                     ];
 
                     let mut all_done = true;
@@ -715,7 +723,7 @@ where
         let payout_agg_nonce_0 = self
             .get_aggregated_nonce(payout_tx.compute_txid(), 0)
             .await
-            .expect("payout 0 nonce must exist");
+            .expect("payout nonce 0 must exist");
         let payout_agg_nonce_1 = self
             .get_aggregated_nonce(payout_tx.compute_txid(), 1)
             .await
@@ -724,6 +732,10 @@ where
             .get_aggregated_nonce(payout_tx.compute_txid(), 2)
             .await
             .expect("payout nonce 2 must exist");
+        let payout_agg_nonce_3 = self
+            .get_aggregated_nonce(payout_tx.compute_txid(), 3)
+            .await
+            .expect("payout nonce 3 must exist");
 
         let agg_nonces = AggNonces {
             pre_assert: pre_assert_agg_nonce,
@@ -732,6 +744,7 @@ where
             payout_0: payout_agg_nonce_0,
             payout_1: payout_agg_nonce_1,
             payout_2: payout_agg_nonce_2,
+            payout_3: payout_agg_nonce_3,
         };
 
         // 3. Generate own signatures
@@ -803,6 +816,7 @@ where
                 agg_nonces.payout_0,
                 agg_nonces.payout_1,
                 agg_nonces.payout_2,
+                agg_nonces.payout_3,
             ],
         )
         .await;
@@ -875,6 +889,7 @@ where
                     agg_nonces.payout_0,
                     agg_nonces.payout_1,
                     agg_nonces.payout_2,
+                    agg_nonces.payout_3,
                 ],
             )
             .await;
@@ -1860,7 +1875,7 @@ where
                 .unwrap()
                 .unwrap(); // FIXME:  Handle me
 
-            let n_of_n_sig_p = self
+            let n_of_n_sig_c2 = self
                 .public_db
                 .get_signature(own_index, payout_tx.compute_txid(), 2)
                 .await
@@ -1868,12 +1883,22 @@ where
                 .unwrap(); // FIXME:
                            // Handle me
 
+            let n_of_n_sig_p = self
+                .public_db
+                .get_signature(own_index, payout_tx.compute_txid(), 3)
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:
+                           // Handle me
+
             let signed_payout_tx = payout_tx.finalize(
-                connectors.post_assert_out_0,
-                connectors.hashlock_payout,
                 deposit_signature,
                 n_of_n_sig_a3,
+                n_of_n_sig_c2,
                 n_of_n_sig_p,
+                connectors.post_assert_out_0,
+                connectors.n_of_n,
+                connectors.hashlock_payout,
             );
 
             info!(action = "trying to get reimbursement", payout_txid=%signed_payout_tx.compute_txid(), %own_index);
@@ -2584,7 +2609,8 @@ where
             let vsize = signed_stake_tx.vsize();
             let weight = signed_stake_tx.weight();
 
-            let timelock = Duration::from_secs(params.delta.to_consensus_u32().into());
+            let slack = 2;
+            let timelock = Duration::from_secs(params.delta.to_consensus_u32() as u64 + slack);
             match self
                 .agent
                 .wait_and_broadcast(&signed_stake_tx, timelock)

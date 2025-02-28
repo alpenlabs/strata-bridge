@@ -1,6 +1,6 @@
 use bitcoin::{
-    sighash::Prevouts, transaction, Amount, Network, OutPoint, Psbt, Sequence, Transaction, TxOut,
-    Txid,
+    sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
+    TapSighashType, Transaction, TxOut, Txid,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,9 @@ pub struct PayoutData {
 
     /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
+
+    /// The [`OutPoint`] of the Claim transaction.
+    pub claim_outpoint: OutPoint,
 
     /// The [`OutPoint`] of the stake transaction.
     pub stake_outpoint: OutPoint,
@@ -56,7 +59,7 @@ impl PayoutTx {
     pub fn new(
         data: PayoutData,
         connector_a3: ConnectorA3,
-        connector_b: ConnectorNOfN,
+        connector_n_of_n: ConnectorNOfN,
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
@@ -69,6 +72,7 @@ impl PayoutTx {
                 txid: data.post_assert_txid,
                 vout: 0,
             },
+            data.claim_outpoint,
             data.stake_outpoint,
         ];
 
@@ -93,14 +97,19 @@ impl PayoutTx {
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
+        let n_of_n_addr = connector_n_of_n.create_taproot_address();
         let prevouts = vec![
             TxOut {
                 value: data.deposit_amount,
-                script_pubkey: connector_b.create_taproot_address().script_pubkey(),
+                script_pubkey: n_of_n_addr.script_pubkey(),
             },
             TxOut {
                 value: data.input_amount,
                 script_pubkey: connector_a3.generate_locking_script(data.deposit_txid),
+            },
+            TxOut {
+                value: n_of_n_addr.script_pubkey().minimal_non_dust(),
+                script_pubkey: n_of_n_addr.script_pubkey(),
             },
             TxOut {
                 value: connector_p
@@ -135,6 +144,7 @@ impl PayoutTx {
                 script_buf: connector_a3_script,
                 control_block: connector_a3_control_block,
             },
+            TaprootWitness::Key,
             TaprootWitness::Tweaked {
                 tweak: connector_p.generate_merkle_root(),
             },
@@ -156,13 +166,16 @@ impl PayoutTx {
     /// Finalizes the payout transaction.
     ///
     /// Note that the `deposit_signature` is also an n-of-n signature.
+    #[expect(clippy::too_many_arguments)]
     pub fn finalize(
         mut self,
-        connector_a3: ConnectorA3,
-        connector_p: ConnectorP,
         deposit_signature: schnorr::Signature,
         n_of_n_sig_a3: schnorr::Signature,
+        n_of_n_sig_c2: schnorr::Signature,
         n_of_n_sig_p: schnorr::Signature,
+        connector_a3: ConnectorA3,
+        connector_c2: ConnectorNOfN,
+        connector_p: ConnectorP,
     ) -> Transaction {
         finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
 
@@ -171,8 +184,14 @@ impl PayoutTx {
             ConnectorA3Leaf::Payout(Some(n_of_n_sig_a3)),
         );
 
+        let n_of_n_sig_c2 = taproot::Signature {
+            signature: n_of_n_sig_c2,
+            sighash_type: TapSighashType::Default,
+        };
+        connector_c2.finalize_input(&mut self.psbt.inputs[2], n_of_n_sig_c2);
+
         let spend_path = StakeSpendPath::Payout(n_of_n_sig_p);
-        connector_p.finalize(&mut self.psbt.inputs[2], spend_path);
+        connector_p.finalize(&mut self.psbt.inputs[3], spend_path);
 
         self.psbt
             .extract_tx()

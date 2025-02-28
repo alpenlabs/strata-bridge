@@ -128,6 +128,7 @@ impl PegOutGraph {
             connectors.kickoff,
             connectors.claim_out_0,
             connectors.claim_out_1,
+            connectors.n_of_n,
             connectors.connector_cpfp,
         );
         let claim_txid = claim_tx.compute_txid();
@@ -185,6 +186,10 @@ impl PegOutGraph {
             stake_outpoint: OutPoint {
                 txid: input.stake_outpoint.txid,
                 vout: 1,
+            },
+            claim_outpoint: OutPoint {
+                txid: claim_txid,
+                vout: claim_tx.slash_stake_vout(),
             },
             input_amount: post_assert_out_amt,
             deposit_amount: input.deposit_amount,
@@ -492,6 +497,7 @@ mod tests {
             kickoff,
             claim_out_0,
             claim_out_1,
+            n_of_n: claim_out_2,
             hashlock_payout,
             connector_cpfp,
             ..
@@ -569,19 +575,24 @@ mod tests {
         let n_of_n_sig_c1 = signatures
             .next()
             .expect("must have n-of-n signature for c1");
+        let n_of_n_sig_c2 = signatures
+            .next()
+            .expect("must have n-of-n signature for c2");
         let n_of_n_sig_p = signatures.next().expect("must have n-of-n signature for p");
 
         let payout_input_amount = payout_optimistic.input_amount();
         let payout_cpfp_vout = payout_optimistic.cpfp_vout();
 
         let signed_payout_tx = payout_optimistic.finalize(
-            claim_out_0,
-            claim_out_1,
-            hashlock_payout,
+            deposit_signature,
             n_of_n_sig_c0,
             n_of_n_sig_c1,
+            n_of_n_sig_c2,
             n_of_n_sig_p,
-            deposit_signature,
+            claim_out_0,
+            claim_out_1,
+            claim_out_2,
+            hashlock_payout,
         );
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
@@ -674,6 +685,7 @@ mod tests {
         let SubmitAssertionsResult {
             payout_tx,
             post_assert_out_0,
+            n_of_n: claim_out_2,
             hashlock_payout,
             ..
         } = submit_assertions(
@@ -709,17 +721,22 @@ mod tests {
         let n_of_n_sig_a3 = signatures
             .next()
             .expect("must have n-of-n signature for post-assert prevout");
+        let n_of_n_sig_c2 = signatures
+            .next()
+            .expect("must have n-of-n signature for c2");
         let n_of_n_sig_p = signatures
             .next()
             .expect("must have n-of-n signature for stake hashlock prevout");
         let payout_input_amount = payout_tx.input_amount();
         let payout_cpfp_vout = payout_tx.cpfp_vout();
         let signed_payout_tx = payout_tx.finalize(
-            post_assert_out_0,
-            hashlock_payout,
             deposit_signature,
             n_of_n_sig_a3,
+            n_of_n_sig_c2,
             n_of_n_sig_p,
+            post_assert_out_0,
+            claim_out_2,
+            hashlock_payout,
         );
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
@@ -1159,6 +1176,7 @@ mod tests {
         post_assert_out_0: ConnectorA3,
         disprove_tx: DisproveTx,
         stake: ConnectorStake,
+        n_of_n: ConnectorNOfN,
         hashlock_payout: ConnectorP,
     }
 
@@ -1207,7 +1225,7 @@ mod tests {
             kickoff,
             claim_out_0,
             claim_out_1,
-            n_of_n: _,
+            n_of_n,
             connector_cpfp,
             post_assert_out_0,
             assert_data160_factory,
@@ -1523,6 +1541,7 @@ mod tests {
             post_assert_out_0,
             disprove_tx,
             stake,
+            n_of_n,
             hashlock_payout,
         }
     }

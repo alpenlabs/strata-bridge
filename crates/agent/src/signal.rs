@@ -65,7 +65,8 @@ pub struct CovenantNonceRequestFulfilled {
     pub disprove: PubNonce,
     pub payout_0: PubNonce, // requires key-spend key aggregation
     pub payout_1: PubNonce, // requires script-spend key aggregation
-    pub payout_2: PubNonce, // requires key-spend key aggregation with tweak
+    pub payout_2: PubNonce, // requires key-spend key aggregation
+    pub payout_3: PubNonce, // requires key-spend key aggregation with tweak
 }
 
 #[derive(Debug, Clone)]
@@ -111,4 +112,5 @@ pub struct AggNonces {
     pub payout_0: AggNonce,
     pub payout_1: AggNonce,
     pub payout_2: AggNonce,
+    pub payout_3: AggNonce,
 }

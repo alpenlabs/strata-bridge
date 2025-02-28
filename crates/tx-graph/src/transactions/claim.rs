@@ -37,6 +37,7 @@ impl ClaimTx {
         connector_k: ConnectorK,
         connector_c0: ConnectorC0,
         connector_c1: ConnectorC1,
+        connector_n_of_n: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
         let tx_ins = create_tx_ins([data.stake_outpoint]);
@@ -44,14 +45,19 @@ impl ClaimTx {
         let c1_out = connector_c1.generate_locking_script();
         let c1_amt = c1_out.minimal_non_dust();
 
+        let c2_out = connector_n_of_n.create_taproot_address().script_pubkey();
+        let c2_amt = c2_out.minimal_non_dust();
+
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amt = cpfp_script.minimal_non_dust();
 
-        let c0_amt = data.input_amount - c1_amt - cpfp_amt;
+        let c0_out = connector_c0.generate_locking_script();
+        let c0_amt = data.input_amount - c1_amt - c2_amt - cpfp_amt;
 
         let scripts_and_amounts = [
-            (connector_c0.generate_locking_script(), c0_amt),
-            (connector_c1.generate_locking_script(), c1_amt),
+            (c0_out, c0_amt),
+            (c1_out, c1_amt),
+            (c2_out, c2_amt),
             (cpfp_script, cpfp_amt),
         ];
 
@@ -177,10 +183,15 @@ impl CovenantTx for ClaimTx {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use bitcoin::{hashes::Hash, Network, Witness};
     use bitvm::treepp::*;
     use secp256k1::rand::{rngs::OsRng, Rng};
-    use strata_bridge_primitives::wots::{self, Wots256Signature};
+    use strata_bridge_primitives::{
+        build_context::{BuildContext, TxBuildContext},
+        wots::{self, Wots256Signature},
+    };
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
     use super::*;
@@ -192,6 +203,9 @@ mod tests {
         let network = Network::Regtest;
         let msk = "test-parse-witness";
         let deposit_txid = generate_txid();
+
+        let pubkey_table = BTreeMap::from([(0, keypair.public_key())]);
+        let build_context = TxBuildContext::new(network, pubkey_table.into(), 0);
 
         let wots_public_key = wots::Wots256PublicKey::new(msk, deposit_txid);
         let claim_tx = ClaimTx::new(
@@ -206,6 +220,7 @@ mod tests {
             ConnectorK::new(pubkey, network, wots_public_key),
             ConnectorC0::new(pubkey, network),
             ConnectorC1::new(pubkey, network),
+            ConnectorNOfN::new(build_context.aggregated_pubkey(), network),
             ConnectorCpfp::new(pubkey, network),
         );
 

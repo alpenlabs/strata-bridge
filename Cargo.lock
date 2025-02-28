@@ -2722,6 +2722,7 @@ dependencies = [
  "hex",
  "miniscript",
  "serde_json",
+ "strata-bridge-primitives",
  "strata-common",
  "tokio",
  "tracing",
