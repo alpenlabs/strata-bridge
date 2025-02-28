@@ -40,14 +40,18 @@ impl MessageHandler {
         }
     }
 
+    /// Dispatches an unsigned message by signing it and sending it over the network.
+    pub(crate) async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
+        trace!(%description, ?msg, "sending message");
+        let signed_msg = msg.sign_secp256k1(&self.keypair);
+        self.handle.send_command(signed_msg).await;
+        info!(%description, "sent message");
+    }
+
     /// Sends a deposit setup message to the network.
     pub(crate) async fn send_deposit_setup(&self, scope: Scope, wots_pks: WotsPublicKeys) {
         let msg = UnsignedPublishMessage::DepositSetup { scope, wots_pks };
-
-        let signed_msg = msg.sign_secp256k1(&self.keypair);
-        trace!(?msg, "sent deposit setup message");
-        self.handle.send_command(signed_msg).await;
-        info!("sent deposit setup message");
+        self.dispatch(msg, "deposit setup message").await;
     }
 
     /// Sends a stake chain exchange message to the network.
@@ -64,10 +68,7 @@ impl MessageHandler {
             checkpoint_pubkeys,
             stake_data,
         };
-
-        let signed_msg = msg.sign_secp256k1(&self.keypair);
-        self.handle.send_command(signed_msg).await;
-        info!("Sent stake chain exchange message");
+        self.dispatch(msg, "stake chain exchange message").await;
     }
 
     /// Sends a MuSig2 nonces exchange message to the network.
@@ -80,10 +81,7 @@ impl MessageHandler {
             session_id,
             pub_nonces,
         };
-
-        let signed_msg = msg.sign_secp256k1(&self.keypair);
-        self.handle.send_command(signed_msg).await;
-        info!("Sent MuSig2 nonces exchange message");
+        self.dispatch(msg, "MuSig2 nonces exchange message").await;
     }
 
     /// Sends a MuSig2 signatures exchange message to the network.
@@ -96,9 +94,7 @@ impl MessageHandler {
             session_id,
             partial_sigs,
         };
-
-        let signed_msg = msg.sign_secp256k1(&self.keypair);
-        self.handle.send_command(signed_msg).await;
-        info!("Sent MuSig2 signatures exchange message");
+        self.dispatch(msg, "MuSig2 signatures exchange message")
+            .await;
     }
 }
