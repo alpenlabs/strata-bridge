@@ -30,7 +30,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<(P2PHandle, Can
     );
 
     info!("creating a swarm");
-    let swarm = swarm::with_inmemory_transport(&p2p_config)?;
+    let swarm = swarm::with_tcp_transport(&p2p_config)?;
 
     info!("creating a p2p node");
     let (mut p2p, handle) = P2P::from_config(p2p_config, cancel.clone(), db, swarm, None)?;
