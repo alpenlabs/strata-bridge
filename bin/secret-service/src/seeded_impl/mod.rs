@@ -18,6 +18,7 @@ use wots::SeededWotsSigner;
 pub mod musig2;
 pub mod operator;
 pub mod p2p;
+pub mod paths;
 pub mod stakechain;
 pub mod wots;
 

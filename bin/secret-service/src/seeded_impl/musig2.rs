@@ -1,7 +1,7 @@
 //! In-memory persistence for MuSig2's secret data.
 
 use bitcoin::{
-    bip32::{ChildNumber, Xpriv},
+    bip32::Xpriv,
     hashes::Hash,
     key::{Keypair, Parity},
     Txid, XOnlyPublicKey,
@@ -20,6 +20,8 @@ use secret_service_proto::v1::traits::{
 use sha2::Sha256;
 use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
 
+use super::paths::{MUSIG2_KEY_PATH, MUSIG2_NONCE_IKM_PATH};
+
 /// Secret data for the MuSig2 signer.
 #[derive(Debug)]
 pub struct Ms2Signer {
@@ -30,24 +32,15 @@ pub struct Ms2Signer {
     ikm: [u8; 32],
 }
 
-const KEY_PATH: &[ChildNumber] = &[
-    ChildNumber::Hardened { index: 20 },
-    ChildNumber::Hardened { index: 101 },
-];
-const NONCE_IKM_PATH: &[ChildNumber] = &[
-    ChildNumber::Hardened { index: 666 },
-    ChildNumber::Hardened { index: 0 },
-];
-
 impl Ms2Signer {
     /// Creates a new MuSig2 signer given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
         let key = base
-            .derive_priv(SECP256K1, &KEY_PATH)
+            .derive_priv(SECP256K1, &MUSIG2_KEY_PATH)
             .expect("valid key")
             .private_key;
         let ikm = base
-            .derive_priv(SECP256K1, &NONCE_IKM_PATH)
+            .derive_priv(SECP256K1, &MUSIG2_NONCE_IKM_PATH)
             .expect("valid child")
             .private_key
             .secret_bytes();

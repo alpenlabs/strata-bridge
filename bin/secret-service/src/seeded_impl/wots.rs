@@ -1,15 +1,13 @@
 //! In-memory persistence for the Winternitz One-Time Signature (WOTS) keys.
 
-use bitcoin::{
-    bip32::{ChildNumber, Xpriv},
-    hashes::Hash,
-    Txid,
-};
+use bitcoin::{bip32::Xpriv, hashes::Hash, Txid};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
 use secret_service_proto::v1::traits::{Server, WotsSigner};
 use sha2::Sha256;
+
+use super::paths::{WOTS_IKM_160_PATH, WOTS_IKM_256_PATH};
 
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
@@ -20,31 +18,17 @@ pub struct SeededWotsSigner {
     ikm_256: [u8; 32],
 }
 
-const IKM_PATH: &[ChildNumber] = &[
-    ChildNumber::Hardened { index: 79 },
-    ChildNumber::Hardened { index: 160 },
-    ChildNumber::Hardened { index: 0 },
-];
-
 impl SeededWotsSigner {
     /// Creates a new WOTS signer from an operator's base private key (m/20000').
     pub fn new(base: &Xpriv) -> Self {
         Self {
             ikm_160: base
-                .derive_priv(SECP256K1, &IKM_PATH)
+                .derive_priv(SECP256K1, &WOTS_IKM_160_PATH)
                 .unwrap()
                 .private_key
                 .secret_bytes(),
             ikm_256: base
-                .derive_priv(
-                    SECP256K1,
-                    &[
-                        // TODO: move to constants.
-                        ChildNumber::from_hardened_idx(79).unwrap(),
-                        ChildNumber::from_hardened_idx(256).unwrap(),
-                        ChildNumber::from_hardened_idx(0).unwrap(),
-                    ],
-                )
+                .derive_priv(SECP256K1, &WOTS_IKM_256_PATH)
                 .unwrap()
                 .private_key
                 .secret_bytes(),

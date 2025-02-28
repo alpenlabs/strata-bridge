@@ -1,15 +1,13 @@
 //! In-memory persistence for Stake Chain preimages.
 
-use bitcoin::{
-    bip32::{ChildNumber, Xpriv},
-    hashes::Hash,
-    Txid,
-};
+use bitcoin::{bip32::Xpriv, hashes::Hash, Txid};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
 use secret_service_proto::v1::traits::{Server, StakeChainPreimages};
 use sha2::Sha256;
+
+use super::paths::STAKECHAIN_PREIMG_IKM_PATH;
 
 /// Secret data for the Stake Chain preimages.
 #[derive(Debug)]
@@ -18,16 +16,11 @@ pub struct StakeChain {
     ikm: [u8; 32],
 }
 
-const IKM_PATH: &[ChildNumber] = &[
-    ChildNumber::Hardened { index: 80 },
-    ChildNumber::Hardened { index: 0 },
-];
-
 impl StakeChain {
     /// Creates a new [`StakeChain`] given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
         let xpriv = base
-            .derive_priv(SECP256K1, &IKM_PATH)
+            .derive_priv(SECP256K1, &STAKECHAIN_PREIMG_IKM_PATH)
             .expect("good child key");
         Self {
             ikm: xpriv.private_key.secret_bytes(),
