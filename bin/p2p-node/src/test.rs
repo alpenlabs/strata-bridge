@@ -104,7 +104,7 @@ mod tests {
         let (mut handler_c, cancel_c) = setup_node(port_c, peers_c, *SK_C, vec![port_b]).await;
 
         // Wait for connections to establish
-        // TODO(@storopoli): Make sure that this duration is long enough
+        // FIXME(@storopoli): Check if this delay is sufficient and trim it down if needed
         sleep(Duration::from_secs(2)).await;
 
         // Create channels to collect received messages
@@ -155,15 +155,21 @@ mod tests {
         // Wait for the message to propagate
         sleep(Duration::from_secs(5)).await;
 
-        // Check if Node B received the message
-        let received_by_b = rx_b.try_recv().is_ok();
+        // Check if Node B received the message with timeout
+        // FIXME(@storopoli): Check if this delay is sufficient and trim it down if needed
+        let received_by_b = tokio::time::timeout(Duration::from_secs(10), rx_b.recv())
+            .await
+            .is_ok();
         assert!(
             received_by_b,
             "Node B did not receive the message from Node A"
         );
 
-        // Check if Node C received the message (gossip from B)
-        let received_by_c = rx_c.try_recv().is_ok();
+        // Check if Node C received the message (gossip from B) with timeout
+        // FIXME(@storopoli): Check if this delay is sufficient and trim it down if needed
+        let received_by_c = tokio::time::timeout(Duration::from_secs(10), rx_c.recv())
+            .await
+            .is_ok();
         assert!(
             received_by_c,
             "Node C did not receive the message from Node B (gossip)"
