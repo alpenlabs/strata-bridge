@@ -4,7 +4,7 @@
 pub const DEFAULT_HOST: &str = "127.0.0.1";
 
 /// Default RPC port.
-pub const DEFAULT_PORT: u32 = 4780;
+pub const DEFAULT_PORT: u16 = 4780;
 
 /// Default number of threads.
 pub const DEFAULT_NUM_THREADS: usize = 2;

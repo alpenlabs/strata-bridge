@@ -63,10 +63,10 @@ mod tests {
 
     /// Setups a node with the given port and peers.
     async fn setup_node(
-        port: u32,
+        port: u16,
         peers: Vec<XOnlyPublicKey>,
         secret_key: SecretKey,
-        connect_to: Vec<u32>,
+        connect_to: Vec<u16>,
     ) -> (MessageHandler, tokio_util::sync::CancellationToken) {
         // Parsing Stuff
         let secret_key = Libp2pSecpSecretKey::try_from_bytes(secret_key.secret_bytes()).unwrap();
