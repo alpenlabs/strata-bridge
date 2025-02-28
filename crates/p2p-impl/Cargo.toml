@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "strata-p2p-node"
+name = "strata-p2p-impl"
 version = "0.1.0"
 
 [lints]
@@ -15,19 +15,18 @@ strata-p2p.workspace = true
 strata-p2p-db.workspace = true
 strata-p2p-types.workspace = true
 
-strata-common.workspace = true
-
 anyhow.workspace = true
 bitcoin.workspace = true
-clap.workspace = true
 libp2p.workspace = true
 libp2p-identity.workspace = true
 musig2.workspace = true
 sled.workspace = true
 threadpool.workspace = true
-tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
+strata-common.workspace = true
+
+tokio.workspace = true

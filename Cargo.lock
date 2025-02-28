@@ -10086,12 +10086,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-p2p-node"
+name = "strata-p2p-impl"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bitcoin",
- "clap",
  "libp2p",
  "libp2p-identity",
  "musig2",

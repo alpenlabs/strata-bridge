@@ -1,23 +1,38 @@
+//! Strata Bridge P2P.
+
+pub mod bootstrap;
+pub mod config;
+pub mod constants;
+pub mod message_handler;
+
 #[cfg(test)]
 mod tests {
     use std::sync::LazyLock;
 
-    use bitcoin::{secp256k1::SecretKey, XOnlyPublicKey};
-    use libp2p_identity::secp256k1::{
-        Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey,
+    use bitcoin::{key::Parity, secp256k1::SecretKey, XOnlyPublicKey};
+    use libp2p::{Multiaddr, PeerId};
+    // Oh my this is annoying...
+    use libp2p_identity::{
+        secp256k1::{
+            Keypair as Libp2pSecpKeypair, PublicKey as Libp2pSecpPublicKey,
+            SecretKey as Libp2pSecpSecretKey,
+        },
+        PublicKey as Libp2pPublicKey,
     };
     use musig2::secp256k1::SECP256K1;
     use strata_bridge_test_utils::prelude::generate_keypair;
     use strata_common::logging::{self, LoggerConfig};
     use strata_p2p::events::Event;
-    use strata_p2p_types::{Scope, Wots160PublicKey, Wots256PublicKey, WotsPublicKeys};
+    use strata_p2p_types::{
+        OperatorPubKey, Scope, Wots160PublicKey, Wots256PublicKey, WotsPublicKeys,
+    };
     use tokio::time::{sleep, Duration};
     use tracing::{error, info, trace};
 
     use crate::{
         bootstrap::bootstrap,
-        cli::Cli,
-        constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_STACK_SIZE_MB},
+        config::Configuration,
+        constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_NUM_THREADS},
         message_handler::MessageHandler,
     };
 
@@ -53,30 +68,71 @@ mod tests {
         secret_key: SecretKey,
         connect_to: Vec<u32>,
     ) -> (MessageHandler, tokio_util::sync::CancellationToken) {
-        // Create CLI args for this node
-        let args = Cli {
-            host: "127.0.0.1".to_string(),
-            port,
-            num_threads: 1,
-            stack_size: DEFAULT_STACK_SIZE_MB,
-            idle_connection_timeout: DEFAULT_IDLE_CONNECTION_TIMEOUT,
-            secret_key: secret_key.display_secret().to_string(),
-            allowlist: peers.iter().map(|pk| pk.to_string()).collect(),
-            connect_to: connect_to
-                .iter()
-                .map(|port| format!("127.0.0.1:{port}"))
-                .collect(),
-        };
-
-        // Bootstrap the node
-        let (handle, cancel) = bootstrap(args).await.expect("Failed to bootstrap node");
-
-        // Create a message handler
+        // Parsing Stuff
         let secret_key = Libp2pSecpSecretKey::try_from_bytes(secret_key.secret_bytes()).unwrap();
         trace!(?secret_key, "parsed secret key into libp2p's secret key");
 
         let keypair: Libp2pSecpKeypair = secret_key.into();
         trace!(?keypair, "parsed libp2p's keypair");
+
+        let idle_connection_timeout = Duration::from_secs(DEFAULT_IDLE_CONNECTION_TIMEOUT as u64);
+        trace!(?idle_connection_timeout, "parsed idle_connection_timeout");
+
+        let listening_addr: Multiaddr = format!("/ip4/127.0.0.1/tcp/{port}").parse().unwrap();
+
+        let allowlist: Vec<PeerId> = peers
+            .iter()
+            .map(|x_only_pk| {
+                let bytes = &x_only_pk.public_key(Parity::Even).serialize();
+                let public_key = Libp2pSecpPublicKey::try_from_bytes(bytes)
+                    .expect("Must read the 33-byte public key");
+                let public_key: Libp2pPublicKey = public_key.into();
+                let peer_id: PeerId = public_key.into();
+                peer_id
+            })
+            .collect();
+        trace!(?allowlist, "parsed allowlist");
+
+        let connect_to: Vec<Multiaddr> = connect_to
+            .iter()
+            .map(|port| {
+                let address = format!("/ip4/127.0.0.1/tcp/{port}");
+                address.parse::<Multiaddr>().unwrap()
+            })
+            .collect();
+        let connect_to: Vec<Multiaddr> = connect_to.into_iter().map(Into::into).collect();
+        trace!(?connect_to, "parsed connect_to");
+
+        let signers_allowlist: Vec<OperatorPubKey> = peers
+            .iter()
+            .map(|x_only_pk| {
+                let bytes = &x_only_pk.public_key(Parity::Even).serialize();
+                let public_key = Libp2pSecpPublicKey::try_from_bytes(bytes)
+                    .expect("Must read the 33-byte public key");
+                let operator_pk: OperatorPubKey = public_key.into();
+                operator_pk
+            })
+            .collect();
+        trace!(?signers_allowlist, "parsed signers_allowlist");
+
+        let num_threads = Some(DEFAULT_NUM_THREADS);
+        trace!(?num_threads, "parsed num_threads");
+
+        // Create config for this node
+        let config = Configuration {
+            keypair: keypair.clone(),
+            idle_connection_timeout,
+            listening_addr,
+            allowlist,
+            connect_to,
+            signers_allowlist,
+            num_threads,
+        };
+
+        // Bootstrap the node
+        let (handle, cancel) = bootstrap(&config).await.expect("Failed to bootstrap node");
+
+        // Create a message handler
         let handler = MessageHandler::new(handle, keypair);
 
         (handler, cancel)

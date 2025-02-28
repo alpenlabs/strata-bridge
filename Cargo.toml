@@ -16,24 +16,19 @@ members = [
   "crates/secret-service-proto",
   "crates/secret-service-client",
   "crates/secret-service-server",
+  "crates/p2p-impl",
 
   # binaries listed separately
   "bin/secret-service",
   "bin/strata-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
-  "bin/p2p-node",
 
   # test utilities
   "crates/test-utils",
 ]
 
-default-members = [
-  "bin/strata-bridge",
-  "bin/dev-cli",
-  "bin/assert-splitter",
-  "bin/p2p-node",
-]
+default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
 
 resolver = "2"
 
