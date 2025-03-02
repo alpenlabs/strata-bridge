@@ -1541,8 +1541,15 @@ where
 
             info!(action = "paying out the user", %user_destination, %own_index);
 
+            let deposit_idx = self
+                .public_db
+                .get_deposit_id(deposit_txid)
+                .await
+                .expect("should be able to get deposit id")
+                .unwrap(); // FIXME: Handle me
+
             let withdrawal_fulfillment_txid = self
-                .pay_user(user_destination, network, own_index)
+                .pay_user(user_destination, network, own_index, deposit_idx)
                 .await
                 .expect("must be able to pay user");
 
@@ -1999,6 +2006,7 @@ where
         user_destination: &Descriptor,
         network: bitcoin::Network,
         own_index: OperatorIdx,
+        deposit_idx: u32,
     ) -> anyhow::Result<Txid> {
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
@@ -2016,6 +2024,7 @@ where
 
         let withdrawal_metadata = WithdrawalMetadata {
             operator_idx: own_index,
+            deposit_idx,
         };
         let change = TxOut {
             script_pubkey: change_address.script_pubkey(),
