@@ -17,6 +17,7 @@ pub mod duties;
 pub mod errors;
 pub mod params;
 pub mod scripts;
+pub mod secp;
 pub mod types;
 pub mod withdrawal;
 pub mod wots;

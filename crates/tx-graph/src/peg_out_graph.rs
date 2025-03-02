@@ -1,9 +1,16 @@
 //! This module constructs the peg-out graph which is a series of transactions that allow for the
 //! withdrawal of funds from the bridge address given a valid claim.
 
+use core::fmt;
+use std::{marker::PhantomData, mem::MaybeUninit};
+
 use bitcoin::{hashes::sha256, relative, Amount, OutPoint, Txid};
 use secp256k1::XOnlyPublicKey;
-use serde::{Deserialize, Serialize};
+use serde::{
+    de::{SeqAccess, Visitor},
+    ser::SerializeTuple,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
@@ -53,6 +60,122 @@ pub struct PegOutGraphInput {
     pub operator_pubkey: XOnlyPublicKey,
 }
 
+/// The minimum necessary information to recognize all of the relevant transactions in a given
+/// [`PegOutGraph`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PegOutGraphSummary {
+    /// Txid of [`PegOutGraph::claim_tx`]
+    pub claim_txid: Txid,
+
+    /// Txid of [`PegOutGraph::payout_optimistic`]
+    pub payout_optimistic_txid: Txid,
+
+    /// Txid of [`AssertChain::pre_assert`] contained in [`PegOutGraph::assert_chain`]
+    pub pre_assert_txid: Txid,
+
+    /// Txids of [`AssertChain::assert_data`] contained in [`PegOutGraph::assert_chain`]
+    #[serde(serialize_with = "serialize_assert_vector")]
+    #[serde(deserialize_with = "deserialize_assert_vector")]
+    pub assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
+
+    /// Txid of [`AssertChain::post_assert`] contained in [`PegOutGraph::assert_chain`]
+    pub post_assert_txid: Txid,
+
+    /// Txid of [`PegOutGraph::payout_tx`]
+    pub payout_txid: Txid,
+
+    /// Txids of the [`PegOutGraph::slash_stake_txs`].
+    pub slash_stake_txids: Vec<Txid>,
+}
+
+/// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
+/// length arrays of larger than 32.
+fn serialize_assert_vector<T: Serialize, S: Serializer>(
+    data: &[T; NUM_ASSERT_DATA_TX],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let mut seq = serializer.serialize_tuple(NUM_ASSERT_DATA_TX)?;
+    for e in data {
+        seq.serialize_element(e)?;
+    }
+    seq.end()
+}
+
+/// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
+/// length arrays of larger than 32.
+fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+    deserializer: D,
+) -> Result<[T; NUM_ASSERT_DATA_TX], D::Error> {
+    // THE AUTHORS OF SERDE CAN BURN IN HELL. Seriously whoever thought of serde's design is fucking
+    // retarded.
+    struct AssertVisitor<const N: usize, T> {
+        marker: PhantomData<T>,
+    }
+
+    impl<'de, const N: usize, T> Visitor<'de> for AssertVisitor<N, T>
+    where
+        T: Deserialize<'de>,
+    {
+        type Value = [T; N];
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a sequence")
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut values = [const { MaybeUninit::<T>::uninit() }; N];
+            let mut num_successfully_deserialized = 0;
+
+            let cleanup = |mut vs: [MaybeUninit<T>; N], n: usize| {
+                for written in &mut vs[..n] {
+                    unsafe {
+                        written.assume_init_drop();
+                    }
+                }
+            };
+
+            while let Some(res) = seq.next_element().transpose() {
+                match res {
+                    Ok(value) => {
+                        if num_successfully_deserialized >= NUM_ASSERT_DATA_TX {
+                            cleanup(values, num_successfully_deserialized);
+                            return Err(serde::de::Error::invalid_length(
+                                num_successfully_deserialized + 1,
+                                &self,
+                            ));
+                        }
+
+                        values[num_successfully_deserialized].write(value);
+                        num_successfully_deserialized += 1;
+                    }
+                    Err(e) => {
+                        cleanup(values, num_successfully_deserialized);
+                        return Err(e);
+                    }
+                }
+            }
+
+            if num_successfully_deserialized < NUM_ASSERT_DATA_TX {
+                cleanup(values, num_successfully_deserialized);
+                Err(serde::de::Error::invalid_length(
+                    num_successfully_deserialized,
+                    &self,
+                ))
+            } else {
+                Ok(unsafe { MaybeUninit::array_assume_init(values) })
+            }
+        }
+    }
+
+    let visitor = AssertVisitor::<NUM_ASSERT_DATA_TX, T> {
+        marker: PhantomData,
+    };
+    deserializer.deserialize_seq(visitor)
+}
+
 /// A container for the transactions in the peg-out graph.
 ///
 /// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxiliary data required to
@@ -96,7 +219,7 @@ impl PegOutGraph {
     /// i.e., if the operator advances the stake chain without fully executing the previous claims.
     /// In general, the number of these transactions should be `min(deposit_index,
     /// slash_stake_count)` (assuming that the deposit index is zero-indexed).
-    pub async fn generate<Context>(
+    pub fn generate<Context>(
         input: PegOutGraphInput,
         context: &Context,
         deposit_txid: Txid,
@@ -255,6 +378,22 @@ impl PegOutGraph {
             },
             connectors,
         ))
+    }
+
+    pub fn summarize(&self) -> PegOutGraphSummary {
+        PegOutGraphSummary {
+            claim_txid: self.claim_tx.compute_txid(),
+            payout_optimistic_txid: self.payout_optimistic.compute_txid(),
+            pre_assert_txid: self.assert_chain.pre_assert.compute_txid(),
+            assert_data_txids: self.assert_chain.assert_data.compute_txids(),
+            post_assert_txid: self.assert_chain.post_assert.compute_txid(),
+            payout_txid: self.payout_tx.compute_txid(),
+            slash_stake_txids: self
+                .slash_stake_txs
+                .iter()
+                .map(|tx| tx.compute_txid())
+                .collect(),
+        }
     }
 }
 
@@ -445,6 +584,29 @@ mod tests {
     const MSK: &str = "test_msk";
     const FEE_RATE: FeeRate = FeeRate::from_sat_per_kwu(5000);
 
+    #[test]
+    fn test_assert_vector_roundtrip_serialization() {
+        // Create test data
+        #[derive(Serialize, Deserialize)]
+        struct Container {
+            #[serde(serialize_with = "serialize_assert_vector")]
+            #[serde(deserialize_with = "deserialize_assert_vector")]
+            assert_vector: [i32; NUM_ASSERT_DATA_TX],
+        }
+        let assert_vector: [i32; NUM_ASSERT_DATA_TX] = std::array::from_fn(|i| i as i32);
+
+        // Serialize to string
+        let serialized =
+            serde_json::to_string(&Container { assert_vector }).expect("Failed to serialize");
+
+        // Deserialize back to array
+        let deserialized: Container =
+            serde_json::from_str(&serialized).expect("Failed to deserialize");
+
+        // Compare
+        assert_eq!(assert_vector, deserialized.assert_vector);
+    }
+
     #[tokio::test]
     async fn test_payout_optimistic() {
         let SetupOutput {
@@ -484,7 +646,6 @@ mod tests {
             prev_claim_txids,
             wots_public_keys,
         )
-        .await
         .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
@@ -1210,9 +1371,7 @@ mod tests {
             prev_claim_txids,
             wots_public_keys,
         )
-        .await
         .expect("must be able to generate peg-out graph");
-
         let PegOutGraph {
             claim_tx,
             assert_chain,
