@@ -40,8 +40,8 @@ impl PreAssertTx {
     /// Constructs a new instance of the pre-assert transaction.
     ///
     /// This involves constructing the output scripts for the bitcommitment connectors
-    /// ([`ConnectorA256`], [`ConnectorA160`]) and the stake connector [`ConnectorS`] as well as the
-    /// input from the connector [`ConnectorC0`].
+    /// ([`ConnectorA256`], [`ConnectorA160`]) as well as the input from the connector
+    /// [`ConnectorC0`].
     ///
     /// The bitcommitment connectors are constructed in such a way that when spending the outputs,
     /// the stack size stays under the bitcoin consensus limit of 1000 elements, and such that when

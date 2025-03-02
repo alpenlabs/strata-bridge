@@ -1,4 +1,4 @@
-//! This module defines the [`BurnPayouts`] transaction.
+//! This module defines the [`BurnPayoutsTx`] transaction.
 //!
 //! This transaction is used to prevent an operator from getting the bridge funds using historical
 //! claims even _after_ their stake has been slashed.

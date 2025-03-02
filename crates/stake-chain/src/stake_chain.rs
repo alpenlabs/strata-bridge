@@ -132,7 +132,7 @@ impl DerefMut for StakeChain {
 /// The data that it needs are:
 ///
 /// 1. Operator's public key.
-/// 2. `WOTS public keys.
+/// 2. WOTS public keys.
 /// 3. Stake hashes.
 /// 4. Operator funds to fund the dust values in the tx graph.
 /// 5. Pre-stake prevout.
