@@ -20,6 +20,8 @@ bitvm.workspace = true
 corepc-node.workspace = true
 hex.workspace = true
 musig2.workspace = true
-rand_core = { version = "0.9.1", default-features = false, features = ["os_rng"] }
+rand_core = { version = "0.9.1", default-features = false, features = [
+  "os_rng",
+] }
 serde.workspace = true
 serde_json.workspace = true

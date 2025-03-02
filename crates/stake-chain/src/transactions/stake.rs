@@ -31,7 +31,7 @@ pub struct StakeTxData {
     /// The [`sha256::Hash`] used in the hashlock of the current stake transaction.
     pub hash: sha256::Hash,
 
-    /// The [`Wots256PublicKey`] used in the output of the curent stake transaction that is spent
+    /// The [`Wots256PublicKey`] used in the output of the current stake transaction that is spent
     /// by the Claim transaction to bitcommit to the [`Txid`] of the Withdrawal Fulfilllment
     /// Transaction.
     pub withdrawal_fulfillment_pk: Wots256PublicKey,
