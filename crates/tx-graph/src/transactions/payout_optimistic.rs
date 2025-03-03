@@ -206,10 +206,11 @@ impl PayoutOptimisticTx {
             signature: n_of_n_sig_c2,
             sighash_type: TapSighashType::Default,
         };
-        connector_c2.finalize_input(&mut self.psbt.inputs[2], n_of_n_sig_c2);
+        connector_c2.finalize_input(&mut self.psbt.inputs[3], n_of_n_sig_c2);
 
-        let p_witness = StakeSpendPath::Payout(n_of_n_sig_p);
-        connector_p.finalize(&mut self.psbt.inputs[3], p_witness);
+        let p_witness = StakeSpendPath::PayoutOptimistic(n_of_n_sig_p);
+        let p_input_index = p_witness.get_input_index() as usize;
+        connector_p.finalize(&mut self.psbt.inputs[p_input_index], p_witness);
 
         self.psbt
             .extract_tx()

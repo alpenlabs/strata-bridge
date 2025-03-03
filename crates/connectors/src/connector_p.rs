@@ -158,6 +158,9 @@ impl ConnectorP {
     /// If the psbt input is already in the final state, then this method overrides the signature.
     pub fn finalize(&self, input: &mut Input, witness_data: StakeSpendPath) {
         match witness_data {
+            StakeSpendPath::PayoutOptimistic(signature) => {
+                finalize_input(input, [signature.serialize().to_vec()]);
+            }
             StakeSpendPath::Payout(signature) => {
                 finalize_input(input, [signature.serialize().to_vec()]);
             }

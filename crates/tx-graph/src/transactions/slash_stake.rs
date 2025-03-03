@@ -341,7 +341,7 @@ mod tests {
         });
 
         info!(
-            actio = "broadcasting signed slash stake transaction with reward output",
+            action = "broadcasting signed slash stake transaction with reward output",
             ?signed_slash_stake_tx
         );
         btc_client
