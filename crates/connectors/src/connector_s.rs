@@ -407,7 +407,7 @@ mod tests {
             StakeSpendPath::Advance {
                 signature: taproot::Signature {
                     signature,
-                    sighash_type: TapSighashType::All,
+                    sighash_type: TapSighashType::Default,
                 },
                 preimage: stake_preimage,
             },
