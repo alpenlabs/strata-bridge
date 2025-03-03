@@ -1,4 +1,5 @@
-use bitcoin::{ScriptBuf, Transaction};
+
+use bitcoin::{consensus, ScriptBuf, Transaction, Txid};
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::{
     block_credential::CredRule, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
@@ -41,31 +42,63 @@ pub(crate) fn extract_checkpoint(
     ))
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WithdrawalInfo {
+    pub(crate) operator_idx: OperatorIdx,
+    pub(crate) deposit_idx: u32,
+    pub(crate) deposit_txid: Txid,
+    pub(crate) withdrawal_address: ScriptBuf,
+    pub(crate) withdrawal_amount: BitcoinAmount,
+}
+
 // TODO: make this standard
-// FIX: slicing without properly checking the info causes panic
-// TODO: maybe turn the output into a struct
 pub(crate) fn extract_withdrawal_info(
     tx: &Transaction,
-) -> Result<(OperatorIdx, ScriptBuf, BitcoinAmount), BridgeProofError> {
+) -> Result<WithdrawalInfo, BridgeProofError> {
     if tx.output.len() < 2 {
         return Err(BridgeProofError::TxInfoExtractionError(
             BridgeRelatedTx::WithdrawalFulfillment,
         ));
     }
 
-    let operator_idx_output = &tx.output[0];
-    let withdrawal_fulfillment_output = &tx.output[1];
+    let withdrawal_fulfillment_output = &tx.output[0];
+    let withdrawal_metadata_output = &tx.output[1];
 
-    let operator_id = u32::from_be_bytes(
-        operator_idx_output.script_pubkey.as_bytes()[2..6]
-            .try_into()
-            .map_err(|_| {
-                BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
-            })?,
-    );
+    let metadata_script = withdrawal_metadata_output.script_pubkey.as_bytes();
+    const EXPECTED_METADATA_SIZE: usize = 2 + 4 + 4 + 32; // OP_RETURN + OP_PUSHBYTES + operator_id + deposit_id + deposit_txid
+    if metadata_script.len() != EXPECTED_METADATA_SIZE {
+        return Err(BridgeProofError::TxInfoExtractionError(
+            BridgeRelatedTx::WithdrawalFulfillment,
+        ));
+    }
+
+    let operator_idx_bytes = &metadata_script[2..6];
+
+    let deposit_idx_bytes = &metadata_script[6..10];
+    let deposit_txid_bytes = &metadata_script[10..42];
+
+    let operator_idx = u32::from_be_bytes(operator_idx_bytes.try_into().map_err(|_| {
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
+    })?);
+
+    let deposit_idx = u32::from_be_bytes(deposit_idx_bytes.try_into().map_err(|_| {
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
+    })?);
+
+    let deposit_txid: Txid = consensus::encode::deserialize(deposit_txid_bytes).map_err(|_| {
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
+    })?;
+
     let withdrawal_amount = BitcoinAmount::from_sat(withdrawal_fulfillment_output.value.to_sat());
     let withdrawal_address = withdrawal_fulfillment_output.script_pubkey.clone();
-    Ok((operator_id, withdrawal_address, withdrawal_amount))
+
+    Ok(WithdrawalInfo {
+        operator_idx,
+        deposit_idx,
+        deposit_txid,
+        withdrawal_address,
+        withdrawal_amount,
+    })
 }
 
 #[cfg(test)]

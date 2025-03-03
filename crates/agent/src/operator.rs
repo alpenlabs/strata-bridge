@@ -1546,7 +1546,13 @@ where
                 .unwrap(); // FIXME: Handle me
 
             let withdrawal_fulfillment_txid = self
-                .pay_user(user_destination, network, own_index, deposit_idx)
+                .pay_user(
+                    user_destination,
+                    network,
+                    own_index,
+                    deposit_idx,
+                    deposit_txid,
+                )
                 .await
                 .expect("must be able to pay user");
 
@@ -1708,6 +1714,7 @@ where
                 WotsSignatures::new(&self.msk, deposit_txid, assertions);
 
             if std::env::var(ENV_DUMP_TEST_DATA).is_ok() {
+                info!(action = "dumping assertions for testing", %own_index);
                 fs::write(
                     "assertions.bin",
                     rkyv::to_bytes::<rkyv::rancor::Error>(&assertions).unwrap(),
@@ -2003,6 +2010,7 @@ where
         network: bitcoin::Network,
         own_index: OperatorIdx,
         deposit_idx: u32,
+        deposit_txid: Txid,
     ) -> anyhow::Result<Txid> {
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
@@ -2021,6 +2029,7 @@ where
         let withdrawal_metadata = WithdrawalMetadata {
             operator_idx: own_index,
             deposit_idx,
+            deposit_txid,
         };
         let change = TxOut {
             script_pubkey: change_address.script_pubkey(),
@@ -2226,6 +2235,7 @@ where
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false)
         {
+            info!(action = "dumping proof input data for testing", %deposit_txid, %withdrawal_fulfillment_txid);
             dump_proof_input_data(&chain_state, blocks, op_signature);
         }
 
@@ -2244,6 +2254,8 @@ where
         let (proof, public_inputs, public_output) = prover::sp1_prove(&input).unwrap();
 
         if std::env::var(ENV_DUMP_TEST_DATA).is_ok() {
+            info!(action = "dumping proof data for testing", %deposit_txid, %withdrawal_fulfillment_txid);
+
             let proof_file = File::create("proof.bin").unwrap();
             let public_inputs_file = File::create("public_inputs.bin").unwrap();
             proof.serialize_uncompressed(proof_file).unwrap();
@@ -2655,12 +2667,10 @@ fn dump_proof_input_data(chain_state: &Chainstate, blocks: Vec<Block>, op_signat
     bincode::serialize_into(File::create("blocks.bin").unwrap(), &blocks).unwrap();
     info!(event = "dumped blocks to file", filename = %blocks_file);
 
-    let op_signature_file = "op_signature.borsh";
-    let mut file = File::create("op_signature.borsh").unwrap();
+    let op_signature_file = "op_signature.bin";
+    let mut file = File::create(op_signature_file).unwrap();
     let data = op_signature.as_slice();
     file.write_all(data)
         .expect("must be able to write op_signature to file");
     info!(event = "dumped op_signature to file", filename = %op_signature_file);
-
-    panic!("done dumping proof input data");
 }

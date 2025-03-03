@@ -1,4 +1,4 @@
-use bitcoin::{Amount, OutPoint, Transaction, TxOut};
+use bitcoin::{consensus, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::{
     scripts::general::{create_tx, create_tx_ins, create_tx_outs, op_return_nonce},
@@ -31,6 +31,15 @@ pub struct WithdrawalMetadata {
     /// operator) cannot be used to withdrawal two different bridged-in UTXOs off of the same
     /// withdrawal fulfillment transaction.
     pub deposit_idx: u32,
+
+    /// The txid of the deposit UTXO that that can be withdrawn via this withdrawal fulfillment.
+    ///
+    /// This is required for tying the peg-out graph with the deposit txid being claimed by just
+    /// inspecting the withdrawal fulfillment transaction itself. This serves the same purpose as
+    /// the `deposit_idx` field. However, the `deposit_txid` is a more direct way of linking the
+    /// two since the `deposit_idx` is computed after the fact when the deposit transaction is
+    /// confirmed on chain.
+    pub deposit_txid: Txid,
 }
 
 impl WithdrawalFulfillment {
@@ -53,16 +62,25 @@ impl WithdrawalFulfillment {
         let WithdrawalMetadata {
             operator_idx,
             deposit_idx,
+            deposit_txid,
         } = metadata;
 
         let op_id_prefix: [u8; 4] = operator_idx.to_be_bytes();
         let deposit_id_prefix: [u8; 4] = deposit_idx.to_be_bytes();
+        let deposit_txid_data = consensus::encode::serialize(&deposit_txid);
 
-        let op_return_script = op_return_nonce(&[op_id_prefix, deposit_id_prefix].concat());
+        let op_return_script = op_return_nonce(
+            &[
+                &op_id_prefix[..],
+                &deposit_id_prefix[..],
+                &deposit_txid_data[..],
+            ]
+            .concat(),
+        );
 
         let mut scripts_and_amounts = vec![
-            (op_return_script, op_return_amount),
             (recipient_pubkey, amount),
+            (op_return_script, op_return_amount),
         ];
 
         if let Some(change) = change {
@@ -99,7 +117,9 @@ mod tests {
         Amount,
     };
     use secp256k1::{rand::rngs::OsRng, Keypair, XOnlyPublicKey, SECP256K1};
-    use strata_bridge_test_utils::prelude::{generate_outpoint, generate_xonly_pubkey};
+    use strata_bridge_test_utils::prelude::{
+        generate_outpoint, generate_txid, generate_xonly_pubkey,
+    };
 
     use super::*;
 
@@ -127,10 +147,12 @@ mod tests {
         // Call the `new` function to create a transaction
         let operator_idx: OperatorIdx = OsRng.gen();
         let deposit_idx: u32 = OsRng.gen();
+        let deposit_txid = generate_txid();
 
         let withdrawal_metadata = WithdrawalMetadata {
             operator_idx,
             deposit_idx,
+            deposit_txid,
         };
         let change = TxOut {
             script_pubkey: change_address.script_pubkey(),
@@ -167,13 +189,22 @@ mod tests {
             "Change output is missing or incorrect"
         );
 
-        let operator_idx = operator_idx.to_be_bytes().to_lower_hex_string();
-        let deposit_idx = deposit_idx.to_be_bytes().to_lower_hex_string();
+        let operator_idx = withdrawal_metadata
+            .operator_idx
+            .to_be_bytes()
+            .to_lower_hex_string();
+        let deposit_idx = withdrawal_metadata
+            .deposit_idx
+            .to_be_bytes()
+            .to_lower_hex_string();
+        let deposit_txid = consensus::encode::serialize_hex(&withdrawal_metadata.deposit_txid);
+
+        let second_output = tx.tx_out(1).expect("must have second output");
         assert!(
-            tx.output.iter().any(|out| out.value == op_return_amount
-                && out.script_pubkey.is_op_return()
-                && out.script_pubkey[2..].to_hex_string()
-                    == format!("{}{}", operator_idx, deposit_idx)),
+            second_output.value == op_return_amount
+                && second_output.script_pubkey.is_op_return()
+                && second_output.script_pubkey[2..].to_hex_string()
+                    == format!("{}{}{}", operator_idx, deposit_idx, deposit_txid),
             "OP_RETURN output is missing or invalid"
         );
     }
