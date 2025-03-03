@@ -1,4 +1,3 @@
-
 use bitcoin::{consensus, ScriptBuf, Transaction, Txid};
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::{
