@@ -1,4 +1,4 @@
-use bitcoin::{OutPoint, Txid};
+use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 
 /// Enum representing the status of a bridge operator
