@@ -11,7 +11,9 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
-jsonrpsee = { workspace = true, features = ["server", "macros", "tokio"] }
+bitcoin.workspace = true
+jsonrpsee = { workspace = true, features = ["core", "server", "macros", "tokio"] }
+strata-bridge-primitives.workspace = true
 
 [features]
 default = []
