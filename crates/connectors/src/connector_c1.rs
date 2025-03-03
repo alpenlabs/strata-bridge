@@ -1,3 +1,7 @@
+//! This module contains the connector for the second output of the Claim Transaction.
+//!
+//! This connector is used to challenge the operator in case of an invalid claim.
+// FIXME: remove this connector once the stake chain is integrated.
 use bitcoin::{
     psbt::Input,
     taproot::{self, ControlBlock, LeafVersion, TaprootSpendInfo},
@@ -78,7 +82,7 @@ impl ConnectorC1 {
     }
 
     fn generate_payout_script(&self) -> ScriptBuf {
-        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK)
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK).compile()
     }
 
     /// Constructs the taproot address for this connector along with the spending info.

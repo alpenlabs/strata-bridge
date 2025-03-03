@@ -22,10 +22,6 @@ pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
     "c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164";
 
-//can remain fixed as is
-pub(crate) const NUMS_POINT: &str =
-    "0x2be4d02127fedf4c956f8e6d8248420b9af78746232315f72894f0b263c80e81";
-
 //change to appropriate value
 pub(crate) const LOCKTIME: i64 = 1008;
 

@@ -1,3 +1,5 @@
+//! This module contains connector for the first output of the PostAssert transaction.
+// FIXME: remove this connector once the stake chain is integrated.
 use bitcoin::{
     psbt::Input,
     taproot::{self, ControlBlock, LeafVersion, TaprootSpendInfo},
@@ -24,7 +26,9 @@ pub struct ConnectorA30 {
 /// leaf is spent.
 #[derive(Debug, Clone, Copy)]
 pub enum ConnectorA30Leaf<Witness = ()> {
+    /// The leaf used in the Payout transaction.
     Payout(Witness),
+    /// The leaf used in the Disprove transaction.
     Disprove(Witness),
 }
 
@@ -35,8 +39,10 @@ where
     /// Generates the locking script for this leaf.
     pub fn generate_locking_script(&self, n_of_n_agg_pubkey: &XOnlyPublicKey) -> ScriptBuf {
         match self {
-            ConnectorA30Leaf::Payout(_) => n_of_n_with_timelock(n_of_n_agg_pubkey, PAYOUT_TIMELOCK),
-            ConnectorA30Leaf::Disprove(_) => n_of_n_script(n_of_n_agg_pubkey),
+            ConnectorA30Leaf::Payout(_) => {
+                n_of_n_with_timelock(n_of_n_agg_pubkey, PAYOUT_TIMELOCK).compile()
+            }
+            ConnectorA30Leaf::Disprove(_) => n_of_n_script(n_of_n_agg_pubkey).compile(),
         }
     }
 

@@ -5,10 +5,10 @@ use bitcoin::{
     TxOut, Txid, Weight, Witness,
 };
 use secp256k1::schnorr;
+use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
 use super::errors::{TxError, TxResult};
-use crate::connectors::prelude::ConnectorCpfp;
 
 /// The data required to create a child transaction in CPFP.
 #[derive(Debug, Clone)]

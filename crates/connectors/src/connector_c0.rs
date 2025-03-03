@@ -1,3 +1,7 @@
+//! This module contains the connector from the first output of the Claim transaction.
+//!
+//! This connector is spent by either the Pre-Assert transaction if challenged or the
+//! PayoutOptimistic transaction if unchallenged.
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},
@@ -75,7 +79,7 @@ impl ConnectorC0 {
 
     /// Generate the payout script.
     fn generate_payout_script(&self) -> ScriptBuf {
-        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK)
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK).compile()
     }
 
     /// Generates the locking script for this connector.

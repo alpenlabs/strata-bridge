@@ -3,11 +3,11 @@ use bitcoin::{
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::*;
 
 /// Data needed to construct a [`PreAssertTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -16,18 +16,16 @@ pub struct PreAssertData {
     pub claim_txid: Txid,
 
     /// The stake that remains after paying off the transaction fees in the preceding transactions.
-    pub input_stake: Amount,
+    pub input_amount: Amount,
 }
 
-pub(super) const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1 + 1; // +1 for stake, // +1 for cpfp
+pub(super) const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1; // +1 for cpfp
 
 /// A transaction in the Assert chain that contains output scripts used for bitcomitting to the
 /// assertion data.
 #[derive(Debug, Clone)]
 pub struct PreAssertTx {
     psbt: Psbt,
-
-    remaining_stake: Amount,
 
     prevouts: Vec<TxOut>,
 
@@ -42,8 +40,8 @@ impl PreAssertTx {
     /// Constructs a new instance of the pre-assert transaction.
     ///
     /// This involves constructing the output scripts for the bitcommitment connectors
-    /// ([`ConnectorA256`], [`ConnectorA160`]) and the stake connector [`ConnectorS`] as well as the
-    /// input from the connector [`ConnectorC0`].
+    /// ([`ConnectorA256`], [`ConnectorA160`]) as well as the input from the connector
+    /// [`ConnectorC0`].
     ///
     /// The bitcommitment connectors are constructed in such a way that when spending the outputs,
     /// the stack size stays under the bitcoin consensus limit of 1000 elements, and such that when
@@ -57,7 +55,6 @@ impl PreAssertTx {
     pub fn new(
         data: PreAssertData,
         connector_c0: ConnectorC0,
-        connector_s: ConnectorS,
         connector_cpfp: ConnectorCpfp,
         connector_a256: ConnectorA256Factory<
             NUM_FIELD_CONNECTORS_BATCH_1,
@@ -79,13 +76,6 @@ impl PreAssertTx {
         let tx_ins = create_tx_ins(outpoints);
 
         let mut scripts_and_amounts = vec![];
-
-        let connector_s_script = connector_s.create_taproot_address().script_pubkey();
-        let connector_s_amt = Amount::from_int_btc(0); // this is set after all the output
-                                                       // amounts have been calculated for the assertion
-
-        scripts_and_amounts.push((connector_s_script, connector_s_amt));
-        trace!(num_scripts=%scripts_and_amounts.len(), event = "added connnector_s");
 
         let (connector256_batch1, connector256_batch2): (
             [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_FIELD_CONNECTORS_BATCH_1],
@@ -143,11 +133,9 @@ impl PreAssertTx {
         let total_assertion_amount = scripts_and_amounts.iter().map(|(_, amt)| *amt).sum();
         // No additional transaction fees are deducted from the stake.
         // Transaction fees are expected to come via CPFP.
-        let net_stake = data.input_stake - total_assertion_amount;
+        let net_stake = data.input_amount - total_assertion_amount;
 
         trace!(event = "calculated net remaining stake", %net_stake);
-
-        scripts_and_amounts[0].1 = net_stake;
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
@@ -159,7 +147,7 @@ impl PreAssertTx {
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");
 
         let prevouts = vec![TxOut {
-            value: data.input_stake,
+            value: data.input_amount,
             script_pubkey: connector_c0.generate_locking_script(),
         }];
 
@@ -184,7 +172,6 @@ impl PreAssertTx {
 
         Self {
             psbt,
-            remaining_stake: net_stake,
 
             prevouts,
             tx_outs: tx_outs
@@ -192,11 +179,6 @@ impl PreAssertTx {
                 .expect("cannot fail due to the assertion above"),
             witnesses: witness,
         }
-    }
-
-    /// Gets for the remaining stake.
-    pub fn remaining_stake(&self) -> Amount {
-        self.remaining_stake
     }
 
     /// Gets the transaction outputs arranged in a specific order.

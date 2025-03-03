@@ -4,9 +4,9 @@ use std::{
 };
 
 use sqlx::{
+    self,
     migrate::Migrator,
-    sqlite::{SqliteConnectOptions, SqliteJournalMode},
-    SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use tracing::info;
@@ -19,7 +19,11 @@ pub async fn create_db(datadir: impl AsRef<Path>, db_name: &str) -> SqliteDb {
         .create_if_missing(true)
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal);
-    let pool = SqlitePool::connect_with(connect_options)
+
+    let pool_options = SqlitePoolOptions::new();
+
+    let pool = pool_options
+        .connect_with(connect_options)
         .await
         .expect("should be able to connect to db");
 

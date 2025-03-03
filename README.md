@@ -17,8 +17,8 @@ A research implementation of Strata Bridge by your friends at [Alpen Labs](https
 The following is the transaction graph that has been implemented in this repository:
 
 <figure>
-    <img src="./assets/poc-tx-graph.jpg" alt = "Transaction graph" />
-    <figcaption>The transaction graph for this repository, focussing on the non-optimistic path.</figcaption>
+    <img src="./assets/testnet-i-tx-graph.jpg" alt = "Transaction graph" />
+    <figcaption>The transaction graph for this repository.</figcaption>
 </figure>
 
 ## System Diagram

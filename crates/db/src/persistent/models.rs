@@ -2,11 +2,14 @@
 //!
 //! These models rely on some common types in [`super::types`] module.
 
+use bitcoin::OutPoint;
 use sqlx::{self};
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use super::types::{
-    DbAmount, DbDutyStatus, DbInputIndex, DbOperatorId, DbPartialSig, DbPubNonce, DbScriptBuf,
-    DbSecNonce, DbSignature, DbTransaction, DbTxid, DbWotsPublicKeys, DbWotsSignatures,
+    DbAmount, DbDutyStatus, DbHash, DbInputIndex, DbOperatorId, DbPartialSig, DbPubNonce,
+    DbScriptBuf, DbSecNonce, DbSignature, DbTransaction, DbTxid, DbWots256PublicKey,
+    DbWotsPublicKeys, DbWotsSignatures,
 };
 
 /// The model for WOTS public keys stored in the database.
@@ -56,6 +59,45 @@ pub(super) struct Signature {
 
     /// The hex-serialized signature.
     pub(super) signature: DbSignature,
+}
+
+/// The model for tracking the stake information.
+pub(super) struct DbStakeTxData {
+    /// The txid of the transaction used to fund the dust outputs.
+    pub(super) funding_txid: DbTxid,
+
+    /// THe vout of the outpoint of the transaction used to fund the dust outputs.
+    pub(super) funding_vout: DbInputIndex,
+
+    /// The hash used in the hashlock for the stake transaction.
+    pub(super) hash: DbHash,
+
+    /// The WOTS public key used to commit to the withdrawal fulfillment transaction.
+    pub(super) withdrawal_fulfillment_pk: DbWots256PublicKey,
+}
+
+impl From<StakeTxData> for DbStakeTxData {
+    fn from(stake_tx_data: StakeTxData) -> Self {
+        Self {
+            funding_txid: stake_tx_data.operator_funds.txid.into(),
+            funding_vout: stake_tx_data.operator_funds.vout.into(),
+            hash: stake_tx_data.hash.into(),
+            withdrawal_fulfillment_pk: stake_tx_data.withdrawal_fulfillment_pk.into(),
+        }
+    }
+}
+
+impl From<DbStakeTxData> for StakeTxData {
+    fn from(db_stake_tx_data: DbStakeTxData) -> Self {
+        StakeTxData {
+            operator_funds: OutPoint {
+                txid: *db_stake_tx_data.funding_txid,
+                vout: *db_stake_tx_data.funding_vout,
+            },
+            hash: *db_stake_tx_data.hash,
+            withdrawal_fulfillment_pk: *db_stake_tx_data.withdrawal_fulfillment_pk,
+        }
+    }
 }
 
 /// The model for tracking duty statuses.

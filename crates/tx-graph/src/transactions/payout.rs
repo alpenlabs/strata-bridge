@@ -1,13 +1,15 @@
 use bitcoin::{
-    sighash::Prevouts, transaction, Amount, Network, OutPoint, Psbt, Sequence, Transaction, TxOut,
-    Txid,
+    sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
+    TapSighashType, Transaction, TxOut, Txid,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::{
+    ConnectorA3, ConnectorA3Leaf, ConnectorCpfp, ConnectorNOfN, ConnectorP, StakeSpendPath,
+};
 use strata_bridge_primitives::{params::connectors::PAYOUT_TIMELOCK, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
-use crate::connectors::prelude::{ConnectorA30, ConnectorA30Leaf, ConnectorCpfp, ConnectorS};
 
 /// Data needed to construct a [`PayoutTx`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,8 +20,15 @@ pub struct PayoutData {
     /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 
-    /// The stake that remains after paying off the transaction fees in the preceding transactions.
-    pub input_stake: Amount,
+    /// The [`OutPoint`] of the Claim transaction.
+    pub claim_outpoint: OutPoint,
+
+    /// The [`OutPoint`] of the stake transaction.
+    pub stake_outpoint: OutPoint,
+
+    /// The amount that remains after paying off the transaction fees in the preceding
+    /// transactions.
+    pub input_amount: Amount,
 
     /// The amount of the deposit.
     ///
@@ -49,8 +58,9 @@ impl PayoutTx {
     /// Constructs a new instance of the payout transaction.
     pub fn new(
         data: PayoutData,
-        connector_a30: ConnectorA30,
-        connector_b: ConnectorS,
+        connector_a3: ConnectorA3,
+        connector_n_of_n: ConnectorNOfN,
+        connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
         let utxos = [
@@ -62,6 +72,8 @@ impl PayoutTx {
                 txid: data.post_assert_txid,
                 vout: 0,
             },
+            data.claim_outpoint,
+            data.stake_outpoint,
         ];
 
         let mut tx_ins = create_tx_ins(utxos);
@@ -85,7 +97,30 @@ impl PayoutTx {
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
-        let payout_amount = data.input_stake + data.deposit_amount - cpfp_amount;
+        let n_of_n_addr = connector_n_of_n.create_taproot_address();
+        let prevouts = vec![
+            TxOut {
+                value: data.deposit_amount,
+                script_pubkey: n_of_n_addr.script_pubkey(),
+            },
+            TxOut {
+                value: data.input_amount,
+                script_pubkey: connector_a3.generate_locking_script(data.deposit_txid),
+            },
+            TxOut {
+                value: n_of_n_addr.script_pubkey().minimal_non_dust(),
+                script_pubkey: n_of_n_addr.script_pubkey(),
+            },
+            TxOut {
+                value: connector_p
+                    .generate_address()
+                    .script_pubkey()
+                    .minimal_non_dust(),
+                script_pubkey: connector_p.generate_address().script_pubkey(),
+            },
+        ];
+
+        let payout_amount = prevouts.iter().map(|out| out.value).sum::<Amount>() - cpfp_amount;
 
         let tx_outs = create_tx_outs([
             (operator_address.script_pubkey(), payout_amount),
@@ -97,28 +132,21 @@ impl PayoutTx {
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("the witness must be empty");
 
-        let prevouts = vec![
-            TxOut {
-                value: data.deposit_amount,
-                script_pubkey: connector_b.create_taproot_address().script_pubkey(),
-            },
-            TxOut {
-                value: data.input_stake,
-                script_pubkey: connector_a30.generate_locking_script(),
-            },
-        ];
-
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
         }
 
-        let (connector_a30_script, connector_a30_control_block) =
-            connector_a30.generate_spend_info(ConnectorA30Leaf::Payout(()));
+        let (connector_a3_script, connector_a3_control_block) =
+            connector_a3.generate_spend_info(ConnectorA3Leaf::Payout(None), data.deposit_txid);
         let witnesses = vec![
             TaprootWitness::Key,
             TaprootWitness::Script {
-                script_buf: connector_a30_script,
-                control_block: connector_a30_control_block,
+                script_buf: connector_a3_script,
+                control_block: connector_a3_control_block,
+            },
+            TaprootWitness::Key,
+            TaprootWitness::Tweaked {
+                tweak: connector_p.generate_merkle_root(),
             },
         ];
 
@@ -138,18 +166,32 @@ impl PayoutTx {
     /// Finalizes the payout transaction.
     ///
     /// Note that the `deposit_signature` is also an n-of-n signature.
+    #[expect(clippy::too_many_arguments)]
     pub fn finalize(
         mut self,
-        connector_a30: ConnectorA30,
         deposit_signature: schnorr::Signature,
-        n_of_n_sig: schnorr::Signature,
+        n_of_n_sig_a3: schnorr::Signature,
+        n_of_n_sig_c2: schnorr::Signature,
+        n_of_n_sig_p: schnorr::Signature,
+        connector_a3: ConnectorA3,
+        connector_c2: ConnectorNOfN,
+        connector_p: ConnectorP,
     ) -> Transaction {
         finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
 
-        connector_a30.finalize_input(
+        connector_a3.finalize_input(
             &mut self.psbt.inputs[1],
-            ConnectorA30Leaf::Payout(n_of_n_sig),
+            ConnectorA3Leaf::Payout(Some(n_of_n_sig_a3)),
         );
+
+        let n_of_n_sig_c2 = taproot::Signature {
+            signature: n_of_n_sig_c2,
+            sighash_type: TapSighashType::Default,
+        };
+        connector_c2.finalize_input(&mut self.psbt.inputs[2], n_of_n_sig_c2);
+
+        let spend_path = StakeSpendPath::Payout(n_of_n_sig_p);
+        connector_p.finalize(&mut self.psbt.inputs[3], spend_path);
 
         self.psbt
             .extract_tx()

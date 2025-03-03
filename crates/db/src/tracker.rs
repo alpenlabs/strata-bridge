@@ -21,7 +21,7 @@ pub trait BitcoinBlockTrackerDb {
 
     async fn set_last_scanned_block_height(&self, block_height: u64) -> DbResult<()>;
 
-    async fn get_relevant_tx(&self, txid: &Txid) -> DbResult<Option<Transaction>>;
+    async fn get_relevant_tx(&self, txid: Txid) -> DbResult<Option<Transaction>>;
 
     async fn add_relevant_tx(&self, tx: Transaction) -> DbResult<()>;
 }

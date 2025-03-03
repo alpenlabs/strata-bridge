@@ -1,3 +1,4 @@
+//! This module contains the generators for connectors used in the Assert Chain.
 use std::array;
 
 use bitcoin::{

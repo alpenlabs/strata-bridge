@@ -1,11 +1,11 @@
 use bitcoin::{Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use serde::{Deserialize, Serialize};
+use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     bitcoin::BitcoinAddress, errors::BridgeTxBuilderError, params::prelude::*, scripts::prelude::*,
 };
 
 use super::errors::TxResult;
-use crate::connectors::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KickoffTxData {

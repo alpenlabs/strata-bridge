@@ -1,19 +1,26 @@
+//! This module contains a generic connector for all outputs locked in a taproot address
+//! spendable by a single key path with N-of-N musig2-aggregated signatures.
 use bitcoin::{
     hashes::{sha256, Hash},
-    opcodes::all::{OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
+    opcodes::all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
     psbt::Input,
+    relative,
     taproot::{ControlBlock, LeafVersion},
-    Address, Network, ScriptBuf,
+    Address, Network, ScriptBuf, TapNodeHash,
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::scripts::prelude::*;
 
-use crate::connectors::witness_data::WitnessData;
+use crate::stake_path::StakeSpendPath;
 
-/// The connector to decide whether the operator's stake can be used for a withdrawal (Payout
-/// Optimistic) or not (Burn Payouts).
+/// The connector to move the operator's stake across Stake transactions.
 ///
-/// It is used in the Payout Optimistic and Burn Payouts transactions.
+/// It is used in the Disprove and Slash Stake `k` transactions, where `k` is the index of the
+/// stake transaction.
+///
+/// The operator can also advance the stake chain by revealing the preimage, along with a valid
+/// signature from the operator's public key.
+/// Note that the stake advancement is done by the `stake-chain` crate.
 ///
 /// To illustrate the concept, let's say that an operator wants to claim the `k`th bridged-in UTXO.
 /// For this, they need the `k`th Claim Transaction and hence the `k`th stake transaction. An
@@ -29,18 +36,23 @@ use crate::connectors::witness_data::WitnessData;
 ///
 /// If the operator has received a `k`th Payout Optimistic or Payout transaction, they can advance
 /// the stake chain (revealing the preimage) without fear. It is the responsibility of the
-/// [`ConnectorP`] and [`ConnectorStake`](super::connector_s::ConnectorStake) to ensure that will
-/// make it impossible
+/// [`ConnectorP`](super::connector_p::ConnectorP) and [`ConnectorStake`] to ensure that will make
+/// it impossible make it impossible
 ///
 /// # Security
 ///
-/// An operator can only advance the stake chain if they reveal the preimage. Hence, the operator
-/// must be able to provide the preimage to the [`ConnectorP`]. It is required that the preimage be
-/// securely derived and never reused under any circumstances.
+/// An operator can only advance the stake chain if they reveal the preimage along with a valid
+/// signature from the operator's public key. Hence, the operator must must be able to provide the
+/// preimage to the [`ConnectorStake`]. It is required that the preimage be securely derived and
+/// never reused under any circumstances
+// TODO: This should replace the `ConnectorS` struct above.
 #[derive(Debug, Clone, Copy)]
-pub struct ConnectorP {
+pub struct ConnectorStake {
     /// The N-of-N aggregated public key for the operator set.
     n_of_n_agg_pubkey: XOnlyPublicKey,
+
+    /// The operator's public key.
+    operator_pubkey: XOnlyPublicKey,
 
     /// The hash of the `k`th stake preimage.
     ///
@@ -49,21 +61,28 @@ pub struct ConnectorP {
     /// validating transactions before operators offer up their signatures.
     stake_hash: sha256::Hash,
 
+    /// The `ΔS` interval relative timelock to advance the stake chain.
+    delta: relative::LockTime,
+
     /// The bitcoin network on which the connector operates.
     network: Network,
 }
 
-impl ConnectorP {
-    /// Creates a new [`ConnectorP`] with the given N-of-N aggregated public key, `k`th stake
+impl ConnectorStake {
+    /// Creates a new [`ConnectorStake`] with the given N-of-N aggregated public key, `k`th stake
     /// preimage, and the bitcoin network.
     pub fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
+        operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
+        delta: relative::LockTime,
         network: Network,
     ) -> Self {
         Self {
             n_of_n_agg_pubkey,
+            operator_pubkey,
             stake_hash,
+            delta,
             network,
         }
     }
@@ -75,31 +94,35 @@ impl ConnectorP {
     /// The locking script can be represented as the following miniscript policy:
     ///
     /// ```text
-    /// sha256(stake_preimage)
+    /// thresh(3,pk(operator_pubkey), sha256(stake_preimage), older(ΔS))
     /// ```
     ///
     /// which compiles to the following script:
     ///
     /// ```text
-    /// OP_SIZE <20> OP_EQUALVERIFY OP_SHA256 <stake_preimage> OP_EQUALVERIFY
+    /// <operator_pubkey> OP_CHECKSIGVERIFY OP_SIZE <20> OP_EQUALVERIFY OP_SHA256
+    /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
     pub fn generate_script(&self) -> ScriptBuf {
         ScriptBuf::builder()
+            .push_slice(self.operator_pubkey.serialize())
+            .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
             .push_int(0x20)
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
             .push_slice(self.stake_hash.to_byte_array())
             .push_opcode(OP_EQUALVERIFY)
-            .push_int(1)
+            .push_sequence(self.delta.into())
+            .push_opcode(OP_CSV)
             .into_script()
     }
 
     /// Creates a P2TR address with key spend path for the given operator set and a single script
-    /// path that can be unlocked by revealing the preimage.
+    /// path that can be unlocked by revealing the preimage, along with an operator signature and
+    /// is timelocked by `ΔS`.
     ///
-    /// This is used to invalidate that a certain stake can be used in payouts by an operator in a
-    /// Burn Payouts transaction.
+    /// This is used to advance the stake chain, slash the stake, and disprove the stake.
     ///
     /// See [`Self::generate_script`] for the script implementation details.
     pub fn generate_address(&self) -> Address {
@@ -123,12 +146,11 @@ impl ConnectorP {
             &self.network,
             SpendPath::Both {
                 internal_key: self.n_of_n_agg_pubkey,
-                scripts: &[script],
+                scripts: &[script.clone()],
             },
         )
         .expect("should be able to create taproot address");
 
-        let script = self.generate_script();
         let control_block = taproot_spending_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -136,9 +158,18 @@ impl ConnectorP {
         (script, control_block)
     }
 
+    /// Generates the merkle root for this connector.
+    ///
+    /// This can be used to tweak the public/private keys used for spending.
+    pub fn generate_merkle_root(&self) -> TapNodeHash {
+        let script = self.generate_script();
+
+        TapNodeHash::from_script(&script, LeafVersion::TapScript)
+    }
+
     /// Finalizes a psbt input where this connector is used with the provided `witness_data`.
     ///
-    /// Depending on the `witness_data` it will be used either a key or scripth path spend.
+    /// Depending on the `witness_data` it will be used either a key or script path spend.
     ///
     /// # Note
     ///
@@ -146,15 +177,34 @@ impl ConnectorP {
     /// validation to the caller.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn create_tx_input(&self, witness_data: WitnessData, input: &mut Input) {
+    pub fn finalize_input(&self, input: &mut Input, witness_data: StakeSpendPath) {
         match witness_data {
-            WitnessData::Signature(signature) => {
-                finalize_input(input, [&signature.serialize().to_vec()]);
+            StakeSpendPath::Disprove(signature) => {
+                finalize_input(input, [signature.serialize()]);
             }
-            WitnessData::Preimage(preimage) => {
-                finalize_input(input, [&preimage]);
+            StakeSpendPath::SlashStake(signature) => {
+                finalize_input(input, [signature.serialize()]);
             }
-            _ => (), // other variants are no-op.
+            StakeSpendPath::Advance {
+                signature,
+                preimage,
+            } => {
+                let (script_buf, control_block) = self.generate_spend_info();
+
+                finalize_input(
+                    input,
+                    // NOTE: Order matters here.
+                    [
+                        preimage.to_vec(),
+                        signature.to_vec(),
+                        script_buf.to_bytes(),
+                        control_block.serialize(),
+                    ],
+                )
+            }
+            _ => unimplemented!(
+                "only disprove, slash stake and stake advancement paths are supported"
+            ),
         }
     }
 }
@@ -162,20 +212,25 @@ impl ConnectorP {
 #[cfg(test)]
 mod tests {
     use bitcoin::{
-        absolute, consensus, transaction, Amount, BlockHash, OutPoint, Transaction, TxIn, TxOut,
-        Witness,
+        absolute, consensus,
+        hashes::Hash,
+        sighash::{self, Prevouts, SighashCache},
+        taproot::{self, LeafVersion},
+        transaction, Amount, BlockHash, OutPoint, Psbt, TapLeafHash, TapSighashType, Transaction,
+        TxIn, TxOut,
     };
     use corepc_node::{serde_json::json, Conf, Node};
+    use secp256k1::{Message, SECP256K1};
     use strata_bridge_test_utils::prelude::generate_keypair;
     use strata_btcio::rpc::types::SignRawTransactionWithWallet;
     use strata_common::logging::{self, LoggerConfig};
-    use tracing::info;
+    use tracing::{info, trace};
 
     use super::*;
 
     #[test]
-    fn connector_p_script_path() {
-        logging::init(LoggerConfig::new("connector-p-script-path".to_string()));
+    fn connector_s_script_path() {
+        logging::init(LoggerConfig::new("connector-s-script-path".to_string()));
 
         // Setup Bitcoin node
         let mut conf = Conf::default();
@@ -208,14 +263,25 @@ mod tests {
             .expect("must be able to get the coinbase transaction")
             .compute_txid();
 
-        // Generate keys and preimage
+        // Generate keys
         let n_of_n_keypair = generate_keypair();
+        let operator_keypair = generate_keypair();
         let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
-        let stake_preimage = [1u8; 32];
+        let operator_pubkey = operator_keypair.x_only_public_key().0;
+
+        // Generate stake preimage
+        let stake_preimage = [1; 32];
         let stake_hash = sha256::Hash::hash(&stake_preimage);
 
+        // Create relative timelock (e.g., 10 blocks)
+        let delta = relative::LockTime::from_height(10);
+
         // Create connector
-        let connector_p = ConnectorP::new(n_of_n_pubkey, stake_hash, network);
+        let connector_s =
+            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
+
+        // Generate address and script
+        let taproot_script = connector_s.generate_address().script_pubkey();
 
         // Create funding transaction
         let funding_input = OutPoint {
@@ -236,7 +302,7 @@ mod tests {
         let output = vec![
             TxOut {
                 value: funding_amount,
-                script_pubkey: connector_p.generate_address().script_pubkey(),
+                script_pubkey: taproot_script.clone(),
             },
             TxOut {
                 value: coinbase_amount
@@ -255,7 +321,7 @@ mod tests {
             output,
         };
 
-        // Sign and broadcast funding transaction
+        // Sign the transaction
         let signed_funding_tx = btc_client
             .call::<SignRawTransactionWithWallet>(
                 "signrawtransactionwithwallet",
@@ -267,6 +333,7 @@ mod tests {
         let signed_funding_tx =
             consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
 
+        // Broadcast the funding transaction
         let funding_txid = btc_client
             .send_raw_transaction(&signed_funding_tx)
             .expect("must be able to broadcast transaction")
@@ -275,12 +342,12 @@ mod tests {
 
         info!(%funding_txid, "Funding transaction broadcasted");
 
-        // Mine the funding transaction
+        // Mine the funding transaction with sufficient blocks for the relative timelock
         let _ = btc_client
-            .generate_to_address(1, &funded_address)
+            .generate_to_address((delta.to_consensus_u32() as usize) + 1, &funded_address)
             .expect("must be able to generate blocks");
 
-        // Create spending transaction that spends the connector p
+        // Create the transaction that spents the connector s
         let spending_input = OutPoint {
             txid: funding_txid,
             vout: 0,
@@ -291,34 +358,67 @@ mod tests {
             script_pubkey: change_address.script_pubkey(),
         };
 
-        let mut spending_tx = Transaction {
+        let spending_tx = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
             input: vec![TxIn {
                 previous_output: spending_input,
+                sequence: delta.into(), // Important: Set the sequence number to match the timelock
                 ..Default::default()
             }],
             output: vec![spending_output],
         };
 
-        // Create the locking script
-        let locking_script = connector_p.generate_script();
+        // Create sighash for the spending transaction
+        let mut sighash_cache = SighashCache::new(&spending_tx);
+        let sighash_type = sighash::TapSighashType::Default;
+        // Create the prevouts
+        let prevouts = [TxOut {
+            value: funding_amount,
+            script_pubkey: taproot_script.clone(),
+        }];
+        let prevouts = Prevouts::All(&prevouts);
 
-        // Get taproot spend info
-        let (_, control_block) = connector_p.generate_spend_info();
+        // Create the locking script
+        let locking_script = connector_s.generate_script();
+
+        let leaf_hash =
+            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
+        let sighash = sighash_cache
+            .taproot_script_spend_signature_hash(0, &prevouts, leaf_hash, sighash_type)
+            .expect("must create sighash");
+
+        let message =
+            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
+
+        // Sign the transaction with operator key
+        let signature = SECP256K1.sign_schnorr(&message, &operator_keypair);
+        trace!(%signature, "Signature");
 
         // Construct the witness stack
-        let mut witness = Witness::new();
-        witness.push(stake_preimage);
-        witness.push(locking_script.to_bytes());
-        witness.push(control_block.serialize());
+        let mut spending_psbt = Psbt::from_unsigned_tx(spending_tx).expect("must be unsigned");
+        spending_psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: funding_amount,
+            script_pubkey: taproot_script,
+        });
 
-        // Set the witness in the transaction
-        spending_tx.input[0].witness = witness;
+        connector_s.finalize_input(
+            &mut spending_psbt.inputs[0],
+            StakeSpendPath::Advance {
+                signature: taproot::Signature {
+                    signature,
+                    sighash_type: TapSighashType::Default,
+                },
+                preimage: stake_preimage,
+            },
+        );
+        let signed_spending_tx = spending_psbt
+            .extract_tx()
+            .expect("must be able to extract tx");
 
-        // Broadcast spending transaction
+        // Try to broadcast the spending transaction
         let spending_txid = btc_client
-            .send_raw_transaction(&spending_tx)
+            .send_raw_transaction(&signed_spending_tx)
             .expect("must be able to broadcast spending transaction")
             .txid()
             .expect("must have txid");

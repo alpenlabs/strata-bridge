@@ -69,8 +69,8 @@ impl BitcoinBlockTrackerDb for BitcoinBlockTrackerInMemory {
         Ok(())
     }
 
-    async fn get_relevant_tx(&self, txid: &Txid) -> DbResult<Option<Transaction>> {
-        Ok(self.relevant_txs.read().await.get(txid).cloned())
+    async fn get_relevant_tx(&self, txid: Txid) -> DbResult<Option<Transaction>> {
+        Ok(self.relevant_txs.read().await.get(&txid).cloned())
     }
 
     async fn add_relevant_tx(&self, tx: Transaction) -> DbResult<()> {

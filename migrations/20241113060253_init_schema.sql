@@ -4,7 +4,7 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS wots_public_keys (
     operator_id INTEGER NOT NULL,
     deposit_txid TEXT NOT NULL,  -- Store as hex string
-    public_keys BLOB NOT NULL,   -- Serialized with bincode
+    public_keys BLOB NOT NULL,   -- Serialized with rkyv
     PRIMARY KEY (operator_id, deposit_txid)  -- Compound primary key
 );
 
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS wots_public_keys (
 CREATE TABLE IF NOT EXISTS wots_signatures (
     operator_id INTEGER NOT NULL,
     deposit_txid TEXT NOT NULL,  -- Store as hex string
-    signatures BLOB NOT NULL,    -- Serialized with bincode
+    signatures BLOB NOT NULL,    -- Serialized with rkyv
     PRIMARY KEY (operator_id, deposit_txid)  -- Compound primary key
 );
 
@@ -23,6 +23,40 @@ CREATE TABLE IF NOT EXISTS signatures (
     input_index INTEGER NOT NULL,
     signature TEXT NOT NULL,     -- Store as hex string
     PRIMARY KEY (operator_id, txid, input_index)  -- Compound primary key
+);
+
+-- Table for deposits with a primary key on deposit_txid mapping to an index that increments monotonically.
+CREATE TABLE IF NOT EXISTS deposits (
+    deposit_txid TEXT PRIMARY KEY,  -- Store as hex string
+    deposit_id INTEGER UNIQUE NOT NULL
+);
+
+-- Table for stake transaction IDs.
+CREATE TABLE IF NOT EXISTS operator_stake_txids (
+    stake_id INTEGER NOT NULL,           -- Index that increments monotonically
+    operator_id INTEGER NOT NULL,
+    stake_txid TEXT NOT NULL,            -- Store as hex string
+
+    PRIMARY KEY (stake_id, operator_id)  -- Compound primary key
+);
+
+-- Table to store operator pre-stake data
+CREATE TABLE IF NOT EXISTS operator_pre_stake_data (
+    operator_id INTEGER PRIMARY KEY,            -- Unique operator id
+    pre_stake_txid TEXT NOT NULL,                -- Store as hex string
+    pre_stake_vout INTEGER NOT NULL
+);
+
+-- Table to store the stake chain txids for each operator id and deposit index in deposits table
+CREATE TABLE IF NOT EXISTS operator_stake_data (
+    operator_id INTEGER NOT NULL,
+    deposit_id INTEGER NOT NULL,               -- Foreign key to deposits table
+    funding_txid TEXT NOT NULL,                -- Store as hex string
+    funding_vout INTEGER NOT NULL,
+    hash TEXT NOT NULL,                        -- Store as hex string
+    withdrawal_fulfillment_pk BLOB NOT NULL,   -- Serialized with rkyv
+
+    PRIMARY KEY (operator_id, deposit_id)      -- Compound primary key
 );
 
 -- Table for claim_txid_to_operator_index_and_deposit_txid
