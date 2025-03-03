@@ -7,7 +7,7 @@ use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
     taproot::{self, ControlBlock},
-    Address, Amount, OutPoint, Psbt, TapNodeHash, Transaction, TxOut,
+    Address, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,11 +44,11 @@ pub struct DepositInfo {
     /// user in their `OP_RETURN` output.
     take_back_leaf_hash: TapNodeHash,
 
-    /// The original taproot address in the Deposit Request Transaction (DRT) output used to
-    /// sanity check computation internally i.e., whether the known information (n/n script spend
-    /// path, [`static@UNSPENDABLE_INTERNAL_KEY`]) + the [`Self::take_back_leaf_hash`] yields the
-    /// same P2TR address.
-    original_taproot_addr: BitcoinAddress,
+    /// The original script_pubkey in the Deposit Request Transaction (DRT) output used to sanity
+    /// check computation internally i.e., whether the known information (n/n script spend path,
+    /// [`static@UNSPENDABLE_INTERNAL_KEY`]) + the [`Self::take_back_leaf_hash`] yields the same
+    /// P2TR address.
+    original_script_pubkey: ScriptBuf,
 }
 
 impl TxKind for DepositInfo {
@@ -81,14 +81,14 @@ impl DepositInfo {
         el_address: Vec<u8>,
         total_amount: Amount,
         take_back_leaf_hash: TapNodeHash,
-        original_taproot_addr: BitcoinAddress,
+        original_script_pubkey: ScriptBuf,
     ) -> Self {
         Self {
             deposit_request_outpoint,
             el_address,
             total_amount,
             take_back_leaf_hash,
-            original_taproot_addr,
+            original_script_pubkey,
         }
     }
 
@@ -132,9 +132,10 @@ impl DepositInfo {
             *UNSPENDABLE_INTERNAL_KEY,
             Some(merkle_root),
             build_context.network(),
-        );
+        )
+        .script_pubkey();
 
-        let expected_addr = self.original_taproot_addr.address();
+        let expected_addr = &self.original_script_pubkey;
 
         if address != *expected_addr {
             return Err(BridgeTxBuilderError::DepositTransaction(
@@ -170,10 +171,8 @@ impl DepositInfo {
     }
 
     fn compute_prevouts(&self) -> Vec<TxOut> {
-        let deposit_address = self.original_taproot_addr.address();
-
         vec![TxOut {
-            script_pubkey: deposit_address.script_pubkey(),
+            script_pubkey: self.original_script_pubkey.clone(),
             value: self.total_amount,
         }]
     }
@@ -255,7 +254,7 @@ mod tests {
             [0u8; 20].to_vec(),
             BRIDGE_DENOMINATION,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.compute_spend_infos(&tx_builder);
@@ -274,7 +273,7 @@ mod tests {
             [0u8; 20].to_vec(),
             BRIDGE_DENOMINATION,
             TapNodeHash::from_str(&random_hash).unwrap(),
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.compute_spend_infos(&tx_builder);
@@ -309,7 +308,7 @@ mod tests {
             [0u8; 20].to_vec(),
             BRIDGE_DENOMINATION,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.create_unsigned_tx(&tx_builder);
@@ -342,7 +341,7 @@ mod tests {
             [0u8; 20].to_vec(),
             BRIDGE_DENOMINATION,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.construct_signing_data(&tx_builder);
@@ -363,7 +362,7 @@ mod tests {
             [0u8; 21].to_vec(),
             BRIDGE_DENOMINATION,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.construct_signing_data(&tx_builder);
@@ -387,7 +386,7 @@ mod tests {
             [0u8; 20].to_vec(),
             BRIDGE_DENOMINATION,
             TapNodeHash::from_str(&random_hash).unwrap(),
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.construct_signing_data(&tx_builder);

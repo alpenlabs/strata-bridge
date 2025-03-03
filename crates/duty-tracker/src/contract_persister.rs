@@ -39,7 +39,6 @@ impl ContractPersister {
             // TODO(proofofkeags): make state not opaque at the DB level
             r#"
             CREATE TABLE IF NOT EXISTS contracts (
-                deposit_idx INTEGER PRIMARY KEY,
                 deposit_txid CHAR(64) NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
                 operator_set VARBINARY NOT NULL,
@@ -59,10 +58,9 @@ impl ContractPersister {
     pub async fn init(&self, cfg: &ContractCfg, state: &MachineState) -> Result<(), PersistErr> {
         let _: SqliteQueryResult = sqlx::query(
             r#"
-            INSERT INTO contracts (deposit_idx, deposit_txid, deposit_tx, operator_set, perspective, state) VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO contracts (deposit_txid, deposit_tx, operator_set, perspective, state) VALUES (?, ?, ?, ?, ?)
             "#
         )
-        .bind(cfg.deposit_idx)
         .bind(cfg.deposit_tx.compute_txid().to_string())
         .bind(bincode::serialize(&cfg.deposit_tx)?)
         .bind(bincode::serialize(&cfg.operator_set)?)
@@ -76,7 +74,11 @@ impl ContractPersister {
     }
 
     /// Updates the [`MachineState`] for a contract.
-    pub async fn commit(&self, deposit_txid: Txid, state: &MachineState) -> Result<(), PersistErr> {
+    pub async fn commit(
+        &self,
+        deposit_txid: &Txid,
+        state: &MachineState,
+    ) -> Result<(), PersistErr> {
         let _: SqliteQueryResult = sqlx::query(
             r#"
             UPDATE contracts SET state = ? WHERE deposit_txid = ?;
@@ -100,7 +102,6 @@ impl ContractPersister {
             SELECT (deposit_idx, deposit_tx, operator_set, perspective, peg_out_graphs, state) FROM contracts WHERE deposit_txid = ?
             "#
         ).bind(deposit_txid.to_string()).fetch_one(&self.pool).await.map_err(|_|PersistErr)?;
-        let deposit_idx = row.try_get("deposit_idx").map_err(|_| PersistErr)?;
         let deposit_tx = bincode::deserialize(row.try_get("deposit_tx").map_err(|_| PersistErr)?)?;
         let perspective = row.try_get("perspective").map_err(|_| PersistErr)?;
         let operator_set =
@@ -113,7 +114,6 @@ impl ContractPersister {
                 perspective,
                 operator_set,
                 deposit_tx,
-                deposit_idx,
                 peg_out_graphs,
             },
             state,
@@ -130,7 +130,6 @@ impl ContractPersister {
         ).fetch_all(&self.pool).await.map_err(|_|PersistErr)?;
         rows.into_iter()
             .map(|row| {
-                let deposit_idx = row.try_get("deposit_idx").map_err(|_| PersistErr)?;
                 let deposit_tx =
                     bincode::deserialize(row.try_get("deposit_tx").map_err(|_| PersistErr)?)?;
                 let perspective = row.try_get("perspective").map_err(|_| PersistErr)?;
@@ -144,7 +143,6 @@ impl ContractPersister {
                         perspective,
                         operator_set,
                         deposit_tx,
-                        deposit_idx,
                         peg_out_graphs,
                     },
                     state,

@@ -32,11 +32,13 @@ pub enum ContractEvent {
     /// Signifies that this withdrawal has been assigned.
     Assignment(DepositEntry),
 
+    DepositConfirmation(Transaction, u32),
+
     /// Signifies that a new transaction has been confirmed.
-    Confirmation(Transaction, BitcoinBlockHeight),
+    PegOutGraphConfirmation(Transaction, BitcoinBlockHeight),
 
     /// Signifies that a new block has been connected to the chain tip.
-    Block,
+    Block(BitcoinBlockHeight),
 
     /// Signifies that the claim transaction for this contract has failed verification.
     ClaimFailure,
@@ -77,11 +79,13 @@ pub enum ContractState {
 
     /// This state describes everything from the moment the deposit confirms, to the moment the
     /// strata state commitment that assigns this deposit confirms.
-    Deposited,
+    Deposited { deposit_idx: u32 },
 
     /// This state describes everything from the moment the withdrawal is assigned, to the moment
     /// the fulfillment transaction confirms.
     Assigned {
+        deposit_idx: u32,
+
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
@@ -95,6 +99,8 @@ pub enum ContractState {
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
+        deposit_idx: u32,
+
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
@@ -106,6 +112,8 @@ pub enum ContractState {
     /// moment either the challenge transaction confirms, or the optimistic payout transaction
     /// confirms.
     Claimed {
+        deposit_idx: u32,
+
         /// The height at which the claim transaction was confirmed.
         claim_height: BitcoinBlockHeight,
 
@@ -119,6 +127,8 @@ pub enum ContractState {
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
+        deposit_idx: u32,
+
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
@@ -129,6 +139,8 @@ pub enum ContractState {
     /// This state describes everything from the moment the post-assert transaction confirms, to
     /// the moment either the disprove transaction confirms or the payout transaction confirms.
     Asserted {
+        deposit_idx: u32,
+
         /// The height at which the post-assert transaction was confirmed.
         post_assert_height: BitcoinBlockHeight,
 
@@ -227,9 +239,6 @@ pub struct ContractCfg {
     /// The predetermined deposit transaction that the rest of the graph is built from.
     pub deposit_tx: Transaction,
 
-    /// The globally unique deposit index.
-    pub deposit_idx: u32,
-
     /// The set of all possible withdrawal graphs indexed by operator.
     pub peg_out_graphs: BTreeMap<OperatorIdx, PegOutGraphSummary>,
 }
@@ -261,14 +270,12 @@ impl ContractSM {
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_tx: Transaction,
-        deposit_idx: u32,
         peg_out_graphs: BTreeMap<OperatorIdx, PegOutGraphSummary>,
-    ) -> Result<(Self, OperatorDuty), TransitionErr> {
+    ) -> (Self, OperatorDuty) {
         let cfg = ContractCfg {
             perspective,
             operator_set,
             deposit_tx,
-            deposit_idx,
             peg_out_graphs,
         };
         let state = ContractState::Requested {
@@ -280,10 +287,10 @@ impl ContractSM {
             block_height,
             state,
         };
-        Ok((
+        (
             ContractSM { cfg, state },
             OperatorDuty::PublishGraphSignatures,
-        ))
+        )
     }
 
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]
@@ -293,7 +300,6 @@ impl ContractSM {
 
     /// Filter that specifies which transactions should be delivered to this state machine.
     pub fn transaction_filter(&self) -> TxPredicate {
-        let idx = self.cfg.deposit_idx;
         let deposit_txid = self.cfg.deposit_tx.compute_txid();
         let graphs = self
             .cfg
@@ -312,7 +318,7 @@ impl ContractSM {
                     || g.payout_txid == txid
                     || is_challenge(g.claim_txid)(tx)
                     || is_disprove(g.post_assert_txid)(tx)
-                    || is_fulfillment_tx(idx)(tx)
+                    || is_fulfillment_tx(deposit_txid)(tx)
             })
         })
     }
@@ -327,13 +333,32 @@ impl ContractSM {
         match ev {
             ContractEvent::GraphSig(op, sigs) => self.process_graph_signature_payload(op, sigs),
             ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
-            ContractEvent::Confirmation(tx, height) => {
+            ContractEvent::DepositConfirmation(tx, deposit_idx) => {
+                self.process_deposit_confirmation(tx, deposit_idx)
+            }
+            ContractEvent::PegOutGraphConfirmation(tx, height) => {
                 self.process_peg_out_graph_tx_confirmation(height, &tx)
             }
-            ContractEvent::Block => Ok(self.notify_new_block()),
+            ContractEvent::Block(height) => self.notify_new_block(height),
             ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
             ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
             ContractEvent::Assignment(deposit_entry) => self.process_assignment(&deposit_entry),
+        }
+    }
+
+    fn process_deposit_confirmation(
+        &mut self,
+        tx: Transaction,
+        deposit_idx: u32,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        match self.state.state {
+            ContractState::Requested { .. }
+                if tx.compute_txid() == self.cfg.deposit_tx.compute_txid() =>
+            {
+                self.state.state = ContractState::Deposited { deposit_idx };
+                Ok(None)
+            }
+            _ => Err(TransitionErr),
         }
     }
 
@@ -344,8 +369,8 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &self.state.state {
-            ContractState::Requested { .. } => self.process_deposit_confirmation(tx).map(|_| None),
-            ContractState::Deposited => Err(TransitionErr),
+            ContractState::Requested { .. } => Err(TransitionErr),
+            ContractState::Deposited { .. } => Err(TransitionErr),
             ContractState::Assigned { .. } => self.process_fulfillment_confirmation(tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
             ContractState::Claimed { .. } => self
@@ -402,68 +427,74 @@ impl ContractSM {
         }
     }
 
-    fn process_deposit_confirmation(&mut self, tx: &Transaction) -> Result<(), TransitionErr> {
-        if tx.compute_txid() != self.cfg.deposit_tx.compute_txid() {
+    /// Increment the internally tracked block height.
+    fn notify_new_block(
+        &mut self,
+        height: BitcoinBlockHeight,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        if self.state.block_height + 1 == height {
+            self.state.block_height = height;
+        } else {
             return Err(TransitionErr);
         }
+        Ok(
+            match std::mem::replace(
+                &mut self.state.state,
+                ContractState::Deposited { deposit_idx: 0 },
+            ) {
+                ContractState::Requested { abort_deadline, .. } => {
+                    if self.state.block_height >= abort_deadline {
+                        Some(OperatorDuty::Abort)
+                    } else {
+                        None
+                    }
+                }
+                ContractState::Deposited { .. } => None,
+                ContractState::Assigned {
+                    deposit_idx,
+                    deadline,
+                    ..
+                } => {
+                    if self.state.block_height >= deadline {
+                        self.state.state = ContractState::Deposited { deposit_idx };
+                    }
 
-        self.state.state = ContractState::Deposited;
-
-        Ok(())
-    }
-
-    /// Increment the internally tracked block height.
-    fn notify_new_block(&mut self) -> Option<OperatorDuty> {
-        self.state.block_height += 1;
-        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
-            ContractState::Requested { abort_deadline, .. } => {
-                if self.state.block_height >= abort_deadline {
-                    Some(OperatorDuty::Abort)
-                } else {
                     None
                 }
-            }
-            ContractState::Deposited => None,
-            ContractState::Assigned { deadline, .. } => {
-                if self.state.block_height >= deadline {
-                    self.state.state = ContractState::Deposited;
+                ContractState::Fulfilled { .. } => None,
+                ContractState::Claimed {
+                    fulfiller,
+                    claim_height,
+                    ..
+                } => {
+                    if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
+                        && fulfiller == self.cfg.perspective
+                    {
+                        Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::PublishPayoutOptimistic,
+                        ))
+                    } else {
+                        None
+                    }
                 }
-
-                None
-            }
-            ContractState::Fulfilled { .. } => None,
-            ContractState::Claimed {
-                fulfiller,
-                claim_height,
-                ..
-            } => {
-                if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
-                    && fulfiller == self.cfg.perspective
-                {
-                    Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishPayoutOptimistic,
-                    ))
-                } else {
-                    None
+                ContractState::Challenged { .. } => None,
+                ContractState::Asserted {
+                    post_assert_height,
+                    fulfiller,
+                    ..
+                } => {
+                    if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
+                        && fulfiller == self.cfg.perspective
+                    {
+                        Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
+                    } else {
+                        None
+                    }
                 }
-            }
-            ContractState::Challenged { .. } => None,
-            ContractState::Asserted {
-                post_assert_height,
-                fulfiller,
-                ..
-            } => {
-                if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
-                    && fulfiller == self.cfg.perspective
-                {
-                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
-                } else {
-                    None
-                }
-            }
-            ContractState::Disproved {} => None,
-            ContractState::Resolved {} => None,
-        }
+                ContractState::Disproved {} => None,
+                ContractState::Resolved {} => None,
+            },
+        )
     }
 
     /// Processes an assignment from the strata state commitment.
@@ -471,11 +502,14 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        if !matches!(self.state.state, ContractState::Deposited) {
-            return Err(TransitionErr);
-        }
+        let deposit_idx = match self.state.state {
+            ContractState::Deposited { deposit_idx } => deposit_idx,
+            _ => {
+                return Err(TransitionErr);
+            }
+        };
 
-        if assignment.idx() != self.cfg.deposit_idx {
+        if assignment.idx() != deposit_idx {
             return Err(TransitionErr);
         }
 
@@ -490,6 +524,7 @@ impl ContractSM {
                     .ok_or(TransitionErr)?
                     .to_owned();
                 self.state.state = ContractState::Assigned {
+                    deposit_idx,
                     fulfiller,
                     deadline,
                     active_graph,
@@ -511,19 +546,24 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
+        match std::mem::replace(
+            &mut self.state.state,
+            ContractState::Deposited { deposit_idx: 0 },
+        ) {
             ContractState::Assigned {
+                deposit_idx,
                 fulfiller,
                 active_graph,
                 ..
             } => {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
                 // operator.
-                if !is_fulfillment_tx(self.cfg.deposit_idx)(tx) {
+                if !is_fulfillment_tx(self.cfg.deposit_tx.compute_txid())(tx) {
                     return Err(TransitionErr);
                 }
 
                 self.state.state = ContractState::Fulfilled {
+                    deposit_idx,
                     fulfiller,
                     active_graph,
                 };
@@ -543,8 +583,12 @@ impl ContractSM {
         height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
+        match std::mem::replace(
+            &mut self.state.state,
+            ContractState::Deposited { deposit_idx: 0 },
+        ) {
             ContractState::Fulfilled {
+                deposit_idx,
                 fulfiller,
                 active_graph,
                 ..
@@ -554,6 +598,7 @@ impl ContractSM {
                 }
 
                 self.state.state = ContractState::Claimed {
+                    deposit_idx,
                     claim_height: height,
                     fulfiller,
                     active_graph,
@@ -585,8 +630,12 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
+        match std::mem::replace(
+            &mut self.state.state,
+            ContractState::Deposited { deposit_idx: 0 },
+        ) {
             ContractState::Claimed {
+                deposit_idx,
                 fulfiller,
                 active_graph,
                 ..
@@ -596,6 +645,7 @@ impl ContractSM {
                 }
 
                 self.state.state = ContractState::Challenged {
+                    deposit_idx,
                     fulfiller,
                     active_graph,
                 };
@@ -617,8 +667,12 @@ impl ContractSM {
         post_assert_height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
+        match std::mem::replace(
+            &mut self.state.state,
+            ContractState::Deposited { deposit_idx: 0 },
+        ) {
             ContractState::Challenged {
+                deposit_idx,
                 fulfiller,
                 active_graph,
                 ..
@@ -628,6 +682,7 @@ impl ContractSM {
                 }
 
                 self.state.state = ContractState::Asserted {
+                    deposit_idx,
                     post_assert_height,
                     fulfiller,
                     active_graph,
@@ -647,7 +702,10 @@ impl ContractSM {
     fn process_assertion_verification_failure(
         &mut self,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Deposited) {
+        match std::mem::replace(
+            &mut self.state.state,
+            ContractState::Deposited { deposit_idx: 0 },
+        ) {
             ContractState::Asserted { .. } => Ok(Some(OperatorDuty::VerifierDuty(
                 VerifierDuty::PublishDisprove,
             ))),
