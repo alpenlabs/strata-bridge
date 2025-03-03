@@ -8,7 +8,7 @@ use strata_p2p_types::{Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys
 use tracing::{error, info, trace};
 
 /// Message handler for the P2P client.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MessageHandler {
     /// The P2P handle that is used to listen for events and call commands.
     pub handle: P2PHandle,

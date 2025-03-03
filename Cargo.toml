@@ -64,6 +64,7 @@ strata-state = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 strata-p2p-db = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
