@@ -4,6 +4,7 @@ use std::{sync::LazyLock, time::Duration};
 
 use bitcoin::{
     hashes::{sha256, Hash},
+    relative,
     secp256k1::XOnlyPublicKey,
     Amount, FeeRate,
 };
@@ -42,6 +43,9 @@ pub const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
 
 /// The default amount of BTC that is burnt when an operator's stake is slashed.
 pub const BURN_AMOUNT: Amount = Amount::from_int_btc(1);
+
+/// The default number of blocks between each stake transaction enforced via relative timelocks.
+pub const STAKE_TX_DELTA: relative::LockTime = relative::LockTime::from_height(6);
 
 /// The number of ongoing past `Claim` transactions that can be used to slash an operator's stake.
 pub const NUM_SLASH_STAKE_TX: usize = 24;

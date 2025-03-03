@@ -3,7 +3,7 @@
 
 use bitcoin::{relative, Amount};
 
-use super::tx::{BURN_AMOUNT, NUM_SLASH_STAKE_TX, OPERATOR_STAKE};
+use super::tx::{BURN_AMOUNT, NUM_SLASH_STAKE_TX, OPERATOR_STAKE, STAKE_TX_DELTA};
 
 /// The Stake Chain public parameters that are inherent from the protocol and does not need to be
 /// interactively shared.
@@ -30,7 +30,7 @@ impl Default for StakeChainParams {
         Self {
             stake_amount: OPERATOR_STAKE,
             burn_amount: BURN_AMOUNT,
-            delta: relative::LockTime::from_height(6),
+            delta: STAKE_TX_DELTA,
             slash_stake_count: NUM_SLASH_STAKE_TX,
         }
     }

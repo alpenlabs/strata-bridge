@@ -203,7 +203,7 @@ impl Agent {
             .build()
     }
 
-    /// Generates psuedo-random bytes that can be used as preimages deterministically.
+    /// Generates pseudo-random bytes that can be used as preimages deterministically.
     pub fn generate_preimage(&self, seed: &str, stake_index: u32) -> [u8; 32] {
         let data = stake_index.to_be_bytes();
         *hashes::sha256::Hash::hash(&[seed.as_bytes(), &data].concat()).as_byte_array()

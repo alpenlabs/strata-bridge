@@ -1,7 +1,7 @@
-/// This module contains types and functions for interacting with the Bitcoin Core RPC
-/// interface.
-///
-/// Based on <https://github.com/rust-bitcoin/rust-bitcoincore-rpc/tree/master>.
+//! This module contains types and functions for interacting with the Bitcoin Core RPC
+//! interface.
+//!
+//! Based on <https://github.com/rust-bitcoin/rust-bitcoincore-rpc/tree/master>.
 use bitcoin::{consensus, Address, Amount, Transaction, Txid};
 use corepc_node::Client;
 use serde::{Deserialize, Serialize};
