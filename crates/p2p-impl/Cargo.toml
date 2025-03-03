@@ -14,6 +14,7 @@ rust.unused_must_use = "deny"
 strata-p2p.workspace = true
 strata-p2p-db.workspace = true
 strata-p2p-types.workspace = true
+strata-p2p-wire.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true
@@ -28,7 +29,6 @@ tracing.workspace = true
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 strata-common.workspace = true
-strata-p2p-wire.workspace = true
 
 futures.workspace = true
 tokio.workspace = true
