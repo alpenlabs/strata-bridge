@@ -44,6 +44,10 @@ pub struct SlashStakeTx {
 }
 
 impl SlashStakeTx {
+    /// Creates a new instance of the slash stake transaction.
+    ///
+    /// The transaction has two inputs: one from the claim transaction (via [``]) and one from the
+    /// stake transaction (via [`ConnectorStake`]).
     pub fn new(
         data: SlashStakeData,
         stake_chain_params: StakeChainParams,
