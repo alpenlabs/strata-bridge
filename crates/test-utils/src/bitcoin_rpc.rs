@@ -89,7 +89,20 @@ pub fn fund_and_sign_raw_tx(
         .call::<FundRawTransactionResult>("fundrawtransaction", &args)
         .unwrap();
 
-    let funded_tx: Transaction = consensus::encode::deserialize(&funded_tx.hex).unwrap();
+    let mut funded_tx: Transaction = consensus::encode::deserialize(&funded_tx.hex).unwrap();
+
+    // make sure that the the order of inputs and outputs remains the same after funding.
+    let funding_inputs = funded_tx
+        .input
+        .iter()
+        .filter(|input| !tx.input.iter().any(|i| i == *input));
+    let funding_outputs = funded_tx
+        .output
+        .iter()
+        .filter(|output| !tx.output.iter().any(|o| o == *output));
+
+    funded_tx.input = [tx.input.clone(), funding_inputs.cloned().collect()].concat();
+    funded_tx.output = [tx.output.clone(), funding_outputs.cloned().collect()].concat();
 
     let signed_tx = btc_client
         .call::<SignRawTransactionWithWallet>(
