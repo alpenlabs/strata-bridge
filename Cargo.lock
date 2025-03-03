@@ -3189,13 +3189,13 @@ dependencies = [
  "bitcoin",
  "btc-notify",
  "futures",
- "prost",
  "serde",
  "sqlx",
  "strata-bridge-primitives",
  "strata-bridge-tx-graph",
  "strata-btcio",
  "strata-p2p",
+ "strata-p2p-wire",
  "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c)",
  "strata-state",
  "thiserror 2.0.11",
@@ -10055,7 +10055,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=feature%2Fstream-impl#b4ac86987c076f410c93bc99637ceefdb05eefd9"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10077,7 +10077,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=feature%2Fstream-impl#b4ac86987c076f410c93bc99637ceefdb05eefd9"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10097,7 +10097,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=feature%2Fstream-impl#b4ac86987c076f410c93bc99637ceefdb05eefd9"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10108,7 +10108,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=feature%2Fstream-impl#b4ac86987c076f410c93bc99637ceefdb05eefd9"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#49557e836782be6ae98c0156d164aaca5aa98177"
 dependencies = [
  "bitcoin",
  "musig2",
