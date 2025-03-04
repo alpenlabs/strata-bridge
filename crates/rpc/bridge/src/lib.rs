@@ -31,7 +31,7 @@ pub trait StrataBridgeMonitoringApi {
 
     /// Query operator status (Online/Offline)
     #[method(name = "operatorStatus")]
-    async fn get_operator_status(&self, operator_idx: OperatorIdx) -> RpcResult<OperatorStatus>;
+    async fn get_operator_status(&self, operator_idx: OperatorIdx) -> RpcResult<RpcOperatorStatus>;
 
     /// Get deposit details using the deposit request outpoint
     #[method(name = "depositInfo")]
