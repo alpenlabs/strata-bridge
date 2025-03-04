@@ -48,8 +48,9 @@ strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
-strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", branch = "bugfix/as-refs" }
+strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git", branch = "bugfix/as-refs" }
+strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", branch = "bugfix/as-refs" }
 
 # deps from original strata repo
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }

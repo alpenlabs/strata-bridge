@@ -4,15 +4,16 @@ use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{
     hashes::serde::{Deserialize, Serialize},
-    taproot::Signature,
-    Transaction,
+    Transaction, Txid,
 };
 use btc_notify::client::TxPredicate;
+use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
     params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
     types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_tx_graph::peg_out_graph::PegOutGraphSummary;
+use strata_p2p_types::{OperatorPubKey, WotsPublicKeys};
 use strata_primitives::bridge::PublickeyTable;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 
@@ -23,15 +24,26 @@ use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 /// Events of this type will be repeatedly fed to the state machine until it terminates.
 #[derive(Debug)]
 pub enum ContractEvent {
-    /// Signifies that we have a new graph signature from one of our peers.
-    GraphSig(OperatorIdx, GraphSignatures),
+    /// Signifies that we have a new set of WOTS keys from one of our peers.
+    WotsKeys(OperatorPubKey, WotsPublicKeys),
+
+    /// Signifies that we have a new set of nonces for the peg out graph from one of our peers.
+    GraphNonces(OperatorPubKey, Vec<PubNonce>),
+
+    /// Signifies that we have a new set of signatures for the peg out graph from one of our peers.
+    GraphSigs(OperatorPubKey, Vec<PartialSignature>),
+
+    /// Signifies that we have received a new deposit nonce from one of our peers.
+    RootNonce(OperatorPubKey, PubNonce),
 
     /// Signifies that we have a new deposit signature from one of our peers.
-    RootSig(OperatorIdx, Signature),
+    RootSig(OperatorPubKey, PartialSignature),
 
     /// Signifies that this withdrawal has been assigned.
     Assignment(DepositEntry),
 
+    /// Signifies that the deposit transaction has been confirmed, the second value is the global
+    /// deposit index.
     DepositConfirmation(Transaction, u32),
 
     /// Signifies that a new transaction has been confirmed.
@@ -69,21 +81,28 @@ pub enum ContractState {
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
 
+        /// An accumulator for all of the wots keys we have received from our peers.
+        wots_keys: BTreeMap<OperatorPubKey, WotsPublicKeys>,
+
         /// This is the collection of signatures for the peg-out graph on a per-operator basis.
-        graph_sigs: BTreeMap<OperatorIdx, GraphSignatures>,
+        graph_sigs: BTreeMap<OperatorPubKey, Vec<PartialSignature>>,
 
         /// This is the collection of signatures for the deposit transaction itself on a
         /// per-operator basis.
-        root_sigs: BTreeMap<OperatorIdx, Signature>,
+        root_sigs: BTreeMap<OperatorPubKey, PartialSignature>,
     },
 
     /// This state describes everything from the moment the deposit confirms, to the moment the
     /// strata state commitment that assigns this deposit confirms.
-    Deposited { deposit_idx: u32 },
+    Deposited {
+        /// The global deposit index of this deposit.
+        deposit_idx: u32,
+    },
 
     /// This state describes everything from the moment the withdrawal is assigned, to the moment
     /// the fulfillment transaction confirms.
     Assigned {
+        /// The global deposit index of this deposit.
         deposit_idx: u32,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -99,6 +118,7 @@ pub enum ContractState {
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
+        /// The global deposit index of this deposit.
         deposit_idx: u32,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -112,6 +132,7 @@ pub enum ContractState {
     /// moment either the challenge transaction confirms, or the optimistic payout transaction
     /// confirms.
     Claimed {
+        /// The global deposit index of this deposit.
         deposit_idx: u32,
 
         /// The height at which the claim transaction was confirmed.
@@ -127,6 +148,7 @@ pub enum ContractState {
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
+        /// The global deposit index of this deposit.
         deposit_idx: u32,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -139,6 +161,7 @@ pub enum ContractState {
     /// This state describes everything from the moment the post-assert transaction confirms, to
     /// the moment either the disprove transaction confirms or the payout transaction confirms.
     Asserted {
+        /// The global deposit index of this deposit.
         deposit_idx: u32,
 
         /// The height at which the post-assert transaction was confirmed.
@@ -162,8 +185,11 @@ pub enum ContractState {
 /// This is the superset of all possible operator duties.
 #[derive(Debug)]
 pub enum OperatorDuty {
-    /// Instructs us to terminate this contract
+    /// Instructs us to terminate this contract.
     Abort,
+
+    /// Instructs us to publish our own wots keys for this contract.
+    PublishWOTSKeys,
 
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures,
@@ -280,6 +306,7 @@ impl ContractSM {
         };
         let state = ContractState::Requested {
             abort_deadline,
+            wots_keys: BTreeMap::new(),
             graph_sigs: BTreeMap::new(),
             root_sigs: BTreeMap::new(),
         };
@@ -331,7 +358,10 @@ impl ContractSM {
         ev: ContractEvent,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
-            ContractEvent::GraphSig(op, sigs) => self.process_graph_signature_payload(op, sigs),
+            ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, keys),
+            ContractEvent::GraphNonces(operator_pub_key, vec) => todo!(),
+            ContractEvent::GraphSigs(op, sigs) => self.process_graph_signatures(op, sigs),
+            ContractEvent::RootNonce(operator_pub_key, pub_nonce) => todo!(),
             ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
             ContractEvent::DepositConfirmation(tx, deposit_idx) => {
                 self.process_deposit_confirmation(tx, deposit_idx)
@@ -385,11 +415,19 @@ impl ContractSM {
         }
     }
 
-    /// Processes a graph signature payload from our peer.
-    fn process_graph_signature_payload(
+    fn process_wots_public_keys(
         &mut self,
-        signer: OperatorIdx,
-        sig: GraphSignatures,
+        signer: OperatorPubKey,
+        keys: WotsPublicKeys,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        todo!()
+    }
+
+    /// Processes a graph signature payload from our peer.
+    fn process_graph_signatures(
+        &mut self,
+        signer: OperatorPubKey,
+        sig: Vec<PartialSignature>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
             ContractState::Requested { graph_sigs, .. } => {
@@ -409,8 +447,8 @@ impl ContractSM {
     /// Processes a signature for the deposit transaction from our peer.
     fn process_root_signature(
         &mut self,
-        signer: OperatorIdx,
-        sig: Signature,
+        signer: OperatorPubKey,
+        sig: PartialSignature,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
             ContractState::Requested { root_sigs, .. } => {
@@ -775,6 +813,22 @@ impl ContractSM {
     /// Dumps the current state of the state machine.
     pub fn state(&self) -> &MachineState {
         &self.state
+    }
+
+    /// The txid of the desposit on which this contract is centered.
+    pub fn deposit_txid(&self) -> Txid {
+        self.cfg.deposit_tx.compute_txid()
+    }
+
+    /// The txid of the original deposit request that kicked off this contract.
+    pub fn deposit_request_txid(&self) -> Txid {
+        self.cfg
+            .deposit_tx
+            .input
+            .first()
+            .unwrap()
+            .previous_output
+            .txid
     }
 }
 

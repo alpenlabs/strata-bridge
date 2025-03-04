@@ -2,15 +2,10 @@
 use std::sync::Arc;
 
 use bitcoin::{
-    hashes::Hash,
-    opcodes::all::{OP_PUSHNUM_1, OP_RETURN},
-    script::Instruction,
-    OutPoint, Script, ScriptBuf, TapNodeHash, Transaction, Txid,
+    hashes::Hash, opcodes::all::OP_RETURN, OutPoint, Script, TapNodeHash, Transaction, Txid,
 };
 use btc_notify::client::TxPredicate;
-use strata_bridge_primitives::{
-    deposit::DepositInfo, params::tx::BRIDGE_DENOMINATION, types::OperatorIdx,
-};
+use strata_bridge_primitives::{deposit::DepositInfo, params::tx::BRIDGE_DENOMINATION};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -55,8 +50,11 @@ pub(crate) fn deposit_request_info(tx: &Transaction) -> Option<DepositInfo> {
 
     let (take_back_leaf_hash, el_addr) =
         magic_tagged_data(MAGIC_BYTES, &tx.output.get(1)?.script_pubkey).and_then(|meta| {
+            if meta.len() != MERKLE_PROOF_SIZE + EL_ADDR_SIZE {
+                return None;
+            }
             let take_back_leaf_hash = meta.get(..MERKLE_PROOF_SIZE)?;
-            let el_addr = meta.get(MERKLE_PROOF_SIZE..)?;
+            let el_addr = meta.get(MERKLE_PROOF_SIZE..MERKLE_PROOF_SIZE + EL_ADDR_SIZE)?;
             Some((take_back_leaf_hash, el_addr))
         })?;
 

@@ -12,7 +12,6 @@ use bitcoin::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    bitcoin::BitcoinAddress,
     build_context::{BuildContext, TxKind},
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
     params::prelude::{BRIDGE_DENOMINATION, UNSPENDABLE_INTERNAL_KEY},
