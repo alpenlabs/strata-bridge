@@ -1,26 +1,27 @@
 use std::collections::BTreeMap;
 
-use bincode::de;
-use bitcoin::{Block, Transaction, Txid};
-use btc_notify::{client::BtcZmqClient, subscription::Subscription};
+use bitcoin::{hashes::sha256d::Hash, Block, Txid};
+use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
-use sqlx::{Pool, Sqlite};
 use strata_bridge_primitives::build_context::{BuildContext, TxBuildContext, TxKind};
-use strata_btcio::rpc::BitcoinClient;
 use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
 use tokio::task::JoinHandle;
 
 use crate::{
-    contract_persister::{self, ContractPersister, PersistErr},
+    contract_persister::{ContractPersister, PersistErr},
     contract_state_machine::{ContractEvent, ContractSM, TransitionErr},
-    predicates::{deposit_request_info, is_deposit_request, is_rollup_commitment},
+    predicates::{deposit_request_info, is_rollup_commitment},
 };
 
+/// System that handles all of the chain and p2p events and forwards them to their respective
+/// [`ContractSM`]s.
+#[derive(Debug)]
 pub struct ContractManager {
     thread_handle: JoinHandle<()>,
 }
 impl ContractManager {
+    /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     pub fn new(
         build_context: TxBuildContext,
         zmq_client: BtcZmqClient,
@@ -46,7 +47,7 @@ impl ContractManager {
             // TODO(proofofkeags): synchronize state with chain state
 
             let mut ctx = ContractManagerCtx {
-                // TODO(proofofkeags): prune the active contract set and still preserve the abitlity
+                // TODO(proofofkeags): prune the active contract set and still preserve the ability
                 // to recover this value.
                 next_deposit_idx: active_contracts.len() as u32,
                 build_context,
@@ -58,16 +59,23 @@ impl ContractManager {
             loop {
                 tokio::select! {
                     Some(block) = block_sub.next() => if let Err(e) = ctx.process_block(block).await {
-                        todo!() //error handling
+                        todo!() // TODO(proofofkeags): error handling
                     },
                     Some(event) = p2p_handle.next() => match event {
-                        Ok(Event::ReceivedMessage(msg)) => ctx.process_p2p_message(msg).await,
+                        Ok(Event::ReceivedMessage(msg)) => if let Err(e) = ctx.process_p2p_message(msg).await {
+                            todo!() // TODO(proofofkeags): error handling
+                        },
                         Err(e) => todo!(),
                     }
                 }
             }
         });
         ContractManager { thread_handle }
+    }
+}
+impl Drop for ContractManager {
+    fn drop(&mut self) {
+        self.thread_handle.abort();
     }
 }
 
@@ -104,7 +112,7 @@ impl ContractManagerCtx {
                 let deposit_tx = match deposit_info.construct_signing_data(&self.build_context) {
                     Ok(data) => data.psbt.unsigned_tx,
                     Err(_) => {
-                        // TODO(proofofkeags): what does this mean?
+                        // TODO(proofofkeags): what does this mean? @Rajil1213
                         continue;
                     }
                 };
@@ -164,20 +172,83 @@ impl ContractManagerCtx {
         Ok(())
     }
 
-    async fn process_p2p_message(&mut self, msg: GossipsubMsg) {
+    async fn process_p2p_message(&mut self, msg: GossipsubMsg) -> Result<(), ContractManagerErr> {
         match msg.unsigned {
             UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
                 info,
             } => todo!(),
             UnsignedGossipsubMsg::DepositSetup { scope, wots_pks } => {
-                todo!()
+                let deposit_txid = Txid::from_raw_hash(*Hash::from_bytes_ref(scope.as_ref()));
+                if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
+                    if let Some(duty) = contract
+                        .process_contract_event(ContractEvent::WotsKeys(msg.key, wots_pks))?
+                    {
+                        todo!() // TODO(proofofkeags): execute duty
+                    }
+                }
+                Ok(())
             }
-            UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces } => todo!(),
+            UnsignedGossipsubMsg::Musig2NoncesExchange {
+                session_id,
+                mut nonces,
+            } => {
+                let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
+                if let Some(contract) = self.active_contracts.get_mut(&txid) {
+                    if let Some(duty) = contract
+                        .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
+                    {
+                        todo!() // TODO(proofofkeags): execute duty
+                    }
+                } else if let Some((deposit_txid, contract)) = self
+                    .active_contracts
+                    .iter_mut()
+                    .find(|(_, contract)| contract.deposit_request_txid() == txid)
+                {
+                    if nonces.len() != 1 {
+                        // TODO(proofofkeags): is this an error?
+                        todo!()
+                    }
+                    let nonce = nonces.pop().unwrap();
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::RootNonce(msg.key, nonce))?
+                    {
+                        todo!() // TODO(proofofkeags): execute duty
+                    }
+                }
+
+                Ok(())
+            }
             UnsignedGossipsubMsg::Musig2SignaturesExchange {
                 session_id,
-                signatures,
-            } => todo!(),
+                mut signatures,
+            } => {
+                let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
+                if let Some(contract) = self.active_contracts.get_mut(&txid) {
+                    if let Some(duty) = contract
+                        .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
+                    {
+                        todo!() // TODO(proofofkeags): execute duty
+                    }
+                } else if let Some((deposit_txid, contract)) = self
+                    .active_contracts
+                    .iter_mut()
+                    .find(|(_, contract)| contract.deposit_request_txid() == txid)
+                {
+                    if signatures.len() != 1 {
+                        // TODO(proofofkeags): is this an error?
+                        todo!()
+                    }
+                    let sig = signatures.pop().unwrap();
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::RootSig(msg.key, sig))?
+                    {
+                        todo!() // TODO(proofofkeags): execute duty
+                    }
+                }
+
+                Ok(())
+            }
         }
     }
 }
