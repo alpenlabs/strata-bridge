@@ -15,7 +15,6 @@ use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     params::{connectors::*, prelude::StakeChainParams},
-    types::OperatorIdx,
     wots::{self, Groth16PublicKeys},
 };
 use tracing::debug;
@@ -45,30 +44,15 @@ pub struct PegOutGraphInput {
     /// The hash for the hashlock used in the Stake Transaction.
     pub stake_hash: sha256::Hash,
 
-    /// The amount used to fund all the dust outputs in the peg-out graph.
-    pub funding_amount: Amount,
-
-    /// The deposit amount for the peg-out graph.
-    ///
-    /// This is kept as an input instead of a constant to allow for flexibility in the future.
-    pub deposit_amount: Amount,
-
-    /// The public key of the operator.
-    pub operator_pubkey: XOnlyPublicKey,
-
-    /// The transaction IDs of the claim transactions from previous graphs i.e., those from the
-    /// graphs for past deposits.
-    ///
-    /// The number of transaction IDs specified here directly determines the number of
-    /// [`SlashStakeTx`]'s computed. In general, the number of transaction IDs should be
-    /// `min(deposit_index, stake_chain_params.slash_stake_count)` (assuming that the deposit
-    /// index is zero-indexed). As an optimization, only claim txids corresponding to unclaimed
-    /// deposits need to be specified.
-    pub prev_claim_txids: Vec<Txid>,
-
     /// The WOTS public keys used to verify commitments to the withdrawal fulfillment txid and the
     /// Groth16 proof.
     pub wots_public_keys: wots::PublicKeys,
+
+    /// The public key of the operator.
+    ///
+    /// This key is used for CPFP outputs and for receiving reimbursements.
+    // TODO: Make this a [`descriptor`](bitcoin_bosd::Descriptor).
+    pub operator_pubkey: XOnlyPublicKey,
 }
 
 /// The minimum necessary information to recognize all of the relevant transactions in a given
@@ -218,6 +202,19 @@ pub struct PegOutGraph {
     pub slash_stake_txs: Vec<SlashStakeTx>,
 }
 
+/// The parameters required to construct a peg-out graph.
+///
+/// These parameters are consensus-critical meaning that these are values that are agreed upon by
+/// all operators and verifiers in the bridge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PegOutGraphParams {
+    /// The amount that is locked in the bridge address at the deposit time.
+    pub deposit_amount: Amount,
+
+    /// The amount that is used to fund all the dust outputs in the peg-out graph.
+    pub funding_amount: Amount,
+}
+
 impl PegOutGraph {
     /// Generate the peg-out graph for a given operator.
     ///
@@ -225,17 +222,29 @@ impl PegOutGraph {
     /// for the operator for the given deposit transaction, and the input data are
     /// available.
     ///
-    /// The `prev_claim_txids` are the transaction IDs of the previous claim transactions that can
-    /// be used to slash the operator's stake in case of a faulty advancement of the stake chain
-    /// i.e., if the operator advances the stake chain without fully executing the previous claims.
-    /// In general, the number of these transactions should be `min(deposit_index,
-    /// slash_stake_count)` (assuming that the deposit index is zero-indexed).
+    /// # Parameters
+    ///
+    /// * `input` - The input data required to construct the peg-out graph deterministically that
+    ///   are made available by an operator during a deposit.
+    /// * `context` - The build context that contains the information related to the MuSig2 context.
+    /// * `deposit_txid` - The transaction ID of the deposit transaction.
+    /// * `graph_params` - The consensus-critical parameters required to construct the peg-out
+    ///   graph.
+    /// * `stake_chain_params` - The consensus-critical parameters required to construct the stake
+    ///   chain.
+    /// * `prev_claim_txids` - The transaction IDs of the previous claim transactions that can be
+    ///   used to slash the operator's stake in case of a faulty advancement of the stake chain
+    ///   i.e., if the operator advances the stake chain without fully executing the previous
+    ///   claims.In general, the number of these transactions should be `min(deposit_index,
+    ///   slash_stake_count)` (assuming that the deposit index is zero-indexed). As an optimization,
+    ///   only claim txids corresponding to unclaimed deposits need to be specified.
     pub fn generate<Context>(
         input: PegOutGraphInput,
         context: &Context,
         deposit_txid: Txid,
-        operator_idx: OperatorIdx,
+        graph_params: PegOutGraphParams,
         stake_chain_params: StakeChainParams,
+        prev_claim_txids: Vec<Txid>,
     ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
     where
         Context: BuildContext,
@@ -243,7 +252,7 @@ impl PegOutGraph {
         let connectors = PegOutGraphConnectors::new(
             context,
             deposit_txid,
-            operator_idx,
+            input.operator_pubkey,
             input.stake_hash,
             stake_chain_params.delta,
             input.wots_public_keys,
@@ -251,7 +260,7 @@ impl PegOutGraph {
 
         let claim_data = ClaimData {
             stake_outpoint: input.withdrawal_fulfillment_outpoint,
-            input_amount: input.funding_amount,
+            input_amount: graph_params.funding_amount,
             deposit_txid,
         };
 
@@ -264,7 +273,7 @@ impl PegOutGraph {
             connectors.connector_cpfp,
         );
         let claim_txid = claim_tx.compute_txid();
-        debug!(event = "created claim tx", %operator_idx, %claim_txid);
+        debug!(event = "created claim tx", %claim_txid);
 
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
@@ -274,7 +283,7 @@ impl PegOutGraph {
                 vout: 1,
             },
             input_amount: claim_tx.output_amount(),
-            deposit_amount: input.deposit_amount,
+            deposit_amount: graph_params.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
         };
@@ -298,7 +307,6 @@ impl PegOutGraph {
 
         let assert_chain = AssertChain::new(
             assert_chain_data,
-            operator_idx,
             connectors.claim_out_0,
             connectors.n_of_n,
             connectors.post_assert_out_0,
@@ -310,7 +318,7 @@ impl PegOutGraph {
         let post_assert_txid = assert_chain.post_assert.compute_txid();
         let post_assert_out_amt = assert_chain.post_assert.output_amount();
 
-        debug!(event = "created assert chain", %operator_idx, %post_assert_txid);
+        debug!(event = "created assert chain", %post_assert_txid);
 
         let payout_data = PayoutData {
             post_assert_txid,
@@ -324,7 +332,7 @@ impl PegOutGraph {
                 vout: claim_tx.slash_stake_vout(),
             },
             input_amount: post_assert_out_amt,
-            deposit_amount: input.deposit_amount,
+            deposit_amount: graph_params.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
         };
@@ -337,7 +345,7 @@ impl PegOutGraph {
             connectors.connector_cpfp,
         );
         let payout_txid = payout_tx.compute_txid();
-        debug!(event = "created payout tx", %operator_idx, %payout_txid);
+        debug!(event = "created payout tx", %payout_txid);
 
         let disprove_data = DisproveData {
             post_assert_txid,
@@ -354,10 +362,9 @@ impl PegOutGraph {
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
-        debug!(event = "created disprove tx", %operator_idx, %disprove_txid);
+        debug!(event = "created disprove tx", %disprove_txid);
 
-        let slash_stake_txs = input
-            .prev_claim_txids
+        let slash_stake_txs = prev_claim_txids
             .iter()
             .map(|claim_txid| SlashStakeData {
                 stake_outpoint: input.stake_outpoint,
@@ -456,10 +463,12 @@ pub struct PegOutGraphConnectors {
 
 impl PegOutGraphConnectors {
     /// Create a new set of connectors for the peg-out graph.
+    ///
+    /// Note that the operator public key is used for the CPFP connector for fee bumping.
     pub(crate) fn new(
         build_context: &impl BuildContext,
         deposit_txid: Txid,
-        operator_idx: OperatorIdx,
+        operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         wots_public_keys: wots::PublicKeys,
@@ -478,13 +487,6 @@ impl PegOutGraphConnectors {
         let claim_out_1 = ConnectorC1::new(n_of_n_agg_pubkey, network);
 
         let n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
-        let operator_pubkey = build_context
-            .pubkey_table()
-            .0
-            .get(&operator_idx)
-            .expect("must have operator pubkey")
-            .x_only_public_key()
-            .0;
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
         let post_assert_out_1 =
@@ -566,7 +568,10 @@ mod tests {
         build_context::TxBuildContext,
         params::{
             prelude::{StakeChainParams, NUM_ASSERT_DATA_TX, PAYOUT_TIMELOCK},
-            tx::{CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SLASH_STAKE_REWARD},
+            tx::{
+                CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SEGWIT_MIN_AMOUNT,
+                SLASH_STAKE_REWARD,
+            },
         },
         scripts::taproot::{create_message_hash, TaprootWitness},
         wots::{Assertions, Wots256Signature},
@@ -638,16 +643,22 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, _) =
+        let (input, _, funding_amount) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
+        let graph_params = PegOutGraphParams {
+            deposit_amount: DEPOSIT_AMOUNT,
+            funding_amount,
+        };
 
+        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
         let (graph, connectors) = PegOutGraph::generate(
             input,
             &context,
             deposit_txid,
-            operator_idx,
+            graph_params,
             stake_chain_params,
+            prev_claim_txids,
         )
         .expect("must be able to generate peg-out graph");
 
@@ -841,9 +852,13 @@ mod tests {
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
 
-        let (input, _) =
+        let (input, _, funding_amount) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
 
+        let graph_params = PegOutGraphParams {
+            deposit_amount: DEPOSIT_AMOUNT,
+            funding_amount,
+        };
         let assertions = load_assertions();
         let SubmitAssertionsResult {
             payout_tx,
@@ -857,6 +872,7 @@ mod tests {
             &context,
             deposit_txid,
             input,
+            graph_params,
             assertions,
         )
         .await;
@@ -975,7 +991,12 @@ mod tests {
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
 
-        let (input, _) = create_tx_graph_input(btc_client, &context, n_of_n_keypair, public_keys);
+        let (input, _, funding_amount) =
+            create_tx_graph_input(btc_client, &context, n_of_n_keypair, public_keys);
+        let graph_params = PegOutGraphParams {
+            deposit_amount: DEPOSIT_AMOUNT,
+            funding_amount,
+        };
 
         let mut faulty_assertions = load_assertions();
         for _ in 0..faulty_assertions.groth16.2.len() {
@@ -1003,6 +1024,7 @@ mod tests {
             &context,
             deposit_txid,
             input,
+            graph_params,
             faulty_assertions,
         )
         .await;
@@ -1168,7 +1190,7 @@ mod tests {
         context: &TxBuildContext,
         operator_keypair: Keypair,
         wots_public_keys: wots::PublicKeys,
-    ) -> (PegOutGraphInput, [u8; 32]) {
+    ) -> (PegOutGraphInput, [u8; 32], Amount) {
         let operator_pubkey = operator_keypair.x_only_public_key().0;
         let wallet_addr = btc_client.new_address().expect("must generate new address");
 
@@ -1311,11 +1333,8 @@ mod tests {
 
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
 
-        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
         (
             PegOutGraphInput {
-                deposit_amount: DEPOSIT_AMOUNT,
-                operator_pubkey,
                 stake_outpoint: OutPoint {
                     txid: first_stake_txid,
                     vout: STAKE_VOUT,
@@ -1325,11 +1344,11 @@ mod tests {
                     vout: WITHDRAWAL_FULFILLMENT_VOUT,
                 },
                 stake_hash,
-                funding_amount: graph_funding_amount,
-                prev_claim_txids,
                 wots_public_keys,
+                operator_pubkey,
             },
             stake_preimage,
+            graph_funding_amount,
         )
     }
 
@@ -1350,10 +1369,10 @@ mod tests {
         context: &TxBuildContext,
         deposit_txid: Txid,
         input: PegOutGraphInput,
+        graph_params: PegOutGraphParams,
         assertions: Assertions,
     ) -> SubmitAssertionsResult {
         let btc_addr = btc_client.new_address().expect("must generate new address");
-        let operator_idx = 0;
 
         let stake_chain_params = StakeChainParams::default();
 
@@ -1361,8 +1380,9 @@ mod tests {
             input,
             context,
             deposit_txid,
-            operator_idx,
+            graph_params,
             stake_chain_params,
+            vec![],
         )
         .expect("must be able to generate peg-out graph");
         let PegOutGraph {
@@ -1774,16 +1794,21 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, stake_preimage) =
+        let (input, stake_preimage, funding_amount) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
+        let graph_params = PegOutGraphParams {
+            deposit_amount: DEPOSIT_AMOUNT,
+            funding_amount,
+        };
 
         let (graph, connectors) = PegOutGraph::generate(
             input.clone(),
             &context,
             deposit_txid,
-            operator_idx,
+            graph_params,
             stake_chain_params,
+            vec![],
         )
         .expect("must be able to generate peg-out graph");
 
@@ -1909,19 +1934,24 @@ mod tests {
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: new_hash,
-            funding_amount: OPERATOR_FUNDS,
-            deposit_amount: DEPOSIT_AMOUNT,
-            operator_pubkey,
-            prev_claim_txids: prev_claim_txids.to_vec(),
             wots_public_keys,
+            operator_pubkey,
+        };
+
+        let graph_params = PegOutGraphParams {
+            funding_amount: OPERATOR_FUNDS
+                .checked_sub(SEGWIT_MIN_AMOUNT.checked_mul(2).unwrap())
+                .unwrap(),
+            deposit_amount: DEPOSIT_AMOUNT,
         };
 
         let (new_graph, new_connectors) = PegOutGraph::generate(
             input.clone(),
             &context,
             deposit_txid,
-            operator_idx,
+            graph_params,
             stake_chain_params,
+            prev_claim_txids.to_vec(),
         )
         .expect("must be able to create graph");
 

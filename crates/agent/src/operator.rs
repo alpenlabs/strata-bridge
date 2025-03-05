@@ -56,7 +56,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_bridge_tx_graph::{
-    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
+    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput, PegOutGraphParams},
     transactions::prelude::*,
 };
 use strata_btcio::rpc::{
@@ -293,9 +293,6 @@ where
             .unwrap(); // FIXME: Handle me
 
         let peg_out_graph_input = PegOutGraphInput {
-            deposit_amount: BRIDGE_DENOMINATION,
-            operator_pubkey: self.agent.public_key().x_only_public_key().0,
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
             stake_outpoint: OutPoint {
                 txid: stake_txid,
                 vout: STAKE_VOUT,
@@ -305,8 +302,12 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            prev_claim_txids: vec![],
             wots_public_keys,
+            operator_pubkey: self.agent.public_key().x_only_public_key().0,
+        };
+        let graph_params = PegOutGraphParams {
+            deposit_amount: BRIDGE_DENOMINATION,
+            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
         };
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
@@ -314,8 +315,9 @@ where
             peg_out_graph_input.clone(),
             &self.build_context,
             deposit_txid,
-            own_index,
+            graph_params,
             StakeChainParams::default(),
+            vec![],
         )
         .expect("must be able to generate tx graph");
 
@@ -553,6 +555,11 @@ where
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
 
+                    let graph_params = PegOutGraphParams {
+                        deposit_amount: BRIDGE_DENOMINATION,
+                        funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+                    };
+
                     let (
                         PegOutGraph {
                             assert_chain,
@@ -565,8 +572,9 @@ where
                         peg_out_graph_input.clone(),
                         &self.build_context,
                         deposit_txid,
-                        sender_id,
+                        graph_params,
                         StakeChainParams::default(),
+                        vec![],
                     )
                     .expect("should be able to generate tx graph");
 
@@ -948,12 +956,20 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
+                    let graph_params = {
+                        let funding_amount = OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2;
+                        PegOutGraphParams {
+                            deposit_amount: BRIDGE_DENOMINATION,
+                            funding_amount,
+                        }
+                    };
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
                         peg_out_graph_input,
                         &self.build_context,
                         deposit_txid,
-                        sender_id,
+                        graph_params,
                         StakeChainParams::default(),
+                        vec![],
                     )
                     .expect("should be able to generate tx graph");
 
@@ -1589,11 +1605,13 @@ where
             .unwrap();
 
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
-        let peg_out_graph_input = PegOutGraphInput {
+        let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
-            operator_pubkey: own_pubkey,
             // *2 for the two dust outputs in each stake transaction
             funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+        };
+        let peg_out_graph_input = PegOutGraphInput {
+            operator_pubkey: own_pubkey,
             stake_outpoint: OutPoint {
                 txid: stake_txid,
                 vout: STAKE_VOUT,
@@ -1603,7 +1621,6 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            prev_claim_txids: vec![],
             wots_public_keys,
         };
 
@@ -1611,8 +1628,9 @@ where
             peg_out_graph_input,
             &self.build_context,
             deposit_txid,
-            own_index,
+            graph_params,
             StakeChainParams::default(),
+            vec![],
         )
         .expect("should be able to generate tx graph");
 
