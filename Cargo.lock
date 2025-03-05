@@ -10058,7 +10058,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=bugfix%2Fas-refs#eced2eac481766f68a97b0dbb44c61debc4e0be6"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#c036205b4a46c6a210c255fddeb195d86b7c59b2"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10071,7 +10071,6 @@ dependencies = [
  "strata-p2p-types",
  "strata-p2p-wire",
  "thiserror 2.0.11",
- "threadpool",
  "tokio",
  "tokio-util",
  "tracing",
@@ -10080,7 +10079,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-db"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=bugfix%2Fas-refs#eced2eac481766f68a97b0dbb44c61debc4e0be6"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#c036205b4a46c6a210c255fddeb195d86b7c59b2"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10100,7 +10099,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=bugfix%2Fas-refs#eced2eac481766f68a97b0dbb44c61debc4e0be6"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#c036205b4a46c6a210c255fddeb195d86b7c59b2"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10111,7 +10110,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=bugfix%2Fas-refs#eced2eac481766f68a97b0dbb44c61debc4e0be6"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#c036205b4a46c6a210c255fddeb195d86b7c59b2"
 dependencies = [
  "bitcoin",
  "musig2",
