@@ -283,6 +283,13 @@ where
             .unwrap(); // FIXME: Handle me
 
         info!(action = "composing peg out graph input", %deposit_txid, %own_index);
+        let wots_public_keys = self
+            .public_db
+            .get_wots_public_keys(own_index, deposit_txid)
+            .await
+            .expect("should be able to get wots public keys")
+            .unwrap(); // FIXME: Handle me
+
         let peg_out_graph_input = PegOutGraphInput {
             deposit_amount: BRIDGE_DENOMINATION,
             operator_pubkey: self.agent.public_key().x_only_public_key().0,
@@ -296,24 +303,17 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
+            prev_claim_txids: vec![],
+            wots_public_keys,
         };
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
-        let wots_public_keys = self
-            .public_db
-            .get_wots_public_keys(own_index, deposit_txid)
-            .await
-            .expect("should be able to get wots public keys")
-            .unwrap(); // FIXME: Handle me
-
         let (peg_out_graph, _connectors) = PegOutGraph::generate(
             peg_out_graph_input.clone(),
             &self.build_context,
             deposit_txid,
             own_index,
             StakeChainParams::default(),
-            vec![],
-            wots_public_keys,
         )
         .expect("must be able to generate tx graph");
 
@@ -551,12 +551,6 @@ where
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
 
-                    let wots_public_keys = self
-                        .public_db
-                        .get_wots_public_keys(sender_id, deposit_txid)
-                        .await
-                        .expect("should be able to get wots public keys")
-                        .unwrap(); // FIXME: Handle me
                     let (
                         PegOutGraph {
                             assert_chain,
@@ -571,8 +565,6 @@ where
                         deposit_txid,
                         sender_id,
                         StakeChainParams::default(),
-                        vec![],
-                        wots_public_keys,
                     )
                     .expect("should be able to generate tx graph");
 
@@ -954,20 +946,12 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
-                    let wots_public_keys = self
-                        .public_db
-                        .get_wots_public_keys(sender_id, deposit_txid)
-                        .await
-                        .expect("should be able to get wots public keys")
-                        .unwrap(); // FIXME: Handle me
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
                         peg_out_graph_input,
                         &self.build_context,
                         deposit_txid,
                         sender_id,
                         StakeChainParams::default(),
-                        vec![],
-                        wots_public_keys,
                     )
                     .expect("should be able to generate tx graph");
 
@@ -1595,6 +1579,12 @@ where
             .unwrap()
             .unwrap(); // FIXME:
                        // Handle me
+        let wots_public_keys = self
+            .public_db
+            .get_wots_public_keys(own_index, deposit_txid)
+            .await
+            .unwrap()
+            .unwrap();
 
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
         let peg_out_graph_input = PegOutGraphInput {
@@ -1611,22 +1601,16 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
+            prev_claim_txids: vec![],
+            wots_public_keys,
         };
 
-        let wots_public_keys = self
-            .public_db
-            .get_wots_public_keys(own_index, deposit_txid)
-            .await
-            .expect("should be able to get wots public keys")
-            .unwrap(); // FIXME: Handle me
         let (peg_out_graph, connectors) = PegOutGraph::generate(
             peg_out_graph_input,
             &self.build_context,
             deposit_txid,
             own_index,
             StakeChainParams::default(),
-            vec![],
-            wots_public_keys,
         )
         .expect("should be able to generate tx graph");
 

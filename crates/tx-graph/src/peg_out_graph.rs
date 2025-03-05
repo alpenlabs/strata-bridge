@@ -33,10 +33,7 @@ use crate::{
 ///
 /// This data is shared between various operators and verifiers and is used to construct the peg out
 /// graph deterministically.
-///
-/// This assumes that the WOTS public keys for the claim/assertions/disprove have already been
-/// shared.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct PegOutGraphInput {
     /// The [`OutPoint`] of the stake transaction
     pub stake_outpoint: OutPoint,
@@ -58,6 +55,20 @@ pub struct PegOutGraphInput {
 
     /// The public key of the operator.
     pub operator_pubkey: XOnlyPublicKey,
+
+    /// The transaction IDs of the claim transactions from previous graphs i.e., those from the
+    /// graphs for past deposits.
+    ///
+    /// The number of transaction IDs specified here directly determines the number of
+    /// [`SlashStakeTx`]'s computed. In general, the number of transaction IDs should be
+    /// `min(deposit_index, stake_chain_params.slash_stake_count)` (assuming that the deposit
+    /// index is zero-indexed). As an optimization, only claim txids corresponding to unclaimed
+    /// deposits need to be specified.
+    pub prev_claim_txids: Vec<Txid>,
+
+    /// The WOTS public keys used to verify commitments to the withdrawal fulfillment txid and the
+    /// Groth16 proof.
+    pub wots_public_keys: wots::PublicKeys,
 }
 
 /// The minimum necessary information to recognize all of the relevant transactions in a given
@@ -225,8 +236,6 @@ impl PegOutGraph {
         deposit_txid: Txid,
         operator_idx: OperatorIdx,
         stake_chain_params: StakeChainParams,
-        prev_claim_txids: Vec<Txid>,
-        wots_public_keys: wots::PublicKeys,
     ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
     where
         Context: BuildContext,
@@ -237,7 +246,7 @@ impl PegOutGraph {
             operator_idx,
             input.stake_hash,
             stake_chain_params.delta,
-            wots_public_keys,
+            input.wots_public_keys,
         );
 
         let claim_data = ClaimData {
@@ -347,7 +356,8 @@ impl PegOutGraph {
         let disprove_txid = disprove_tx.compute_txid();
         debug!(event = "created disprove tx", %operator_idx, %disprove_txid);
 
-        let slash_stake_txs = prev_claim_txids
+        let slash_stake_txs = input
+            .prev_claim_txids
             .iter()
             .map(|claim_txid| SlashStakeData {
                 stake_outpoint: input.stake_outpoint,
@@ -534,7 +544,6 @@ mod tests {
         collections::{BTreeMap, HashSet},
         fs,
         str::FromStr,
-        sync::Arc,
     };
 
     use bitcoin::{
@@ -560,7 +569,7 @@ mod tests {
             tx::{CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SLASH_STAKE_REWARD},
         },
         scripts::taproot::{create_message_hash, TaprootWitness},
-        wots::{Assertions, Wots256PublicKey, Wots256Signature},
+        wots::{Assertions, Wots256Signature},
     };
     use strata_bridge_stake_chain::{
         prelude::{StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -629,14 +638,9 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, _) = create_tx_graph_input(
-            btc_client,
-            &context,
-            n_of_n_keypair,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let (input, _) =
+            create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
-        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
 
         let (graph, connectors) = PegOutGraph::generate(
             input,
@@ -644,8 +648,6 @@ mod tests {
             deposit_txid,
             operator_idx,
             stake_chain_params,
-            prev_claim_txids,
-            wots_public_keys,
         )
         .expect("must be able to generate peg-out graph");
 
@@ -839,12 +841,8 @@ mod tests {
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
 
-        let (input, _) = create_tx_graph_input(
-            btc_client,
-            &context,
-            n_of_n_keypair,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let (input, _) =
+            create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
 
         let assertions = load_assertions();
         let SubmitAssertionsResult {
@@ -859,7 +857,6 @@ mod tests {
             &context,
             deposit_txid,
             input,
-            Arc::new(public_db),
             assertions,
         )
         .await;
@@ -978,12 +975,7 @@ mod tests {
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
 
-        let (input, _) = create_tx_graph_input(
-            btc_client,
-            &context,
-            n_of_n_keypair,
-            public_keys.withdrawal_fulfillment,
-        );
+        let (input, _) = create_tx_graph_input(btc_client, &context, n_of_n_keypair, public_keys);
 
         let mut faulty_assertions = load_assertions();
         for _ in 0..faulty_assertions.groth16.2.len() {
@@ -1011,7 +1003,6 @@ mod tests {
             &context,
             deposit_txid,
             input,
-            public_db.into(),
             faulty_assertions,
         )
         .await;
@@ -1176,7 +1167,7 @@ mod tests {
         btc_client: &Client,
         context: &TxBuildContext,
         operator_keypair: Keypair,
-        withdrawal_fulfillment_pk: Wots256PublicKey,
+        wots_public_keys: wots::PublicKeys,
     ) -> (PegOutGraphInput, [u8; 32]) {
         let operator_pubkey = operator_keypair.x_only_public_key().0;
         let wallet_addr = btc_client.new_address().expect("must generate new address");
@@ -1241,7 +1232,7 @@ mod tests {
             context,
             stake_chain_params,
             stake_hash,
-            withdrawal_fulfillment_pk,
+            wots_public_keys.withdrawal_fulfillment,
             pre_stake,
             operator_funds,
             operator_pubkey,
@@ -1320,6 +1311,7 @@ mod tests {
 
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
 
+        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
         (
             PegOutGraphInput {
                 deposit_amount: DEPOSIT_AMOUNT,
@@ -1334,6 +1326,8 @@ mod tests {
                 },
                 stake_hash,
                 funding_amount: graph_funding_amount,
+                prev_claim_txids,
+                wots_public_keys,
             },
             stake_preimage,
         )
@@ -1356,20 +1350,12 @@ mod tests {
         context: &TxBuildContext,
         deposit_txid: Txid,
         input: PegOutGraphInput,
-        public_db: Arc<PublicDbInMemory>,
         assertions: Assertions,
     ) -> SubmitAssertionsResult {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_idx = 0;
-        let wots_public_keys = public_db
-            .as_ref()
-            .get_wots_public_keys(operator_idx, deposit_txid)
-            .await
-            .expect("must be able to get wots public keys")
-            .expect("must have wots public keys");
 
         let stake_chain_params = StakeChainParams::default();
-        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count - 1];
 
         let (graph, connectors) = PegOutGraph::generate(
             input,
@@ -1377,8 +1363,6 @@ mod tests {
             deposit_txid,
             operator_idx,
             stake_chain_params,
-            prev_claim_txids,
-            wots_public_keys,
         )
         .expect("must be able to generate peg-out graph");
         let PegOutGraph {
@@ -1790,14 +1774,9 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, stake_preimage) = create_tx_graph_input(
-            btc_client,
-            &context,
-            n_of_n_keypair,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let (input, stake_preimage) =
+            create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
-        let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
 
         let (graph, connectors) = PegOutGraph::generate(
             input.clone(),
@@ -1805,8 +1784,6 @@ mod tests {
             deposit_txid,
             operator_idx,
             stake_chain_params,
-            prev_claim_txids,
-            wots_public_keys,
         )
         .expect("must be able to generate peg-out graph");
 
@@ -1935,6 +1912,8 @@ mod tests {
             funding_amount: OPERATOR_FUNDS,
             deposit_amount: DEPOSIT_AMOUNT,
             operator_pubkey,
+            prev_claim_txids: prev_claim_txids.to_vec(),
+            wots_public_keys,
         };
 
         let (new_graph, new_connectors) = PegOutGraph::generate(
@@ -1943,8 +1922,6 @@ mod tests {
             deposit_txid,
             operator_idx,
             stake_chain_params,
-            prev_claim_txids.to_vec(),
-            wots_public_keys,
         )
         .expect("must be able to create graph");
 

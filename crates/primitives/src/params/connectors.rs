@@ -104,7 +104,7 @@ const _: [(); 0] = [(); (NUM_PKS_A256 + NUM_PKS_A160 - TOTAL_VALUES)];
 
 pub const BLOCK_TIME: Duration = Duration::from_secs(30);
 
-pub const EXPECTED_BLOCK_COUNT: u32 = 100; // blocks
+pub const EXPECTED_BLOCK_COUNT: u32 = 50; // blocks
 
 pub const PAYOUT_OPTIMISTIC_TIMELOCK: u32 = 500;
 
