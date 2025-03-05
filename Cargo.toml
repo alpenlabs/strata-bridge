@@ -25,7 +25,8 @@ members = [
   "bin/assert-splitter",
 
   # test utilities
-  "crates/test-utils", "crates/duty-tracker",
+  "crates/test-utils",
+  "crates/duty-tracker",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
