@@ -2112,7 +2112,6 @@ where
             .0;
 
         let l1_start_height = (checkpoint_info.l1_range.1.height() + 1) as u32;
-        let mut block_count = 0;
 
         let btc_params = get_btc_params();
 
@@ -2133,6 +2132,7 @@ where
         let mut checkpoint = None;
 
         info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, start_height=%height);
+        let mut num_blocks_after_fulfillment = 0;
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
             let block = self.agent.btc_client.get_block_at(height.into()).await;
@@ -2194,9 +2194,11 @@ where
             blocks.push(block);
             height += 1;
 
-            block_count += 1;
+            if withdrawal_fulfillment.is_some() {
+                num_blocks_after_fulfillment += 1;
+            }
 
-            if block_count >= EXPECTED_BLOCK_COUNT {
+            if num_blocks_after_fulfillment > EXPECTED_BLOCK_COUNT {
                 info!(event = "blocks period complete", total_blocks = %headers.len());
                 break;
             }
