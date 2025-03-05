@@ -1,4 +1,5 @@
-//! TODO(proofofkeags): mod level documentation.
+//! This module implements a system that will accept signed transactions and ensure they are posted
+//! to the blockchain within a reasonable time.
 use std::collections::BTreeMap;
 
 use bitcoin::Transaction;

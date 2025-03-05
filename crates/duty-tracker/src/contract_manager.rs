@@ -1,3 +1,6 @@
+//! This module implements the top level ContractManager. This system is responsible for monitoring
+//! and responding to chain events and operator p2p network messages according to the Strata Bridge
+//! protocol rules.
 use std::collections::BTreeMap;
 
 use bitcoin::{hashes::sha256d::Hash, Amount, Block, Txid};
