@@ -1,10 +1,10 @@
 //! Message handler for the Strata Bridge P2P.
 
 use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
-use libp2p::identity::secp256k1::Keypair as Libp2pSecpKeypair;
+use libp2p::{identity::secp256k1::Keypair as Libp2pSecpKeypair, Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
 use strata_p2p::{
-    commands::{Command, UnsignedPublishMessage},
+    commands::{Command, ConnectToPeerCommand, UnsignedPublishMessage},
     events::Event,
     swarm::handle::P2PHandle,
 };
@@ -43,6 +43,18 @@ impl MessageHandler {
                 }
             }
         }
+    }
+
+    /// Connects to a peer, whitelists peer, and adds peer to the gossip network.
+    pub async fn connect(&self, peer_id: PeerId, peer_addr: Multiaddr) {
+        trace!(%peer_id, %peer_addr, "connecting to peer");
+        self.handle
+            .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
+                peer_id,
+                peer_addr: peer_addr.clone(),
+            }))
+            .await;
+        info!(%peer_id, %peer_addr, "connected to peer");
     }
 
     /// Dispatches an unsigned gossip message by signing it and sending it over the network.
