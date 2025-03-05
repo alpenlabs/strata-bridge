@@ -34,3 +34,4 @@ strata-state.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = "0.1.17"
+tracing.workspace = true

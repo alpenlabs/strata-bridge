@@ -12,7 +12,7 @@ use thiserror::Error;
 use crate::contract_state_machine::{ContractCfg, MachineState};
 
 /// Error type for the [`ContractPersister`] methods.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub struct PersistErr;
 impl Display for PersistErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
