@@ -31,3 +31,15 @@ pub const STAKECHAIN_PREIMG_IKM_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 80 },
     ChildNumber::Hardened { index: 0 },
 ];
+
+/// Path for the P2P key
+pub const P2P_KEY_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 20 },
+    ChildNumber::Hardened { index: 100 },
+];
+
+/// Path for the operator key
+pub const OPERATOR_KEY_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 20 },
+    ChildNumber::Hardened { index: 102 },
+];

@@ -85,11 +85,11 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
     type StakeChainPreimages = StakeChain;
 
     fn operator_signer(&self) -> Self::OperatorSigner {
-        Operator::new(self.keys.wallet_xpriv().private_key)
+        Operator::new(self.keys.base_xpriv())
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {
-        ServerP2PSigner::new(self.keys.message_xpriv().private_key)
+        ServerP2PSigner::new(self.keys.base_xpriv())
     }
 
     fn musig2_signer(&self) -> Self::Musig2Signer {

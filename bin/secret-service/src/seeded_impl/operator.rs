@@ -1,9 +1,11 @@
 //! In-memory persistence for operator's secret data.
 
-use bitcoin::{key::Keypair, XOnlyPublicKey};
-use musig2::secp256k1::{schnorr::Signature, Message, SecretKey, SECP256K1};
+use bitcoin::{bip32::Xpriv, key::Keypair, XOnlyPublicKey};
+use musig2::secp256k1::{schnorr::Signature, Message, SECP256K1};
 use secret_service_proto::v1::traits::{OperatorSigner, Origin, Server};
 use strata_bridge_primitives::secp::EvenSecretKey;
+
+use super::paths::OPERATOR_KEY_PATH;
 
 /// Secret data for the operator.
 #[derive(Debug)]
@@ -13,9 +15,12 @@ pub struct Operator {
 }
 
 impl Operator {
-    /// Create a new operator with the given secret key.
-    pub fn new(sk: SecretKey) -> Self {
-        let kp = Keypair::from_secret_key(SECP256K1, &EvenSecretKey::from(sk));
+    /// Create a new operator with the given base xpriv.
+    pub fn new(base: &Xpriv) -> Self {
+        let xp = base
+            .derive_priv(SECP256K1, &OPERATOR_KEY_PATH)
+            .expect("good child key");
+        let kp = Keypair::from_secret_key(SECP256K1, &EvenSecretKey::from(xp.private_key));
         Self { kp }
     }
 }
