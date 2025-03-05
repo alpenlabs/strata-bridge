@@ -1,4 +1,5 @@
-//! TODO(proofofkeags): mod level documentation
+//! This module supplies helpers for categorizing transactions and extracting payloads from them
+//! where relevant.
 use std::sync::Arc;
 
 use bitcoin::{

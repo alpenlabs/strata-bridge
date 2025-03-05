@@ -1,4 +1,4 @@
-//! TODO(proofofkeags): module docs
+//! This module is responsible for being able to save the contents of the ContractSM to disk.
 use std::fmt::Display;
 
 use bincode::ErrorKind;
