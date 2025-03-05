@@ -45,7 +45,9 @@ use strata_bridge_primitives::{
     wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_bridge_proof_protocol::BridgeProofInput;
+use strata_bridge_proof_protocol::{
+    BridgeProofInput, REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
+};
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_stake_chain::{
     prelude::{PreStakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -2198,7 +2200,9 @@ where
                 num_blocks_after_fulfillment += 1;
             }
 
-            if num_blocks_after_fulfillment > EXPECTED_BLOCK_COUNT {
+            if num_blocks_after_fulfillment
+                > REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX
+            {
                 info!(event = "blocks period complete", total_blocks = %headers.len());
                 break;
             }

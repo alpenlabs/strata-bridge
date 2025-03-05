@@ -15,7 +15,7 @@ use crate::{
 /// input
 ///
 /// TODO: update this once this is fixed
-const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
+pub const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
 
 /// The fixed withdrawal fee for Bitcoin transactions.
 ///
