@@ -3,12 +3,12 @@
 //! protocol rules.
 use std::collections::BTreeMap;
 
-use bitcoin::{hashes::sha256d::Hash, Amount, Block, Txid};
+use bitcoin::{hashes::sha256d::Hash, Block, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
-    params::{prelude::StakeChainParams, tx::BRIDGE_DENOMINATION},
+    params::prelude::StakeChainParams,
     types::OperatorIdx,
 };
 use strata_bridge_tx_graph::{
@@ -25,8 +25,6 @@ use crate::{
     contract_state_machine::{ContractEvent, ContractSM, OperatorDuty, TransitionErr},
     predicates::{deposit_request_info, is_rollup_commitment},
 };
-
-const PEG_OUT_GRAPH_FUNDING_AMOUNT: Amount = Amount::ZERO; // TODO(proofofkeags): get this actual value
 
 /// System that handles all of the chain and p2p events and forwards them to their respective
 /// [`ContractSM`]s.
@@ -118,7 +116,7 @@ pub enum ContractManagerErr {
 
     /// Errors related to receiving P2P messages at protocol-invalid times.
     #[error("invalid p2p message: {0:?}")]
-    InvalidP2PMessage(UnsignedGossipsubMsg),
+    InvalidP2PMessage(Box<UnsignedGossipsubMsg>),
 }
 
 struct ContractManagerCtx {
@@ -242,9 +240,10 @@ impl ContractManagerCtx {
             } => {
                 let deposit_txid = Txid::from_raw_hash(*Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
-                    if let Some(duty) = contract
-                        .process_contract_event(ContractEvent::WotsKeys(msg.key, wots_pks))?
-                    {
+                    if let Some(duty) = contract.process_contract_event(ContractEvent::WotsKeys(
+                        msg.key,
+                        Box::new(wots_pks),
+                    ))? {
                         self.execute_duty(duty);
                     }
                 }
@@ -267,9 +266,9 @@ impl ContractManagerCtx {
                     .find(|(_, contract)| contract.deposit_request_txid() == txid)
                 {
                     if nonces.len() != 1 {
-                        return Err(ContractManagerErr::InvalidP2PMessage(
+                        return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
                             UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces },
-                        ));
+                        )));
                     }
                     let nonce = nonces.pop().unwrap();
                     if let Some(duty) =
@@ -314,7 +313,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn execute_duty(&mut self, duty: OperatorDuty) {
+    fn execute_duty(&mut self, _duty: OperatorDuty) {
         todo!() // execute duty
     }
 }

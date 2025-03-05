@@ -93,11 +93,11 @@ pub(crate) fn is_disprove(post_assert_txid: Txid) -> TxPredicate {
     })
 }
 
-pub(crate) fn is_fulfillment_tx(deposit_txid: Txid) -> TxPredicate {
+pub(crate) fn is_fulfillment_tx(_deposit_txid: Txid) -> TxPredicate {
     //TODO(proofofkeags): implement
     Arc::new(|_| false)
 }
 
-pub(crate) fn is_rollup_commitment(tx: &Transaction) -> bool {
+pub(crate) fn is_rollup_commitment(_tx: &Transaction) -> bool {
     todo!()
 }
