@@ -1,6 +1,6 @@
 use bitcoin::{Amount, Txid};
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::{params::connectors::*, types::OperatorIdx};
+use strata_bridge_primitives::params::connectors::*;
 use tracing::trace;
 
 use super::prelude::*;
@@ -30,10 +30,8 @@ impl AssertChain {
     /// Constructs a new instance of the assert chain.
     ///
     /// This method constructs the pre-assert, assert data, and post-assert transactions in order.
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         data: AssertChainData,
-        operator_idx: OperatorIdx,
         connector_c0: ConnectorC0,
         connector_a2: ConnectorNOfN,
         connector_a3: ConnectorA3,
@@ -59,7 +57,7 @@ impl AssertChain {
             connector_a160_factory,
         );
         let pre_assert_txid = pre_assert.compute_txid();
-        trace!(event = "created pre-assert tx", %pre_assert_txid, %operator_idx);
+        trace!(event = "created pre-assert tx", %pre_assert_txid);
 
         let assert_data_input = AssertDataTxInput {
             pre_assert_txid,
@@ -70,7 +68,7 @@ impl AssertChain {
         let assert_data = AssertDataTxBatch::new(assert_data_input, connector_a2, connector_cpfp);
 
         let assert_data_txids = assert_data.compute_txids().to_vec();
-        trace!(event = "created assert_data tx batch", ?assert_data_txids, %operator_idx);
+        trace!(event = "created assert_data tx batch", ?assert_data_txids);
 
         let input_amount = assert_data
             .psbts()
@@ -86,15 +84,10 @@ impl AssertChain {
             deposit_txid: data.deposit_txid,
         };
 
-        let post_assert = PostAssertTx::new(
-            post_assert_data,
-            operator_idx,
-            connector_a2,
-            connector_a3,
-            connector_cpfp,
-        );
+        let post_assert =
+            PostAssertTx::new(post_assert_data, connector_a2, connector_a3, connector_cpfp);
 
-        trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid(), %operator_idx);
+        trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid());
 
         Self {
             pre_assert,

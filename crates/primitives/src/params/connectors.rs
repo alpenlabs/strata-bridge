@@ -104,15 +104,11 @@ const _: [(); 0] = [(); (NUM_PKS_A256 + NUM_PKS_A160 - TOTAL_VALUES)];
 
 pub const BLOCK_TIME: Duration = Duration::from_secs(30);
 
-pub const EXPECTED_BLOCK_COUNT: u32 = 100; // blocks
-
 pub const PAYOUT_OPTIMISTIC_TIMELOCK: u32 = 500;
 
 pub const PRE_ASSERT_TIMELOCK: u32 = PAYOUT_OPTIMISTIC_TIMELOCK + 100; // 100 is slack
 
 // compile-time checks
 const _: () = assert!(PRE_ASSERT_TIMELOCK > PAYOUT_OPTIMISTIC_TIMELOCK);
-
-const _: u32 = PAYOUT_OPTIMISTIC_TIMELOCK - (EXPECTED_BLOCK_COUNT + 100); // 100 is slack
 
 pub const PAYOUT_TIMELOCK: u32 = 288; // 2 day's worth of blocks in mainnet

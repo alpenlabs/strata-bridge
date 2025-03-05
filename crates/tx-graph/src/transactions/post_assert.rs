@@ -2,7 +2,7 @@ use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transactio
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*, types::OperatorIdx};
+use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;
@@ -42,7 +42,6 @@ impl PostAssertTx {
     /// Constructs a new instance of the post-assert transaction.
     pub fn new(
         data: PostAssertTxData,
-        operator_idx: OperatorIdx,
         connector_a2: ConnectorNOfN,
         connector_a3: ConnectorA3,
         connector_cpfp: ConnectorCpfp,
@@ -55,12 +54,12 @@ impl PostAssertTx {
 
         let tx_ins = create_tx_ins(utxos);
 
-        trace!(event = "created tx ins", count = tx_ins.len(), %operator_idx);
+        trace!(event = "created tx ins", count = tx_ins.len());
 
         let connector_a31_script = connector_a3.generate_locking_script(data.deposit_txid);
         trace!(
             event = "generated a31 locking script",
-            size = connector_a31_script.len(), %operator_idx,
+            size = connector_a31_script.len(),
         );
 
         let cpfp_script = connector_cpfp.generate_locking_script();
@@ -73,7 +72,7 @@ impl PostAssertTx {
         ];
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
-        trace!(event = "created tx outs", count = tx_outs.len(), %operator_idx);
+        trace!(event = "created tx outs", count = tx_outs.len());
 
         let mut tx = create_tx(tx_ins, tx_outs);
         tx.version = transaction::Version(3);
@@ -89,7 +88,7 @@ impl PostAssertTx {
             })
             .collect::<Vec<TxOut>>();
 
-        trace!(event = "created prevouts", count = prevouts.len(), %operator_idx);
+        trace!(event = "created prevouts", count = prevouts.len());
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);

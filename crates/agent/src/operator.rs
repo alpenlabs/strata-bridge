@@ -45,7 +45,9 @@ use strata_bridge_primitives::{
     wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_bridge_proof_protocol::BridgeProofInput;
+use strata_bridge_proof_protocol::{
+    BridgeProofInput, REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
+};
 use strata_bridge_proof_snark::{bridge_vk, prover};
 use strata_bridge_stake_chain::{
     prelude::{PreStakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -54,7 +56,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_bridge_tx_graph::{
-    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
+    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput, PegOutGraphParams},
     transactions::prelude::*,
 };
 use strata_btcio::rpc::{
@@ -283,10 +285,14 @@ where
             .unwrap(); // FIXME: Handle me
 
         info!(action = "composing peg out graph input", %deposit_txid, %own_index);
+        let wots_public_keys = self
+            .public_db
+            .get_wots_public_keys(own_index, deposit_txid)
+            .await
+            .expect("should be able to get wots public keys")
+            .unwrap(); // FIXME: Handle me
+
         let peg_out_graph_input = PegOutGraphInput {
-            deposit_amount: BRIDGE_DENOMINATION,
-            operator_pubkey: self.agent.public_key().x_only_public_key().0,
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
             stake_outpoint: OutPoint {
                 txid: stake_txid,
                 vout: STAKE_VOUT,
@@ -296,24 +302,22 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
+            wots_public_keys,
+            operator_pubkey: self.agent.public_key().x_only_public_key().0,
+        };
+        let graph_params = PegOutGraphParams {
+            deposit_amount: BRIDGE_DENOMINATION,
+            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
         };
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
-        let wots_public_keys = self
-            .public_db
-            .get_wots_public_keys(own_index, deposit_txid)
-            .await
-            .expect("should be able to get wots public keys")
-            .unwrap(); // FIXME: Handle me
-
         let (peg_out_graph, _connectors) = PegOutGraph::generate(
             peg_out_graph_input.clone(),
             &self.build_context,
             deposit_txid,
-            own_index,
+            graph_params,
             StakeChainParams::default(),
             vec![],
-            wots_public_keys,
         )
         .expect("must be able to generate tx graph");
 
@@ -551,12 +555,11 @@ where
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
 
-                    let wots_public_keys = self
-                        .public_db
-                        .get_wots_public_keys(sender_id, deposit_txid)
-                        .await
-                        .expect("should be able to get wots public keys")
-                        .unwrap(); // FIXME: Handle me
+                    let graph_params = PegOutGraphParams {
+                        deposit_amount: BRIDGE_DENOMINATION,
+                        funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+                    };
+
                     let (
                         PegOutGraph {
                             assert_chain,
@@ -569,10 +572,9 @@ where
                         peg_out_graph_input.clone(),
                         &self.build_context,
                         deposit_txid,
-                        sender_id,
+                        graph_params,
                         StakeChainParams::default(),
                         vec![],
-                        wots_public_keys,
                     )
                     .expect("should be able to generate tx graph");
 
@@ -954,20 +956,20 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
-                    let wots_public_keys = self
-                        .public_db
-                        .get_wots_public_keys(sender_id, deposit_txid)
-                        .await
-                        .expect("should be able to get wots public keys")
-                        .unwrap(); // FIXME: Handle me
+                    let graph_params = {
+                        let funding_amount = OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2;
+                        PegOutGraphParams {
+                            deposit_amount: BRIDGE_DENOMINATION,
+                            funding_amount,
+                        }
+                    };
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
                         peg_out_graph_input,
                         &self.build_context,
                         deposit_txid,
-                        sender_id,
+                        graph_params,
                         StakeChainParams::default(),
                         vec![],
-                        wots_public_keys,
                     )
                     .expect("should be able to generate tx graph");
 
@@ -1595,13 +1597,21 @@ where
             .unwrap()
             .unwrap(); // FIXME:
                        // Handle me
+        let wots_public_keys = self
+            .public_db
+            .get_wots_public_keys(own_index, deposit_txid)
+            .await
+            .unwrap()
+            .unwrap();
 
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
-        let peg_out_graph_input = PegOutGraphInput {
+        let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
-            operator_pubkey: own_pubkey,
             // *2 for the two dust outputs in each stake transaction
             funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+        };
+        let peg_out_graph_input = PegOutGraphInput {
+            operator_pubkey: own_pubkey,
             stake_outpoint: OutPoint {
                 txid: stake_txid,
                 vout: STAKE_VOUT,
@@ -1611,22 +1621,16 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
+            wots_public_keys,
         };
 
-        let wots_public_keys = self
-            .public_db
-            .get_wots_public_keys(own_index, deposit_txid)
-            .await
-            .expect("should be able to get wots public keys")
-            .unwrap(); // FIXME: Handle me
         let (peg_out_graph, connectors) = PegOutGraph::generate(
             peg_out_graph_input,
             &self.build_context,
             deposit_txid,
-            own_index,
+            graph_params,
             StakeChainParams::default(),
             vec![],
-            wots_public_keys,
         )
         .expect("should be able to generate tx graph");
 
@@ -2128,7 +2132,6 @@ where
             .0;
 
         let l1_start_height = (checkpoint_info.l1_range.1.height() + 1) as u32;
-        let mut block_count = 0;
 
         let btc_params = get_btc_params();
 
@@ -2149,6 +2152,7 @@ where
         let mut checkpoint = None;
 
         info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, start_height=%height);
+        let mut num_blocks_after_fulfillment = 0;
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
             let block = self.agent.btc_client.get_block_at(height.into()).await;
@@ -2210,9 +2214,13 @@ where
             blocks.push(block);
             height += 1;
 
-            block_count += 1;
+            if withdrawal_fulfillment.is_some() {
+                num_blocks_after_fulfillment += 1;
+            }
 
-            if block_count >= EXPECTED_BLOCK_COUNT {
+            if num_blocks_after_fulfillment
+                > REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX
+            {
                 info!(event = "blocks period complete", total_blocks = %headers.len());
                 break;
             }
