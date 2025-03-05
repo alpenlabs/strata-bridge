@@ -1,5 +1,5 @@
 use strata_common::logging::{self, LoggerConfig};
-use strata_p2p_types::{Scope, SessionId};
+use strata_p2p_types::{Scope, SessionId, StakeChainId};
 
 use crate::tests::common::{
     exchange_deposit_nonces, exchange_deposit_setup, exchange_deposit_sigs,
@@ -20,10 +20,11 @@ async fn all_to_all_one_scope() -> anyhow::Result<()> {
         tasks,
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
+    let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
     let scope = Scope::hash(b"scope");
     let session_id = SessionId::hash(b"session_id");
 
-    exchange_stake_chain_info(&mut operators, OPERATORS_NUM).await?;
+    exchange_stake_chain_info(&mut operators, OPERATORS_NUM, stake_chain_id).await?;
     exchange_deposit_setup(&mut operators, OPERATORS_NUM, scope).await?;
     exchange_deposit_nonces(&mut operators, OPERATORS_NUM, session_id).await?;
     exchange_deposit_sigs(&mut operators, OPERATORS_NUM, session_id).await?;

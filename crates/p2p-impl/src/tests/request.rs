@@ -26,7 +26,13 @@ async fn request_response() -> anyhow::Result<()> {
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
     // last operator won't send his info to others
-    exchange_stake_chain_info(&mut operators[..OPERATORS_NUM - 1], OPERATORS_NUM - 1).await?;
+    let stake_chain_id = StakeChainId::hash(b"stake_chain_id");
+    exchange_stake_chain_info(
+        &mut operators[..OPERATORS_NUM - 1],
+        OPERATORS_NUM - 1,
+        stake_chain_id,
+    )
+    .await?;
 
     // create command to request info from the last operator
     let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
@@ -37,16 +43,15 @@ async fn request_response() -> anyhow::Result<()> {
     });
 
     // put data in the last operator, so that he can respond it
-    match mock_stake_chain_info(&operators[OPERATORS_NUM - 1].kp.clone()) {
+    match mock_stake_chain_info(&operators[OPERATORS_NUM - 1].kp.clone(), stake_chain_id) {
         Command::PublishMessage(msg) => match msg.msg {
             UnsignedPublishMessage::StakeChainExchange {
                 stake_chain_id,
-                pre_stake_outpoint,
-                checkpoint_pubkeys,
-                stake_data,
+                pre_stake_txid,
+                pre_stake_vout,
             } => {
                 let entry = StakeChainEntry {
-                    entry: (pre_stake_outpoint, checkpoint_pubkeys, stake_data),
+                    entry: (pre_stake_txid, pre_stake_vout),
                     signature: msg.signature,
                     key: msg.key,
                 };

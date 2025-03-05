@@ -1,6 +1,6 @@
 //! Message handler for the Strata Bridge P2P.
 
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
 use libp2p::identity::secp256k1::Keypair as Libp2pSecpKeypair;
 use musig2::{PartialSignature, PubNonce};
 use strata_p2p::{
@@ -8,7 +8,7 @@ use strata_p2p::{
     events::Event,
     swarm::handle::P2PHandle,
 };
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, StakeData, WotsPublicKeys};
+use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::GetMessageRequest;
 use tracing::{error, info, trace};
 
@@ -62,8 +62,23 @@ impl MessageHandler {
     }
 
     /// Sends a deposit setup message to the network.
-    pub async fn send_deposit_setup(&self, scope: Scope, wots_pks: WotsPublicKeys) {
-        let msg = UnsignedPublishMessage::DepositSetup { scope, wots_pks };
+    pub async fn send_deposit_setup(
+        &self,
+        scope: Scope,
+        hash: sha256::Hash,
+        funding_txid: Txid,
+        funding_vout: u32,
+        operator_pk: XOnlyPublicKey,
+        wots_pks: WotsPublicKeys,
+    ) {
+        let msg = UnsignedPublishMessage::DepositSetup {
+            scope,
+            hash,
+            funding_txid,
+            funding_vout,
+            operator_pk,
+            wots_pks,
+        };
         self.dispatch(msg, "deposit setup message").await;
     }
 
@@ -71,15 +86,13 @@ impl MessageHandler {
     pub async fn send_stake_chain_exchange(
         &self,
         stake_chain_id: StakeChainId,
-        pre_stake_outpoint: OutPoint,
-        checkpoint_pubkeys: Vec<XOnlyPublicKey>,
-        stake_data: Vec<StakeData>,
+        pre_stake_txid: Txid,
+        pre_stake_vout: u32,
     ) {
         let msg = UnsignedPublishMessage::StakeChainExchange {
             stake_chain_id,
-            pre_stake_outpoint,
-            checkpoint_pubkeys,
-            stake_data,
+            pre_stake_txid,
+            pre_stake_vout,
         };
         self.dispatch(msg, "stake chain exchange message").await;
     }
