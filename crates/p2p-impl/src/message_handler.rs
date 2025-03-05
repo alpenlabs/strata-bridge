@@ -58,7 +58,9 @@ impl MessageHandler {
     }
 
     /// Dispatches an unsigned gossip message by signing it and sending it over the network.
-    pub async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
+    ///
+    /// Internal use only.
+    async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
         trace!(%description, ?msg, "sending message");
         let signed_msg = msg.sign_secp256k1(&self.keypair);
         self.handle.send_command(signed_msg).await;
@@ -66,7 +68,9 @@ impl MessageHandler {
     }
 
     /// Requests information to an operator by signing it and sending it over the network.
-    pub async fn request(&self, req: GetMessageRequest, description: &str) {
+    ///
+    /// Internal use only.
+    async fn request(&self, req: GetMessageRequest, description: &str) {
         trace!(%description, ?req, "sending request");
         let command = Command::RequestMessage(req);
         self.handle.send_command(command).await;
