@@ -6,7 +6,13 @@ use bitcoin::{
     hashes::Hash, opcodes::all::OP_RETURN, OutPoint, Script, TapNodeHash, Transaction, Txid,
 };
 use btc_notify::client::TxPredicate;
-use strata_bridge_primitives::{deposit::DepositInfo, params::tx::BRIDGE_DENOMINATION};
+use strata_bridge_primitives::{
+    deposit::DepositInfo,
+    params::{
+        strata::{EL_ADDR_SIZE, MERKLE_PROOF_SIZE},
+        tx::BRIDGE_DENOMINATION,
+    },
+};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -35,13 +41,6 @@ fn magic_tagged_data<'a, const N: usize>(tag: &[u8; N], script: &'a Script) -> O
     })
 }
 
-const EL_ADDR_SIZE: usize = 20;
-const MERKLE_PROOF_SIZE: usize = 32;
-
-pub(crate) fn is_deposit_request(tx: &Transaction) -> bool {
-    deposit_request_info(tx).is_some()
-}
-
 pub(crate) fn deposit_request_info(tx: &Transaction) -> Option<DepositInfo> {
     let deposit_request_output = tx.output.first()?;
     if deposit_request_output.value <= BRIDGE_DENOMINATION {
@@ -66,10 +65,6 @@ pub(crate) fn deposit_request_info(tx: &Transaction) -> Option<DepositInfo> {
         TapNodeHash::from_slice(take_back_leaf_hash).unwrap(),
         deposit_request_output.script_pubkey.clone(),
     ))
-}
-
-pub(crate) fn is_txid(txid: Txid) -> TxPredicate {
-    Arc::new(move |tx| tx.compute_txid() == txid)
 }
 
 pub(crate) fn is_challenge(claim_txid: Txid) -> TxPredicate {
