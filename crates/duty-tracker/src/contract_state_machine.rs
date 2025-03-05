@@ -1,5 +1,6 @@
-//! TODO(proofofkeags): docs for crate
-
+//! This module defines the core state machine for the Bridge Deposit Contract. All of the states,
+//! events and transition rules are encoded in this structure. When the ContractSM accepts an event
+//! it may or may not give back an OperatorDuty to execute as a result of this state transition.
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
 use bitcoin::{
@@ -26,7 +27,7 @@ use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 #[derive(Debug)]
 pub enum ContractEvent {
     /// Signifies that we have a new set of WOTS keys from one of our peers.
-    WotsKeys(OperatorPubKey, WotsPublicKeys),
+    WotsKeys(OperatorPubKey, Box<WotsPublicKeys>),
 
     /// Signifies that we have a new set of nonces for the peg out graph from one of our peers.
     GraphNonces(OperatorPubKey, Vec<PubNonce>),
@@ -379,7 +380,7 @@ impl ContractSM {
         ev: ContractEvent,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
-            ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, keys),
+            ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, *keys),
             ContractEvent::GraphNonces(op, nonces) => self.process_graph_nonces(op, nonces),
             ContractEvent::GraphSigs(op, sigs) => self.process_graph_signatures(op, sigs),
             ContractEvent::RootNonce(op, nonce) => self.process_root_nonce(op, nonce),
