@@ -1,6 +1,6 @@
 //! TODO(proofofkeags): docs for crate
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
 use bitcoin::{
     hashes::serde::{Deserialize, Serialize},
@@ -16,6 +16,7 @@ use strata_bridge_tx_graph::peg_out_graph::PegOutGraphSummary;
 use strata_p2p_types::{OperatorPubKey, WotsPublicKeys};
 use strata_primitives::bridge::PublickeyTable;
 use strata_state::bridge_state::{DepositEntry, DepositState};
+use thiserror::Error;
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 
@@ -81,11 +82,18 @@ pub enum ContractState {
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
 
-        /// An accumulator for all of the wots keys we have received from our peers.
+        /// This is a collection of the wots keys we have received from our peers.
         wots_keys: BTreeMap<OperatorPubKey, WotsPublicKeys>,
+
+        /// This is a collection of nonces for the peg-out graph on a per-operator basis.
+        graph_nonces: BTreeMap<OperatorPubKey, Vec<PubNonce>>,
 
         /// This is the collection of signatures for the peg-out graph on a per-operator basis.
         graph_sigs: BTreeMap<OperatorPubKey, Vec<PartialSignature>>,
+
+        /// This is a collection of the nonces for the final musig2 signature needed to sweep the
+        /// deposit request transaction to the deposit transaction.
+        root_nonces: BTreeMap<OperatorPubKey, PubNonce>,
 
         /// This is the collection of signatures for the deposit transaction itself on a
         /// per-operator basis.
@@ -191,11 +199,17 @@ pub enum OperatorDuty {
     /// Instructs us to publish our own wots keys for this contract.
     PublishWOTSKeys,
 
+    /// Instructs us to publish our graph nonces for this contract.
+    PublishGraphNonces,
+
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures,
 
+    /// Instructs us to send out our nonce for the deposit transaction signature.
+    PublishRootNonce,
+
     /// Instructs us to send out signatures for the deposit transaction.
-    PublishDepositSignature,
+    PublishRootSignature,
 
     /// Instructs us to submit the deposit transaction to the network.
     PublishDeposit,
@@ -250,8 +264,13 @@ pub enum VerifierDuty {
 }
 
 /// Error representing an invalid state transition.
-#[derive(Debug)]
+#[derive(Debug, Clone, Error)]
 pub struct TransitionErr;
+impl Display for TransitionErr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TransitionErr")
+    }
+}
 
 /// Holds the state machine values that remain static for the lifetime of the contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,7 +326,9 @@ impl ContractSM {
         let state = ContractState::Requested {
             abort_deadline,
             wots_keys: BTreeMap::new(),
+            graph_nonces: BTreeMap::new(),
             graph_sigs: BTreeMap::new(),
+            root_nonces: BTreeMap::new(),
             root_sigs: BTreeMap::new(),
         };
         let state = MachineState {
@@ -359,9 +380,9 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
             ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, keys),
-            ContractEvent::GraphNonces(operator_pub_key, vec) => todo!(),
+            ContractEvent::GraphNonces(op, nonces) => self.process_graph_nonces(op, nonces),
             ContractEvent::GraphSigs(op, sigs) => self.process_graph_signatures(op, sigs),
-            ContractEvent::RootNonce(operator_pub_key, pub_nonce) => todo!(),
+            ContractEvent::RootNonce(op, nonce) => self.process_root_nonce(op, nonce),
             ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
             ContractEvent::DepositConfirmation(tx, deposit_idx) => {
                 self.process_deposit_confirmation(tx, deposit_idx)
@@ -420,7 +441,35 @@ impl ContractSM {
         signer: OperatorPubKey,
         keys: WotsPublicKeys,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        todo!()
+        match &mut self.state.state {
+            ContractState::Requested { wots_keys, .. } => {
+                wots_keys.insert(signer, keys);
+                Ok(if wots_keys.len() == self.cfg.operator_set.0.len() {
+                    Some(OperatorDuty::PublishGraphNonces)
+                } else {
+                    None
+                })
+            }
+            _ => Err(TransitionErr),
+        }
+    }
+
+    fn process_graph_nonces(
+        &mut self,
+        signer: OperatorPubKey,
+        nonces: Vec<PubNonce>,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        match &mut self.state.state {
+            ContractState::Requested { graph_nonces, .. } => {
+                graph_nonces.insert(signer, nonces);
+                Ok(if graph_nonces.len() == self.cfg.operator_set.0.len() {
+                    Some(OperatorDuty::PublishGraphNonces)
+                } else {
+                    None
+                })
+            }
+            _ => Err(TransitionErr),
+        }
     }
 
     /// Processes a graph signature payload from our peer.
@@ -435,7 +484,27 @@ impl ContractSM {
                 Ok(if graph_sigs.len() == self.cfg.operator_set.0.len() {
                     // we have all the sigs now
                     // issue deposit signature
-                    Some(OperatorDuty::PublishDepositSignature)
+                    Some(OperatorDuty::PublishRootNonce)
+                } else {
+                    None
+                })
+            }
+            _ => Err(TransitionErr),
+        }
+    }
+
+    fn process_root_nonce(
+        &mut self,
+        signer: OperatorPubKey,
+        nonce: PubNonce,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        match &mut self.state.state {
+            ContractState::Requested { root_nonces, .. } => {
+                root_nonces.insert(signer, nonce);
+                Ok(if root_nonces.len() == self.cfg.operator_set.0.len() {
+                    // we have all the sigs now
+                    // issue deposit signature
+                    Some(OperatorDuty::PublishRootSignature)
                 } else {
                     None
                 })
