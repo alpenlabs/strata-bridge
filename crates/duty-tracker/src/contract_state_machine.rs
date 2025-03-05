@@ -884,7 +884,7 @@ impl ContractSM {
         &self.state
     }
 
-    /// The txid of the desposit on which this contract is centered.
+    /// The txid of the deposit on which this contract is centered.
     pub fn deposit_txid(&self) -> Txid {
         self.cfg.deposit_tx.compute_txid()
     }
