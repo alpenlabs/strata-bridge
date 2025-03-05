@@ -155,20 +155,16 @@ impl ContractManagerCtx {
                             stake_outpoint: todo!(),                  // @Rajil1213
                             withdrawal_fulfillment_outpoint: todo!(), // @Rajil1213
                             stake_hash: todo!(),                      // @Rajil1213
-                            funding_amount: PEG_OUT_GRAPH_FUNDING_AMOUNT,
-                            deposit_amount: BRIDGE_DENOMINATION,
                             operator_pubkey: key.x_only_public_key().0,
+                            wots_public_keys: todo!(),
                         };
                         PegOutGraph::generate(
                             input,
                             &self.build_context,
                             deposit_tx.compute_txid(),
-                            *idx,
+                            todo!(),
                             StakeChainParams::default(),
                             todo!(), // Where am I supposed to get these from @Rajil1213?
-                            todo!(), /* I think the only way to get this parameter is to move
-                                      * the peg out graphs to state, instead of config
-                                      * @Rajil1213 */
                         )
                         .map(|(graph, _)| (*idx, graph.summarize()))
                     })
@@ -238,7 +234,9 @@ impl ContractManagerCtx {
     async fn process_p2p_message(&mut self, msg: GossipsubMsg) -> Result<(), ContractManagerErr> {
         match msg.unsigned {
             UnsignedGossipsubMsg::StakeChainExchange { .. } => todo!(),
-            UnsignedGossipsubMsg::DepositSetup { scope, wots_pks } => {
+            UnsignedGossipsubMsg::DepositSetup {
+                scope, wots_pks, ..
+            } => {
                 let deposit_txid = Txid::from_raw_hash(*Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
                     if let Some(duty) = contract
