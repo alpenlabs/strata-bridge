@@ -3190,6 +3190,7 @@ dependencies = [
  "serde",
  "sqlx",
  "strata-bridge-primitives",
+ "strata-bridge-stake-chain",
  "strata-bridge-tx-graph",
  "strata-btcio",
  "strata-p2p",

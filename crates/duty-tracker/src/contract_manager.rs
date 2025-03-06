@@ -171,15 +171,15 @@ impl ContractManagerCtx {
                     })
                     .collect::<Result<BTreeMap<OperatorIdx, PegOutGraphSummary>, TxGraphError>>()?;
                 let (sm, duty) = ContractSM::new(
-                    self.build_context.own_index(),
+                    todo!(), // TODO(proofofkeags): We need to get our own operator pubkey.
                     self.build_context.pubkey_table().clone(),
                     height,
                     height + REFUND_DELAY,
                     deposit_tx,
-                    peg_out_graphs,
                 );
-
                 self.contract_persister.init(sm.cfg(), sm.state()).await?;
+
+                self.active_contracts.insert(txid, sm);
 
                 self.execute_duty(duty);
 
