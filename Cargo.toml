@@ -16,7 +16,7 @@ members = [
   "crates/secret-service-proto",
   "crates/secret-service-client",
   "crates/secret-service-server",
-  "crates/p2p-impl",
+  "crates/p2p-service",
 
   # binaries listed separately
   "bin/secret-service",

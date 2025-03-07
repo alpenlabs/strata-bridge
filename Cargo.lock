@@ -10092,7 +10092,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-p2p-impl"
+name = "strata-p2p-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
