@@ -16,6 +16,7 @@ members = [
   "crates/secret-service-proto",
   "crates/secret-service-client",
   "crates/secret-service-server",
+  "crates/p2p-service",
 
   # binaries listed separately
   "bin/secret-service",
@@ -60,6 +61,11 @@ strata-rpc-api = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46
 strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 strata-state = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p-db = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
 zkaleido-sp1-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc1" }
@@ -98,6 +104,23 @@ hex = { version = "0.4.3", features = ["serde"] }
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"
 kanal = "0.1.0-pre8"
+libp2p = { version = "0.54.1", features = [
+  "noise",
+  "gossipsub",
+  "tcp",
+  "request-response",
+  "tokio",
+  "secp256k1",
+  "macros",
+  "ping",
+  "yamux",
+  "identify",
+] }
+libp2p-identity = { version = "0.2.10", default-features = false, features = [
+  "secp256k1",
+  "peerid",
+  "rand",
+] }
 musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
@@ -121,6 +144,7 @@ serde_json = { version = "1.0", default-features = false, features = [
 ] }
 serde_with = "3.12.0"
 sha2 = "0.10"
+sled = "0.34.7"
 sp1-sdk = "4.0.0"
 sp1-verifier = "4.1.1"
 sqlx = { version = "0.8.2", features = [
@@ -134,7 +158,9 @@ sqlx = { version = "0.8.2", features = [
 tempfile = "3.10.1"
 terrors = "0.3.2"
 thiserror = "2.0.3"
+threadpool = "1.8.1"
 tokio = { version = "1.37", features = ["full"] }
+tokio-util = { version = "0.7.13", default-features = false, features = ["rt"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
