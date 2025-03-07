@@ -10,4 +10,4 @@ pub const DEFAULT_PORT: u16 = 4780;
 pub const DEFAULT_NUM_THREADS: usize = 2;
 
 /// Default idle connection timeout in seconds.
-pub const DEFAULT_IDLE_CONNECTION_TIMEOUT: u16 = 30;
+pub const DEFAULT_IDLE_CONNECTION_TIMEOUT: u64 = 30;
