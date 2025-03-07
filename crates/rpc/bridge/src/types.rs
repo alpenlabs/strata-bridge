@@ -38,28 +38,29 @@ pub enum ChallengeStep {
     Assert,
 }
 
-/// Shared status and relevant info for withdrawals and claims
+/// Represents a valid withdrawal status
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcWithdrawalStatus {
-    /// Claim exists, no payout yet.
-    InProgress { claim_txid: Txid },
+    InProgress,
+    Complete { fulfillment_txid: Txid },
+}
+
+/// Represents a valid reimbursement status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum RpcReimbursementStatus {
+    /// Claim exists, challenge step is "Claim", no payout.
+    InProgress { challenge_step: ChallengeStep },
 
     /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
-    Challenged {
-        claim_txid: Txid,
-        challenge_step: ChallengeStep,
-    },
+    Challenged { challenge_step: ChallengeStep },
 
     /// Operator was slashed, claim is no longer valid.
-    Cancelled { claim_txid: Txid },
+    Cancelled,
 
     /// Claim has been successfully reimbursed.
-    Complete {
-        claim_txid: Txid,
-        payout_txid: Txid,
-        fulfillment_txid: Txid,
-    },
+    Complete { payout_txid: Txid },
 }
 
 /// Represents deposit transaction details
@@ -71,5 +72,13 @@ pub struct RpcDepositInfo {
 /// Represents withdrawal transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcWithdrawalInfo {
+    pub withdrawal_request_txid: Txid,
     pub status: RpcWithdrawalStatus,
+}
+
+/// Represents withdrawal transaction details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcClaimInfo {
+    pub claim_txid: Txid,
+    pub status: RpcReimbursementStatus,
 }
