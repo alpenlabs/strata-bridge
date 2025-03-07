@@ -1,6 +1,6 @@
 //! Module to bootstrap the p2p node by hooking up all the required services.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
 use strata_p2p_db::sled::AsyncDB;
@@ -8,13 +8,18 @@ use threadpool::ThreadPool;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
-use crate::{config::Configuration, constants::DEFAULT_NUM_THREADS};
+use crate::{
+    config::Configuration,
+    constants::{DEFAULT_IDLE_CONNECTION_TIMEOUT, DEFAULT_NUM_THREADS},
+};
 
 /// Bootstrap the p2p node by hooking up all the required services.
 pub async fn bootstrap(config: &Configuration) -> anyhow::Result<(P2PHandle, CancellationToken)> {
     let p2p_config = P2PConfig {
         keypair: config.keypair.clone(),
-        idle_connection_timeout: config.idle_connection_timeout,
+        idle_connection_timeout: config
+            .idle_connection_timeout
+            .unwrap_or(Duration::from_secs(DEFAULT_IDLE_CONNECTION_TIMEOUT)),
         listening_addr: config.listening_addr.clone(),
         allowlist: config.allowlist.clone(),
         connect_to: config.connect_to.clone(),

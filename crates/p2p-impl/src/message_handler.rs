@@ -1,48 +1,27 @@
 //! Message handler for the Strata Bridge P2P.
 
 use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
-use libp2p::{identity::secp256k1::Keypair as Libp2pSecpKeypair, Multiaddr, PeerId};
+use libp2p::{Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
 use strata_p2p::{
     commands::{Command, ConnectToPeerCommand, UnsignedPublishMessage},
-    events::Event,
     swarm::handle::P2PHandle,
 };
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::GetMessageRequest;
-use tracing::{error, info, trace};
+use tracing::{info, trace};
 
 /// Message handler for the P2P client.
 #[derive(Debug, Clone)]
 pub struct MessageHandler {
     /// The P2P handle that is used to listen for events and call commands.
     pub handle: P2PHandle,
-
-    /// The Libp2p secp256k1 keypair used for signing messages.
-    pub keypair: Libp2pSecpKeypair,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
-    pub fn new(handle: P2PHandle, keypair: Libp2pSecpKeypair) -> Self {
-        Self { handle, keypair }
-    }
-
-    /// Starts listening for events and processing them.
-    pub async fn listen_for_events(&mut self) {
-        loop {
-            match self.handle.next_event().await {
-                Ok(Event::ReceivedMessage(msg)) => {
-                    info!(?msg, "received message");
-                    // Process the message based on its type
-                    // You can add specific handling logic here
-                }
-                Err(e) => {
-                    error!(?e, "error receiving event");
-                    break;
-                }
-            }
-        }
+    pub fn new(handle: P2PHandle) -> Self {
+        Self { handle }
     }
 
     /// Connects to a peer, whitelists peer, and adds peer to the gossip network.
@@ -62,7 +41,7 @@ impl MessageHandler {
     /// Internal use only.
     async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
         trace!(%description, ?msg, "sending message");
-        let signed_msg = msg.sign_secp256k1(&self.keypair);
+        let signed_msg = self.handle.sign_message(msg);
         self.handle.send_command(signed_msg).await;
         info!(%description, "sent message");
     }
@@ -138,12 +117,17 @@ impl MessageHandler {
 
     /// Requests a deposit setup message from an operator.
     ///
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
+    /// [`Self.handle`].
     pub async fn request_deposit_setup(&self, scope: Scope, operator_pk: P2POperatorPubKey) {
         let req = GetMessageRequest::DepositSetup { scope, operator_pk };
         self.request(req, "Deposit setup request").await;
     }
 
     /// Requests a Stake chain exchange message from an operator.
+    ///
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
+    /// [`Self.handle`].
     pub async fn request_stake_chain_exchange(
         &self,
         stake_chain_id: StakeChainId,
@@ -157,6 +141,9 @@ impl MessageHandler {
     }
 
     /// Requests a MuSig2 nonces exchange message from an operator.
+    ///
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
+    /// [`Self.handle`].
     pub async fn request_musig2_nonces(
         &self,
         session_id: SessionId,
@@ -170,6 +157,9 @@ impl MessageHandler {
     }
 
     /// Requests a MuSig2 signatures exchange message from an operator.
+    ///
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
+    /// [`Self.handle`].
     pub async fn request_musig2_signatures(
         &self,
         session_id: SessionId,
