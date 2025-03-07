@@ -29,6 +29,15 @@ pub enum RpcDepositStatus {
     },
 }
 
+/// Challenge step states for claims
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChallengeStep {
+    Claim,
+    Challenge,
+    Assert,
+}
+
 /// Shared status and relevant info for withdrawals and claims
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
@@ -46,7 +55,11 @@ pub enum RpcWithdrawalStatus {
     Cancelled { claim_txid: Txid },
 
     /// Claim has been successfully reimbursed.
-    Complete { claim_txid: Txid, payout_txid: Txid },
+    Complete {
+        claim_txid: Txid,
+        payout_txid: Txid,
+        fulfillment_txid: Txid,
+    },
 }
 
 /// Represents deposit transaction details
@@ -58,22 +71,5 @@ pub struct RpcDepositInfo {
 /// Represents withdrawal transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcWithdrawalInfo {
-    // Some withdrawals may still be pending
-    pub fulfillment_txid: Option<Txid>,
-    pub status: RpcWithdrawalStatus,
-}
-
-/// Challenge step states for claims
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ChallengeStep {
-    Claim,
-    Challenge,
-    Assert,
-}
-
-/// Represents reimbursement claim details
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RpcClaimInfo {
     pub status: RpcWithdrawalStatus,
 }
