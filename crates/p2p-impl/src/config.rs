@@ -5,7 +5,7 @@ use std::time::Duration;
 use bitcoin::{secp256k1::SecretKey, PublicKey, XOnlyPublicKey};
 use libp2p::{Multiaddr, PeerId};
 use libp2p_identity::secp256k1::{Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey};
-use strata_p2p_types::OperatorPubKey;
+use strata_p2p_types::P2POperatorPubKey;
 
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]
@@ -14,7 +14,7 @@ pub struct Configuration {
     pub keypair: Libp2pSecpKeypair,
 
     /// Idle connection timeout.
-    pub idle_connection_timeout: Duration,
+    pub idle_connection_timeout: Option<Duration>,
 
     /// The node's address.
     pub listening_addr: Multiaddr,
@@ -26,7 +26,7 @@ pub struct Configuration {
     pub connect_to: Vec<Multiaddr>,
 
     /// List of signers' public keys, whose messages the node is allowed to accept.
-    pub signers_allowlist: Vec<OperatorPubKey>,
+    pub signers_allowlist: Vec<P2POperatorPubKey>,
 
     /// The number of threads to use for the in memory database.
     ///
@@ -38,11 +38,11 @@ impl Configuration {
     /// Creates a new [`Configuration`] by using a [`SecretKey`].
     pub fn new_with_secret_key(
         sk: SecretKey,
-        idle_connection_timeout: Duration,
+        idle_connection_timeout: Option<Duration>,
         listening_addr: Multiaddr,
         allowlist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
-        signers_allowlist: Vec<OperatorPubKey>,
+        signers_allowlist: Vec<P2POperatorPubKey>,
         num_threads: Option<usize>,
     ) -> Self {
         let sk = Libp2pSecpSecretKey::try_from_bytes(sk.secret_bytes()).expect("infallible");
@@ -74,7 +74,6 @@ mod tests {
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::constants::DEFAULT_IDLE_CONNECTION_TIMEOUT;
 
     #[test]
     fn new_with_secret_key_works() {
@@ -84,7 +83,7 @@ mod tests {
         let x_only_pk = keypair.x_only_public_key().0;
         let config = Configuration::new_with_secret_key(
             sk,
-            Duration::from_secs(DEFAULT_IDLE_CONNECTION_TIMEOUT),
+            None,
             "/ip4/127.0.0.1/tcp/1234".parse().unwrap(),
             vec![],
             vec![],

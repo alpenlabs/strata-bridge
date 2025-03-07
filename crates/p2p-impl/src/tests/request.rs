@@ -8,7 +8,7 @@ use strata_p2p_db::{
     sled::AsyncDB, DepositSetupEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
     StakeChainEntry,
 };
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
 use tracing::info;
 
@@ -63,7 +63,7 @@ async fn request_response() -> anyhow::Result<()> {
     .await?;
 
     // create command to request info from the last operator
-    let operator_pk: OperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
+    let operator_pk: P2POperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
     let command_stake_chain = Command::RequestMessage(GetMessageRequest::StakeChainExchange {
         stake_chain_id,
         operator_pk: operator_pk.clone(),

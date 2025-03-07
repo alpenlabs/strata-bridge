@@ -8,7 +8,7 @@ use strata_p2p::{
     events::Event,
     swarm::handle::P2PHandle,
 };
-use strata_p2p_types::{OperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::GetMessageRequest;
 use tracing::{error, info, trace};
 
@@ -137,7 +137,8 @@ impl MessageHandler {
     }
 
     /// Requests a deposit setup message from an operator.
-    pub async fn request_deposit_setup(&self, scope: Scope, operator_pk: OperatorPubKey) {
+    ///
+    pub async fn request_deposit_setup(&self, scope: Scope, operator_pk: P2POperatorPubKey) {
         let req = GetMessageRequest::DepositSetup { scope, operator_pk };
         self.request(req, "Deposit setup request").await;
     }
@@ -146,7 +147,7 @@ impl MessageHandler {
     pub async fn request_stake_chain_exchange(
         &self,
         stake_chain_id: StakeChainId,
-        operator_pk: OperatorPubKey,
+        operator_pk: P2POperatorPubKey,
     ) {
         let req = GetMessageRequest::StakeChainExchange {
             stake_chain_id,
@@ -156,7 +157,11 @@ impl MessageHandler {
     }
 
     /// Requests a MuSig2 nonces exchange message from an operator.
-    pub async fn request_musig2_nonces(&self, session_id: SessionId, operator_pk: OperatorPubKey) {
+    pub async fn request_musig2_nonces(
+        &self,
+        session_id: SessionId,
+        operator_pk: P2POperatorPubKey,
+    ) {
         let req = GetMessageRequest::Musig2NoncesExchange {
             session_id,
             operator_pk,
@@ -168,7 +173,7 @@ impl MessageHandler {
     pub async fn request_musig2_signatures(
         &self,
         session_id: SessionId,
-        operator_pk: OperatorPubKey,
+        operator_pk: P2POperatorPubKey,
     ) {
         let req = GetMessageRequest::Musig2SignaturesExchange {
             session_id,
