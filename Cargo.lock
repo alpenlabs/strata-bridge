@@ -3035,6 +3035,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "dev-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitcoin",
+ "chrono",
+ "clap",
+ "jsonrpsee",
+ "rand",
+ "secp256k1",
+ "serde_json",
+ "sqlx",
+ "strata-bridge-agent",
+ "strata-bridge-db",
+ "strata-bridge-primitives",
+ "strata-bridge-rpc",
+ "strata-btcio",
+ "strata-common",
+ "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c)",
+ "strata-rpc-api",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "dev-cli"
 version = "0.1.0"
 dependencies = [
@@ -9627,32 +9653,6 @@ name = "stdext"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4af28eeb7c18ac2dbdb255d40bee63f203120e1db6b0024b177746ebec7049c1"
-
-[[package]]
-name = "strata-bridge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "chrono",
- "clap",
- "jsonrpsee",
- "rand",
- "secp256k1",
- "serde_json",
- "sqlx",
- "strata-bridge-agent",
- "strata-bridge-db",
- "strata-bridge-primitives",
- "strata-bridge-rpc",
- "strata-btcio",
- "strata-common",
- "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c)",
- "strata-rpc-api",
- "tokio",
- "tracing",
-]
 
 [[package]]
 name = "strata-bridge-agent"

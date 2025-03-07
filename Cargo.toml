@@ -20,7 +20,7 @@ members = [
 
   # binaries listed separately
   "bin/secret-service",
-  "bin/strata-bridge",
+  "bin/dev-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
 
@@ -29,7 +29,7 @@ members = [
   "crates/duty-tracker",
 ]
 
-default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
+default-members = ["bin/dev-bridge", "bin/dev-cli", "bin/assert-splitter"]
 
 resolver = "2"
 
