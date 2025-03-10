@@ -220,3 +220,18 @@ pub fn wait_for_blocks(btc_client: &Client, count: usize) {
             .expect("must be able to generate blocks");
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::key::Parity;
+
+    use super::*;
+
+    #[test]
+    fn even_keypair() {
+        (0..100).for_each(|_| {
+            let keypair = generate_keypair();
+            assert_eq!(keypair.x_only_public_key().1, Parity::Even);
+        });
+    }
+}
