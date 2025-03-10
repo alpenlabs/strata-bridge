@@ -7,16 +7,31 @@ edition = "2021"
 name = "alpen-bridge"
 path = "src/main.rs"
 
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+# TODO: add these back once the impl is complete
+# rust.missing_docs = "warn"
+# rustdoc.all = "warn"
+
 [dependencies]
+secret-service-client.workspace = true
 strata-bridge-db.workspace = true
+strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-rpc.workspace = true
 strata-bridge-tx-graph.workspace = true
 
 strata-common.workspace = true
+strata-p2p-types.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true
 clap.workspace = true
+libp2p.workspace = true
 quinn.workspace = true
 serde.workspace = true
 tokio.workspace = true
