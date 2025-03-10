@@ -35,7 +35,7 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::{connectors::PAYOUT_TIMELOCK, prelude::*},
+    params::prelude::*,
     scripts::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::{create_message_hash, finalize_input, TaprootWitness},
@@ -76,7 +76,7 @@ use tokio::sync::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    base::Agent,
+    base::{Agent, CONNECTOR_PARAMS},
     proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,
@@ -316,6 +316,7 @@ where
             &self.build_context,
             deposit_txid,
             graph_params,
+            CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
         )
@@ -573,6 +574,7 @@ where
                         &self.build_context,
                         deposit_txid,
                         graph_params,
+                        CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
                     )
@@ -968,6 +970,7 @@ where
                         &self.build_context,
                         deposit_txid,
                         graph_params,
+                        CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
                     )
@@ -1629,6 +1632,7 @@ where
             &self.build_context,
             deposit_txid,
             graph_params,
+            CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
         )
@@ -1677,7 +1681,7 @@ where
             let weight = signed_pre_assert.weight();
             info!(event = "finalized pre-assert tx", %pre_assert_txid, %vsize, %total_size, %weight, %own_index);
 
-            let n_blocks = PRE_ASSERT_TIMELOCK + 10;
+            let n_blocks = CONNECTOR_PARAMS.pre_assert_timelock + 10;
             info!(%n_blocks, "waiting before settling pre-assert");
             let pre_assert_txid = self
                 .agent
@@ -1868,7 +1872,7 @@ where
 
         // 8. settle reimbursement tx after wait time
         if status.should_get_payout() {
-            let wait_time = Duration::from_secs(PAYOUT_TIMELOCK as u64);
+            let wait_time = Duration::from_secs(CONNECTOR_PARAMS.payout_timelock as u64);
             info!(action = "waiting for timeout period before seeking reimbursement", wait_time_secs=%wait_time.as_secs());
             tokio::time::sleep(wait_time).await;
 

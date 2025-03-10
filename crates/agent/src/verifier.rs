@@ -31,7 +31,7 @@ use strata_bridge_tx_graph::transactions::{
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, trace, warn};
 
-use crate::base::Agent;
+use crate::base::{Agent, CONNECTOR_PARAMS};
 
 pub type VerifierIdx = u32;
 
@@ -233,6 +233,7 @@ where
                         deposit_txid,
                         self.build_context.aggregated_pubkey(),
                         public_keys,
+                        CONNECTOR_PARAMS.payout_timelock,
                     );
 
                     let delta = relative::LockTime::from_height(6);
@@ -280,6 +281,7 @@ where
                         deposit_txid,
                         self.build_context.aggregated_pubkey(),
                         public_keys,
+                        CONNECTOR_PARAMS.payout_timelock,
                     );
                     let signed_disprove_tx = disprove_tx.finalize(
                         reward_out,

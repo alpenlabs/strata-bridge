@@ -14,7 +14,7 @@ use secp256k1::{
     Keypair, Message, PublicKey, SecretKey, SECP256K1,
 };
 use strata_bridge_primitives::{
-    params::prelude::MIN_RELAY_FEE,
+    params::prelude::{ConnectorParams, MIN_RELAY_FEE},
     scripts::prelude::*,
     wots::{Wots256PublicKey, Wots256Signature},
 };
@@ -24,6 +24,12 @@ use strata_btcio::rpc::{
     BitcoinClient,
 };
 use tracing::trace;
+
+pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {
+    payout_optimistic_timelock: 100,
+    pre_assert_timelock: 200,
+    payout_timelock: 100,
+};
 
 #[derive(Debug, Clone)]
 pub struct Agent {

@@ -37,9 +37,9 @@
 //! | Field         | 3                  |  1          | 1            | 3     |
 //! | Hash          | 9                  |  42         | 1            | 378   |
 //! | Hash          | 2                  |  1          | 1            | 2     |
-use std::time::Duration;
 
 use bitvm::chunk::compile::{NUM_U160, NUM_U256};
+use serde::{Deserialize, Serialize};
 
 /// The maximum number of field elements that are bitcommitted per UTXO.
 pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 6;
@@ -100,15 +100,27 @@ const _: [(); 0] = [(); (NUM_PKS_A256 - NUM_FIELD_ELEMENTS)];
 const _: [(); 0] = [(); (NUM_PKS_A160 - NUM_HASH_ELEMENTS)];
 const _: [(); 0] = [(); (NUM_PKS_A256 + NUM_PKS_A160 - TOTAL_VALUES)];
 
-// FIXME: Move the following to configurable params
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ConnectorParams {
+    /// The relative timelock (measured in number of blocks) on the [`ClaimTx`] output that is used
+    /// to lock funds in the N-of-N and used in the [`PayoutOptimisticTx`].
+    pub payout_optimistic_timelock: u32,
 
-pub const BLOCK_TIME: Duration = Duration::from_secs(30);
+    /// The relative timelock (measured in number of blocks) on the [`ClaimTx`] output that is used
+    /// to lock funds in the N-of-N and used in the [`PreAssertTx`].
+    pub pre_assert_timelock: u32,
 
-pub const PAYOUT_OPTIMISTIC_TIMELOCK: u32 = 500;
+    /// The relative timelock (measure in number of blocks) on the [`PostAssertTx`] output that is
+    /// used to lock funds in the N-of-N and used in the [`PayoutTx`].
+    pub payout_timelock: u32,
+}
 
-pub const PRE_ASSERT_TIMELOCK: u32 = PAYOUT_OPTIMISTIC_TIMELOCK + 100; // 100 is slack
-
-// compile-time checks
-const _: () = assert!(PRE_ASSERT_TIMELOCK > PAYOUT_OPTIMISTIC_TIMELOCK);
-
-pub const PAYOUT_TIMELOCK: u32 = 288; // 2 day's worth of blocks in mainnet
+impl Default for ConnectorParams {
+    fn default() -> Self {
+        Self {
+            payout_optimistic_timelock: 1008, // 1 week's worth of blocks in Mainnet
+            pre_assert_timelock: 1152,        // 1 week + 1 day's worth of blocks in Mainnet
+            payout_timelock: 1008,            // 1 week's worth of block in Mainnet.
+        }
+    }
+}

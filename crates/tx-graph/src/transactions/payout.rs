@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
     ConnectorA3, ConnectorA3Leaf, ConnectorCpfp, ConnectorNOfN, ConnectorP, StakeSpendPath,
 };
-use strata_bridge_primitives::{params::connectors::PAYOUT_TIMELOCK, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
 
 use super::covenant_tx::CovenantTx;
 
@@ -79,7 +79,7 @@ impl PayoutTx {
         let mut tx_ins = create_tx_ins(utxos);
 
         let stake_input = &mut tx_ins[1];
-        stake_input.sequence = Sequence::from_height(PAYOUT_TIMELOCK as u16);
+        stake_input.sequence = Sequence::from_height(connector_a3.payout_timelock() as u16);
 
         assert!(
             stake_input.sequence.is_relative_lock_time(),

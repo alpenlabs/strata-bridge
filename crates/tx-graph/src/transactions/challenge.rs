@@ -372,7 +372,9 @@ mod tests {
 
         let challenge_leaf = ConnectorC1Path::Challenge(());
 
-        let challenge_connector = ConnectorC1::new(n_of_n_agg_pubkey, network);
+        let payout_optimistic_timelock = 10;
+        let challenge_connector =
+            ConnectorC1::new(n_of_n_agg_pubkey, network, payout_optimistic_timelock);
         let input_amount = challenge_connector
             .generate_locking_script()
             .minimal_non_dust();

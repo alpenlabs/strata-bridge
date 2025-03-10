@@ -208,6 +208,8 @@ mod tests {
         let build_context = TxBuildContext::new(network, pubkey_table.into(), 0);
 
         let wots_public_key = wots::Wots256PublicKey::new(msk, deposit_txid);
+        let pre_assert_timelock = 11;
+        let payout_optimistic_timelock = 10;
         let claim_tx = ClaimTx::new(
             ClaimData {
                 stake_outpoint: OutPoint {
@@ -218,8 +220,8 @@ mod tests {
                 input_amount: Amount::from_sat(OsRng.gen_range(1..100_000)),
             },
             ConnectorK::new(pubkey, network, wots_public_key),
-            ConnectorC0::new(pubkey, network),
-            ConnectorC1::new(pubkey, network),
+            ConnectorC0::new(pubkey, network, pre_assert_timelock),
+            ConnectorC1::new(pubkey, network, payout_optimistic_timelock),
             ConnectorNOfN::new(build_context.aggregated_pubkey(), network),
             ConnectorCpfp::new(pubkey, network),
         );

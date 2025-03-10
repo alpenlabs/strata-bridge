@@ -141,7 +141,7 @@ impl PreAssertTx {
 
         let mut tx = create_tx(tx_ins, tx_outs.clone());
         tx.version = transaction::Version(3); // for 0-fee TRUC transactions
-        tx.input[0].sequence = Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
+        tx.input[0].sequence = Sequence::from_height(connector_c0.pre_assert_timelock() as u16);
 
         let mut psbt =
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");

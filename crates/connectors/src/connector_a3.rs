@@ -6,7 +6,7 @@ use bitcoin::{
     hashes::Hash,
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},
-    Address, Network, ScriptBuf, Txid,
+    Address, Network, ScriptBuf, TapSighashType, Txid,
 };
 use bitvm::{
     bigint::U256,
@@ -18,7 +18,6 @@ use bitvm::{
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::{
-    params::prelude::PAYOUT_TIMELOCK,
     scripts::prelude::*,
     wots::{self, Groth16PublicKeys},
 };
@@ -66,18 +65,40 @@ pub struct DisprovePublicInputsCommitmentWitness {
 }
 
 impl ConnectorA3Leaf {
+    /// Returns the input index for the leaf.
+    ///
+    /// The `Payout` leaf is spent in the second input of the `Payout` transaction,
+    /// whereas the `Disprove` leaf is spent in the first input of the `Disprove` transaction.
+    pub fn get_input_index(&self) -> u32 {
+        match self {
+            ConnectorA3Leaf::Payout(_) => 1,
+            ConnectorA3Leaf::DisproveProof { .. }
+            | ConnectorA3Leaf::DisprovePublicInputsCommitment { .. } => 0,
+        }
+    }
+
+    /// Returns the sighash type for each of the connector leaves.
+    pub fn get_sighash_type(&self) -> TapSighashType {
+        match self {
+            ConnectorA3Leaf::Payout(_) => TapSighashType::Default,
+            ConnectorA3Leaf::DisproveProof { .. }
+            | ConnectorA3Leaf::DisprovePublicInputsCommitment { .. } => TapSighashType::Single,
+        }
+    }
+
     /// Generate the locking script for the leaf.
     pub(crate) fn generate_locking_script(
         &self,
         n_of_n_agg_pubkey: XOnlyPublicKey,
         wots_public_keys: wots::PublicKeys,
+        payout_timelock: u32,
     ) -> Script {
         let wots::PublicKeys {
             withdrawal_fulfillment,
             groth16: Groth16PublicKeys(([public_inputs_hash_public_key], _, _)),
         } = wots_public_keys;
         match self {
-            ConnectorA3Leaf::Payout(_) => n_of_n_with_timelock(&n_of_n_agg_pubkey, PAYOUT_TIMELOCK),
+            ConnectorA3Leaf::Payout(_) => n_of_n_with_timelock(&n_of_n_agg_pubkey, payout_timelock),
 
             ConnectorA3Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
@@ -206,6 +227,8 @@ impl ConnectorA3Leaf {
             _ => panic!("no data provided to finalize input"),
         }
     }
+
+    //
 }
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
@@ -218,6 +241,8 @@ pub struct ConnectorA3 {
     wots_public_keys: wots::PublicKeys,
 
     n_of_n_agg_pubkey: XOnlyPublicKey,
+
+    payout_timelock: u32,
 }
 
 impl ConnectorA3 {
@@ -227,13 +252,20 @@ impl ConnectorA3 {
         deposit_txid: Txid,
         n_of_n_agg_pubkey: XOnlyPublicKey,
         wots_public_keys: wots::PublicKeys,
+        payout_timelock: u32,
     ) -> Self {
         Self {
             network,
             deposit_txid,
             n_of_n_agg_pubkey,
+            payout_timelock,
             wots_public_keys,
         }
+    }
+
+    /// Returns the relative timelock for the payout, measured in number of blocks.
+    pub fn payout_timelock(&self) -> u32 {
+        self.payout_timelock
     }
 
     /// Generates the locking script for this connector.
@@ -252,7 +284,11 @@ impl ConnectorA3 {
         let (_, taproot_spend_info) = self.generate_taproot_address(deposit_txid);
 
         let script = tapleaf
-            .generate_locking_script(self.n_of_n_agg_pubkey, self.wots_public_keys)
+            .generate_locking_script(
+                self.n_of_n_agg_pubkey,
+                self.wots_public_keys,
+                self.payout_timelock,
+            )
             .compile();
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
@@ -277,8 +313,12 @@ impl ConnectorA3 {
             },
         ]
         .map(|leaf| {
-            leaf.generate_locking_script(self.n_of_n_agg_pubkey, self.wots_public_keys)
-                .compile()
+            leaf.generate_locking_script(
+                self.n_of_n_agg_pubkey,
+                self.wots_public_keys,
+                self.payout_timelock,
+            )
+            .compile()
         })
         .into_iter();
 
@@ -289,8 +329,12 @@ impl ConnectorA3 {
                 witness_script: None,
             })
             .map(|leaf| {
-                leaf.generate_locking_script(self.n_of_n_agg_pubkey, self.wots_public_keys)
-                    .compile()
+                leaf.generate_locking_script(
+                    self.n_of_n_agg_pubkey,
+                    self.wots_public_keys,
+                    self.payout_timelock,
+                )
+                .compile()
             });
 
         let scripts = scripts
@@ -437,8 +481,12 @@ mod tests {
 
         let n_of_n_keypair = generate_keypair();
         let n_of_n_agg_pubkey = n_of_n_keypair.public_key().x_only_public_key().0;
-        let locking_script =
-            invalid_disprove_leaf.generate_locking_script(n_of_n_agg_pubkey, wots_public_keys);
+        let payout_timelock = 10;
+        let locking_script = invalid_disprove_leaf.generate_locking_script(
+            n_of_n_agg_pubkey,
+            wots_public_keys,
+            payout_timelock,
+        );
         let witness_script = invalid_disprove_leaf.generate_witness_script();
         let witness_script = taproot_witness_signatures(witness_script);
         let full_script = script! {

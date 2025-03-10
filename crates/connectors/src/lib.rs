@@ -10,7 +10,6 @@
 #![feature(array_try_from_fn)] // this feature is used to generate arrays in a fallible way
 
 pub mod connector_a3;
-pub mod connector_a30;
 pub mod connector_c0;
 pub mod connector_c1;
 pub mod connector_cpfp;

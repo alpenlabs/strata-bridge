@@ -243,6 +243,7 @@ impl PegOutGraph {
         context: &Context,
         deposit_txid: Txid,
         graph_params: PegOutGraphParams,
+        connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
     ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
@@ -252,6 +253,7 @@ impl PegOutGraph {
         let connectors = PegOutGraphConnectors::new(
             context,
             deposit_txid,
+            connector_params,
             input.operator_pubkey,
             input.stake_hash,
             stake_chain_params.delta,
@@ -468,6 +470,7 @@ impl PegOutGraphConnectors {
     pub(crate) fn new(
         build_context: &impl BuildContext,
         deposit_txid: Txid,
+        params: ConnectorParams,
         operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
@@ -482,15 +485,24 @@ impl PegOutGraphConnectors {
             wots_public_keys.withdrawal_fulfillment,
         );
 
-        let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network);
+        let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network, params.pre_assert_timelock);
 
-        let claim_out_1 = ConnectorC1::new(n_of_n_agg_pubkey, network);
+        let claim_out_1 = ConnectorC1::new(
+            n_of_n_agg_pubkey,
+            network,
+            params.payout_optimistic_timelock,
+        );
 
         let n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
-        let post_assert_out_1 =
-            ConnectorA3::new(network, deposit_txid, n_of_n_agg_pubkey, wots_public_keys);
+        let post_assert_out_1 = ConnectorA3::new(
+            network,
+            deposit_txid,
+            n_of_n_agg_pubkey,
+            wots_public_keys,
+            params.payout_timelock,
+        );
 
         let wots::PublicKeys {
             withdrawal_fulfillment: _,
@@ -567,7 +579,7 @@ mod tests {
     use strata_bridge_primitives::{
         build_context::TxBuildContext,
         params::{
-            prelude::{StakeChainParams, NUM_ASSERT_DATA_TX, PAYOUT_TIMELOCK},
+            prelude::{StakeChainParams, NUM_ASSERT_DATA_TX},
             tx::{
                 CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SEGWIT_MIN_AMOUNT,
                 SLASH_STAKE_REWARD,
@@ -650,6 +662,11 @@ mod tests {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
         };
+        let connector_params = ConnectorParams {
+            payout_optimistic_timelock: 10,
+            pre_assert_timelock: 11,
+            payout_timelock: 10,
+        };
 
         let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
         let (graph, connectors) = PegOutGraph::generate(
@@ -657,6 +674,7 @@ mod tests {
             &context,
             deposit_txid,
             graph_params,
+            connector_params,
             stake_chain_params,
             prev_claim_txids,
         )
@@ -806,10 +824,10 @@ mod tests {
             "could not submit payout before timelock"
         );
 
-        let n_blocks = PAYOUT_OPTIMISTIC_TIMELOCK as usize + 1;
+        let n_blocks = connector_params.payout_optimistic_timelock as usize + 1;
         info!(%n_blocks, "waiting for blocks");
 
-        wait_for_blocks(btc_client, PAYOUT_OPTIMISTIC_TIMELOCK as usize + 1);
+        wait_for_blocks(btc_client, n_blocks);
 
         info!(txid = payout_txid, "trying to submit payout after timelock");
         let result = btc_client
@@ -859,6 +877,11 @@ mod tests {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
         };
+        let connector_params = ConnectorParams {
+            payout_optimistic_timelock: 11,
+            pre_assert_timelock: 10,
+            payout_timelock: 10,
+        };
         let assertions = load_assertions();
         let SubmitAssertionsResult {
             payout_tx,
@@ -873,6 +896,7 @@ mod tests {
             deposit_txid,
             input,
             graph_params,
+            connector_params,
             assertions,
         )
         .await;
@@ -949,7 +973,7 @@ mod tests {
             "could not submit payout before timelock"
         );
 
-        wait_for_blocks(btc_client, PAYOUT_TIMELOCK as usize + 1);
+        wait_for_blocks(btc_client, connector_params.payout_timelock as usize + 1);
 
         info!(txid = payout_txid, "trying to submit payout after timelock");
         let result = btc_client
@@ -997,6 +1021,11 @@ mod tests {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
         };
+        let connector_params = ConnectorParams {
+            payout_optimistic_timelock: 11,
+            pre_assert_timelock: 10,
+            payout_timelock: 10,
+        };
 
         let mut faulty_assertions = load_assertions();
         for _ in 0..faulty_assertions.groth16.2.len() {
@@ -1025,6 +1054,7 @@ mod tests {
             deposit_txid,
             input,
             graph_params,
+            connector_params,
             faulty_assertions,
         )
         .await;
@@ -1363,6 +1393,7 @@ mod tests {
         hashlock_payout: ConnectorP,
     }
 
+    #[expect(clippy::too_many_arguments)]
     async fn submit_assertions(
         btc_client: &Client,
         keypair: &Keypair,
@@ -1370,6 +1401,7 @@ mod tests {
         deposit_txid: Txid,
         input: PegOutGraphInput,
         graph_params: PegOutGraphParams,
+        connector_params: ConnectorParams,
         assertions: Assertions,
     ) -> SubmitAssertionsResult {
         let btc_addr = btc_client.new_address().expect("must generate new address");
@@ -1381,6 +1413,7 @@ mod tests {
             context,
             deposit_txid,
             graph_params,
+            connector_params,
             stake_chain_params,
             vec![],
         )
@@ -1549,7 +1582,10 @@ mod tests {
             pre_assert_cpfp_vout,
         );
 
-        wait_for_blocks(btc_client, PRE_ASSERT_TIMELOCK as usize + 1);
+        wait_for_blocks(
+            btc_client,
+            connector_params.pre_assert_timelock as usize + 1,
+        );
 
         info!(
             vsize = signed_pre_assert.vsize(),
@@ -1801,12 +1837,18 @@ mod tests {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
         };
+        let connector_params = ConnectorParams {
+            payout_optimistic_timelock: 11,
+            pre_assert_timelock: 10,
+            payout_timelock: 10,
+        };
 
         let (graph, connectors) = PegOutGraph::generate(
             input.clone(),
             &context,
             deposit_txid,
             graph_params,
+            connector_params,
             stake_chain_params,
             vec![],
         )
@@ -1944,12 +1986,17 @@ mod tests {
                 .unwrap(),
             deposit_amount: DEPOSIT_AMOUNT,
         };
-
+        let connector_params = ConnectorParams {
+            payout_optimistic_timelock: 11,
+            pre_assert_timelock: 10,
+            payout_timelock: 10,
+        };
         let (new_graph, new_connectors) = PegOutGraph::generate(
             input.clone(),
             &context,
             deposit_txid,
             graph_params,
+            connector_params,
             stake_chain_params,
             prev_claim_txids.to_vec(),
         )

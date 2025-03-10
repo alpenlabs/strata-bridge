@@ -8,14 +8,7 @@ use bitcoin::{
     Address, Network, ScriptBuf, TapNodeHash, TapSighashType, XOnlyPublicKey,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::{params::prelude::PRE_ASSERT_TIMELOCK, scripts::prelude::*};
-
-/// Connector from the claim transaction used in optimistic payouts or assertions.
-#[derive(Debug, Clone, Copy)]
-pub struct ConnectorC0 {
-    n_of_n_agg_pubkey: XOnlyPublicKey,
-    network: Network,
-}
+use strata_bridge_primitives::scripts::prelude::*;
 
 /// Spend paths for the [`ConnectorC0`].
 ///
@@ -68,18 +61,36 @@ where
     }
 }
 
+/// Connector from the claim transaction used in optimistic payouts or assertions.
+#[derive(Debug, Clone, Copy)]
+pub struct ConnectorC0 {
+    n_of_n_agg_pubkey: XOnlyPublicKey,
+    network: Network,
+    pre_assert_timelock: u32,
+}
+
 impl ConnectorC0 {
     /// Constructs a new instance of this connector.
-    pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
+    pub fn new(
+        n_of_n_agg_pubkey: XOnlyPublicKey,
+        network: Network,
+        pre_assert_timelock: u32,
+    ) -> Self {
         Self {
             n_of_n_agg_pubkey,
             network,
+            pre_assert_timelock,
         }
+    }
+
+    /// Returns the relative timelock on the pre-assert output (measured in number of blocks).
+    pub fn pre_assert_timelock(&self) -> u32 {
+        self.pre_assert_timelock
     }
 
     /// Generate the payout script.
     fn generate_payout_script(&self) -> ScriptBuf {
-        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PRE_ASSERT_TIMELOCK).compile()
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, self.pre_assert_timelock).compile()
     }
 
     /// Generates the locking script for this connector.
@@ -181,7 +192,8 @@ mod tests {
         let keypair = generate_keypair();
 
         let n_of_n_agg_pubkey = keypair.x_only_public_key().0;
-        let connector = ConnectorC0::new(n_of_n_agg_pubkey, network);
+        let pre_assert_timelock: u32 = 250;
+        let connector = ConnectorC0::new(n_of_n_agg_pubkey, network, pre_assert_timelock);
 
         const INPUT_AMOUNT: Amount = Amount::from_sat(1_000_000);
         const NUM_OUTPUTS: usize = 2;
@@ -217,7 +229,7 @@ mod tests {
                     }
                     ConnectorC0Path::Assert(_) => {
                         spend_connector_tx.input[0].sequence =
-                            Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
+                            Sequence::from_height(pre_assert_timelock as u16);
                         let (script, control_block) = connector.generate_spend_info();
                         (
                             TaprootWitness::Script {
@@ -230,7 +242,7 @@ mod tests {
                 };
                 if let ConnectorC0Path::PayoutOptimistic(_) = leaf {
                     spend_connector_tx.input[0].sequence =
-                        Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
+                        Sequence::from_height(pre_assert_timelock as u16);
                 }
 
                 let mut psbt =
@@ -265,7 +277,7 @@ mod tests {
                         .new_address()
                         .expect("must be able to generate new address");
 
-                    [0; PRE_ASSERT_TIMELOCK as usize]
+                    vec![(); pre_assert_timelock as usize]
                         .chunks(100)
                         .for_each(|chunk| {
                             btc_client
