@@ -912,6 +912,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "alpen-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitcoin",
+ "clap",
+ "quinn",
+ "serde",
+ "strata-bridge-db",
+ "strata-bridge-primitives",
+ "strata-bridge-tx-graph",
+ "strata-common",
+ "tokio",
+ "toml",
+ "tracing",
+]
+
+[[package]]
 name = "android-tzdata"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3216,7 +3234,6 @@ dependencies = [
  "serde",
  "sqlx",
  "strata-bridge-primitives",
- "strata-bridge-stake-chain",
  "strata-bridge-tx-graph",
  "strata-btcio",
  "strata-p2p",
@@ -9722,6 +9739,7 @@ dependencies = [
  "musig2",
  "rkyv",
  "secp256k1",
+ "serde",
  "serde_json",
  "sqlx",
  "strata-bridge-primitives",
@@ -9758,6 +9776,7 @@ dependencies = [
  "strata-p2p-types",
  "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c)",
  "thiserror 2.0.12",
+ "toml",
 ]
 
 [[package]]

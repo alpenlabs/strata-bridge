@@ -4,7 +4,7 @@ name = "dev-bridge"
 version = "0.1.0"
 
 [[bin]]
-name = "strata-bridge"
+name = "dev-bridge"
 path = "src/main.rs"
 
 [lints]

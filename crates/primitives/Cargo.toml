@@ -26,3 +26,6 @@ serde.workspace = true
 sha2.workspace = true
 strata-p2p-types.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+toml.workspace = true

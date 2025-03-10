@@ -206,13 +206,23 @@ pub struct PegOutGraph {
 ///
 /// These parameters are consensus-critical meaning that these are values that are agreed upon by
 /// all operators and verifiers in the bridge.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// TODO: move this to the primitives crate.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PegOutGraphParams {
     /// The amount that is locked in the bridge address at the deposit time.
     pub deposit_amount: Amount,
 
     /// The amount that is used to fund all the dust outputs in the peg-out graph.
     pub funding_amount: Amount,
+}
+
+impl Default for PegOutGraphParams {
+    fn default() -> Self {
+        Self {
+            deposit_amount: Amount::from_int_btc(1),
+            funding_amount: Amount::from_sat(32_340),
+        }
+    }
 }
 
 impl PegOutGraph {

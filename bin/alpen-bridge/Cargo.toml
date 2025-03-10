@@ -1,0 +1,24 @@
+[package]
+name = "alpen-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "alpen-bridge"
+path = "src/main.rs"
+
+[dependencies]
+strata-bridge-db.workspace = true
+strata-bridge-primitives.workspace = true
+strata-bridge-tx-graph.workspace = true
+
+strata-common.workspace = true
+
+anyhow.workspace = true
+bitcoin.workspace = true
+clap.workspace = true
+quinn.workspace = true
+serde.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true
