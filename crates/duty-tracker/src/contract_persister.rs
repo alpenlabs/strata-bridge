@@ -41,8 +41,7 @@ impl ContractPersister {
             CREATE TABLE IF NOT EXISTS contracts (
                 deposit_txid CHAR(64) NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
-                operator_set VARBINARY NOT NULL,
-                perspective CHAR(64) NOT NULL,
+                operator_table VARBINARY NOT NULL,
                 peg_out_graphs VARBINARY NOT NULL,
                 state VARBINARY NOT NULL,
             );
@@ -58,13 +57,12 @@ impl ContractPersister {
     pub async fn init(&self, cfg: &ContractCfg, state: &MachineState) -> Result<(), PersistErr> {
         let _: SqliteQueryResult = sqlx::query(
             r#"
-            INSERT INTO contracts (deposit_txid, deposit_tx, operator_set, perspective, state) VALUES (?, ?, ?, ?, ?)
+            INSERT INTO contracts (deposit_txid, deposit_tx, operator_table, state) VALUES (?, ?, ?, ?, ?)
             "#
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
         .bind(bincode::serialize(&cfg.deposit_tx)?)
-        .bind(bincode::serialize(&cfg.operator_set)?)
-        .bind(bincode::serialize(&cfg.perspective)?)
+        .bind(bincode::serialize(&cfg.operator_table)?)
         .bind(bincode::serialize(&state)?)
         .execute(&self.pool)
         .await
@@ -98,19 +96,16 @@ impl ContractPersister {
     ) -> Result<(ContractCfg, MachineState), PersistErr> {
         let row: SqliteRow = sqlx::query(
             r#"
-            SELECT (deposit_idx, deposit_tx, operator_set, perspective, peg_out_graphs, state) FROM contracts WHERE deposit_txid = ?
+            SELECT (deposit_idx, deposit_tx, operator_table, peg_out_graphs, state) FROM contracts WHERE deposit_txid = ?
             "#
         ).bind(deposit_txid.to_string()).fetch_one(&self.pool).await.map_err(|_|PersistErr)?;
         let deposit_tx = bincode::deserialize(row.try_get("deposit_tx").map_err(|_| PersistErr)?)?;
-        let perspective =
-            bincode::deserialize(row.try_get("perspective").map_err(|_| PersistErr)?)?;
-        let operator_set =
-            bincode::deserialize(row.try_get("operator_set").map_err(|_| PersistErr)?)?;
+        let operator_table =
+            bincode::deserialize(row.try_get("operator_table").map_err(|_| PersistErr)?)?;
         let state = bincode::deserialize(row.try_get("state").map_err(|_| PersistErr)?)?;
         Ok((
             ContractCfg {
-                perspective,
-                operator_set,
+                operator_table,
                 deposit_tx,
             },
             state,
@@ -122,22 +117,22 @@ impl ContractPersister {
     pub async fn load_all(&self) -> Result<Vec<(ContractCfg, MachineState)>, PersistErr> {
         let rows = sqlx::query(
             r#"
-            SELECT (deposit_idx, deposit_tx, operator_set, perspective, peg_out_graphs, state) FROM contracts
-            "#
-        ).fetch_all(&self.pool).await.map_err(|_|PersistErr)?;
+            SELECT (deposit_idx, deposit_tx, operator_table, peg_out_graphs, state) FROM contracts
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|_| PersistErr)?;
         rows.into_iter()
             .map(|row| {
                 let deposit_tx =
                     bincode::deserialize(row.try_get("deposit_tx").map_err(|_| PersistErr)?)?;
-                let perspective =
-                    bincode::deserialize(row.try_get("perspective").map_err(|_| PersistErr)?)?;
-                let operator_set =
-                    bincode::deserialize(row.try_get("operator_set").map_err(|_| PersistErr)?)?;
+                let operator_table =
+                    bincode::deserialize(row.try_get("operator_table").map_err(|_| PersistErr)?)?;
                 let state = bincode::deserialize(row.try_get("state").map_err(|_| PersistErr)?)?;
                 Ok((
                     ContractCfg {
-                        perspective,
-                        operator_set,
+                        operator_table,
                         deposit_tx,
                     },
                     state,

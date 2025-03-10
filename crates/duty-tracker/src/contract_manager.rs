@@ -3,18 +3,11 @@
 //! protocol rules.
 use std::collections::BTreeMap;
 
-use bitcoin::{hashes::sha256d::Hash, Block, Txid};
+use bitcoin::{hashes::sha256d::Hash, Block, Network, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
-use strata_bridge_primitives::{
-    build_context::{BuildContext, TxBuildContext, TxKind},
-    params::prelude::StakeChainParams,
-    types::OperatorIdx,
-};
-use strata_bridge_tx_graph::{
-    errors::TxGraphError,
-    peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
-};
+use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
+use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
 use thiserror::Error;
@@ -35,7 +28,8 @@ pub struct ContractManager {
 impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     pub fn new(
-        build_context: TxBuildContext,
+        network: Network,
+        operator_table: OperatorTable,
         zmq_client: BtcZmqClient,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
@@ -61,7 +55,8 @@ impl ContractManager {
                 // TODO(proofofkeags): prune the active contract set and still preserve the ability
                 // to recover this value.
                 next_deposit_idx: active_contracts.len() as u32,
-                build_context,
+                network,
+                operator_table,
                 contract_persister,
                 active_contracts,
             };
@@ -121,7 +116,8 @@ pub enum ContractManagerErr {
 
 struct ContractManagerCtx {
     next_deposit_idx: u32,
-    build_context: TxBuildContext,
+    network: Network,
+    operator_table: OperatorTable,
     contract_persister: ContractPersister,
     active_contracts: BTreeMap<Txid, ContractSM>,
 }
@@ -138,7 +134,9 @@ impl ContractManagerCtx {
 
             let txid = tx.compute_txid();
             if let Some(deposit_info) = deposit_request_info(&tx) {
-                let deposit_tx = match deposit_info.construct_signing_data(&self.build_context) {
+                let deposit_tx = match deposit_info
+                    .construct_signing_data(&self.operator_table.tx_build_context(self.network))
+                {
                     Ok(data) => data.psbt.unsigned_tx,
                     Err(_) => {
                         // TODO(proofofkeags): what does this mean? @Rajil1213
@@ -146,33 +144,8 @@ impl ContractManagerCtx {
                     }
                 };
 
-                let peg_out_graphs = self
-                    .build_context
-                    .pubkey_table()
-                    .0
-                    .iter()
-                    .map(|(idx, key)| {
-                        let input = PegOutGraphInput {
-                            stake_outpoint: todo!(),                  // @Rajil1213
-                            withdrawal_fulfillment_outpoint: todo!(), // @Rajil1213
-                            stake_hash: todo!(),                      // @Rajil1213
-                            operator_pubkey: key.x_only_public_key().0,
-                            wots_public_keys: todo!(),
-                        };
-                        PegOutGraph::generate(
-                            input,
-                            &self.build_context,
-                            deposit_tx.compute_txid(),
-                            todo!(),
-                            StakeChainParams::default(),
-                            todo!(), // Where am I supposed to get these from @Rajil1213?
-                        )
-                        .map(|(graph, _)| (*idx, graph.summarize()))
-                    })
-                    .collect::<Result<BTreeMap<OperatorIdx, PegOutGraphSummary>, TxGraphError>>()?;
                 let (sm, duty) = ContractSM::new(
-                    todo!(), // TODO(proofofkeags): We need to get our own operator pubkey.
-                    self.build_context.pubkey_table().clone(),
+                    self.operator_table.clone(),
                     height,
                     height + REFUND_DELAY,
                     deposit_tx,

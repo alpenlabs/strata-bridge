@@ -1,12 +1,15 @@
 use std::collections::BTreeMap;
 
 use bitcoin::Network;
+use serde::{Deserialize, Serialize};
 use strata_p2p_types::OperatorPubKey;
 use strata_primitives::bridge::PublickeyTable;
 
 use crate::{build_context::TxBuildContext, types::OperatorIdx};
 
-#[derive(Debug, Clone)]
+// TODO(proofofkeags): the derived serialization of this data structure is 3x more expensive than
+// optimal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorTable {
     pov: OperatorIdx,
     idx_key: BTreeMap<OperatorIdx, (OperatorPubKey, secp256k1::PublicKey)>,
@@ -96,5 +99,9 @@ impl OperatorTable {
 
     pub fn tx_build_context(&self, network: Network) -> TxBuildContext {
         TxBuildContext::new(network, self.public_key_table(), self.pov)
+    }
+
+    pub fn cardinality(&self) -> usize {
+        self.idx_key.len()
     }
 }

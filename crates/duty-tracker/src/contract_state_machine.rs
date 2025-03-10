@@ -10,18 +10,12 @@ use bitcoin::{
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
-    params::{
-        prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
-        tx::{BRIDGE_DENOMINATION, SEGWIT_MIN_AMOUNT},
-    },
-    types::{BitcoinBlockHeight, OperatorIdx},
+    operator_table::OperatorTable,
+    params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
+    types::BitcoinBlockHeight,
 };
-use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
-use strata_bridge_tx_graph::peg_out_graph::{
-    self, PegOutGraph, PegOutGraphParams, PegOutGraphSummary,
-};
+use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
 use strata_p2p_types::{OperatorPubKey, WotsPublicKeys};
-use strata_primitives::bridge::PublickeyTable;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 
@@ -298,11 +292,8 @@ impl Display for TransitionErr {
 /// Holds the state machine values that remain static for the lifetime of the contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractCfg {
-    /// The operator index the state machine is using as its perspective.
-    pub perspective: OperatorPubKey,
-
     /// The pointed operator set.
-    pub operator_set: PublickeyTable,
+    pub operator_table: OperatorTable,
 
     /// The predetermined deposit transaction that the rest of the graph is built from.
     pub deposit_tx: Transaction,
@@ -330,15 +321,13 @@ impl ContractSM {
     ///
     /// This will be constructible once we have a deposit request.
     pub fn new(
-        perspective: OperatorPubKey,
-        operator_set: PublickeyTable,
+        operator_table: OperatorTable,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_tx: Transaction,
     ) -> (Self, OperatorDuty) {
         let cfg = ContractCfg {
-            perspective,
-            operator_set,
+            operator_table,
             deposit_tx,
         };
         let state = ContractState::Requested {
@@ -369,7 +358,7 @@ impl ContractSM {
     pub fn transaction_filter(&self) -> TxPredicate {
         let deposit_txid = self.cfg.deposit_tx.compute_txid();
         let graphs = match &self.state.state {
-            ContractState::Requested { .. } => todo!(),
+            ContractState::Requested { .. } => Vec::new(),
             ContractState::Deposited { peg_out_graphs, .. } => {
                 peg_out_graphs.iter().map(|(_, g)| g.clone()).collect()
             }
@@ -441,7 +430,14 @@ impl ContractSM {
             ContractState::Requested { .. }
                 if tx.compute_txid() == self.cfg.deposit_tx.compute_txid() =>
             {
-                let peg_out_graphs = todo!();
+                let peg_out_input = PegOutGraphInput {
+                    stake_outpoint: todo!(),
+                    withdrawal_fulfillment_outpoint: todo!(),
+                    stake_hash: todo!(),
+                    wots_public_keys: todo!(),
+                    operator_pubkey: todo!(),
+                };
+                let peg_out_graphs = PegOutGraph::generate(input, context, deposit_txid, graph_params, stake_chain_params, prev_claim_txids)
                 self.state.state = ContractState::Deposited {
                     deposit_idx,
                     peg_out_graphs,
@@ -483,11 +479,13 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Requested { wots_keys, .. } => {
                 wots_keys.insert(signer, keys);
-                Ok(if wots_keys.len() == self.cfg.operator_set.0.len() {
-                    Some(OperatorDuty::PublishGraphNonces)
-                } else {
-                    None
-                })
+                Ok(
+                    if wots_keys.len() == self.cfg.operator_table.cardinality() {
+                        Some(OperatorDuty::PublishGraphNonces)
+                    } else {
+                        None
+                    },
+                )
             }
             _ => Err(TransitionErr),
         }
@@ -501,11 +499,13 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Requested { graph_nonces, .. } => {
                 graph_nonces.insert(signer, nonces);
-                Ok(if graph_nonces.len() == self.cfg.operator_set.0.len() {
-                    Some(OperatorDuty::PublishGraphNonces)
-                } else {
-                    None
-                })
+                Ok(
+                    if graph_nonces.len() == self.cfg.operator_table.cardinality() {
+                        Some(OperatorDuty::PublishGraphNonces)
+                    } else {
+                        None
+                    },
+                )
             }
             _ => Err(TransitionErr),
         }
@@ -520,13 +520,15 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Requested { graph_sigs, .. } => {
                 graph_sigs.insert(signer, sig);
-                Ok(if graph_sigs.len() == self.cfg.operator_set.0.len() {
-                    // we have all the sigs now
-                    // issue deposit signature
-                    Some(OperatorDuty::PublishRootNonce)
-                } else {
-                    None
-                })
+                Ok(
+                    if graph_sigs.len() == self.cfg.operator_table.cardinality() {
+                        // we have all the sigs now
+                        // issue deposit signature
+                        Some(OperatorDuty::PublishRootNonce)
+                    } else {
+                        None
+                    },
+                )
             }
             _ => Err(TransitionErr),
         }
@@ -540,13 +542,15 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Requested { root_nonces, .. } => {
                 root_nonces.insert(signer, nonce);
-                Ok(if root_nonces.len() == self.cfg.operator_set.0.len() {
-                    // we have all the sigs now
-                    // issue deposit signature
-                    Some(OperatorDuty::PublishRootSignature)
-                } else {
-                    None
-                })
+                Ok(
+                    if root_nonces.len() == self.cfg.operator_table.cardinality() {
+                        // we have all the sigs now
+                        // issue deposit signature
+                        Some(OperatorDuty::PublishRootSignature)
+                    } else {
+                        None
+                    },
+                )
             }
             _ => Err(TransitionErr),
         }
@@ -561,13 +565,15 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Requested { root_sigs, .. } => {
                 root_sigs.insert(signer, sig);
-                Ok(if root_sigs.len() == self.cfg.operator_set.0.len() {
-                    // we have all the deposit sigs now
-                    // we can publish the deposit
-                    Some(OperatorDuty::PublishDeposit)
-                } else {
-                    None
-                })
+                Ok(
+                    if root_sigs.len() == self.cfg.operator_table.cardinality() {
+                        // we have all the deposit sigs now
+                        // we can publish the deposit
+                        Some(OperatorDuty::PublishDeposit)
+                    } else {
+                        None
+                    },
+                )
             }
             _ => Err(TransitionErr),
         }
@@ -615,7 +621,7 @@ impl ContractSM {
                     ..
                 } => {
                     if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
-                        && fulfiller == self.cfg.perspective
+                        && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(
                             FulfillerDuty::PublishPayoutOptimistic,
@@ -631,7 +637,7 @@ impl ContractSM {
                     ..
                 } => {
                     if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
-                        && fulfiller == self.cfg.perspective
+                        && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
                     } else {
@@ -661,7 +667,13 @@ impl ContractSM {
                 match assignment.deposit_state() {
                     DepositState::Dispatched(dispatched_state) => {
                         let fulfiller_idx = dispatched_state.assignee();
-                        let fulfiller = todo!();
+                        let fulfiller = match self.cfg.operator_table.idx_to_op_key(&fulfiller_idx)
+                        {
+                            Some(op_key) => op_key.clone(),
+                            None => {
+                                return Err(TransitionErr);
+                            }
+                        };
                         let deadline = dispatched_state.exec_deadline();
                         let active_graph = peg_out_graphs
                             .get(&fulfiller)
@@ -674,7 +686,7 @@ impl ContractSM {
                             deadline,
                             active_graph,
                         };
-                        Ok(if fulfiller == self.cfg.perspective {
+                        Ok(if fulfiller_idx == self.cfg.operator_table.pov_idx() {
                             Some(OperatorDuty::FulfillerDuty(
                                 FulfillerDuty::PublishFulfillment,
                             ))
@@ -708,7 +720,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if fulfiller == self.cfg.perspective {
+                let duty = if &fulfiller == self.cfg.operator_table.pov_op_key() {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
                 } else {
                     None
@@ -744,7 +756,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if fulfiller != self.cfg.perspective {
+                let duty = if &fulfiller != self.cfg.operator_table.pov_op_key() {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim))
                 } else {
                     None
@@ -792,7 +804,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if fulfiller == self.cfg.perspective {
+                let duty = if &fulfiller == self.cfg.operator_table.pov_op_key() {
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishAssertChain,
                     ))
@@ -830,7 +842,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if fulfiller != self.cfg.perspective {
+                let duty = if &fulfiller != self.cfg.operator_table.pov_op_key() {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion))
                 } else {
                     None
