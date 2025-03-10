@@ -50,6 +50,7 @@ strata-bridge-agent = { path = "crates/agent" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
+strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof-primitives = { path = "crates/bridge-proof/primitives" }
 strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
