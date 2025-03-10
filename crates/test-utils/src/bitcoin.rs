@@ -6,10 +6,7 @@ use bitcoin::{
     absolute::LockTime,
     consensus,
     hashes::Hash,
-    key::{
-        rand::{rngs::OsRng, thread_rng, Rng},
-        Parity,
-    },
+    key::rand::{rngs::OsRng, thread_rng, Rng},
     secp256k1::{schnorr::Signature, Keypair, SecretKey, XOnlyPublicKey, SECP256K1},
     sighash::{Prevouts, SighashCache},
     transaction::Version,
@@ -17,6 +14,7 @@ use bitcoin::{
 };
 use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
+use strata_bridge_primitives::secp::EvenSecretKey;
 use strata_btcio::rpc::{
     types::{ListUnspent, SignRawTransactionWithWallet},
     BitcoinClient,
@@ -64,12 +62,8 @@ pub fn generate_signature() -> Signature {
 pub fn generate_keypair() -> Keypair {
     let mut rng = thread_rng();
     let sk = SecretKey::new(&mut rng);
-    if sk.x_only_public_key(SECP256K1).1 == Parity::Odd {
-        let negated_sk = sk.negate();
-        Keypair::from_secret_key(SECP256K1, &negated_sk)
-    } else {
-        Keypair::from_secret_key(SECP256K1, &sk)
-    }
+    let sk: EvenSecretKey = sk.into();
+    Keypair::from_secret_key(SECP256K1, &sk)
 }
 
 pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
