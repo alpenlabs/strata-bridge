@@ -10,13 +10,9 @@ use bitcoin::{
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
-    operator_table::OperatorTable,
-    params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
-    types::BitcoinBlockHeight,
+    operator_table::OperatorTable, params::prelude::ConnectorParams, types::BitcoinBlockHeight,
 };
-#[expect(dead_code)]
-use strata_bridge_stake_chain::StakeChain;
-use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
+use strata_bridge_tx_graph::peg_out_graph::{PegOutGraphInput, PegOutGraphSummary};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
@@ -403,6 +399,7 @@ impl ContractSM {
     pub fn process_contract_event(
         &mut self,
         ev: ContractEvent,
+        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
             ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, *keys),
@@ -416,7 +413,7 @@ impl ContractSM {
             ContractEvent::PegOutGraphConfirmation(tx, height) => {
                 self.process_peg_out_graph_tx_confirmation(height, &tx)
             }
-            ContractEvent::Block(height) => self.notify_new_block(height),
+            ContractEvent::Block(height) => self.notify_new_block(height, connector_params),
             ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
             ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
             ContractEvent::Assignment(deposit_entry) => self.process_assignment(&deposit_entry),
@@ -588,6 +585,7 @@ impl ContractSM {
     fn notify_new_block(
         &mut self,
         height: BitcoinBlockHeight,
+        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if self.state.block_height + 1 == height {
             self.state.block_height = height;
@@ -625,7 +623,8 @@ impl ContractSM {
                     claim_height,
                     ..
                 } => {
-                    if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
+                    if self.state.block_height
+                        >= claim_height + connector_params.payout_optimistic_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(
@@ -641,7 +640,8 @@ impl ContractSM {
                     fulfiller,
                     ..
                 } => {
-                    if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
+                    if self.state.block_height
+                        >= post_assert_height + connector_params.payout_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))

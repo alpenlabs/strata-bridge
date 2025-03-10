@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 use bitcoin::{hashes::sha256d::Hash, Block, Network, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
-use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
+use strata_bridge_primitives::{
+    build_context::TxKind, operator_table::OperatorTable, params::prelude::ConnectorParams,
+};
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
@@ -25,12 +27,15 @@ use crate::{
 pub struct ContractManager {
     thread_handle: JoinHandle<()>,
 }
+
 impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     pub fn new(
         network: Network,
         operator_table: OperatorTable,
         zmq_client: BtcZmqClient,
+        tx_tag: Vec<u8>,
+        connector_params: ConnectorParams,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
     ) -> Self {
@@ -57,6 +62,8 @@ impl ContractManager {
                 next_deposit_idx: active_contracts.len() as u32,
                 network,
                 operator_table,
+                tx_tag,
+                connector_params,
                 contract_persister,
                 active_contracts,
             };
@@ -117,10 +124,13 @@ pub enum ContractManagerErr {
 struct ContractManagerCtx {
     next_deposit_idx: u32,
     network: Network,
+    tx_tag: Vec<u8>,
+    connector_params: ConnectorParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
     active_contracts: BTreeMap<Txid, ContractSM>,
 }
+
 impl ContractManagerCtx {
     async fn process_block(&mut self, block: Block) -> Result<(), ContractManagerErr> {
         let height = block.bip34_block_height().unwrap_or(0);
@@ -134,9 +144,10 @@ impl ContractManagerCtx {
 
             let txid = tx.compute_txid();
             if let Some(deposit_info) = deposit_request_info(&tx) {
-                let deposit_tx = match deposit_info
-                    .construct_signing_data(&self.operator_table.tx_build_context(self.network))
-                {
+                let deposit_tx = match deposit_info.construct_signing_data(
+                    &self.operator_table.tx_build_context(self.network),
+                    Some(&self.tx_tag),
+                ) {
                     Ok(data) => data.psbt.unsigned_tx,
                     Err(_) => {
                         // TODO(proofofkeags): what does this mean? @Rajil1213
@@ -163,6 +174,7 @@ impl ContractManagerCtx {
             if let Some(contract) = self.active_contracts.get_mut(&txid) {
                 if let Ok(duty) = contract.process_contract_event(
                     ContractEvent::DepositConfirmation(tx, self.next_deposit_idx),
+                    self.connector_params,
                 ) {
                     self.contract_persister
                         .commit(&txid, contract.state())
@@ -179,6 +191,7 @@ impl ContractManagerCtx {
                 if contract.transaction_filter()(&tx) {
                     let duty = contract.process_contract_event(
                         ContractEvent::PegOutGraphConfirmation(tx.clone(), height),
+                        self.connector_params,
                     )?;
                     self.contract_persister
                         .commit(deposit_txid, contract.state())
@@ -193,7 +206,9 @@ impl ContractManagerCtx {
         // Now that we've handled all the transaction level events, we should inform all the
         // CSMs that a new block has arrived
         for (_, contract) in self.active_contracts.iter_mut() {
-            if let Some(duty) = contract.process_contract_event(ContractEvent::Block(height))? {
+            if let Some(duty) = contract
+                .process_contract_event(ContractEvent::Block(height), self.connector_params)?
+            {
                 duties.push(duty);
             }
         }
@@ -213,10 +228,10 @@ impl ContractManagerCtx {
             } => {
                 let deposit_txid = Txid::from_raw_hash(*Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
-                    if let Some(duty) = contract.process_contract_event(ContractEvent::WotsKeys(
-                        msg.key,
-                        Box::new(wots_pks),
-                    ))? {
+                    if let Some(duty) = contract.process_contract_event(
+                        ContractEvent::WotsKeys(msg.key, Box::new(wots_pks)),
+                        self.connector_params,
+                    )? {
                         self.execute_duty(duty);
                     }
                 }
@@ -228,9 +243,10 @@ impl ContractManagerCtx {
             } => {
                 let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&txid) {
-                    if let Some(duty) = contract
-                        .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
-                    {
+                    if let Some(duty) = contract.process_contract_event(
+                        ContractEvent::GraphNonces(msg.key, nonces),
+                        self.connector_params,
+                    )? {
                         self.execute_duty(duty);
                     }
                 } else if let Some((_, contract)) = self
@@ -244,9 +260,10 @@ impl ContractManagerCtx {
                         )));
                     }
                     let nonce = nonces.pop().unwrap();
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::RootNonce(msg.key, nonce))?
-                    {
+                    if let Some(duty) = contract.process_contract_event(
+                        ContractEvent::RootNonce(msg.key, nonce),
+                        self.connector_params,
+                    )? {
                         self.execute_duty(duty);
                     }
                 }
@@ -259,9 +276,10 @@ impl ContractManagerCtx {
             } => {
                 let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&txid) {
-                    if let Some(duty) = contract
-                        .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
-                    {
+                    if let Some(duty) = contract.process_contract_event(
+                        ContractEvent::GraphSigs(msg.key, signatures),
+                        self.connector_params,
+                    )? {
                         self.execute_duty(duty);
                     }
                 } else if let Some((_, contract)) = self
@@ -274,9 +292,10 @@ impl ContractManagerCtx {
                         todo!()
                     }
                     let sig = signatures.pop().unwrap();
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::RootSig(msg.key, sig))?
-                    {
+                    if let Some(duty) = contract.process_contract_event(
+                        ContractEvent::RootSig(msg.key, sig),
+                        self.connector_params,
+                    )? {
                         self.execute_duty(duty)
                     }
                 }
