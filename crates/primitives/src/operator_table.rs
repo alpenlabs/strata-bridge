@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
-use strata_p2p_types::OperatorPubKey;
+use strata_p2p_types::P2POperatorPubKey;
 use strata_primitives::bridge::PublickeyTable;
 
 use crate::{build_context::TxBuildContext, types::OperatorIdx};
@@ -12,13 +12,13 @@ use crate::{build_context::TxBuildContext, types::OperatorIdx};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorTable {
     pov: OperatorIdx,
-    idx_key: BTreeMap<OperatorIdx, (OperatorPubKey, secp256k1::PublicKey)>,
-    op_key: BTreeMap<OperatorPubKey, (OperatorIdx, secp256k1::PublicKey)>,
-    btc_key: BTreeMap<secp256k1::PublicKey, (OperatorIdx, OperatorPubKey)>,
+    idx_key: BTreeMap<OperatorIdx, (P2POperatorPubKey, secp256k1::PublicKey)>,
+    op_key: BTreeMap<P2POperatorPubKey, (OperatorIdx, secp256k1::PublicKey)>,
+    btc_key: BTreeMap<secp256k1::PublicKey, (OperatorIdx, P2POperatorPubKey)>,
 }
 impl OperatorTable {
     pub fn new(
-        entries: Vec<(OperatorIdx, OperatorPubKey, secp256k1::PublicKey)>,
+        entries: Vec<(OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey)>,
         pov: OperatorIdx,
     ) -> Option<Self> {
         let mut idx_key = BTreeMap::new();
@@ -50,7 +50,7 @@ impl OperatorTable {
         })
     }
 
-    pub fn idx_to_op_key<'a>(&'a self, idx: &OperatorIdx) -> Option<&'a OperatorPubKey> {
+    pub fn idx_to_op_key<'a>(&'a self, idx: &OperatorIdx) -> Option<&'a P2POperatorPubKey> {
         self.idx_key.get(idx).map(|x| &x.0)
     }
 
@@ -58,11 +58,11 @@ impl OperatorTable {
         self.idx_key.get(idx).map(|x| x.1)
     }
 
-    pub fn op_key_to_idx(&self, op_key: &OperatorPubKey) -> Option<OperatorIdx> {
+    pub fn op_key_to_idx(&self, op_key: &P2POperatorPubKey) -> Option<OperatorIdx> {
         self.op_key.get(op_key).map(|x| x.0)
     }
 
-    pub fn op_key_to_btc_key(&self, op_key: &OperatorPubKey) -> Option<secp256k1::PublicKey> {
+    pub fn op_key_to_btc_key(&self, op_key: &P2POperatorPubKey) -> Option<secp256k1::PublicKey> {
         self.op_key.get(op_key).map(|x| x.1)
     }
 
@@ -73,7 +73,7 @@ impl OperatorTable {
     pub fn btc_key_to_op_key<'a>(
         &'a self,
         btc_key: &secp256k1::PublicKey,
-    ) -> Option<&'a OperatorPubKey> {
+    ) -> Option<&'a P2POperatorPubKey> {
         self.btc_key.get(btc_key).map(|x| &x.1)
     }
 
@@ -81,7 +81,7 @@ impl OperatorTable {
         self.pov
     }
 
-    pub fn pov_op_key(&self) -> &OperatorPubKey {
+    pub fn pov_op_key(&self) -> &P2POperatorPubKey {
         // NOTE(proofofkeags): unwrap is safe because we assert this key is in the map in the
         // constructor.
         &self.idx_key.get(&self.pov).unwrap().0
