@@ -14,8 +14,10 @@ use strata_bridge_primitives::{
     params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
     types::BitcoinBlockHeight,
 };
+#[expect(dead_code)]
+use strata_bridge_stake_chain::StakeChain;
 use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
-use strata_p2p_types::{OperatorPubKey, WotsPublicKeys};
+use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 
@@ -27,19 +29,19 @@ use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 #[derive(Debug)]
 pub enum ContractEvent {
     /// Signifies that we have a new set of WOTS keys from one of our peers.
-    WotsKeys(OperatorPubKey, Box<WotsPublicKeys>),
+    WotsKeys(P2POperatorPubKey, Box<WotsPublicKeys>),
 
     /// Signifies that we have a new set of nonces for the peg out graph from one of our peers.
-    GraphNonces(OperatorPubKey, Vec<PubNonce>),
+    GraphNonces(P2POperatorPubKey, Vec<PubNonce>),
 
     /// Signifies that we have a new set of signatures for the peg out graph from one of our peers.
-    GraphSigs(OperatorPubKey, Vec<PartialSignature>),
+    GraphSigs(P2POperatorPubKey, Vec<PartialSignature>),
 
     /// Signifies that we have received a new deposit nonce from one of our peers.
-    RootNonce(OperatorPubKey, PubNonce),
+    RootNonce(P2POperatorPubKey, PubNonce),
 
     /// Signifies that we have a new deposit signature from one of our peers.
-    RootSig(OperatorPubKey, PartialSignature),
+    RootSig(P2POperatorPubKey, PartialSignature),
 
     /// Signifies that this withdrawal has been assigned.
     Assignment(DepositEntry),
@@ -79,30 +81,30 @@ pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
     /// the deposit confirms.
     Requested {
-        /// This is the height where the requester can relcaim the request output if it has not yet
+        /// This is the height where the requester can reclaim the request output if it has not yet
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
 
         /// This is a collection of the wots keys we have received from our peers.
-        wots_keys: BTreeMap<OperatorPubKey, WotsPublicKeys>,
+        wots_keys: BTreeMap<P2POperatorPubKey, WotsPublicKeys>,
 
         /// This is a collection of each operator's funding outputs that they use to fund the
         /// connectors.
-        funding_outputs: BTreeMap<OperatorPubKey, OutPoint>,
+        funding_outputs: BTreeMap<P2POperatorPubKey, OutPoint>,
 
         /// This is a collection of nonces for the peg-out graph on a per-operator basis.
-        graph_nonces: BTreeMap<OperatorPubKey, Vec<PubNonce>>,
+        graph_nonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
 
         /// This is the collection of signatures for the peg-out graph on a per-operator basis.
-        graph_sigs: BTreeMap<OperatorPubKey, Vec<PartialSignature>>,
+        graph_sigs: BTreeMap<P2POperatorPubKey, Vec<PartialSignature>>,
 
         /// This is a collection of the nonces for the final musig2 signature needed to sweep the
         /// deposit request transaction to the deposit transaction.
-        root_nonces: BTreeMap<OperatorPubKey, PubNonce>,
+        root_nonces: BTreeMap<P2POperatorPubKey, PubNonce>,
 
         /// This is the collection of signatures for the deposit transaction itself on a
         /// per-operator basis.
-        root_sigs: BTreeMap<OperatorPubKey, PartialSignature>,
+        root_sigs: BTreeMap<P2POperatorPubKey, PartialSignature>,
     },
 
     /// This state describes everything from the moment the deposit confirms, to the moment the
@@ -111,7 +113,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
-        peg_out_graphs: BTreeMap<OperatorPubKey, PegOutGraphSummary>,
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
     },
 
     /// This state describes everything from the moment the withdrawal is assigned, to the moment
@@ -120,10 +122,10 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
-        peg_out_graphs: BTreeMap<OperatorPubKey, PegOutGraphSummary>,
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: OperatorPubKey,
+        fulfiller: P2POperatorPubKey,
 
         /// The deadline by which the operator must fulfill the withdrawal before it is reassigned.
         deadline: BitcoinBlockHeight,
@@ -138,10 +140,10 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
-        peg_out_graphs: BTreeMap<OperatorPubKey, PegOutGraphSummary>,
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: OperatorPubKey,
+        fulfiller: P2POperatorPubKey,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -154,13 +156,13 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
-        peg_out_graphs: BTreeMap<OperatorPubKey, PegOutGraphSummary>,
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the claim transaction was confirmed.
         claim_height: BitcoinBlockHeight,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: OperatorPubKey,
+        fulfiller: P2POperatorPubKey,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -172,10 +174,10 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
-        peg_out_graphs: BTreeMap<OperatorPubKey, PegOutGraphSummary>,
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: OperatorPubKey,
+        fulfiller: P2POperatorPubKey,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -187,13 +189,13 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
-        peg_out_graphs: BTreeMap<OperatorPubKey, PegOutGraphSummary>,
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the post-assert transaction was confirmed.
         post_assert_height: BitcoinBlockHeight,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: OperatorPubKey,
+        fulfiller: P2POperatorPubKey,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -437,10 +439,13 @@ impl ContractSM {
                     wots_public_keys: todo!(),
                     operator_pubkey: todo!(),
                 };
-                let peg_out_graphs = PegOutGraph::generate(input, context, deposit_txid, graph_params, stake_chain_params, prev_claim_txids)
+                let peg_out_graphs =
+                    // PegOutGraph::generate(todo!(), todo!(), todo!(), todo!(), todo!(), todo!())
+                    //     .unwrap();
+                    todo!();
                 self.state.state = ContractState::Deposited {
                     deposit_idx,
-                    peg_out_graphs,
+                    peg_out_graphs: todo!(),
                 };
                 Ok(None)
             }
@@ -473,7 +478,7 @@ impl ContractSM {
 
     fn process_wots_public_keys(
         &mut self,
-        signer: OperatorPubKey,
+        signer: P2POperatorPubKey,
         keys: WotsPublicKeys,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
@@ -493,7 +498,7 @@ impl ContractSM {
 
     fn process_graph_nonces(
         &mut self,
-        signer: OperatorPubKey,
+        signer: P2POperatorPubKey,
         nonces: Vec<PubNonce>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
@@ -514,7 +519,7 @@ impl ContractSM {
     /// Processes a graph signature payload from our peer.
     fn process_graph_signatures(
         &mut self,
-        signer: OperatorPubKey,
+        signer: P2POperatorPubKey,
         sig: Vec<PartialSignature>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
@@ -536,7 +541,7 @@ impl ContractSM {
 
     fn process_root_nonce(
         &mut self,
-        signer: OperatorPubKey,
+        signer: P2POperatorPubKey,
         nonce: PubNonce,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
@@ -559,7 +564,7 @@ impl ContractSM {
     /// Processes a signature for the deposit transaction from our peer.
     fn process_root_signature(
         &mut self,
-        signer: OperatorPubKey,
+        signer: P2POperatorPubKey,
         sig: PartialSignature,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {

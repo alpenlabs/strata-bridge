@@ -30,7 +30,6 @@ strata-btcio.workspace = true
 strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 strata-p2p-wire.workspace = true
-strata-primitives.workspace = true
 strata-state.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
