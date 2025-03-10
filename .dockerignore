@@ -1,0 +1,35 @@
+# Ignore git repository files
+.git
+.gitignore
+
+# Ignore GitHub workflow files
+.github/
+
+# Ignore Rust target directory (build artifacts)
+target/
+
+# Ignore Node.js and other dependency directories if present
+node_modules/
+bower_components/
+
+# Ignore logs
+logs/
+*.log
+
+# Ignore temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+
+# Ignore utilities that are not necessary for the build
+# utils/html-solver/
+
+# Ignore any local configuration or environment files
+*.env
+*.local
+
+# Ignore editor or IDE specific files
+*.idea/
+*.vscode/
+*.DS_Store
