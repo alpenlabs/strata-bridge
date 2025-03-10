@@ -8,7 +8,7 @@ use strata_bridge_tx_graph::peg_out_graph::PegOutGraphParams;
 /// in how these are configured among the bridge operators in the network will lead to different
 /// behavior that will prevent the bridge from functioning.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Params {
+pub(crate) struct Params {
     /// The tag that is used to identify bridge-specific transactions in the Bitcoin blockchain.
     ///
     /// This is chiefly used to identify Deposit Request and Deposit transactions.
