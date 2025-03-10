@@ -26,7 +26,7 @@ use rand::Rng;
 use secp256k1::schnorr::Signature;
 use strata_bridge_connectors::{
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
-    prelude::{ConnectorA30Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
+    prelude::{ConnectorA3Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
 };
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
@@ -1887,7 +1887,7 @@ where
                 .get_signature(
                     own_index,
                     payout_tx.compute_txid(),
-                    ConnectorA30Leaf::Payout(()).get_input_index(),
+                    ConnectorA3Leaf::Payout(None).get_input_index(),
                 )
                 .await
                 .unwrap()
