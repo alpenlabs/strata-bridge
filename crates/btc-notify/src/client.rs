@@ -16,11 +16,9 @@ use tokio::{
 pub use crate::{
     config::BtcZmqConfig,
     event::{TxEvent, TxStatus},
+    state_machine::TxPredicate,
 };
-use crate::{
-    state_machine::{BtcZmqSM, TxPredicate},
-    subscription::Subscription,
-};
+use crate::{state_machine::BtcZmqSM, subscription::Subscription};
 
 struct TxSubscriptionDetails {
     predicate: TxPredicate,

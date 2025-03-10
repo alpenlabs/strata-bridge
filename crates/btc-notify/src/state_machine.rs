@@ -12,7 +12,7 @@ use crate::event::{TxEvent, TxStatus};
 ///
 /// The choice of using an arc here is intentional so that we can directly compare these predicates
 /// (via [`Arc::ptr_eq`]) when managing the active subscription set.
-pub(crate) type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
+pub type TxPredicate = Arc<dyn Fn(&Transaction) -> bool + Sync + Send>;
 
 /// Keeps track of distinct messages coming in on parallel streams that are all triggered by the
 /// same underlying event.

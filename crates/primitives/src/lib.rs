@@ -15,6 +15,7 @@ pub mod build_context;
 pub mod deposit;
 pub mod duties;
 pub mod errors;
+pub mod operator_table;
 pub mod params;
 pub mod scripts;
 pub mod secp;
