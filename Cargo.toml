@@ -26,6 +26,7 @@ members = [
 
   # test utilities
   "crates/test-utils",
+  "crates/duty-tracker",
 ]
 
 default-members = ["bin/strata-bridge", "bin/dev-cli", "bin/assert-splitter"]
@@ -34,6 +35,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # deps in this workspace
+btc-notify = { path = "crates/btc-notify" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 strata-bridge-agent = { path = "crates/agent" }
 strata-bridge-connectors = { path = "crates/connectors" }
