@@ -54,10 +54,14 @@ impl TxKind for DepositInfo {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
+        tag: Option<&[u8]>,
     ) -> BridgeTxBuilderResult<TxSigningData> {
         let prevouts = self.compute_prevouts();
         let spend_info = self.compute_spend_infos(build_context)?;
-        let unsigned_tx = self.create_unsigned_tx(build_context)?;
+        let unsigned_tx = self.create_unsigned_tx(
+            build_context,
+            tag.expect("deposit tx must have a tag in the metadata"),
+        )?;
 
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
 
@@ -179,6 +183,7 @@ impl DepositInfo {
     fn create_unsigned_tx(
         &self,
         build_context: &impl BuildContext,
+        tag: &[u8],
     ) -> BridgeTxBuilderResult<Transaction> {
         // First, create the inputs
         let outpoint = self.deposit_request_outpoint();
@@ -194,7 +199,7 @@ impl DepositInfo {
             ))
         })?;
 
-        let metadata_script = metadata_script(el_addr);
+        let metadata_script = metadata_script(el_addr, tag);
         let metadata_amount = Amount::from_int_btc(0);
 
         // Then create the taproot script pubkey with keypath spend for the actual deposit
@@ -310,7 +315,8 @@ mod tests {
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.create_unsigned_tx(&tx_builder);
+        let tag = b"alpen";
+        let result = deposit_info.create_unsigned_tx(&tx_builder, tag);
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -343,7 +349,8 @@ mod tests {
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let tag = b"alpen";
+        let result = deposit_info.construct_signing_data(&tx_builder, Some(&tag[..]));
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -364,7 +371,7 @@ mod tests {
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let result = deposit_info.construct_signing_data(&tx_builder, Some(&tag[..]));
         assert!(
             result.is_err_and(|e| matches!(
                 e,
@@ -388,7 +395,7 @@ mod tests {
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let result = deposit_info.construct_signing_data(&tx_builder, Some(&tag[..]));
         assert!(
             result.is_err_and(|e| matches!(
                 e,

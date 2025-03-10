@@ -63,9 +63,6 @@ pub const DISPROVER_REWARD: Amount = Amount::from_int_btc(1);
 /// The reward for a successful slashing.
 pub const SLASH_STAKE_REWARD: Amount = Amount::from_sat(199_999_000); // 2 BTC - 1000 sats
 
-/// Magic bytes to add to the metadata output in transactions to help identify them.
-pub const MAGIC_BYTES: &[u8; 11] = b"alpenstrata";
-
 const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"Strata Bridge Unspendable";
 
 /// A verifiably unspendable public key, produced by hashing a fixed string to a curve group

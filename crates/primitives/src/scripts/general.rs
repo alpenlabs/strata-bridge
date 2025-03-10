@@ -8,8 +8,6 @@ use bitcoin_script::{script, Script};
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
 
-use crate::params::prelude::MAGIC_BYTES;
-
 /// Create a script with the spending condition that a MuSig2 aggregated signature corresponding to
 /// the pubkey set must be provided.
 ///
@@ -56,10 +54,10 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
     aggregated_pubkey.x_only_public_key().0
 }
 
-/// Create the metadata script that "stores" the execution layer address information.
-pub fn metadata_script(el_address: &[u8; 20]) -> ScriptBuf {
+/// Create the metadata script that "stores" a tag and the execution layer address information.
+pub fn metadata_script(el_address: &[u8; 20], tag: &[u8]) -> ScriptBuf {
     let mut data = PushBytesBuf::new();
-    data.extend_from_slice(MAGIC_BYTES)
+    data.extend_from_slice(tag)
         .expect("MAGIC_BYTES should be within the limit");
     data.extend_from_slice(&el_address[..])
         .expect("el_address should be within the limit");

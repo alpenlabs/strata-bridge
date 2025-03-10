@@ -97,5 +97,6 @@ pub trait TxKind {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
+        tag: Option<&[u8]>,
     ) -> BridgeTxBuilderResult<TxSigningData>;
 }

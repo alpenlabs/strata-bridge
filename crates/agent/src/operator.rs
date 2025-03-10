@@ -87,6 +87,7 @@ use crate::{
 const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
 const STAKE_CHAIN_LENGTH: u32 = 10;
+const MAGIC_BYTES: &[u8] = b"alpen";
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -178,7 +179,7 @@ where
                 info!(event = "received deposit duty", %own_index, drt_txid = %txid);
 
                 let data = deposit_info
-                    .construct_signing_data(&self.build_context)
+                    .construct_signing_data(&self.build_context, Some(MAGIC_BYTES))
                     .unwrap(); // FIXME: Handle
                 let deposit_txid = data.psbt.unsigned_tx.compute_txid();
 
@@ -240,7 +241,8 @@ where
         let own_index = self.build_context.own_index();
 
         // 1. aggregate_tx_graph
-        let deposit_tx = deposit_info.construct_signing_data(&self.build_context);
+        let deposit_tx =
+            deposit_info.construct_signing_data(&self.build_context, Some(MAGIC_BYTES));
 
         if let Err(cause) = deposit_tx {
             let deposit_txid = deposit_info.deposit_request_outpoint().txid;
