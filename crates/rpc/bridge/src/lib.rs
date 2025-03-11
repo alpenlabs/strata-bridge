@@ -6,9 +6,12 @@
 
 mod types;
 
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use strata_bridge_primitives::{duties::BridgeDuty, types::OperatorIdx};
+use strata_bridge_primitives::{
+    duties::BridgeDuty,
+    types::{OperatorIdx, PublickeyTable},
+};
 
 use crate::types::*;
 
@@ -25,35 +28,42 @@ pub trait StrataBridgeControlApi {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "stratabridge"))]
 pub trait StrataBridgeMonitoringApi {
-    /// Get all bridge operator IDs
+    /// Get all bridge operator IDs.
     #[method(name = "bridgeOperators")]
-    async fn get_bridge_operators(&self) -> RpcResult<Vec<OperatorIdx>>;
+    async fn get_bridge_operators(&self) -> RpcResult<PublickeyTable>;
 
-    /// Query operator status (Online/Offline)
+    /// Query operator status (Online/Offline).
     #[method(name = "operatorStatus")]
     async fn get_operator_status(&self, operator_idx: OperatorIdx) -> RpcResult<RpcOperatorStatus>;
 
-    /// Get deposit details using the deposit request outpoint
+    /// Get deposit details using the deposit request outpoint.
     #[method(name = "depositInfo")]
     async fn get_deposit_info(
         &self,
         deposit_request_outpoint: OutPoint,
     ) -> RpcResult<RpcDepositInfo>;
 
-    /// Get bridge duties assigned to an operator
+    /// Get bridge duties assigned to an operator its [`PublicKey`].
     #[method(name = "bridgeDuties")]
-    async fn get_bridge_duties(&self, operator_id: u32) -> RpcResult<Vec<BridgeDuty>>;
+    async fn get_bridge_duties(&self, operator_pk: PublicKey) -> RpcResult<Vec<BridgeDuty>>;
 
-    /// Get withdrawal details using deposit outpoint
+    /// Get bridge duties assigned to an operator by [`OperatorIdx`].
+    #[method(name = "bridgeDutiesById")]
+    async fn get_bridge_duties_by_operator_id(
+        &self,
+        operator_id: OperatorIdx,
+    ) -> RpcResult<Vec<BridgeDuty>>;
+
+    /// Get withdrawal details using deposit outpoint.
     #[method(name = "withdrawalInfo")]
     async fn get_withdrawal_info(&self, deposit_outpoint: OutPoint)
         -> RpcResult<RpcWithdrawalInfo>;
 
-    /// Get all claim transaction IDs
+    /// Get all claim transaction IDs.
     #[method(name = "claims")]
     async fn get_claims(&self) -> RpcResult<Vec<Txid>>;
 
-    /// Get claim details for a given claim transaction ID
+    /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo>;
 }
