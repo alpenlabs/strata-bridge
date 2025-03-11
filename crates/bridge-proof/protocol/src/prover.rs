@@ -43,6 +43,7 @@ impl ZkVmProver for BridgeProver {
 
         input_builder
             .write_serde(&input.rollup_params)?
+            .write_serde(&input.pegout_graph_params)?
             .write_buf(&headers_buf)?
             .write_borsh(&borsh_input)?
             .build()
@@ -68,6 +69,7 @@ pub fn get_native_host() -> NativeHost {
 
 #[cfg(test)]
 mod tests {
+    use alpen_bridge_params::prelude::PegOutGraphParams;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         header_verification_state, load_op_signature, load_test_chainstate,
@@ -80,8 +82,11 @@ mod tests {
     use super::*;
 
     fn get_input() -> BridgeProofInput {
+        let pegout_graph_params = PegOutGraphParams::default();
+
         BridgeProofInput {
             rollup_params: load_test_rollup_params(),
+            pegout_graph_params,
             headers: extract_test_headers(),
             chain_state: load_test_chainstate(),
             header_vs: header_verification_state(),
