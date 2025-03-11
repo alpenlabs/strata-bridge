@@ -1,5 +1,8 @@
 use alpen_bridge_params::prelude::{PegOutGraphParams, StakeChainParams};
-use serde::{Deserialize, Serialize};
+use bitcoin::hex::DisplayHex;
+use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
+use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
+use serde::{Deserialize, Deserializer, Serialize};
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
@@ -16,6 +19,11 @@ pub(crate) struct Params {
     /// The height at which the bridge node starts scanning for relevant transactions.
     pub genesis_height: u32,
 
+    /// The keys used by operators.
+    #[serde(deserialize_with = "deserialize_keys")]
+    #[serde(serialize_with = "serialize_keys")]
+    pub keys: KeyParams,
+
     /// The parameters that dictate the nature of the peg-out graph.
     ///
     /// Difference in these values among the bridge operators will lead to different peg-out graphs
@@ -27,6 +35,78 @@ pub(crate) struct Params {
     /// Difference in these values among the bridge operators will lead to different stake chain
     /// structures and thereby, invalid signatures being exchanged.
     pub stake_chain: StakeChainParams,
+}
+
+/// The keys used by the operators encoded in hex strings for convenience.
+/// The keys used by the operators.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct KeyParams {
+    /// The keys used for the musig2 signing corresponding to the N-of-N covenant enforcement.
+    pub(crate) musig2: Vec<Musig2Key>,
+
+    /// The keys used for authenticated p2p communication.
+    pub(crate) p2p: Vec<Libp2pKey>,
+}
+
+/// Serialize the keys into hex-encoded bytes.
+fn serialize_keys<S>(keys: &KeyParams, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct EncodedKeyParams {
+        musig2: Vec<String>,
+        p2p: Vec<String>,
+    }
+
+    let encoded_keys = EncodedKeyParams {
+        musig2: keys
+            .musig2
+            .iter()
+            .map(|key| key.serialize().to_lower_hex_string())
+            .collect(),
+        p2p: keys
+            .p2p
+            .iter()
+            .map(|key| key.to_bytes().to_lower_hex_string())
+            .collect(),
+    };
+
+    encoded_keys.serialize(serializer)
+}
+
+/// Deserialize the hex-encoded bytes of keys.
+fn deserialize_keys<'de, D>(deserializer: D) -> Result<KeyParams, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct EncodedKeyParams {
+        musig2: Vec<String>,
+        p2p: Vec<String>,
+    }
+
+    let encoded_keys = EncodedKeyParams::deserialize(deserializer)?;
+
+    let musig2 = encoded_keys
+        .musig2
+        .into_iter()
+        .map(|key| {
+            let key = hex::decode(key).expect("Failed to decode hex key");
+            Musig2Key::from_slice(&key).expect("Failed to create Musig2Key from slice")
+        })
+        .collect();
+
+    let p2p = encoded_keys
+        .p2p
+        .into_iter()
+        .map(|key| {
+            let key = hex::decode(key).expect("Failed to decode hex key");
+            Libp2pKey::try_from_bytes(&key).expect("Failed to decode Libp2pKey from slice")
+        })
+        .collect();
+
+    Ok(KeyParams { musig2, p2p })
 }
 
 #[cfg(test)]
@@ -42,6 +122,10 @@ mod tests {
             r#"
             tx_tag = "bridge-tag"
             genesis_height = 101
+
+            [keys]
+            musig2 = ["c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164", "d57243dbb3ef14caeac8f724fea1449d802133495ef1675f210b074206ff9275"]
+            p2p = ["02e68354ebb3ef14caeac8f724fea1449d802133495ef1675f210b07421700a386", "03f79465fcc3ef14caeac8f724fea1449d802133495ef1675f210b07421811b497"]
 
             [tx_graph]
             deposit_amount = {}
