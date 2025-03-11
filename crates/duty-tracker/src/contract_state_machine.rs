@@ -11,7 +11,7 @@ use bitcoin::{
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
-use strata_bridge_tx_graph::peg_out_graph::{PegOutGraphInput, PegOutGraphSummary};
+use strata_bridge_tx_graph::peg_out_graph::PegOutGraphSummary;
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
@@ -108,6 +108,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs that are associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
     },
 
@@ -117,6 +118,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs that are associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -135,6 +137,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The peg-out graphs that are associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -151,6 +154,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the claim transaction was confirmed.
@@ -169,6 +173,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -184,6 +189,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the post-assert transaction was confirmed.
@@ -422,27 +428,26 @@ impl ContractSM {
     fn process_deposit_confirmation(
         &mut self,
         tx: Transaction,
-        deposit_idx: u32,
+        _deposit_idx: u32,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match self.state.state {
             ContractState::Requested { .. }
                 if tx.compute_txid() == self.cfg.deposit_tx.compute_txid() =>
             {
-                let peg_out_input = PegOutGraphInput {
-                    stake_outpoint: todo!(),
-                    withdrawal_fulfillment_outpoint: todo!(),
-                    stake_hash: todo!(),
-                    wots_public_keys: todo!(),
-                    operator_pubkey: todo!(),
-                };
-                let peg_out_graphs =
-                    // PegOutGraph::generate(todo!(), todo!(), todo!(), todo!(), todo!(), todo!())
-                    //     .unwrap();
-                    todo!();
-                self.state.state = ContractState::Deposited {
-                    deposit_idx,
-                    peg_out_graphs: todo!(),
-                };
+                // let _peg_out_input = PegOutGraphInput {
+                //     stake_outpoint: todo!(),
+                //     withdrawal_fulfillment_outpoint: todo!(),
+                //     stake_hash: todo!(),
+                //     wots_public_keys: todo!(),
+                //     operator_pubkey: todo!(),
+                // };
+                // let _peg_out_graphs =
+                //     // PegOutGraph::generate(todo!(), todo!(), todo!(), todo!(), todo!(),
+                // todo!()).unwrap();
+                // self.state.state = ContractState::Deposited {
+                //     deposit_idx,
+                //     peg_out_graphs: todo!(),
+                // };
                 Ok(None)
             }
             _ => Err(TransitionErr),
