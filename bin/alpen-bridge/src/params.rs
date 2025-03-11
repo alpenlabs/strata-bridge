@@ -45,7 +45,8 @@ mod tests {
 
             [tx_graph]
             deposit_amount = {}
-            funding_amount = 32340
+            operator_fee = 1000000
+            challenge_cost = 10000000
 
             [stake_chain]
             stake_amount      = 100000000
