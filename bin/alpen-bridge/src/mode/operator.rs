@@ -2,8 +2,7 @@
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_rpc;
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::task::JoinHandle;
 use tracing::info;
 
 use crate::{config::Config, params::Params};
@@ -31,24 +30,24 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     Ok(())
 }
 
-fn init_secret_service_client(config: &Config) -> SecretServiceClient {
+fn init_secret_service_client(_config: &Config) -> SecretServiceClient {
     unimplemented!("@Zk2u!");
 }
 
-fn init_p2p_msg_handler(config: &Config) -> MessageHandler {
+fn init_p2p_msg_handler(_config: &Config) -> MessageHandler {
     unimplemented!("@storopoli");
 }
 
-fn init_database_handle(config: &Config) -> SqliteDb {
+fn init_database_handle(_config: &Config) -> SqliteDb {
     unimplemented!("@Rajil1213");
 }
 
 fn init_duty_tracker(
-    params: &Params,
-    config: &Config,
-    s2_client: SecretServiceClient,
-    message_handler: MessageHandler,
-    db: SqliteDb,
+    _params: &Params,
+    _config: &Config,
+    _s2_client: SecretServiceClient,
+    _message_handler: MessageHandler,
+    _db: SqliteDb,
 ) {
     unimplemented!("@ProofOfKeags");
 }

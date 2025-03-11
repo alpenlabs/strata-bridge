@@ -5,7 +5,7 @@ use clap::Parser;
 use config::Config;
 use mode::{operator, verifier};
 use params::Params;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::de::DeserializeOwned;
 use strata_common::logging::{self, LoggerConfig};
 use tracing::{debug, info};
 
@@ -53,7 +53,7 @@ where
     T: std::fmt::Debug + DeserializeOwned,
 {
     fs::read_to_string(path)
-        .and_then(|p| {
+        .map(|p| {
             debug!(?p, "read file");
 
             let parsed = toml::from_str::<T>(&p).unwrap_or_else(|e| {
@@ -61,7 +61,7 @@ where
             });
             debug!(?parsed, "parsed TOML file");
 
-            Ok(parsed)
+            parsed
         })
         .unwrap_or_else(|_| {
             panic!("failed to read TOML file");

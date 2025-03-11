@@ -22,19 +22,17 @@ alpen-bridge-params.workspace = true
 secret-service-client.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
-strata-bridge-primitives.workspace = true
-strata-bridge-rpc.workspace = true
-strata-bridge-tx-graph.workspace = true
 
 strata-common.workspace = true
 strata-p2p-types.workspace = true
 
 anyhow.workspace = true
-bitcoin.workspace = true
 clap.workspace = true
 libp2p.workspace = true
-quinn.workspace = true
 serde.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+
+[dev-dependencies]
+bitcoin.workspace = true
