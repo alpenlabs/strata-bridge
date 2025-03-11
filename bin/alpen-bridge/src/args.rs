@@ -13,7 +13,7 @@ use clap::{crate_version, Parser, ValueEnum};
 pub(crate) struct Cli {
     #[arg(
         value_enum,
-        help = "What mode to run the client in `Operator` (alias: op) or `Challenger` (alias: ch)",
+        help = "What mode to run the client in `Operator` (alias: op) or `Challenger` (alias: ve)",
         default_value_t = OperationMode::Operator
     )]
     pub mode: OperationMode,
@@ -42,15 +42,15 @@ pub(super) enum OperationMode {
     Operator,
 
     /// Run client in Challenger mode to verify/challenge Operator claims.
-    #[clap(alias = "ch")]
-    Challenger,
+    #[clap(alias = "ve")]
+    Verifier,
 }
 
 impl Display for OperationMode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OperationMode::Operator => write!(f, "operator"),
-            OperationMode::Challenger => write!(f, "challenger"),
+            OperationMode::Verifier => write!(f, "challenger"),
         }
     }
 }
@@ -60,7 +60,7 @@ impl FromStr for OperationMode {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "operator" => Ok(Self::Operator),
-            "challenger" => Ok(Self::Challenger),
+            "challenger" => Ok(Self::Verifier),
             _ => Err("Invalid mode".to_string()),
         }
     }

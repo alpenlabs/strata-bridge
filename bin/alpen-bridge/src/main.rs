@@ -32,7 +32,7 @@ async fn main() {
                     panic!("operator loop crashed: {:?}", e);
                 });
         }
-        OperationMode::Challenger => {
+        OperationMode::Verifier => {
             verifier::bootstrap(params, config)
                 .await
                 .unwrap_or_else(|e| {
