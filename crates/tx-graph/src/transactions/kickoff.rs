@@ -1,8 +1,9 @@
+use alpen_bridge_params::prelude::*;
 use bitcoin::{Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress, errors::BridgeTxBuilderError, params::prelude::*, scripts::prelude::*,
+    bitcoin::BitcoinAddress, errors::BridgeTxBuilderError, scripts::prelude::*,
 };
 
 use super::errors::TxResult;

@@ -1,5 +1,6 @@
 //! The [`StakeTx`] transaction is used to move stake across transactions.
 
+use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     hashes::sha256, key::TapTweak, secp256k1::schnorr, transaction, Address, Amount, FeeRate,
     OutPoint, Psbt, Sequence, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
@@ -7,7 +8,6 @@ use bitcoin::{
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{
     build_context::BuildContext,
-    params::prelude::StakeChainParams,
     scripts::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::{finalize_input, TaprootWitness},

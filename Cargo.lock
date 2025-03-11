@@ -915,6 +915,7 @@ dependencies = [
 name = "alpen-bridge"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "anyhow",
  "bitcoin",
  "clap",
@@ -932,6 +933,16 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+]
+
+[[package]]
+name = "alpen-bridge-params"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bitvm",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -3089,6 +3100,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-signer 0.3.6",
+ "alpen-bridge-params",
  "anyhow",
  "bitcoin",
  "bitcoin-bosd",
@@ -9680,6 +9692,7 @@ checksum = "4af28eeb7c18ac2dbdb255d40bee63f203120e1db6b0024b177746ebec7049c1"
 name = "strata-bridge-agent"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "anyhow",
  "ark-serialize 0.4.2",
  "bincode",
@@ -9738,6 +9751,7 @@ dependencies = [
 name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "arbitrary",
  "async-trait",
  "bitcoin",
@@ -9790,6 +9804,7 @@ dependencies = [
 name = "strata-bridge-primitives"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "anyhow",
  "arbitrary",
  "bitcoin",
@@ -9804,7 +9819,6 @@ dependencies = [
  "strata-p2p-types",
  "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c)",
  "thiserror 2.0.12",
- "toml",
 ]
 
 [[package]]
@@ -9899,6 +9913,7 @@ dependencies = [
 name = "strata-bridge-stake-chain"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "bitcoin",
  "corepc-node",
  "secp256k1",
@@ -9943,6 +9958,7 @@ dependencies = [
 name = "strata-bridge-tx-graph"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoin-script",

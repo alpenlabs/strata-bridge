@@ -1,6 +1,5 @@
+use alpen_bridge_params::prelude::{PegOutGraphParams, StakeChainParams};
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::params::prelude::StakeChainParams;
-use strata_bridge_tx_graph::peg_out_graph::PegOutGraphParams;
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
@@ -16,6 +15,7 @@ pub(crate) struct Params {
 
     /// The height at which the bridge node starts scanning for relevant transactions.
     pub genesis_height: u32,
+
     /// The parameters that dictate the nature of the peg-out graph.
     ///
     /// Difference in these values among the bridge operators will lead to different peg-out graphs

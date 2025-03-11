@@ -1,8 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
+use alpen_bridge_params::prelude::*;
 use bitcoin::{Transaction, Txid};
 use strata_bridge_db::{public::PublicDb, tracker::BitcoinBlockTrackerDb};
-use strata_bridge_primitives::{duties::VerifierDuty, params::prelude::*, types::OperatorIdx};
+use strata_bridge_primitives::{duties::VerifierDuty, types::OperatorIdx};
 use strata_btcio::rpc::traits::ReaderRpc;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};

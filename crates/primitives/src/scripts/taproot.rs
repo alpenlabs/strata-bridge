@@ -3,6 +3,7 @@
 
 use std::collections::BTreeMap;
 
+use alpen_bridge_params::prelude::UNSPENDABLE_INTERNAL_KEY;
 use arbitrary::Arbitrary;
 use bitcoin::{
     hashes::Hash,
@@ -17,10 +18,7 @@ use bitcoin::{
 use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 
-use crate::{
-    errors::{BridgeTxBuilderError, BridgeTxBuilderResult},
-    params::prelude::UNSPENDABLE_INTERNAL_KEY,
-};
+use crate::errors::{BridgeTxBuilderError, BridgeTxBuilderResult};
 
 /// Different spending paths for a taproot.
 ///

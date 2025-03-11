@@ -11,6 +11,8 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+alpen-bridge-params.workspace = true
+
 strata-primitives.workspace = true
 
 anyhow.workspace = true
@@ -26,6 +28,3 @@ serde.workspace = true
 sha2.workspace = true
 strata-p2p-types.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]
-toml.workspace = true

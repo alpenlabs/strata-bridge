@@ -3,6 +3,7 @@
 //! Contains types, traits and implementations related to creating various transactions used in the
 //! bridge-in dataflow.
 
+use alpen_bridge_params::prelude::{BRIDGE_DENOMINATION, UNSPENDABLE_INTERNAL_KEY};
 use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
@@ -14,7 +15,6 @@ use serde::{Deserialize, Serialize};
 use crate::{
     build_context::{BuildContext, TxKind},
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
-    params::prelude::{BRIDGE_DENOMINATION, UNSPENDABLE_INTERNAL_KEY},
     scripts::{
         general::{create_tx, create_tx_ins, create_tx_outs},
         prelude::*,
@@ -226,6 +226,7 @@ impl DepositInfo {
 mod tests {
     use std::str::FromStr;
 
+    use alpen_bridge_params::tx::BRIDGE_DENOMINATION;
     use bitcoin::{
         hashes::{sha256, Hash},
         hex::{Case, DisplayHex},

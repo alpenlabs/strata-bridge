@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use alloy::primitives::Address as EvmAddress;
+use alpen_bridge_params::tx::UNSPENDABLE_INTERNAL_KEY;
 use bitcoin::{
     address::Address,
     hashes::Hash,
@@ -11,7 +12,6 @@ use bitcoin::{
     ScriptBuf, TapNodeHash,
 };
 use miniscript::Miniscript;
-use strata_bridge_primitives::params::tx::UNSPENDABLE_INTERNAL_KEY;
 use tracing::info;
 
 use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, NETWORK};

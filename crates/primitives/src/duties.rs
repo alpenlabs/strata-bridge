@@ -1,10 +1,8 @@
+use alpen_bridge_params::prelude::NUM_ASSERT_DATA_TX;
 use bitcoin::{Transaction, Txid};
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    deposit::DepositInfo, params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx,
-    withdrawal::WithdrawalInfo,
-};
+use crate::{deposit::DepositInfo, types::OperatorIdx, withdrawal::WithdrawalInfo};
 
 #[derive(Clone, Debug)]
 #[expect(clippy::large_enum_variant)]
@@ -307,10 +305,10 @@ impl WithdrawalStatus {
 
 #[cfg(test)]
 mod tests {
+    use alpen_bridge_params::prelude::NUM_ASSERT_DATA_TX;
     use bitcoin::{hashes::Hash, Txid};
 
     use super::WithdrawalStatus;
-    use crate::params::prelude::NUM_ASSERT_DATA_TX;
 
     #[test]
     fn test_state_transition() {

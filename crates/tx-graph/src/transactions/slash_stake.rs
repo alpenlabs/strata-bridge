@@ -1,18 +1,16 @@
+use alpen_bridge_params::{
+    prelude::StakeChainParams,
+    tx::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
+};
 use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt,
     TapSighashType, Transaction, TxOut,
 };
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake, StakeSpendPath};
-use strata_bridge_primitives::{
-    params::{
-        prelude::StakeChainParams,
-        tx::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
-    },
-    scripts::{
-        prelude::{create_tx, create_tx_ins},
-        taproot::{create_taproot_addr, SpendPath, TaprootWitness},
-    },
+use strata_bridge_primitives::scripts::{
+    prelude::{create_tx, create_tx_ins},
+    taproot::{create_taproot_addr, SpendPath, TaprootWitness},
 };
 
 use super::prelude::CovenantTx;

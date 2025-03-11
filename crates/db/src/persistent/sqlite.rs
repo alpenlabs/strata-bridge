@@ -6,14 +6,14 @@ use std::{
     str::FromStr,
 };
 
+use alpen_bridge_params::prelude::NUM_ASSERT_DATA_TX;
 use async_trait::async_trait;
 use bitcoin::{Network, OutPoint, Transaction, TxOut, Txid};
 use musig2::{PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature;
 use sqlx::SqlitePool;
 use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, params::prelude::NUM_ASSERT_DATA_TX,
-    types::OperatorIdx, wots,
+    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, types::OperatorIdx, wots,
 };
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use tracing::{error, warn};
@@ -1379,7 +1379,7 @@ mod tests {
         key::rand::{self, Rng},
     };
     use secp256k1::rand::rngs::OsRng;
-    use strata_bridge_primitives::{duties::WithdrawalStatus, params::prelude::NUM_ASSERT_DATA_TX};
+    use strata_bridge_primitives::duties::WithdrawalStatus;
     use strata_bridge_test_utils::prelude::*;
 
     use super::*;

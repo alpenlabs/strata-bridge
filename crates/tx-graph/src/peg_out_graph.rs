@@ -4,7 +4,8 @@
 use core::fmt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
-use bitcoin::{hashes::sha256, relative, Amount, OutPoint, Txid};
+use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
+use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
 use secp256k1::XOnlyPublicKey;
 use serde::{
     de::{SeqAccess, Visitor},
@@ -14,7 +15,6 @@ use serde::{
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
-    params::{connectors::*, prelude::StakeChainParams},
     wots::{self, Groth16PublicKeys},
 };
 use tracing::debug;
@@ -200,29 +200,6 @@ pub struct PegOutGraph {
     /// number of slash stake transactions should be `min(deposit_index,
     /// stake_chain_params.slash_stake_count)` (assuming that the deposit index is zero-indexed).
     pub slash_stake_txs: Vec<SlashStakeTx>,
-}
-
-/// The parameters required to construct a peg-out graph.
-///
-/// These parameters are consensus-critical meaning that these are values that are agreed upon by
-/// all operators and verifiers in the bridge.
-// TODO: move this to the primitives crate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PegOutGraphParams {
-    /// The amount that is locked in the bridge address at the deposit time.
-    pub deposit_amount: Amount,
-
-    /// The amount that is used to fund all the dust outputs in the peg-out graph.
-    pub funding_amount: Amount,
-}
-
-impl Default for PegOutGraphParams {
-    fn default() -> Self {
-        Self {
-            deposit_amount: Amount::from_int_btc(1),
-            funding_amount: Amount::from_sat(32_340),
-        }
-    }
 }
 
 impl PegOutGraph {
@@ -576,8 +553,8 @@ mod tests {
         key::TapTweak,
         policy::MAX_STANDARD_TX_WEIGHT,
         sighash::{Prevouts, SighashCache},
-        taproot, transaction, Address, FeeRate, Network, OutPoint, TapSighashType, Transaction,
-        TxOut,
+        taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
+        Transaction, TxOut,
     };
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
@@ -671,6 +648,7 @@ mod tests {
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
+            ..Default::default()
         };
         let connector_params = ConnectorParams {
             payout_optimistic_timelock: 10,
@@ -886,6 +864,7 @@ mod tests {
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
+            ..Default::default()
         };
         let connector_params = ConnectorParams {
             payout_optimistic_timelock: 11,
@@ -1030,6 +1009,7 @@ mod tests {
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
+            ..Default::default()
         };
         let connector_params = ConnectorParams {
             payout_optimistic_timelock: 11,
@@ -1846,6 +1826,7 @@ mod tests {
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
             funding_amount,
+            ..Default::default()
         };
         let connector_params = ConnectorParams {
             payout_optimistic_timelock: 11,
@@ -1995,6 +1976,7 @@ mod tests {
                 .checked_sub(SEGWIT_MIN_AMOUNT.checked_mul(2).unwrap())
                 .unwrap(),
             deposit_amount: DEPOSIT_AMOUNT,
+            ..Default::default()
         };
         let connector_params = ConnectorParams {
             payout_optimistic_timelock: 11,
