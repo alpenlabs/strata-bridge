@@ -175,11 +175,11 @@ impl CovenantTx for SlashStakeTx {
 mod tests {
     use std::{collections::BTreeMap, str::FromStr};
 
-    use alpen_bridge_params::{prelude::StakeChainParams, tx::SLASH_STAKE_REWARD};
+    use alpen_bridge_params::prelude::StakeChainParams;
     use bitcoin::{
         hashes::{self, Hash},
         sighash::SighashCache,
-        Network, OutPoint, TxOut,
+        Amount, Network, OutPoint, TxOut,
     };
     use corepc_node::{Conf, Node};
     use secp256k1::rand::{rngs::OsRng, Rng};
@@ -337,8 +337,9 @@ mod tests {
         );
 
         info!(action = "adding output to signed slash stake transaction");
+        let slash_stake_reward = Amount::from_sat(199_999_000); // 2 BTC - 1000 sats
         signed_slash_stake_tx.output.push(TxOut {
-            value: SLASH_STAKE_REWARD,
+            value: slash_stake_reward,
             script_pubkey: wallet_addr.script_pubkey(),
         });
 

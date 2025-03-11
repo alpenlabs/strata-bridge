@@ -152,7 +152,9 @@ impl ContractManagerCtx {
             }
 
             let txid = tx.compute_txid();
-            if let Some(deposit_info) = deposit_request_info(&tx, &self.sidesystem_params) {
+            if let Some(deposit_info) =
+                deposit_request_info(&tx, &self.sidesystem_params, &self.pegout_graph_params)
+            {
                 let deposit_tx = match deposit_info.construct_signing_data(
                     &self.operator_table.tx_build_context(self.network),
                     self.pegout_graph_params.deposit_amount,

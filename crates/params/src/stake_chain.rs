@@ -4,7 +4,7 @@
 use bitcoin::{relative, Amount};
 use serde::{Deserialize, Serialize};
 
-use super::tx::{BURN_AMOUNT, NUM_SLASH_STAKE_TX, OPERATOR_STAKE, STAKE_TX_DELTA};
+use super::default::{BURN_AMOUNT, NUM_SLASH_STAKE_TX, OPERATOR_STAKE, STAKE_TX_DELTA};
 
 /// The Stake Chain public parameters that are inherent from the protocol and does not need to be
 /// interactively shared.

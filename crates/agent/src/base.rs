@@ -1,6 +1,6 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
-use alpen_bridge_params::prelude::{ConnectorParams, MIN_RELAY_FEE};
+use alpen_bridge_params::prelude::ConnectorParams;
 use bitcoin::{
     hashes::{self, Hash},
     key::TapTweak,
@@ -25,6 +25,11 @@ use strata_btcio::rpc::{
 };
 use tracing::trace;
 
+pub(super) const MIN_RELAY_FEE: Amount = Amount::from_sat(5000);
+pub(super) const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
+pub(super) const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
+pub(super) const DISPROVER_REWARD: Amount = Amount::from_int_btc(1);
+pub(super) const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
 pub(super) const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
 
 pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {

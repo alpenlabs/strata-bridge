@@ -548,10 +548,7 @@ mod tests {
         str::FromStr,
     };
 
-    use alpen_bridge_params::{
-        prelude::StakeChainParams,
-        tx::{CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SLASH_STAKE_REWARD},
-    };
+    use alpen_bridge_params::prelude::StakeChainParams;
     use bitcoin::{
         consensus,
         hashes::{self, Hash},
@@ -596,6 +593,10 @@ mod tests {
     const DEPOSIT_AMOUNT: Amount = Amount::from_int_btc(10);
     const MSK: &str = "test_msk";
     const FEE_RATE: FeeRate = FeeRate::from_sat_per_kwu(5000);
+    const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
+    const DISPROVER_REWARD: Amount = Amount::from_int_btc(1);
+    const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
+    const SLASH_STAKE_REWARD: Amount = Amount::from_sat(199_999_000); // 2 BTC - 1000 sats
 
     #[test]
     fn test_assert_vector_roundtrip_serialization() {
