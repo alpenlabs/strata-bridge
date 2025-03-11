@@ -2261,7 +2261,9 @@ where
             dump_proof_input_data(&chain_state, blocks, op_signature);
         }
 
+        let pegout_graph_params = PegOutGraphParams::default();
         let input = BridgeProofInput {
+            pegout_graph_params,
             rollup_params: self.rollup_params.clone(),
             headers,
             chain_state,

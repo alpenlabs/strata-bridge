@@ -37,6 +37,9 @@ pub struct BridgeProofInput {
     /// The [RollupParams] of the strata rollup
     pub rollup_params: RollupParams,
 
+    /// The [`PegOutGraphParams`] of the peg-out graph.
+    pub pegout_graph_params: PegOutGraphParams,
+
     /// Vector of Bitcoin headers starting after the one that has been verified by the `header_vs`
     pub headers: Vec<Header>,
 
