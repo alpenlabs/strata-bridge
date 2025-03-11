@@ -3,15 +3,13 @@
 //! This transaction is used to prevent an operator from getting the bridge funds using historical
 //! claims even _after_ their stake has been slashed.
 
+use alpen_bridge_params::tx::SEGWIT_MIN_AMOUNT;
 use bitcoin::{sighash::Prevouts, Amount, Network, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_connectors::prelude::{ConnectorP, StakeSpendPath};
-use strata_bridge_primitives::{
-    params::tx::SEGWIT_MIN_AMOUNT,
-    scripts::{
-        prelude::{create_tx, create_tx_ins, create_tx_outs},
-        taproot::TaprootWitness,
-    },
+use strata_bridge_primitives::scripts::{
+    prelude::{create_tx, create_tx_ins, create_tx_outs},
+    taproot::TaprootWitness,
 };
 
 use super::prelude::CovenantTx;

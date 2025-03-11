@@ -3,11 +3,10 @@
 
 use std::ops::{Deref, DerefMut};
 
+use alpen_bridge_params::stake_chain::StakeChainParams;
 use bitcoin::{hashes::sha256, relative, Amount, OutPoint, XOnlyPublicKey};
 use strata_bridge_connectors::prelude::ConnectorCpfp;
-use strata_bridge_primitives::{
-    build_context::BuildContext, params::stake_chain::StakeChainParams,
-};
+use strata_bridge_primitives::build_context::BuildContext;
 
 use crate::{
     prelude::{StakeTx, STAKE_VOUT},

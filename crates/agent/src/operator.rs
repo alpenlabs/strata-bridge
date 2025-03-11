@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use alpen_bridge_params::prelude::*;
 use anyhow::bail;
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
@@ -35,7 +36,6 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::prelude::*,
     scripts::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::{create_message_hash, finalize_input, TaprootWitness},
@@ -56,7 +56,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_bridge_tx_graph::{
-    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput, PegOutGraphParams},
+    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
 use strata_btcio::rpc::{
@@ -76,7 +76,7 @@ use tokio::sync::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    base::{Agent, CONNECTOR_PARAMS},
+    base::{Agent, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS},
     proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,
@@ -310,6 +310,7 @@ where
         let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
             funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+            ..Default::default()
         };
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
@@ -561,6 +562,7 @@ where
                     let graph_params = PegOutGraphParams {
                         deposit_amount: BRIDGE_DENOMINATION,
                         funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+                        ..Default::default()
                     };
 
                     let (
@@ -965,6 +967,7 @@ where
                         PegOutGraphParams {
                             deposit_amount: BRIDGE_DENOMINATION,
                             funding_amount,
+                            ..Default::default()
                         }
                     };
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
@@ -1612,8 +1615,7 @@ where
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
         let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
-            // *2 for the two dust outputs in each stake transaction
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+            ..Default::default()
         };
         let peg_out_graph_input = PegOutGraphInput {
             operator_pubkey: own_pubkey,

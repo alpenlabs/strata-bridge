@@ -100,6 +100,7 @@ const _: [(); 0] = [(); (NUM_PKS_A256 - NUM_FIELD_ELEMENTS)];
 const _: [(); 0] = [(); (NUM_PKS_A160 - NUM_HASH_ELEMENTS)];
 const _: [(); 0] = [(); (NUM_PKS_A256 + NUM_PKS_A160 - TOTAL_VALUES)];
 
+/// The consensus-critical parameters that define the locking conditions for each connector.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ConnectorParams {
     /// The relative timelock (measured in number of blocks) on the [`ClaimTx`] output that is used

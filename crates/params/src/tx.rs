@@ -1,16 +1,13 @@
 //! Params related to the bridge transactions.
 
-use std::{sync::LazyLock, time::Duration};
+use std::sync::LazyLock;
 
 use bitcoin::{
     hashes::{sha256, Hash},
     relative,
     secp256k1::XOnlyPublicKey,
-    Amount, FeeRate,
+    Amount,
 };
-
-/// The value of each UTXO in the Bridge Multisig Address.
-pub const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
 
 /// The min relay fee as defined in bitcoin-core with the unit sats/kvB.
 ///
@@ -25,10 +22,6 @@ pub const MIN_RELAY_FEE: Amount = Amount::from_sat(5000);
 /// So, it requires extra fees. Here, we set it to 4 times the normal.
 pub const ASSERT_DATA_FEE: Amount = Amount::from_sat(4 * 1000);
 
-pub const ASSERT_DATA_FEE_RATE: FeeRate =
-    FeeRate::from_sat_per_vb_unchecked(FeeRate::DUST.to_sat_per_vb_ceil() * 80); // 80 is based on
-                                                                                 // experiment
-
 /// The minimum value a segwit output script should have in order to be
 /// broadcastable on today's Bitcoin network.
 ///
@@ -36,7 +29,21 @@ pub const ASSERT_DATA_FEE_RATE: FeeRate =
 /// This function uses the default value of 0.00003 BTC/kB (3 sat/vByte).
 pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
 
-pub const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
+/// The default denomination for each deposit to the bridge.
+pub const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(1);
+
+/// The amount required to fund all the dust outputs in the peg-out graph.
+///
+/// This is calculated as follows:
+///
+/// | Transaction   | # [`SEGWIT_MIN_AMOUNT`] outputs per tx | # Transactions | Total sats |
+/// |---------------|----------------------------------------|----------------|------------|
+/// | Assert Data   | 2                                      | 47             | 31020      |
+/// | Pre Assert    | 1                                      |  1             |   330      |
+/// | Claim         | 3                                      |  1             |   990      |
+/// |---------------|----------------------------------------|----------------|------------|
+/// | Total         |                                        | 50             | 32340      |
+pub const FUNDING_AMOUNT: Amount = Amount::from_sat(32_340);
 
 /// The default amount of BTC that is staked by an operator.
 pub const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
@@ -55,6 +62,8 @@ pub const NUM_SLASH_STAKE_TX: usize = 24;
 /// This has the type [`Amount`] for convenience.
 pub const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
 
+/// The output amount in the challenge transaction that is paid to the operator that is being
+/// challenged.
 pub const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
 
 /// The reward for a successful disprover.

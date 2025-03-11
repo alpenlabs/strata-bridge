@@ -1,5 +1,6 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
+use alpen_bridge_params::prelude::{ConnectorParams, MIN_RELAY_FEE};
 use bitcoin::{
     hashes::{self, Hash},
     key::TapTweak,
@@ -14,7 +15,6 @@ use secp256k1::{
     Keypair, Message, PublicKey, SecretKey, SECP256K1,
 };
 use strata_bridge_primitives::{
-    params::prelude::{ConnectorParams, MIN_RELAY_FEE},
     scripts::prelude::*,
     wots::{Wots256PublicKey, Wots256Signature},
 };
@@ -24,6 +24,8 @@ use strata_btcio::rpc::{
     BitcoinClient,
 };
 use tracing::trace;
+
+pub(super) const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
 
 pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {
     payout_optimistic_timelock: 100,

@@ -18,6 +18,7 @@ rust.unused_must_use = "deny"
 # rustdoc.all = "warn"
 
 [dependencies]
+alpen-bridge-params.workspace = true
 secret-service-client.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true

@@ -15,6 +15,7 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+alpen-bridge-params.workspace = true
 strata-bridge-primitives.workspace = true
 
 alloy = { version = "0.3.6", features = ["full", "node-bindings"] }
