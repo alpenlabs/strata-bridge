@@ -22,6 +22,7 @@ alpen-bridge-params.workspace = true
 secret-service-client.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-p2p-types.workspace = true
 
 strata-common.workspace = true
 
@@ -29,8 +30,9 @@ anyhow.workspace = true
 bitcoin.workspace = true
 clap.workspace = true
 hex.workspace = true
-libp2p.workspace = true
+libp2p = { workspace = true, features = ["secp256k1"] }
 musig2.workspace = true
+secp256k1.workspace = true
 serde.workspace = true
 tokio.workspace = true
 toml.workspace = true
