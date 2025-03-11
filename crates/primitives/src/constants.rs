@@ -1,4 +1,5 @@
-//! This module contains contants related to how the transaction graph in the bridge is constructed.
+//! This module contains constants related to how the transaction graph in the bridge is
+//! constructed.
 //!
 //! These constants are integral to the graph i.e., changing them would change the nature of the
 //! graph itself (size, structure, etc.). These values must be known at compile-time.
