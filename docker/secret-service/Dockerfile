@@ -1,4 +1,4 @@
-# warning: run from repo root, NOT inside secret-service dir
+# warning: run from repo root, NOT inside this dir
 FROM rust:latest AS builder
 
 WORKDIR /app

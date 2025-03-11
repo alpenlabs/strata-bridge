@@ -1,0 +1,10 @@
+[tls]
+# key = "/app/tls/key.der"
+# cert = "/app/tls/cert.der"
+# ca = "/app/tls/bridge.ca.der"
+
+[transport]
+addr = "127.0.0.1:69"
+
+seed = "/app/seed/seed"
+network = "signet"
