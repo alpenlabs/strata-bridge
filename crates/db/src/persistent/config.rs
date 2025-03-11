@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::constants::{DEFAULT_BACKOFF_PERIOD, DEFAULT_MAX_RETRY_COUNT};
 
 /// The configuration for the SQLite database.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DbConfig {
     max_retry_count: usize,
     backoff_period: Duration,
