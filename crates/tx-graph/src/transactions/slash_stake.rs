@@ -1,16 +1,16 @@
-use alpen_bridge_params::{
-    prelude::StakeChainParams,
-    tx::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
-};
+use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt,
     TapSighashType, Transaction, TxOut,
 };
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake, StakeSpendPath};
-use strata_bridge_primitives::scripts::{
-    prelude::{create_tx, create_tx_ins},
-    taproot::{create_taproot_addr, SpendPath, TaprootWitness},
+use strata_bridge_primitives::{
+    constants::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
+    scripts::{
+        prelude::{create_tx, create_tx_ins},
+        taproot::{create_taproot_addr, SpendPath, TaprootWitness},
+    },
 };
 
 use super::prelude::CovenantTx;
@@ -175,6 +175,7 @@ impl CovenantTx for SlashStakeTx {
 mod tests {
     use std::{collections::BTreeMap, str::FromStr};
 
+    use alpen_bridge_params::{prelude::StakeChainParams, tx::SLASH_STAKE_REWARD};
     use bitcoin::{
         hashes::{self, Hash},
         sighash::SighashCache,
@@ -185,7 +186,6 @@ mod tests {
     use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
-        params::{prelude::StakeChainParams, tx::SLASH_STAKE_REWARD},
         scripts::{
             prelude::{create_tx, create_tx_ins, create_tx_outs},
             taproot::create_message_hash,

@@ -1,11 +1,13 @@
-use alpen_bridge_params::prelude::*;
 use bitvm::{
     groth16::g16,
     signatures::wots_api::{wots160, wots256},
     treepp::*,
 };
 
-use crate::errors::{ParseError, ParseResult};
+use crate::{
+    constants::*,
+    errors::{ParseError, ParseResult},
+};
 
 pub fn parse_wots160_signatures<const N_SIGS: usize>(
     script: Script,

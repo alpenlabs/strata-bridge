@@ -3,6 +3,7 @@
 
 pub mod connectors;
 pub mod prelude;
+pub mod sidesystem;
 pub mod stake_chain;
 pub mod tx;
 pub mod tx_graph;

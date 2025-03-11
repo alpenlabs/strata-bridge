@@ -15,6 +15,7 @@ use serde::{
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
+    constants::*,
     wots::{self, Groth16PublicKeys},
 };
 use tracing::debug;
@@ -249,7 +250,7 @@ impl PegOutGraph {
 
         let claim_data = ClaimData {
             stake_outpoint: input.withdrawal_fulfillment_outpoint,
-            input_amount: graph_params.funding_amount,
+            input_amount: FUNDING_AMOUNT,
             deposit_txid,
         };
 
@@ -547,6 +548,10 @@ mod tests {
         str::FromStr,
     };
 
+    use alpen_bridge_params::{
+        prelude::StakeChainParams,
+        tx::{CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SLASH_STAKE_REWARD},
+    };
     use bitcoin::{
         consensus,
         hashes::{self, Hash},
@@ -565,13 +570,7 @@ mod tests {
     use strata_bridge_db::{inmemory::public::PublicDbInMemory, public::PublicDb};
     use strata_bridge_primitives::{
         build_context::TxBuildContext,
-        params::{
-            prelude::{StakeChainParams, NUM_ASSERT_DATA_TX},
-            tx::{
-                CHALLENGE_COST, DISPROVER_REWARD, OPERATOR_STAKE, SEGWIT_MIN_AMOUNT,
-                SLASH_STAKE_REWARD,
-            },
-        },
+        constants::*,
         scripts::taproot::{create_message_hash, TaprootWitness},
         wots::{Assertions, Wots256Signature},
     };
@@ -642,12 +641,11 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, _, funding_amount) =
+        let (input, _, _) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
-            funding_amount,
             ..Default::default()
         };
         let connector_params = ConnectorParams {
@@ -858,12 +856,11 @@ mod tests {
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
 
-        let (input, _, funding_amount) =
+        let (input, _, _) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
 
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
-            funding_amount,
             ..Default::default()
         };
         let connector_params = ConnectorParams {
@@ -1004,11 +1001,10 @@ mod tests {
             .expect("must be able to get wots public keys")
             .expect("must have wots public keys");
 
-        let (input, _, funding_amount) =
+        let (input, _, _) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, public_keys);
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
-            funding_amount,
             ..Default::default()
         };
         let connector_params = ConnectorParams {
@@ -1820,12 +1816,11 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, stake_preimage, funding_amount) =
+        let (input, stake_preimage, _) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
-            funding_amount,
             ..Default::default()
         };
         let connector_params = ConnectorParams {
@@ -1972,9 +1967,6 @@ mod tests {
         };
 
         let graph_params = PegOutGraphParams {
-            funding_amount: OPERATOR_FUNDS
-                .checked_sub(SEGWIT_MIN_AMOUNT.checked_mul(2).unwrap())
-                .unwrap(),
             deposit_amount: DEPOSIT_AMOUNT,
             ..Default::default()
         };

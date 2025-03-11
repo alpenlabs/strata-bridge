@@ -1,10 +1,10 @@
 use std::array;
 
-use alpen_bridge_params::prelude::*;
 use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::{groth16::g16, signatures::wots_api::wots256, treepp::*};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
+    constants::*,
     scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
     wots,
 };

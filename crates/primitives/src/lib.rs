@@ -12,6 +12,7 @@
 
 pub mod bitcoin;
 pub mod build_context;
+pub mod constants;
 pub mod deposit;
 pub mod duties;
 pub mod errors;

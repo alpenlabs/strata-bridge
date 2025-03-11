@@ -920,14 +920,10 @@ dependencies = [
  "bitcoin",
  "clap",
  "libp2p",
- "quinn",
  "secret-service-client",
  "serde",
  "strata-bridge-db",
  "strata-bridge-p2p-service",
- "strata-bridge-primitives",
- "strata-bridge-rpc",
- "strata-bridge-tx-graph",
  "strata-common",
  "strata-p2p-types",
  "tokio",
@@ -940,7 +936,6 @@ name = "alpen-bridge-params"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitvm",
  "serde",
  "toml",
 ]
@@ -3100,7 +3095,6 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-signer 0.3.6",
- "alpen-bridge-params",
  "anyhow",
  "bitcoin",
  "bitcoin-bosd",
@@ -3243,6 +3237,7 @@ dependencies = [
 name = "duty-tracker"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "bincode",
  "bitcoin",
  "btc-notify",
@@ -9751,7 +9746,6 @@ dependencies = [
 name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
- "alpen-bridge-params",
  "arbitrary",
  "async-trait",
  "bitcoin",
@@ -9804,7 +9798,6 @@ dependencies = [
 name = "strata-bridge-primitives"
 version = "0.1.0"
 dependencies = [
- "alpen-bridge-params",
  "anyhow",
  "arbitrary",
  "bitcoin",
@@ -9839,6 +9832,7 @@ dependencies = [
 name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "bitcoin",
  "borsh",
  "prover-test-utils",

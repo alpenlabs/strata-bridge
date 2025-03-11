@@ -34,6 +34,7 @@ use strata_bridge_db::{
 };
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
+    constants::*,
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
     scripts::{
@@ -173,13 +174,18 @@ where
             return;
         }
 
+        let pegout_graph_params = PegOutGraphParams::default();
         match duty {
             BridgeDuty::SignDeposit(deposit_info) => {
                 let txid = deposit_info.deposit_request_outpoint().txid;
                 info!(event = "received deposit duty", %own_index, drt_txid = %txid);
 
                 let data = deposit_info
-                    .construct_signing_data(&self.build_context, Some(MAGIC_BYTES))
+                    .construct_signing_data(
+                        &self.build_context,
+                        pegout_graph_params.deposit_amount,
+                        Some(MAGIC_BYTES),
+                    )
                     .unwrap(); // FIXME: Handle
                 let deposit_txid = data.psbt.unsigned_tx.compute_txid();
 
@@ -239,10 +245,14 @@ where
 
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
+        let pegout_graph_params = PegOutGraphParams::default();
 
         // 1. aggregate_tx_graph
-        let deposit_tx =
-            deposit_info.construct_signing_data(&self.build_context, Some(MAGIC_BYTES));
+        let deposit_tx = deposit_info.construct_signing_data(
+            &self.build_context,
+            pegout_graph_params.deposit_amount,
+            Some(MAGIC_BYTES),
+        );
 
         if let Err(cause) = deposit_tx {
             let deposit_txid = deposit_info.deposit_request_outpoint().txid;
@@ -309,7 +319,6 @@ where
         };
         let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
             ..Default::default()
         };
 
@@ -561,7 +570,6 @@ where
 
                     let graph_params = PegOutGraphParams {
                         deposit_amount: BRIDGE_DENOMINATION,
-                        funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
                         ..Default::default()
                     };
 
@@ -963,10 +971,8 @@ where
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
                     let graph_params = {
-                        let funding_amount = OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2;
                         PegOutGraphParams {
                             deposit_amount: BRIDGE_DENOMINATION,
-                            funding_amount,
                             ..Default::default()
                         }
                     };

@@ -1,11 +1,10 @@
-use alpen_bridge_params::prelude::*;
 use bitcoin::{
     sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, Transaction, TxOut, Txid,
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{constants::*, scripts::prelude::*};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;

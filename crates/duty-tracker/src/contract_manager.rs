@@ -3,12 +3,14 @@
 //! protocol rules.
 use std::collections::BTreeMap;
 
+use alpen_bridge_params::{
+    prelude::{ConnectorParams, PegOutGraphParams},
+    sidesystem::SideSystemParams,
+};
 use bitcoin::{hashes::sha256d::Hash, Block, Network, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
-use strata_bridge_primitives::{
-    build_context::TxKind, operator_table::OperatorTable, params::prelude::ConnectorParams,
-};
+use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
@@ -30,12 +32,15 @@ pub struct ContractManager {
 
 impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         network: Network,
         operator_table: OperatorTable,
         zmq_client: BtcZmqClient,
         tx_tag: Vec<u8>,
         connector_params: ConnectorParams,
+        pegout_graph_params: PegOutGraphParams,
+        sidesystem_params: SideSystemParams,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
     ) -> Self {
@@ -64,6 +69,8 @@ impl ContractManager {
                 operator_table,
                 tx_tag,
                 connector_params,
+                pegout_graph_params,
+                sidesystem_params,
                 contract_persister,
                 active_contracts,
             };
@@ -126,6 +133,8 @@ struct ContractManagerCtx {
     network: Network,
     tx_tag: Vec<u8>,
     connector_params: ConnectorParams,
+    pegout_graph_params: PegOutGraphParams,
+    sidesystem_params: SideSystemParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
     active_contracts: BTreeMap<Txid, ContractSM>,
@@ -143,9 +152,10 @@ impl ContractManagerCtx {
             }
 
             let txid = tx.compute_txid();
-            if let Some(deposit_info) = deposit_request_info(&tx) {
+            if let Some(deposit_info) = deposit_request_info(&tx, &self.sidesystem_params) {
                 let deposit_tx = match deposit_info.construct_signing_data(
                     &self.operator_table.tx_build_context(self.network),
+                    self.pegout_graph_params.deposit_amount,
                     Some(&self.tx_tag),
                 ) {
                     Ok(data) => data.psbt.unsigned_tx,
