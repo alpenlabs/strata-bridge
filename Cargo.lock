@@ -927,7 +927,6 @@ dependencies = [
  "strata-bridge-db",
  "strata-bridge-p2p-service",
  "strata-common",
- "strata-p2p-types",
  "tokio",
  "toml",
  "tracing",
