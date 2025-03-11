@@ -3,8 +3,7 @@
 use bitcoin::Amount;
 use serde::{Deserialize, Serialize};
 
-use super::tx::BRIDGE_DENOMINATION;
-use crate::tx::{CHALLENGE_COST, OPERATOR_FEE};
+use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE};
 
 /// The parameters required to construct a peg-out graph.
 ///

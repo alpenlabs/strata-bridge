@@ -77,7 +77,10 @@ use tokio::sync::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    base::{Agent, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS},
+    base::{
+        Agent, BRIDGE_DENOMINATION, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS, MIN_RELAY_FEE,
+        OPERATOR_FEE, OPERATOR_STAKE,
+    },
     proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,

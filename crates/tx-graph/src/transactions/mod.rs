@@ -9,7 +9,6 @@ pub mod covenant_tx;
 pub mod cpfp;
 pub mod disprove;
 pub mod errors;
-pub mod kickoff;
 pub mod payout;
 pub mod payout_optimistic;
 pub mod post_assert;

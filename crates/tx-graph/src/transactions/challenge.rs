@@ -223,7 +223,7 @@ impl CovenantTx for ChallengeTx {
 mod tests {
     use std::{collections::BTreeMap, str::FromStr};
 
-    use alpen_bridge_params::tx::CHALLENGE_COST;
+    use alpen_bridge_params::prelude::PegOutGraphParams;
     use bitcoin::{consensus, sighash::SighashCache, Network};
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use strata_bridge_primitives::{
@@ -265,6 +265,7 @@ mod tests {
             script_pubkey: operator_address.script_pubkey().clone(),
         };
 
+        let pegout_graph_params = PegOutGraphParams::default();
         assert!(challenge_tx
             .clone()
             .add_funding_input(insufficient_outpoint, insufficient_prevout.clone())
@@ -272,7 +273,7 @@ mod tests {
                 match err {
                     TxError::InsufficientInputAmount(input, output) => {
                         assert_eq!(input, input_amount + insufficient_prevout.value);
-                        assert_eq!(output, CHALLENGE_COST);
+                        assert_eq!(output, pegout_graph_params.challenge_cost);
 
                         true
                     }
@@ -402,7 +403,7 @@ mod tests {
                 txid: input_tx.compute_txid(),
                 vout: input_index as u32,
             },
-            challenge_amt: CHALLENGE_COST,
+            challenge_amt: PegOutGraphParams::default().challenge_cost,
             operator_pubkey: n_of_n_keypair.x_only_public_key().0,
             network,
         };

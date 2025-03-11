@@ -2,7 +2,7 @@
 //! where relevant.
 use std::sync::Arc;
 
-use alpen_bridge_params::{sidesystem::SideSystemParams, tx::BRIDGE_DENOMINATION};
+use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
 use bitcoin::{
     hashes::Hash, opcodes::all::OP_RETURN, taproot::TAPROOT_CONTROL_NODE_SIZE, OutPoint, Script,
     TapNodeHash, Transaction, Txid,
@@ -40,9 +40,10 @@ fn magic_tagged_data<'a, const N: usize>(tag: &[u8; N], script: &'a Script) -> O
 pub(crate) fn deposit_request_info(
     tx: &Transaction,
     sidesystem_params: &SideSystemParams,
+    pegout_graph_params: &PegOutGraphParams,
 ) -> Option<DepositInfo> {
     let deposit_request_output = tx.output.first()?;
-    if deposit_request_output.value <= BRIDGE_DENOMINATION {
+    if deposit_request_output.value <= pegout_graph_params.deposit_amount {
         return None;
     }
     // TODO(proofofkeags): validate that the script_pubkey pays to the right operator set
