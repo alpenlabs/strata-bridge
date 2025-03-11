@@ -3,15 +3,14 @@
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
+use alpen_bridge_params::prelude::ConnectorParams;
 use bitcoin::{
     hashes::serde::{Deserialize, Serialize},
     OutPoint, Transaction, Txid,
 };
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
-use strata_bridge_primitives::{
-    operator_table::OperatorTable, params::prelude::ConnectorParams, types::BitcoinBlockHeight,
-};
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_tx_graph::peg_out_graph::{PegOutGraphInput, PegOutGraphSummary};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};

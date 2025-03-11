@@ -1,11 +1,11 @@
-use alpen_bridge_params::prelude::{StakeChainParams, UNSPENDABLE_INTERNAL_KEY};
+use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     psbt::{ExtractTxError, PsbtSighashType},
     sighash::Prevouts,
     Amount, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
 };
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{constants::*, scripts::prelude::*};
 
 use super::covenant_tx::CovenantTx;
 

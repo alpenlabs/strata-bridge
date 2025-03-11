@@ -16,6 +16,7 @@ rust.unused_must_use = "deny"
 rustdoc.all = "warn"
 
 [dependencies]
+alpen-bridge-params.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-tx-graph.workspace = true
 

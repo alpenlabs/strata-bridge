@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "alpen-bridge-params"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "serde",
+]
+
+[[package]]
 name = "anyhow"
 version = "1.0.95"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1085,6 +1093,7 @@ dependencies = [
 name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "bitcoin",
  "borsh",
  "strata-bridge-proof-primitives",

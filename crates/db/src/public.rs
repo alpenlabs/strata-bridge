@@ -1,10 +1,9 @@
 //! Public database interface for the Strata Bridge.
 
-use alpen_bridge_params::prelude::NUM_ASSERT_DATA_TX;
 use async_trait::async_trait;
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{types::OperatorIdx, wots};
+use strata_bridge_primitives::{constants::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use crate::errors::DbResult;

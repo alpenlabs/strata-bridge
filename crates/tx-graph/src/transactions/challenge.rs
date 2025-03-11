@@ -223,11 +223,11 @@ impl CovenantTx for ChallengeTx {
 mod tests {
     use std::{collections::BTreeMap, str::FromStr};
 
+    use alpen_bridge_params::tx::CHALLENGE_COST;
     use bitcoin::{consensus, sighash::SighashCache, Network};
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
-        params::tx::CHALLENGE_COST,
         scripts::taproot::create_message_hash,
     };
     use strata_bridge_test_utils::{

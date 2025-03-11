@@ -4,7 +4,6 @@
 //! completely independent.
 use std::collections::{BTreeMap, HashSet};
 
-use alpen_bridge_params::prelude::UNSPENDABLE_INTERNAL_KEY;
 use bitcoin::{
     key::rand::rngs::OsRng,
     secp256k1::{Keypair, PublicKey, SecretKey, SECP256K1},
@@ -15,6 +14,7 @@ use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
     bitcoin::BitcoinAddress,
+    constants::UNSPENDABLE_INTERNAL_KEY,
     scripts::general::{get_aggregated_pubkey, metadata_script, n_of_n_script},
     types::OperatorIdx,
 };
