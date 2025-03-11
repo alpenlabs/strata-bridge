@@ -6,16 +6,16 @@ use serde::{Deserialize, Serialize};
 /// The consensus-critical parameters that define the locking conditions for each connector.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct ConnectorParams {
-    /// The relative timelock (measured in number of blocks) on the [`ClaimTx`] output that is used
-    /// to lock funds in the N-of-N and used in the [`PayoutOptimisticTx`].
+    /// The relative timelock (measured in number of blocks) on the Claim transaction output that
+    /// is used to lock funds in the N-of-N and used in the PayoutOptimistic transaction.
     pub payout_optimistic_timelock: u32,
 
-    /// The relative timelock (measured in number of blocks) on the [`ClaimTx`] output that is used
-    /// to lock funds in the N-of-N and used in the [`PreAssertTx`].
+    /// The relative timelock (measured in number of blocks) on the Claim transaction output that
+    /// is used to lock funds in the N-of-N and used in the PreAssert transaction.
     pub pre_assert_timelock: u32,
 
-    /// The relative timelock (measure in number of blocks) on the [`PostAssertTx`] output that is
-    /// used to lock funds in the N-of-N and used in the [`PayoutTx`].
+    /// The relative timelock (measure in number of blocks) on the PostAssert transaction output
+    /// that is used to lock funds in the N-of-N and used in the PayoutTx transaction.
     pub payout_timelock: u32,
 }
 

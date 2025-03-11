@@ -26,7 +26,7 @@ pub(crate) struct Config {
     /// The RPC server addr for the bridge node.
     pub rpc_addr: String,
 
-    /// The configuration required to connector to a [local] instance of the secret service server.
+    /// The configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
     /// The configuration required to connector to an instance of the bitcoin client.
