@@ -43,7 +43,7 @@ pub trait StrataBridgeMonitoringApi {
         deposit_request_outpoint: OutPoint,
     ) -> RpcResult<RpcDepositInfo>;
 
-    /// Get bridge duties assigned to an operator its [`PublicKey`].
+    /// Get bridge duties assigned to an operator by its [`PublicKey`].
     #[method(name = "bridgeDuties")]
     async fn get_bridge_duties(&self, operator_pk: PublicKey) -> RpcResult<Vec<BridgeDuty>>;
 
