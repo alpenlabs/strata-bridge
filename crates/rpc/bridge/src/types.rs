@@ -1,5 +1,6 @@
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
+use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +75,8 @@ pub struct RpcDepositInfo {
 pub struct RpcWithdrawalInfo {
     pub withdrawal_request_txid: Txid,
     pub status: RpcWithdrawalStatus,
+    pub assigned_operator_idx: OperatorIdx,
+    pub valid_block_height: BitcoinBlockHeight,
 }
 
 /// Represents withdrawal transaction details
