@@ -48,7 +48,7 @@ impl PreAssertTx {
     /// these UTXOs are sequentially chunked into transactions, the size of these transactions do
     /// not exceed the standard transaction size limit of 10,000 vbytes for v3 transactions.
     ///
-    /// Refer to the documentation in [`strata_bridge_primitives::params::connectors`] for more
+    /// Refer to the documentation in [`strata_bridge_primitives::constants`] for more
     /// details.
     ///
     /// A CPFP connector is required to pay the transaction fees.
