@@ -3,7 +3,6 @@ use std::{path::PathBuf, time::Duration};
 use libp2p::{Multiaddr, PeerId};
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::persistent::config::DbConfig;
-use strata_bridge_p2p_service::Configuration;
 use strata_p2p_types::P2POperatorPubKey;
 
 /// The configuration values that dictate the behavior of the bridge node.
@@ -13,7 +12,7 @@ use strata_p2p_types::P2POperatorPubKey;
 /// halt. It is still preferable to have these values be the same for optimum functioning of the
 /// bridge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Config {
+pub(crate) struct Config {
     /// The number of confirmations required for a transaction to be considered final.
     ///
     /// This is not consensus-critical as difference in what value is set by individual bridge node
@@ -49,7 +48,7 @@ pub struct Config {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SecretServiceConfig {
+pub(crate) struct SecretServiceConfig {
     /// The address of the secret service server.
     pub server_addr: String,
 
@@ -67,7 +66,7 @@ pub struct SecretServiceConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BtcClientConfig {
+pub(crate) struct BtcClientConfig {
     pub url: String,
     pub user: String,
     pub pass: String,
@@ -76,7 +75,7 @@ pub struct BtcClientConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct P2PConfig {
+pub(crate) struct P2PConfig {
     /// Idle connection timeout.
     pub idle_connection_timeout: Option<Duration>,
 

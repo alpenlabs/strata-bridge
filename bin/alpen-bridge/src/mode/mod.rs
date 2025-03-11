@@ -1,2 +1,2 @@
-pub mod operator;
-pub mod verifier;
+pub(crate) mod operator;
+pub(crate) mod verifier;
