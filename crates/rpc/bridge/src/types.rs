@@ -76,7 +76,7 @@ pub struct RpcWithdrawalInfo {
     pub withdrawal_request_txid: Txid,
     pub status: RpcWithdrawalStatus,
     pub assigned_operator_idx: OperatorIdx,
-    // block height upto which the withdrawal fulfillment is considered valid
+    /// [`BitcoinBlockHeight`] upto which the withdrawal fulfillment is considered valid
     pub valid_block_height: BitcoinBlockHeight,
 }
 
