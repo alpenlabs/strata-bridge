@@ -76,7 +76,7 @@ pub struct RpcWithdrawalInfo {
     pub status: RpcWithdrawalStatus,
     pub assigned_operator_idx: OperatorIdx,
     /// [`BitcoinBlockHeight`] upto which the withdrawal fulfillment is considered valid
-    pub valid_block_height: BitcoinBlockHeight,
+    pub exec_deadline: BitcoinBlockHeight,
 }
 
 /// Represents reimbursement transaction details
