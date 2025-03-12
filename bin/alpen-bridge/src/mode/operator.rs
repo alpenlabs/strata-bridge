@@ -1,11 +1,23 @@
 //! Defines the main loop for the bridge-client in operator mode.
+use bitcoin::secp256k1::SecretKey;
+use libp2p::{
+    identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
+    PeerId,
+};
+use secp256k1::SECP256K1;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
-use strata_bridge_p2p_service::MessageHandler;
+use strata_bridge_p2p_service::{
+    bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
+};
+use strata_p2p_types::P2POperatorPubKey;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use crate::{config::Config, params::Params};
+use crate::{
+    config::{Config, P2PConfig},
+    params::Params,
+};
 
 /// Bootstraps the bridge client in Operator mode by hooking up all the required auxiliary services
 /// including database, rpc server, etc.
@@ -14,7 +26,9 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
 
     let s2_client = init_secret_service_client(&config);
 
-    let message_handler = init_p2p_msg_handler(&config);
+    // TODO(@Zk2u!): give the `init_p2p_message_handler` the P2P secret key `sk`.
+    let sk = get_p2p_key(&s2_client).await?;
+    let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
 
     let db = init_database_handle(&config);
 
@@ -34,8 +48,56 @@ fn init_secret_service_client(_config: &Config) -> SecretServiceClient {
     unimplemented!("@Zk2u!");
 }
 
-fn init_p2p_msg_handler(_config: &Config) -> MessageHandler {
-    unimplemented!("@storopoli");
+async fn get_p2p_key(_secret_service: &SecretServiceClient) -> anyhow::Result<SecretKey> {
+    unimplemented!("@Zk2u!");
+}
+
+/// Initialize the P2P message handler.
+///
+/// Needs a secret key and configuration.
+async fn init_p2p_msg_handler(
+    config: &Config,
+    params: &Params,
+    sk: SecretKey,
+) -> anyhow::Result<MessageHandler> {
+    let my_key = LibP2pSecpPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
+        .expect("infallible");
+    let other_operators: Vec<LibP2pSecpPublicKey> = params
+        .keys
+        .p2p
+        .clone()
+        .into_iter()
+        .filter(|pk| pk != &my_key)
+        .collect();
+    let allowlist: Vec<PeerId> = other_operators
+        .clone()
+        .into_iter()
+        .map(|pk| {
+            let pk: LibP2pPublicKey = pk.into();
+            PeerId::from(pk)
+        })
+        .collect();
+    let signers_allowlist: Vec<P2POperatorPubKey> =
+        other_operators.into_iter().map(Into::into).collect();
+
+    let P2PConfig {
+        idle_connection_timeout,
+        listening_addr,
+        connect_to,
+        num_threads,
+    } = config.p2p.clone();
+
+    let config = P2PConfiguration::new_with_secret_key(
+        sk,
+        idle_connection_timeout,
+        listening_addr,
+        allowlist,
+        connect_to,
+        signers_allowlist,
+        num_threads,
+    );
+    let (p2p_handle, _cancel) = p2p_bootstrap(&config).await?;
+    Ok(MessageHandler::new(p2p_handle))
 }
 
 fn init_database_handle(_config: &Config) -> SqliteDb {
