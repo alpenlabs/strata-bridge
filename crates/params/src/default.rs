@@ -26,3 +26,7 @@ pub(crate) const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
 /// The default output amount in the challenge transaction that is paid to the operator that is
 /// being challenged.
 pub(crate) const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
+
+/// The default number of blocks for which the Deposit Request output must be locked before it can
+/// be taken back by the user.
+pub(crate) const REFUND_DELAY: u16 = 144 * 7; // 7 days' of worth of blocks in mainnet

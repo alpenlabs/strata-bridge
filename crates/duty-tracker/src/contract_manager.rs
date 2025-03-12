@@ -106,8 +106,6 @@ impl Drop for ContractManager {
     }
 }
 
-const REFUND_DELAY: u64 = 144;
-
 /// Unified error type for everything that can happen in the ContractManager.
 #[derive(Debug, Error)]
 pub enum ContractManagerErr {
@@ -170,7 +168,7 @@ impl ContractManagerCtx {
                 let (sm, duty) = ContractSM::new(
                     self.operator_table.clone(),
                     height,
-                    height + REFUND_DELAY,
+                    height + self.pegout_graph_params.refund_delay as u64,
                     deposit_tx,
                 );
                 self.contract_persister.init(sm.cfg(), sm.state()).await?;

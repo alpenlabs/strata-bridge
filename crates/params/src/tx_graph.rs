@@ -3,7 +3,7 @@
 use bitcoin::Amount;
 use serde::{Deserialize, Serialize};
 
-use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE};
+use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE, REFUND_DELAY};
 
 /// The parameters required to construct a peg-out graph.
 ///
@@ -21,6 +21,10 @@ pub struct PegOutGraphParams {
     /// The output amount for the challenge transaction that is paid to the operator being
     /// challenged.
     pub challenge_cost: Amount,
+
+    /// The number of blocks for which the Deposit Request output must be locked before it can be
+    /// taken back by the user.
+    pub refund_delay: u16,
 }
 
 impl Default for PegOutGraphParams {
@@ -29,6 +33,7 @@ impl Default for PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
             operator_fee: OPERATOR_FEE,
             challenge_cost: CHALLENGE_COST,
+            refund_delay: REFUND_DELAY,
         }
     }
 }
