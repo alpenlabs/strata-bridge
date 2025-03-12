@@ -79,7 +79,7 @@ pub struct RpcWithdrawalInfo {
     pub valid_block_height: BitcoinBlockHeight,
 }
 
-/// Represents withdrawal transaction details
+/// Represents reimbursement transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcClaimInfo {
     pub claim_txid: Txid,
