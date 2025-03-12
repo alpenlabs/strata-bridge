@@ -1,4 +1,9 @@
 //! Defines the main loop for the bridge-client in operator mode.
+use std::{
+    env, fs,
+    path::{Path, PathBuf},
+};
+
 use bitcoin::secp256k1::SecretKey;
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
@@ -6,6 +11,10 @@ use libp2p::{
 };
 use secp256k1::SECP256K1;
 use secret_service_client::SecretServiceClient;
+use sqlx::{
+    migrate::Migrator,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
+};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
@@ -30,7 +39,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let sk = get_p2p_key(&s2_client).await?;
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
 
-    let db = init_database_handle(&config);
+    let db = init_database_handle(&config).await;
 
     init_duty_tracker(&params, &config, s2_client, message_handler, db);
 
@@ -100,8 +109,73 @@ async fn init_p2p_msg_handler(
     Ok(MessageHandler::new(p2p_handle))
 }
 
-fn init_database_handle(_config: &Config) -> SqliteDb {
-    unimplemented!("@Rajil1213");
+async fn init_database_handle(config: &Config) -> SqliteDb {
+    const DB_NAME: &str = "bridge.db";
+
+    let datadir = &config.datadir;
+    let db_path = create_db_file(datadir, DB_NAME);
+
+    let connect_options = SqliteConnectOptions::new()
+        .filename(db_path)
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .journal_mode(SqliteJournalMode::Wal);
+
+    let pool_options = SqlitePoolOptions::new();
+
+    let pool = pool_options
+        .connect_with(connect_options)
+        .await
+        .expect("should be able to connect to db");
+
+    let current_dir = env::current_dir().expect("should be able to get current working directory");
+    let migrations_path = current_dir.join("migrations");
+
+    let migrator = Migrator::new(migrations_path)
+        .await
+        .expect("should be able to initialize migrator");
+
+    info!(action = "running migrations", %DB_NAME);
+    migrator
+        .run(&pool)
+        .await
+        .expect("should be able to run migrations");
+
+    SqliteDb::new(pool)
+}
+
+fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
+    if !datadir.as_ref().exists() {
+        fs::create_dir_all(datadir.as_ref())
+            .map_err(|e| {
+                panic!(
+                    "could not create datadir at {:?} due to {}",
+                    datadir.as_ref().canonicalize(),
+                    e
+                );
+            })
+            .unwrap();
+    }
+
+    let db_path = datadir.as_ref().join(db_name);
+
+    if !db_path.exists() {
+        fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false) // don't overwrite the file
+            .open(db_path.as_path())
+            .map_err(|e| {
+                panic!(
+                    "could not create db at {:?} due to {}",
+                    db_path.to_string_lossy(),
+                    e
+                );
+            })
+            .unwrap();
+    }
+
+    db_path
 }
 
 fn init_duty_tracker(

@@ -925,6 +925,7 @@ dependencies = [
  "secp256k1",
  "secret-service-client",
  "serde",
+ "sqlx",
  "strata-bridge-db",
  "strata-bridge-p2p-service",
  "strata-common",

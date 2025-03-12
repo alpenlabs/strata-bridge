@@ -34,6 +34,7 @@ libp2p = { workspace = true, features = ["secp256k1"] }
 musig2.workspace = true
 secp256k1.workspace = true
 serde.workspace = true
+sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
