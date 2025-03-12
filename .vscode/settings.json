@@ -10,12 +10,9 @@
         "--no-deps"
     ],
     "rust-analyzer.linkedProjects": [
-        "Cargo.toml",
+        "Cargo.toml"
     ],
     "rust-analyzer.diagnostics.enable": true,
-    "rust-analyzer.cargo.features": [
-        "prover"
-    ],
     "todohighlight.isEnable": true,
     "todohighlight.isCaseSensitive": true,
     "todohighlight.keywords": [
@@ -58,5 +55,5 @@
         "**/target/**",
         "**/.vscode/**"
     ],
-    "todohighlight.maxFilesForSearch": 5120,
+    "todohighlight.maxFilesForSearch": 5120
 }
