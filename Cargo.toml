@@ -28,7 +28,7 @@ members = [
   "bin/alpen-bridge",
 
   # test utilities
-  "crates/test-utils",
+  "crates/test-utils", "crates/operator-wallet",
 ]
 
 default-members = [
@@ -47,7 +47,6 @@ btc-notify = { path = "crates/btc-notify" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
-secret-service-server = { path = "crates/secret-service-server" }
 strata-bridge-agent = { path = "crates/agent" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
@@ -61,12 +60,8 @@ strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
-
-# deps from original strata repo
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 strata-btcio = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 strata-common = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
-strata-config = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 strata-crypto = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 strata-l1tx = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
 strata-primitives = { git = "https://github.com/alpenlabs/strata.git", rev = "c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c" }
@@ -88,15 +83,10 @@ zkaleido-sp1-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v
 anyhow = "1.0.95"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 ark-bn254 = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
-ark-crypto-primitives = { git = "https://github.com/arkworks-rs/crypto-primitives/" }
 ark-ec = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-ff = { git = "https://github.com/chainwayxyz/algebra/", branch = "new-ate-loop" }
 ark-groth16 = { git = "https://github.com/arkworks-rs/groth16" }
-ark-r1cs-std = { git = "https://github.com/arkworks-rs/r1cs-std/" }
-ark-relations = { git = "https://github.com/arkworks-rs/snark/" }
-ark-std = { git = "https://github.com/arkworks-rs/std/", rev = "db4367e68ff60da31ac759831e38f60171f4e03d" }
 async-trait = "0.1.81"
-base64 = "0.22.1"
 bincode = "1.3.3"
 # TODO(proofofkeags): when updating `bitcoin` to >=0.33.0, go through btc-notify and update tests to no longer constrain heights.
 
@@ -108,17 +98,9 @@ borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.5.0", features = ["28_0", "download"] }
-dotenvy = "0.15.7"
-esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
-  "blocking-https-rustls",
-  "async-https-rustls",
-] }
-ethnum = "1.5.0"
 futures = "0.3.31"
 hex = { version = "0.4.3", features = ["serde"] }
 jsonrpsee = "0.24.7"
-jsonrpsee-types = "0.24.7"
-kanal = "0.1.0-pre8"
 libp2p = { version = "0.54.1", features = [
   "noise",
   "gossipsub",
@@ -140,16 +122,8 @@ musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
 ] } # can't be updated without updating bitcoin
-parking_lot = "0.12.3"
 quinn = "0.11.6"
 rand = "0.8.5"
-reqwest = { version = "0.12.12", default-features = false, features = [
-  "http2",
-  "rustls-tls",
-  "charset",
-  "zstd",
-  "json",
-] }
 rkyv = "0.8.8"
 secp256k1 = "0.29.1"
 serde = { version = "1.0", features = ["derive"] }
@@ -157,7 +131,6 @@ serde_json = { version = "1.0", default-features = false, features = [
   "alloc",
   "raw_value",
 ] }
-serde_with = "3.12.0"
 sha2 = "0.10"
 sled = "0.34.7"
 sp1-sdk = "4.0.0"
@@ -170,7 +143,6 @@ sqlx = { version = "0.8.2", features = [
   "derive",
   "migrate",
 ] }
-tempfile = "3.10.1"
 terrors = "0.3.2"
 thiserror = "2.0.3"
 threadpool = "1.8.1"
