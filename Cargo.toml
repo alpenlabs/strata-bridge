@@ -8,7 +8,7 @@ members = [
   "crates/bridge-proof/primitives",
   "crates/bridge-proof/snark",
   "crates/duty-tracker",
-  "crates/rpc/bridge",
+  "crates/rpc",
   "crates/bridge-proof/test-utils",
   "crates/stake-chain",
   "crates/connectors",
@@ -57,7 +57,7 @@ strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof-primitives = { path = "crates/bridge-proof/primitives" }
 strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
 strata-bridge-proof-snark = { path = "crates/bridge-proof/snark" }
-strata-bridge-rpc = { path = "crates/rpc/bridge" }
+strata-bridge-rpc = { path = "crates/rpc" }
 strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
