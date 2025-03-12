@@ -6,7 +6,7 @@
 
 mod types;
 
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_bridge_primitives::{
     duties::BridgeDuty,
@@ -46,6 +46,20 @@ pub trait StrataBridgeMonitoringApi {
     /// Get bridge duties.
     #[method(name = "bridgeDuties")]
     async fn get_bridge_duties(&self) -> RpcResult<Vec<BridgeDuty>>;
+
+    /// Get bridge duties assigned to an operator by its [`PublicKey`].
+    #[method(name = "bridgeDutiesByPk")]
+    async fn get_bridge_duties_by_operator_pk(
+        &self,
+        operator_pk: PublicKey,
+    ) -> RpcResult<Vec<BridgeDuty>>;
+
+    /// Get bridge duties assigned to an operator by [`OperatorIdx`].
+    #[method(name = "bridgeDutiesById")]
+    async fn get_bridge_duties_by_operator_id(
+        &self,
+        operator_id: OperatorIdx,
+    ) -> RpcResult<Vec<BridgeDuty>>;
 
     /// Get withdrawal details using withdrawal outpoint.
     #[method(name = "withdrawalInfo")]
