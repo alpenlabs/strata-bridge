@@ -9890,7 +9890,10 @@ dependencies = [
 name = "strata-bridge-rpc"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "jsonrpsee",
+ "serde",
+ "strata-bridge-primitives",
 ]
 
 [[package]]

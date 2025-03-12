@@ -9,9 +9,15 @@ rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.unreachable_pub = "warn"
 rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
+rust.missing_docs = "warn"
+rustdoc.all = "warn"
 
 [dependencies]
-jsonrpsee = { workspace = true, features = ["server", "macros", "tokio"] }
+strata-bridge-primitives.workspace = true
+
+bitcoin.workspace = true
+jsonrpsee = { workspace = true, features = ["server", "macros"] }
+serde.workspace = true
 
 [features]
 default = []
