@@ -1,5 +1,6 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
+use alpen_bridge_params::prelude::ConnectorParams;
 use bitcoin::{
     hashes::{self, Hash},
     key::TapTweak,
@@ -14,7 +15,6 @@ use secp256k1::{
     Keypair, Message, PublicKey, SecretKey, SECP256K1,
 };
 use strata_bridge_primitives::{
-    params::prelude::MIN_RELAY_FEE,
     scripts::prelude::*,
     wots::{Wots256PublicKey, Wots256Signature},
 };
@@ -24,6 +24,19 @@ use strata_btcio::rpc::{
     BitcoinClient,
 };
 use tracing::trace;
+
+pub(super) const MIN_RELAY_FEE: Amount = Amount::from_sat(5000);
+pub(super) const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
+pub(super) const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
+pub(super) const DISPROVER_REWARD: Amount = Amount::from_int_btc(1);
+pub(super) const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
+pub(super) const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
+
+pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {
+    payout_optimistic_timelock: 100,
+    pre_assert_timelock: 200,
+    payout_timelock: 100,
+};
 
 #[derive(Debug, Clone)]
 pub struct Agent {

@@ -7,7 +7,7 @@ use bitcoin::{sighash::Prevouts, Amount, Network, OutPoint, Psbt, Transaction, T
 use bitcoin_bosd::Descriptor;
 use strata_bridge_connectors::prelude::{ConnectorP, StakeSpendPath};
 use strata_bridge_primitives::{
-    params::tx::SEGWIT_MIN_AMOUNT,
+    constants::SEGWIT_MIN_AMOUNT,
     scripts::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::TaprootWitness,

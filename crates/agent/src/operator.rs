@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use alpen_bridge_params::prelude::*;
 use anyhow::bail;
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
@@ -26,16 +27,16 @@ use rand::Rng;
 use secp256k1::schnorr::Signature;
 use strata_bridge_connectors::{
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
-    prelude::{ConnectorA30Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
+    prelude::{ConnectorA3Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
 };
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext, TxKind},
+    constants::*,
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::{connectors::PAYOUT_TIMELOCK, prelude::*},
     scripts::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::{create_message_hash, finalize_input, TaprootWitness},
@@ -56,7 +57,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_bridge_tx_graph::{
-    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput, PegOutGraphParams},
+    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
 use strata_btcio::rpc::{
@@ -76,7 +77,10 @@ use tokio::sync::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    base::Agent,
+    base::{
+        Agent, BRIDGE_DENOMINATION, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS, MIN_RELAY_FEE,
+        OPERATOR_FEE, OPERATOR_STAKE,
+    },
     proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,
@@ -87,6 +91,7 @@ use crate::{
 const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
 const STAKE_CHAIN_LENGTH: u32 = 10;
+const MAGIC_BYTES: &[u8] = b"alpen";
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -172,13 +177,18 @@ where
             return;
         }
 
+        let pegout_graph_params = PegOutGraphParams::default();
         match duty {
             BridgeDuty::SignDeposit(deposit_info) => {
                 let txid = deposit_info.deposit_request_outpoint().txid;
                 info!(event = "received deposit duty", %own_index, drt_txid = %txid);
 
                 let data = deposit_info
-                    .construct_signing_data(&self.build_context)
+                    .construct_signing_data(
+                        &self.build_context,
+                        pegout_graph_params.deposit_amount,
+                        Some(MAGIC_BYTES),
+                    )
                     .unwrap(); // FIXME: Handle
                 let deposit_txid = data.psbt.unsigned_tx.compute_txid();
 
@@ -238,9 +248,14 @@ where
 
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
+        let pegout_graph_params = PegOutGraphParams::default();
 
         // 1. aggregate_tx_graph
-        let deposit_tx = deposit_info.construct_signing_data(&self.build_context);
+        let deposit_tx = deposit_info.construct_signing_data(
+            &self.build_context,
+            pegout_graph_params.deposit_amount,
+            Some(MAGIC_BYTES),
+        );
 
         if let Err(cause) = deposit_tx {
             let deposit_txid = deposit_info.deposit_request_outpoint().txid;
@@ -307,7 +322,7 @@ where
         };
         let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+            ..Default::default()
         };
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
@@ -316,6 +331,7 @@ where
             &self.build_context,
             deposit_txid,
             graph_params,
+            CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
         )
@@ -557,7 +573,7 @@ where
 
                     let graph_params = PegOutGraphParams {
                         deposit_amount: BRIDGE_DENOMINATION,
-                        funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+                        ..Default::default()
                     };
 
                     let (
@@ -573,6 +589,7 @@ where
                         &self.build_context,
                         deposit_txid,
                         graph_params,
+                        CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
                     )
@@ -957,10 +974,9 @@ where
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
                     let graph_params = {
-                        let funding_amount = OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2;
                         PegOutGraphParams {
                             deposit_amount: BRIDGE_DENOMINATION,
-                            funding_amount,
+                            ..Default::default()
                         }
                     };
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
@@ -968,6 +984,7 @@ where
                         &self.build_context,
                         deposit_txid,
                         graph_params,
+                        CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
                     )
@@ -1607,8 +1624,7 @@ where
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
         let graph_params = PegOutGraphParams {
             deposit_amount: BRIDGE_DENOMINATION,
-            // *2 for the two dust outputs in each stake transaction
-            funding_amount: OPERATOR_FUNDS - SEGWIT_MIN_AMOUNT * 2,
+            ..Default::default()
         };
         let peg_out_graph_input = PegOutGraphInput {
             operator_pubkey: own_pubkey,
@@ -1629,6 +1645,7 @@ where
             &self.build_context,
             deposit_txid,
             graph_params,
+            CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
         )
@@ -1677,7 +1694,7 @@ where
             let weight = signed_pre_assert.weight();
             info!(event = "finalized pre-assert tx", %pre_assert_txid, %vsize, %total_size, %weight, %own_index);
 
-            let n_blocks = PRE_ASSERT_TIMELOCK + 10;
+            let n_blocks = CONNECTOR_PARAMS.pre_assert_timelock + 10;
             info!(%n_blocks, "waiting before settling pre-assert");
             let pre_assert_txid = self
                 .agent
@@ -1868,7 +1885,7 @@ where
 
         // 8. settle reimbursement tx after wait time
         if status.should_get_payout() {
-            let wait_time = Duration::from_secs(PAYOUT_TIMELOCK as u64);
+            let wait_time = Duration::from_secs(CONNECTOR_PARAMS.payout_timelock as u64);
             info!(action = "waiting for timeout period before seeking reimbursement", wait_time_secs=%wait_time.as_secs());
             tokio::time::sleep(wait_time).await;
 
@@ -1883,7 +1900,7 @@ where
                 .get_signature(
                     own_index,
                     payout_tx.compute_txid(),
-                    ConnectorA30Leaf::Payout(()).get_input_index(),
+                    ConnectorA3Leaf::Payout(None).get_input_index(),
                 )
                 .await
                 .unwrap()
@@ -2247,7 +2264,9 @@ where
             dump_proof_input_data(&chain_state, blocks, op_signature);
         }
 
+        let pegout_graph_params = PegOutGraphParams::default();
         let input = BridgeProofInput {
+            pegout_graph_params,
             rollup_params: self.rollup_params.clone(),
             headers,
             chain_state,

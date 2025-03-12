@@ -1,3 +1,4 @@
+use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt,
     TapSighashType, Transaction, TxOut,
@@ -5,10 +6,7 @@ use bitcoin::{
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake, StakeSpendPath};
 use strata_bridge_primitives::{
-    params::{
-        prelude::StakeChainParams,
-        tx::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
-    },
+    constants::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
     scripts::{
         prelude::{create_tx, create_tx_ins},
         taproot::{create_taproot_addr, SpendPath, TaprootWitness},
@@ -177,17 +175,17 @@ impl CovenantTx for SlashStakeTx {
 mod tests {
     use std::{collections::BTreeMap, str::FromStr};
 
+    use alpen_bridge_params::prelude::StakeChainParams;
     use bitcoin::{
         hashes::{self, Hash},
         sighash::SighashCache,
-        Network, OutPoint, TxOut,
+        Amount, Network, OutPoint, TxOut,
     };
     use corepc_node::{Conf, Node};
     use secp256k1::rand::{rngs::OsRng, Rng};
     use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
-        params::{prelude::StakeChainParams, tx::SLASH_STAKE_REWARD},
         scripts::{
             prelude::{create_tx, create_tx_ins, create_tx_outs},
             taproot::create_message_hash,
@@ -339,8 +337,9 @@ mod tests {
         );
 
         info!(action = "adding output to signed slash stake transaction");
+        let slash_stake_reward = Amount::from_sat(199_999_000); // 2 BTC - 1000 sats
         signed_slash_stake_tx.output.push(TxOut {
-            value: SLASH_STAKE_REWARD,
+            value: slash_stake_reward,
             script_pubkey: wallet_addr.script_pubkey(),
         });
 

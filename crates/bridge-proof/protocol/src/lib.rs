@@ -13,6 +13,7 @@ mod prover;
 mod statement;
 mod tx_info;
 
+use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
 use statement::process_bridge_proof;
@@ -35,6 +36,9 @@ use zkaleido::ZkVmEnv;
 pub struct BridgeProofInput {
     /// The [RollupParams] of the strata rollup
     pub rollup_params: RollupParams,
+
+    /// The [`PegOutGraphParams`] of the peg-out graph.
+    pub pegout_graph_params: PegOutGraphParams,
 
     /// Vector of Bitcoin headers starting after the one that has been verified by the `header_vs`
     pub headers: Vec<Header>,
@@ -108,6 +112,7 @@ pub struct BridgeProofPublicOutput {
 /// errors occur during deserialization, proof verification, or output commitment.
 pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
     let rollup_params: RollupParams = zkvm.read_serde();
+    let pegout_graph_params: PegOutGraphParams = zkvm.read_serde();
 
     let raw_headers = zkvm.read_buf();
     let headers: Vec<_> = raw_headers
@@ -128,7 +133,8 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
     let input: BridgeProofInputBorsh = zkvm.read_borsh();
 
     let (output, checkpoint) =
-        process_bridge_proof(input, headers, rollup_params).expect("expect output");
+        process_bridge_proof(input, headers, rollup_params, pegout_graph_params)
+            .expect("expect output");
 
     // Verify the strata checkpoint proof
     zkvm.verify_groth16_receipt(&checkpoint.get_proof_receipt(), &rollup_vk.0);

@@ -3,20 +3,15 @@
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
+use alpen_bridge_params::prelude::ConnectorParams;
 use bitcoin::{
     hashes::serde::{Deserialize, Serialize},
     OutPoint, Transaction, Txid,
 };
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
-use strata_bridge_primitives::{
-    operator_table::OperatorTable,
-    params::prelude::{PAYOUT_OPTIMISTIC_TIMELOCK, PAYOUT_TIMELOCK},
-    types::BitcoinBlockHeight,
-};
-#[expect(dead_code)]
-use strata_bridge_stake_chain::StakeChain;
-use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_tx_graph::peg_out_graph::PegOutGraphSummary;
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
@@ -113,6 +108,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs that are associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
     },
 
@@ -122,6 +118,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs that are associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -140,6 +137,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The peg-out graphs that are associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -156,6 +154,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the claim transaction was confirmed.
@@ -174,6 +173,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -189,6 +189,7 @@ pub enum ContractState {
         /// The global deposit index of this deposit.
         deposit_idx: u32,
 
+        /// The summary of peg-out graphs associated with this deposit per operator.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the post-assert transaction was confirmed.
@@ -403,6 +404,7 @@ impl ContractSM {
     pub fn process_contract_event(
         &mut self,
         ev: ContractEvent,
+        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
             ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, *keys),
@@ -416,7 +418,7 @@ impl ContractSM {
             ContractEvent::PegOutGraphConfirmation(tx, height) => {
                 self.process_peg_out_graph_tx_confirmation(height, &tx)
             }
-            ContractEvent::Block(height) => self.notify_new_block(height),
+            ContractEvent::Block(height) => self.notify_new_block(height, connector_params),
             ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
             ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
             ContractEvent::Assignment(deposit_entry) => self.process_assignment(&deposit_entry),
@@ -426,27 +428,26 @@ impl ContractSM {
     fn process_deposit_confirmation(
         &mut self,
         tx: Transaction,
-        deposit_idx: u32,
+        _deposit_idx: u32,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match self.state.state {
             ContractState::Requested { .. }
                 if tx.compute_txid() == self.cfg.deposit_tx.compute_txid() =>
             {
-                let peg_out_input = PegOutGraphInput {
-                    stake_outpoint: todo!(),
-                    withdrawal_fulfillment_outpoint: todo!(),
-                    stake_hash: todo!(),
-                    wots_public_keys: todo!(),
-                    operator_pubkey: todo!(),
-                };
-                let peg_out_graphs =
-                    // PegOutGraph::generate(todo!(), todo!(), todo!(), todo!(), todo!(), todo!())
-                    //     .unwrap();
-                    todo!();
-                self.state.state = ContractState::Deposited {
-                    deposit_idx,
-                    peg_out_graphs: todo!(),
-                };
+                // let _peg_out_input = PegOutGraphInput {
+                //     stake_outpoint: todo!(),
+                //     withdrawal_fulfillment_outpoint: todo!(),
+                //     stake_hash: todo!(),
+                //     wots_public_keys: todo!(),
+                //     operator_pubkey: todo!(),
+                // };
+                // let _peg_out_graphs =
+                //     // PegOutGraph::generate(todo!(), todo!(), todo!(), todo!(), todo!(),
+                // todo!()).unwrap();
+                // self.state.state = ContractState::Deposited {
+                //     deposit_idx,
+                //     peg_out_graphs: todo!(),
+                // };
                 Ok(None)
             }
             _ => Err(TransitionErr),
@@ -588,6 +589,7 @@ impl ContractSM {
     fn notify_new_block(
         &mut self,
         height: BitcoinBlockHeight,
+        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if self.state.block_height + 1 == height {
             self.state.block_height = height;
@@ -625,7 +627,8 @@ impl ContractSM {
                     claim_height,
                     ..
                 } => {
-                    if self.state.block_height >= claim_height + PAYOUT_OPTIMISTIC_TIMELOCK as u64
+                    if self.state.block_height
+                        >= claim_height + connector_params.payout_optimistic_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(
@@ -641,7 +644,8 @@ impl ContractSM {
                     fulfiller,
                     ..
                 } => {
-                    if self.state.block_height >= post_assert_height + PAYOUT_TIMELOCK as u64
+                    if self.state.block_height
+                        >= post_assert_height + connector_params.payout_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))

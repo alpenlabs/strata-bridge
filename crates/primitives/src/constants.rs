@@ -1,5 +1,8 @@
-//! Params related to the bridge tx graph connectors, specifically the layout of assert-data
-//! connectors.
+//! This module contains constants related to how the transaction graph in the bridge is
+//! constructed.
+//!
+//! These constants are integral to the graph i.e., changing them would change the nature of the
+//! graph itself (size, structure, etc.). These values must be known at compile-time.
 //!
 //! The following data was used to determine the layout of the connectors. This data is the output
 //! of running `cargo run --bin assert-splitter`.
@@ -37,9 +40,15 @@
 //! | Field         | 3                  |  1          | 1            | 3     |
 //! | Hash          | 9                  |  42         | 1            | 378   |
 //! | Hash          | 2                  |  1          | 1            | 2     |
-use std::time::Duration;
 
-use bitvm::chunk::compile::{NUM_U160, NUM_U256};
+use std::sync::LazyLock;
+
+use bitcoin::{
+    hashes::{sha256, Hash},
+    Amount,
+};
+use bitvm::chunk::compile::{NUM_PUBS, NUM_U160, NUM_U256};
+use secp256k1::XOnlyPublicKey;
 
 /// The maximum number of field elements that are bitcommitted per UTXO.
 pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 6;
@@ -66,7 +75,7 @@ pub const NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2: usize = 2;
 pub const NUM_HASH_CONNECTORS_BATCH_2: usize = 1;
 
 /// The total number of field elements that need to be committed.
-pub const NUM_PKS_A256: usize = NUM_U256 + 1; // 20 field elements + 1 proof input
+pub const NUM_PKS_A256: usize = NUM_U256 + NUM_PUBS; // 20 field elements + 1 proof input
 /// The total number of hashes that need to be committed.
 pub const NUM_PKS_A160: usize = NUM_U160;
 
@@ -100,15 +109,39 @@ const _: [(); 0] = [(); (NUM_PKS_A256 - NUM_FIELD_ELEMENTS)];
 const _: [(); 0] = [(); (NUM_PKS_A160 - NUM_HASH_ELEMENTS)];
 const _: [(); 0] = [(); (NUM_PKS_A256 + NUM_PKS_A160 - TOTAL_VALUES)];
 
-// FIXME: Move the following to configurable params
+/// The minimum value a segwit output script should have in order to be
+/// broadcastable on today's Bitcoin network.
+///
+/// Dust depends on the -dustrelayfee value of the Bitcoin Core node you are broadcasting to.
+/// This function uses the default value of 0.00003 BTC/kB (3 sat/vByte).
+pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
 
-pub const BLOCK_TIME: Duration = Duration::from_secs(30);
+/// The minimum amount required to fund all the dust outputs in the peg-out graph.
+///
+/// This is calculated as follows:
+///
+/// | Transaction   | # [`SEGWIT_MIN_AMOUNT`] outputs per tx | # Transactions | Total sats |
+/// |---------------|----------------------------------------|----------------|------------|
+/// | Assert Data   | 2                                      | 47             | 31020      |
+/// | Pre Assert    | 1                                      |  1             |   330      |
+/// | Claim         | 3                                      |  1             |   990      |
+/// |---------------|----------------------------------------|----------------|------------|
+/// | Total         |                                        | 50             | 32340      |
+pub const FUNDING_AMOUNT: Amount = Amount::from_sat(32_340);
 
-pub const PAYOUT_OPTIMISTIC_TIMELOCK: u32 = 500;
+const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"Strata Bridge Unspendable";
 
-pub const PRE_ASSERT_TIMELOCK: u32 = PAYOUT_OPTIMISTIC_TIMELOCK + 100; // 100 is slack
-
-// compile-time checks
-const _: () = assert!(PRE_ASSERT_TIMELOCK > PAYOUT_OPTIMISTIC_TIMELOCK);
-
-pub const PAYOUT_TIMELOCK: u32 = 288; // 2 day's worth of blocks in mainnet
+/// A verifiably unspendable public key, produced by hashing a fixed string to a curve group
+/// generator.
+///
+/// This is related to the technique used in [BIP-341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs).
+///
+/// Note that this is _not_ necessarily a uniformly-sampled curve point!
+///
+/// But this is fine; we only need a generator with no efficiently-computable discrete logarithm
+/// relation against the standard generator.
+pub static UNSPENDABLE_INTERNAL_KEY: LazyLock<XOnlyPublicKey> =
+    LazyLock::new(|| -> XOnlyPublicKey {
+        XOnlyPublicKey::from_slice(sha256::Hash::hash(UNSPENDABLE_PUBLIC_KEY_INPUT).as_byte_array())
+            .expect("valid xonly public key")
+    });

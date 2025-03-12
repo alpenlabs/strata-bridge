@@ -2,7 +2,7 @@ use bitcoin::{Transaction, Txid};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    deposit::DepositInfo, params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx,
+    constants::NUM_ASSERT_DATA_TX, deposit::DepositInfo, types::OperatorIdx,
     withdrawal::WithdrawalInfo,
 };
 
@@ -310,7 +310,7 @@ mod tests {
     use bitcoin::{hashes::Hash, Txid};
 
     use super::WithdrawalStatus;
-    use crate::params::prelude::NUM_ASSERT_DATA_TX;
+    use crate::constants::NUM_ASSERT_DATA_TX;
 
     #[test]
     fn test_state_transition() {

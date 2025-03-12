@@ -1,6 +1,6 @@
 use bitcoin::{Amount, Txid};
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::params::connectors::*;
+use strata_bridge_primitives::constants::*;
 use tracing::trace;
 
 use super::prelude::*;

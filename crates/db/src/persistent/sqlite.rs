@@ -12,7 +12,7 @@ use musig2::{PartialSignature, PubNonce, SecNonce};
 use secp256k1::schnorr::Signature;
 use sqlx::SqlitePool;
 use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress, duties::BridgeDutyStatus, params::prelude::NUM_ASSERT_DATA_TX,
+    bitcoin::BitcoinAddress, constants::NUM_ASSERT_DATA_TX, duties::BridgeDutyStatus,
     types::OperatorIdx, wots,
 };
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
@@ -1379,7 +1379,7 @@ mod tests {
         key::rand::{self, Rng},
     };
     use secp256k1::rand::rngs::OsRng;
-    use strata_bridge_primitives::{duties::WithdrawalStatus, params::prelude::NUM_ASSERT_DATA_TX};
+    use strata_bridge_primitives::duties::WithdrawalStatus;
     use strata_bridge_test_utils::prelude::*;
 
     use super::*;

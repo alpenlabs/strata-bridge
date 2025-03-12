@@ -4,7 +4,7 @@ use bitcoin::{
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::{params::prelude::*, scripts::prelude::*};
+use strata_bridge_primitives::{constants::*, scripts::prelude::*};
 use tracing::trace;
 
 use super::covenant_tx::CovenantTx;
@@ -48,7 +48,7 @@ impl PreAssertTx {
     /// these UTXOs are sequentially chunked into transactions, the size of these transactions do
     /// not exceed the standard transaction size limit of 10,000 vbytes for v3 transactions.
     ///
-    /// Refer to the documentation in [`strata_bridge_primitives::params::connectors`] for more
+    /// Refer to the documentation in [`strata_bridge_primitives::constants`] for more
     /// details.
     ///
     /// A CPFP connector is required to pay the transaction fees.
@@ -141,7 +141,7 @@ impl PreAssertTx {
 
         let mut tx = create_tx(tx_ins, tx_outs.clone());
         tx.version = transaction::Version(3); // for 0-fee TRUC transactions
-        tx.input[0].sequence = Sequence::from_height(PRE_ASSERT_TIMELOCK as u16);
+        tx.input[0].sequence = Sequence::from_height(connector_c0.pre_assert_timelock() as u16);
 
         let mut psbt =
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");

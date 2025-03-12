@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{relative, taproot, OutPoint, TxOut};
 use bitvm::groth16::g16;
 use sp1_verifier::hash_public_inputs;
@@ -14,10 +15,6 @@ use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
-    params::{
-        prelude::StakeChainParams,
-        tx::{BTC_CONFIRM_PERIOD, DISPROVER_REWARD},
-    },
     scripts::prelude::wots_to_byte_array,
     wots::{self, Groth16Signatures, Wots256Signature},
 };
@@ -31,7 +28,7 @@ use strata_bridge_tx_graph::transactions::{
 use tokio::sync::broadcast::{self, error::RecvError};
 use tracing::{error, info, trace, warn};
 
-use crate::base::Agent;
+use crate::base::{Agent, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS, DISPROVER_REWARD};
 
 pub type VerifierIdx = u32;
 
@@ -233,6 +230,7 @@ where
                         deposit_txid,
                         self.build_context.aggregated_pubkey(),
                         public_keys,
+                        CONNECTOR_PARAMS.payout_timelock,
                     );
 
                     let delta = relative::LockTime::from_height(6);
@@ -280,6 +278,7 @@ where
                         deposit_txid,
                         self.build_context.aggregated_pubkey(),
                         public_keys,
+                        CONNECTOR_PARAMS.payout_timelock,
                     );
                     let signed_disprove_tx = disprove_tx.finalize(
                         reward_out,

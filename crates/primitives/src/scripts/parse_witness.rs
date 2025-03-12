@@ -5,8 +5,8 @@ use bitvm::{
 };
 
 use crate::{
+    constants::*,
     errors::{ParseError, ParseResult},
-    params::connectors::*,
 };
 
 pub fn parse_wots160_signatures<const N_SIGS: usize>(

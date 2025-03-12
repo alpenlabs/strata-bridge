@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     build_context::{BuildContext, TxKind},
+    constants::UNSPENDABLE_INTERNAL_KEY,
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
-    params::prelude::{BRIDGE_DENOMINATION, UNSPENDABLE_INTERNAL_KEY},
     scripts::{
         general::{create_tx, create_tx_ins, create_tx_outs},
         prelude::*,
@@ -35,7 +35,7 @@ pub struct DepositInfo {
 
     /// The amount in bitcoins that the user is sending.
     ///
-    /// This amount should be greater than the [`BRIDGE_DENOMINATION`] for the deposit to be
+    /// This amount should be greater than the bridge denomination for the deposit to be
     /// confirmed on bitcoin. The excess amount is used as miner fees for the Deposit Transaction.
     total_amount: Amount,
 
@@ -54,10 +54,16 @@ impl TxKind for DepositInfo {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
+        deposit_amt: Amount,
+        tag: Option<&[u8]>,
     ) -> BridgeTxBuilderResult<TxSigningData> {
         let prevouts = self.compute_prevouts();
         let spend_info = self.compute_spend_infos(build_context)?;
-        let unsigned_tx = self.create_unsigned_tx(build_context)?;
+        let unsigned_tx = self.create_unsigned_tx(
+            build_context,
+            deposit_amt,
+            tag.expect("deposit tx must have a tag in the metadata"),
+        )?;
 
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
 
@@ -179,6 +185,8 @@ impl DepositInfo {
     fn create_unsigned_tx(
         &self,
         build_context: &impl BuildContext,
+        deposit_amt: Amount,
+        tag: &[u8],
     ) -> BridgeTxBuilderResult<Transaction> {
         // First, create the inputs
         let outpoint = self.deposit_request_outpoint();
@@ -194,7 +202,7 @@ impl DepositInfo {
             ))
         })?;
 
-        let metadata_script = metadata_script(el_addr);
+        let metadata_script = metadata_script(el_addr, tag);
         let metadata_amount = Amount::from_int_btc(0);
 
         // Then create the taproot script pubkey with keypath spend for the actual deposit
@@ -207,7 +215,7 @@ impl DepositInfo {
         let bridge_in_script_pubkey = bridge_addr.script_pubkey();
 
         let tx_outs = create_tx_outs([
-            (bridge_in_script_pubkey, BRIDGE_DENOMINATION),
+            (bridge_in_script_pubkey, deposit_amt),
             (metadata_script, metadata_amount),
         ]);
 
@@ -246,12 +254,13 @@ mod tests {
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+        let deposit_amt = Amount::from_int_btc(1);
 
         // Correct merkle proof
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
             drt_output_address.address().script_pubkey(),
         );
@@ -270,7 +279,7 @@ mod tests {
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             TapNodeHash::from_str(&random_hash).unwrap(),
             drt_output_address.address().script_pubkey(),
         );
@@ -301,16 +310,19 @@ mod tests {
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+        let deposit_amt = Amount::from_int_btc(1);
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.create_unsigned_tx(&tx_builder);
+        let tag = b"alpen";
+        let deposit_amt = Amount::from_int_btc(1);
+        let result = deposit_info.create_unsigned_tx(&tx_builder, deposit_amt, tag);
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -334,16 +346,19 @@ mod tests {
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+        let deposit_amt = Amount::from_int_btc(1);
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let tag = b"alpen";
+        let deposit_amt = Amount::from_int_btc(1);
+        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -359,12 +374,12 @@ mod tests {
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 21].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
         assert!(
             result.is_err_and(|e| matches!(
                 e,
@@ -383,12 +398,12 @@ mod tests {
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             TapNodeHash::from_str(&random_hash).unwrap(),
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
         assert!(
             result.is_err_and(|e| matches!(
                 e,

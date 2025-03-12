@@ -2,17 +2,13 @@
 //! where relevant.
 use std::sync::Arc;
 
+use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
 use bitcoin::{
-    hashes::Hash, opcodes::all::OP_RETURN, OutPoint, Script, TapNodeHash, Transaction, Txid,
+    hashes::Hash, opcodes::all::OP_RETURN, taproot::TAPROOT_CONTROL_NODE_SIZE, OutPoint, Script,
+    TapNodeHash, Transaction, Txid,
 };
 use btc_notify::client::TxPredicate;
-use strata_bridge_primitives::{
-    deposit::DepositInfo,
-    params::{
-        strata::{EL_ADDR_SIZE, MERKLE_PROOF_SIZE},
-        tx::BRIDGE_DENOMINATION,
-    },
-};
+use strata_bridge_primitives::deposit::DepositInfo;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -41,20 +37,26 @@ fn magic_tagged_data<'a, const N: usize>(tag: &[u8; N], script: &'a Script) -> O
     })
 }
 
-pub(crate) fn deposit_request_info(tx: &Transaction) -> Option<DepositInfo> {
+pub(crate) fn deposit_request_info(
+    tx: &Transaction,
+    sidesystem_params: &SideSystemParams,
+    pegout_graph_params: &PegOutGraphParams,
+) -> Option<DepositInfo> {
     let deposit_request_output = tx.output.first()?;
-    if deposit_request_output.value <= BRIDGE_DENOMINATION {
+    if deposit_request_output.value <= pegout_graph_params.deposit_amount {
         return None;
     }
     // TODO(proofofkeags): validate that the script_pubkey pays to the right operator set
 
+    let ee_address_size = sidesystem_params.ee_addr_size;
     let (take_back_leaf_hash, el_addr) =
         magic_tagged_data(MAGIC_BYTES, &tx.output.get(1)?.script_pubkey).and_then(|meta| {
-            if meta.len() != MERKLE_PROOF_SIZE + EL_ADDR_SIZE {
+            if meta.len() != TAPROOT_CONTROL_NODE_SIZE + ee_address_size {
                 return None;
             }
-            let take_back_leaf_hash = meta.get(..MERKLE_PROOF_SIZE)?;
-            let el_addr = meta.get(MERKLE_PROOF_SIZE..MERKLE_PROOF_SIZE + EL_ADDR_SIZE)?;
+            let take_back_leaf_hash = meta.get(..TAPROOT_CONTROL_NODE_SIZE)?;
+            let el_addr =
+                meta.get(TAPROOT_CONTROL_NODE_SIZE..TAPROOT_CONTROL_NODE_SIZE + ee_address_size)?;
             Some((take_back_leaf_hash, el_addr))
         })?;
 

@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
+use strata_bridge_primitives::{constants::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use tokio::sync::RwLock;
 use tracing::trace;

@@ -8,7 +8,7 @@ use bitcoin::{
     Address, Network, ScriptBuf, TapNodeHash, TapSighashType,
 };
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_primitives::{params::prelude::PAYOUT_OPTIMISTIC_TIMELOCK, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
 
 /// Possible spend paths for the connector C1.
 ///
@@ -70,19 +70,31 @@ impl<Witness: Sized> ConnectorC1Path<Witness> {
 pub struct ConnectorC1 {
     n_of_n_agg_pubkey: XOnlyPublicKey,
     network: Network,
+    payout_optimistic_timelock: u32,
 }
 
 impl ConnectorC1 {
     /// Constructs a new instance of this connector.
-    pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
+    pub fn new(
+        n_of_n_agg_pubkey: XOnlyPublicKey,
+        network: Network,
+        payout_optimistic_timelock: u32,
+    ) -> Self {
         Self {
             n_of_n_agg_pubkey,
             network,
+            payout_optimistic_timelock,
         }
     }
 
+    /// Returns the relative timelock on the payout optimistic output (measured in number of
+    /// blocks).
+    pub fn payout_optimistic_timelock(&self) -> u32 {
+        self.payout_optimistic_timelock
+    }
+
     fn generate_payout_script(&self) -> ScriptBuf {
-        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, PAYOUT_OPTIMISTIC_TIMELOCK).compile()
+        n_of_n_with_timelock(&self.n_of_n_agg_pubkey, self.payout_optimistic_timelock).compile()
     }
 
     /// Constructs the taproot address for this connector along with the spending info.

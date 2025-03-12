@@ -13,6 +13,7 @@ rust.missing_docs = "warn"
 rustdoc.all = "warn"
 
 [dependencies]
+alpen-bridge-params.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
 

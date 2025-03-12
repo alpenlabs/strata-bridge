@@ -11,7 +11,7 @@ use bitcoin::{
     ScriptBuf, TapNodeHash,
 };
 use miniscript::Miniscript;
-use strata_bridge_primitives::params::tx::UNSPENDABLE_INTERNAL_KEY;
+use strata_bridge_primitives::constants::UNSPENDABLE_INTERNAL_KEY;
 use tracing::info;
 
 use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, NETWORK};

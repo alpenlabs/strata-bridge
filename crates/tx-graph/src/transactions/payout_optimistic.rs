@@ -8,7 +8,7 @@ use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorNOfN,
     ConnectorP, StakeSpendPath,
 };
-use strata_bridge_primitives::{params::prelude::PAYOUT_OPTIMISTIC_TIMELOCK, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
 
 use super::covenant_tx::CovenantTx;
 
@@ -86,7 +86,7 @@ impl PayoutOptimisticTx {
 
         let c1_input = ConnectorC1Path::PayoutOptimistic(()).get_input_index();
         let c1_input = &mut tx_ins[c1_input as usize];
-        c1_input.sequence = Sequence::from_height(PAYOUT_OPTIMISTIC_TIMELOCK as u16);
+        c1_input.sequence = Sequence::from_height(connector_c1.payout_optimistic_timelock() as u16);
 
         let (operator_address, _) = create_taproot_addr(
             &data.network,
