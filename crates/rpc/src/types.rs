@@ -1,6 +1,5 @@
 //! Types for the RPC server.
 
-use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 
 /// Enum representing the status of a bridge operator
@@ -21,7 +20,7 @@ pub enum RpcOperatorStatus {
 pub enum RpcDepositStatus {
     /// Deposit exists, but minting hasn't happened yet.
     InProgress {
-        /// Deposit request transaction id
+        /// Transaction ID of the deposit request transaction (DRT).
         deposit_request_txid: Txid,
     },
 

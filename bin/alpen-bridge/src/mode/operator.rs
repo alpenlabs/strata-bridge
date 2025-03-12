@@ -64,7 +64,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     init_duty_tracker(&params, &config, s2_client, message_handler, db);
 
     let rpc_address = config.rpc_addr.clone();
-    let rpc_task = start_rpc_server(rpc_address, db_rpc).await?;
+    let rpc_task = start_rpc_server(rpc_address, db_rpc, params.clone()).await?;
 
     // Wait for all tasks to run
     // They are supposed to run indefinitely in most cases
@@ -245,8 +245,12 @@ fn init_duty_tracker(
     unimplemented!("@ProofOfKeags");
 }
 
-async fn start_rpc_server(rpc_address: String, db: SqliteDb) -> anyhow::Result<JoinHandle<()>> {
-    let rpc_client = BridgeRpc::new(db);
+async fn start_rpc_server(
+    rpc_address: String,
+    db: SqliteDb,
+    params: Params,
+) -> anyhow::Result<JoinHandle<()>> {
+    let rpc_client = BridgeRpc::new(db, params);
     let handle = spawn(async move {
         start_rpc(&rpc_client, rpc_address.as_str())
             .await
