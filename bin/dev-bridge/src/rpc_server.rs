@@ -4,7 +4,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use jsonrpsee::{core::RpcResult, RpcModule};
-use strata_bridge_rpc::StrataBridgeControlApiServer;
+use strata_bridge_rpc::traits::StrataBridgeControlApiServer;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
