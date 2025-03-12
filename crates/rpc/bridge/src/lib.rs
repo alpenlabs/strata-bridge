@@ -6,7 +6,7 @@
 
 mod types;
 
-use bitcoin::{OutPoint, PublicKey, Txid};
+use bitcoin::{OutPoint, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_bridge_primitives::{
     duties::BridgeDuty,
