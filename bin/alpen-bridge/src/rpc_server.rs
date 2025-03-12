@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
 use jsonrpsee::{core::RpcResult, RpcModule};
+use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::{
     duties::BridgeDuty,
     types::{OperatorIdx, PublickeyTable},
@@ -57,13 +58,17 @@ where
 pub(crate) struct BridgeRpc {
     /// Node start time.
     start_time: DateTime<Utc>,
+
+    /// Database handle.
+    db: SqliteDb,
 }
 
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(db: SqliteDb) -> Self {
         Self {
             start_time: Utc::now(),
+            db,
         }
     }
 }
