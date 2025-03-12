@@ -90,6 +90,7 @@ impl BridgeDutyStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
 pub enum DepositStatus {
     /// The duty has been received.
     ///
@@ -160,7 +161,28 @@ impl DepositStatus {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum DepositRequestStatus {
+    /// Deposit request exists, but minting hasn't happened yet.
+    InProgress { deposit_request_txid: Txid },
+
+    /// Deposit request exists, but was never completed (can be reclaimed with the "take back"
+    /// leaf).
+    Failed {
+        deposit_request_txid: Txid,
+        failure_reason: String,
+    },
+
+    /// Deposit request has been fully processed and minted.
+    Complete {
+        deposit_request_txid: Txid,
+        deposit_txid: Txid,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
 pub enum WithdrawalStatus {
     Received,
 
@@ -303,6 +325,46 @@ impl WithdrawalStatus {
     pub fn is_done(&self) -> bool {
         matches!(self, Self::Executed) || matches!(self, Self::Discarded(_))
     }
+}
+
+/// Represents a valid reimbursement status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum ClaimStatus {
+    /// Claim exists, challenge step is "Claim", no payout.
+    InProgress {
+        /// Challenge step.
+        challenge_step: ChallengeStep,
+    },
+
+    /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
+    Challenged {
+        /// Challenge step.
+        challenge_step: ChallengeStep,
+    },
+
+    /// Operator was slashed, claim is no longer valid.
+    Cancelled,
+
+    /// Claim has been successfully reimbursed.
+    Complete {
+        /// Transaction ID of the payout transaction.
+        payout_txid: Txid,
+    },
+}
+
+/// Challenge step states for claims
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChallengeStep {
+    /// Challenge step is "Claim".
+    Claim,
+
+    /// Challenge step is "Challenge".
+    Challenge,
+
+    /// Challenge step is "Assert".
+    Assert,
 }
 
 #[cfg(test)]

@@ -1,8 +1,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use bitcoin::{Transaction, Txid};
-use strata_bridge_primitives::duties::BridgeDutyStatus;
+use bitcoin::{PublicKey, Transaction, Txid};
+use strata_bridge_primitives::duties::{
+    BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
+    WithdrawalStatus,
+};
 use tokio::sync::RwLock;
 
 use crate::{
@@ -45,6 +48,58 @@ impl DutyTrackerDb for DutyTrackerInMemory {
         }
 
         Ok(())
+    }
+
+    async fn get_all_duties(&self) -> DbResult<Vec<BridgeDuty>> {
+        // TODO: this is not possible with the current schema now.
+        //       Check the `BridgeDuty` struct for more information.
+        unimplemented!("@rajil")
+    }
+
+    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<Vec<BridgeDuty>> {
+        // TODO: this is not possible with the current schema now.
+        //       Check the `BridgeDuty` struct for more information.
+        let _ = operator_pk;
+        unimplemented!("@rajil")
+    }
+
+    async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {
+        unimplemented!("@rajil")
+    }
+
+    async fn get_claim_by_txid(&self, txid: Txid) -> DbResult<Option<ClaimStatus>> {
+        let _ = txid;
+        unimplemented!("@rajil")
+    }
+
+    async fn get_all_deposits(&self) -> DbResult<Vec<Txid>> {
+        unimplemented!("@rajil")
+    }
+
+    async fn get_deposit_by_txid(&self, txid: Txid) -> DbResult<Option<DepositStatus>> {
+        let _ = txid;
+        unimplemented!("@rajil")
+    }
+
+    async fn get_all_deposit_requests(&self) -> DbResult<Vec<Txid>> {
+        unimplemented!("@rajil")
+    }
+
+    async fn get_deposit_request_by_txid(
+        &self,
+        txid: Txid,
+    ) -> DbResult<Option<DepositRequestStatus>> {
+        let _ = txid;
+        unimplemented!("@rajil")
+    }
+
+    async fn get_all_withdrawals(&self) -> DbResult<Vec<Txid>> {
+        unimplemented!("@rajil")
+    }
+
+    async fn get_withdrawal_by_txid(&self, txid: Txid) -> DbResult<Option<WithdrawalStatus>> {
+        let _ = txid;
+        unimplemented!("@rajil")
     }
 }
 
