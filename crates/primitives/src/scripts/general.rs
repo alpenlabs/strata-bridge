@@ -4,26 +4,23 @@ use bitcoin::{
     script::{Builder, PushBytesBuf},
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
-use bitcoin_script::script;
+use bitcoin_script::{script, Script};
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
-
-use crate::params::prelude::MAGIC_BYTES;
 
 /// Create a script with the spending condition that a MuSig2 aggregated signature corresponding to
 /// the pubkey set must be provided.
 ///
 /// NOTE: This script only requires an [`XOnlyPublicKey`] which may or may not be be a musig2
 /// aggregated public key. No additional validation is performed on the key.
-pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> ScriptBuf {
+pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
     script! {
         { *aggregated_pubkey }
         OP_CHECKSIG
     }
-    .compile()
 }
 
-pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> ScriptBuf {
+pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> Script {
     script! {
         { timelock }
         OP_CSV
@@ -31,7 +28,6 @@ pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -
         { *aggregated_pubkey}
         OP_CHECKSIG
     }
-    .compile()
 }
 
 pub fn op_return_nonce(data: &[u8]) -> ScriptBuf {
@@ -58,10 +54,10 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
     aggregated_pubkey.x_only_public_key().0
 }
 
-/// Create the metadata script that "stores" the execution layer address information.
-pub fn metadata_script(el_address: &[u8; 20]) -> ScriptBuf {
+/// Create the metadata script that "stores" a tag and the execution layer address information.
+pub fn metadata_script(el_address: &[u8; 20], tag: &[u8]) -> ScriptBuf {
     let mut data = PushBytesBuf::new();
-    data.extend_from_slice(MAGIC_BYTES)
+    data.extend_from_slice(tag)
         .expect("MAGIC_BYTES should be within the limit");
     data.extend_from_slice(&el_address[..])
         .expect("el_address should be within the limit");

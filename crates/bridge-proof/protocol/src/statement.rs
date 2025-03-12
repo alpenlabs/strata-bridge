@@ -1,13 +1,14 @@
+use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::block::Header;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_crypto::verify_schnorr_sig;
-use strata_primitives::{l1::BitcoinAmount, params::RollupParams};
+use strata_primitives::params::RollupParams;
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
 use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
 
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
-    tx_info::{extract_checkpoint, extract_withdrawal_info},
+    tx_info::{extract_checkpoint, extract_withdrawal_info, WithdrawalInfo},
     BridgeProofInputBorsh, BridgeProofPublicOutput,
 };
 
@@ -15,15 +16,7 @@ use crate::{
 /// input
 ///
 /// TODO: update this once this is fixed
-const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
-
-/// The fixed withdrawal fee for Bitcoin transactions.
-///
-/// This fee is currently set to **2 BTC** and is represented in satoshis.
-/// The fee is subtracted from the total amount during a withdrawal operation.
-///
-/// **TODO:** This value will be configurable as part of the parameters in the future.
-const WITHDRAWAL_FEE: BitcoinAmount = BitcoinAmount::from_sat(2_00_00_00_00);
+pub const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
 
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
 /// Also optionally checks if the transaction includes witness data.
@@ -76,6 +69,7 @@ pub(crate) fn process_bridge_proof(
     input: BridgeProofInputBorsh,
     headers: Vec<Header>,
     rollup_params: RollupParams,
+    peg_out_graph_params: PegOutGraphParams,
 ) -> Result<(BridgeProofPublicOutput, BatchCheckpoint), BridgeProofError> {
     // 1a. Extract checkpoint info.
     let (strata_checkpoint_tx, strata_checkpoint_idx) = &input.strata_checkpoint_tx;
@@ -99,8 +93,12 @@ pub(crate) fn process_bridge_proof(
 
     // 3a. Extract withdrawal fulfillment info.
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
-    let (operator_idx, destination, amount) =
-        extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
+    let WithdrawalInfo {
+        operator_idx,
+        withdrawal_address: destination,
+        withdrawal_amount: amount,
+        ..
+    } = extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
     // transaction does not depend on witness data, hence `expect_witness` is `false`.
@@ -129,7 +127,7 @@ pub(crate) fn process_bridge_proof(
     // with the chain state withdrawal output.
     if operator_idx != dispatched_state.assignee()
         || destination != *withdrawal.destination().to_script()
-        || amount + WITHDRAWAL_FEE != entry.amt()
+        || amount + peg_out_graph_params.operator_fee.into() != entry.amt()
     {
         return Err(BridgeProofError::InvalidWithdrawalData);
     }

@@ -7,15 +7,14 @@ use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
     taproot::{self, ControlBlock},
-    Address, Amount, OutPoint, Psbt, TapNodeHash, Transaction, TxOut,
+    Address, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    bitcoin::BitcoinAddress,
     build_context::{BuildContext, TxKind},
+    constants::UNSPENDABLE_INTERNAL_KEY,
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
-    params::prelude::{BRIDGE_DENOMINATION, UNSPENDABLE_INTERNAL_KEY},
     scripts::{
         general::{create_tx, create_tx_ins, create_tx_outs},
         prelude::*,
@@ -36,7 +35,7 @@ pub struct DepositInfo {
 
     /// The amount in bitcoins that the user is sending.
     ///
-    /// This amount should be greater than the [`BRIDGE_DENOMINATION`] for the deposit to be
+    /// This amount should be greater than the bridge denomination for the deposit to be
     /// confirmed on bitcoin. The excess amount is used as miner fees for the Deposit Transaction.
     total_amount: Amount,
 
@@ -44,21 +43,27 @@ pub struct DepositInfo {
     /// user in their `OP_RETURN` output.
     take_back_leaf_hash: TapNodeHash,
 
-    /// The original taproot address in the Deposit Request Transaction (DRT) output used to
-    /// sanity check computation internally i.e., whether the known information (n/n script spend
-    /// path, [`static@UNSPENDABLE_INTERNAL_KEY`]) + the [`Self::take_back_leaf_hash`] yields the
-    /// same P2TR address.
-    original_taproot_addr: BitcoinAddress,
+    /// The original script_pubkey in the Deposit Request Transaction (DRT) output used to sanity
+    /// check computation internally i.e., whether the known information (n/n script spend path,
+    /// [`static@UNSPENDABLE_INTERNAL_KEY`]) + the [`Self::take_back_leaf_hash`] yields the same
+    /// P2TR address.
+    original_script_pubkey: ScriptBuf,
 }
 
 impl TxKind for DepositInfo {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
+        deposit_amt: Amount,
+        tag: Option<&[u8]>,
     ) -> BridgeTxBuilderResult<TxSigningData> {
         let prevouts = self.compute_prevouts();
         let spend_info = self.compute_spend_infos(build_context)?;
-        let unsigned_tx = self.create_unsigned_tx(build_context)?;
+        let unsigned_tx = self.create_unsigned_tx(
+            build_context,
+            deposit_amt,
+            tag.expect("deposit tx must have a tag in the metadata"),
+        )?;
 
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
 
@@ -81,14 +86,14 @@ impl DepositInfo {
         el_address: Vec<u8>,
         total_amount: Amount,
         take_back_leaf_hash: TapNodeHash,
-        original_taproot_addr: BitcoinAddress,
+        original_script_pubkey: ScriptBuf,
     ) -> Self {
         Self {
             deposit_request_outpoint,
             el_address,
             total_amount,
             take_back_leaf_hash,
-            original_taproot_addr,
+            original_script_pubkey,
         }
     }
 
@@ -119,7 +124,7 @@ impl DepositInfo {
         build_context: &impl BuildContext,
     ) -> BridgeTxBuilderResult<TaprootWitness> {
         // The Deposit Request (DT) spends the n-of-n multisig leaf
-        let spend_script = n_of_n_script(&build_context.aggregated_pubkey());
+        let spend_script = n_of_n_script(&build_context.aggregated_pubkey()).compile();
         let spend_script_hash =
             TapNodeHash::from_script(&spend_script, taproot::LeafVersion::TapScript);
 
@@ -132,9 +137,10 @@ impl DepositInfo {
             *UNSPENDABLE_INTERNAL_KEY,
             Some(merkle_root),
             build_context.network(),
-        );
+        )
+        .script_pubkey();
 
-        let expected_addr = self.original_taproot_addr.address();
+        let expected_addr = &self.original_script_pubkey;
 
         if address != *expected_addr {
             return Err(BridgeTxBuilderError::DepositTransaction(
@@ -170,10 +176,8 @@ impl DepositInfo {
     }
 
     fn compute_prevouts(&self) -> Vec<TxOut> {
-        let deposit_address = self.original_taproot_addr.address();
-
         vec![TxOut {
-            script_pubkey: deposit_address.script_pubkey(),
+            script_pubkey: self.original_script_pubkey.clone(),
             value: self.total_amount,
         }]
     }
@@ -181,6 +185,8 @@ impl DepositInfo {
     fn create_unsigned_tx(
         &self,
         build_context: &impl BuildContext,
+        deposit_amt: Amount,
+        tag: &[u8],
     ) -> BridgeTxBuilderResult<Transaction> {
         // First, create the inputs
         let outpoint = self.deposit_request_outpoint();
@@ -196,7 +202,7 @@ impl DepositInfo {
             ))
         })?;
 
-        let metadata_script = metadata_script(el_addr);
+        let metadata_script = metadata_script(el_addr, tag);
         let metadata_amount = Amount::from_int_btc(0);
 
         // Then create the taproot script pubkey with keypath spend for the actual deposit
@@ -209,7 +215,7 @@ impl DepositInfo {
         let bridge_in_script_pubkey = bridge_addr.script_pubkey();
 
         let tx_outs = create_tx_outs([
-            (bridge_in_script_pubkey, BRIDGE_DENOMINATION),
+            (bridge_in_script_pubkey, deposit_amt),
             (metadata_script, metadata_amount),
         ]);
 
@@ -248,14 +254,15 @@ mod tests {
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+        let deposit_amt = Amount::from_int_btc(1);
 
         // Correct merkle proof
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.compute_spend_infos(&tx_builder);
@@ -272,9 +279,9 @@ mod tests {
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             TapNodeHash::from_str(&random_hash).unwrap(),
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
         let result = deposit_info.compute_spend_infos(&tx_builder);
@@ -303,16 +310,19 @@ mod tests {
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+        let deposit_amt = Amount::from_int_btc(1);
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.create_unsigned_tx(&tx_builder);
+        let tag = b"alpen";
+        let deposit_amt = Amount::from_int_btc(1);
+        let result = deposit_info.create_unsigned_tx(&tx_builder, deposit_amt, tag);
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -336,16 +346,19 @@ mod tests {
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
+        let deposit_amt = Amount::from_int_btc(1);
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let tag = b"alpen";
+        let deposit_amt = Amount::from_int_btc(1);
+        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -361,12 +374,12 @@ mod tests {
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 21].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             take_back_leaf_hash,
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
         assert!(
             result.is_err_and(|e| matches!(
                 e,
@@ -385,12 +398,12 @@ mod tests {
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
-            BRIDGE_DENOMINATION,
+            deposit_amt,
             TapNodeHash::from_str(&random_hash).unwrap(),
-            drt_output_address.clone(),
+            drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder);
+        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
         assert!(
             result.is_err_and(|e| matches!(
                 e,

@@ -11,9 +11,10 @@ use bitcoin::{
     ScriptBuf, TapNodeHash,
 };
 use miniscript::Miniscript;
+use strata_bridge_primitives::constants::UNSPENDABLE_INTERNAL_KEY;
 use tracing::info;
 
-use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, NETWORK, NUMS_POINT};
+use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, NETWORK};
 
 pub(crate) fn get_aggregated_pubkey() -> XOnlyPublicKey {
     *AGGREGATED_PUBKEY
@@ -24,12 +25,6 @@ pub(crate) fn generate_taproot_address(
     n_of_n_multisig_script: ScriptBuf,
     timelock_script: ScriptBuf,
 ) -> (TapNodeHash, Address) {
-    let nums_point_str = NUMS_POINT;
-    let xonly_bytes = hex::decode(&nums_point_str[2..]).expect("Decoding hex failed");
-    assert_eq!(xonly_bytes.len(), 32); //TODO handle this more gracefully
-    let unspendable_key =
-        XOnlyPublicKey::from_slice(&xonly_bytes).expect("Failed to parse XOnlyPublicKey");
-
     let taproot_builder = TaprootBuilder::new()
         .add_leaf(1, n_of_n_multisig_script.clone())
         .expect("failed to add n-of-n multisig script to tree")
@@ -39,10 +34,12 @@ pub(crate) fn generate_taproot_address(
     let script_hash =
         TapNodeHash::from_script(&timelock_script, bitcoin::taproot::LeafVersion::TapScript);
 
-    let taproot_info = taproot_builder.finalize(secp, unspendable_key).unwrap();
+    let taproot_info = taproot_builder
+        .finalize(secp, *UNSPENDABLE_INTERNAL_KEY)
+        .unwrap();
     let merkle_root = taproot_info.merkle_root();
 
-    let tr_address = Address::p2tr(secp, unspendable_key, merkle_root, NETWORK);
+    let tr_address = Address::p2tr(secp, *UNSPENDABLE_INTERNAL_KEY, merkle_root, NETWORK);
     (script_hash, tr_address)
 }
 

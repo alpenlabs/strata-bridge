@@ -7,14 +7,16 @@ use std::{
     time::Duration,
 };
 
+use alpen_bridge_params::prelude::*;
 use anyhow::bail;
 use ark_serialize::CanonicalSerialize;
 use bitcoin::{
     block::Header,
     consensus,
+    hashes::{self, Hash},
     hex::DisplayHex,
     sighash::{Prevouts, SighashCache},
-    Block, TapSighashType, Transaction, TxOut, Txid,
+    Block, OutPoint, TapNodeHash, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitcoin_bosd::Descriptor;
 use bitvm::groth16::g16;
@@ -23,33 +25,45 @@ use musig2::{
 };
 use rand::Rng;
 use secp256k1::schnorr::Signature;
+use strata_bridge_connectors::{
+    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
+    prelude::{ConnectorA3Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
+};
 use strata_bridge_db::{
-    errors::DbError,
-    operator::{KickoffInfo, OperatorDb},
-    public::PublicDb,
-    tracker::DutyTrackerDb,
+    errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
 use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress,
     build_context::{BuildContext, TxBuildContext, TxKind},
+    constants::*,
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
-    params::{connectors::PAYOUT_TIMELOCK, prelude::*},
-    scripts::taproot::{create_message_hash, finalize_input, TaprootWitness},
+    scripts::{
+        prelude::{create_tx, create_tx_ins, create_tx_outs},
+        taproot::{create_message_hash, finalize_input, TaprootWitness},
+    },
     types::{OperatorIdx, TxSigningData},
     withdrawal::WithdrawalInfo,
     wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_bridge_proof_protocol::BridgeProofInput;
+use strata_bridge_proof_protocol::{
+    BridgeProofInput, REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
+};
 use strata_bridge_proof_snark::{bridge_vk, prover};
+use strata_bridge_stake_chain::{
+    prelude::{PreStakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    stake_chain::StakeChainInputs,
+    transactions::stake::StakeTxData,
+    StakeChain,
+};
 use strata_bridge_tx_graph::{
-    connectors::prelude::ConnectorA30Leaf,
-    partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
 };
-use strata_btcio::rpc::traits::{BroadcasterRpc, ReaderRpc, SignerRpc};
+use strata_btcio::rpc::{
+    error::ClientError,
+    traits::{BroadcasterRpc, ReaderRpc, SignerRpc},
+};
 use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
@@ -63,7 +77,10 @@ use tokio::sync::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    base::Agent,
+    base::{
+        Agent, BRIDGE_DENOMINATION, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS, MIN_RELAY_FEE,
+        OPERATOR_FEE, OPERATOR_STAKE,
+    },
     proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,
@@ -73,6 +90,8 @@ use crate::{
 
 const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
+const STAKE_CHAIN_LENGTH: u32 = 10;
+const MAGIC_BYTES: &[u8] = b"alpen";
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -108,6 +127,9 @@ where
     pub async fn start(&mut self, duty_receiver: &mut broadcast::Receiver<BridgeDuty>) {
         let own_index = self.build_context.own_index();
         info!(action = "starting operator", %own_index);
+
+        info!(action = "creating stake chain", %STAKE_CHAIN_LENGTH);
+        self.create_stake_chain(STAKE_CHAIN_LENGTH).await;
 
         loop {
             match duty_receiver.recv().await {
@@ -155,10 +177,23 @@ where
             return;
         }
 
+        let pegout_graph_params = PegOutGraphParams::default();
         match duty {
             BridgeDuty::SignDeposit(deposit_info) => {
                 let txid = deposit_info.deposit_request_outpoint().txid;
-                info!(event = "received deposit", %own_index, drt_txid = %txid);
+                info!(event = "received deposit duty", %own_index, drt_txid = %txid);
+
+                let data = deposit_info
+                    .construct_signing_data(
+                        &self.build_context,
+                        pegout_graph_params.deposit_amount,
+                        Some(MAGIC_BYTES),
+                    )
+                    .unwrap(); // FIXME: Handle
+                let deposit_txid = data.psbt.unsigned_tx.compute_txid();
+
+                info!(action = "updating deposit table", %deposit_txid);
+                self.public_db.add_deposit_txid(deposit_txid).await.unwrap(); // FIXME: Handle me
 
                 self.handle_deposit(deposit_info).await;
             }
@@ -213,9 +248,14 @@ where
 
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
+        let pegout_graph_params = PegOutGraphParams::default();
 
         // 1. aggregate_tx_graph
-        let deposit_tx = deposit_info.construct_signing_data(&self.build_context);
+        let deposit_tx = deposit_info.construct_signing_data(
+            &self.build_context,
+            pegout_graph_params.deposit_amount,
+            Some(MAGIC_BYTES),
+        );
 
         if let Err(cause) = deposit_tx {
             let deposit_txid = deposit_info.deposit_request_outpoint().txid;
@@ -225,77 +265,75 @@ where
         }
 
         let mut deposit_tx = deposit_tx.unwrap();
-
         let deposit_txid = deposit_tx.psbt.unsigned_tx.compute_txid();
 
+        info!(action = "retrieving stake chain information", %deposit_txid, %own_index);
+        let deposit_id = self
+            .public_db
+            .get_deposit_id(deposit_txid)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME:
+                       // Handle me
+        let stake_txid = self
+            .public_db
+            .get_stake_txid(own_index, deposit_id)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME:
+                       // Handle me
+        let stake_data = self
+            .public_db
+            .get_stake_data(own_index, deposit_id)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME:
+                       // Handle me
+
         info!(action = "generating wots public keys", %deposit_txid, %own_index);
-        let public_keys = WotsPublicKeys::new(&self.msk, deposit_txid);
+        let mut public_keys = WotsPublicKeys::new(&self.msk, deposit_txid);
+        public_keys.withdrawal_fulfillment = stake_data.withdrawal_fulfillment_pk;
+
         self.public_db
-            .set_wots_public_keys(self.build_context.own_index(), deposit_txid, &public_keys)
+            .set_wots_public_keys(own_index, deposit_txid, &public_keys)
             .await
             .unwrap(); // FIXME: Handle me
 
-        info!(action = "generating kickoff", %deposit_txid, %own_index);
-
-        let reserved_outpoints = self.db.selected_outpoints().await.unwrap(); // FIXME: Handle me
-        info!(event = "got reserved outpoints", ?reserved_outpoints);
-
-        let (change_address, funding_input, total_amount, funding_utxo) = self
-            .agent
-            .select_utxo(OPERATOR_STAKE, reserved_outpoints)
-            .await
-            .expect("should be able to get outpoints");
-
-        self.db.add_outpoint(funding_input).await.unwrap(); // FIXME: Handle me
-
-        let funding_inputs = vec![funding_input];
-        let funding_utxos = vec![funding_utxo];
-        let change_amt = total_amount - OPERATOR_STAKE - MIN_RELAY_FEE;
-
-        let change_address =
-            BitcoinAddress::parse(&change_address.to_string(), self.build_context.network())
-                .expect("address and network must match");
-
-        info!(action = "composing pegout graph input", %deposit_txid, %own_index);
-        let peg_out_graph_input = PegOutGraphInput {
-            deposit_amount: BRIDGE_DENOMINATION,
-            operator_pubkey: self.agent.public_key().x_only_public_key().0,
-            kickoff_data: KickoffTxData {
-                funding_inputs: funding_inputs.clone(),
-                funding_utxos: funding_utxos.clone(),
-                change_address: change_address.clone(),
-                change_amt,
-                deposit_txid,
-            },
-        };
-
-        info!(action = "adding kickoff info to db", %deposit_txid, %own_index, ?funding_inputs, ?funding_utxos);
-        self.db
-            .add_kickoff_info(
-                deposit_txid,
-                KickoffInfo {
-                    funding_inputs,
-                    funding_utxos,
-                    change_address,
-                    change_amt,
-                },
-            )
-            .await
-            .unwrap(); // FIXME: Handle me
-
-        info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
+        info!(action = "composing peg out graph input", %deposit_txid, %own_index);
         let wots_public_keys = self
             .public_db
             .get_wots_public_keys(own_index, deposit_txid)
             .await
             .expect("should be able to get wots public keys")
             .unwrap(); // FIXME: Handle me
+
+        let peg_out_graph_input = PegOutGraphInput {
+            stake_outpoint: OutPoint {
+                txid: stake_txid,
+                vout: STAKE_VOUT,
+            },
+            withdrawal_fulfillment_outpoint: OutPoint {
+                txid: stake_txid,
+                vout: WITHDRAWAL_FULFILLMENT_VOUT,
+            },
+            stake_hash: stake_data.hash,
+            wots_public_keys,
+            operator_pubkey: self.agent.public_key().x_only_public_key().0,
+        };
+        let graph_params = PegOutGraphParams {
+            deposit_amount: BRIDGE_DENOMINATION,
+            ..Default::default()
+        };
+
+        info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
         let (peg_out_graph, _connectors) = PegOutGraph::generate(
             peg_out_graph_input.clone(),
             &self.build_context,
             deposit_txid,
-            own_index,
-            wots_public_keys,
+            graph_params,
+            CONNECTOR_PARAMS,
+            StakeChainParams::default(),
+            vec![],
         )
         .expect("must be able to generate tx graph");
 
@@ -367,6 +405,12 @@ where
         self_peg_out_graph: PegOutGraph,
     ) {
         let own_index = self.build_context.own_index();
+        let payout_tweak = ConnectorP::new(
+            self.build_context.aggregated_pubkey(),
+            self_peg_out_graph_input.stake_hash,
+            self.build_context.network(),
+        )
+        .generate_merkle_root();
 
         // 1. Prepare txs
         let PegOutGraph {
@@ -389,6 +433,7 @@ where
             payout_tx.clone(),
             disprove_tx.clone(),
             self.build_context.own_index(),
+            payout_tweak,
         )
         .await;
 
@@ -423,6 +468,7 @@ where
         payout_tx: PayoutTx,
         disprove_tx: DisproveTx,
         operator_index: OperatorIdx,
+        payout_tweak: TapNodeHash,
     ) -> CovenantNonceRequestFulfilled {
         let key_agg_ctx = KeyAggContext::new(self.build_context.pubkey_table().0.values().copied())
             .expect("should be able to create key agg ctx");
@@ -453,6 +499,20 @@ where
             .generate_nonces(operator_index, &key_agg_ctx, 1, &payout_tx)
             .await;
 
+        trace!(action = "creating secnonce and pubnonce for payout tx input 2", %operator_index);
+        let payout_pubnonce_2 = self
+            .generate_nonces(operator_index, &key_agg_ctx_keypath, 2, &payout_tx)
+            .await;
+
+        trace!(action = "creating secnonce and pubnonce for payout tx input 3", %operator_index);
+        let payout_key_agg_ctx = key_agg_ctx
+            .clone()
+            .with_taproot_tweak(payout_tweak.as_ref())
+            .expect("should be able to create key agg ctx with tweak");
+        let payout_pubnonce_3 = self
+            .generate_nonces(operator_index, &payout_key_agg_ctx, 3, &payout_tx)
+            .await;
+
         trace!(action = "creating secnonce and pubnonce for disprove tx", %operator_index);
         let disprove_pubnonce = self
             .generate_nonces(operator_index, &key_agg_ctx, 0, &disprove_tx)
@@ -464,6 +524,8 @@ where
             disprove: disprove_pubnonce,
             payout_0: payout_pubnonce_0,
             payout_1: payout_pubnonce_1,
+            payout_2: payout_pubnonce_2,
+            payout_3: payout_pubnonce_3,
         }
     }
 
@@ -509,12 +571,11 @@ where
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
 
-                    let wots_public_keys = self
-                        .public_db
-                        .get_wots_public_keys(sender_id, deposit_txid)
-                        .await
-                        .expect("should be able to get wots public keys")
-                        .unwrap(); // FIXME: Handle me
+                    let graph_params = PegOutGraphParams {
+                        deposit_amount: BRIDGE_DENOMINATION,
+                        ..Default::default()
+                    };
+
                     let (
                         PegOutGraph {
                             assert_chain,
@@ -524,11 +585,13 @@ where
                         },
                         _connectors,
                     ) = PegOutGraph::generate(
-                        peg_out_graph_input,
+                        peg_out_graph_input.clone(),
                         &self.build_context,
                         deposit_txid,
-                        sender_id,
-                        wots_public_keys,
+                        graph_params,
+                        CONNECTOR_PARAMS,
+                        StakeChainParams::default(),
+                        vec![],
                     )
                     .expect("should be able to generate tx graph");
 
@@ -539,6 +602,12 @@ where
                     } = assert_chain;
 
                     info!(action = "fulfilling covenant request for nonce", %deposit_txid, %sender_id, %own_index);
+                    let payout_tweak = ConnectorP::new(
+                        self.build_context.aggregated_pubkey(),
+                        peg_out_graph_input.stake_hash,
+                        self.build_context.network(),
+                    )
+                    .generate_merkle_root();
                     let request_fulfilled = self
                         .generate_covenant_nonces(
                             pre_assert,
@@ -546,6 +615,7 @@ where
                             payout_tx,
                             disprove_tx,
                             sender_id,
+                            payout_tweak,
                         )
                         .await;
 
@@ -592,6 +662,8 @@ where
                         disprove,
                         payout_0,
                         payout_1,
+                        payout_2,
+                        payout_3,
                     } = details;
                     info!(event = "received covenant fulfillment data for nonce", %deposit_txid, %sender_id, %own_index);
 
@@ -601,6 +673,8 @@ where
                         (disprove_txid, 0, disprove),
                         (payout_txid, 0, payout_0),
                         (payout_txid, 1, payout_1),
+                        (payout_txid, 2, payout_2),
+                        (payout_txid, 3, payout_3),
                     ];
 
                     let mut all_done = true;
@@ -666,11 +740,19 @@ where
         let payout_agg_nonce_0 = self
             .get_aggregated_nonce(payout_tx.compute_txid(), 0)
             .await
-            .expect("payout 0 nonce must exist");
+            .expect("payout nonce 0 must exist");
         let payout_agg_nonce_1 = self
             .get_aggregated_nonce(payout_tx.compute_txid(), 1)
             .await
             .expect("payout nonce 1 must exist");
+        let payout_agg_nonce_2 = self
+            .get_aggregated_nonce(payout_tx.compute_txid(), 2)
+            .await
+            .expect("payout nonce 2 must exist");
+        let payout_agg_nonce_3 = self
+            .get_aggregated_nonce(payout_tx.compute_txid(), 3)
+            .await
+            .expect("payout nonce 3 must exist");
 
         let agg_nonces = AggNonces {
             pre_assert: pre_assert_agg_nonce,
@@ -678,6 +760,8 @@ where
             disprove: disprove_agg_nonce,
             payout_0: payout_agg_nonce_0,
             payout_1: payout_agg_nonce_1,
+            payout_2: payout_agg_nonce_2,
+            payout_3: payout_agg_nonce_3,
         };
 
         // 3. Generate own signatures
@@ -745,7 +829,12 @@ where
             &key_agg_ctx,
             all_inputs,
             payout_tx,
-            &[agg_nonces.payout_0, agg_nonces.payout_1],
+            &[
+                agg_nonces.payout_0,
+                agg_nonces.payout_1,
+                agg_nonces.payout_2,
+                agg_nonces.payout_3,
+            ],
         )
         .await;
         debug!(event = "computed aggregate signature for payout", deposit_txid = %deposit_txid, %own_index);
@@ -813,7 +902,12 @@ where
                 own_index,
                 operator_index,
                 payout_tx,
-                &[agg_nonces.payout_0, agg_nonces.payout_1],
+                &[
+                    agg_nonces.payout_0,
+                    agg_nonces.payout_1,
+                    agg_nonces.payout_2,
+                    agg_nonces.payout_3,
+                ],
             )
             .await;
 
@@ -879,18 +973,20 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
-                    let wots_public_keys = self
-                        .public_db
-                        .get_wots_public_keys(sender_id, deposit_txid)
-                        .await
-                        .expect("should be able to get wots public keys")
-                        .unwrap(); // FIXME: Handle me
+                    let graph_params = {
+                        PegOutGraphParams {
+                            deposit_amount: BRIDGE_DENOMINATION,
+                            ..Default::default()
+                        }
+                    };
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
                         peg_out_graph_input,
                         &self.build_context,
                         deposit_txid,
-                        sender_id,
-                        wots_public_keys,
+                        graph_params,
+                        CONNECTOR_PARAMS,
+                        StakeChainParams::default(),
+                        vec![],
                     )
                     .expect("should be able to generate tx graph");
 
@@ -1350,13 +1446,16 @@ where
 
             let seckey = self.agent.secret_key();
 
-            let agg_ctx = if matches!(witness, TaprootWitness::Key) {
-                &key_agg_ctx
+            let agg_ctx = match witness {
+                TaprootWitness::Key => &key_agg_ctx
                     .clone()
                     .with_unspendable_taproot_tweak()
-                    .expect("should be able to add unspendable key tweak")
-            } else {
-                key_agg_ctx
+                    .expect("should be able to add unspendable key tweak"),
+                TaprootWitness::Script { .. } => key_agg_ctx,
+                TaprootWitness::Tweaked { tweak } => &key_agg_ctx
+                    .clone()
+                    .with_taproot_tweak(&tweak.to_byte_array())
+                    .expect("should be able to add tweak"),
             };
 
             let partial_sig: PartialSignature =
@@ -1399,13 +1498,16 @@ where
             .enumerate()
             .take(inputs_to_sign)
         {
-            let agg_ctx = if matches!(witness, TaprootWitness::Key) {
-                &key_agg_ctx
+            let agg_ctx = match witness {
+                TaprootWitness::Key => &key_agg_ctx
                     .clone()
                     .with_unspendable_taproot_tweak()
-                    .expect("should be able to add unspendable key tweak")
-            } else {
-                key_agg_ctx
+                    .expect("should be able to add unspendable key tweak"),
+                TaprootWitness::Script { .. } => key_agg_ctx,
+                TaprootWitness::Tweaked { tweak } => &key_agg_ctx
+                    .clone()
+                    .with_taproot_tweak(&tweak.to_byte_array())
+                    .expect("should be able to add tweak"),
             };
 
             let collected_msgs_and_sigs = self
@@ -1455,8 +1557,21 @@ where
 
             info!(action = "paying out the user", %user_destination, %own_index);
 
+            let deposit_idx = self
+                .public_db
+                .get_deposit_id(deposit_txid)
+                .await
+                .expect("should be able to get deposit id")
+                .unwrap(); // FIXME: Handle me
+
             let withdrawal_fulfillment_txid = self
-                .pay_user(user_destination, network, own_index)
+                .pay_user(
+                    user_destination,
+                    network,
+                    own_index,
+                    deposit_idx,
+                    deposit_txid,
+                )
                 .await
                 .expect("must be able to pay user");
 
@@ -1477,64 +1592,82 @@ where
         }
 
         // 2. create tx graph from public data
-        info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
-        let KickoffInfo {
-            funding_inputs,
-            funding_utxos,
-            change_address,
-            change_amt,
-        } = self
-            .db
-            .get_kickoff_info(deposit_txid)
+        info!(action = "retrieving stake chain information", %deposit_txid, %own_index);
+        let deposit_id = self
+            .public_db
+            .get_deposit_id(deposit_txid)
             .await
-            .unwrap() // FIXME: Handle me
-            .expect("kickoff data for the deposit must be present");
-
-        let peg_out_graph_input = PegOutGraphInput {
-            deposit_amount: BRIDGE_DENOMINATION,
-            operator_pubkey: own_pubkey,
-            kickoff_data: KickoffTxData {
-                funding_inputs,
-                funding_utxos,
-                change_address,
-                change_amt,
-                deposit_txid,
-            },
-        };
-
+            .unwrap()
+            .unwrap(); // FIXME:
+                       // Handle me
+        let stake_txid = self
+            .public_db
+            .get_stake_txid(own_index, deposit_id)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME:
+                       // Handle me
+        let stake_data = self
+            .public_db
+            .get_stake_data(own_index, deposit_id)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME:
+                       // Handle me
         let wots_public_keys = self
             .public_db
             .get_wots_public_keys(own_index, deposit_txid)
             .await
-            .expect("should be able to get wots public keys")
-            .unwrap(); // FIXME: Handle me
+            .unwrap()
+            .unwrap();
+
+        info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
+        let graph_params = PegOutGraphParams {
+            deposit_amount: BRIDGE_DENOMINATION,
+            ..Default::default()
+        };
+        let peg_out_graph_input = PegOutGraphInput {
+            operator_pubkey: own_pubkey,
+            stake_outpoint: OutPoint {
+                txid: stake_txid,
+                vout: STAKE_VOUT,
+            },
+            withdrawal_fulfillment_outpoint: OutPoint {
+                txid: stake_txid,
+                vout: WITHDRAWAL_FULFILLMENT_VOUT,
+            },
+            stake_hash: stake_data.hash,
+            wots_public_keys,
+        };
+
         let (peg_out_graph, connectors) = PegOutGraph::generate(
             peg_out_graph_input,
             &self.build_context,
             deposit_txid,
-            own_index,
-            wots_public_keys,
+            graph_params,
+            CONNECTOR_PARAMS,
+            StakeChainParams::default(),
+            vec![],
         )
         .expect("should be able to generate tx graph");
 
-        self.register_graph(&peg_out_graph, own_index, deposit_txid)
-            .await
-            .expect("should be able to register graph");
+        // self.register_graph(&peg_out_graph, own_index, deposit_txid)
+        //     .await
+        //     .expect("should be able to register graph");
 
         let PegOutGraph {
-            kickoff_tx,
             claim_tx,
             assert_chain,
             payout_tx,
             ..
         } = peg_out_graph;
-        // 3. publish kickoff -> claim
-        self.broadcast_kickoff_and_claim(
+        // 3. publish stake -> claim
+        self.broadcast_claim(
             &connectors,
             own_index,
             deposit_txid,
-            kickoff_tx,
             claim_tx,
+            deposit_id,
             &mut status,
         )
         .await;
@@ -1561,7 +1694,7 @@ where
             let weight = signed_pre_assert.weight();
             info!(event = "finalized pre-assert tx", %pre_assert_txid, %vsize, %total_size, %weight, %own_index);
 
-            let n_blocks = PRE_ASSERT_TIMELOCK + 10;
+            let n_blocks = CONNECTOR_PARAMS.pre_assert_timelock + 10;
             info!(%n_blocks, "waiting before settling pre-assert");
             let pre_assert_txid = self
                 .agent
@@ -1602,6 +1735,7 @@ where
                 WotsSignatures::new(&self.msk, deposit_txid, assertions);
 
             if std::env::var(ENV_DUMP_TEST_DATA).is_ok() {
+                info!(action = "dumping assertions for testing", %own_index);
                 fs::write(
                     "assertions.bin",
                     rkyv::to_bytes::<rkyv::rancor::Error>(&assertions).unwrap(),
@@ -1623,7 +1757,7 @@ where
                 if let Some((tapleaf_index, _witness_script)) = g16::verify_signed_assertions(
                     bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                     *public_keys.groth16,
-                    assert_data_signatures.groth16,
+                    *assert_data_signatures.groth16,
                     &complete_disprove_scripts,
                 ) {
                     error!(event = "assertions verification failed", %tapleaf_index, %own_index);
@@ -1711,8 +1845,7 @@ where
         if status.should_post_assert() {
             let post_assert_txid = post_assert.compute_txid();
             let mut signatures = Vec::new();
-            // num_assert_data_tx + 1 for stake
-            for input_index in 0..=NUM_ASSERT_DATA_TX {
+            for input_index in 0..NUM_ASSERT_DATA_TX {
                 let n_of_n_sig = self
                     .public_db
                     .get_signature(own_index, post_assert_txid, input_index as u32)
@@ -1752,7 +1885,7 @@ where
 
         // 8. settle reimbursement tx after wait time
         if status.should_get_payout() {
-            let wait_time = Duration::from_secs(PAYOUT_TIMELOCK as u64);
+            let wait_time = Duration::from_secs(CONNECTOR_PARAMS.payout_timelock as u64);
             info!(action = "waiting for timeout period before seeking reimbursement", wait_time_secs=%wait_time.as_secs());
             tokio::time::sleep(wait_time).await;
 
@@ -1762,18 +1895,42 @@ where
                 .await
                 .unwrap()
                 .unwrap(); // FIXME: Handle me
-            let n_of_n_sig = self
+            let n_of_n_sig_a3 = self
                 .public_db
                 .get_signature(
                     own_index,
                     payout_tx.compute_txid(),
-                    ConnectorA30Leaf::Payout(()).get_input_index(),
+                    ConnectorA3Leaf::Payout(None).get_input_index(),
                 )
                 .await
                 .unwrap()
                 .unwrap(); // FIXME:  Handle me
-            let signed_payout_tx =
-                payout_tx.finalize(connectors.post_assert_out_0, deposit_signature, n_of_n_sig);
+
+            let n_of_n_sig_c2 = self
+                .public_db
+                .get_signature(own_index, payout_tx.compute_txid(), 2)
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:
+                           // Handle me
+
+            let n_of_n_sig_p = self
+                .public_db
+                .get_signature(own_index, payout_tx.compute_txid(), 3)
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:
+                           // Handle me
+
+            let signed_payout_tx = payout_tx.finalize(
+                deposit_signature,
+                n_of_n_sig_a3,
+                n_of_n_sig_c2,
+                n_of_n_sig_p,
+                connectors.post_assert_out_0,
+                connectors.n_of_n,
+                connectors.hashlock_payout,
+            );
 
             info!(action = "trying to get reimbursement", payout_txid=%signed_payout_tx.compute_txid(), %own_index);
 
@@ -1797,7 +1954,7 @@ where
                     // clause
                 }
                 Err(err) => {
-                    if !err.is_missing_or_invalid_input() {
+                    if matches!(err, ClientError::Server(-26, _)) {
                         warn!(msg = "unable to get reimbursement", %err, %deposit_txid, %own_index);
                         return; // try again later
                     }
@@ -1818,62 +1975,25 @@ where
         }
     }
 
-    async fn broadcast_kickoff_and_claim(
+    async fn broadcast_claim(
         &self,
         connectors: &PegOutGraphConnectors,
         own_index: u32,
         deposit_txid: Txid,
-        kickoff_tx: KickOffTx,
         claim_tx: ClaimTx,
+        stake_id: u32,
         status: &mut WithdrawalStatus,
     ) {
-        if let Some(withdrawal_fulfillment_txid) = status.should_kickoff() {
-            let unsigned_kickoff = &kickoff_tx.psbt().unsigned_tx;
-            info!(action = "funding kickoff tx with wallet", ?unsigned_kickoff);
-            let funded_kickoff = self
-                .agent
-                .btc_client
-                .sign_raw_transaction_with_wallet(unsigned_kickoff, None)
-                .await
-                .expect("should be able to sign kickoff tx with wallet");
-            let funded_kickoff_tx: Transaction =
-                consensus::encode::deserialize_hex(&funded_kickoff.hex)
-                    .expect("must be able to decode kickoff tx");
-            info!(event = "funded kickoff tx with wallet", ?funded_kickoff_tx);
-
-            let kickoff_txid = funded_kickoff_tx.compute_txid();
-            info!(action = "broadcasting kickoff tx", %deposit_txid, %kickoff_txid, %own_index);
-            let kickoff_txid = self
-                .agent
-                .btc_client
-                .send_raw_transaction(&funded_kickoff_tx)
-                .await
-                .expect("should be able to broadcast signed kickoff tx");
-
-            let duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Kickoff {
-                withdrawal_fulfillment_txid,
-                kickoff_txid,
-            });
-            info!(action = "sending out duty status", ?duty_status);
-            self.duty_status_sender
-                .send((deposit_txid, duty_status))
-                .await
-                .expect("should be able to send duty status");
-
-            info!(event = "broadcasted kickoff tx", %deposit_txid, %kickoff_txid, %own_index);
-
-            status.next(withdrawal_fulfillment_txid);
-        } else {
-            info!(action = "already broadcasted kickoff, so skipping");
-        }
-
         if let Some(withdrawal_fulfillment_txid) = status.should_claim() {
-            let claim_tx_with_commitment = claim_tx.finalize(
-                deposit_txid,
-                &connectors.kickoff,
+            info!(action = "broadcasting required stake txs", %deposit_txid, %own_index);
+            let _stake_tx = self.broadcast_stake_chain(deposit_txid).await;
+
+            let claim_commitment = self.agent.generate_withdrawal_fulfillment_signature(
                 &self.msk,
+                stake_id,
                 withdrawal_fulfillment_txid,
             );
+            let claim_tx_with_commitment = claim_tx.finalize(*claim_commitment, connectors.kickoff);
 
             let raw_claim_tx: String = consensus::encode::serialize_hex(&claim_tx_with_commitment);
             trace!(event = "finalized claim tx", %deposit_txid, ?claim_tx_with_commitment, %raw_claim_tx, %own_index);
@@ -1910,6 +2030,8 @@ where
         user_destination: &Descriptor,
         network: bitcoin::Network,
         own_index: OperatorIdx,
+        deposit_idx: u32,
+        deposit_txid: Txid,
     ) -> anyhow::Result<Txid> {
         let net_payment = BRIDGE_DENOMINATION - OPERATOR_FEE;
 
@@ -1927,6 +2049,8 @@ where
 
         let withdrawal_metadata = WithdrawalMetadata {
             operator_idx: own_index,
+            deposit_idx,
+            deposit_txid,
         };
         let change = TxOut {
             script_pubkey: change_address.script_pubkey(),
@@ -2025,7 +2149,6 @@ where
             .0;
 
         let l1_start_height = (checkpoint_info.l1_range.1.height() + 1) as u32;
-        let mut block_count = 0;
 
         let btc_params = get_btc_params();
 
@@ -2046,6 +2169,7 @@ where
         let mut checkpoint = None;
 
         info!(action = "scanning blocks...", %deposit_txid, %withdrawal_fulfillment_txid, start_height=%height);
+        let mut num_blocks_after_fulfillment = 0;
         let poll_interval = Duration::from_secs(self.btc_poll_interval.as_secs() / 2);
         loop {
             let block = self.agent.btc_client.get_block_at(height.into()).await;
@@ -2107,9 +2231,13 @@ where
             blocks.push(block);
             height += 1;
 
-            block_count += 1;
+            if withdrawal_fulfillment.is_some() {
+                num_blocks_after_fulfillment += 1;
+            }
 
-            if block_count >= EXPECTED_BLOCK_COUNT {
+            if num_blocks_after_fulfillment
+                > REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX
+            {
                 info!(event = "blocks period complete", total_blocks = %headers.len());
                 break;
             }
@@ -2132,10 +2260,13 @@ where
             .map(|v| v == "1" || v.to_lowercase() == "true")
             .unwrap_or(false)
         {
+            info!(action = "dumping proof input data for testing", %deposit_txid, %withdrawal_fulfillment_txid);
             dump_proof_input_data(&chain_state, blocks, op_signature);
         }
 
+        let pegout_graph_params = PegOutGraphParams::default();
         let input = BridgeProofInput {
+            pegout_graph_params,
             rollup_params: self.rollup_params.clone(),
             headers,
             chain_state,
@@ -2150,6 +2281,8 @@ where
         let (proof, public_inputs, public_output) = prover::sp1_prove(&input).unwrap();
 
         if std::env::var(ENV_DUMP_TEST_DATA).is_ok() {
+            info!(action = "dumping proof data for testing", %deposit_txid, %withdrawal_fulfillment_txid);
+
             let proof_file = File::create("proof.bin").unwrap();
             let public_inputs_file = File::create("public_inputs.bin").unwrap();
             proof.serialize_uncompressed(proof_file).unwrap();
@@ -2159,7 +2292,7 @@ where
         }
 
         Assertions {
-            bridge_out_txid: public_output.withdrawal_fulfillment_txid.0,
+            withdrawal_fulfillment: public_output.withdrawal_fulfillment_txid.0,
             groth16: g16::generate_proof_assertions(
                 bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
                 proof,
@@ -2200,6 +2333,350 @@ where
 
         Ok(())
     }
+
+    async fn create_stake_chain(&self, stake_chain_length: u32) {
+        let own_index = self.build_context.own_index();
+
+        info!(action = "checking if stake chain data exists", %own_index);
+        let pre_stake = self.public_db.get_pre_stake(own_index).await.unwrap();
+        if pre_stake.is_some() {
+            // FIXME: needs logic for the case where some intermediate values are missing.
+            // for now, this just checks if the last one is present.
+            info!(action = "pre-stake data present, checking for stake chain", %own_index);
+            if self
+                .public_db
+                .get_stake_txid(own_index, stake_chain_length - 1)
+                .await
+                .unwrap()
+                .is_some()
+            {
+                info!(action = "stake chain present, skipping rebuild", %own_index);
+
+                return;
+            }
+        }
+
+        let connector_cpfp = ConnectorCpfp::new(
+            self.agent.public_key().x_only_public_key().0,
+            self.build_context.network(),
+        );
+        let operator_pubkey = self.agent.public_key().x_only_public_key().0;
+        let operator_address = self.agent.taproot_address(self.build_context.network());
+
+        info!(action = "constructing pre-stake transaction", %own_index);
+        let reserved_utxos = self.db.selected_outpoints().await.unwrap(); // FIXME: Handle me
+        let (change_address, funding_input, total_amount, prev_utxo) = self
+            .agent
+            .select_utxo(OPERATOR_STAKE, reserved_utxos.clone())
+            .await
+            .unwrap();
+
+        let utxos = vec![funding_input];
+        let inputs = create_tx_ins(utxos);
+        let scripts_and_amounts = vec![
+            (operator_address.script_pubkey(), OPERATOR_STAKE),
+            (
+                change_address.script_pubkey(),
+                total_amount - OPERATOR_STAKE - MIN_RELAY_FEE,
+            ),
+        ];
+        let outputs = create_tx_outs(scripts_and_amounts);
+
+        let pre_stake_tx = PreStakeTx::new(inputs, outputs, &prev_utxo);
+
+        let signed_pre_stake = self
+            .agent
+            .btc_client
+            .sign_raw_transaction_with_wallet(&pre_stake_tx.psbt.unsigned_tx, None)
+            .await
+            .unwrap();
+        let signed_pre_stake =
+            consensus::encode::deserialize_hex::<Transaction>(&signed_pre_stake.hex).unwrap();
+        self.agent
+            .btc_client
+            .send_raw_transaction(&signed_pre_stake)
+            .await
+            .unwrap();
+        info!(event = "broadcasted pre-stake tx", %own_index, txid=%signed_pre_stake.compute_txid());
+
+        info!(action = "creating funding transaction", %own_index);
+        let (change_address, funding_input, total_amount, ..) = self
+            .agent
+            .select_utxo(
+                OPERATOR_FUNDS
+                    .checked_mul(stake_chain_length as u64)
+                    .unwrap(),
+                reserved_utxos,
+            )
+            .await
+            .unwrap();
+        let utxos = [funding_input];
+        let tx_ins = create_tx_ins(utxos);
+        let scripts_and_amounts =
+            (0..stake_chain_length).map(|_| (operator_address.script_pubkey(), OPERATOR_FUNDS));
+        let mut tx_outs = create_tx_outs(scripts_and_amounts);
+        tx_outs.push(TxOut {
+            script_pubkey: change_address.script_pubkey(),
+            value: total_amount - OPERATOR_FUNDS * stake_chain_length as u64 - MIN_RELAY_FEE,
+        });
+
+        let funding_tx = create_tx(tx_ins, tx_outs);
+        let signed_funding_tx = self
+            .agent
+            .btc_client
+            .sign_raw_transaction_with_wallet(&funding_tx, None)
+            .await
+            .unwrap();
+        let signed_funding_tx =
+            consensus::encode::deserialize_hex::<Transaction>(&signed_funding_tx.hex).unwrap();
+        self.agent
+            .btc_client
+            .send_raw_transaction(&signed_funding_tx)
+            .await
+            .unwrap();
+
+        info!(event = "broadcasted funding transaction", %own_index, txid=%signed_funding_tx.compute_txid());
+
+        let funding_txid = signed_funding_tx.compute_txid();
+        let pre_stake_txid = pre_stake_tx.compute_txid();
+
+        let pre_stake_outpoint = OutPoint {
+            txid: pre_stake_txid,
+            vout: 0,
+        };
+        self.public_db
+            .set_pre_stake(own_index, pre_stake_outpoint)
+            .await
+            .unwrap();
+
+        if self
+            .public_db
+            .get_stake_txid(own_index, stake_chain_length - 1)
+            .await
+            .unwrap()
+            .is_some()
+        {
+            info!(action = "stake chain present, skipping rebuild", %own_index);
+            return;
+        }
+
+        info!(action = "creating stake chain", length = %stake_chain_length, %own_index);
+
+        let mut stake_inputs = Vec::with_capacity(stake_chain_length as usize);
+        for i in 0..stake_chain_length {
+            let preimage = self.agent.generate_preimage(&self.msk, i);
+            let hash = hashes::sha256::Hash::hash(&preimage);
+
+            let withdrawal_fulfillment_pk =
+                self.agent.generate_withdrawal_fulfillment_pk(&self.msk, i);
+
+            let stake_tx_data = StakeTxData {
+                operator_funds: OutPoint {
+                    txid: funding_txid,
+                    vout: i,
+                },
+                hash,
+                withdrawal_fulfillment_pk,
+            };
+
+            info!(action = "adding stake data to db", %own_index, index = %i);
+            self.public_db
+                .add_stake_data(own_index, stake_tx_data)
+                .await
+                .unwrap();
+
+            stake_inputs.push(stake_tx_data);
+        }
+
+        let stake_chain_params = StakeChainParams::default();
+        let stake_chain_inputs = StakeChainInputs {
+            operator_pubkey,
+            stake_inputs,
+            pre_stake_outpoint,
+            params: stake_chain_params,
+        };
+
+        let stake_chain = StakeChain::new(&self.build_context, &stake_chain_inputs, connector_cpfp);
+
+        for (index, stake_txid) in stake_chain
+            .iter()
+            .map(|stake_tx| stake_tx.compute_txid())
+            .enumerate()
+        {
+            info!(event = "adding stake txid to db", %own_index, %stake_txid, %index);
+            self.public_db
+                .add_stake_txid(own_index, stake_txid)
+                .await
+                .unwrap()
+        }
+    }
+
+    /// Broadcasts the required stake transactions and returns the stake transaction
+    /// corresponding to the deposit txid that can be spent by the claim transaction.
+    async fn broadcast_stake_chain(&self, deposit_txid: Txid) -> Transaction {
+        let own_index = self.build_context.own_index();
+        info!(action = "retrieving stake id from db", %own_index, %deposit_txid);
+        let stake_id = self
+            .public_db
+            .get_deposit_id(deposit_txid)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME: Handle
+                       // me
+
+        info!(action = "retrieving pre-stake from db", %own_index, %deposit_txid, %stake_id);
+        let pre_stake = self
+            .public_db
+            .get_pre_stake(own_index)
+            .await
+            .unwrap()
+            .unwrap(); // FIXME: Handle
+                       // me
+
+        let n_of_n_agg_pubkey = self.build_context.aggregated_pubkey();
+        let operator_pubkey = self.agent.public_key().x_only_public_key().0;
+        let operator_address = self.agent.taproot_address(self.build_context.network());
+
+        let num_stake_txs = stake_id as usize + 1;
+        let mut stake_inputs = Vec::with_capacity(num_stake_txs);
+        for i in 0..num_stake_txs {
+            let stake_data = self
+                .public_db
+                .get_stake_data(own_index, i as u32)
+                .await
+                .unwrap()
+                .unwrap(); // FIXME:
+                           // Handle me
+
+            stake_inputs.push(stake_data);
+        }
+
+        let params = StakeChainParams::default();
+        let stake_chain_inputs = StakeChainInputs {
+            operator_pubkey,
+            pre_stake_outpoint: pre_stake,
+            stake_inputs: stake_inputs.clone(),
+            params,
+        };
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, self.build_context.network());
+        let stake_chain = StakeChain::new(&self.build_context, &stake_chain_inputs, connector_cpfp);
+
+        // Broadcast all stake transactions.
+        // This is a dumb approach in that it does not check if a stake transaction was previously
+        // broadcasted.
+        // FIXME: use `getrawtransaction` to check if a transaction is broadcasted and also how long
+        // to wait before broadcasting the next one.
+
+        // first, broadcast the first stake transaction.
+        let first_stake_tx = stake_chain.first().unwrap().clone();
+        let prevouts = vec![
+            TxOut {
+                script_pubkey: operator_address.script_pubkey(),
+                value: OPERATOR_FUNDS,
+            },
+            TxOut {
+                script_pubkey: operator_address.script_pubkey(),
+                value: OPERATOR_STAKE,
+            },
+        ];
+        let first_stake_raw_tx = first_stake_tx.psbt.unsigned_tx.clone();
+        let first_funds_sig = self
+            .agent
+            .sign(&first_stake_raw_tx, &prevouts, 0, None, None);
+        let first_stake_sig = self
+            .agent
+            .sign(&first_stake_raw_tx, &prevouts, 1, None, None);
+
+        let mut signed_stake_tx = first_stake_tx.finalize_initial(first_funds_sig, first_stake_sig);
+
+        let mut stake_txid = signed_stake_tx.compute_txid();
+        let vsize = signed_stake_tx.vsize();
+        let weight = signed_stake_tx.weight();
+        match self
+            .agent
+            .btc_client
+            .send_raw_transaction(&signed_stake_tx)
+            .await
+        {
+            Ok(txid) => {
+                info!(event = "broadcasted first stake tx", %txid, %own_index);
+            }
+            Err(e) if matches!(e, ClientError::Server(-25, _)) => {
+                warn!(event = "stake tx already broadcasted", stake_index = 0, %e, %vsize, %weight, %stake_txid, %own_index);
+            }
+            Err(e) => {
+                unreachable!(
+                    "operator {own_index} must be able to broadcast first stake tx but encountered: {}",
+                    e
+                );
+            }
+        };
+
+        for (stake_index, stake_tx) in stake_chain.into_iter().enumerate().skip(1) {
+            let prevouts = stake_tx
+                .psbt
+                .inputs
+                .iter()
+                .filter_map(|input| input.witness_utxo.clone())
+                .collect::<Vec<_>>();
+
+            let raw_tx = &stake_tx.psbt.unsigned_tx;
+            let funds_sig =
+                self.agent
+                    .sign(raw_tx, &prevouts, 0, Some(&stake_tx.witnesses()[0]), None);
+            let stake_sig =
+                self.agent
+                    .sign(raw_tx, &prevouts, 1, Some(&stake_tx.witnesses()[1]), None);
+            let prev_preimage = self
+                .agent
+                .generate_preimage(&self.msk, stake_index as u32 - 1);
+            let computed_hash = hashes::sha256::Hash::hash(&prev_preimage);
+            let prev_stake_hash = stake_inputs[stake_index - 1].hash;
+            assert!(
+                computed_hash == prev_stake_hash,
+                "stake hash in db must match hash of computed preimage"
+            );
+
+            let prev_connector_s = ConnectorStake::new(
+                n_of_n_agg_pubkey,
+                operator_pubkey,
+                prev_stake_hash,
+                params.delta,
+                self.build_context.network(),
+            );
+
+            signed_stake_tx =
+                stake_tx.finalize(&prev_preimage, funds_sig, stake_sig, prev_connector_s);
+            stake_txid = signed_stake_tx.compute_txid();
+
+            let vsize = signed_stake_tx.vsize();
+            let weight = signed_stake_tx.weight();
+
+            let slack = 2;
+            let timelock = Duration::from_secs(params.delta.to_consensus_u32() as u64 + slack);
+            match self
+                .agent
+                .wait_and_broadcast(&signed_stake_tx, timelock)
+                .await
+            {
+                Ok(txid) => {
+                    info!(event = "broadcasted stake tx", %txid, %stake_index, %vsize, %weight, %own_index);
+                }
+                Err(e) if matches!(e, ClientError::Server(-25, _)) => {
+                    warn!(event = "stake tx already broadcasted", %stake_index, %e, %vsize, %weight, %stake_txid, %own_index);
+                }
+                Err(e) => {
+                    unreachable!(
+                        "operator {own_index} must be able to broadcast stake tx {stake_index} but encountered {}",
+                        e,
+                    );
+                }
+            }
+        }
+
+        signed_stake_tx
+    }
 }
 
 fn dump_proof_input_data(chain_state: &Chainstate, blocks: Vec<Block>, op_signature: Buf64) {
@@ -2217,12 +2694,10 @@ fn dump_proof_input_data(chain_state: &Chainstate, blocks: Vec<Block>, op_signat
     bincode::serialize_into(File::create("blocks.bin").unwrap(), &blocks).unwrap();
     info!(event = "dumped blocks to file", filename = %blocks_file);
 
-    let op_signature_file = "op_signature.borsh";
-    let mut file = File::create("op_signature.borsh").unwrap();
+    let op_signature_file = "op_signature.bin";
+    let mut file = File::create(op_signature_file).unwrap();
     let data = op_signature.as_slice();
     file.write_all(data)
         .expect("must be able to write op_signature to file");
     info!(event = "dumped op_signature to file", filename = %op_signature_file);
-
-    panic!("done dumping proof input data");
 }

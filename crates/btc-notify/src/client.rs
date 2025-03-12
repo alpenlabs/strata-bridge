@@ -16,11 +16,9 @@ use tokio::{
 pub use crate::{
     config::BtcZmqConfig,
     event::{TxEvent, TxStatus},
+    state_machine::TxPredicate,
 };
-use crate::{
-    state_machine::{BtcZmqSM, TxPredicate},
-    subscription::Subscription,
-};
+use crate::{state_machine::BtcZmqSM, subscription::Subscription};
 
 struct TxSubscriptionDetails {
     predicate: TxPredicate,
@@ -450,7 +448,13 @@ mod e2e_tests {
             .remove(0);
         let observed = tx_sub.next().await.unwrap();
         assert_eq!(observed.rawtx.compute_txid(), txid);
-        assert_eq!(observed.status, TxStatus::Mined { blockhash });
+        assert_eq!(
+            observed.status,
+            TxStatus::Mined {
+                blockhash,
+                height: 102
+            }
+        );
 
         // Now we invalidate the block we just mined, simulating a reorg. We should now get an
         // Unknown event for that transaction as it is evicted from the landscape.
@@ -490,9 +494,21 @@ mod e2e_tests {
             .0
             .remove(0);
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.status, TxStatus::Mined { blockhash });
+        assert_eq!(
+            observed.status,
+            TxStatus::Mined {
+                blockhash,
+                height: 102
+            }
+        );
         let observed = tx_sub.next().await.unwrap();
-        assert_eq!(observed.status, TxStatus::Mined { blockhash });
+        assert_eq!(
+            observed.status,
+            TxStatus::Mined {
+                blockhash,
+                height: 102
+            }
+        );
 
         // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping
         // it earlier, aborting the producer thread.

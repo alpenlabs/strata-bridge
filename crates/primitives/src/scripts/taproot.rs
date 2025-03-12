@@ -18,8 +18,8 @@ use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 
 use crate::{
+    constants::UNSPENDABLE_INTERNAL_KEY,
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult},
-    params::prelude::UNSPENDABLE_INTERNAL_KEY,
 };
 
 /// Different spending paths for a taproot.

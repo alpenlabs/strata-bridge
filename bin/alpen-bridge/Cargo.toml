@@ -1,0 +1,40 @@
+[package]
+name = "alpen-bridge"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "alpen-bridge"
+path = "src/main.rs"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+# TODO: add these back once the impl is complete
+# rust.missing_docs = "warn"
+# rustdoc.all = "warn"
+
+[dependencies]
+alpen-bridge-params.workspace = true
+secret-service-client.workspace = true
+strata-bridge-db.workspace = true
+strata-bridge-p2p-service.workspace = true
+strata-p2p-types.workspace = true
+
+strata-common.workspace = true
+
+anyhow.workspace = true
+bitcoin.workspace = true
+clap.workspace = true
+hex.workspace = true
+libp2p = { workspace = true, features = ["secp256k1"] }
+musig2.workspace = true
+secp256k1.workspace = true
+serde.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+toml.workspace = true
+tracing.workspace = true

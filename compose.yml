@@ -1,0 +1,12 @@
+services:
+  secret-service:
+    image: secret-service:latest
+    build:
+      context: .
+      dockerfile: ./docker/secret-service/Dockerfile
+    environment:
+      - SECRET_SERVICE_DEV=1
+    volumes:
+      - ./docker/vol/secret-service/config.toml:/app/config.toml:ro
+      - ./docker/vol/secret-service/tls:/app/tls
+      - ./docker/vol/secret-service/seed:/app/seed

@@ -11,11 +11,14 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+alpen-bridge-params.workspace = true
+strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
+strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 
 strata-btcio.workspace = true
@@ -38,7 +41,7 @@ rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 serde_json.workspace = true
-sp1-verifier = "4.0.0"
+sp1-verifier.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

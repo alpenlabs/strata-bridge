@@ -2,7 +2,7 @@ use bitcoin::{Transaction, Txid};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    deposit::DepositInfo, params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx,
+    constants::NUM_ASSERT_DATA_TX, deposit::DepositInfo, types::OperatorIdx,
     withdrawal::WithdrawalInfo,
 };
 
@@ -166,11 +166,6 @@ pub enum WithdrawalStatus {
 
     PaidUser(Txid),
 
-    Kickoff {
-        withdrawal_fulfillment_txid: Txid,
-        kickoff_txid: Txid,
-    },
-
     Claim {
         withdrawal_fulfillment_txid: Txid,
         claim_txid: Txid,
@@ -208,15 +203,6 @@ impl WithdrawalStatus {
         match self {
             Self::Received => *self = Self::PaidUser(txid),
             Self::PaidUser(withdrawal_fulfillment_txid) => {
-                *self = Self::Kickoff {
-                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
-                    kickoff_txid: txid,
-                }
-            }
-            Self::Kickoff {
-                withdrawal_fulfillment_txid,
-                kickoff_txid: _,
-            } => {
                 *self = Self::Claim {
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     claim_txid: txid,
@@ -271,10 +257,9 @@ impl WithdrawalStatus {
 
     pub fn should_claim(&self) -> Option<Txid> {
         match self {
-            WithdrawalStatus::Kickoff {
-                withdrawal_fulfillment_txid,
-                kickoff_txid: _,
-            } => Some(*withdrawal_fulfillment_txid),
+            WithdrawalStatus::PaidUser(withdrawal_fulfillment_txid) => {
+                Some(*withdrawal_fulfillment_txid)
+            }
             _ => None,
         }
     }
@@ -325,7 +310,7 @@ mod tests {
     use bitcoin::{hashes::Hash, Txid};
 
     use super::WithdrawalStatus;
-    use crate::params::prelude::NUM_ASSERT_DATA_TX;
+    use crate::constants::NUM_ASSERT_DATA_TX;
 
     #[test]
     fn test_state_transition() {
@@ -335,16 +320,6 @@ mod tests {
         assert!(status.should_pay(), "should pay");
         status.next(txid); // broadcast bridge-out
         assert!(matches!(status, WithdrawalStatus::PaidUser(_)));
-
-        assert!(status.should_kickoff().is_some(), "should kickoff");
-        status.next(txid); // broadcast kickoff
-        assert!(matches!(
-            status,
-            WithdrawalStatus::Kickoff {
-                withdrawal_fulfillment_txid: _,
-                kickoff_txid: _
-            }
-        ));
 
         assert!(status.should_claim().is_some(), "should claim");
         status.next(txid); // broadcast claim

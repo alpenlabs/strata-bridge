@@ -5,19 +5,21 @@ use bitvm::{
     groth16::g16::{N_VERIFIER_FQS, N_VERIFIER_HASHES, N_VERIFIER_PUBLIC_INPUTS},
     signatures::wots_api::{wots160, wots256},
 };
-use strata_bridge_primitives::wots::{self, Groth16PublicKeys, Wots256PublicKey};
+use strata_bridge_primitives::wots::{
+    self, Groth16PublicKeys, Groth16Signatures, Wots256PublicKey, Wots256Signature,
+};
 
 pub fn generate_wots_signatures() -> wots::Signatures {
     let wots256_signature: wots256::Signature = generate_byte_tuple_array(&mut OsRng);
     let wots160_signature: wots160::Signature = generate_byte_tuple_array(&mut OsRng);
 
     wots::Signatures {
-        withdrawal_fulfillment_sig: wots256_signature,
-        groth16: (
+        withdrawal_fulfillment: Wots256Signature(wots256_signature),
+        groth16: Groth16Signatures((
             [wots256_signature; N_VERIFIER_PUBLIC_INPUTS],
             [wots256_signature; N_VERIFIER_FQS],
             [wots160_signature; N_VERIFIER_HASHES],
-        ),
+        )),
     }
 }
 
@@ -25,10 +27,10 @@ pub fn generate_wots_public_keys() -> wots::PublicKeys {
     let wots256_public_key: wots256::PublicKey = generate_byte_slice_array(&mut OsRng);
     let wots160_public_key: wots160::PublicKey = generate_byte_slice_array(&mut OsRng);
 
-    let withdrawal_fulfillment_pk = Wots256PublicKey(wots256_public_key);
+    let withdrawal_fulfillment = Wots256PublicKey(wots256_public_key);
 
     wots::PublicKeys {
-        withdrawal_fulfillment_pk,
+        withdrawal_fulfillment,
         groth16: Groth16PublicKeys((
             [wots256_public_key; N_VERIFIER_PUBLIC_INPUTS],
             [wots256_public_key; N_VERIFIER_FQS],

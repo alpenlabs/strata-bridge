@@ -6,7 +6,6 @@ pub use super::{
     covenant_tx::*,
     cpfp::*,
     disprove::*,
-    kickoff::*,
     payout::*,
     payout_optimistic::*,
     post_assert::*,

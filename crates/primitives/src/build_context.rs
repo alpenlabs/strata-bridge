@@ -1,4 +1,4 @@
-use bitcoin::Network;
+use bitcoin::{Amount, Network};
 use secp256k1::XOnlyPublicKey;
 use strata_primitives::bridge::PublickeyTable;
 
@@ -97,5 +97,7 @@ pub trait TxKind {
     fn construct_signing_data<C: BuildContext>(
         &self,
         build_context: &C,
+        deposit_amt: Amount,
+        tag: Option<&[u8]>,
     ) -> BridgeTxBuilderResult<TxSigningData>;
 }

@@ -1,0 +1,39 @@
+[package]
+edition = "2021"
+name = "dev-bridge"
+version = "0.1.0"
+
+[[bin]]
+name = "dev-bridge"
+path = "src/main.rs"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+
+[dependencies]
+strata-bridge-agent.workspace = true
+strata-bridge-db.workspace = true
+strata-bridge-primitives.workspace = true
+strata-bridge-rpc.workspace = true
+strata-primitives.workspace = true
+strata-rpc-api.workspace = true
+
+strata-btcio.workspace = true
+strata-common.workspace = true
+
+anyhow.workspace = true
+async-trait.workspace = true
+bitcoin.workspace = true
+chrono.workspace = true
+clap.workspace = true
+jsonrpsee = { workspace = true, features = ["client", "server"] }
+rand.workspace = true
+secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
+serde_json.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true

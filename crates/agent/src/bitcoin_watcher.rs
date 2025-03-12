@@ -2,7 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use bitcoin::{Transaction, Txid};
 use strata_bridge_db::{public::PublicDb, tracker::BitcoinBlockTrackerDb};
-use strata_bridge_primitives::{duties::VerifierDuty, params::prelude::*, types::OperatorIdx};
+use strata_bridge_primitives::{
+    constants::NUM_ASSERT_DATA_TX, duties::VerifierDuty, types::OperatorIdx,
+};
 use strata_btcio::rpc::traits::ReaderRpc;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
@@ -141,8 +143,8 @@ where
         let mut assert_data_txs = Vec::new();
 
         // skip the first input i.e., the stake
-        for txin in post_assert_tx.input.iter().skip(1) {
-            let txid = &txin.previous_output.txid;
+        for txin in post_assert_tx.input.iter() {
+            let txid = txin.previous_output.txid;
 
             let tx = self
                 .db
@@ -166,14 +168,14 @@ where
 
         let pre_assert_tx = self
             .db
-            .get_relevant_tx(&assert_data_txs[0].input[0].previous_output.txid)
+            .get_relevant_tx(assert_data_txs[0].input[0].previous_output.txid)
             .await
             .unwrap() // FIXME: Handle me
             .expect("pre-assert tx must exist");
 
         let claim_tx = self
             .db
-            .get_relevant_tx(&pre_assert_tx.input[0].previous_output.txid)
+            .get_relevant_tx(pre_assert_tx.input[0].previous_output.txid)
             .await
             .unwrap() // FIXME: Handle me
             .expect("claim tx must exist");

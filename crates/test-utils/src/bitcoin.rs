@@ -6,14 +6,15 @@ use bitcoin::{
     absolute::LockTime,
     consensus,
     hashes::Hash,
-    key::rand::{rngs::OsRng, Rng},
-    secp256k1::{schnorr::Signature, Keypair, XOnlyPublicKey, SECP256K1},
+    key::rand::{rngs::OsRng, thread_rng, Rng},
+    secp256k1::{schnorr::Signature, Keypair, SecretKey, XOnlyPublicKey, SECP256K1},
     sighash::{Prevouts, SighashCache},
     transaction::Version,
     Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
+use strata_bridge_primitives::secp::EvenSecretKey;
 use strata_btcio::rpc::{
     types::{ListUnspent, SignRawTransactionWithWallet},
     BitcoinClient,
@@ -57,8 +58,12 @@ pub fn generate_signature() -> Signature {
     Signature::from_slice(&sig).expect("should be able to generate arbitrary signature")
 }
 
+/// Generates a [`Keypair`] that is always guaranteed to have an even X-only public key.
 pub fn generate_keypair() -> Keypair {
-    Keypair::new(SECP256K1, &mut OsRng)
+    let mut rng = thread_rng();
+    let sk = SecretKey::new(&mut rng);
+    let sk: EvenSecretKey = sk.into();
+    Keypair::from_secret_key(SECP256K1, &sk)
 }
 
 pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
@@ -214,4 +219,19 @@ pub fn wait_for_blocks(btc_client: &Client, count: usize) {
             .generate_to_address(chunk, &random_address)
             .expect("must be able to generate blocks");
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::key::Parity;
+
+    use super::*;
+
+    #[test]
+    fn even_keypair() {
+        (0..100).for_each(|_| {
+            let keypair = generate_keypair();
+            assert_eq!(keypair.x_only_public_key().1, Parity::Even);
+        });
+    }
 }

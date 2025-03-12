@@ -14,7 +14,7 @@ use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
     bitcoin::BitcoinAddress,
-    params::tx::UNSPENDABLE_INTERNAL_KEY,
+    constants::UNSPENDABLE_INTERNAL_KEY,
     scripts::general::{get_aggregated_pubkey, metadata_script, n_of_n_script},
     types::OperatorIdx,
 };
@@ -56,12 +56,13 @@ pub(crate) fn create_drt_taproot_output(pubkeys: PublickeyTable) -> (BitcoinAddr
 
     // in actual DRT, this will be the take-back leaf.
     // for testing, this could be any script as we only care about its hash.
-    let op_return_script = metadata_script(&[0u8; 20]);
+    let tag = b"alpen";
+    let op_return_script = metadata_script(&[0u8; 20], &tag[..]);
     let op_return_script_hash =
         TapNodeHash::from_script(&op_return_script, taproot::LeafVersion::TapScript);
 
     let taproot_builder = TaprootBuilder::new()
-        .add_leaf(1, n_of_n_spend_script.clone())
+        .add_leaf(1, n_of_n_spend_script.compile())
         .unwrap()
         .add_leaf(1, op_return_script)
         .unwrap();

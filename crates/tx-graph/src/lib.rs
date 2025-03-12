@@ -7,8 +7,6 @@
 #![feature(maybe_uninit_array_assume_init)] // this feature is used to implement deserialization for fixed length arrays bound to the assert
                                             // vector length
 
-pub mod connectors;
 pub mod errors;
-pub mod partial_verification_scripts;
 pub mod peg_out_graph;
 pub mod transactions;

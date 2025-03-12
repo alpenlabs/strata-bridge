@@ -1,9 +1,10 @@
 //! Public database interface for the Strata Bridge.
 
 use async_trait::async_trait;
-use bitcoin::Txid;
+use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{params::prelude::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
+use strata_bridge_primitives::{constants::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use crate::errors::DbResult;
 
@@ -54,6 +55,34 @@ pub trait PublicDb {
         input_index: u32,
         signature: Signature,
     ) -> DbResult<()>;
+
+    async fn add_deposit_txid(&self, deposit_txid: Txid) -> DbResult<()>;
+
+    async fn get_deposit_id(&self, deposit_txid: Txid) -> DbResult<Option<u32>>;
+
+    async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()>;
+
+    async fn get_stake_txid(
+        &self,
+        operator_id: OperatorIdx,
+        stake_id: u32,
+    ) -> DbResult<Option<Txid>>;
+
+    async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()>;
+
+    async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>>;
+
+    async fn add_stake_data(
+        &self,
+        operator_id: OperatorIdx,
+        stake_data: StakeTxData,
+    ) -> DbResult<()>;
+
+    async fn get_stake_data(
+        &self,
+        operator_id: OperatorIdx,
+        stake_id: u32,
+    ) -> DbResult<Option<StakeTxData>>;
 
     async fn register_claim_txid(
         &self,

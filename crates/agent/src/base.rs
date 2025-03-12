@@ -1,7 +1,8 @@
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
+use alpen_bridge_params::prelude::ConnectorParams;
 use bitcoin::{
-    hashes::Hash,
+    hashes::{self, Hash},
     key::TapTweak,
     sighash::{Prevouts, SighashCache},
     Address, Amount, Network, OutPoint, TapSighashType, Transaction, TxOut, Txid,
@@ -9,14 +10,33 @@ use bitcoin::{
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use musig2::{KeyAggContext, SecNonce};
 use rand::{rngs::OsRng, RngCore};
-use secp256k1::{schnorr::Signature, Keypair, Message, PublicKey, SecretKey, SECP256K1};
-use strata_bridge_primitives::{params::prelude::MIN_RELAY_FEE, scripts::prelude::*};
+use secp256k1::{
+    schnorr::{self, Signature},
+    Keypair, Message, PublicKey, SecretKey, SECP256K1,
+};
+use strata_bridge_primitives::{
+    scripts::prelude::*,
+    wots::{Wots256PublicKey, Wots256Signature},
+};
 use strata_btcio::rpc::{
     error::ClientError,
     traits::{BroadcasterRpc, ReaderRpc, WalletRpc},
     BitcoinClient,
 };
 use tracing::trace;
+
+pub(super) const MIN_RELAY_FEE: Amount = Amount::from_sat(5000);
+pub(super) const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
+pub(super) const OPERATOR_STAKE: Amount = Amount::from_int_btc(3);
+pub(super) const DISPROVER_REWARD: Amount = Amount::from_int_btc(1);
+pub(super) const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(10);
+pub(super) const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
+
+pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {
+    payout_optimistic_timelock: 100,
+    pre_assert_timelock: 200,
+    payout_timelock: 100,
+};
 
 #[derive(Debug, Clone)]
 pub struct Agent {
@@ -63,13 +83,20 @@ impl Agent {
         }
     }
 
-    pub fn sign(&self, tx: &Transaction, prevouts: &[TxOut], input_index: usize) -> Signature {
+    pub fn sign(
+        &self,
+        tx: &Transaction,
+        prevouts: &[TxOut],
+        input_index: usize,
+        witness_type: Option<&TaprootWitness>,
+        sighash_type: Option<TapSighashType>,
+    ) -> schnorr::Signature {
         let mut sighash_cache = SighashCache::new(tx);
         let msg = create_message_hash(
             &mut sighash_cache,
             Prevouts::All(prevouts),
-            &TaprootWitness::Key,
-            TapSighashType::All,
+            witness_type.unwrap_or(&TaprootWitness::Key),
+            sighash_type.unwrap_or(TapSighashType::Default),
             input_index,
         )
         .expect("should be able to create message hash");
@@ -187,5 +214,38 @@ impl Agent {
             .with_message(txid.as_byte_array())
             .with_aggregated_pubkey(aggregated_pubkey)
             .build()
+    }
+
+    /// Generates pseudo-random bytes that can be used as preimages deterministically.
+    pub fn generate_preimage(&self, seed: &str, stake_index: u32) -> [u8; 32] {
+        let data = stake_index.to_be_bytes();
+        *hashes::sha256::Hash::hash(&[seed.as_bytes(), &data].concat()).as_byte_array()
+    }
+
+    /// Generates the withdrawal fulfillment pk for a given stake transaction index.
+    pub fn generate_withdrawal_fulfillment_pk(
+        &self,
+        seed: &str,
+        stake_index: u32,
+    ) -> Wots256PublicKey {
+        let hash = hashes::sha256::Hash::hash(&stake_index.to_be_bytes());
+        let hash = hash.as_byte_array();
+        let txid = Txid::from_slice(hash).expect("should be able to create txid from hash");
+
+        Wots256PublicKey::new(seed, txid)
+    }
+
+    /// Generates the withdrawal fulfillment signature for a given stake transaction index.
+    pub fn generate_withdrawal_fulfillment_signature(
+        &self,
+        seed: &str,
+        stake_index: u32,
+        withdrawal_fulfillment_txid: Txid,
+    ) -> Wots256Signature {
+        let hash = hashes::sha256::Hash::hash(&stake_index.to_be_bytes());
+        let hash = hash.as_byte_array();
+        let txid = Txid::from_slice(hash).expect("should be able to create txid from hash");
+
+        Wots256Signature::new(seed, txid, withdrawal_fulfillment_txid.as_byte_array())
     }
 }

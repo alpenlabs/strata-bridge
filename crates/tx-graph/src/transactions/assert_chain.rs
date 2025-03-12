@@ -1,9 +1,9 @@
-use bitcoin::Txid;
-use strata_bridge_primitives::{params::connectors::*, types::OperatorIdx};
+use bitcoin::{Amount, Txid};
+use strata_bridge_connectors::prelude::*;
+use strata_bridge_primitives::constants::*;
 use tracing::trace;
 
 use super::prelude::*;
-use crate::connectors::prelude::*;
 
 /// Data needed to construct an [`AssertChain`].
 #[derive(Debug, Clone)]
@@ -30,14 +30,11 @@ impl AssertChain {
     /// Constructs a new instance of the assert chain.
     ///
     /// This method constructs the pre-assert, assert data, and post-assert transactions in order.
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         data: AssertChainData,
-        operator_idx: OperatorIdx,
         connector_c0: ConnectorC0,
-        connector_s: ConnectorS,
-        connector_a30: ConnectorA30,
-        connector_a31: ConnectorA31,
+        connector_a2: ConnectorNOfN,
+        connector_a3: ConnectorA3,
         connector_cpfp: ConnectorCpfp,
         connector_a160_factory: ConnectorA160Factory<
             NUM_HASH_CONNECTORS_BATCH_1,
@@ -55,15 +52,12 @@ impl AssertChain {
         let pre_assert = PreAssertTx::new(
             data.pre_assert_data,
             connector_c0,
-            connector_s,
             connector_cpfp,
             connector_a256_factory,
             connector_a160_factory,
         );
         let pre_assert_txid = pre_assert.compute_txid();
-        trace!(event = "created pre-assert tx", %pre_assert_txid, %operator_idx);
-
-        let pre_assert_net_output_stake = pre_assert.remaining_stake();
+        trace!(event = "created pre-assert tx", %pre_assert_txid);
 
         let assert_data_input = AssertDataTxInput {
             pre_assert_txid,
@@ -71,28 +65,29 @@ impl AssertChain {
         };
 
         trace!(event = "constructed assert data input", ?assert_data_input);
-        let assert_data = AssertDataTxBatch::new(assert_data_input, connector_s, connector_cpfp);
+        let assert_data = AssertDataTxBatch::new(assert_data_input, connector_a2, connector_cpfp);
 
         let assert_data_txids = assert_data.compute_txids().to_vec();
-        trace!(event = "created assert_data tx batch", ?assert_data_txids, %operator_idx);
+        trace!(event = "created assert_data tx batch", ?assert_data_txids);
+
+        let input_amount = assert_data
+            .psbts()
+            .iter()
+            .fold(Amount::from_sat(0), |acc, psbt| {
+                acc + psbt.unsigned_tx.output[0].value
+            });
 
         let post_assert_data = PostAssertTxData {
             assert_data_txids,
             pre_assert_txid,
-            input_amount: pre_assert_net_output_stake,
+            input_amount,
             deposit_txid: data.deposit_txid,
         };
 
-        let post_assert = PostAssertTx::new(
-            post_assert_data,
-            operator_idx,
-            connector_s,
-            connector_a30,
-            connector_a31,
-            connector_cpfp,
-        );
+        let post_assert =
+            PostAssertTx::new(post_assert_data, connector_a2, connector_a3, connector_cpfp);
 
-        trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid(), %operator_idx);
+        trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid());
 
         Self {
             pre_assert,
