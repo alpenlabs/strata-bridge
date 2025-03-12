@@ -73,7 +73,6 @@ pub struct RpcDepositInfo {
 /// Represents withdrawal transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcWithdrawalInfo {
-    pub withdrawal_request_txid: Txid,
     pub status: RpcWithdrawalStatus,
     pub assigned_operator_idx: OperatorIdx,
     /// [`BitcoinBlockHeight`] upto which the withdrawal fulfillment is considered valid

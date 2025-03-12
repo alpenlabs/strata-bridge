@@ -56,8 +56,10 @@ pub trait StrataBridgeMonitoringApi {
 
     /// Get withdrawal details using deposit outpoint.
     #[method(name = "withdrawalInfo")]
-    async fn get_withdrawal_info(&self, deposit_outpoint: OutPoint)
-        -> RpcResult<RpcWithdrawalInfo>;
+    async fn get_withdrawal_info(
+        &self,
+        withdrawal_output: OutPoint,
+    ) -> RpcResult<RpcWithdrawalInfo>;
 
     /// Get all claim transaction IDs.
     #[method(name = "claims")]
