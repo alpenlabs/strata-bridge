@@ -22,14 +22,19 @@ alpen-bridge-params.workspace = true
 secret-service-client.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-primitives.workspace = true
+strata-bridge-rpc.workspace = true
 strata-p2p-types.workspace = true
 
 strata-common.workspace = true
 
 anyhow.workspace = true
+async-trait.workspace = true
 bitcoin.workspace = true
+chrono.workspace = true
 clap.workspace = true
 hex.workspace = true
+jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p = { workspace = true, features = ["secp256k1"] }
 musig2.workspace = true
 rustls-pemfile = "2.2.0"

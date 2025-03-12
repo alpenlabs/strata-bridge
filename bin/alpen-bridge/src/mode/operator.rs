@@ -29,12 +29,13 @@ use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
 use strata_p2p_types::P2POperatorPubKey;
-use tokio::task::JoinHandle;
-use tracing::{debug, info};
+use tokio::{spawn, task::JoinHandle, try_join};
+use tracing::info;
 
 use crate::{
     config::{Config, P2PConfig, SecretServiceConfig},
     params::Params,
+    rpc_server::{start_rpc, BridgeRpc},
 };
 
 /// Bootstraps the bridge client in Operator mode by hooking up all the required auxiliary services
@@ -61,12 +62,13 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
 
     init_duty_tracker(&params, &config, s2_client, message_handler, db);
 
-    let rpc_task = start_rpc_server().await;
+    let rpc_address = config.rpc_addr.clone();
+    let rpc_task = start_rpc_server(rpc_address).await?;
 
     // Wait for all tasks to run
     // They are supposed to run indefinitely in most cases
     // TODO: add duty tracker task
-    tokio::try_join!(rpc_task)?;
+    try_join!(rpc_task)?;
 
     Ok(())
 }
@@ -242,6 +244,12 @@ fn init_duty_tracker(
     unimplemented!("@ProofOfKeags");
 }
 
-async fn start_rpc_server() -> JoinHandle<()> {
-    unimplemented!("@storopoli");
+async fn start_rpc_server(rpc_address: String) -> anyhow::Result<JoinHandle<()>> {
+    let rpc_client = BridgeRpc::new();
+    let handle = spawn(async move {
+        start_rpc(&rpc_client, rpc_address.as_str())
+            .await
+            .expect("failed to start RPC server");
+    });
+    Ok(handle)
 }
