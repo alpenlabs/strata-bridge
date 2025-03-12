@@ -4,9 +4,9 @@
 //! remote secret service.
 
 pub mod musig2;
-pub mod operator;
 pub mod p2p;
 pub mod stakechain;
+pub mod wallet;
 
 pub mod wots;
 
@@ -18,7 +18,6 @@ use std::{
 };
 
 use musig2::{Musig2Client, Musig2FirstRound, Musig2SecondRound};
-use operator::OperatorClient;
 use p2p::P2PClient;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
@@ -38,6 +37,7 @@ use secret_service_proto::{
 use stakechain::StakeChainPreimgClient;
 use terrors::OneOf;
 use tokio::time::timeout;
+use wallet::{GeneralWalletClient, StakechainWalletClient};
 use wots::WotsClient;
 
 /// Configuration for the Secret Service client.
@@ -112,7 +112,8 @@ impl SecretServiceClient {
 }
 
 impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServiceClient {
-    type OperatorSigner = OperatorClient;
+    type GeneralWalletSigner = GeneralWalletClient;
+    type StakechainWalletSigner = StakechainWalletClient;
 
     type P2PSigner = P2PClient;
 
@@ -122,8 +123,12 @@ impl SecretService<Client, Musig2FirstRound, Musig2SecondRound> for SecretServic
 
     type StakeChainPreimages = StakeChainPreimgClient;
 
-    fn operator_signer(&self) -> Self::OperatorSigner {
-        OperatorClient::new(self.conn.clone(), self.config.clone())
+    fn general_wallet_signer(&self) -> Self::GeneralWalletSigner {
+        GeneralWalletClient::new(self.conn.clone(), self.config.clone())
+    }
+
+    fn stakechain_wallet_signer(&self) -> Self::StakechainWalletSigner {
+        StakechainWalletClient::new(self.conn.clone(), self.config.clone())
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {

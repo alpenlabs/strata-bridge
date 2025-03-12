@@ -5,7 +5,6 @@ use std::path::Path;
 use bitcoin::{bip32::Xpriv, Network};
 use colored::Colorize;
 use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
-use operator::Operator;
 use p2p::ServerP2PSigner;
 use rand::Rng;
 use secret_service_proto::v1::traits::{SecretService, Server};
@@ -13,13 +12,14 @@ use stakechain::StakeChain;
 use strata_key_derivation::operator::OperatorKeys;
 use tokio::{fs, io};
 use tracing::info;
+use wallet::{GeneralWalletSigner, StakechainWalletSigner};
 use wots::SeededWotsSigner;
 
 pub mod musig2;
-pub mod operator;
 pub mod p2p;
 pub mod paths;
 pub mod stakechain;
+pub mod wallet;
 pub mod wots;
 
 /// Secret data for the Secret Service.
@@ -74,7 +74,9 @@ impl Service {
 }
 
 impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
-    type OperatorSigner = Operator;
+    type GeneralWalletSigner = GeneralWalletSigner;
+
+    type StakechainWalletSigner = StakechainWalletSigner;
 
     type P2PSigner = ServerP2PSigner;
 
@@ -84,8 +86,12 @@ impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
 
     type StakeChainPreimages = StakeChain;
 
-    fn operator_signer(&self) -> Self::OperatorSigner {
-        Operator::new(self.keys.base_xpriv())
+    fn general_wallet_signer(&self) -> Self::GeneralWalletSigner {
+        GeneralWalletSigner::new(self.keys.base_xpriv())
+    }
+
+    fn stakechain_wallet_signer(&self) -> Self::StakechainWalletSigner {
+        StakechainWalletSigner::new(self.keys.base_xpriv())
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {

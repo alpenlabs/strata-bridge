@@ -27,8 +27,8 @@ use rkyv::{
 use secret_service_proto::{
     v1::{
         traits::{
-            Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, OperatorSigner,
-            P2PSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
+            Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, P2PSigner,
+            SecretService, Server, StakeChainPreimages, WalletSigner, WotsSigner,
         },
         wire::{ArchivedClientMessage, ServerMessage},
     },
@@ -193,16 +193,30 @@ where
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
         ArchivedVersionedClientMessage::V1(req) => match req {
-            ArchivedClientMessage::OperatorSign { digest } => {
-                let sig = service.operator_signer().sign(digest).await;
-                ServerMessage::OperatorSign {
+            ArchivedClientMessage::GeneralWalletSign { digest } => {
+                let sig = service.general_wallet_signer().sign(digest).await;
+                ServerMessage::GeneralWalletSign {
                     sig: sig.serialize(),
                 }
             }
 
-            ArchivedClientMessage::OperatorPubkey => {
-                let pubkey = service.operator_signer().pubkey().await;
-                ServerMessage::OperatorPubkey {
+            ArchivedClientMessage::GeneralWalletPubkey => {
+                let pubkey = service.general_wallet_signer().pubkey().await;
+                ServerMessage::GeneralWalletPubkey {
+                    pubkey: pubkey.serialize(),
+                }
+            }
+
+            ArchivedClientMessage::StakechainWalletSign { digest } => {
+                let sig = service.stakechain_wallet_signer().sign(digest).await;
+                ServerMessage::StakechainWalletSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ArchivedClientMessage::StakechainWalletPubkey => {
+                let pubkey = service.stakechain_wallet_signer().pubkey().await;
+                ServerMessage::StakechainWalletPubkey {
                     pubkey: pubkey.serialize(),
                 }
             }
