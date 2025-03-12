@@ -74,9 +74,6 @@ pub struct RpcDepositInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcWithdrawalInfo {
     pub status: RpcWithdrawalStatus,
-    pub assigned_operator_idx: OperatorIdx,
-    /// [`BitcoinBlockHeight`] upto which the withdrawal fulfillment is considered valid
-    pub exec_deadline: BitcoinBlockHeight,
 }
 
 /// Represents reimbursement transaction details
