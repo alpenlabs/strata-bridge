@@ -131,6 +131,7 @@ mod tests {
             deposit_amount = {}
             operator_fee = 1000000
             challenge_cost = 10000000
+            refund_delay = 1008
 
             [stake_chain]
             stake_amount      = 100000000
