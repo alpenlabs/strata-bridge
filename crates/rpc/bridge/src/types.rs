@@ -1,6 +1,5 @@
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
