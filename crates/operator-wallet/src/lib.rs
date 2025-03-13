@@ -13,7 +13,7 @@ use tracing::{debug, info};
 /// Config for [`OperatorWallet`]
 #[derive(Debug)]
 pub struct OperatorWalletConfig {
-    /// Value of the funding UTXO for stakes. Not `s`.
+    /// Value of the funding UTXO for stakes. Not the `s` connector value.
     stake_funding_utxo_value: Amount,
     /// Number of UTXOs of amount claim_funding_utxo_value sat to keep on hand at minimum
     stake_funding_utxo_pool_size: usize,
