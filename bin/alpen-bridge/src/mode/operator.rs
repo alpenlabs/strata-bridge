@@ -28,6 +28,7 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
+use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::P2POperatorPubKey;
 use tokio::{spawn, task::JoinHandle, try_join};
 use tracing::info;
@@ -57,6 +58,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     );
 
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
+    let p2p_handle_rpc = message_handler.handle.clone();
 
     let db = init_database_handle(&config).await;
     let db_rpc = db.clone();
@@ -64,7 +66,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     init_duty_tracker(&params, &config, s2_client, message_handler, db);
 
     let rpc_address = config.rpc_addr.clone();
-    let rpc_task = start_rpc_server(rpc_address, db_rpc, params.clone()).await?;
+    let rpc_task = start_rpc_server(rpc_address, db_rpc, p2p_handle_rpc, params.clone()).await?;
 
     // Wait for all tasks to run
     // They are supposed to run indefinitely in most cases
@@ -248,9 +250,10 @@ fn init_duty_tracker(
 async fn start_rpc_server(
     rpc_address: String,
     db: SqliteDb,
+    p2p_handle: P2PHandle,
     params: Params,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let rpc_client = BridgeRpc::new(db, params);
+    let rpc_client = BridgeRpc::new(db, p2p_handle, params);
     let handle = spawn(async move {
         start_rpc(&rpc_client, rpc_address.as_str())
             .await
