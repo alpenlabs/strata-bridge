@@ -38,3 +38,5 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+secret-service-proto.workspace = true
+rustls-pemfile = "2.2.0"
