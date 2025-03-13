@@ -55,7 +55,7 @@ pub enum WalletUpdate {
 /// It sends updates? What did you think it did?
 pub type UpdateSender = UnboundedSender<WalletUpdate>;
 
-/// A sync backend because [SyncBackend] isn't object safe
+/// A sync backend because the internal trait isn't object safe
 #[derive(Debug)]
 pub enum Backend {
     /// Asynchronous esplora client
@@ -140,7 +140,7 @@ impl Deref for EsploraClient {
 }
 
 impl EsploraClient {
-    /// It creates a new esplora client against the provided url ()
+    /// It creates a new esplora client against the provided url (remove leading '/'s!)
     pub fn new(esplora_url: &str) -> Result<Self, esplora_client::Error> {
         Ok(Self(
             esplora_client::Builder::new(esplora_url).build_async()?,

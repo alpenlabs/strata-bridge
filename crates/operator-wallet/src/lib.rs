@@ -10,7 +10,7 @@ use bdk_wallet::{
 use sync::{Backend, SyncError};
 use tracing::{debug, info};
 
-/// Config for [OperatorWallet]
+/// Config for [`OperatorWallet`]
 #[derive(Debug)]
 pub struct OperatorWalletConfig {
     /// Value of the funding UTXO for stakes. Not `s`.
@@ -19,12 +19,16 @@ pub struct OperatorWalletConfig {
     stake_funding_utxo_pool_size: usize,
     /// Value of CPFP UTXOs to identify them
     cpfp_value: Amount,
-    /// Value of `s`, the stake amount, to identify the UTXO
+    /// Value of the `s` connector, the stake amount, to identify the UTXO
     s_value: Amount,
 }
 
 impl OperatorWalletConfig {
-    /// Creates a new [OperatorWalletConfig]. Panics if cpfp_value == s_value
+    /// Creates a new [`OperatorWalletConfig`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if `cpfp_value` == `s_value`
     pub fn new(
         stake_funding_utxo_value: Amount,
         stake_funding_utxo_pool_size: usize,
@@ -46,7 +50,8 @@ impl OperatorWalletConfig {
 
 const NETWORK: Network = Network::Signet;
 
-/// The [OperatorWallet] is responsible for
+/// The [`OperatorWallet`] is responsible for managing an operator's L1 funds, split into a general
+/// wallet and a dedicated stakechain wallet.
 #[derive(Debug)]
 pub struct OperatorWallet {
     general_wallet: Wallet,
@@ -58,7 +63,7 @@ pub struct OperatorWallet {
 }
 
 impl OperatorWallet {
-    /// Creates a new [OperatorWallet]
+    /// Creates a new [`OperatorWallet`]
     pub fn new(
         general: XOnlyPublicKey,
         stakechain: XOnlyPublicKey,
@@ -143,7 +148,7 @@ impl OperatorWallet {
         tx_builder.finish()
     }
 
-    /// Tries to find the `s` UTXO from the prestake transaction
+    /// Tries to find the `s` connector UTXO from the prestake transaction
     pub fn s_utxo(&self) -> Option<LocalOutput> {
         self.stakechain_wallet
             .list_unspent()
