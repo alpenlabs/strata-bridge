@@ -19,13 +19,15 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
+use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::P2POperatorPubKey;
-use tokio::task::JoinHandle;
+use tokio::{spawn, task::JoinHandle, try_join};
 use tracing::info;
 
 use crate::{
     config::{Config, P2PConfig},
     params::Params,
+    rpc_server::{start_rpc, BridgeRpc},
 };
 
 /// Bootstraps the bridge client in Operator mode by hooking up all the required auxiliary services
@@ -38,17 +40,20 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     // TODO(@Zk2u!): give the `init_p2p_message_handler` the P2P secret key `sk`.
     let sk = get_p2p_key(&s2_client).await?;
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
+    let p2p_handle_rpc = message_handler.handle.clone();
 
     let db = init_database_handle(&config).await;
+    let db_rpc = db.clone();
 
     init_duty_tracker(&params, &config, s2_client, message_handler, db);
 
-    let rpc_task = start_rpc_server().await;
+    let rpc_address = config.rpc_addr.clone();
+    let rpc_task = start_rpc_server(rpc_address, db_rpc, p2p_handle_rpc, params.clone()).await?;
 
     // Wait for all tasks to run
     // They are supposed to run indefinitely in most cases
     // TODO: add duty tracker task
-    tokio::try_join!(rpc_task)?;
+    try_join!(rpc_task)?;
 
     Ok(())
 }
@@ -188,6 +193,17 @@ fn init_duty_tracker(
     unimplemented!("@ProofOfKeags");
 }
 
-async fn start_rpc_server() -> JoinHandle<()> {
-    unimplemented!("@storopoli");
+async fn start_rpc_server(
+    rpc_address: String,
+    db: SqliteDb,
+    p2p_handle: P2PHandle,
+    params: Params,
+) -> anyhow::Result<JoinHandle<()>> {
+    let rpc_client = BridgeRpc::new(db, p2p_handle, params);
+    let handle = spawn(async move {
+        start_rpc(&rpc_client, rpc_address.as_str())
+            .await
+            .expect("failed to start RPC server");
+    });
+    Ok(handle)
 }

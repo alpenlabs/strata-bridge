@@ -13,6 +13,7 @@ mod args;
 mod config;
 mod mode;
 mod params;
+mod rpc_server;
 
 #[tokio::main]
 async fn main() {
