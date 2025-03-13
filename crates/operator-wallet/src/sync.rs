@@ -1,3 +1,4 @@
+//! Operator wallet chain data sync module
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},
@@ -15,7 +16,7 @@ use bdk_esplora::{
 use bdk_wallet::{
     bitcoin::{Block, Transaction},
     chain::{
-        spk_client::{FullScanResponse, SyncRequestBuilder, SyncResponse},
+        spk_client::{SyncRequestBuilder, SyncResponse},
         CheckPoint,
     },
     KeychainKind, Wallet,
@@ -25,7 +26,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 macro_rules! boxed_err {
     ($name:ident) => {
         impl std::ops::Deref for $name {
-            type Target = BoxedInner;
+            type Target = BoxedErrInner;
 
             fn deref(&self) -> &Self::Target {
                 self.0.as_ref()
@@ -40,22 +41,31 @@ macro_rules! boxed_err {
     };
 }
 
+/// A message sent from a sync task to the syncer
+#[derive(Debug)]
 pub enum WalletUpdate {
+    /// Data returned from a spk-based blockchain client sync
     SpkSync(SyncResponse),
-    SpkScan(FullScanResponse<KeychainKind>),
+    /// A newly emitted block from [`Emitter`].
     NewBlock(BlockEvent<Block>),
+    /// Transactions in the mempool along with their first seen unix timestamp
     MempoolTxs(Vec<(Transaction, u64)>),
 }
 
+/// It sends updates? What did you think it did?
 pub type UpdateSender = UnboundedSender<WalletUpdate>;
 
+/// A sync backend because [SyncBackend] isn't object safe
 #[derive(Debug)]
 pub enum Backend {
+    /// Asynchronous esplora client
     Esplora(EsploraClient),
+    /// Synchronous bitcoin core RPC client
     BitcoinCore(Arc<bitcoincore_rpc::Client>),
 }
 
 impl Backend {
+    /// Syncs a wallet using the internal update
     pub async fn sync_wallet(&self, wallet: &mut Wallet) -> Result<(), SyncError> {
         let req = wallet.start_sync_with_revealed_spks();
         let last_cp = wallet.latest_checkpoint();
@@ -75,9 +85,6 @@ impl Backend {
         while let Some(update) = rx.recv().await {
             match update {
                 WalletUpdate::SpkSync(update) => {
-                    wallet.apply_update(update).expect("update to connect")
-                }
-                WalletUpdate::SpkScan(update) => {
                     wallet.apply_update(update).expect("update to connect")
                 }
                 WalletUpdate::NewBlock(ev) => {
@@ -106,25 +113,15 @@ trait SyncBackend: Debug + Send + Sync {
     ) -> Result<(), SyncError>;
 }
 
-type BoxedInner = dyn Debug + Send + Sync;
-type BoxedErr = Box<BoxedInner>;
+type BoxedErrInner = dyn Debug + Send + Sync;
+type BoxedErr = Box<BoxedErrInner>;
 
+/// A generic error that happened during sync
 #[derive(Debug)]
 pub struct SyncError(BoxedErr);
 boxed_err!(SyncError);
 
-#[derive(Debug)]
-pub struct ScanError(BoxedErr);
-boxed_err!(ScanError);
-
-#[derive(Debug)]
-pub struct BroadcastTxError(BoxedErr);
-boxed_err!(BroadcastTxError);
-
-#[derive(Debug)]
-pub struct GetFeeRateError(BoxedErr);
-boxed_err!(GetFeeRateError);
-
+/// An async, rustls & tokio powered esplora client
 #[derive(Clone, Debug)]
 pub struct EsploraClient(AsyncClient);
 
@@ -143,6 +140,7 @@ impl Deref for EsploraClient {
 }
 
 impl EsploraClient {
+    /// It creates a new esplora client against the provided url ()
     pub fn new(esplora_url: &str) -> Result<Self, esplora_client::Error> {
         Ok(Self(
             esplora_client::Builder::new(esplora_url).build_async()?,

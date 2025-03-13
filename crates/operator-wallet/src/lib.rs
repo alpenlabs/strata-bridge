@@ -23,8 +23,30 @@ pub struct OperatorWalletConfig {
     s_value: Amount,
 }
 
+impl OperatorWalletConfig {
+    /// Creates a new [OperatorWalletConfig]. Panics if cpfp_value == s_value
+    pub fn new(
+        stake_funding_utxo_value: Amount,
+        stake_funding_utxo_pool_size: usize,
+        cpfp_value: Amount,
+        s_value: Amount,
+    ) -> Self {
+        assert_ne!(
+            cpfp_value, s_value,
+            "the value of `s` cannot be the same as the CPFP value"
+        );
+        Self {
+            stake_funding_utxo_value,
+            stake_funding_utxo_pool_size,
+            cpfp_value,
+            s_value,
+        }
+    }
+}
+
 const NETWORK: Network = Network::Signet;
 
+/// The [OperatorWallet] is responsible for
 #[derive(Debug)]
 pub struct OperatorWallet {
     general_wallet: Wallet,
@@ -36,6 +58,7 @@ pub struct OperatorWallet {
 }
 
 impl OperatorWallet {
+    /// Creates a new [OperatorWallet]
     pub fn new(
         general: XOnlyPublicKey,
         stakechain: XOnlyPublicKey,
@@ -76,28 +99,6 @@ impl OperatorWallet {
         }
     }
 
-    // /// Tries to find a UTXO for a new stake
-    // pub fn get_stake_funding_utxo(&mut self) -> MaybeStakeFundingUtxo {
-    //     let mut available_utxos = self
-    //         .stakechain_wallet
-    //         .list_unspent()
-    //         .filter(|utxo| utxo.txout.value == self.config.stake_funding_utxo_value)
-    //         .collect::<Vec<_>>();
-    //     debug!(
-    //         "found {} available utxos to fund a new stake",
-    //         available_utxos.len()
-    //     );
-
-    //     match available_utxos.len() {
-    //         0 => MaybeStakeFundingUtxo::Empty,
-    //         n if n < self.config.stake_funding_utxo_pool_size => {
-    //             debug!("only have {n} available left");
-    //             MaybeStakeFundingUtxo::NeedsRefill(available_utxos.pop().unwrap())
-    //         }
-    //         _ => MaybeStakeFundingUtxo::Available(available_utxos.pop().unwrap()),
-    //     }
-    // }
-
     /// Returns the list of known CPFP outputs that should only be spent when fee bumping
     pub fn cpfp_utxos(&self) -> Vec<LocalOutput> {
         let v = self
@@ -106,6 +107,18 @@ impl OperatorWallet {
             .filter(|utxo| utxo.txout.value == self.config.cpfp_value)
             .collect::<Vec<_>>();
         debug!("found {} CPFP UTXOs", v.len());
+        v
+    }
+
+    /// Returns a list of UTXOs from the general wallet that can be used for fronting withdrawals.
+    /// Excludes CPFP outputs.
+    pub fn general_utxos(&self) -> Vec<LocalOutput> {
+        let v = self
+            .general_wallet
+            .list_unspent()
+            .filter(|utxo| utxo.txout.value != self.config.cpfp_value)
+            .collect::<Vec<_>>();
+        debug!("found {} non-CPFP UTXOs", v.len());
         v
     }
 
@@ -158,6 +171,7 @@ impl OperatorWallet {
         &self.general_addr_script_buf
     }
 
+    /// Syncs the wallet using the backend provided on construction
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         self.sync_backend
             .sync_wallet(&mut self.general_wallet)
@@ -167,14 +181,4 @@ impl OperatorWallet {
             .await?;
         Ok(())
     }
-}
-
-pub enum MaybeStakeFundingUtxo {
-    /// We found a UTXO that can be used for a new stake
-    Available(LocalOutput),
-    /// We found a UTXO that can be used for a new stake, BUT we're running out
-    /// and you should refill via [OperatorWallet::refill_claim_funding_utxos]
-    NeedsRefill(LocalOutput),
-    /// There aren't any UTXOs to use to fund a stake.
-    Empty,
 }
