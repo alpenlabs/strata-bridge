@@ -18,7 +18,6 @@ strata-p2p-wire.workspace = true
 anyhow.workspace = true
 bitcoin.workspace = true
 libp2p.workspace = true
-libp2p-identity.workspace = true
 musig2.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
