@@ -24,6 +24,7 @@ strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
+strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 
 strata-common.workspace = true
