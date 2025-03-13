@@ -1,10 +1,11 @@
 //! Bootstraps an RPC server for the operator.
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
+use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, tracker::DutyTrackerDb};
 use strata_bridge_primitives::duties::{
@@ -126,11 +127,21 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_operator_status(&self, operator_pk: PublicKey) -> RpcResult<RpcOperatorStatus> {
-        // NOTE(@storopoli): We need to add a strata-p2p command to "ping" the operator.
-        //       Be aware that the operator_pk here is the MuSig2 pk and you need to ping the
-        //       operator by the P2P pk.
-        let _ = operator_pk;
-        unimplemented!()
+        let conversion = convert_operator_pk_to_peer_id(&self.params, &operator_pk);
+        // Avoid DoS attacks by just returning an error if the public key is invalid
+        if conversion.is_err() {
+            return Err(ErrorObjectOwned::owned::<_>(
+                -32001,
+                "Invalid operator public key",
+                Some(operator_pk.to_string()),
+            ));
+        }
+        // NOTE: safe to unwrap because we just checked if it's valid
+        if self.p2p_handle.is_connected(conversion.unwrap()).await {
+            Ok(RpcOperatorStatus::Online)
+        } else {
+            Ok(RpcOperatorStatus::Offline)
+        }
     }
 
     async fn get_deposit_request_info(
@@ -237,5 +248,28 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 Some(claim_txid),
             )),
         }
+    }
+}
+
+/// Converts a *MuSig2* operator [`PublicKey`] to a *P2P* [`PeerId`].
+///
+/// Internally checks if the operator MuSig2 [`PublicKey`] is present in the vector of operator
+/// MuSig2 public keys in the [`Params`], then fetches the corresponding P2P [`PublicKey`] in the
+/// vector of the P2P public keys in the [`Params`] assuming that the index is the same in both
+/// vectors.
+pub(crate) fn convert_operator_pk_to_peer_id(
+    params: &Params,
+    operator_pk: &PublicKey,
+) -> anyhow::Result<PeerId> {
+    let operator_index = params
+        .keys
+        .musig2
+        .iter()
+        .position(|pk| *pk == operator_pk.inner.x_only_public_key().0);
+    if let Some(index) = operator_index {
+        let pk: LibP2pPublicKey = params.keys.p2p[index].clone().into();
+        Ok(PeerId::from(pk))
+    } else {
+        bail!("Could not find operator public key in params")
     }
 }
