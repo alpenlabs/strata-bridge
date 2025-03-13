@@ -24,14 +24,26 @@ pub enum ServerMessage {
     /// Check the server logs for debugging details.
     OpaqueServerError,
 
-    /// Response for [`OperatorSigner::sign`](super::traits::OperatorSigner::sign).
-    OperatorSign {
+    /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
+    GeneralWalletSign {
         /// Schnorr signature for a certain message.
         sig: [u8; 64],
     },
 
-    /// Response for [`OperatorSigner::pubkey`](super::traits::OperatorSigner::pubkey).
-    OperatorPubkey {
+    /// Response for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
+    GeneralWalletPubkey {
+        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
+        pubkey: [u8; 32],
+    },
+
+    /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
+    StakechainWalletSign {
+        /// Schnorr signature for a certain message.
+        sig: [u8; 64],
+    },
+
+    /// Response for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
+    StakechainWalletPubkey {
         /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
         pubkey: [u8; 32],
     },
@@ -182,14 +194,23 @@ impl From<Musig2SessionResult> for Result<[u8; 64], RoundFinalizeError> {
 /// Various messages the client can send to the server.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ClientMessage {
-    /// Request for [`OperatorSigner::sign`](super::traits::OperatorSigner::sign).
-    OperatorSign {
+    /// Request for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
+    GeneralWalletSign {
         /// The digest of the data the client wants signed.
         digest: [u8; 32],
     },
 
-    /// Request for [`OperatorSigner::pubkey`](super::traits::OperatorSigner::pubkey).
-    OperatorPubkey,
+    /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
+    GeneralWalletPubkey,
+
+    /// Request for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
+    StakechainWalletSign {
+        /// The digest of the data the client wants signed.
+        digest: [u8; 32],
+    },
+
+    /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
+    StakechainWalletPubkey,
 
     /// Request for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
     P2PSecretKey,

@@ -24,8 +24,10 @@ where
     O: Origin,
     FirstRound: Musig2SignerFirstRound<O, SecondRound>,
 {
-    /// Implementation of the [`OperatorSigner`] trait.
-    type OperatorSigner: OperatorSigner<O>;
+    /// Implementation of the [`WalletSigner`] trait for the general wallet.
+    type GeneralWalletSigner: WalletSigner<O>;
+    /// Implementation of the [`WalletSigner`] trait for the stakechain wallet.
+    type StakechainWalletSigner: WalletSigner<O>;
 
     /// Implementation of the [`P2PSigner`] trait.
     type P2PSigner: P2PSigner<O>;
@@ -39,8 +41,14 @@ where
     /// Implementation of the [`StakeChainPreimages`] trait.
     type StakeChainPreimages: StakeChainPreimages<O>;
 
-    /// Creates an instance of the [`OperatorSigner`].
-    fn operator_signer(&self) -> Self::OperatorSigner;
+    /// The general wallet signer signs transactions for the operator's wallet
+    /// for fronting withdrawals, CPFP ops and funding the stakechain wallet
+    fn general_wallet_signer(&self) -> Self::GeneralWalletSigner;
+
+    /// The stakechain wallet signer signs transactions for the operator's stakechain wallet
+    /// which manages the stake `s` from an operator as well as a smaller set of UTXOs for funding
+    /// claim transactions.
+    fn stakechain_wallet_signer(&self) -> Self::StakechainWalletSigner;
 
     /// Creates an instance of the [`P2PSigner`].
     fn p2p_signer(&self) -> Self::P2PSigner;
@@ -55,14 +63,13 @@ where
     fn stake_chain_preimages(&self) -> Self::StakeChainPreimages;
 }
 
-/// The operator signer signs transactions for the operator's own wallet that
-/// is used for fronting withdrawals and other operations.
+/// Wallet signers sign transactions for one of the operator's wallets
 ///
 /// # Warning
 ///
 /// The user should make sure the operator's secret key should have its own unique key that isn't
 /// used for any other purpose.
-pub trait OperatorSigner<O: Origin>: Send {
+pub trait WalletSigner<O: Origin>: Send {
     /// Signs a `digest` using the operator's [`SecretKey`].
     fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
 

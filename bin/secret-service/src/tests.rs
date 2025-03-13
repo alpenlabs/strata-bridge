@@ -69,19 +69,36 @@ async fn e2e() {
         .await
         .expect("good conn");
 
-    // operator signer
-    let op_signer = client.operator_signer();
-    let pubkey = op_signer.pubkey().await.expect("good response");
+    // wallet signers
+    let general_wallet_signer = client.general_wallet_signer();
+    let stakechain_wallet_signer = client.stakechain_wallet_signer();
+    let general_pubkey = general_wallet_signer.pubkey().await.expect("good response");
+    let stakechain_pubkey = stakechain_wallet_signer
+        .pubkey()
+        .await
+        .expect("good response");
 
+    let secp_ctx = Arc::new(Secp256k1::verification_only());
     let handles = (0..100)
         .map(|_| {
-            let secp_ctx = Secp256k1::verification_only();
-            let op_signer = op_signer.clone();
+            let general_wallet_signer = general_wallet_signer.clone();
+            let stakechain_wallet_signer = stakechain_wallet_signer.clone();
+            let secp_ctx = secp_ctx.clone();
             tokio::spawn(async move {
                 let to_sign = thread_rng().gen();
-                let sig = op_signer.sign(&to_sign).await.expect("good response");
+                let msg = Message::from_digest(to_sign);
+                let sig = general_wallet_signer
+                    .sign(&to_sign)
+                    .await
+                    .expect("good response");
+                assert!(secp_ctx.verify_schnorr(&sig, &msg, &general_pubkey).is_ok());
+
+                let sig = stakechain_wallet_signer
+                    .sign(&to_sign)
+                    .await
+                    .expect("good response");
                 assert!(secp_ctx
-                    .verify_schnorr(&sig, &Message::from_digest(to_sign), &pubkey)
+                    .verify_schnorr(&sig, &msg, &stakechain_pubkey)
                     .is_ok());
             })
         })

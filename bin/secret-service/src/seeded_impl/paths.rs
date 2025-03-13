@@ -38,8 +38,14 @@ pub const P2P_KEY_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 100 },
 ];
 
-/// Path for the operator key
-pub const OPERATOR_KEY_PATH: &[ChildNumber] = &[
+/// Path for the general wallet key
+pub const GENERAL_WALLET_KEY_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 20 },
     ChildNumber::Hardened { index: 102 },
+];
+
+/// Path for the stakechain wallet key
+pub const STAKECHAIN_WALLET_KEY_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 20 },
+    ChildNumber::Hardened { index: 103 },
 ];
