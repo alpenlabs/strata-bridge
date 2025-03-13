@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use bitcoin::{
     absolute::LockTime,
     opcodes::all::OP_RETURN,
@@ -5,6 +7,7 @@ use bitcoin::{
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
 use bitcoin_script::{script, Script};
+use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
 
@@ -20,6 +23,21 @@ pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
     }
 }
 
+/// Creates a "take back" script that is used to validate a deposit request transaction (DRT) given
+/// a user's public key.
+///
+/// The `refund_delay` should be provided by the the consensus-critical parameters that dictate the
+/// behavior of the bridge node.
+///
+/// TLDR: use the `refund_delay` in the `PegOutGraphParams` inside the `Params`.
+pub fn drt_take_back(recovery_xonly_pubkey: XOnlyPublicKey, refund_delay: u16) -> ScriptBuf {
+    let script = format!(
+        "and_v(v:pk({}),older({}))",
+        recovery_xonly_pubkey, refund_delay
+    );
+    let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
+    miniscript.encode()
+}
 pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> Script {
     script! {
         { timelock }
@@ -54,11 +72,23 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
     aggregated_pubkey.x_only_public_key().0
 }
 
-/// Create the metadata script that "stores" a tag and the execution layer address information.
-pub fn metadata_script(el_address: &[u8; 20], tag: &[u8]) -> ScriptBuf {
+/// Create the metadata script that "stores" a tag and the execution layer address information, and
+/// optionally the recovery xonly public key (used in the DRT).
+pub fn metadata_script(
+    recovery_xonly_pubkey: Option<&[u8; 32]>,
+    el_address: &[u8; 20],
+    tag: &[u8],
+) -> ScriptBuf {
     let mut data = PushBytesBuf::new();
+    // Encode magic bytes
     data.extend_from_slice(tag)
         .expect("MAGIC_BYTES should be within the limit");
+    // If recovery X-Only PK is present, encode it
+    if let Some(recovery_xonly_pubkey) = recovery_xonly_pubkey {
+        data.extend_from_slice(recovery_xonly_pubkey)
+            .expect("recovery_xonly_pubkey should be within the limit");
+    }
+    // Encode execution layer address
     data.extend_from_slice(&el_address[..])
         .expect("el_address should be within the limit");
 

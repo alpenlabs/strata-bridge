@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
 use bitcoin::{
-    hashes::Hash, opcodes::all::OP_RETURN, taproot::TAPROOT_CONTROL_NODE_SIZE, OutPoint, Script,
-    TapNodeHash, Transaction, Txid,
+    opcodes::all::OP_RETURN, taproot::TAPROOT_CONTROL_NODE_SIZE, OutPoint, Script, Transaction,
+    Txid, XOnlyPublicKey,
 };
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::deposit::DepositInfo;
@@ -42,6 +42,8 @@ pub(crate) fn deposit_request_info(
     sidesystem_params: &SideSystemParams,
     pegout_graph_params: &PegOutGraphParams,
 ) -> Option<DepositInfo> {
+    const X_ONLY_PUBKEY_SIZE: usize = 32;
+
     let deposit_request_output = tx.output.first()?;
     if deposit_request_output.value <= pegout_graph_params.deposit_amount {
         return None;
@@ -49,22 +51,24 @@ pub(crate) fn deposit_request_info(
     // TODO(proofofkeags): validate that the script_pubkey pays to the right operator set
 
     let ee_address_size = sidesystem_params.ee_addr_size;
-    let (take_back_leaf_hash, el_addr) =
+    let (recovery_x_only_pk, el_addr) =
         magic_tagged_data(MAGIC_BYTES, &tx.output.get(1)?.script_pubkey).and_then(|meta| {
             if meta.len() != TAPROOT_CONTROL_NODE_SIZE + ee_address_size {
                 return None;
             }
-            let take_back_leaf_hash = meta.get(..TAPROOT_CONTROL_NODE_SIZE)?;
-            let el_addr =
-                meta.get(TAPROOT_CONTROL_NODE_SIZE..TAPROOT_CONTROL_NODE_SIZE + ee_address_size)?;
-            Some((take_back_leaf_hash, el_addr))
+            let recovery_x_only_pk = meta.get(..X_ONLY_PUBKEY_SIZE)?;
+            // TODO: handle error variant and get rid of expect.
+            let recovery_x_only_pk = XOnlyPublicKey::from_slice(recovery_x_only_pk)
+                .expect("Failed to parse XOnlyPublicKey");
+            let el_addr = meta.get(X_ONLY_PUBKEY_SIZE..X_ONLY_PUBKEY_SIZE + ee_address_size)?;
+            Some((recovery_x_only_pk, el_addr))
         })?;
 
     Some(DepositInfo::new(
         OutPoint::new(tx.compute_txid(), 0),
         el_addr.to_vec(),
         deposit_request_output.value,
-        TapNodeHash::from_slice(take_back_leaf_hash).unwrap(),
+        recovery_x_only_pk,
         deposit_request_output.script_pubkey.clone(),
     ))
 }

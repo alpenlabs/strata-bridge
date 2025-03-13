@@ -7,15 +7,16 @@ use std::collections::{BTreeMap, HashSet};
 use bitcoin::{
     key::rand::rngs::OsRng,
     secp256k1::{Keypair, PublicKey, SecretKey, SECP256K1},
-    taproot::{self, TaprootBuilder},
-    Address, Network, TapNodeHash,
+    taproot::{LeafVersion, TaprootBuilder},
+    Address, Network, TapNodeHash, XOnlyPublicKey,
 };
+use secp256k1::{rand::thread_rng, Parity};
 use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
     bitcoin::BitcoinAddress,
     constants::UNSPENDABLE_INTERNAL_KEY,
-    scripts::general::{get_aggregated_pubkey, metadata_script, n_of_n_script},
+    scripts::general::{drt_take_back, get_aggregated_pubkey, metadata_script, n_of_n_script},
     types::OperatorIdx,
 };
 
@@ -50,19 +51,37 @@ pub(crate) fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {
     PublickeyTable::from(pubkey_table)
 }
 
+pub(crate) fn generate_xonly_pubkey() -> XOnlyPublicKey {
+    let mut rng = thread_rng();
+    let mut sk = SecretKey::new(&mut rng);
+    // negate sk if odd
+    if sk.x_only_public_key(SECP256K1).1 == Parity::Odd {
+        sk = sk.negate();
+    }
+    sk.x_only_public_key(SECP256K1).0
+}
+
 pub(crate) fn create_drt_taproot_output(pubkeys: PublickeyTable) -> (BitcoinAddress, TapNodeHash) {
     let aggregated_pubkey = get_aggregated_pubkey(pubkeys.0.into_values());
     let n_of_n_spend_script = n_of_n_script(&aggregated_pubkey);
+    let recovery_xonly_pubkey = generate_xonly_pubkey();
+    let refund_delay = 1_008; // Placeholder
+    let takeback_script = drt_take_back(recovery_xonly_pubkey, refund_delay);
+    let takeback_script_hash = TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
     // in actual DRT, this will be the take-back leaf.
     // for testing, this could be any script as we only care about its hash.
     let tag = b"alpen";
-    let op_return_script = metadata_script(&[0u8; 20], &tag[..]);
-    let op_return_script_hash =
-        TapNodeHash::from_script(&op_return_script, taproot::LeafVersion::TapScript);
+    let op_return_script = metadata_script(
+        Some(&recovery_xonly_pubkey.serialize()),
+        &[0u8; 20],
+        &tag[..],
+    );
 
     let taproot_builder = TaprootBuilder::new()
         .add_leaf(1, n_of_n_spend_script.compile())
+        .unwrap()
+        .add_leaf(1, takeback_script)
         .unwrap()
         .add_leaf(1, op_return_script)
         .unwrap();
@@ -82,6 +101,6 @@ pub(crate) fn create_drt_taproot_output(pubkeys: PublickeyTable) -> (BitcoinAddr
 
     (
         BitcoinAddress::parse(&address_str, network).expect("address should be valid"),
-        op_return_script_hash,
+        takeback_script_hash,
     )
 }
