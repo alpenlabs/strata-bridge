@@ -55,10 +55,29 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
 }
 
 /// Create the metadata script that "stores" a tag and the execution layer address information.
-pub fn metadata_script(el_address: &[u8; 20], tag: &[u8]) -> ScriptBuf {
+///
+/// # Note
+///
+/// For deposit request transactions (DRT), the stake index is not required.
+/// However, for deposit transactions (DT), the stake index is required.
+pub fn metadata_script(
+    stake_index: Option<&[u8; 4]>,
+    el_address: &[u8; 20],
+    tag: &[u8],
+) -> ScriptBuf {
     let mut data = PushBytesBuf::new();
+
+    // Adding the magic bytes
     data.extend_from_slice(tag)
         .expect("MAGIC_BYTES should be within the limit");
+
+    // Conditionally adding the stake index if provided
+    if let Some(bytes) = stake_index {
+        data.extend_from_slice(bytes)
+            .expect("stake_index_bytes should be within the limit");
+    }
+
+    // Adding the execution layer address
     data.extend_from_slice(&el_address[..])
         .expect("el_address should be within the limit");
 
