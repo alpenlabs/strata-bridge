@@ -69,10 +69,10 @@ pub enum DepositTransactionError {
     #[error("invalid deposit request taproot address")]
     InvalidDRTAddress,
 
-    /// Invalid address size provided for the execution layer address where the bridged-in amount
-    /// is to be minted.
-    #[error("el size exceeds expected size: {0} > 20")]
-    InvalidElAddressSize(usize),
+    /// Invalid address size provided for the execution environment address where the bridged-in
+    /// amount is to be minted.
+    #[error("ee size mismatch, got {0} expected {1}")]
+    InvalidEeAddressSize(usize, usize),
 
     /// Error while generating the control block. This mostly means that the control block is
     /// invalid i.e., it does not have the right commitment.

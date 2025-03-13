@@ -7,17 +7,27 @@ use std::collections::{BTreeMap, HashSet};
 use bitcoin::{
     key::rand::rngs::OsRng,
     secp256k1::{Keypair, PublicKey, SecretKey, SECP256K1},
-    taproot::{self, TaprootBuilder},
-    Address, Network, TapNodeHash,
+    taproot::LeafVersion,
+    Network, TapNodeHash, XOnlyPublicKey,
 };
+use secp256k1::{rand::thread_rng, Parity};
 use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
     bitcoin::BitcoinAddress,
-    constants::UNSPENDABLE_INTERNAL_KEY,
-    scripts::general::{get_aggregated_pubkey, metadata_script, n_of_n_script},
+    scripts::{
+        general::{drt_take_back, get_aggregated_pubkey, n_of_n_script},
+        prelude::{create_taproot_addr, SpendPath},
+    },
     types::OperatorIdx,
 };
+
+/// Test-only refund delay in blocks.
+///
+/// # Notes
+///
+/// `1_008` blocks is `24 * 6 * 7` (one week).
+const REFUND_DELAY: u16 = 1_008;
 
 /// Generate `count` (public key, private key) pairs as two separate [`Vec`].
 pub(crate) fn generate_keypairs(count: usize) -> (Vec<PublicKey>, Vec<SecretKey>) {
@@ -50,38 +60,34 @@ pub(crate) fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {
     PublickeyTable::from(pubkey_table)
 }
 
-pub(crate) fn create_drt_taproot_output(pubkeys: PublickeyTable) -> (BitcoinAddress, TapNodeHash) {
+pub(crate) fn generate_xonly_pubkey() -> XOnlyPublicKey {
+    let mut rng = thread_rng();
+    let mut sk = SecretKey::new(&mut rng);
+    // negate sk if odd
+    if sk.x_only_public_key(SECP256K1).1 == Parity::Odd {
+        sk = sk.negate();
+    }
+    sk.x_only_public_key(SECP256K1).0
+}
+
+pub(crate) fn create_drt_taproot_output(
+    pubkeys: PublickeyTable,
+    recovery_xonly_pubkey: XOnlyPublicKey,
+) -> (BitcoinAddress, TapNodeHash) {
     let aggregated_pubkey = get_aggregated_pubkey(pubkeys.0.into_values());
     let n_of_n_spend_script = n_of_n_script(&aggregated_pubkey);
-
-    // in actual DRT, this will be the take-back leaf.
-    // for testing, this could be any script as we only care about its hash.
-    let tag = b"alpen";
-    let op_return_script = metadata_script(None, &[0u8; 20], &tag[..]);
-    let op_return_script_hash =
-        TapNodeHash::from_script(&op_return_script, taproot::LeafVersion::TapScript);
-
-    let taproot_builder = TaprootBuilder::new()
-        .add_leaf(1, n_of_n_spend_script.compile())
-        .unwrap()
-        .add_leaf(1, op_return_script)
-        .unwrap();
-
-    let spend_info = taproot_builder
-        .finalize(SECP256K1, *UNSPENDABLE_INTERNAL_KEY)
-        .unwrap();
+    let takeback_script = drt_take_back(recovery_xonly_pubkey, REFUND_DELAY);
+    let takeback_script_hash = TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
     let network = Network::Regtest;
-    let address = Address::p2tr(
-        SECP256K1,
-        *UNSPENDABLE_INTERNAL_KEY,
-        spend_info.merkle_root(),
-        network,
-    );
+    let spend_path = SpendPath::ScriptSpend {
+        scripts: &[n_of_n_spend_script.compile(), takeback_script],
+    };
+    let (address, _spend_info) = create_taproot_addr(&network, spend_path).unwrap();
     let address_str = address.to_string();
 
     (
         BitcoinAddress::parse(&address_str, network).expect("address should be valid"),
-        op_return_script_hash,
+        takeback_script_hash,
     )
 }

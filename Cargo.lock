@@ -9971,12 +9971,14 @@ dependencies = [
 name = "strata-bridge-primitives"
 version = "0.1.0"
 dependencies = [
+ "alpen-bridge-params",
  "anyhow",
  "arbitrary",
  "bitcoin",
  "bitcoin-bosd",
  "bitcoin-script",
  "bitvm",
+ "miniscript",
  "musig2",
  "rkyv",
  "secp256k1",
