@@ -21,6 +21,8 @@ pub struct OperatorWalletConfig {
     cpfp_value: Amount,
     /// Value of the `s` connector, the stake amount, to identify the UTXO
     s_value: Amount,
+    /// Bitcoin network we're on
+    network: Network,
 }
 
 impl OperatorWalletConfig {
@@ -34,6 +36,7 @@ impl OperatorWalletConfig {
         stake_funding_utxo_pool_size: usize,
         cpfp_value: Amount,
         s_value: Amount,
+        network: Network,
     ) -> Self {
         assert_ne!(
             cpfp_value, s_value,
@@ -44,11 +47,10 @@ impl OperatorWalletConfig {
             stake_funding_utxo_pool_size,
             cpfp_value,
             s_value,
+            network,
         }
     }
 }
-
-const NETWORK: Network = Network::Signet;
 
 /// The [`OperatorWallet`] is responsible for managing an operator's L1 funds, split into a general
 /// wallet and a dedicated stakechain wallet.
@@ -73,7 +75,7 @@ impl OperatorWallet {
         let (general_desc, ..) = descriptor!(tr(general)).unwrap();
         let (stakechain_desc, ..) = descriptor!(tr(stakechain)).unwrap();
         let general_wallet = Wallet::create_single(general_desc)
-            .network(NETWORK)
+            .network(config.network)
             .create_wallet_no_persist()
             .unwrap();
         let general_addr = general_wallet
@@ -81,7 +83,7 @@ impl OperatorWallet {
             .address;
         info!("general wallet address: {general_addr}");
         let stakechain_wallet = Wallet::create_single(stakechain_desc)
-            .network(NETWORK)
+            .network(config.network)
             .create_wallet_no_persist()
             .unwrap();
         let stakechain_addr = stakechain_wallet
