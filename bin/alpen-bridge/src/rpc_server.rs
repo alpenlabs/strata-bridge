@@ -14,6 +14,7 @@ use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
     types::RpcOperatorStatus,
 };
+use strata_p2p::swarm::handle::P2PHandle;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
@@ -55,7 +56,7 @@ where
 }
 
 /// RPC server for the bridge node.
-/// Holds a handle to the database and a copy of [`Params`].
+/// Holds a handle to the database and the P2P messages; and a copy of [`Params`].
 #[derive(Clone)]
 pub(crate) struct BridgeRpc {
     /// Node start time.
@@ -64,16 +65,27 @@ pub(crate) struct BridgeRpc {
     /// Database handle.
     db: SqliteDb,
 
+    /// P2P message handle.
+    ///
+    /// # Warning
+    ///
+    /// The bridge RPC server should *NEVER* call [`P2PHandle::next_event`] as it will mess with
+    /// the duty tracker processing of messages in the P2P gossip network.
+    ///
+    /// The same applies for the `Stream` implementation of [`P2PHandle`].
+    p2p_handle: P2PHandle,
+
     /// The consensus-critical parameters that dictate the behavior of the bridge node.
     params: Params,
 }
 
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
-    pub(crate) fn new(db: SqliteDb, params: Params) -> Self {
+    pub(crate) fn new(db: SqliteDb, p2p_handle: P2PHandle, params: Params) -> Self {
         Self {
             start_time: Utc::now(),
             db,
+            p2p_handle,
             params,
         }
     }
