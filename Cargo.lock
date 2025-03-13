@@ -9808,6 +9808,7 @@ dependencies = [
  "bitcoin-bosd",
  "bitcoin-script",
  "bitvm",
+ "miniscript",
  "musig2",
  "rkyv",
  "secp256k1",

@@ -6,8 +6,8 @@
 use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
-    taproot::{self, ControlBlock},
-    Address, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,
+    taproot::{self, ControlBlock, LeafVersion},
+    Address, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +39,9 @@ pub struct DepositInfo {
     /// confirmed on bitcoin. The excess amount is used as miner fees for the Deposit Transaction.
     total_amount: Amount,
 
-    /// The hash of the take back leaf in the Deposit Request Transaction (DRT) as provided by the
+    /// The [`XOnlyPublicKey`] in the Deposit Request Transaction (DRT) as provided by the
     /// user in their `OP_RETURN` output.
-    take_back_leaf_hash: TapNodeHash,
+    x_only_public_key: XOnlyPublicKey,
 
     /// The original script_pubkey in the Deposit Request Transaction (DRT) output used to sanity
     /// check computation internally i.e., whether the known information (n/n script spend path,
@@ -85,14 +85,14 @@ impl DepositInfo {
         deposit_request_outpoint: OutPoint,
         el_address: Vec<u8>,
         total_amount: Amount,
-        take_back_leaf_hash: TapNodeHash,
+        x_only_public_key: XOnlyPublicKey,
         original_script_pubkey: ScriptBuf,
     ) -> Self {
         Self {
             deposit_request_outpoint,
             el_address,
             total_amount,
-            take_back_leaf_hash,
+            x_only_public_key,
             original_script_pubkey,
         }
     }
@@ -113,10 +113,10 @@ impl DepositInfo {
         &self.deposit_request_outpoint
     }
 
-    /// Get the hash of the user-takes-back leaf in the taproot of the Deposit Request Transaction
-    /// (DRT).
-    pub fn take_back_leaf_hash(&self) -> &TapNodeHash {
-        &self.take_back_leaf_hash
+    /// Get the x-only public key of the user-takes-back leaf in the taproot of the Deposit Request
+    /// Transaction (DRT).
+    pub fn x_only_public_key(&self) -> &XOnlyPublicKey {
+        &self.x_only_public_key
     }
 
     fn compute_spend_infos(
@@ -125,12 +125,17 @@ impl DepositInfo {
     ) -> BridgeTxBuilderResult<TaprootWitness> {
         // The Deposit Request (DT) spends the n-of-n multisig leaf
         let spend_script = n_of_n_script(&build_context.aggregated_pubkey()).compile();
-        let spend_script_hash =
-            TapNodeHash::from_script(&spend_script, taproot::LeafVersion::TapScript);
+        let spend_script_hash = TapNodeHash::from_script(&spend_script, LeafVersion::TapScript);
 
-        let takeback_script_hash = self.take_back_leaf_hash();
+        // Compute the merkle root using the x-only public key in the OP_RETURN
+        let recovery_xonly_pubkey = self.x_only_public_key();
+        // TODO: how to get the PegOutGraphParams.recover_delay (from Params) here?
+        let refund_delay = 1_008; // Placeholder
+        let takeback_script = drt_take_back(*recovery_xonly_pubkey, refund_delay);
+        let takeback_script_hash =
+            TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
-        let merkle_root = TapNodeHash::from_node_hashes(spend_script_hash, *takeback_script_hash);
+        let merkle_root = TapNodeHash::from_node_hashes(spend_script_hash, takeback_script_hash);
 
         let address = Address::p2tr(
             SECP256K1,
@@ -153,7 +158,7 @@ impl DepositInfo {
         let control_block = ControlBlock {
             leaf_version: taproot::LeafVersion::TapScript,
             internal_key: *UNSPENDABLE_INTERNAL_KEY,
-            merkle_branch: vec![*takeback_script_hash].try_into().map_err(|_| {
+            merkle_branch: vec![takeback_script_hash].try_into().map_err(|_| {
                 BridgeTxBuilderError::DepositTransaction(
                     DepositTransactionError::InvalidTapLeafHash,
                 )
@@ -202,7 +207,7 @@ impl DepositInfo {
             ))
         })?;
 
-        let metadata_script = metadata_script(el_addr, tag);
+        let metadata_script = metadata_script(None, el_addr, tag);
         let metadata_amount = Amount::from_int_btc(0);
 
         // Then create the taproot script pubkey with keypath spend for the actual deposit
@@ -227,19 +232,16 @@ impl DepositInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use bitcoin::{
-        hashes::{sha256, Hash},
-        hex::{Case, DisplayHex},
-        Network,
-    };
+    use bitcoin::Network;
 
     use super::*;
     use crate::{
         build_context::TxBuildContext,
         errors::{BridgeTxBuilderError, DepositTransactionError},
-        test_utils::{create_drt_taproot_output, generate_keypairs, generate_pubkey_table},
+        test_utils::{
+            create_drt_taproot_output, generate_keypairs, generate_pubkey_table,
+            generate_xonly_pubkey,
+        },
     };
 
     #[test]
@@ -248,8 +250,9 @@ mod tests {
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
 
         let deposit_request_outpoint = OutPoint::null();
+        let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let (drt_output_address, take_back_leaf_hash) =
+        let (drt_output_address, _take_back_leaf_hash) =
             create_drt_taproot_output(operator_pubkeys.clone());
         let self_index = 0;
 
@@ -261,7 +264,7 @@ mod tests {
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -273,14 +276,12 @@ mod tests {
         );
 
         // Handles incorrect merkle proof
-        let random_hash = sha256::Hash::hash(b"random_hash")
-            .to_byte_array()
-            .to_hex_string(Case::Lower);
+        let random_xonly_pubkey = generate_xonly_pubkey();
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
             deposit_amt,
-            TapNodeHash::from_str(&random_hash).unwrap(),
+            random_xonly_pubkey,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -304,8 +305,9 @@ mod tests {
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
 
         let deposit_request_outpoint = OutPoint::null();
+        let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let (drt_output_address, take_back_leaf_hash) =
+        let (drt_output_address, _take_back_leaf_hash) =
             create_drt_taproot_output(operator_pubkeys.clone());
         let self_index = 0;
 
@@ -316,7 +318,7 @@ mod tests {
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -340,8 +342,9 @@ mod tests {
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
 
         let deposit_request_outpoint = OutPoint::null();
+        let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let (drt_output_address, take_back_leaf_hash) =
+        let (drt_output_address, _take_back_leaf_hash) =
             create_drt_taproot_output(operator_pubkeys.clone());
         let self_index = 0;
 
@@ -352,7 +355,7 @@ mod tests {
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -375,7 +378,7 @@ mod tests {
             deposit_request_outpoint,
             [0u8; 21].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -390,16 +393,14 @@ mod tests {
             "should handle the case where the EL address is invalid"
         );
 
-        // test with invalid tapleaf hash
-        let random_hash = sha256::Hash::hash(b"random_hash")
-            .to_byte_array()
-            .to_hex_string(Case::Lower);
+        // test with invalid x-only pk
+        let random_xonly_pk = generate_xonly_pubkey();
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             [0u8; 20].to_vec(),
             deposit_amt,
-            TapNodeHash::from_str(&random_hash).unwrap(),
+            random_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 

@@ -136,6 +136,7 @@ libp2p-identity = { version = "0.2.10", default-features = false, features = [
   "peerid",
   "rand",
 ] }
+miniscript = "12.3.0"
 musig2 = { version = "0.1.0", features = [
   "serde",
   "rand",
