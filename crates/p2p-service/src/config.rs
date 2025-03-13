@@ -3,8 +3,10 @@
 use std::time::Duration;
 
 use bitcoin::{secp256k1::SecretKey, PublicKey, XOnlyPublicKey};
-use libp2p::{Multiaddr, PeerId};
-use libp2p_identity::secp256k1::{Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey};
+use libp2p::{
+    identity::secp256k1::{Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey},
+    Multiaddr, PeerId,
+};
 use strata_p2p_types::P2POperatorPubKey;
 
 /// Configuration for the P2P.
