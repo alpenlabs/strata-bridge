@@ -57,7 +57,7 @@ pub(crate) fn create_drt_taproot_output(pubkeys: PublickeyTable) -> (BitcoinAddr
     // in actual DRT, this will be the take-back leaf.
     // for testing, this could be any script as we only care about its hash.
     let tag = b"alpen";
-    let op_return_script = metadata_script(&[0u8; 20], &tag[..]);
+    let op_return_script = metadata_script(None, &[0u8; 20], &tag[..]);
     let op_return_script_hash =
         TapNodeHash::from_script(&op_return_script, taproot::LeafVersion::TapScript);
 

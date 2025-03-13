@@ -29,6 +29,16 @@ pub struct DepositInfo {
     /// The deposit request transaction outpoints from the users.
     deposit_request_outpoint: OutPoint,
 
+    /// The stake index that will be tied to this deposit.
+    ///
+    /// This is required in order to make sure that the at withdrawal time, deposit UTXOs are
+    /// assigned in the same order that the stake transactions were linked during setup time
+    ///
+    /// # Note
+    ///
+    /// The stake index must be encoded in 4-byte big-endian.
+    stake_index: u32,
+
     /// The execution layer address to mint the equivalent tokens to.
     /// As of now, this is just the 20-byte EVM address.
     el_address: Vec<u8>,
@@ -83,6 +93,7 @@ impl DepositInfo {
     /// transaction.
     pub fn new(
         deposit_request_outpoint: OutPoint,
+        stake_index: u32,
         el_address: Vec<u8>,
         total_amount: Amount,
         take_back_leaf_hash: TapNodeHash,
@@ -90,6 +101,7 @@ impl DepositInfo {
     ) -> Self {
         Self {
             deposit_request_outpoint,
+            stake_index,
             el_address,
             total_amount,
             take_back_leaf_hash,
@@ -100,6 +112,11 @@ impl DepositInfo {
     /// Get the total deposit amount that needs to be bridged-in.
     pub fn total_amount(&self) -> &Amount {
         &self.total_amount
+    }
+
+    /// Get the stake index.
+    pub fn stake_index(&self) -> u32 {
+        self.stake_index
     }
 
     /// Get the address in EL to mint tokens to.
@@ -194,7 +211,12 @@ impl DepositInfo {
 
         // Then, create the outputs:
 
-        // First, create the `OP_RETURN <el_address>` output
+        // First, create the `OP_RETURN` output:
+        // <magic_bytes>  (the `tag` argument)
+        // <stake_index> (4-byte big-endian)
+        // <el_address> (from the DRT)
+        let stake_index = self.stake_index();
+        let stake_index: &[u8; 4] = &stake_index.to_be_bytes();
         let el_addr = self.el_address();
         let el_addr: &[u8; 20] = el_addr.try_into().map_err(|_| {
             BridgeTxBuilderError::DepositTransaction(DepositTransactionError::InvalidElAddressSize(
@@ -202,7 +224,7 @@ impl DepositInfo {
             ))
         })?;
 
-        let metadata_script = metadata_script(el_addr, tag);
+        let metadata_script = metadata_script(Some(stake_index), el_addr, tag);
         let metadata_amount = Amount::from_int_btc(0);
 
         // Then create the taproot script pubkey with keypath spend for the actual deposit
@@ -259,6 +281,7 @@ mod tests {
         // Correct merkle proof
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
+            1,
             [0u8; 20].to_vec(),
             deposit_amt,
             take_back_leaf_hash,
@@ -278,6 +301,7 @@ mod tests {
             .to_hex_string(Case::Lower);
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
+            1,
             [0u8; 20].to_vec(),
             deposit_amt,
             TapNodeHash::from_str(&random_hash).unwrap(),
@@ -314,6 +338,7 @@ mod tests {
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
+            1,
             [0u8; 20].to_vec(),
             deposit_amt,
             take_back_leaf_hash,
@@ -350,6 +375,7 @@ mod tests {
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
+            1,
             [0u8; 20].to_vec(),
             deposit_amt,
             take_back_leaf_hash,
@@ -373,6 +399,7 @@ mod tests {
         const INVALID_LENGTH: usize = 21;
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
+            1,
             [0u8; 21].to_vec(),
             deposit_amt,
             take_back_leaf_hash,
@@ -397,6 +424,7 @@ mod tests {
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
+            1,
             [0u8; 20].to_vec(),
             deposit_amt,
             TapNodeHash::from_str(&random_hash).unwrap(),

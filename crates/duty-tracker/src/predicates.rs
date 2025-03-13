@@ -41,6 +41,7 @@ pub(crate) fn deposit_request_info(
     tx: &Transaction,
     sidesystem_params: &SideSystemParams,
     pegout_graph_params: &PegOutGraphParams,
+    stake_index: u32,
 ) -> Option<DepositInfo> {
     let deposit_request_output = tx.output.first()?;
     if deposit_request_output.value <= pegout_graph_params.deposit_amount {
@@ -62,6 +63,7 @@ pub(crate) fn deposit_request_info(
 
     Some(DepositInfo::new(
         OutPoint::new(tx.compute_txid(), 0),
+        stake_index,
         el_addr.to_vec(),
         deposit_request_output.value,
         TapNodeHash::from_slice(take_back_leaf_hash).unwrap(),
