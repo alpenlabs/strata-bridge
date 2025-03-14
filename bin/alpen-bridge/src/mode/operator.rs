@@ -44,7 +44,11 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
 
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
 
-    let sk = get_p2p_key(&s2_client).await?;
+    let sk = s2_client
+        .p2p_signer()
+        .secret_key()
+        .await
+        .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
 
     let db = init_database_handle(&config).await;
@@ -87,7 +91,7 @@ async fn init_secret_service_client(config: &SecretServiceConfig) -> SecretServi
         server_hostname: config.server_hostname.clone(),
         local_addr: None,
         tls_config: tls_client_config,
-        timeout: Duration::from_secs(5),
+        timeout: Duration::from_secs(config.timeout),
     };
     SecretServiceClient::new(s2_config)
         .await
@@ -102,14 +106,6 @@ fn read_cert(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
     } else {
         rustls_pemfile::certs(&mut &*cert_chain).collect()
     }
-}
-
-async fn get_p2p_key(s2_client: &SecretServiceClient) -> anyhow::Result<SecretKey> {
-    s2_client
-        .p2p_signer()
-        .secret_key()
-        .await
-        .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))
 }
 
 /// Initialize the P2P message handler.
