@@ -1,16 +1,25 @@
 //! Defines the main loop for the bridge-client in operator mode.
 use std::{
-    env, fs,
+    env, fs, io,
     path::{Path, PathBuf},
+    time::Duration,
 };
 
+use anyhow::anyhow;
 use bitcoin::secp256k1::SecretKey;
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
 use secp256k1::SECP256K1;
-use secret_service_client::SecretServiceClient;
+use secret_service_client::{
+    rustls::{
+        pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
+        ClientConfig, RootCertStore,
+    },
+    SecretServiceClient,
+};
+use secret_service_proto::v1::traits::{P2PSigner, SecretService};
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -21,10 +30,10 @@ use strata_bridge_p2p_service::{
 };
 use strata_p2p_types::P2POperatorPubKey;
 use tokio::task::JoinHandle;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
-    config::{Config, P2PConfig},
+    config::{Config, P2PConfig, SecretServiceConfig},
     params::Params,
 };
 
@@ -33,10 +42,13 @@ use crate::{
 pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<()> {
     info!("bootstrapping operator node");
 
-    let s2_client = init_secret_service_client(&config);
+    let s2_client = init_secret_service_client(&config.secret_service_client).await;
 
-    // TODO(@Zk2u!): give the `init_p2p_message_handler` the P2P secret key `sk`.
-    let sk = get_p2p_key(&s2_client).await?;
+    let sk = s2_client
+        .p2p_signer()
+        .secret_key()
+        .await
+        .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
 
     let db = init_database_handle(&config).await;
@@ -53,12 +65,47 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     Ok(())
 }
 
-fn init_secret_service_client(_config: &Config) -> SecretServiceClient {
-    unimplemented!("@Zk2u!");
+async fn init_secret_service_client(config: &SecretServiceConfig) -> SecretServiceClient {
+    let key = fs::read(&config.key).expect("readable key");
+    let key = if config.key.extension().is_some_and(|x| x == "der") {
+        PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(key))
+    } else {
+        rustls_pemfile::private_key(&mut &*key)
+            .expect("valid PEM-encoded private key")
+            .expect("non-empty private key")
+    };
+    let certs = read_cert(&config.cert).expect("valid cert");
+
+    let ca_certs = read_cert(&config.service_ca).expect("valid CA cert");
+    let mut root_store = RootCertStore::empty();
+    let (added, ignored) = root_store.add_parsable_certificates(ca_certs);
+    debug!("loaded {added} certs for the secret service CA, ignored {ignored}");
+
+    let tls_client_config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_client_auth_cert(certs, key)
+        .expect("good client config");
+
+    let s2_config = secret_service_client::Config {
+        server_addr: config.server_addr.parse().expect("invalid server address"),
+        server_hostname: config.server_hostname.clone(),
+        local_addr: None,
+        tls_config: tls_client_config,
+        timeout: Duration::from_secs(config.timeout),
+    };
+    SecretServiceClient::new(s2_config)
+        .await
+        .expect("good client")
 }
 
-async fn get_p2p_key(_secret_service: &SecretServiceClient) -> anyhow::Result<SecretKey> {
-    unimplemented!("@Zk2u!");
+/// Reads a certificate from a file.
+fn read_cert(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
+    let cert_chain = fs::read(path)?;
+    if path.extension().is_some_and(|x| x == "der") {
+        Ok(vec![CertificateDer::from(cert_chain)])
+    } else {
+        rustls_pemfile::certs(&mut &*cert_chain).collect()
+    }
 }
 
 /// Initialize the P2P message handler.

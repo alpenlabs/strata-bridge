@@ -9,7 +9,6 @@ pub mod stakechain;
 pub mod wallet;
 
 pub mod wots;
-
 use std::{
     io,
     net::{Ipv4Addr, SocketAddr},
@@ -19,9 +18,10 @@ use std::{
 
 use musig2::{Musig2Client, Musig2FirstRound, Musig2SecondRound};
 use p2p::P2PClient;
+pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
-    rustls, ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
+    ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
 };
 use rkyv::{deserialize, rancor, util::AlignedVec};
 use secret_service_proto::{

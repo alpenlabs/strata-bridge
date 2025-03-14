@@ -57,11 +57,14 @@ pub(crate) struct SecretServiceConfig {
     /// The timeout for requests.
     pub timeout: u64,
 
-    /// The path to the server's TLS certificate chain.
-    pub tls_certs: PathBuf,
+    /// The path to the bridge's TLS cert used for client authentication.
+    pub cert: PathBuf,
+    /// The path to the bridge's TLS key used for client authentication.
+    pub key: PathBuf,
 
-    /// The path to the server's root ca certificate.
-    pub tls_ca: PathBuf,
+    /// The path to the secret service's certificate authority cert chain used to verify their
+    /// authenticity.
+    pub service_ca: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,8 +110,9 @@ mod tests {
             server_addr = "localhost:1234"
             server_hostname = "localhost"
             timeout = 1000
-            tls_certs = "certs.pem"
-            tls_ca = "ca.pem"
+            cert = "cert.pem"
+            key = "key.pem"
+            service_ca = "ca.pem"
 
             [btc_client]
             url = "http://localhost:18443"
