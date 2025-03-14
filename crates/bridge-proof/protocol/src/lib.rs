@@ -9,7 +9,7 @@
 //! - Prove deposits, claims, and withdrawals between Bitcoin and the Strata rollup.
 
 mod error;
-mod prover;
+mod program;
 mod statement;
 mod tx_info;
 
@@ -21,7 +21,6 @@ use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
-    proof::RollupVerifyingKey,
 };
 use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
 use zkaleido::ZkVmEnv;
@@ -123,24 +122,13 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
         })
         .collect();
 
-    // TODO: update the strata_primitives?
-    let rollup_vk = match rollup_params.rollup_vk() {
-        RollupVerifyingKey::SP1VerifyingKey(sp1_vk) => sp1_vk,
-        RollupVerifyingKey::Risc0VerifyingKey(risc0_vk) => risc0_vk,
-        RollupVerifyingKey::NativeVerifyingKey(native_vk) => native_vk,
-    };
-
     let input: BridgeProofInputBorsh = zkvm.read_borsh();
 
-    let (output, checkpoint) =
-        process_bridge_proof(input, headers, rollup_params, pegout_graph_params)
-            .expect("expect output");
-
-    // Verify the strata checkpoint proof
-    zkvm.verify_groth16_receipt(&checkpoint.get_proof_receipt(), &rollup_vk.0);
+    let output = process_bridge_proof(input, headers, rollup_params, pegout_graph_params)
+        .expect("expect output");
 
     zkvm.commit_borsh(&output);
 }
 
-pub use prover::{get_native_host, BridgeProver};
+pub use program::{get_native_host, BridgeProver};
 pub use statement::REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX;

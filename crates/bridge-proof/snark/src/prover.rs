@@ -9,8 +9,8 @@ use strata_bridge_proof_protocol::{
     get_native_host, BridgeProofInput, BridgeProofPublicOutput, BridgeProver,
 };
 use tracing::info;
-use zkaleido::{ZkVmHost, ZkVmProver};
-use zkaleido_sp1_adapter::{verify_groth16, SP1Host};
+use zkaleido::{ZkVmProgram, ZkVmVerifier};
+use zkaleido_sp1_host::SP1Host;
 
 use crate::sp1;
 
@@ -29,7 +29,7 @@ pub fn sp1_prove(
     let host = SP1Host::init(GUEST_BRIDGE_ELF);
     let proof_receipt = BridgeProver::prove(input, &host)?;
 
-    let vk: SP1VerifyingKey = bincode::deserialize(host.get_verification_key().as_bytes())?;
+    let vk: SP1VerifyingKey = bincode::deserialize(host.vk().as_bytes())?;
 
     info!(action = "verifying proof");
     verify_groth16(&proof_receipt, &vk.bytes32_raw()).context("proof verification failed")?;

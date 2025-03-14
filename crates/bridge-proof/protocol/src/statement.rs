@@ -4,7 +4,7 @@ use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_crypto::verify_schnorr_sig;
 use strata_primitives::params::RollupParams;
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
-use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
+use strata_state::{bridge_state::DepositState, l1::get_btc_params};
 
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
@@ -70,7 +70,7 @@ pub(crate) fn process_bridge_proof(
     headers: Vec<Header>,
     rollup_params: RollupParams,
     peg_out_graph_params: PegOutGraphParams,
-) -> Result<(BridgeProofPublicOutput, BatchCheckpoint), BridgeProofError> {
+) -> Result<BridgeProofPublicOutput, BridgeProofError> {
     // 1a. Extract checkpoint info.
     let (strata_checkpoint_tx, strata_checkpoint_idx) = &input.strata_checkpoint_tx;
     let checkpoint = extract_checkpoint(strata_checkpoint_tx.transaction(), &rollup_params)?;
@@ -83,6 +83,9 @@ pub(crate) fn process_bridge_proof(
         headers[*strata_checkpoint_idx],
         true,
     )?;
+
+    // 1c. Verify that the checkpoint proof is valid
+    // FIXME: do that based on strata-crypto
 
     // 2. Verify that the chain state root matches the checkpoint's state root. This ensures the
     //    provided chain state aligns with the checkpoint data.
@@ -195,5 +198,5 @@ pub(crate) fn process_bridge_proof(
         withdrawal_fulfillment_txid,
     };
 
-    Ok((output, checkpoint))
+    Ok(output)
 }

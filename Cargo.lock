@@ -3032,7 +3032,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18e4fdb82bd54a12e42fb58a800dcae6b9e13982238ce2296dc3570b92148e1f"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 2.0.100",
 ]
 
 [[package]]
@@ -6970,7 +6970,7 @@ version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "af1844ef2428cc3e1cb900be36181049ef3d3193c63e43026cfe202983b27a56"
 dependencies = [
- "proc-macro-crate 1.3.1",
+ "proc-macro-crate 3.3.0",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -10634,6 +10634,7 @@ dependencies = [
  "strata-state",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc6)",
+ "zkaleido-sp1-groth16-verifier",
  "zkaleido-sp1-host",
 ]
 
@@ -13206,6 +13207,16 @@ dependencies = [
  "sp1-verifier",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc1)",
+]
+
+[[package]]
+name = "zkaleido-sp1-groth16-verifier"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc6#d49e58a56818a39d5b48b7c40b0ac65ab3d21161"
+dependencies = [
+ "hex",
+ "sp1-verifier",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc6)",
 ]
 
 [[package]]

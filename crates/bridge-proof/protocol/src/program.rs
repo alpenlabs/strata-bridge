@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::consensus::serialize;
-use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProver, ZkVmResult};
+use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProgram, ZkVmResult};
 use zkaleido_native_adapter::{NativeHost, NativeMachine};
 
 use crate::{
@@ -9,11 +9,11 @@ use crate::{
 };
 
 /// This is responsible for generating the proof
-// TODO: zkaleido maybe add a display/debug trait to ZkVmProver
+// TODO: zkaleido maybe add a display/debug trait to ZkVmProgram
 #[derive(Debug)]
 pub struct BridgeProver;
 
-impl ZkVmProver for BridgeProver {
+impl ZkVmProgram for BridgeProver {
     type Input = BridgeProofInput;
 
     type Output = BridgeProofPublicOutput;
@@ -77,7 +77,7 @@ mod tests {
     };
     use strata_common::logging::{self, LoggerConfig};
     use tracing::debug;
-    use zkaleido::ZkVmProver;
+    use zkaleido::ZkVmProgram;
 
     use super::*;
 
