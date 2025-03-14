@@ -10,6 +10,7 @@ use strata_bridge_proof_protocol::{
 };
 use tracing::info;
 use zkaleido::{ZkVmProgram, ZkVmVerifier};
+use zkaleido_sp1_groth16_verifier::verify_groth16;
 use zkaleido_sp1_host::SP1Host;
 
 use crate::sp1;
