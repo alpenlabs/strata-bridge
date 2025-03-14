@@ -59,7 +59,7 @@ jobs:
       - name: Run db migrations
         run: make migrate
 
-      - run: cargo hack check --locked
+      - run: cargo hack check
         env:
           DATABASE_URL: sqlite://./operator.db
           SKIP_GUEST_BUILD: 1
