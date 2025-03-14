@@ -1,14 +1,14 @@
 use alpen_bridge_params::prelude::PegOutGraphParams;
-use bitcoin::block::Header;
+use bitcoin::{block::Header, params::Params};
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_crypto::verify_schnorr_sig;
 use strata_primitives::params::RollupParams;
 use strata_proofimpl_btc_blockspace::tx::compute_txid;
-use strata_state::{batch::BatchCheckpoint, bridge_state::DepositState, l1::get_btc_params};
+use strata_state::bridge_state::DepositState;
 
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
-    tx_info::{extract_checkpoint, extract_withdrawal_info, WithdrawalInfo},
+    tx_info::{extract_valid_chainstate_from_checkpoint, extract_withdrawal_info, WithdrawalInfo},
     BridgeProofInputBorsh, BridgeProofPublicOutput,
 };
 
@@ -70,10 +70,14 @@ pub(crate) fn process_bridge_proof(
     headers: Vec<Header>,
     rollup_params: RollupParams,
     peg_out_graph_params: PegOutGraphParams,
-) -> Result<(BridgeProofPublicOutput, BatchCheckpoint), BridgeProofError> {
-    // 1a. Extract checkpoint info.
+) -> Result<BridgeProofPublicOutput, BridgeProofError> {
+    // 1a. Extract valid chainstate from checkpoint.
     let (strata_checkpoint_tx, strata_checkpoint_idx) = &input.strata_checkpoint_tx;
-    let checkpoint = extract_checkpoint(strata_checkpoint_tx.transaction(), &rollup_params)?;
+    let chainstate = extract_valid_chainstate_from_checkpoint(
+        strata_checkpoint_tx.transaction(),
+        &rollup_params,
+    )?;
+    let mut header_vs = chainstate.l1_view().header_vs().clone();
 
     // 1b. Verify that the checkpoint transaction is included in the provided header chain. Since
     // the checkpoint info relies on witness data, `expect_witness` must be `true`.
@@ -83,13 +87,6 @@ pub(crate) fn process_bridge_proof(
         headers[*strata_checkpoint_idx],
         true,
     )?;
-
-    // 2. Verify that the chain state root matches the checkpoint's state root. This ensures the
-    //    provided chain state aligns with the checkpoint data.
-    let final_l2_state_hash = checkpoint.batch_transition().l2_transition.1;
-    if input.chain_state.compute_state_root() != final_l2_state_hash {
-        return Err(BridgeProofError::ChainStateMismatch);
-    }
 
     // 3a. Extract withdrawal fulfillment info.
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
@@ -111,8 +108,7 @@ pub(crate) fn process_bridge_proof(
 
     // 3c. Extract the withdrawal output from the chain state using the specified
     // deposit index.
-    let entry = input
-        .chain_state
+    let entry = chainstate
         .deposits_table()
         .get_deposit(input.deposit_idx)
         .ok_or(ChainStateError::DepositNotFound(input.deposit_idx))?;
@@ -134,14 +130,13 @@ pub(crate) fn process_bridge_proof(
 
     // 3e. Ensure that the withdrawal was fulfilled before the deadline
     let withdrawal_fulfillment_height =
-        input.header_vs.last_verified_block_num as usize + withdrawal_fullfillment_idx;
+        header_vs.last_verified_block.height() as usize + withdrawal_fullfillment_idx;
     if withdrawal_fulfillment_height > dispatched_state.exec_deadline() as usize {
         return Err(BridgeProofError::DeadlineExceeded);
     }
 
     // 4a. Extract the public key of the operator who did the withdrawal fulfillment
-    let operator_pub_key = input
-        .chain_state
+    let operator_pub_key = chainstate
         .operator_table()
         .get_operator(operator_idx)
         // TODO: optimization, maybe use `entry_at_pos` to avoid searching
@@ -156,7 +151,7 @@ pub(crate) fn process_bridge_proof(
         &withdrawal_fulfillment_txid,
         operator_pub_key,
     ) {
-        return Err(BridgeProofError::InvalidSignature);
+        return Err(BridgeProofError::InvalidOperatorSignature);
     }
 
     // 6. Ensure that the transactions are in order
@@ -169,11 +164,9 @@ pub(crate) fn process_bridge_proof(
 
     // 7. Verify that each provided header follows Bitcoin consensus rules. This step ensures the
     //    headers are internally consistent and continuous.
-    let mut header_vs = input.header_vs;
-    let params = get_btc_params();
+    let btc_params = Params::new(rollup_params.network);
     for header in &headers {
-        // NOTE: This may panic internally on failure, which should be handled appropriately.
-        header_vs.check_and_update_continuity(header, &params);
+        header_vs.check_and_update_continuity(header, &btc_params)?;
     }
 
     // 8. Verify sufficient headers after claim transaction
@@ -195,5 +188,5 @@ pub(crate) fn process_bridge_proof(
         withdrawal_fulfillment_txid,
     };
 
-    Ok((output, checkpoint))
+    Ok(output)
 }

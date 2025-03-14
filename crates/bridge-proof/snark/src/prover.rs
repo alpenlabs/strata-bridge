@@ -6,11 +6,12 @@ use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
 use strata_bridge_proof_protocol::{
-    get_native_host, BridgeProofInput, BridgeProofPublicOutput, BridgeProver,
+    get_native_host, BridgeProgram, BridgeProofInput, BridgeProofPublicOutput,
 };
 use tracing::info;
-use zkaleido::{ZkVmHost, ZkVmProver};
-use zkaleido_sp1_adapter::{verify_groth16, SP1Host};
+use zkaleido::{ZkVmProgram, ZkVmVerifier};
+use zkaleido_sp1_groth16_verifier::verify_groth16;
+use zkaleido_sp1_host::SP1Host;
 
 use crate::sp1;
 
@@ -19,7 +20,7 @@ pub fn sp1_prove(
 ) -> anyhow::Result<(Proof<Bn254>, [Fr; 1], BridgeProofPublicOutput)> {
     info!(action = "simulating proof in native mode");
     let native_host = get_native_host();
-    let _ = BridgeProver::prove(input, &native_host).expect("failed to assert proof statements");
+    let _ = BridgeProgram::prove(input, &native_host).expect("failed to assert proof statements");
 
     if std::env::var("SP1_PROVER").is_err() {
         panic!("Only network prover is supported");
@@ -27,14 +28,14 @@ pub fn sp1_prove(
 
     info!(action = "generating proof");
     let host = SP1Host::init(GUEST_BRIDGE_ELF);
-    let proof_receipt = BridgeProver::prove(input, &host)?;
+    let proof_receipt = BridgeProgram::prove(input, &host)?;
 
-    let vk: SP1VerifyingKey = bincode::deserialize(host.get_verification_key().as_bytes())?;
+    let vk: SP1VerifyingKey = bincode::deserialize(host.vk().as_bytes())?;
 
     info!(action = "verifying proof");
     verify_groth16(&proof_receipt, &vk.bytes32_raw()).context("proof verification failed")?;
 
-    let output = BridgeProver::process_output::<SP1Host>(proof_receipt.public_values())?;
+    let output = BridgeProgram::process_output::<SP1Host>(proof_receipt.public_values())?;
 
     // SP1 prepends the raw Groth16 proof with the first 4 bytes of the groth16 vkey
     // The use of correct vkey is checked in verify_groth16 function above
@@ -84,6 +85,6 @@ mod test {
         let input = get_input();
 
         let host = SP1Host::init(GUEST_BRIDGE_ELF);
-        let _ = BridgeProver::prove(&input, &host).expect("proof generation failed");
+        let _ = BridgeProgram::prove(&input, &host).expect("proof generation failed");
     }
 }

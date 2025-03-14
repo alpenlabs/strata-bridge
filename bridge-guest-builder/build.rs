@@ -1,4 +1,4 @@
-use sp1_helper::{build_program_with_args, BuildArgs};
+use sp1_helper::build_program;
 
 fn main() {
     // Tell Cargo to rerun this build script if SKIP_GUEST_BUILD changes.
@@ -12,12 +12,5 @@ fn main() {
         println!("cargo:rustc-cfg=skip_guest_build");
     }
 
-    let mut build_args = BuildArgs {
-        ..Default::default()
-    };
-
-    // use the `mock` arg so that empty checkpoint proofs do not fail validate.
-    build_args.features = vec!["mock".to_string()];
-
-    build_program_with_args("bridge-guest", build_args);
+    build_program("bridge-guest");
 }

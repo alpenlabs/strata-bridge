@@ -9,7 +9,7 @@
 //! - Prove deposits, claims, and withdrawals between Bitcoin and the Strata rollup.
 
 mod error;
-mod prover;
+mod program;
 mod statement;
 mod tx_info;
 
@@ -21,9 +21,7 @@ use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
-    proof::RollupVerifyingKey,
 };
-use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
 use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
@@ -42,14 +40,6 @@ pub struct BridgeProofInput {
 
     /// Vector of Bitcoin headers starting after the one that has been verified by the `header_vs`
     pub headers: Vec<Header>,
-
-    /// The [Chainstate] that can be verified by the strata checkpoint proof.
-    pub chain_state: Chainstate,
-
-    /// The [HeaderVerificationState] used to validate the chain of headers.
-    /// The proof that this HeaderVerificationState is valid must be done extracted from the
-    /// `strata_checkpoint_tx`.
-    pub header_vs: HeaderVerificationState,
 
     /// The index of the deposit within the [Chainstate] deposit table.
     /// Must match the corresponding information in the withdrawal fulfillment transaction.
@@ -70,8 +60,6 @@ pub struct BridgeProofInput {
 /// Subset of [`BridgeProofInput`] that is [borsh]-serializable
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub(crate) struct BridgeProofInputBorsh {
-    chain_state: Chainstate,
-    header_vs: HeaderVerificationState,
     deposit_idx: u32,
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
@@ -81,8 +69,6 @@ pub(crate) struct BridgeProofInputBorsh {
 impl From<BridgeProofInput> for BridgeProofInputBorsh {
     fn from(input: BridgeProofInput) -> Self {
         Self {
-            chain_state: input.chain_state,
-            header_vs: input.header_vs,
             deposit_idx: input.deposit_idx,
             strata_checkpoint_tx: input.strata_checkpoint_tx,
             withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,
@@ -123,24 +109,13 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
         })
         .collect();
 
-    // TODO: update the strata_primitives?
-    let rollup_vk = match rollup_params.rollup_vk() {
-        RollupVerifyingKey::SP1VerifyingKey(sp1_vk) => sp1_vk,
-        RollupVerifyingKey::Risc0VerifyingKey(risc0_vk) => risc0_vk,
-        RollupVerifyingKey::NativeVerifyingKey(native_vk) => native_vk,
-    };
-
     let input: BridgeProofInputBorsh = zkvm.read_borsh();
 
-    let (output, checkpoint) =
-        process_bridge_proof(input, headers, rollup_params, pegout_graph_params)
-            .expect("expect output");
-
-    // Verify the strata checkpoint proof
-    zkvm.verify_groth16_receipt(&checkpoint.get_proof_receipt(), &rollup_vk.0);
+    let output = process_bridge_proof(input, headers, rollup_params, pegout_graph_params)
+        .expect("expect output");
 
     zkvm.commit_borsh(&output);
 }
 
-pub use prover::{get_native_host, BridgeProver};
+pub use program::{get_native_host, BridgeProgram};
 pub use statement::REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX;

@@ -2,7 +2,7 @@
     "rollup_name": "alpenstrata",
     "block_time": 5000,
     "cred_rule": {
-        "schnorr_key": "0x8a509a27b3160e5bca4e3a45de1a7d966d3751683900e8ea3b371af31d191699"
+        "schnorr_key": "0x8f2f6c25be6a4de02b8ae1f785749ba77431075ee801e00cfb0af1ed188f8eda"
     },
     "horizon_l1_height": 50,
     "genesis_l1_height": 100,

@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use bitcoin::{Amount, OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoin::{Amount, OutPoint, TapNodeHash, Txid};
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::tracker::DutyTrackerDb;
@@ -79,6 +79,7 @@ where
                 let operator_idx = u32::MAX; // doesn't really matter in the current impl
                 let last_fetched_duty_index = db.get_last_fetched_duty_index().await.unwrap(); // FIXME:
                                                                                                // Handle me
+                let mut stake_index = 0;
 
                 let mut stake_index = 0;
                 match strata_rpc_client
@@ -95,10 +96,6 @@ where
 
                         for duty in duties {
                             debug!(action = "dispatching duty", ?duty);
-                            // HACK: convert from `strata` type to `strata-bridge` type
-                            // to avoid having to use all the deposit/withdrawal types from
-                            // `strata`. This is fine for now since these duties will be generated
-                            // by `strata-bridge` directly in the immediate future.
                             #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
                             struct DepositInfoInterop {
                                 /// The deposit request transaction outpoints from the users.
@@ -166,20 +163,12 @@ where
 
                             let duty = match duty_interop {
                                 BridgeDutyInterop::SignDeposit(deposit_info) => {
-                                    // HACK: just satisfy the compiler by converting the hash to the
-                                    // key but this is only because for testing we don't care about
-                                    // the take back path.
-                                    let take_back_key = XOnlyPublicKey::from_slice(
-                                        deposit_info.take_back_leaf_hash.as_ref(),
-                                    )
-                                    .unwrap();
-
                                     let deposit_info = DepositInfo::new(
                                         deposit_info.deposit_request_outpoint,
-                                        stake_index,
+                                        stake_index, // FIXME: UPDATE THIS FOR NEW STAKE
                                         deposit_info.el_address,
                                         deposit_info.total_amount,
-                                        take_back_key,
+                                        deposit_info.take_back_leaf_hash,
                                         deposit_info
                                             .original_taproot_addr
                                             .address()
@@ -200,7 +189,6 @@ where
                                     BridgeDuty::FulfillWithdrawal(withdrawal_info)
                                 }
                             };
-
                             duty_sender.send(duty).expect("should be able to send duty");
                         }
 

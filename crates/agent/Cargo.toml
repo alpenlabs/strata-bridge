@@ -17,7 +17,7 @@ strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
-strata-bridge-proof-snark = { workspace = true, features = ["prover"] }
+strata-bridge-proof-snark.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 

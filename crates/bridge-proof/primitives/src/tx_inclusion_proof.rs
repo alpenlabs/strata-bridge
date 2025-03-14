@@ -3,10 +3,9 @@ use borsh::{BorshDeserialize, BorshSerialize};
 use strata_primitives::{
     buf::Buf32,
     hash::sha256d,
-    l1::{TxIdComputable, TxIdMarker, WtxIdMarker},
+    l1::{L1TxInclusionProof, L1TxProof, L1WtxProof, TxIdComputable, TxIdMarker, WtxIdMarker},
 };
 use strata_proofimpl_btc_blockspace::block::witness_commitment_from_coinbase;
-use strata_state::l1::{L1TxInclusionProof, L1TxProof, L1WtxProof};
 
 use crate::tx::BitcoinTx;
 

@@ -73,7 +73,7 @@ use strata_primitives::{
     params::RollupParams,
 };
 use strata_rpc_api::StrataApiClient;
-use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId, l1::get_btc_params};
+use strata_state::{block::L2Block, chain_state::Chainstate, id::L2BlockId};
 use tokio::sync::{
     broadcast::{self, error::RecvError},
     mpsc,
@@ -85,7 +85,7 @@ use crate::{
         Agent, BRIDGE_DENOMINATION, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS, MIN_RELAY_FEE,
         OPERATOR_FEE, OPERATOR_STAKE,
     },
-    proof_interop::{checkpoint_last_verified_l1_height, get_verification_state},
+    proof_interop::checkpoint_last_verified_l1_height,
     signal::{
         AggNonces, CovenantNonceRequest, CovenantNonceRequestFulfilled, CovenantNonceSignal,
         CovenantSigRequest, CovenantSigRequestFulfilled, CovenantSignatureSignal, DepositSignal,
@@ -2144,18 +2144,6 @@ where
 
         let l1_start_height = (checkpoint_info.l1_range.1.height() + 1) as u32;
 
-        let btc_params = get_btc_params();
-
-        // FIXME: bring `get_verification_state` impl into the loop below
-        let header_vs = get_verification_state(
-            self.agent.btc_client.as_ref(),
-            l1_start_height as u64,
-            &btc_params,
-        )
-        .await
-        .expect("should be able to initial header state");
-        info!(event = "got initial header state", %l1_start_height, ?header_vs);
-
         let mut height = l1_start_height as u32;
         let mut headers: Vec<Header> = vec![];
         let mut blocks: Vec<Block> = vec![];
@@ -2183,7 +2171,7 @@ where
                     .enumerate()
                     .find(|(_, tx)| {
                         checkpoint_last_verified_l1_height(tx, &self.rollup_params)
-                            .is_some_and(|h| h == header_vs.last_verified_block_num)
+                            .is_some_and(|index| index == latest_checkpoint_at_payout)
                     })
                     .map(|(idx, tx)| {
                         let height = block.bip34_block_height().unwrap() as u32;
@@ -2264,8 +2252,6 @@ where
             pegout_graph_params,
             rollup_params: self.rollup_params.clone(),
             headers,
-            chain_state,
-            header_vs,
             deposit_idx,
             strata_checkpoint_tx: checkpoint.expect("must be able to find checkpoint"),
             withdrawal_fulfillment_tx: withdrawal_fulfillment
