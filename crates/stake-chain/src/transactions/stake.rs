@@ -5,6 +5,7 @@ use bitcoin::{
     hashes::sha256, key::TapTweak, secp256k1::schnorr, transaction, Address, Amount, FeeRate,
     OutPoint, Psbt, Sequence, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{
     build_context::BuildContext,
@@ -67,7 +68,7 @@ pub struct StakeTxData {
 ///    [`StakeTx`] transaction to the current one.
 /// 4. A dust output, [`ConnectorCpfp`], for the operator to use as CPFP in future transactions that
 ///    spends this one.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StakeTx {
     /// The PSBT that contains the inputs and outputs for the transaction.
     pub psbt: Psbt,

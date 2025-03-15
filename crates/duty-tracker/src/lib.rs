@@ -6,4 +6,6 @@ pub mod contract_manager;
 pub mod contract_persister;
 pub mod contract_state_machine;
 pub mod predicates;
+pub mod stake_chain_persister;
+pub mod stake_chain_state_machine;
 pub mod tx_driver;
