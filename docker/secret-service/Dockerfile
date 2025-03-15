@@ -13,6 +13,14 @@ RUN apt-get update && apt-get -y upgrade && apt-get install -y \
     pkg-config \
     build-essential
 
+COPY rust-toolchain.toml rust-toolchain.toml
+
+# Cache toolchain
+RUN --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,sharing=private,target=/app/target \
+    cargo
+
 COPY . .
 
 # Build dependencies in release mode
