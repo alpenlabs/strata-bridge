@@ -151,7 +151,7 @@ pub(crate) fn process_bridge_proof(
         &withdrawal_fulfillment_txid,
         operator_pub_key,
     ) {
-        return Err(BridgeProofError::InvalidSignature);
+        return Err(BridgeProofError::InvalidOperatorSignature);
     }
 
     // 6. Ensure that the transactions are in order

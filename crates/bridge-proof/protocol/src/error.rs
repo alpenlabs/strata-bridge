@@ -19,7 +19,7 @@ pub(crate) enum BridgeProofError {
     InvalidMerkleProof(BridgeRelatedTx),
 
     /// The chain state root does not match the checkpoint's state root.
-    #[error("Mismatch between ChainState and CheckpointTx ChainState")]
+    #[error("Mismatch between ChainState in Checkpoint Sidecar and CheckpointTx transition proof")]
     ChainStateMismatch,
 
     /// The chain state has encountered an internal error that is derived from `ChainStateError`.
@@ -32,8 +32,16 @@ pub(crate) enum BridgeProofError {
     InvalidWithdrawalData,
 
     /// The operator's signature is invalid
-    #[error("Signature is invalid")]
-    InvalidSignature,
+    #[error("Operator's signature is invalid")]
+    InvalidOperatorSignature,
+
+    /// Strata's credential rule is not satisfied
+    #[error("Strata's Credential Rule is not satisfied")]
+    UnsatisfiedStrataCredRule,
+
+    /// Strata's Proof in Checkpoint Transaction is invalid
+    #[error("Strata proof in checkpoint transaction is invalid")]
+    InvalidStrataProof,
 
     /// The operator's fulfilled the withdrawal request after the deadline
     #[error("Withdrawal fulfilled after deadline exceeded")]

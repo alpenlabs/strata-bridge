@@ -1,4 +1,5 @@
 use bitcoin::{consensus, ScriptBuf, Transaction, Txid};
+use strata_crypto::groth16_verifier::verify_rollup_groth16_proof_receipt;
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::{
     batch::SignedCheckpoint, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
@@ -22,27 +23,33 @@ pub(crate) fn extract_valid_chainstate_from_checkpoint(
                 }
 
                 if let Ok(checkpoint) = borsh::from_slice::<SignedCheckpoint>(payload[0].data()) {
-                    assert!(
-                        verify_signed_checkpoint_sig(&checkpoint, &rollup_params.cred_rule),
-                        "cred rule for checkpoint not verified"
-                    );
+                    if !verify_signed_checkpoint_sig(&checkpoint, &rollup_params.cred_rule) {
+                        return Err(BridgeProofError::UnsatisfiedStrataCredRule);
+                    }
 
                     let chainstate: Chainstate =
                         borsh::from_slice(checkpoint.checkpoint().sidecar().chainstate())
                             .expect("invalid chainstate");
 
                     // BridgeProofError::ChainStateMismatch
-                    assert_eq!(
-                        chainstate.compute_state_root(),
-                        checkpoint
+                    if chainstate.compute_state_root()
+                        != checkpoint
                             .checkpoint()
                             .batch_transition()
                             .chainstate_transition
-                            .post_state_root,
-                        "invalid chainstate in checkpoint"
-                    );
+                            .post_state_root
+                    {
+                        return Err(BridgeProofError::ChainStateMismatch);
+                    }
 
-                    // TODO: validate the proof
+                    let proof_receipt = checkpoint.checkpoint().construct_receipt();
+                    if verify_rollup_groth16_proof_receipt(&proof_receipt, &rollup_params.rollup_vk)
+                        .is_err()
+                    {
+                        return Err(BridgeProofError::InvalidStrataProof);
+                    }
+
+                    // FIXME: validate the proof
 
                     return Ok(chainstate);
                 }
