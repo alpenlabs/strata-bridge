@@ -1,3 +1,6 @@
+seed = "/app/seed"
+network = "regtest"
+
 [tls]
 # key = "/app/tls/key.der"
 # cert = "/app/tls/cert.der"
@@ -5,6 +8,3 @@
 
 [transport]
 addr = "127.0.0.1:3000"
-
-seed = "/app/seed/seed"
-network = "regtest"
