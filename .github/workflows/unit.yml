@@ -90,7 +90,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          cargo llvm-cov --workspace nextest -F mock --profile ci --no-capture --lcov --output-path lcov.info
+          ZKVM_MOCK=1 cargo llvm-cov --workspace nextest --profile ci --no-capture --lcov --output-path lcov.info
         env:
           DATABASE_URL: sqlite://./operator.db
           RUST_BACKTRACE: 1
