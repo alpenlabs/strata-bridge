@@ -123,5 +123,5 @@ pub fn process_bridge_proof_outer(zkvm: &impl ZkVmEnv) {
     zkvm.commit_borsh(&output);
 }
 
-pub use program::{get_native_host, BridgeProver};
+pub use program::{get_native_host, BridgeProgram};
 pub use statement::REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX;

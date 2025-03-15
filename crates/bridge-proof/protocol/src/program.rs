@@ -1,7 +1,10 @@
-use std::sync::Arc;
+use std::{
+    panic::{catch_unwind, AssertUnwindSafe},
+    sync::Arc,
+};
 
 use bitcoin::consensus::serialize;
-use zkaleido::{ProofType, PublicValues, ZkVmInputResult, ZkVmProgram, ZkVmResult};
+use zkaleido::{ProofType, PublicValues, ZkVmError, ZkVmInputResult, ZkVmProgram, ZkVmResult};
 use zkaleido_native_adapter::{NativeHost, NativeMachine};
 
 use crate::{
@@ -11,9 +14,9 @@ use crate::{
 /// This is responsible for generating the proof
 // TODO: zkaleido maybe add a display/debug trait to ZkVmProgram
 #[derive(Debug)]
-pub struct BridgeProver;
+pub struct BridgeProgram;
 
-impl ZkVmProgram for BridgeProver {
+impl ZkVmProgram for BridgeProgram {
     type Input = BridgeProofInput;
 
     type Output = BridgeProofPublicOutput;
@@ -57,6 +60,29 @@ impl ZkVmProgram for BridgeProver {
     }
 }
 
+impl BridgeProgram {
+    /// get native host. This can be used for testing
+    pub fn native_host() -> NativeHost {
+        NativeHost {
+            process_proof: Arc::new(Box::new(move |zkvm: &NativeMachine| {
+                catch_unwind(AssertUnwindSafe(|| {
+                    process_bridge_proof_outer(zkvm);
+                }))
+                .map_err(|_| ZkVmError::ExecutionError(Self::name()))?;
+                Ok(())
+            })),
+        }
+    }
+
+    /// Add this new convenience method
+    pub fn execute(
+        input: &<Self as ZkVmProgram>::Input,
+    ) -> ZkVmResult<<Self as ZkVmProgram>::Output> {
+        // Get the native host and delegate to the trait's execute method
+        let host = Self::native_host();
+        <Self as ZkVmProgram>::execute(input, &host)
+    }
+}
 /// get native host. This can be used for testing
 pub fn get_native_host() -> NativeHost {
     NativeHost {
@@ -100,7 +126,7 @@ mod tests {
         logging::init(LoggerConfig::new("test-native".to_string()));
         let input = get_input();
         let host = get_native_host();
-        let receipt = BridgeProver::prove(&input, &host).unwrap();
+        let receipt = BridgeProgram::prove(&input, &host).unwrap();
         debug!(?receipt, "received proof receipt from native host");
     }
 }
