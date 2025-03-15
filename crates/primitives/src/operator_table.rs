@@ -9,7 +9,7 @@ use crate::{build_context::TxBuildContext, types::OperatorIdx};
 
 // TODO(proofofkeags): the derived serialization of this data structure is 3x more expensive than
 // optimal.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperatorTable {
     pov: OperatorIdx,
     idx_key: BTreeMap<OperatorIdx, (P2POperatorPubKey, secp256k1::PublicKey)>,
