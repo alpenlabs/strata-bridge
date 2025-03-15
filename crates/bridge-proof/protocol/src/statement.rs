@@ -108,8 +108,7 @@ pub(crate) fn process_bridge_proof(
 
     // 3c. Extract the withdrawal output from the chain state using the specified
     // deposit index.
-    let entry = input
-        .chain_state
+    let entry = chainstate
         .deposits_table()
         .get_deposit(input.deposit_idx)
         .ok_or(ChainStateError::DepositNotFound(input.deposit_idx))?;
@@ -137,8 +136,7 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 4a. Extract the public key of the operator who did the withdrawal fulfillment
-    let operator_pub_key = input
-        .chain_state
+    let operator_pub_key = chainstate
         .operator_table()
         .get_operator(operator_idx)
         // TODO: optimization, maybe use `entry_at_pos` to avoid searching
