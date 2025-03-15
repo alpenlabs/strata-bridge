@@ -22,7 +22,7 @@ use strata_primitives::{
     buf::{Buf32, Buf64},
     params::RollupParams,
 };
-use strata_state::{chain_state::Chainstate, l1::HeaderVerificationState};
+use strata_state::chain_state::Chainstate;
 use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.
@@ -45,11 +45,6 @@ pub struct BridgeProofInput {
     /// The [Chainstate] that can be verified by the strata checkpoint proof.
     pub chain_state: Chainstate,
 
-    /// The [HeaderVerificationState] used to validate the chain of headers.
-    /// The proof that this HeaderVerificationState is valid must be done extracted from the
-    /// `strata_checkpoint_tx`.
-    pub header_vs: HeaderVerificationState,
-
     /// The index of the deposit within the [Chainstate] deposit table.
     /// Must match the corresponding information in the withdrawal fulfillment transaction.
     pub deposit_idx: u32,
@@ -70,7 +65,6 @@ pub struct BridgeProofInput {
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub(crate) struct BridgeProofInputBorsh {
     chain_state: Chainstate,
-    header_vs: HeaderVerificationState,
     deposit_idx: u32,
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
@@ -81,7 +75,6 @@ impl From<BridgeProofInput> for BridgeProofInputBorsh {
     fn from(input: BridgeProofInput) -> Self {
         Self {
             chain_state: input.chain_state,
-            header_vs: input.header_vs,
             deposit_idx: input.deposit_idx,
             strata_checkpoint_tx: input.strata_checkpoint_tx,
             withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,

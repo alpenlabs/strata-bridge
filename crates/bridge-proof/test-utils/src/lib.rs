@@ -5,14 +5,8 @@ use std::fs;
 use bitcoin::{block::Header, Block};
 use borsh::BorshDeserialize;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_primitives::{
-    buf::{Buf32, Buf64},
-    params::RollupParams,
-};
-use strata_state::{
-    chain_state::Chainstate,
-    l1::{HeaderVerificationState, L1BlockId, TimestampStore},
-};
+use strata_primitives::{buf::Buf64, params::RollupParams};
+use strata_state::chain_state::Chainstate;
 
 /// Loads and deserializes a list of Bitcoin blocks from a binary test data file.
 pub fn load_test_blocks() -> Vec<Block> {
@@ -24,29 +18,6 @@ pub fn load_test_blocks() -> Vec<Block> {
 /// Extracts the headers from the test blocks.
 pub fn extract_test_headers() -> Vec<Header> {
     load_test_blocks().iter().map(|b| b.header).collect()
-}
-
-pub fn header_verification_state() -> HeaderVerificationState {
-    let mut timestamps = [
-        1741034508, 1741034508, 1741034512, 1741034512, 1741034512, 1741034512, 1741034516,
-        1741034504, 1741034504, 1741034508, 1741034508,
-    ];
-    timestamps.sort();
-
-    HeaderVerificationState {
-        last_verified_block_num: 1920,
-        last_verified_block_hash: L1BlockId::from(
-            Buf32::try_from_slice(
-                &hex::decode("d72e2c4d2716222004568d0457f791547035b4ffdb94b54b758dcf96c7448b66")
-                    .unwrap(),
-            )
-            .unwrap(),
-        ),
-        next_block_target: 545259519,
-        interval_start_timestamp: 1296688602,
-        total_accumulated_pow: 0,
-        last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 7),
-    }
 }
 
 /// Loads and deserializes the chain state from a Borsh-encoded test data file.

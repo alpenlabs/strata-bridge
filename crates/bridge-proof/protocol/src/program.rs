@@ -72,8 +72,7 @@ mod tests {
     use alpen_bridge_params::prelude::PegOutGraphParams;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
-        header_verification_state, load_op_signature, load_test_chainstate,
-        load_test_rollup_params,
+        load_op_signature, load_test_chainstate, load_test_rollup_params,
     };
     use strata_common::logging::{self, LoggerConfig};
     use tracing::debug;
@@ -89,7 +88,6 @@ mod tests {
             pegout_graph_params,
             headers: extract_test_headers(),
             chain_state: load_test_chainstate(),
-            header_vs: header_verification_state(),
             deposit_idx: 0,
             strata_checkpoint_tx: get_strata_checkpoint_tx(),
             withdrawal_fulfillment_tx: get_withdrawal_fulfillment_tx(),

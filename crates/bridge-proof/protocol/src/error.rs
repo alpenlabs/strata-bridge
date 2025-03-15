@@ -1,3 +1,4 @@
+use strata_primitives::l1::L1VerificationError;
 use thiserror::Error;
 
 /// Represents all possible errors that can occur during the verification of a bridge proof.
@@ -18,7 +19,7 @@ pub(crate) enum BridgeProofError {
     InvalidMerkleProof(BridgeRelatedTx),
 
     /// The chain state root does not match the checkpoint's state root.
-    #[error("Mismatch between input ChainState and CheckpointTx ChainState")]
+    #[error("Mismatch between ChainState and CheckpointTx ChainState")]
     ChainStateMismatch,
 
     /// The chain state has encountered an internal error that is derived from `ChainStateError`.
@@ -45,6 +46,10 @@ pub(crate) enum BridgeProofError {
     /// Insufficient blocks submitted after the withdrawal fulfillment transaction.
     #[error("Expected at least {0} blocks after the withdrawal fulfillment transaction, but {1} were provided.")]
     InsufficientBlocksAfterWithdrawalFulfillment(usize, usize),
+
+    /// Provided header does not follow consensus rules
+    #[error("Invalid header")]
+    InvalidHeader(#[from] L1VerificationError),
 }
 
 /// Represents errors that occur during the verification of chain state.
