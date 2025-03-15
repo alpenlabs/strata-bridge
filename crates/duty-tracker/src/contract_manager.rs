@@ -50,7 +50,7 @@ impl ContractManager {
         stake_chain_persister: StakeChainPersister,
     ) -> Self {
         let thread_handle = tokio::task::spawn(async move {
-            let crash = |e: ContractManagerErr| todo!();
+            let crash = |_e: ContractManagerErr| todo!();
 
             let active_contracts = match contract_persister.load_all().await {
                 Ok(contract_data) => contract_data
@@ -83,6 +83,8 @@ impl ContractManager {
             // TODO(proofofkeags): synchronize state with chain state
 
             let mut ctx = ContractManagerCtx {
+                // TODO(proofofkeags): prune the active contract set and still preserve the ability
+                // to recover this value.
                 network,
                 operator_table,
                 tx_tag,
@@ -381,6 +383,8 @@ impl ContractManagerCtx {
                     .find(|(_, contract)| contract.deposit_request_txid() == txid)
                 {
                     if signatures.len() != 1 {
+                        // TODO(proofofkeags): is this an error? For now we just ignore the message
+                        // entirely.
                         return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
                             msg.unsigned,
                         )));

@@ -11,7 +11,7 @@ use bitcoin::{
     },
     Network, OutPoint, Transaction, Txid, XOnlyPublicKey,
 };
-use bitvm::groth16::g16::{N_VERIFIER_FQS, N_VERIFIER_HASHES, N_VERIFIER_PUBLIC_INPUTS};
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
@@ -534,25 +534,24 @@ impl ContractSM {
     ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
         // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
         // rid of the rats nest of code below.
-        let mut public_inputs: [[[u8; 20]; 68]; N_VERIFIER_PUBLIC_INPUTS] =
-            [[[0; 20]; 68]; N_VERIFIER_PUBLIC_INPUTS];
-        if g16_keys.public_inputs.len() != N_VERIFIER_PUBLIC_INPUTS {
+        let mut public_inputs: [[[u8; 20]; 68]; NUM_PUBS] = [[[0; 20]; 68]; NUM_PUBS];
+        if g16_keys.public_inputs.len() != NUM_PUBS {
             return Err(TransitionErr);
         }
         for (i, input) in g16_keys.public_inputs.into_iter().enumerate() {
             public_inputs[i] = *input;
         }
 
-        let mut fqs: [[[u8; 20]; 68]; N_VERIFIER_FQS] = [[[0; 20]; 68]; N_VERIFIER_FQS];
-        if g16_keys.fqs.len() != N_VERIFIER_FQS {
+        let mut fqs: [[[u8; 20]; 68]; NUM_U256] = [[[0; 20]; 68]; NUM_U256];
+        if g16_keys.fqs.len() != NUM_U256 {
             return Err(TransitionErr);
         }
         for (i, fq) in g16_keys.fqs.into_iter().enumerate() {
             fqs[i] = *fq;
         }
 
-        let mut hashes: [[[u8; 20]; 44]; N_VERIFIER_HASHES] = [[[0; 20]; 44]; N_VERIFIER_HASHES];
-        if g16_keys.hashes.len() != N_VERIFIER_HASHES {
+        let mut hashes: [[[u8; 20]; 36]; NUM_HASH] = [[[0; 20]; 36]; NUM_HASH];
+        if g16_keys.hashes.len() != NUM_HASH {
             return Err(TransitionErr);
         }
         for (i, hash) in g16_keys.hashes.into_iter().enumerate() {
