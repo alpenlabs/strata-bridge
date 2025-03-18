@@ -2,6 +2,7 @@ use std::{collections::BTreeMap, fmt::Display};
 
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{Network, OutPoint};
+use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::{prelude::StakeTx, stake_chain::StakeChainInputs, StakeChain};
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
@@ -101,7 +102,8 @@ impl StakeChainSM {
         let stake_chain = StakeChain::new(
             &self.operator_table.tx_build_context(self.network),
             inputs,
-            todo!(),
+            // TODO(proofofkeags): is this the right key?
+            ConnectorCpfp::new(inputs.operator_pubkey, self.network),
         );
         stake_chain.get(nth).cloned()
     }
