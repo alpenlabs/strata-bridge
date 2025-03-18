@@ -50,6 +50,8 @@ impl ContractManager {
         stake_chain_persister: StakeChainPersister,
     ) -> Self {
         let thread_handle = tokio::task::spawn(async move {
+            let crash = |e: ContractManagerErr| todo!();
+
             let active_contracts = match contract_persister.load_all().await {
                 Ok(contract_data) => contract_data
                     .into_iter()
@@ -60,9 +62,7 @@ impl ContractManager {
                         )
                     })
                     .collect::<BTreeMap<Txid, ContractSM>>(),
-                Err(_) => {
-                    todo!() // TODO(proofofkeags): probably wanna crash here?
-                }
+                Err(e) => crash(e.into()),
             };
 
             let stake_chains = match stake_chain_persister.load().await {
@@ -70,17 +70,19 @@ impl ContractManager {
                     if loaded_operator_table == operator_table {
                         StakeChainSM::restore(network, loaded_operator_table, stake_chains)
                     } else {
-                        todo!() // TODO(proofofkeags): this is probably a serious issue
+                        crash(ContractManagerErr::ContractPersistErr(ContractPersistErr));
+                        return;
                     }
                 }
-                Err(_) => todo!(), // TODO(proofofkeags): probably wanna crash here?
+                Err(e) => {
+                    crash(e.into());
+                    return;
+                }
             };
 
             // TODO(proofofkeags): synchronize state with chain state
 
             let mut ctx = ContractManagerCtx {
-                // TODO(proofofkeags): prune the active contract set and still preserve the ability
-                // to recover this value.
                 network,
                 operator_table,
                 tx_tag,
@@ -196,6 +198,8 @@ impl ContractManagerCtx {
                     }
                 };
 
+                // TODO(proofofkeags): prune the active contract set and still preserve the ability
+                // to recover this value.
                 let deposit_idx = self.active_contracts.len() as u32;
                 let (sm, duty) = ContractSM::new(
                     self.network,
@@ -377,8 +381,6 @@ impl ContractManagerCtx {
                     .find(|(_, contract)| contract.deposit_request_txid() == txid)
                 {
                     if signatures.len() != 1 {
-                        // TODO(proofofkeags): is this an error? For now we just ignore the message
-                        // entirely.
                         return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
                             msg.unsigned,
                         )));

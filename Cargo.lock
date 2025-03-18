@@ -3512,6 +3512,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
  "strata-bridge-tx-graph",
