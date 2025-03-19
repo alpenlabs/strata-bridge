@@ -46,7 +46,7 @@ impl ContractPersister {
             // TODO(proofofkeags): make state not opaque at the DB level
             r#"
             CREATE TABLE IF NOT EXISTS contracts (
-                deposit_txid CHAR(64) NOT NULL UNIQUE,
+                deposit_txid CHAR(64) PRIMARY KEY,
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
