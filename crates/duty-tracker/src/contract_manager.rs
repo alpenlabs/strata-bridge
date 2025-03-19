@@ -12,6 +12,7 @@ use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
+use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
 use thiserror::Error;
@@ -38,13 +39,16 @@ impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     #[expect(clippy::too_many_arguments)]
     pub fn new(
+        // Static Config Parameters
         network: Network,
-        operator_table: OperatorTable,
-        zmq_client: BtcZmqClient,
         tx_tag: Vec<u8>,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
         sidesystem_params: SideSystemParams,
+        operator_table: OperatorTable,
+        // Subsystem Handles
+        zmq_client: BtcZmqClient,
+        rpc_client: BitcoinClient,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
         stake_chain_persister: StakeChainPersister,
@@ -80,7 +84,24 @@ impl ContractManager {
                 }
             };
 
-            // TODO(proofofkeags): synchronize state with chain state
+            let current = match rpc_client.get_block_count().await {
+                Ok(a) => a,
+                Err(e) => {
+                    crash(e.into());
+                    return;
+                }
+            };
+
+            // It's extremely unlikely that these will ever differ at all but it's possible for
+            // them to differ by at most 1 in the scenario where we crash mid-batch when committing
+            // contract state to disk.
+            let mut cursor = active_contracts
+                .iter()
+                .min_by(|(_, sm1), (_, sm2)| {
+                    sm1.state().block_height.cmp(&sm2.state().block_height)
+                })
+                .map(|(_, sm)| sm.state().block_height)
+                .unwrap_or(current);
 
             let mut ctx = ContractManagerCtx {
                 // TODO(proofofkeags): prune the active contract set and still preserve the ability
@@ -96,6 +117,24 @@ impl ContractManager {
                 stake_chain_persister,
                 stake_chains,
             };
+
+            while cursor < current {
+                let next = cursor + 1;
+                let block = match rpc_client.get_block_at(next).await {
+                    Ok(a) => a,
+                    Err(e) => {
+                        crash(e.into());
+                        return;
+                    }
+                };
+                let blockhash = block.block_hash();
+                if let Err(e) = ctx.process_block(block).await {
+                    tracing::error!("failed to process block {}: {}", blockhash, e);
+                    break;
+                }
+
+                cursor = next;
+            }
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
             loop {
@@ -154,6 +193,10 @@ pub enum ContractManagerErr {
     /// Errors related to receiving P2P messages at protocol-invalid times.
     #[error("invalid p2p message: {0:?}")]
     InvalidP2PMessage(Box<UnsignedGossipsubMsg>),
+
+    /// Errors related to calling Bitcoin Core's RPC interface.
+    #[error("bitcoin core rpc call failed with: {0}")]
+    BitcoinCoreRPCErr(#[from] ClientError),
 }
 
 struct ContractManagerCtx {
@@ -200,6 +243,15 @@ impl ContractManagerCtx {
                     }
                 };
 
+                if self
+                    .active_contracts
+                    .contains_key(&deposit_tx.compute_txid())
+                {
+                    // We already processed this. Do not create another contract attached to this
+                    // deposit txid.
+                    continue;
+                }
+
                 // TODO(proofofkeags): prune the active contract set and still preserve the ability
                 // to recover this value.
                 let deposit_idx = self.active_contracts.len() as u32;
@@ -222,6 +274,11 @@ impl ContractManagerCtx {
             }
 
             if let Some(contract) = self.active_contracts.get_mut(&txid) {
+                if contract.state().block_height >= height {
+                    // Don't process events if we've already processed them.
+                    continue;
+                }
+
                 if let Ok(duty) =
                     contract.process_contract_event(ContractEvent::DepositConfirmation(tx))
                 {
@@ -237,6 +294,11 @@ impl ContractManagerCtx {
             }
 
             for (deposit_txid, contract) in self.active_contracts.iter_mut() {
+                if contract.state().block_height >= height {
+                    // Don't process events if we've already processed them.
+                    continue;
+                }
+
                 if contract.transaction_filter()(&tx) {
                     let duty = contract.process_contract_event(
                         ContractEvent::PegOutGraphConfirmation(tx.clone(), height),
