@@ -258,6 +258,7 @@ impl ContractManagerCtx {
                 let (sm, duty) = ContractSM::new(
                     self.network,
                     self.operator_table.clone(),
+                    self.connector_params,
                     height,
                     height + self.pegout_graph_params.refund_delay as u64,
                     deposit_idx,
@@ -316,9 +317,7 @@ impl ContractManagerCtx {
         // Now that we've handled all the transaction level events, we should inform all the
         // CSMs that a new block has arrived
         for (_, contract) in self.active_contracts.iter_mut() {
-            if let Some(duty) = contract
-                .process_contract_event(ContractEvent::Block(height, self.connector_params))?
-            {
+            if let Some(duty) = contract.process_contract_event(ContractEvent::Block(height))? {
                 duties.push(duty);
             }
         }

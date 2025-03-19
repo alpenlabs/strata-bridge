@@ -1,12 +1,14 @@
 //! This module is responsible for being able to save the contents of the ContractSM to disk.
 use std::fmt::Display;
 
+use alpen_bridge_params::prelude::ConnectorParams;
 use bincode::ErrorKind;
 use bitcoin::Txid;
 use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
 };
+use strata_bridge_tx_graph::transactions::payout_optimistic;
 use thiserror::Error;
 
 use crate::contract_state_machine::{ContractCfg, MachineState};
@@ -48,6 +50,9 @@ impl ContractPersister {
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
+                payout_optimistic_timelock INTEGER NOT NULL,
+                pre_assert_timelock INTEGER NOT NULL,
+                payout_timelock INTEGER NOT NULL,
                 state VARBINARY NOT NULL,
             );
             "#,
@@ -66,18 +71,31 @@ impl ContractPersister {
     ) -> Result<(), ContractPersistErr> {
         let _: SqliteQueryResult = sqlx::query(
             r#"
-            INSERT INTO contracts (deposit_txid, deposit_idx, deposit_tx, network, operator_table, state) VALUES (?, ?, ?, ?, ?, ?)
-            "#
+            INSERT INTO contracts (
+                deposit_txid,
+                deposit_idx,
+                deposit_tx,
+                network,
+                operator_table,
+                payout_optimistic_timelock,
+                pre_assert_timelock,
+                payout_timelock,
+                state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
         .bind(cfg.deposit_idx)
         .bind(bincode::serialize(&cfg.deposit_tx)?)
         .bind(serde_json::to_string(&cfg.network)?)
         .bind(bincode::serialize(&cfg.operator_table)?)
+        .bind(cfg.connector_params.payout_optimistic_timelock)
+        .bind(cfg.connector_params.pre_assert_timelock)
+        .bind(cfg.connector_params.payout_timelock)
         .bind(bincode::serialize(&state)?)
         .execute(&self.pool)
         .await
-        .map_err(|_|ContractPersistErr)?;
+        .map_err(|_| ContractPersistErr)?;
         Ok(())
     }
 
@@ -107,7 +125,16 @@ impl ContractPersister {
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
         let row: SqliteRow = sqlx::query(
             r#"
-            SELECT (deposit_idx, deposit_tx, network, operator_table, state) FROM contracts WHERE deposit_txid = ?
+            SELECT (
+                deposit_idx,
+                deposit_tx,
+                network,
+                operator_table,
+                payout_optimistic_timelock,
+                pre_assert_timelock,
+                payout_timelock,
+                state
+            ) FROM contracts WHERE deposit_txid = ?
             "#,
         )
         .bind(deposit_txid.to_string())
@@ -123,11 +150,25 @@ impl ContractPersister {
             row.try_get("operator_table")
                 .map_err(|_| ContractPersistErr)?,
         )?;
+        let payout_optimistic_timelock = row
+            .try_get("payout_optimistic_timelock")
+            .map_err(|_| ContractPersistErr)?;
+        let pre_assert_timelock = row
+            .try_get("pre_assert_timelock")
+            .map_err(|_| ContractPersistErr)?;
+        let payout_timelock = row
+            .try_get("payout_timelock")
+            .map_err(|_| ContractPersistErr)?;
         let state = bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
         Ok((
             ContractCfg {
                 network,
                 operator_table,
+                connector_params: ConnectorParams {
+                    payout_optimistic_timelock,
+                    pre_assert_timelock,
+                    payout_timelock,
+                },
                 deposit_idx,
                 deposit_tx,
             },
@@ -140,7 +181,16 @@ impl ContractPersister {
     pub async fn load_all(&self) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let rows = sqlx::query(
             r#"
-            SELECT (deposit_tx, operator_table, state) FROM contracts
+            SELECT (
+                deposit_idx,
+                deposit_tx,
+                network,
+                operator_table,
+                payout_optimistic_timelock,
+                pre_assert_timelock,
+                payout_timelock,
+                state
+            ) FROM contracts
             "#,
         )
         .fetch_all(&self.pool)
@@ -158,12 +208,26 @@ impl ContractPersister {
                     row.try_get("operator_table")
                         .map_err(|_| ContractPersistErr)?,
                 )?;
+                let payout_optimistic_timelock = row
+                    .try_get("payout_optimistic_timelock")
+                    .map_err(|_| ContractPersistErr)?;
+                let pre_assert_timelock = row
+                    .try_get("pre_assert_timelock")
+                    .map_err(|_| ContractPersistErr)?;
+                let payout_timelock = row
+                    .try_get("payout_timelock")
+                    .map_err(|_| ContractPersistErr)?;
                 let state =
                     bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
                 Ok((
                     ContractCfg {
                         network,
                         operator_table,
+                        connector_params: ConnectorParams {
+                            payout_optimistic_timelock,
+                            pre_assert_timelock,
+                            payout_timelock,
+                        },
                         deposit_idx,
                         deposit_tx,
                     },

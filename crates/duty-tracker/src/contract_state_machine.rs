@@ -98,7 +98,7 @@ pub enum ContractEvent {
     PegOutGraphConfirmation(Transaction, BitcoinBlockHeight),
 
     /// Signifies that a new block has been connected to the chain tip.
-    Block(BitcoinBlockHeight, ConnectorParams),
+    Block(BitcoinBlockHeight),
 
     /// Signifies that the claim transaction for this contract has failed verification.
     ClaimFailure,
@@ -350,6 +350,10 @@ pub struct ContractCfg {
     /// The pointed operator set.
     pub operator_table: OperatorTable,
 
+    /// Consensus critical parameters for computing the locking conditions of the connector
+    /// outputs.
+    pub connector_params: ConnectorParams,
+
     /// The global index of this contract. This is decided by the bridge upon the recognition of
     /// a deposit request.
     pub deposit_idx: u32,
@@ -382,6 +386,7 @@ impl ContractSM {
     pub fn new(
         network: Network,
         operator_table: OperatorTable,
+        connector_params: ConnectorParams,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_idx: u32,
@@ -390,6 +395,7 @@ impl ContractSM {
         let cfg = ContractCfg {
             network,
             operator_table,
+            connector_params,
             deposit_idx,
             deposit_tx,
         };
@@ -478,9 +484,7 @@ impl ContractSM {
             ContractEvent::PegOutGraphConfirmation(tx, height) => {
                 self.process_peg_out_graph_tx_confirmation(height, &tx)
             }
-            ContractEvent::Block(height, connector_params) => {
-                self.notify_new_block(height, connector_params)
-            }
+            ContractEvent::Block(height) => self.notify_new_block(height),
             ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
             ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
             ContractEvent::Assignment(deposit_entry) => self.process_assignment(&deposit_entry),
@@ -706,7 +710,6 @@ impl ContractSM {
     fn notify_new_block(
         &mut self,
         height: BitcoinBlockHeight,
-        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if self.state.block_height + 1 == height {
             self.state.block_height = height;
@@ -741,7 +744,8 @@ impl ContractSM {
                     ..
                 } => {
                     if self.state.block_height
-                        >= claim_height + connector_params.payout_optimistic_timelock as u64
+                        >= claim_height
+                            + self.cfg.connector_params.payout_optimistic_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(
@@ -758,7 +762,7 @@ impl ContractSM {
                     ..
                 } => {
                     if self.state.block_height
-                        >= post_assert_height + connector_params.payout_timelock as u64
+                        >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
