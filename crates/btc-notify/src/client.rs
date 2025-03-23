@@ -10,8 +10,9 @@ use bitcoincore_zmq::Message;
 use futures::StreamExt;
 use tokio::{
     sync::{mpsc, Mutex},
-    task::JoinHandle,
+    task::{self, JoinHandle},
 };
+use tracing::{error, info, trace};
 
 pub use crate::{
     config::BtcZmqConfig,
@@ -60,6 +61,7 @@ impl BtcZmqClient {
     ///
     /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`.
     pub fn connect(cfg: BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
+        trace!(?cfg, "subscribing to bitcoind");
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
         let sockets = cfg
@@ -79,37 +81,63 @@ impl BtcZmqClient {
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
         let tx_subs_thread = tx_subs.clone();
         let state_machine_thread = state_machine.clone();
-        let thread_handle = Arc::new(tokio::task::spawn(async move {
+        let thread_handle = Arc::new(task::spawn(async move {
             loop {
                 // This loop has no break condition. It is only aborted when the BtcZmqClient is
                 // dropped.
+                info!("listening for ZMQ events");
                 while let Some(res) = stream.next().await {
                     let mut sm = state_machine_thread.lock().await;
                     let diff = match res {
-                        Ok(Message::HashBlock(_, _)) => Vec::new(),
-                        Ok(Message::HashTx(_, _)) => Vec::new(),
-                        Ok(Message::Block(block, _)) => {
-                            // First send the block to the block subscribers.
-                            block_subs_thread
-                                .lock()
-                                .await
-                                .retain(|sub| sub.send(block.clone()).is_ok());
+                        Ok(msg) => {
+                            let topic = msg.topic_str();
+                            match msg {
+                                Message::HashBlock(_, _) => {
+                                    trace!(%topic, "received event");
+                                    Vec::new()
+                                }
+                                Message::HashTx(_, _) => {
+                                    trace!(%topic, "received event");
+                                    Vec::new()
+                                }
+                                Message::Block(block, _) => {
+                                    trace!(%topic, "received event");
+                                    // First send the block to the block subscribers.
+                                    block_subs_thread
+                                        .lock()
+                                        .await
+                                        .retain(|sub| sub.send(block.clone()).is_ok());
 
-                            // Now we process the block to understand what the relevant transaction
-                            // diff is.
-                            sm.process_block(block)
+                                    // Now we process the block to understand what the relevant
+                                    // transaction diff is.
+                                    trace!(?block, "processing block");
+                                    info!(block_hash=%block.block_hash(), "processing block");
+                                    sm.process_block(block)
+                                }
+                                Message::Tx(tx, _) => {
+                                    trace!(%topic, "received event");
+                                    info!(txid=%tx.compute_txid(), "processing transaction");
+                                    sm.process_tx(tx)
+                                }
+                                Message::Sequence(seq, _) => {
+                                    trace!(%topic, "received event");
+                                    info!(%seq, "processing sequence");
+                                    sm.process_sequence(seq)
+                                }
+                            }
                         }
-                        Ok(Message::Tx(tx, _)) => sm.process_tx(tx),
-                        Ok(Message::Sequence(seq, _)) => sm.process_sequence(seq),
                         Err(e) => {
-                            tracing::error!("ERROR: {e}");
+                            error!(%e, "Error processing ZMQ message");
                             Vec::new()
                         }
                     };
-                    // Now we send the diff to the relevant subscribers. If we ever encounter a send
-                    // error, it means the receiver has been dropped.
+
                     tx_subs_thread.lock().await.retain(|sub| {
+                        info!("applying filtering predicates on the btc chain state diff");
                         for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
+                            // Now we send the diff to the relevant subscribers.
+                            // If we ever encounter a send error,
+                            // it means the receiver has been dropped.
                             if sub.outbox.send(msg.clone()).is_err() {
                                 sm.rm_filter(&sub.predicate);
                                 return false;
@@ -120,6 +148,8 @@ impl BtcZmqClient {
                 }
             }
         }));
+
+        info!("subscribed to bitcoind");
 
         Ok(BtcZmqClient {
             block_subs,
@@ -141,6 +171,7 @@ impl BtcZmqClient {
             predicate: Arc::new(f),
             outbox: send,
         };
+        trace!(?details, "subscribing to transactions");
 
         let mut subs = self.tx_subs.lock().await;
         let mut sm = self.state_machine.lock().await;
@@ -156,6 +187,8 @@ impl BtcZmqClient {
     /// connected to the main Bitcoin blockchain.
     pub async fn subscribe_blocks(&self) -> Subscription<Block> {
         let (send, recv) = mpsc::unbounded_channel();
+
+        trace!("subscribing to blocks");
 
         self.block_subs.lock().await.push(send);
 
