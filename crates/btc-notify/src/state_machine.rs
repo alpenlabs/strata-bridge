@@ -96,7 +96,7 @@ impl BtcZmqSM {
     /// that must be built on top of a given block before that block's transactions are
     /// considered Buried.
     pub(crate) fn init(bury_depth: usize) -> Self {
-        info!(%bury_depth, "Initializing a ZMQ state machine");
+        info!(%bury_depth, "initializing a ZMQ state machine");
         BtcZmqSM {
             bury_depth,
             tx_filters: Vec::new(),
@@ -110,7 +110,7 @@ impl BtcZmqSM {
     /// The state machine will track any transaction that matches the disjunction of predicates
     /// added.
     pub(crate) fn add_filter(&mut self, pred: TxPredicate) {
-        trace!("Adding a predicate filter to a ZMQ state machine");
+        trace!("adding a predicate filter to a ZMQ state machine");
         self.tx_filters.push(pred);
     }
 
@@ -125,13 +125,13 @@ impl BtcZmqSM {
     /// One of the three primary state transition functions of the [`BtcZmqSM`], updating internal
     /// state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
-        trace!(?block, "Started processing a Block");
-        info!(block_hash=%block.block_hash(), "Started processing a Block");
+        trace!(?block, "started processing a Block");
+        info!(block_hash=%block.block_hash(), "started processing a Block");
         match self.unburied_blocks.front() {
             Some(tip) => {
                 if block.header.prev_blockhash == tip.block_hash() {
-                    trace!(?block, prev_block=?tip, "Block's previous block hash matches the tip");
-                    info!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "Block's previous block hash matches the tip");
+                    trace!(?block, prev_block=?tip, "block's previous block hash matches the tip");
+                    info!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash matches the tip");
                     self.unburied_blocks.push_front(block)
                 } else {
                     // This implies that we missed a block.
@@ -140,7 +140,7 @@ impl BtcZmqSM {
                     // stream processing would cause this to fire during a
                     // reorg. Race conditions MUST NOT cause this to fire. This MUST
                     // be fixed.
-                    error!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "Block's previous block hash does not match the tip");
+                    error!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "invariant violated: blocks received out of order");
                     panic!("invariant violated: blocks received out of order");
                 }
             }
@@ -152,9 +152,9 @@ impl BtcZmqSM {
             None => {
                 trace!(
                     ?block,
-                    "Block's previous block hash does not match the tip. Possible reorg detected"
+                    "block's previous block hash does not match the tip, possible reorg detected"
                 );
-                warn!(block_hash=%block.block_hash(), "Block's previous block hash does not match the tip. Possible reorg detected");
+                warn!(block_hash=%block.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                 self.unburied_blocks.push_front(block);
             }
         }
@@ -164,7 +164,6 @@ impl BtcZmqSM {
         // distributed.
         let mut diff = Vec::new();
 
-        trace!(?block, "Started processing transactions in the block");
         // When a block is processed, it implicitly means that this is the tip. Even in the case of
         // large fork reorgs each block will be added as the tip in order so we will get all
         // events. When a block is mined, it will cause three types of state transitions:
@@ -176,7 +175,7 @@ impl BtcZmqSM {
             .iter()
             .filter(|tx| self.tx_filters.iter().any(|f| f(tx)))
         {
-            trace!(?matched_tx, "Started processing transaction");
+            trace!(?matched_tx, "processing transactions in the block");
             match self.tx_lifecycles.get_mut(&matched_tx.compute_txid()) {
                 // This is either the scenario where we haven't yet seen the transaction in any
                 // capacity, or where we have a MempoolAcceptance event for it but
@@ -186,7 +185,7 @@ impl BtcZmqSM {
                 None | Some(None) => {
                     let blockhash = block.block_hash();
                     let height = block.bip34_block_height().unwrap_or(0);
-                    debug!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "Processing new transaction");
+                    debug!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "processing newly mined transaction");
                     let lifecycle = TxLifecycle {
                         raw: matched_tx.clone(),
                         block: Some((height, blockhash)),
@@ -197,18 +196,17 @@ impl BtcZmqSM {
                         rawtx: matched_tx.clone(),
                         status: TxStatus::Mined { blockhash, height },
                     });
-                    info!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "Processed new transaction");
+                    info!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "processed newly mined transaction");
                 }
                 // This means we have seen the rawtx event for this transaction before.
                 Some(Some(lifecycle)) => {
                     let blockhash = block.block_hash();
                     let height = block.bip34_block_height().unwrap_or(0);
-                    debug!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "Processing already seen transaction");
+                    debug!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "validating already seen transaction");
                     if let Some((_, prior_blockhash)) = lifecycle.block {
                         // This means that it was previously mined. This is pretty weird and so we
                         // include some debug assertions to rule out
                         // violations in our core assumptions.
-                        warn!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "Transaction already mined");
                         debug_assert!(*matched_tx == lifecycle.raw, "transaction data mismatch");
                         debug_assert!(prior_blockhash != blockhash, "duplicate block message");
                     }
@@ -219,7 +217,8 @@ impl BtcZmqSM {
                         rawtx: matched_tx.clone(),
                         status: TxStatus::Mined { blockhash, height },
                     });
-                    info!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "Processed already seen transaction");
+
+                    info!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "processed already seen transaction");
                 }
             }
         }
@@ -232,12 +231,16 @@ impl BtcZmqSM {
                 // from the current lifecycle map.
                 let blockhash = newly_buried.block_hash();
                 let height = newly_buried.bip34_block_height().unwrap_or(0);
-                trace!(?newly_buried, %blockhash, %height, "Handled all mined transactions. Starting to process buried transactions from block");
-                info!(%blockhash, %height, "Handled all mined transactions. Starting to process buried transactions from block");
+
+                trace!(?newly_buried, %blockhash, %height, "handled all mined transactions, starting to process newly buried transactions");
+                info!(%blockhash, %height, "handled all mined transactions, starting to process newly buried transactions from block");
+
                 for buried_tx in newly_buried.txdata {
                     let buried_txid = buried_tx.compute_txid();
-                    trace!(?buried_tx, %buried_txid, %blockhash, %height, "Handled all mined transactions. Starting to process specific buried transactions");
-                    debug!(%buried_txid, %blockhash, %height, "Handled all mined transactions. Starting to process specific buried transactions");
+
+                    trace!(?buried_tx, %buried_txid, %blockhash, %height, "handled all mined transactions, starting to process buried transactions");
+                    debug!(%buried_txid, %blockhash, %height, "handled all mined transactions, starting to process buried transactions");
+
                     self.tx_lifecycles.remove(&buried_txid);
                     if self.tx_filters.iter().any(|f| f(&buried_tx)) {
                         diff.push(TxEvent {
@@ -245,7 +248,8 @@ impl BtcZmqSM {
                             status: TxStatus::Buried { blockhash, height },
                         });
                     }
-                    info!(%blockhash, %height, "Handled all mined and buried transaction from block");
+
+                    info!(%blockhash, %height, "processed all buried transactions");
                 }
             }
         }
@@ -257,8 +261,7 @@ impl BtcZmqSM {
     /// internal state to reflect the `rawtx` event.
     pub(crate) fn process_tx(&mut self, tx: Transaction) -> Vec<TxEvent> {
         let txid = tx.compute_txid();
-        trace!(?tx, %txid, "Processing transaction");
-        info!(%txid, "Processing transaction");
+        trace!(?tx, %txid, "filtering transactions");
         if !self.tx_filters.iter().any(|f| f(&tx)) {
             return Vec::new();
         }
@@ -267,8 +270,8 @@ impl BtcZmqSM {
         match lifecycle {
             // In this case we have never seen any information on this transaction whatsoever.
             None => {
-                trace!(?tx, %txid, ?lifecycle, "Never seen transaction");
-                debug!(%txid, ?lifecycle, "Never seen transaction");
+                trace!(?tx, %txid, ?lifecycle, "received new transaction");
+                debug!(%txid, ?lifecycle, "received new transaction");
                 let lifecycle = TxLifecycle {
                     raw: tx,
                     block: None,
@@ -285,8 +288,8 @@ impl BtcZmqSM {
             // In this case we have seen a MempoolAcceptance event for this txid, but haven't seen
             // the actual transaction data yet.
             Some(None) => {
-                trace!(?tx, %txid, ?lifecycle, "Have seen a MempoolAcceptance event for this transaction");
-                debug!(%txid, ?lifecycle, "Have seen a MempoolAcceptance event for this transaction");
+                trace!(?tx, %txid, ?lifecycle, "received MempoolAcceptance event");
+                debug!(%txid, ?lifecycle, "received MempoolAcceptance");
                 let lifecycle = TxLifecycle {
                     raw: tx.clone(),
                     block: None,
@@ -305,8 +308,8 @@ impl BtcZmqSM {
             // In this case we know everything we need to about this transaction, and this is
             // probably a rawtx event that accompanies an upcoming new block event.
             Some(Some(_)) => {
-                trace!(?tx, %txid, ?lifecycle, "Already know everything that needs to be known about this transaction");
-                debug!(%txid, ?lifecycle, "Already know everything that needs to be known about this transaction");
+                trace!(?tx, %txid, ?lifecycle, "received duplicate transaction event");
+                debug!(%txid, ?lifecycle, "received duplicate transaction event");
                 Vec::new()
             }
         }
@@ -329,7 +332,7 @@ impl BtcZmqSM {
                 debug!(?seq, %blockhash, "BlockDisconnect received");
                 if let Some(block) = self.unburied_blocks.front() {
                     if block.block_hash() == blockhash {
-                        info!(%blockhash, "Block disconnected, removing all transactions");
+                        info!(%blockhash, "block disconnected, removing all included transactions");
                         self.unburied_blocks.pop_front();
                     } else {
                         // As far as I can tell, the block connect and disconnect events are done in
@@ -360,12 +363,12 @@ impl BtcZmqSM {
                             }
                             // Otherwise keep it.
                             _ => {
-                                trace!(tx=?lifecycle.raw, txid=%lifecycle.raw.compute_txid(), "Block disconnected, keeping transaction");
+                                trace!(tx=?lifecycle.raw, txid=%lifecycle.raw.compute_txid(), "retaining transaction");
                                 true
                             }
                         },
                         None => {
-                            trace!(?v, "Block disconnected, keeping transaction");
+                            trace!(?v, "keeping transaction");
                             true
                         },
                     }
@@ -384,13 +387,13 @@ impl BtcZmqSM {
                                     rawtx: lifecycle.raw.clone(),
                                     status: TxStatus::Mempool,
                                 }];
-                                trace!(?diff, ?seq, %txid, "MempoolAcceptance received before rawtx");
+                                trace!(?diff, ?seq, %txid, "received MempoolAcceptance");
                             }
                             // This can happen because there is a race between the rawblock event
                             // delivery and the sequence event for a given transaction. If we
                             // encounter this, we will ignore the MempoolAcceptance.
                             Some(_) => {
-                                trace!(?diff, ?seq, %txid, "MempoolAcceptance received but probably a race condition between rawblock and sequence events");
+                                trace!(?diff, ?seq, %txid, "ignoring duplicate MempoolAcceptance");
                                 /* NOOP */
                             }
                         }
@@ -402,7 +405,9 @@ impl BtcZmqSM {
                     // think it is a material issue if we do. This is currently
                     // a panic to allow us to quickly discover
                     // if this assumption doesn't hold and what it means
-                    Some(None) => panic!("invariant violated: duplicate mempool acceptance"),
+                    Some(None) => {
+                        panic!("invariant violated: MempoolAcceptance received before rawtx")
+                    }
                     // In this case we know nothing of this transaction yet.
                     None => {
                         // We insert a placeholder because we expect the rawtx event to fill in the
@@ -414,7 +419,7 @@ impl BtcZmqSM {
                         // MempoolAcceptance event we are guaranteed to have a corresponding rawtx
                         // event. So this shouldn't cause a memory leak
                         // unless we miss ZMQ events entirely.
-                        trace!(?diff, ?seq, %txid, "MempoolAcceptance received and don't have the rawtx yet");
+                        trace!(?diff, ?seq, %txid, "saw dangling transaction in mempool");
                         self.tx_lifecycles.insert(txid, None);
                     }
                 }
@@ -440,17 +445,17 @@ impl BtcZmqSM {
                             rawtx: lifecycle.raw,
                             status: TxStatus::Unknown,
                         }];
-                        trace!(?diff, ?seq, %txid, "MempoolRemoval received for a transaction that has been seen as rawtx before");
+                        trace!(?diff, ?seq, %txid, "MempoolRemoval received for a transaction with some lifecycle");
                     }
                     // This will happen if we've only received a MempoolAcceptance event, the
                     // removal will cancel it fully.
                     Some(None) => {
-                        trace!(?diff, ?seq, %txid, "MempoolRemoval received for a transaction that has been seen as MempoolAcceptance before");
+                        trace!(?diff, ?seq, %txid, "transaction removed from mempool");
                         /* NOOP */
                     }
                     // This happens if we've never heard anything about this transaction before.
                     None => {
-                        trace!(?diff, ?seq, %txid, "MempoolRemoval received for a transaction that no information is available yet");
+                        trace!(?diff, ?seq, %txid, "observed removal of a new transaction from mempool");
                         /* NOOP */
                     }
                 }

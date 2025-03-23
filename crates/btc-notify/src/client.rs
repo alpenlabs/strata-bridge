@@ -63,7 +63,7 @@ impl BtcZmqClient {
     ///
     /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`.
     pub fn connect(cfg: BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
-        trace!(?cfg, "starting connecting to bitcoind");
+        trace!(?cfg, "subscribing to bitcoind");
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
         let sockets = cfg
@@ -87,50 +87,59 @@ impl BtcZmqClient {
             loop {
                 // This loop has no break condition. It is only aborted when the BtcZmqClient is
                 // dropped.
-                info!("started listening for ZMQ notifications");
+                info!("listening for ZMQ events");
                 while let Some(res) = stream.next().await {
                     let mut sm = state_machine_thread.lock().await;
                     let diff = match res {
-                        Ok(Message::HashBlock(_, _)) => {
-                            trace!("Received HashBlock message");
-                            Vec::new()
-                        }
-                        Ok(Message::HashTx(_, _)) => {
-                            trace!("Received HashTx message");
-                            Vec::new()
-                        }
-                        Ok(Message::Block(block, _)) => {
-                            trace!(?block, "Received Block message");
-                            // First send the block to the block subscribers.
-                            block_subs_thread
-                                .lock()
-                                .await
-                                .retain(|sub| sub.send(block.clone()).is_ok());
+                        Ok(msg) => {
+                            let topic = msg.topic_str();
+                            match msg {
+                                Message::HashBlock(_, _) => {
+                                    trace!(%topic, "received event");
+                                    Vec::new()
+                                }
+                                Message::HashTx(_, _) => {
+                                    trace!(%topic, "received event");
+                                    Vec::new()
+                                }
+                                Message::Block(block, _) => {
+                                    trace!(%topic, "received event");
+                                    // First send the block to the block subscribers.
+                                    block_subs_thread
+                                        .lock()
+                                        .await
+                                        .retain(|sub| sub.send(block.clone()).is_ok());
 
-                            // Now we process the block to understand what the relevant transaction
-                            // diff is.
-                            trace!(?block, "Processing block");
-                            info!(block_hash=%block.block_hash(), "Processing block");
-                            sm.process_block(block)
-                        }
-                        Ok(Message::Tx(tx, _)) => {
-                            trace!(?tx, "Processing transaction");
-                            info!(txid=%tx.compute_txid(), "Processing transaction");
-                            sm.process_tx(tx)
-                        }
-                        Ok(Message::Sequence(seq, _)) => {
-                            info!(%seq, "Processing sequence");
-                            sm.process_sequence(seq)
+                                    // Now we process the block to understand what the relevant
+                                    // transaction diff is.
+                                    trace!(?block, "processing block");
+                                    info!(block_hash=%block.block_hash(), "processing block");
+                                    sm.process_block(block)
+                                }
+                                Message::Tx(tx, _) => {
+                                    trace!(%topic, "received event");
+                                    info!(txid=%tx.compute_txid(), "processing transaction");
+                                    sm.process_tx(tx)
+                                }
+                                Message::Sequence(seq, _) => {
+                                    trace!(%topic, "received event");
+                                    info!(%seq, "processing sequence");
+                                    sm.process_sequence(seq)
+                                }
+                            }
                         }
                         Err(e) => {
                             error!(%e, "Error processing ZMQ message");
                             Vec::new()
                         }
                     };
-                    // Now we send the diff to the relevant subscribers. If we ever encounter a send
-                    // error, it means the receiver has been dropped.
+
                     tx_subs_thread.lock().await.retain(|sub| {
+                        info!("applying filtering predicates on the btc chain state diff");
                         for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
+                            // Now we send the diff to the relevant subscribers.
+                            // If we ever encounter a send error,
+                            // it means the receiver has been dropped.
                             if sub.outbox.send(msg.clone()).is_err() {
                                 sm.rm_filter(&sub.predicate);
                                 return false;
@@ -142,7 +151,7 @@ impl BtcZmqClient {
             }
         }));
 
-        info!("connected to bitcoind");
+        info!("subscribed to bitcoind");
 
         Ok(BtcZmqClient {
             block_subs,
