@@ -288,3 +288,7 @@ provers/sp1/proofs/
 
 # secret service
 seed
+certs
+
+# certificates and private keys in der format
+*.der
