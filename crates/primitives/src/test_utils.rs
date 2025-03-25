@@ -10,7 +10,7 @@ use bitcoin::{
     taproot::LeafVersion,
     Network, TapNodeHash, XOnlyPublicKey,
 };
-use secp256k1::{rand::thread_rng, Parity};
+use secp256k1::rand::thread_rng;
 use strata_primitives::bridge::PublickeyTable;
 
 use crate::{
@@ -19,6 +19,7 @@ use crate::{
         general::{drt_take_back, get_aggregated_pubkey, n_of_n_script},
         prelude::{create_taproot_addr, SpendPath},
     },
+    secp::EvenSecretKey,
     types::OperatorIdx,
 };
 
@@ -62,12 +63,9 @@ pub(crate) fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {
 
 pub(crate) fn generate_xonly_pubkey() -> XOnlyPublicKey {
     let mut rng = thread_rng();
-    let mut sk = SecretKey::new(&mut rng);
-    // negate sk if odd
-    if sk.x_only_public_key(SECP256K1).1 == Parity::Odd {
-        sk = sk.negate();
-    }
-    sk.x_only_public_key(SECP256K1).0
+    let sk = SecretKey::new(&mut rng);
+    let even_sk: EvenSecretKey = sk.into();
+    even_sk.x_only_public_key(SECP256K1).0
 }
 
 pub(crate) fn create_drt_taproot_output(
