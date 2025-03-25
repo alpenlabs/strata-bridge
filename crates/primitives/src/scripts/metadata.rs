@@ -1,14 +1,6 @@
 //! Primitives for Bridge metadata.
 
-use std::mem;
-
-use bitcoin::{key::constants::SCHNORR_PUBLIC_KEY_SIZE, XOnlyPublicKey};
-
-/// Execution Environment address size in bytes.
-const EE_ADDRESS_SIZE: usize = 20;
-
-/// u32 size in bytes.
-const U32_SIZE: usize = mem::size_of::<u32>();
+use bitcoin::XOnlyPublicKey;
 
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
@@ -30,7 +22,7 @@ pub enum DepositMetadata {
         // TODO: make this a BOSD Descriptor.
         takeback_pubkey: XOnlyPublicKey,
 
-        /// 20-byte Execution Environment address.
+        /// Execution Environment address.
         ee_address: Vec<u8>,
     },
     DepositTx {
@@ -41,7 +33,7 @@ pub enum DepositMetadata {
         /// This is a 4-byte big-endian encoded unsigned 32-bit integer.
         stake_index: u32,
 
-        /// 20-byte Execution Environment address.
+        /// Execution Environment address.
         ee_address: Vec<u8>,
     },
 }
@@ -49,13 +41,7 @@ pub enum DepositMetadata {
 impl<'tag> AuxiliaryData<'tag> {
     /// Extracts the metadata as bytes.
     pub fn to_vec(&'tag self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(
-            self.tag.len() // FIXME: make this known at compile time once the tag length is defined.
-                + match &self.metadata {
-                    DepositMetadata::DepositRequestTx { .. } => SCHNORR_PUBLIC_KEY_SIZE + EE_ADDRESS_SIZE,
-                    DepositMetadata::DepositTx { .. } => U32_SIZE + EE_ADDRESS_SIZE,
-                },
-        );
+        let mut bytes = Vec::new();
 
         bytes.extend_from_slice(self.tag);
 
@@ -63,6 +49,7 @@ impl<'tag> AuxiliaryData<'tag> {
             DepositMetadata::DepositRequestTx {
                 takeback_pubkey,
                 ee_address,
+                ..
             } => {
                 bytes.extend_from_slice(&takeback_pubkey.serialize());
                 bytes.extend_from_slice(ee_address);
