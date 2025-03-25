@@ -2,9 +2,9 @@ seed = "/app/seed"
 network = "regtest"
 
 [tls]
-# key = "/app/tls/key.der"
-# cert = "/app/tls/cert.der"
-# ca = "/app/tls/bridge.ca.der"
+key = "/app/tls/key.der"
+cert = "/app/tls/cert.der"
+ca = "/app/tls/bridge.ca.der"
 
 [transport]
-addr = "127.0.0.1:3000"
+addr = "0.0.0.0:69"

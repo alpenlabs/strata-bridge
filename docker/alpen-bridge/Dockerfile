@@ -1,55 +1,55 @@
 # warning: run from repo root, NOT inside this dir
-FROM --platform=linux/amd64 rust:latest AS builder
+FROM --platform=linux/amd64 ghcr.io/succinctlabs/sp1:latest AS builder
 
 WORKDIR /app
 
 # Set environment variables for optimized release builds
-ENV CARGO_INCREMENTAL=0 \
-    CARGO_TERM_COLOR=always
-# TARGET=x86_64-unknown-linux-musl
+ENV CARGO_INCREMENTAL=0
+ENV CARGO_TERM_COLOR=always
+ENV TARGET=x86_64-unknown-linux-musl
 
 # Install system dependencies
-RUN apt-get update && apt-get -y upgrade && apt-get install -y \
+RUN apt-get update
+RUN apt-get -y upgrade
+RUN apt-get install -y \
     pkg-config \
-    build-essential protobuf-compiler
+    build-essential protobuf-compiler git
 
 COPY rust-toolchain.toml rust-toolchain.toml
-
-# SP1
-RUN curl -L https://sp1up.succinct.xyz | bash && ~/.sp1/bin/sp1up --c-toolchain
-ENV PATH="/root/.sp1/bin:$PATH"
-# check sp1 is setup properly
-RUN cargo prove --version
-# RUN RUSTUP_TOOLCHAIN=succinct cargo --version
-
-# Cache toolchain
 RUN --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,sharing=private,target=/app/target \
     cargo
 
+# check sp1 is setup properly
+RUN cargo +succinct --version
 
 COPY . .
 
-# Build dependencies in release mode
+# Download dependencies in release mode
 RUN --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,sharing=private,target=/app/target \
     cargo fetch
 
+# Build deps
+RUN --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,sharing=private,target=/app/target \
+    cargo b -r
+
 # Build bridge node
 RUN --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,sharing=private,target=/app/target \
-    cargo build --release -p alpen-bridge
-
+    cargo b -r -p alpen-bridge
 
 RUN --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,sharing=private,target=/app/target \
     cp /app/target/release/alpen-bridge /app/alpen-bridge
 
-FROM ubuntu:24.04 AS runtime
+FROM --platform=linux/amd64 ubuntu:24.04 AS runtime
 WORKDIR /app
 
 RUN apt-get update && \
@@ -60,7 +60,9 @@ RUN apt-get update && \
 
 # Copy the built binaries from the builder stage
 COPY --from=builder /app/alpen-bridge /usr/local/bin/alpen-bridge
+COPY docker/alpen-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
+# RUN chmod +x /usr/local/bin/entrypoint.sh
 
-EXPOSE 3000
+EXPOSE 5678
 
-ENTRYPOINT ["/usr/local/bin/alpen-bridge", "/app/config.toml"]
+ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]
