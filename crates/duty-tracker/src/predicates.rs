@@ -1,11 +1,12 @@
 //! This module supplies helpers for categorizing transactions and extracting payloads from them
 //! where relevant.
+
 use std::sync::Arc;
 
 use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
 use bitcoin::{
-    hashes::Hash, opcodes::all::OP_RETURN, taproot::TAPROOT_CONTROL_NODE_SIZE, OutPoint, Script,
-    TapNodeHash, Transaction, Txid,
+    key::constants::SCHNORR_PUBLIC_KEY_SIZE, opcodes::all::OP_RETURN, OutPoint, Script,
+    Transaction, Txid, XOnlyPublicKey,
 };
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::deposit::DepositInfo;
@@ -50,15 +51,18 @@ pub(crate) fn deposit_request_info(
     // TODO(proofofkeags): validate that the script_pubkey pays to the right operator set
 
     let ee_address_size = sidesystem_params.ee_addr_size;
-    let (take_back_leaf_hash, el_addr) =
+    let (recovery_x_only_pk, el_addr) =
         magic_tagged_data(MAGIC_BYTES, &tx.output.get(1)?.script_pubkey).and_then(|meta| {
-            if meta.len() != TAPROOT_CONTROL_NODE_SIZE + ee_address_size {
+            if meta.len() != SCHNORR_PUBLIC_KEY_SIZE + ee_address_size {
                 return None;
             }
-            let take_back_leaf_hash = meta.get(..TAPROOT_CONTROL_NODE_SIZE)?;
+            let recovery_x_only_pk = meta.get(..SCHNORR_PUBLIC_KEY_SIZE)?;
+            // TODO: handle error variant and get rid of expect.
+            let recovery_x_only_pk = XOnlyPublicKey::from_slice(recovery_x_only_pk)
+                .expect("Failed to parse XOnlyPublicKey");
             let el_addr =
-                meta.get(TAPROOT_CONTROL_NODE_SIZE..TAPROOT_CONTROL_NODE_SIZE + ee_address_size)?;
-            Some((take_back_leaf_hash, el_addr))
+                meta.get(SCHNORR_PUBLIC_KEY_SIZE..SCHNORR_PUBLIC_KEY_SIZE + ee_address_size)?;
+            Some((recovery_x_only_pk, el_addr))
         })?;
 
     Some(DepositInfo::new(
@@ -66,7 +70,7 @@ pub(crate) fn deposit_request_info(
         stake_index,
         el_addr.to_vec(),
         deposit_request_output.value,
-        TapNodeHash::from_slice(take_back_leaf_hash).unwrap(),
+        recovery_x_only_pk,
         deposit_request_output.script_pubkey.clone(),
     ))
 }

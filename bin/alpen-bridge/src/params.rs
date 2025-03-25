@@ -11,11 +11,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// behavior that will prevent the bridge from functioning.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Params {
-    /// The tag that is used to identify bridge-specific transactions in the Bitcoin blockchain.
-    ///
-    /// This is chiefly used to identify Deposit Request and Deposit transactions.
-    pub tx_tag: String,
-
     /// The height at which the bridge node starts scanning for relevant transactions.
     pub genesis_height: u32,
 
@@ -120,7 +115,6 @@ mod tests {
         let deposit_amount = Amount::from_int_btc(1).to_sat();
         let params = format!(
             r#"
-            tx_tag = "bridge-tag"
             genesis_height = 101
 
             [keys]
@@ -128,6 +122,7 @@ mod tests {
             p2p = ["02e68354ebb3ef14caeac8f724fea1449d802133495ef1675f210b07421700a386", "03f79465fcc3ef14caeac8f724fea1449d802133495ef1675f210b07421811b497"]
 
             [tx_graph]
+            tag = "bridge-tag"
             deposit_amount = {}
             operator_fee = 1000000
             challenge_cost = 10000000

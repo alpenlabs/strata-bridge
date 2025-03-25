@@ -2,6 +2,9 @@
 
 use bitcoin::{relative, Amount};
 
+/// The default tag for the bridge.
+pub(crate) const BRIDGE_TAG: &str = "alpen";
+
 /// The default denomination for each deposit to the bridge.
 pub(crate) const BRIDGE_DENOMINATION: Amount = Amount::from_int_btc(1);
 

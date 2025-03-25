@@ -4,6 +4,7 @@ use bitcoin::Amount;
 use serde::{Deserialize, Serialize};
 
 use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE, REFUND_DELAY};
+use crate::default::BRIDGE_TAG;
 
 /// The parameters required to construct a peg-out graph.
 ///
@@ -12,6 +13,9 @@ use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE, REFUND_D
 // TODO: move this to the primitives crate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PegOutGraphParams {
+    /// The tag, also known as "magic bytes".
+    pub tag: String,
+
     /// The amount that is locked in the bridge address at the deposit time.
     pub deposit_amount: Amount,
 
@@ -30,6 +34,7 @@ pub struct PegOutGraphParams {
 impl Default for PegOutGraphParams {
     fn default() -> Self {
         Self {
+            tag: BRIDGE_TAG.to_string(),
             deposit_amount: BRIDGE_DENOMINATION,
             operator_fee: OPERATOR_FEE,
             challenge_cost: CHALLENGE_COST,

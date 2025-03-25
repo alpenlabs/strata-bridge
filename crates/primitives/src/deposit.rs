@@ -3,11 +3,12 @@
 //! Contains types, traits and implementations related to creating various transactions used in the
 //! bridge-in dataflow.
 
+use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
 use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
-    taproot::{self, ControlBlock},
-    Address, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,
+    taproot::{self, ControlBlock, LeafVersion},
+    Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 
@@ -39,9 +40,9 @@ pub struct DepositInfo {
     /// The stake index must be encoded in 4-byte big-endian.
     stake_index: u32,
 
-    /// The execution layer address to mint the equivalent tokens to.
+    /// The execution environment address to mint the equivalent tokens to.
     /// As of now, this is just the 20-byte EVM address.
-    el_address: Vec<u8>,
+    ee_address: Vec<u8>,
 
     /// The amount in bitcoins that the user is sending.
     ///
@@ -49,9 +50,9 @@ pub struct DepositInfo {
     /// confirmed on bitcoin. The excess amount is used as miner fees for the Deposit Transaction.
     total_amount: Amount,
 
-    /// The hash of the take back leaf in the Deposit Request Transaction (DRT) as provided by the
+    /// The [`XOnlyPublicKey`] in the Deposit Request Transaction (DRT) as provided by the
     /// user in their `OP_RETURN` output.
-    take_back_leaf_hash: TapNodeHash,
+    x_only_public_key: XOnlyPublicKey,
 
     /// The original script_pubkey in the Deposit Request Transaction (DRT) output used to sanity
     /// check computation internally i.e., whether the known information (n/n script spend path,
@@ -60,6 +61,7 @@ pub struct DepositInfo {
     original_script_pubkey: ScriptBuf,
 }
 
+// FIXME: remove the trait.
 impl TxKind for DepositInfo {
     fn construct_signing_data<C: BuildContext>(
         &self,
@@ -73,6 +75,7 @@ impl TxKind for DepositInfo {
             build_context,
             deposit_amt,
             tag.expect("deposit tx must have a tag in the metadata"),
+            20,
         )?;
 
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
@@ -96,15 +99,15 @@ impl DepositInfo {
         stake_index: u32,
         el_address: Vec<u8>,
         total_amount: Amount,
-        take_back_leaf_hash: TapNodeHash,
+        x_only_public_key: XOnlyPublicKey,
         original_script_pubkey: ScriptBuf,
     ) -> Self {
         Self {
             deposit_request_outpoint,
             stake_index,
-            el_address,
+            ee_address: el_address,
             total_amount,
-            take_back_leaf_hash,
+            x_only_public_key,
             original_script_pubkey,
         }
     }
@@ -121,7 +124,7 @@ impl DepositInfo {
 
     /// Get the address in EL to mint tokens to.
     pub fn el_address(&self) -> &[u8] {
-        &self.el_address
+        &self.ee_address
     }
 
     /// Get the outpoint of the Deposit Request Transaction (DRT) that is to spent in the Deposit
@@ -130,10 +133,43 @@ impl DepositInfo {
         &self.deposit_request_outpoint
     }
 
-    /// Get the hash of the user-takes-back leaf in the taproot of the Deposit Request Transaction
-    /// (DRT).
-    pub fn take_back_leaf_hash(&self) -> &TapNodeHash {
-        &self.take_back_leaf_hash
+    /// Get the x-only public key of the user-takes-back leaf in the taproot of the Deposit Request
+    /// Transaction (DRT).
+    pub fn x_only_public_key(&self) -> &XOnlyPublicKey {
+        &self.x_only_public_key
+    }
+
+    #[allow(dead_code)] // FIXME: remove this with the trait FIXME above.
+    fn construct_signing_data<C: BuildContext>(
+        &self,
+        build_context: &C,
+        pegout_graph_params: &PegOutGraphParams,
+        sidesystem_params: &SideSystemParams,
+    ) -> BridgeTxBuilderResult<TxSigningData> {
+        let PegOutGraphParams {
+            tag,
+            deposit_amount,
+            ..
+        } = pegout_graph_params;
+        let prevouts = self.compute_prevouts();
+        let spend_info = self.compute_spend_infos(build_context)?;
+        let unsigned_tx = self.create_unsigned_tx(
+            build_context,
+            *deposit_amount,
+            tag.as_bytes(),
+            sidesystem_params.ee_addr_size,
+        )?;
+
+        let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
+
+        for (i, input) in psbt.inputs.iter_mut().enumerate() {
+            input.witness_utxo = Some(prevouts[i].clone());
+        }
+
+        Ok(TxSigningData {
+            psbt,
+            spend_path: spend_info,
+        })
     }
 
     fn compute_spend_infos(
@@ -142,35 +178,37 @@ impl DepositInfo {
     ) -> BridgeTxBuilderResult<TaprootWitness> {
         // The Deposit Request (DT) spends the n-of-n multisig leaf
         let spend_script = n_of_n_script(&build_context.aggregated_pubkey()).compile();
-        let spend_script_hash =
-            TapNodeHash::from_script(&spend_script, taproot::LeafVersion::TapScript);
 
-        let takeback_script_hash = self.take_back_leaf_hash();
+        // Compute the merkle root using the x-only public key in the OP_RETURN
+        let recovery_xonly_pubkey = self.x_only_public_key();
+        // TODO: how to get the PegOutGraphParams.recover_delay (from Params) here?
+        let refund_delay = 1_008; // Placeholder 1 week.
+        let takeback_script = drt_take_back(*recovery_xonly_pubkey, refund_delay);
+        let takeback_script_hash =
+            TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
-        let merkle_root = TapNodeHash::from_node_hashes(spend_script_hash, *takeback_script_hash);
+        let spend_path = SpendPath::ScriptSpend {
+            scripts: &[spend_script.clone(), takeback_script],
+        };
 
-        let address = Address::p2tr(
-            SECP256K1,
-            *UNSPENDABLE_INTERNAL_KEY,
-            Some(merkle_root),
-            build_context.network(),
-        )
-        .script_pubkey();
+        let (address, spend_info) =
+            create_taproot_addr(&build_context.network(), spend_path).unwrap();
+        let merkle_root = spend_info.merkle_root();
 
-        let expected_addr = &self.original_script_pubkey;
+        let expected_spk = &self.original_script_pubkey;
 
-        if address != *expected_addr {
+        if address.script_pubkey() != *expected_spk {
             return Err(BridgeTxBuilderError::DepositTransaction(
                 DepositTransactionError::InvalidTapLeafHash,
             ));
         }
 
-        let (output_key, parity) = UNSPENDABLE_INTERNAL_KEY.tap_tweak(SECP256K1, Some(merkle_root));
+        let (output_key, parity) = UNSPENDABLE_INTERNAL_KEY.tap_tweak(SECP256K1, merkle_root);
 
         let control_block = ControlBlock {
             leaf_version: taproot::LeafVersion::TapScript,
             internal_key: *UNSPENDABLE_INTERNAL_KEY,
-            merkle_branch: vec![*takeback_script_hash].try_into().map_err(|_| {
+            merkle_branch: vec![takeback_script_hash].try_into().map_err(|_| {
                 BridgeTxBuilderError::DepositTransaction(
                     DepositTransactionError::InvalidTapLeafHash,
                 )
@@ -204,27 +242,32 @@ impl DepositInfo {
         build_context: &impl BuildContext,
         deposit_amt: Amount,
         tag: &[u8],
+        ee_address_size: usize,
     ) -> BridgeTxBuilderResult<Transaction> {
         // First, create the inputs
         let outpoint = self.deposit_request_outpoint();
         let tx_ins = create_tx_ins([*outpoint]);
 
-        // Then, create the outputs:
-
-        // First, create the `OP_RETURN` output:
+        // Second, create the `OP_RETURN` output:
         // <magic_bytes>  (the `tag` argument)
         // <stake_index> (4-byte big-endian)
-        // <el_address> (from the DRT)
-        let stake_index = self.stake_index();
-        let stake_index: &[u8; 4] = &stake_index.to_be_bytes();
-        let el_addr = self.el_address();
-        let el_addr: &[u8; 20] = el_addr.try_into().map_err(|_| {
-            BridgeTxBuilderError::DepositTransaction(DepositTransactionError::InvalidElAddressSize(
-                el_addr.len(),
-            ))
-        })?;
+        // <ee_address> (from the DRT)
+        if self.ee_address.len() != ee_address_size {
+            return Err(DepositTransactionError::InvalidEeAddressSize(
+                self.ee_address.len(),
+                ee_address_size,
+            )
+            .into());
+        }
 
-        let metadata_script = metadata_script(Some(stake_index), el_addr, tag);
+        let metadata = AuxiliaryData {
+            tag,
+            metadata: DepositMetadata::DepositTx {
+                stake_index: self.stake_index(),
+                ee_address: self.ee_address.to_vec(),
+            },
+        };
+        let metadata_script = metadata_script(metadata);
         let metadata_amount = Amount::from_int_btc(0);
 
         // Then create the taproot script pubkey with keypath spend for the actual deposit
@@ -249,20 +292,21 @@ impl DepositInfo {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
-    use bitcoin::{
-        hashes::{sha256, Hash},
-        hex::{Case, DisplayHex},
-        Network,
-    };
+    use bitcoin::Network;
 
     use super::*;
     use crate::{
         build_context::TxBuildContext,
         errors::{BridgeTxBuilderError, DepositTransactionError},
-        test_utils::{create_drt_taproot_output, generate_keypairs, generate_pubkey_table},
+        test_utils::{
+            create_drt_taproot_output, generate_keypairs, generate_pubkey_table,
+            generate_xonly_pubkey,
+        },
     };
+
+    fn test_sidesystem_params() -> SideSystemParams {
+        SideSystemParams { ee_addr_size: 20 }
+    }
 
     #[test]
     fn test_create_spend_infos() {
@@ -270,9 +314,10 @@ mod tests {
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
 
         let deposit_request_outpoint = OutPoint::null();
+        let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let (drt_output_address, take_back_leaf_hash) =
-            create_drt_taproot_output(operator_pubkeys.clone());
+        let (drt_output_address, _take_back_leaf_hash) =
+            create_drt_taproot_output(operator_pubkeys.clone(), recovery_xonly_pk);
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
@@ -284,7 +329,7 @@ mod tests {
             1,
             [0u8; 20].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -296,15 +341,13 @@ mod tests {
         );
 
         // Handles incorrect merkle proof
-        let random_hash = sha256::Hash::hash(b"random_hash")
-            .to_byte_array()
-            .to_hex_string(Case::Lower);
+        let random_xonly_pubkey = generate_xonly_pubkey();
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             1,
             [0u8; 20].to_vec(),
             deposit_amt,
-            TapNodeHash::from_str(&random_hash).unwrap(),
+            random_xonly_pubkey,
             drt_output_address.address().script_pubkey(),
         );
 
@@ -328,9 +371,10 @@ mod tests {
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
 
         let deposit_request_outpoint = OutPoint::null();
+        let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let (drt_output_address, take_back_leaf_hash) =
-            create_drt_taproot_output(operator_pubkeys.clone());
+        let (drt_output_address, _take_back_leaf_hash) =
+            create_drt_taproot_output(operator_pubkeys.clone(), recovery_xonly_pk);
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
@@ -341,13 +385,13 @@ mod tests {
             1,
             [0u8; 20].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
         let tag = b"alpen";
         let deposit_amt = Amount::from_int_btc(1);
-        let result = deposit_info.create_unsigned_tx(&tx_builder, deposit_amt, tag);
+        let result = deposit_info.create_unsigned_tx(&tx_builder, deposit_amt, tag, 20);
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -365,9 +409,10 @@ mod tests {
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
 
         let deposit_request_outpoint = OutPoint::null();
+        let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let (drt_output_address, take_back_leaf_hash) =
-            create_drt_taproot_output(operator_pubkeys.clone());
+        let (drt_output_address, _take_back_leaf_hash) =
+            create_drt_taproot_output(operator_pubkeys.clone(), recovery_xonly_pk);
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
@@ -378,13 +423,16 @@ mod tests {
             1,
             [0u8; 20].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
-        let tag = b"alpen";
         let deposit_amt = Amount::from_int_btc(1);
-        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
+        let result = deposit_info.construct_signing_data(
+            &tx_builder,
+            &PegOutGraphParams::default(),
+            &test_sidesystem_params(),
+        );
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -402,36 +450,42 @@ mod tests {
             1,
             [0u8; 21].to_vec(),
             deposit_amt,
-            take_back_leaf_hash,
+            recovery_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
+        let result = deposit_info.construct_signing_data(
+            &tx_builder,
+            &PegOutGraphParams::default(),
+            &test_sidesystem_params(),
+        );
         assert!(
             result.is_err_and(|e| matches!(
                 e,
                 BridgeTxBuilderError::DepositTransaction(
-                    DepositTransactionError::InvalidElAddressSize(INVALID_LENGTH)
+                    DepositTransactionError::InvalidEeAddressSize(INVALID_LENGTH, 20)
                 )
             )),
             "should handle the case where the EL address is invalid"
         );
 
-        // test with invalid tapleaf hash
-        let random_hash = sha256::Hash::hash(b"random_hash")
-            .to_byte_array()
-            .to_hex_string(Case::Lower);
+        // test with invalid x-only pk
+        let random_xonly_pk = generate_xonly_pubkey();
 
         let deposit_info = DepositInfo::new(
             deposit_request_outpoint,
             1,
             [0u8; 20].to_vec(),
             deposit_amt,
-            TapNodeHash::from_str(&random_hash).unwrap(),
+            random_xonly_pk,
             drt_output_address.address().script_pubkey(),
         );
 
-        let result = deposit_info.construct_signing_data(&tx_builder, deposit_amt, Some(&tag[..]));
+        let result = deposit_info.construct_signing_data(
+            &tx_builder,
+            &PegOutGraphParams::default(),
+            &test_sidesystem_params(),
+        );
         assert!(
             result.is_err_and(|e| matches!(
                 e,
