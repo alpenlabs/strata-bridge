@@ -77,7 +77,7 @@ impl PublicDb for PublicDbInMemory {
             .await
             .get(&operator_id)
             .and_then(|m| m.get(&deposit_txid))
-            .copied())
+            .cloned())
     }
 
     async fn set_wots_public_keys(
@@ -128,10 +128,10 @@ impl PublicDb for PublicDbInMemory {
         trace!(event = "wlock acquired on wots signatures", %operator_id, %deposit_txid);
 
         if let Some(op_keys) = map.get_mut(&operator_id) {
-            op_keys.insert(deposit_txid, *signatures);
+            op_keys.insert(deposit_txid, signatures.clone());
         } else {
             let mut sigs_map = HashMap::new();
-            sigs_map.insert(deposit_txid, *signatures);
+            sigs_map.insert(deposit_txid, signatures.clone());
 
             map.insert(operator_id, sigs_map);
         }

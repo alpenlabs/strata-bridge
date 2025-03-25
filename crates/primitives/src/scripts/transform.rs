@@ -130,7 +130,7 @@ mod tests {
         hex::DisplayHex,
     };
     use bitvm::{
-        signatures::wots_api::{wots160, wots256},
+        signatures::wots_api::{wots256, wots_hash},
         treepp::*,
     };
     use secp256k1::rand::{rngs::OsRng, Rng};
@@ -157,7 +157,7 @@ mod tests {
             .to_lower_hex_string();
 
         let message_bytes = OsRng.gen::<[u8; 20]>();
-        let signatures = wots160::get_signature(&secret, &message_bytes);
+        let signatures = wots_hash::get_signature(&secret, &message_bytes);
 
         let committed_data = wots_to_byte_array(signatures);
 

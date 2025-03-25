@@ -558,6 +558,7 @@ mod tests {
         taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
         Transaction, TxOut,
     };
+    use bitvm::signatures::wots_api::HASH_LEN;
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
     use secp256k1::{
@@ -1018,8 +1019,8 @@ mod tests {
         for _ in 0..faulty_assertions.groth16.2.len() {
             let proof_index_to_tweak = OsRng.gen_range(0..faulty_assertions.groth16.2.len());
             warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
-            if faulty_assertions.groth16.2[proof_index_to_tweak] != [0u8; 20] {
-                faulty_assertions.groth16.2[proof_index_to_tweak] = [0u8; 20];
+            if faulty_assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN as usize] {
+                faulty_assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN as usize];
                 break;
             }
         }

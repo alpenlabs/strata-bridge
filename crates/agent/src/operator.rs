@@ -3,6 +3,7 @@ use std::{
     collections::HashSet,
     fs::{self, File},
     io::Write,
+    ops::Deref,
     sync::Arc,
     time::Duration,
 };
@@ -19,7 +20,10 @@ use bitcoin::{
     Block, OutPoint, TapNodeHash, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitcoin_bosd::Descriptor;
-use bitvm::groth16::g16;
+use bitvm::{
+    chunk::api::{api_generate_full_tapscripts, generate_assertions, validate_assertions},
+    signatures::wots_api::HASH_LEN,
+};
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
@@ -91,7 +95,7 @@ use crate::{
 const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
 const STAKE_CHAIN_LENGTH: u32 = 10;
-const MAGIC_BYTES: &[u8] = b"alpen";
+const MAGIC_BYTES: &[u8] = b"alpenstrata";
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -320,10 +324,7 @@ where
             wots_public_keys,
             operator_pubkey: self.agent.public_key().x_only_public_key().0,
         };
-        let graph_params = PegOutGraphParams {
-            deposit_amount: BRIDGE_DENOMINATION,
-            ..Default::default()
-        };
+        let graph_params = PegOutGraphParams::default();
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
         let (peg_out_graph, _connectors) = PegOutGraph::generate(
@@ -571,10 +572,7 @@ where
                     } = details;
                     info!(event = "received covenant request for nonce", %deposit_txid, %sender_id, %own_index);
 
-                    let graph_params = PegOutGraphParams {
-                        deposit_amount: BRIDGE_DENOMINATION,
-                        ..Default::default()
-                    };
+                    let graph_params = PegOutGraphParams::default();
 
                     let (
                         PegOutGraph {
@@ -973,12 +971,7 @@ where
                         peg_out_graph_input,
                     } = details;
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
-                    let graph_params = {
-                        PegOutGraphParams {
-                            deposit_amount: BRIDGE_DENOMINATION,
-                            ..Default::default()
-                        }
-                    };
+                    let graph_params = PegOutGraphParams::default();
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
                         peg_out_graph_input,
                         &self.build_context,
@@ -1622,10 +1615,7 @@ where
             .unwrap();
 
         info!(action = "reconstructing pegout graph", %deposit_txid, %own_index);
-        let graph_params = PegOutGraphParams {
-            deposit_amount: BRIDGE_DENOMINATION,
-            ..Default::default()
-        };
+        let graph_params = PegOutGraphParams::default();
         let peg_out_graph_input = PegOutGraphInput {
             operator_pubkey: own_pubkey,
             stake_outpoint: OutPoint {
@@ -1751,14 +1741,18 @@ where
                     .unwrap()
                     .unwrap(); // FIXME: Handle me
 
-                let complete_disprove_scripts =
-                    g16::generate_disprove_scripts(*public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
-
-                if let Some((tapleaf_index, _witness_script)) = g16::verify_signed_assertions(
-                    bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
+                let complete_disprove_scripts = api_generate_full_tapscripts(
                     *public_keys.groth16,
-                    *assert_data_signatures.groth16,
-                    &complete_disprove_scripts,
+                    &PARTIAL_VERIFIER_SCRIPTS[..],
+                );
+
+                if let Some((tapleaf_index, _witness_script)) = validate_assertions(
+                    &bridge_vk::GROTH16_VERIFICATION_KEY,
+                    assert_data_signatures.groth16.deref().clone(),
+                    *public_keys.groth16,
+                    &complete_disprove_scripts
+                        .try_into()
+                        .expect("number of disprove scripts must match"),
                 ) {
                     error!(event = "assertions verification failed", %tapleaf_index, %own_index);
                 } else {
@@ -1772,8 +1766,8 @@ where
                     let proof_index_to_tweak =
                         rand::thread_rng().gen_range(0..assertions.groth16.2.len());
                     warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
-                    if assertions.groth16.2[proof_index_to_tweak] != [0u8; 20] {
-                        assertions.groth16.2[proof_index_to_tweak] = [0u8; 20];
+                    if assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN as usize] {
+                        assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN as usize];
                         break;
                     }
                 }
@@ -2293,11 +2287,12 @@ where
 
         Assertions {
             withdrawal_fulfillment: public_output.withdrawal_fulfillment_txid.0,
-            groth16: g16::generate_proof_assertions(
-                bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
+            groth16: generate_assertions(
                 proof,
-                public_inputs,
-            ),
+                public_inputs.to_vec(),
+                &bridge_vk::GROTH16_VERIFICATION_KEY,
+            )
+            .expect("must feed correct input proof"),
         }
     }
 

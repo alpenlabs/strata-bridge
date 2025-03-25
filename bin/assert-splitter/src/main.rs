@@ -1,5 +1,5 @@
 use assert_splitter::{average_size, field_elements_witness_size, hash_witness_size, LayoutData};
-use bitvm::chunk::compile::{NUM_U160, NUM_U256};
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 
 fn main() {
     let count = 100;
@@ -22,7 +22,7 @@ fn main() {
         avg_hash.tx_size_per_utxo
     );
 
-    let field_elements_layout = LayoutData::from(avg_field_element, NUM_U256 + 2);
+    let field_elements_layout = LayoutData::from(avg_field_element, NUM_U256 + NUM_PUBS);
     println!(
         "\nField Elements Layout: \n----------------------------------\n{}\n",
         field_elements_layout
@@ -36,7 +36,7 @@ fn main() {
     );
     println!("{}", tx_size);
 
-    let hash_layout = LayoutData::from(avg_hash, NUM_U160);
+    let hash_layout = LayoutData::from(avg_hash, NUM_HASH);
     println!(
         "\nHash Layout: \n----------------------------------\n{}\n",
         hash_layout

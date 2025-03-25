@@ -1,7 +1,7 @@
 use std::array;
 
 use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
-use bitvm::{groth16::g16, signatures::wots_api::wots256, treepp::*};
+use bitvm::{chunk::api::Signatures as g16Signatures, signatures::wots_api::wots256, treepp::*};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     constants::*,
@@ -242,7 +242,7 @@ impl AssertDataTxBatch {
     /// Parse the assertion data from the signed transactions in the batch.
     pub fn parse_witnesses(
         assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
-    ) -> TxResult<Option<g16::Signatures>> {
+    ) -> TxResult<Option<g16Signatures>> {
         let witnesses: [_; TOTAL_CONNECTORS] = assert_data_txs
             .iter()
             .flat_map(|tx| {
