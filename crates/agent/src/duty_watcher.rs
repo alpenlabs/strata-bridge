@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use bitcoin::{Amount, OutPoint, TapNodeHash, Txid};
+use bitcoin::{Amount, OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::tracker::DutyTrackerDb;
@@ -166,12 +166,20 @@ where
 
                             let duty = match duty_interop {
                                 BridgeDutyInterop::SignDeposit(deposit_info) => {
+                                    // HACK: just satisfy the compiler by converting the hash to the
+                                    // key but this is only because for testing we don't care about
+                                    // the take back path.
+                                    let take_back_key = XOnlyPublicKey::from_slice(
+                                        deposit_info.take_back_leaf_hash.as_ref(),
+                                    )
+                                    .unwrap();
+
                                     let deposit_info = DepositInfo::new(
                                         deposit_info.deposit_request_outpoint,
                                         stake_index, // FIXME: UPDATE THIS FOR NEW STAKE
                                         deposit_info.el_address,
                                         deposit_info.total_amount,
-                                        deposit_info.take_back_leaf_hash,
+                                        take_back_key,
                                         deposit_info
                                             .original_taproot_addr
                                             .address()
