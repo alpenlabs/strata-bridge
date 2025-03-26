@@ -126,8 +126,8 @@ pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
 /// | Pre Assert    | 1                                      |  1             |   330      |
 /// | Claim         | 3                                      |  1             |   990      |
 /// |---------------|----------------------------------------|----------------|------------|
-/// | Total         |                                        | 42             | 27060      |
-pub const FUNDING_AMOUNT: Amount = Amount::from_sat(25740 + 330 + 990);
+/// | Total         |                                        | 41             | 27060      |
+pub const FUNDING_AMOUNT: Amount = Amount::from_sat(2 * 39 * 330 + 330 + 3 * 330);
 
 const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"Strata Bridge Unspendable";
 
