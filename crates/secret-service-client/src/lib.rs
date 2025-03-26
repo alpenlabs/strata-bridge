@@ -40,6 +40,8 @@ use tokio::time::timeout;
 use wallet::{GeneralWalletClient, StakechainWalletClient};
 use wots::WotsClient;
 
+const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(25);
+
 /// Configuration for the Secret Service client.
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -94,7 +96,8 @@ impl SecretServiceClient {
         .map_err(OneOf::new)?;
 
         let mut transport_config = TransportConfig::default();
-        transport_config.keep_alive_interval(Some(Duration::from_secs(25)));
+
+        transport_config.keep_alive_interval(Some(KEEP_ALIVE_INTERVAL));
 
         let mut client_config = ClientConfig::new(Arc::new(
             QuicClientConfig::try_from(config.tls_config.clone()).map_err(OneOf::new)?,

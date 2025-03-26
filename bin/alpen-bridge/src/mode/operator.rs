@@ -50,7 +50,10 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .await
         .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
 
-    info!("Retrieved P2P secret key from S2: {sk:?}");
+    info!(
+        "Retrieved P2P secret key from S2: {sk_fingerprint:?}",
+        sk_fingerprint = sk
+    );
 
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
 
