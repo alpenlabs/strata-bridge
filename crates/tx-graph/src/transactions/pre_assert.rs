@@ -40,7 +40,7 @@ impl PreAssertTx {
     /// Constructs a new instance of the pre-assert transaction.
     ///
     /// This involves constructing the output scripts for the bitcommitment connectors
-    /// ([`ConnectorA256`], [`ConnectorA160`]) as well as the input from the connector
+    /// ([`ConnectorA256`], [`ConnectorAHash`]) as well as the input from the connector
     /// [`ConnectorC0`].
     ///
     /// The bitcommitment connectors are constructed in such a way that when spending the outputs,
@@ -62,7 +62,7 @@ impl PreAssertTx {
             NUM_FIELD_CONNECTORS_BATCH_2,
             NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
         >,
-        connector_a160: ConnectorA160Factory<
+        connector_a_hash: ConnectorAHashFactory<
             NUM_HASH_CONNECTORS_BATCH_1,
             NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
             NUM_HASH_CONNECTORS_BATCH_2,
@@ -82,10 +82,10 @@ impl PreAssertTx {
             [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_FIELD_CONNECTORS_BATCH_2],
         ) = connector_a256.create_connectors();
 
-        let (connector160_batch1, connector160_batch2): (
-            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
-            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_HASH_CONNECTORS_BATCH_2],
-        ) = connector_a160.create_connectors();
+        let (connector_hash_batch1, connector_hash_batch2): (
+            [ConnectorAHash<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
+            [ConnectorAHash<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_HASH_CONNECTORS_BATCH_2],
+        ) = connector_a_hash.create_connectors();
 
         connector256_batch1.iter().for_each(|conn| {
             let script = conn.create_taproot_address().script_pubkey();
@@ -105,7 +105,7 @@ impl PreAssertTx {
             scripts_and_amounts.push((script, amount));
         });
 
-        connector160_batch1.iter().for_each(|conn| {
+        connector_hash_batch1.iter().for_each(|conn| {
             let script = conn.create_taproot_address().script_pubkey();
             // x2 accounts for the two dust outputs in the assert-data tx one of which will be used
             // for CPFP.
@@ -114,7 +114,7 @@ impl PreAssertTx {
             scripts_and_amounts.push((script, amount));
         });
 
-        connector160_batch2.iter().for_each(|conn| {
+        connector_hash_batch2.iter().for_each(|conn| {
             let script = conn.create_taproot_address().script_pubkey();
             // x2 accounts for the two dust outputs in the assert-data tx one of which will be used
             // for CPFP.

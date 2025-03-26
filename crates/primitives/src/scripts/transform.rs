@@ -130,7 +130,10 @@ mod tests {
         hex::DisplayHex,
     };
     use bitvm::{
-        signatures::wots_api::{wots160, wots256},
+        signatures::wots_api::{
+            wots256::{self, MSG_LEN},
+            wots_hash, HASH_LEN,
+        },
         treepp::*,
     };
     use secp256k1::rand::{rngs::OsRng, Rng};
@@ -156,18 +159,18 @@ mod tests {
             .to_byte_array()
             .to_lower_hex_string();
 
-        let message_bytes = OsRng.gen::<[u8; 20]>();
-        let signatures = wots160::get_signature(&secret, &message_bytes);
+        let message_bytes = OsRng.gen::<[u8; HASH_LEN as usize]>();
+        let signatures = wots_hash::get_signature(&secret, &message_bytes);
 
         let committed_data = wots_to_byte_array(signatures);
 
         assert_eq!(
             message_bytes.to_vec(),
             committed_data,
-            "committed and extracted 160-bit data must match"
+            "committed and extracted hash data must match"
         );
 
-        let message_bytes = OsRng.gen::<[u8; 32]>();
+        let message_bytes = OsRng.gen::<[u8; MSG_LEN as usize]>();
         let signatures = wots256::get_signature(&secret, &message_bytes);
 
         let committed_data = wots_to_byte_array(signatures);

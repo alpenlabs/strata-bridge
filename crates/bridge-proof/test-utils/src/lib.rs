@@ -28,16 +28,16 @@ pub fn extract_test_headers() -> Vec<Header> {
 
 pub fn header_verification_state() -> HeaderVerificationState {
     let mut timestamps = [
-        1741034508, 1741034508, 1741034512, 1741034512, 1741034512, 1741034512, 1741034516,
-        1741034504, 1741034504, 1741034508, 1741034508,
+        1742914926, 1742914926, 1742914930, 1742914930, 1742914930, 1742914930, 1742914934,
+        1742914934, 1742914934, 1742914934, 1742914938,
     ];
     timestamps.sort();
 
     HeaderVerificationState {
-        last_verified_block_num: 1920,
+        last_verified_block_num: 1880,
         last_verified_block_hash: L1BlockId::from(
             Buf32::try_from_slice(
-                &hex::decode("d72e2c4d2716222004568d0457f791547035b4ffdb94b54b758dcf96c7448b66")
+                &hex::decode("6cf70b57bd1be7e63430e0fe954408e5355e1a4eb40c770c19509d56265a2a64")
                     .unwrap(),
             )
             .unwrap(),
@@ -45,7 +45,7 @@ pub fn header_verification_state() -> HeaderVerificationState {
         next_block_target: 545259519,
         interval_start_timestamp: 1296688602,
         total_accumulated_pow: 0,
-        last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 7),
+        last_11_blocks_timestamps: TimestampStore::new_with_head(timestamps, 0),
     }
 }
 
@@ -78,7 +78,7 @@ pub fn load_op_signature() -> Buf64 {
 /// This transaction is found at block height 988, with index 1 in the block's transaction list.
 /// Returns the transaction along with the relative block index in the test blocks.
 pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
-    let block_height = 1964;
+    let block_height = 1932;
     let tx_index = 1;
     fetch_test_transaction(block_height, tx_index)
 }
@@ -88,7 +88,7 @@ pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
 /// This transaction is found at block height 968, with index 2 in the block's transaction list.
 /// Returns the transaction along with the relative block index in the test blocks.
 pub fn get_strata_checkpoint_tx() -> (L1TxWithProofBundle, usize) {
-    let block_height = 1956;
+    let block_height = 1916;
     let tx_index = 2;
     fetch_test_transaction(block_height, tx_index)
 }

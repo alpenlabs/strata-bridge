@@ -1,7 +1,7 @@
 use anyhow::Context;
-use ark_bn254::Fr;
+use ark_bn254::{Bn254, Fr};
 use ark_ff::PrimeField;
-use bitvm::groth16::g16;
+use ark_groth16::Proof;
 use sp1_sdk::{HashableKey, SP1VerifyingKey};
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_guest_builder::GUEST_BRIDGE_ELF;
@@ -16,7 +16,7 @@ use crate::sp1;
 
 pub fn sp1_prove(
     input: &BridgeProofInput,
-) -> anyhow::Result<(g16::Proof, [Fr; 1], BridgeProofPublicOutput)> {
+) -> anyhow::Result<(Proof<Bn254>, [Fr; 1], BridgeProofPublicOutput)> {
     info!(action = "simulating proof in native mode");
     let native_host = get_native_host();
     let _ = BridgeProver::prove(input, &native_host).expect("failed to assert proof statements");

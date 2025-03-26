@@ -11,6 +11,7 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+alpen-bridge-params.workspace = true
 strata-primitives.workspace = true
 
 anyhow.workspace = true
@@ -19,6 +20,7 @@ bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-bosd.workspace = true
 bitcoin-script.workspace = true
 bitvm.workspace = true
+miniscript.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }

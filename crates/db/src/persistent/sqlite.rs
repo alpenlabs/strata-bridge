@@ -142,7 +142,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|v| *v.signatures);
+            .map(|v| v.signatures.deref().clone());
 
             Ok(result)
         })
@@ -159,7 +159,7 @@ impl PublicDb for SqliteDb {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
             let deposit_txid = DbTxid::from(deposit_txid);
-            let db_signatures = DbWotsSignatures::from(*signatures);
+            let db_signatures = DbWotsSignatures::from(signatures.clone());
             sqlx::query!(
                 "INSERT OR REPLACE INTO wots_signatures
                     (operator_id, deposit_txid, signatures)

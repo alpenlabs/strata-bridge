@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use bitcoin::{
     absolute::LockTime,
     opcodes::all::OP_RETURN,
@@ -5,8 +7,11 @@ use bitcoin::{
     transaction, Amount, OutPoint, ScriptBuf, Transaction, TxIn, TxOut, Witness,
 };
 use bitcoin_script::{script, Script};
+use miniscript::Miniscript;
 use musig2::KeyAggContext;
 use secp256k1::{PublicKey, XOnlyPublicKey};
+
+use super::prelude::AuxiliaryData;
 
 /// Create a script with the spending condition that a MuSig2 aggregated signature corresponding to
 /// the pubkey set must be provided.
@@ -20,6 +25,21 @@ pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
     }
 }
 
+/// Creates a "take back" script that is used to validate a deposit request transaction (DRT) given
+/// a user's public key.
+///
+/// The `refund_delay` should be provided by the consensus-critical parameters that dictate the
+/// behavior of the bridge node.
+///
+/// TLDR: use the `refund_delay` in the `PegOutGraphParams` inside the `Params`.
+pub fn drt_take_back(recovery_xonly_pubkey: XOnlyPublicKey, refund_delay: u16) -> ScriptBuf {
+    let script = format!(
+        "and_v(v:pk({}),older({}))",
+        recovery_xonly_pubkey, refund_delay
+    );
+    let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
+    miniscript.encode()
+}
 pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> Script {
     script! {
         { timelock }
@@ -54,32 +74,15 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
     aggregated_pubkey.x_only_public_key().0
 }
 
-/// Create the metadata script that "stores" a tag and the execution layer address information.
-///
-/// # Note
-///
-/// For deposit request transactions (DRT), the stake index is not required.
-/// However, for deposit transactions (DT), the stake index is required.
-pub fn metadata_script(
-    stake_index: Option<&[u8; 4]>,
-    el_address: &[u8; 20],
-    tag: &[u8],
-) -> ScriptBuf {
+/// Create the metadata script that "stores" all the required metadata information for both the
+/// deposit request transaction (DRT) and deposit transaction (DT).
+pub fn metadata_script(auxiliary_data: AuxiliaryData<'_>) -> ScriptBuf {
+    let bytes = auxiliary_data.to_vec();
+
     let mut data = PushBytesBuf::new();
 
-    // Adding the magic bytes
-    data.extend_from_slice(tag)
-        .expect("MAGIC_BYTES should be within the limit");
-
-    // Conditionally adding the stake index if provided
-    if let Some(bytes) = stake_index {
-        data.extend_from_slice(bytes)
-            .expect("stake_index_bytes should be within the limit");
-    }
-
-    // Adding the execution layer address
-    data.extend_from_slice(&el_address[..])
-        .expect("el_address should be within the limit");
+    data.extend_from_slice(&bytes)
+        .expect("bytes should be within the limit");
 
     Builder::new()
         .push_opcode(OP_RETURN)
