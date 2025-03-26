@@ -126,7 +126,7 @@ impl AssertDataTxBatch {
     /// This method adds bitcommitments to the assertions corresponding to the Groth16 proof.
     pub fn finalize(
         mut self,
-        connector_a160_factory: ConnectorA160Factory<
+        connector_a_hash_factory: ConnectorAHashFactory<
             NUM_HASH_CONNECTORS_BATCH_1,
             NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
             NUM_HASH_CONNECTORS_BATCH_2,
@@ -140,10 +140,10 @@ impl AssertDataTxBatch {
         >,
         wots_signatures: wots::Signatures,
     ) -> [Transaction; NUM_ASSERT_DATA_TX] {
-        let (connector160_batch1, connector160_batch2): (
-            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
-            [ConnectorA160<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_HASH_CONNECTORS_BATCH_2],
-        ) = connector_a160_factory.create_connectors();
+        let (connector_hash_batch1, connector_hash_batch2): (
+            [ConnectorAHash<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_HASH_CONNECTORS_BATCH_1],
+            [ConnectorAHash<NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_HASH_CONNECTORS_BATCH_2],
+        ) = connector_a_hash_factory.create_connectors();
 
         let (connector256_batch1, connector256_batch2): (
             [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1>; NUM_FIELD_CONNECTORS_BATCH_1],
@@ -192,7 +192,7 @@ impl AssertDataTxBatch {
             });
 
         psbt_offset += NUM_FIELD_CONNECTORS_BATCH_2;
-        connector160_batch1
+        connector_hash_batch1
             .iter()
             .enumerate()
             .for_each(|(psbt_index, conn)| {
@@ -211,7 +211,7 @@ impl AssertDataTxBatch {
 
         psbt_offset += NUM_HASH_CONNECTORS_BATCH_1;
         let sigs_offset = NUM_HASH_CONNECTORS_BATCH_1 * NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1;
-        connector160_batch2
+        connector_hash_batch2
             .iter()
             .enumerate()
             .for_each(|(psbt_index, conn)| {
@@ -277,26 +277,26 @@ impl AssertDataTxBatch {
             )))?;
 
         offset += NUM_FIELD_CONNECTORS_BATCH_2;
-        let witness160_batch1 = witnesses[offset..offset + NUM_HASH_CONNECTORS_BATCH_1]
+        let witness_hash_batch1 = witnesses[offset..offset + NUM_HASH_CONNECTORS_BATCH_1]
             .to_vec()
             .try_into()
             .or(Err(TxError::Witness(
-                "invalid 160-bit witness size in batch 1".to_string(),
+                "invalid hash witness size in batch 1".to_string(),
             )))?;
 
-        let witness160_batch2 = witnesses[witnesses.len() - NUM_HASH_CONNECTORS_BATCH_2..]
+        let witness_hash_batch2 = witnesses[witnesses.len() - NUM_HASH_CONNECTORS_BATCH_2..]
             .to_vec()
             .try_into()
             .or(Err(TxError::Witness(
-                "invalid 160-bit witness size in batch 2".to_string(),
+                "invalid hash witness size in batch 2".to_string(),
             )))?;
 
         Ok(Some(
             parse_assertion_witnesses(
                 witness256_batch1,
                 witness256_batch2,
-                witness160_batch1,
-                witness160_batch2,
+                witness_hash_batch1,
+                witness_hash_batch2,
             )
             .map_err(|e| TxError::Witness(e.to_string()))?,
         ))
@@ -343,7 +343,7 @@ mod tests {
         let msk = "test-assert-data-parse-witnesses";
         let g16_pks = Groth16PublicKeys::new(msk, generate_txid());
 
-        let Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)) =
+        let Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_hash)) =
             g16_pks;
 
         let public_keys_256 = std::array::from_fn(|i| match i {
@@ -351,9 +351,9 @@ mod tests {
             _ => public_keys_256[i - 1],
         });
 
-        let connector_a160_factory = ConnectorA160Factory {
+        let connector_a_hash_factory = ConnectorAHashFactory {
             network,
-            public_keys: public_keys_160,
+            public_keys: public_keys_hash,
         };
         let connector_a256_factory = ConnectorA256Factory {
             network,
@@ -368,7 +368,7 @@ mod tests {
         let wots_signatures = wots::Signatures::new(msk, deposit_txid, assertions);
 
         let mut signed_assert_data_txs = assert_data_tx_batch.finalize(
-            connector_a160_factory,
+            connector_a_hash_factory,
             connector_a256_factory,
             wots_signatures,
         );

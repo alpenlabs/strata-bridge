@@ -1776,7 +1776,7 @@ where
             }
 
             let signed_assert_data_txs = assert_data.finalize(
-                connectors.assert_data160_factory,
+                connectors.assert_data_hash_factory,
                 connectors.assert_data256_factory,
                 assert_data_signatures,
             );
@@ -2259,6 +2259,7 @@ where
         }
 
         let pegout_graph_params = PegOutGraphParams::default();
+
         let input = BridgeProofInput {
             pegout_graph_params,
             rollup_params: self.rollup_params.clone(),

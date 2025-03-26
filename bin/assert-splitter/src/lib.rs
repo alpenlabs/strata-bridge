@@ -6,7 +6,10 @@ use ark_ff::UniformRand;
 use bitcoin::{hex::DisplayHex, taproot::TAPROOT_CONTROL_BASE_SIZE, VarInt, Weight};
 use bitvm::{
     execute_script_without_stack_limit,
-    signatures::wots_api::{wots256, wots_hash, HASH_LEN},
+    signatures::wots_api::{
+        wots256::{self, MSG_LEN},
+        wots_hash, HASH_LEN,
+    },
     treepp::*,
 };
 use chunker_primitives::*;
@@ -161,7 +164,7 @@ pub fn field_elements_witness_size(num_inputs: usize, num_elements: usize) -> Si
     let fq_lock_script = script! {
         { wots256::checksig_verify(pubkey) }
 
-        for _ in 0..256/4 { OP_DROP } // drop the nibbles
+        for _ in 0..(MSG_LEN * 8)/4 { OP_DROP } // drop the nibbles
     };
 
     let witness_script = script! {
@@ -216,7 +219,7 @@ pub fn hash_witness_size(num_inputs: usize, num_elements: usize) -> SizeData {
     let fq_lock_script = script! {
         { wots_hash::checksig_verify(pubkey) }
 
-        for _ in 0..160/4 { OP_DROP } // drop the nibbles
+        for _ in 0..(HASH_LEN * 8)/4 { OP_DROP } // drop the nibbles
     };
 
     let witness_script = script! {

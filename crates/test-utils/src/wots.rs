@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(wots256_public_key.len(), 68, "wots256 size should match");
         assert_eq!(
             wots_hash_public_key.len(),
-            44,
+            36,
             "wots_hash size should match"
         );
     }

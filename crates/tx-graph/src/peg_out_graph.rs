@@ -301,7 +301,7 @@ impl PegOutGraph {
             connectors.n_of_n,
             connectors.post_assert_out_0,
             connectors.connector_cpfp,
-            connectors.assert_data160_factory,
+            connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
         );
 
@@ -430,8 +430,8 @@ pub struct PegOutGraphConnectors {
     /// The first output of the post-assert tx used to get the stake.
     pub post_assert_out_0: ConnectorA3,
 
-    /// The factory for the 160-bit assertion data connectors.
-    pub assert_data160_factory: ConnectorA160Factory<
+    /// The factory for the assertion data connectors for hashes.
+    pub assert_data_hash_factory: ConnectorAHashFactory<
         NUM_HASH_CONNECTORS_BATCH_1,
         NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
         NUM_HASH_CONNECTORS_BATCH_2,
@@ -495,12 +495,12 @@ impl PegOutGraphConnectors {
         let wots::PublicKeys {
             withdrawal_fulfillment: _,
             groth16:
-                Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_160)),
+                Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_hash)),
         } = wots_public_keys;
 
-        let assert_data160_factory = ConnectorA160Factory {
+        let assert_data_hash_factory = ConnectorAHashFactory {
             network,
-            public_keys: public_keys_160,
+            public_keys: public_keys_hash,
         };
 
         let public_keys_256 = std::array::from_fn(|i| match i {
@@ -530,7 +530,7 @@ impl PegOutGraphConnectors {
             n_of_n,
             connector_cpfp,
             post_assert_out_0: post_assert_out_1,
-            assert_data160_factory,
+            assert_data_hash_factory,
             assert_data256_factory,
 
             // stake chain connectors
@@ -1421,7 +1421,7 @@ mod tests {
             n_of_n,
             connector_cpfp,
             post_assert_out_0,
-            assert_data160_factory,
+            assert_data_hash_factory,
             assert_data256_factory,
             stake,
             hashlock_payout,
@@ -1604,8 +1604,11 @@ mod tests {
             .collect::<Vec<_>>();
         let assert_data_cpfp_vout = assert_data.cpfp_vout();
 
-        let signed_assert_data_txs =
-            assert_data.finalize(assert_data160_factory, assert_data256_factory, assert_sigs);
+        let signed_assert_data_txs = assert_data.finalize(
+            assert_data_hash_factory,
+            assert_data256_factory,
+            assert_sigs,
+        );
 
         assert_eq!(
             signed_assert_data_txs.len(),

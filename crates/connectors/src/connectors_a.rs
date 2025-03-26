@@ -7,7 +7,10 @@ use bitcoin::{
     Address, Network, ScriptBuf,
 };
 use bitvm::{
-    signatures::wots_api::{wots256, wots_hash, SignatureImpl},
+    signatures::wots_api::{
+        wots256::{self, MSG_LEN},
+        wots_hash, SignatureImpl, HASH_LEN,
+    },
     treepp::*,
 };
 use strata_bridge_primitives::scripts::prelude::*;
@@ -96,7 +99,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
             for &public_key in self.public_keys.iter().rev() {
                 { wots256::checksig_verify(public_key) }
 
-                for _ in 0..256/4 { OP_DROP } // drop the nibbles
+                for _ in 0..(MSG_LEN * 8)/4 { OP_DROP } // drop the nibbles
             }
 
             OP_TRUE
@@ -155,9 +158,9 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     }
 }
 
-/// Factory for crafting connectors with 160-bit WOTS public keys.
+/// Factory for crafting connectors with WOTS public keys for hashes.
 #[derive(Debug, Clone, Copy)]
-pub struct ConnectorA160Factory<
+pub struct ConnectorAHashFactory<
     const N_BATCH_1: usize,
     const N_HASHES_BATCH_1: usize,
     const N_BATCH_2: usize,
@@ -168,7 +171,7 @@ pub struct ConnectorA160Factory<
     /// The bitcoin network for which to generate output addresses.
     pub network: Network,
 
-    /// The 160-bit WOTS public keys used for bitcommitments.
+    /// The WOTS public keys used for bitcommiting hashes.
     pub public_keys:
         [wots_hash::PublicKey; N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2],
 }
@@ -178,7 +181,7 @@ impl<
         const N_HASHES_BATCH_1: usize,
         const N_BATCH_2: usize,
         const N_HASHES_BATCH_2: usize,
-    > ConnectorA160Factory<N_BATCH_1, N_HASHES_BATCH_1, N_BATCH_2, N_HASHES_BATCH_2>
+    > ConnectorAHashFactory<N_BATCH_1, N_HASHES_BATCH_1, N_BATCH_2, N_HASHES_BATCH_2>
 where
     [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]:,
 {
@@ -189,10 +192,10 @@ where
     pub fn create_connectors(
         &self,
     ) -> (
-        [ConnectorA160<N_HASHES_BATCH_1>; N_BATCH_1],
-        [ConnectorA160<N_HASHES_BATCH_2>; N_BATCH_2],
+        [ConnectorAHash<N_HASHES_BATCH_1>; N_BATCH_1],
+        [ConnectorAHash<N_HASHES_BATCH_2>; N_BATCH_2],
     ) {
-        let connectors1 = array::from_fn(|i| ConnectorA160::<N_HASHES_BATCH_1> {
+        let connectors1 = array::from_fn(|i| ConnectorAHash::<N_HASHES_BATCH_1> {
             network: self.network,
             public_keys: self.public_keys[i * N_HASHES_BATCH_1..(i + 1) * N_HASHES_BATCH_1]
                 .try_into()
@@ -201,7 +204,7 @@ where
 
         let connectors2 = array::from_fn(|i| {
             let offset = N_BATCH_1 * N_HASHES_BATCH_1;
-            ConnectorA160::<N_HASHES_BATCH_2> {
+            ConnectorAHash::<N_HASHES_BATCH_2> {
                 network: self.network,
                 public_keys: self.public_keys
                     [offset + i * N_HASHES_BATCH_2..offset + (i + 1) * N_HASHES_BATCH_2]
@@ -214,9 +217,9 @@ where
     }
 }
 
-/// Connector with 160-bit WOTS public keys.
+/// Connector with WOTS public keys for hashes.
 #[derive(Debug, Clone)]
-pub struct ConnectorA160<const N_PUBLIC_KEYS: usize> {
+pub struct ConnectorAHash<const N_PUBLIC_KEYS: usize> {
     /// The bitcoin network for which to generate output addresses.
     pub network: Network,
 
@@ -224,7 +227,7 @@ pub struct ConnectorA160<const N_PUBLIC_KEYS: usize> {
     pub public_keys: [wots_hash::PublicKey; N_PUBLIC_KEYS],
 }
 
-impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
+impl<const N_PUBLIC_KEYS: usize> ConnectorAHash<N_PUBLIC_KEYS> {
     /// Creates the locking script for the connector.
     ///
     /// This script verifies the WOTS signatures for the public keys and returns `OP_TRUE`.
@@ -233,7 +236,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA160<N_PUBLIC_KEYS> {
             for &public_key in self.public_keys.iter().rev() {
                 { wots_hash::checksig_verify(public_key) }
 
-                for _ in 0..160/4 { OP_DROP } // drop the nibbles
+                for _ in 0..(HASH_LEN * 8)/4 { OP_DROP } // drop the nibbles
             }
             OP_TRUE
         }

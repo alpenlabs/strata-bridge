@@ -30,7 +30,7 @@ impl Wots256PublicKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots160PublicKey(pub wots_hash::PublicKey);
+pub struct WotsHashPublicKey(pub wots_hash::PublicKey);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16PublicKeys(pub g16PublicKeys);
