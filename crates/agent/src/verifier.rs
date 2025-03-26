@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{relative, taproot, OutPoint, TxOut};
-use bitvm::groth16::g16;
+use bitvm::chunk::api::{api_generate_full_tapscripts, validate_assertions};
 use sp1_verifier::hash_public_inputs;
 use strata_bridge_connectors::{
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
@@ -116,7 +116,7 @@ where
 
                 let signatures = wots::Signatures {
                     withdrawal_fulfillment: Wots256Signature(withdrawal_fulfillment_txid),
-                    groth16: Groth16Signatures(groth16),
+                    groth16: Groth16Signatures(groth16.clone()),
                 };
                 info!(event = "constructed signatures");
 
@@ -165,16 +165,16 @@ where
                     } else {
                         // 2. groth16 proof validation
                         info!(action = "verifying groth16 assertions");
-                        let complete_disprove_scripts = g16::generate_disprove_scripts(
+                        let complete_disprove_scripts = api_generate_full_tapscripts(
                             *public_keys.groth16,
-                            &PARTIAL_VERIFIER_SCRIPTS,
+                            &PARTIAL_VERIFIER_SCRIPTS[..],
                         );
 
-                        if let Some((tapleaf_index, witness_script)) = g16::verify_signed_assertions(
-                            bridge_vk::GROTH16_VERIFICATION_KEY.clone(),
+                        if let Some((tapleaf_index, witness_script)) = validate_assertions(
+                            &bridge_vk::GROTH16_VERIFICATION_KEY,
+                            signatures.groth16.deref().clone(),
                             *public_keys.groth16,
-                            *signatures.groth16,
-                            &complete_disprove_scripts,
+                            &complete_disprove_scripts.clone().try_into().unwrap(),
                         ) {
                             let disprove_script = complete_disprove_scripts[tapleaf_index].clone();
                             Some(ConnectorA3Leaf::DisproveProof {

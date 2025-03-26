@@ -1,13 +1,13 @@
 use std::sync::LazyLock;
 
-use ark_bn254::Fr;
+use ark_bn254::{Bn254, Fr};
 use ark_ec::CurveGroup;
 use ark_ff::{Field, PrimeField};
-use bitvm::groth16::g16;
+use ark_groth16::VerifyingKey;
 
 use crate::sp1;
 
-pub static GROTH16_VERIFICATION_KEY: LazyLock<g16::VerifyingKey> = LazyLock::new(|| {
+pub static GROTH16_VERIFICATION_KEY: LazyLock<VerifyingKey<Bn254>> = LazyLock::new(|| {
     let vkey_hash = if cfg!(feature = "mock") {
         println!("Detected mock environment, using mock vk");
 

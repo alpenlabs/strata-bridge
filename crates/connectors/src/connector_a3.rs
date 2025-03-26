@@ -10,7 +10,7 @@ use bitcoin::{
 };
 use bitvm::{
     bigint::U256,
-    groth16::g16::{self, N_TAPLEAVES},
+    chunk::api::{api_generate_full_tapscripts, NUM_TAPS},
     hash::sha256_u4_stack::sha256_script,
     pseudo::NMUL,
     signatures::wots_api::{wots256, SignatureImpl},
@@ -298,10 +298,12 @@ impl ConnectorA3 {
     }
 
     /// Generates the disprove scripts for this connector.
-    pub fn generate_disprove_scripts(&self) -> [Script; N_TAPLEAVES] {
-        let partial_disprove_scripts = &PARTIAL_VERIFIER_SCRIPTS;
+    pub fn generate_disprove_scripts(&self) -> [Script; NUM_TAPS] {
+        let partial_disprove_scripts = &PARTIAL_VERIFIER_SCRIPTS[..];
 
-        g16::generate_disprove_scripts(*self.wots_public_keys.groth16, partial_disprove_scripts)
+        api_generate_full_tapscripts(*self.wots_public_keys.groth16, partial_disprove_scripts)
+            .try_into()
+            .expect("number of tapleaves must match")
     }
 
     fn generate_taproot_address(&self, deposit_txid: Txid) -> (Address, TaprootSpendInfo) {

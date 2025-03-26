@@ -2,8 +2,10 @@ use std::ops::{Deref, DerefMut};
 
 use bitcoin::Txid;
 use bitvm::{
-    groth16::g16::{self},
-    signatures::wots_api::{wots160, wots256},
+    chunk::api::{
+        Assertions as g16Assertions, PublicKeys as g16PublicKeys, Signatures as g16Signatures,
+    },
+    signatures::wots_api::{wots256, wots_hash},
 };
 
 use crate::scripts::{
@@ -28,15 +30,15 @@ impl Wots256PublicKey {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots160PublicKey(pub wots160::PublicKey);
+pub struct WotsHashPublicKey(pub wots_hash::PublicKey);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16PublicKeys(pub g16::PublicKeys);
+pub struct Groth16PublicKeys(pub g16PublicKeys);
 
-// should probably not do this but `g16::PublicKeys` is already a tuple, so these impls make the
+// should probably not do this but `g16PublicKeys` is already a tuple, so these impls make the
 // tuple access more ergonomic.
 impl Deref for Groth16PublicKeys {
-    type Target = g16::PublicKeys;
+    type Target = g16PublicKeys;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -61,7 +63,7 @@ impl Groth16PublicKeys {
                 wots256::generate_public_key(&secret_key_for_proof_element(&deposit_msk, i))
             }),
             std::array::from_fn(|i| {
-                wots160::generate_public_key(&secret_key_for_proof_element(&deposit_msk, i + 40))
+                wots_hash::generate_public_key(&secret_key_for_proof_element(&deposit_msk, i + 40))
             }),
         ))
     }
@@ -89,11 +91,11 @@ impl Deref for Wots256Signature {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16Signatures(pub g16::Signatures);
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Groth16Signatures(pub g16Signatures);
 
 impl Deref for Groth16Signatures {
-    type Target = g16::Signatures;
+    type Target = g16Signatures;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -108,19 +110,22 @@ impl Groth16Signatures {
             [wots256::get_signature(
                 &secret_key_for_public_inputs_hash(&deposit_msk),
                 &assertions.groth16.0[0],
-            )],
+            )]
+            .into(),
             std::array::from_fn(|i| {
                 wots256::get_signature(
                     &secret_key_for_proof_element(&deposit_msk, i),
                     &assertions.groth16.1[i],
                 )
-            }),
+            })
+            .into(),
             std::array::from_fn(|i| {
-                wots160::get_signature(
+                wots_hash::get_signature(
                     &secret_key_for_proof_element(&deposit_msk, i + 40),
                     &assertions.groth16.2[i],
                 )
-            }),
+            })
+            .into(),
         ))
     }
 }
@@ -140,7 +145,7 @@ impl PublicKeys {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Signatures {
     pub withdrawal_fulfillment: Wots256Signature,
     pub groth16: Groth16Signatures,
@@ -162,5 +167,5 @@ impl Signatures {
 #[derive(Debug, Clone, Copy, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Assertions {
     pub withdrawal_fulfillment: [u8; 32],
-    pub groth16: g16::Assertions,
+    pub groth16: g16Assertions,
 }

@@ -36,7 +36,7 @@ impl AssertChain {
         connector_a2: ConnectorNOfN,
         connector_a3: ConnectorA3,
         connector_cpfp: ConnectorCpfp,
-        connector_a160_factory: ConnectorA160Factory<
+        connector_a_hash_factory: ConnectorAHashFactory<
             NUM_HASH_CONNECTORS_BATCH_1,
             NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_1,
             NUM_HASH_CONNECTORS_BATCH_2,
@@ -54,7 +54,7 @@ impl AssertChain {
             connector_c0,
             connector_cpfp,
             connector_a256_factory,
-            connector_a160_factory,
+            connector_a_hash_factory,
         );
         let pre_assert_txid = pre_assert.compute_txid();
         trace!(event = "created pre-assert tx", %pre_assert_txid);

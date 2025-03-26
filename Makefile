@@ -190,7 +190,7 @@ run:
 	SKIP_VALIDATION=1 \
 	RUST_LOG=info,sp1_start=info,sqlx=info,soketto=error,bitvm=info,strata_bridge_db=warn,strata_bridge_tx_graph=warn,strata_btcio=info,strata_bridge_agent=info,hyper_util=error,jsonrpsee=error \
 		cargo r \
-		--bin strata-bridge \
+		--bin dev-bridge \
 		--profile "$(PROFILE)" \
 		-- \
 		--rpc-port 4782 \
