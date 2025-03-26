@@ -5,10 +5,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RpcOperatorStatus {
-    /// Meant to represent functional as opposed to faulty. TODO add faulty.
+    /// Meant to represent functional as opposed to faulty.
     Online,
     /// Not responding
     Offline,
+    // TODO add faulty.
 }
 
 /// Represents a valid deposit status
