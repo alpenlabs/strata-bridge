@@ -4,7 +4,8 @@
 //! decomposed into various groups partly based on how bitcoin RPCs are categorized into various
 //! [groups](https://developer.bitcoin.org/reference/rpc/index.html).
 
-mod types;
+/// RPC types
+pub mod types;
 
 use bitcoin::{OutPoint, PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
@@ -58,7 +59,7 @@ pub trait StrataBridgeMonitoringApi {
         operator_id: OperatorIdx,
     ) -> RpcResult<Vec<BridgeDuty>>;
 
-    /// Get withdrawal details using deposit outpoint.
+    /// Get withdrawal details using the deposit outpoint.
     #[method(name = "withdrawalInfo")]
     async fn get_withdrawal_info(&self, deposit_outpoint: OutPoint)
         -> RpcResult<RpcWithdrawalInfo>;
