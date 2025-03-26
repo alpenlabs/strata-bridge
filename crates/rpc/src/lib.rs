@@ -4,7 +4,7 @@
 //! decomposed into various groups partly based on how bitcoin RPCs are categorized into various
 //! [groups](https://developer.bitcoin.org/reference/rpc/index.html).
 
-mod types;
+pub mod types;
 
 use bitcoin::{OutPoint, PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
