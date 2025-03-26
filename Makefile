@@ -81,6 +81,24 @@ docker-down: ## docker compose down
 	cd $(DOCKER_DIR) && docker compose down && \
 	rm -rf $(DOCKER_DIR)/$(DOCKER_DATADIR) 2>/dev/null
 
+##@ Docker
+
+.PHONY: build-base
+build-base: ## Builds the base image used to build the binaries
+	docker build -f docker/base.Dockerfile . -t bridge-base:latest
+
+.PHONY: build-rt
+build-rt: ## Builds the runtime image used as the final container
+	docker build -f docker/rt.Dockerfile . -t bridge-rt:latest
+
+.PHONY: build-compose
+build-compose: ## Builds all images in the compose.yml
+	docker compose build
+
+.PHONY: gen-s2-tls
+gen-s2-tls: ## (Re)generates the TLS CAs, certs and keys for S2 and the bridge to connect
+	./docker/gen_s2_tls.sh
+
 ##@ Code Quality
 
 .PHONY: fmt-check-ws

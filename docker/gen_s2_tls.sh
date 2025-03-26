@@ -1,4 +1,4 @@
-# run from the root of the repo!!!
+# run via `make gen-s2-tls` not directly!
 
 S2_TLS_DIR=docker/vol/secret-service/tls
 BRIDGE_TLS_DIR=docker/vol/alpen-bridge/tls
