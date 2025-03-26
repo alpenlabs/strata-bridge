@@ -36,12 +36,9 @@ pub trait StrataBridgeMonitoringApi {
     #[method(name = "operatorStatus")]
     async fn get_operator_status(&self, operator_idx: OperatorIdx) -> RpcResult<RpcOperatorStatus>;
 
-    /// Get deposit details using the deposit request outpoint.
+    /// Get deposit details using the deposit outpoint.
     #[method(name = "depositInfo")]
-    async fn get_deposit_info(
-        &self,
-        deposit_request_outpoint: OutPoint,
-    ) -> RpcResult<RpcDepositInfo>;
+    async fn get_deposit_info(&self, deposit_outpoint: OutPoint) -> RpcResult<RpcDepositInfo>;
 
     /// Get bridge duties.
     #[method(name = "bridgeDuties")]
@@ -61,12 +58,10 @@ pub trait StrataBridgeMonitoringApi {
         operator_id: OperatorIdx,
     ) -> RpcResult<Vec<BridgeDuty>>;
 
-    /// Get withdrawal details using withdrawal outpoint.
+    /// Get withdrawal details using deposit outpoint.
     #[method(name = "withdrawalInfo")]
-    async fn get_withdrawal_info(
-        &self,
-        withdrawal_outpoint: OutPoint,
-    ) -> RpcResult<RpcWithdrawalInfo>;
+    async fn get_withdrawal_info(&self, deposit_outpoint: OutPoint)
+        -> RpcResult<RpcWithdrawalInfo>;
 
     /// Get all claim transaction IDs.
     #[method(name = "claims")]
