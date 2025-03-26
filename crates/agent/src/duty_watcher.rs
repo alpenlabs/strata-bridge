@@ -176,7 +176,7 @@ where
 
                                     let deposit_info = DepositInfo::new(
                                         deposit_info.deposit_request_outpoint,
-                                        stake_index, // FIXME: UPDATE THIS FOR NEW STAKE
+                                        stake_index,
                                         deposit_info.el_address,
                                         deposit_info.total_amount,
                                         take_back_key,
