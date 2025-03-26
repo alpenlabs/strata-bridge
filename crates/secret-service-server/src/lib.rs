@@ -112,7 +112,7 @@ async fn conn_handler<FirstRound, SecondRound, Service>(
             Err(ConnectionError::ApplicationClosed(_)) => return,
             Err(e) => {
                 warn!("accepting incoming stream failed: {e:?}");
-                continue;
+                break;
             }
         };
         req_id = req_id.wrapping_add(1);

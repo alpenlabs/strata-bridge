@@ -21,7 +21,7 @@ use p2p::P2PClient;
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicClientConfig},
-    ClientConfig, ConnectError, Connection, ConnectionError, Endpoint,
+    ClientConfig, ConnectError, Connection, ConnectionError, Endpoint, TransportConfig,
 };
 use rkyv::{deserialize, rancor, util::AlignedVec};
 use secret_service_proto::{
@@ -93,14 +93,16 @@ impl SecretServiceClient {
         )
         .map_err(OneOf::new)?;
 
+        let mut transport_config = TransportConfig::default();
+        transport_config.keep_alive_interval(Some(Duration::from_secs(25)));
+
+        let mut client_config = ClientConfig::new(Arc::new(
+            QuicClientConfig::try_from(config.tls_config.clone()).map_err(OneOf::new)?,
+        ));
+        client_config.transport_config(transport_config.into());
+
         let connecting = endpoint
-            .connect_with(
-                ClientConfig::new(Arc::new(
-                    QuicClientConfig::try_from(config.tls_config.clone()).map_err(OneOf::new)?,
-                )),
-                config.server_addr,
-                &config.server_hostname,
-            )
+            .connect_with(client_config, config.server_addr, &config.server_hostname)
             .map_err(OneOf::new)?;
         let conn = connecting.await.map_err(OneOf::new)?;
 

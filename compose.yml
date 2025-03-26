@@ -5,7 +5,7 @@ services:
       context: .
       dockerfile: ./docker/secret-service/Dockerfile
     environment:
-      - SECRET_SERVICE_DEV=0 # use ./gen_ss_tls.sh in the docker dir to gen tls certs
+      - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
     volumes:
       - ./docker/vol/secret-service:/app
     networks:
@@ -18,6 +18,7 @@ services:
       dockerfile: ./docker/alpen-bridge/Dockerfile
     environment:
       - MODE=operator
+      - RUST_LOG=info
     volumes:
       - ./docker/vol/alpen-bridge:/app
     networks:

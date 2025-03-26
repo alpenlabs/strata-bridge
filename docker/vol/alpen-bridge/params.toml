@@ -1,18 +1,24 @@
-tx_tag = "bridge-tag"
 genesis_height = 101
 
 [keys]
-musig2 = ["c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164", "d57243dbb3ef14caeac8f724fea1449d802133495ef1675f210b074206ff9275"]
-p2p = ["02e68354ebb3ef14caeac8f724fea1449d802133495ef1675f210b07421700a386", "03f79465fcc3ef14caeac8f724fea1449d802133495ef1675f210b07421811b497"]
+musig2 = [
+  "c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164",
+  "d57243dbb3ef14caeac8f724fea1449d802133495ef1675f210b074206ff9275",
+]
+p2p = [
+  "02e68354ebb3ef14caeac8f724fea1449d802133495ef1675f210b07421700a386",
+  "03f79465fcc3ef14caeac8f724fea1449d802133495ef1675f210b07421811b497",
+]
 
 [tx_graph]
+tag = "bridge-tag"
 deposit_amount = 100_000_000
-operator_fee = 1000000
-challenge_cost = 10000000
+operator_fee = 1_000_000
+challenge_cost = 10_000_000
 refund_delay = 1008
 
 [stake_chain]
-stake_amount      = 100000000
-burn_amount       = 10000000
-delta             = { Blocks = 6 }
+stake_amount = 100_000_000
+burn_amount = 10_000_000
+delta = { Blocks = 6 }
 slash_stake_count = 24
