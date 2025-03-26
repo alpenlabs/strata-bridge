@@ -58,7 +58,7 @@ pub trait StrataBridgeMonitoringApi {
         operator_id: OperatorIdx,
     ) -> RpcResult<Vec<BridgeDuty>>;
 
-    /// Get withdrawal details using deposit outpoint.
+    /// Get withdrawal details using the deposit outpoint.
     #[method(name = "withdrawalInfo")]
     async fn get_withdrawal_info(&self, deposit_outpoint: OutPoint)
         -> RpcResult<RpcWithdrawalInfo>;
