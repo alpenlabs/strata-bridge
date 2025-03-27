@@ -125,6 +125,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
     /// the deposit confirms.
     Requested {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// This is the height where the requester can reclaim the request output if it has not yet
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
@@ -383,6 +386,7 @@ impl ContractSM {
     /// Builds a new ContractSM around a given deposit transaction.
     ///
     /// This will be constructible once we have a deposit request.
+    #[expect(clippy::too_many_arguments)]
     pub fn new(
         network: Network,
         operator_table: OperatorTable,
@@ -390,6 +394,7 @@ impl ContractSM {
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_idx: u32,
+        deposit_request_txid: Txid,
         deposit_tx: Transaction,
     ) -> (Self, OperatorDuty) {
         let cfg = ContractCfg {
@@ -400,6 +405,7 @@ impl ContractSM {
             deposit_tx,
         };
         let state = ContractState::Requested {
+            deposit_request_txid,
             abort_deadline,
             stake_txs: BTreeMap::new(),
             wots_keys: BTreeMap::new(),

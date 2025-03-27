@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bitcoin::Network;
 use serde::{Deserialize, Serialize};
@@ -93,15 +93,19 @@ impl OperatorTable {
         self.idx_key.get(&self.pov).unwrap().1
     }
 
+    pub fn cardinality(&self) -> usize {
+        self.idx_key.len()
+    }
+
+    pub fn p2p_keys(&self) -> BTreeSet<P2POperatorPubKey> {
+        self.op_key.keys().cloned().collect()
+    }
+
     pub fn public_key_table(&self) -> PublickeyTable {
         PublickeyTable(self.idx_key.iter().map(|(k, v)| (*k, v.1)).collect())
     }
 
     pub fn tx_build_context(&self, network: Network) -> TxBuildContext {
         TxBuildContext::new(network, self.public_key_table(), self.pov)
-    }
-
-    pub fn cardinality(&self) -> usize {
-        self.idx_key.len()
     }
 }
