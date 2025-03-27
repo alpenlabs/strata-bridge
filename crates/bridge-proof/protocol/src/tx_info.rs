@@ -31,7 +31,6 @@ pub(crate) fn extract_valid_chainstate_from_checkpoint(
                         borsh::from_slice(checkpoint.checkpoint().sidecar().chainstate())
                             .expect("invalid chainstate");
 
-                    // BridgeProofError::ChainStateMismatch
                     if chainstate.compute_state_root()
                         != checkpoint
                             .checkpoint()
@@ -48,8 +47,6 @@ pub(crate) fn extract_valid_chainstate_from_checkpoint(
                     {
                         return Err(BridgeProofError::InvalidStrataProof);
                     }
-
-                    // FIXME: validate the proof
 
                     return Ok(chainstate);
                 }
