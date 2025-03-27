@@ -8,7 +8,6 @@ use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
 };
-use strata_bridge_tx_graph::transactions::payout_optimistic;
 use thiserror::Error;
 
 use crate::contract_state_machine::{ContractCfg, MachineState};
