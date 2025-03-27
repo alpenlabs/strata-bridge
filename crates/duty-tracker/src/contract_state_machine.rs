@@ -3,20 +3,63 @@
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
 use std::{collections::BTreeMap, fmt::Display, sync::Arc};
 
-use alpen_bridge_params::prelude::ConnectorParams;
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
-    hashes::serde::{Deserialize, Serialize},
-    OutPoint, Transaction, Txid,
+    hashes::{
+        serde::{Deserialize, Serialize},
+        sha256,
+    },
+    Network, OutPoint, Transaction, Txid, XOnlyPublicKey,
 };
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
-use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
-use strata_bridge_tx_graph::peg_out_graph::PegOutGraphSummary;
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::BitcoinBlockHeight,
+    wots::{Groth16PublicKeys, PublicKeys, Wots256PublicKey},
+};
+use strata_bridge_stake_chain::{
+    prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    transactions::stake::StakeTxData,
+};
+use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
+
+/// Helper structure for passing around the relevant information we receive in the DepositSetup P2P
+/// message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DepositSetup {
+    /// The stake hash we received in the DepositSetup P2P message.
+    pub hash: sha256::Hash,
+
+    /// The peg-out-graph dust output funding source outpoint received in the DepositSetup P2P
+    /// message.
+    pub funding_outpoint: OutPoint,
+
+    /// The P2TR key where the operator will ultimately receive a reimbursement for a valid
+    /// withdrawal fulfillment.
+    pub operator_pk: XOnlyPublicKey,
+
+    /// The public wots keys we received from the DepositSetup P2P message.
+    pub wots_pks: WotsPublicKeys,
+}
+impl DepositSetup {
+    /// Conversion function into StakeTxData.
+    pub fn stake_tx_data(&self) -> StakeTxData {
+        StakeTxData {
+            operator_funds: self.funding_outpoint,
+            hash: self.hash,
+            withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+                self.wots_pks.withdrawal_fulfillment.0,
+            ),
+        }
+    }
+}
 
 /// This is the unified event type for this state machine.
 ///
@@ -24,7 +67,13 @@ use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 #[derive(Debug)]
 pub enum ContractEvent {
     /// Signifies that we have a new set of WOTS keys from one of our peers.
-    WotsKeys(P2POperatorPubKey, Box<WotsPublicKeys>),
+    DepositSetup(
+        P2POperatorPubKey,
+        XOnlyPublicKey,
+        sha256::Hash,
+        StakeTx,
+        Box<WotsPublicKeys>,
+    ),
 
     /// Signifies that we have a new set of nonces for the peg out graph from one of our peers.
     GraphNonces(P2POperatorPubKey, Vec<PubNonce>),
@@ -43,7 +92,7 @@ pub enum ContractEvent {
 
     /// Signifies that the deposit transaction has been confirmed, the second value is the global
     /// deposit index.
-    DepositConfirmation(Transaction, u32),
+    DepositConfirmation(Transaction),
 
     /// Signifies that a new transaction has been confirmed.
     PegOutGraphConfirmation(Transaction, BitcoinBlockHeight),
@@ -80,12 +129,18 @@ pub enum ContractState {
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
 
-        /// This is a collection of the wots keys we have received from our peers.
+        /// This is a collection of the stake transaction data on a per-operator basis. This is
+        /// used to eventually construct the peg-out-graphs.
+        stake_txs: BTreeMap<P2POperatorPubKey, StakeTx>,
+
+        /// This is a collection of the WOTS public keys needed to generate the peg-out-graphs on
+        /// a per-operator basis.
         wots_keys: BTreeMap<P2POperatorPubKey, WotsPublicKeys>,
 
-        /// This is a collection of each operator's funding outputs that they use to fund the
-        /// connectors.
-        funding_outputs: BTreeMap<P2POperatorPubKey, OutPoint>,
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
+        peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// This is a collection of nonces for the peg-out graph on a per-operator basis.
         graph_nonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
@@ -105,20 +160,18 @@ pub enum ContractState {
     /// This state describes everything from the moment the deposit confirms, to the moment the
     /// strata state commitment that assigns this deposit confirms.
     Deposited {
-        /// The global deposit index of this deposit.
-        deposit_idx: u32,
-
-        /// The summary of peg-out graphs that are associated with this deposit per operator.
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
     },
 
     /// This state describes everything from the moment the withdrawal is assigned, to the moment
     /// the fulfillment transaction confirms.
     Assigned {
-        /// The global deposit index of this deposit.
-        deposit_idx: u32,
-
-        /// The summary of peg-out graphs that are associated with this deposit per operator.
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -134,10 +187,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
-        /// The global deposit index of this deposit.
-        deposit_idx: u32,
-
-        /// The peg-out graphs that are associated with this deposit per operator.
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -151,10 +203,9 @@ pub enum ContractState {
     /// moment either the challenge transaction confirms, or the optimistic payout transaction
     /// confirms.
     Claimed {
-        /// The global deposit index of this deposit.
-        deposit_idx: u32,
-
-        /// The summary of peg-out graphs associated with this deposit per operator.
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the claim transaction was confirmed.
@@ -170,10 +221,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
-        /// The global deposit index of this deposit.
-        deposit_idx: u32,
-
-        /// The summary of peg-out graphs associated with this deposit per operator.
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
@@ -186,10 +236,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the post-assert transaction confirms, to
     /// the moment either the disprove transaction confirms or the payout transaction confirms.
     Asserted {
-        /// The global deposit index of this deposit.
-        deposit_idx: u32,
-
-        /// The summary of peg-out graphs associated with this deposit per operator.
+        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
+        /// we can monitor the transactions relevant to advancing the contract through its
+        /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The height at which the post-assert transaction was confirmed.
@@ -295,8 +344,19 @@ impl Display for TransitionErr {
 /// Holds the state machine values that remain static for the lifetime of the contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContractCfg {
+    /// The bitcoin chain to which this state machine is bound.
+    pub network: Network,
+
     /// The pointed operator set.
     pub operator_table: OperatorTable,
+
+    /// Consensus critical parameters for computing the locking conditions of the connector
+    /// outputs.
+    pub connector_params: ConnectorParams,
+
+    /// The global index of this contract. This is decided by the bridge upon the recognition of
+    /// a deposit request.
+    pub deposit_idx: u32,
 
     /// The predetermined deposit transaction that the rest of the graph is built from.
     pub deposit_tx: Transaction,
@@ -324,19 +384,26 @@ impl ContractSM {
     ///
     /// This will be constructible once we have a deposit request.
     pub fn new(
+        network: Network,
         operator_table: OperatorTable,
+        connector_params: ConnectorParams,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
+        deposit_idx: u32,
         deposit_tx: Transaction,
     ) -> (Self, OperatorDuty) {
         let cfg = ContractCfg {
+            network,
             operator_table,
+            connector_params,
+            deposit_idx,
             deposit_tx,
         };
         let state = ContractState::Requested {
             abort_deadline,
+            stake_txs: BTreeMap::new(),
             wots_keys: BTreeMap::new(),
-            funding_outputs: BTreeMap::new(),
+            peg_out_graphs: BTreeMap::new(),
             graph_nonces: BTreeMap::new(),
             graph_sigs: BTreeMap::new(),
             root_nonces: BTreeMap::new(),
@@ -404,21 +471,20 @@ impl ContractSM {
     pub fn process_contract_event(
         &mut self,
         ev: ContractEvent,
-        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
-            ContractEvent::WotsKeys(op, keys) => self.process_wots_public_keys(op, *keys),
+            ContractEvent::DepositSetup(op, btc_key, stake_hash, stake_tx, wots_keys) => {
+                self.process_deposit_setup(op, btc_key, stake_hash, stake_tx, *wots_keys)
+            }
             ContractEvent::GraphNonces(op, nonces) => self.process_graph_nonces(op, nonces),
             ContractEvent::GraphSigs(op, sigs) => self.process_graph_signatures(op, sigs),
             ContractEvent::RootNonce(op, nonce) => self.process_root_nonce(op, nonce),
             ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
-            ContractEvent::DepositConfirmation(tx, deposit_idx) => {
-                self.process_deposit_confirmation(tx, deposit_idx)
-            }
+            ContractEvent::DepositConfirmation(tx) => self.process_deposit_confirmation(tx),
             ContractEvent::PegOutGraphConfirmation(tx, height) => {
                 self.process_peg_out_graph_tx_confirmation(height, &tx)
             }
-            ContractEvent::Block(height) => self.notify_new_block(height, connector_params),
+            ContractEvent::Block(height) => self.notify_new_block(height),
             ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
             ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
             ContractEvent::Assignment(deposit_entry) => self.process_assignment(&deposit_entry),
@@ -428,30 +494,20 @@ impl ContractSM {
     fn process_deposit_confirmation(
         &mut self,
         tx: Transaction,
-        _deposit_idx: u32,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match self.state.state {
-            ContractState::Requested { .. }
-                if tx.compute_txid() == self.cfg.deposit_tx.compute_txid() =>
-            {
-                // let _peg_out_input = PegOutGraphInput {
-                //     stake_outpoint: todo!(),
-                //     withdrawal_fulfillment_outpoint: todo!(),
-                //     stake_hash: todo!(),
-                //     wots_public_keys: todo!(),
-                //     operator_pubkey: todo!(),
-                // };
-                // let _peg_out_graphs =
-                //     // PegOutGraph::generate(todo!(), todo!(), todo!(), todo!(), todo!(),
-                // todo!()).unwrap();
-                // self.state.state = ContractState::Deposited {
-                //     deposit_idx,
-                //     peg_out_graphs: todo!(),
-                // };
-                Ok(None)
-            }
-            _ => Err(TransitionErr),
+        if tx.compute_txid() != self.cfg.deposit_tx.compute_txid() {
+            return Err(TransitionErr);
         }
+
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        if let ContractState::Requested { peg_out_graphs, .. } = current {
+            self.state.state = ContractState::Deposited { peg_out_graphs }
+        } else {
+            self.state.state = current;
+            return Err(TransitionErr);
+        }
+
+        Ok(None)
     }
 
     /// Processes a transaction that is assumed to be in the peg-out-graph.
@@ -477,16 +533,81 @@ impl ContractSM {
         }
     }
 
-    fn process_wots_public_keys(
+    fn convert_g16_keys(
+        g16_keys: strata_p2p_types::Groth16PublicKeys,
+    ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
+        // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
+        // rid of the rats nest of code below.
+        if g16_keys.public_inputs.len() != NUM_PUBS {
+            return Err(TransitionErr);
+        }
+        let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
+
+        if g16_keys.fqs.len() != NUM_U256 {
+            return Err(TransitionErr);
+        }
+        let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
+
+        if g16_keys.hashes.len() != NUM_HASH {
+            return Err(TransitionErr);
+        }
+        let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
+
+        Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
+    }
+
+    fn process_deposit_setup(
         &mut self,
         signer: P2POperatorPubKey,
-        keys: WotsPublicKeys,
+        signer_btc_key: XOnlyPublicKey,
+        new_stake_hash: sha256::Hash,
+        new_stake_tx: StakeTx,
+        new_wots_keys: WotsPublicKeys,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
+        // SUBTLE WAY.
         match &mut self.state.state {
-            ContractState::Requested { wots_keys, .. } => {
-                wots_keys.insert(signer, keys);
+            ContractState::Requested {
+                stake_txs,
+                wots_keys,
+                peg_out_graphs,
+                ..
+            } => {
+                let wots_key_record = PublicKeys {
+                    withdrawal_fulfillment: Wots256PublicKey(
+                        new_wots_keys.withdrawal_fulfillment.0,
+                    ),
+                    groth16: Self::convert_g16_keys(new_wots_keys.groth16.clone())?,
+                };
+                let pog_input = PegOutGraphInput {
+                    stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
+                    withdrawal_fulfillment_outpoint: OutPoint::new(
+                        new_stake_tx.compute_txid(),
+                        WITHDRAWAL_FULFILLMENT_VOUT,
+                    ),
+                    stake_hash: new_stake_hash,
+                    wots_public_keys: wots_key_record,
+                    operator_pubkey: signer_btc_key,
+                };
+                let pog_summary = PegOutGraph::generate(
+                    pog_input,
+                    &self.cfg.operator_table.tx_build_context(self.cfg.network),
+                    self.cfg.deposit_tx.compute_txid(),
+                    PegOutGraphParams::default(),
+                    ConnectorParams::default(),
+                    StakeChainParams::default(),
+                    Vec::new(),
+                )
+                .map_err(|_| TransitionErr)?
+                .0
+                .summarize();
+
+                stake_txs.insert(signer.clone(), new_stake_tx);
+                wots_keys.insert(signer.clone(), new_wots_keys);
+                peg_out_graphs.insert(signer, pog_summary);
+
                 Ok(
-                    if wots_keys.len() == self.cfg.operator_table.cardinality() {
+                    if stake_txs.len() == self.cfg.operator_table.cardinality() {
                         Some(OperatorDuty::PublishGraphNonces)
                     } else {
                         None
@@ -507,7 +628,7 @@ impl ContractSM {
                 graph_nonces.insert(signer, nonces);
                 Ok(
                     if graph_nonces.len() == self.cfg.operator_table.cardinality() {
-                        Some(OperatorDuty::PublishGraphNonces)
+                        Some(OperatorDuty::PublishGraphSignatures)
                     } else {
                         None
                     },
@@ -589,7 +710,6 @@ impl ContractSM {
     fn notify_new_block(
         &mut self,
         height: BitcoinBlockHeight,
-        connector_params: ConnectorParams,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if self.state.block_height + 1 == height {
             self.state.block_height = height;
@@ -607,16 +727,12 @@ impl ContractSM {
                 }
                 ContractState::Deposited { .. } => None,
                 ContractState::Assigned {
-                    deposit_idx,
                     peg_out_graphs,
                     deadline,
                     ..
                 } => {
                     if self.state.block_height >= deadline {
-                        self.state.state = ContractState::Deposited {
-                            deposit_idx,
-                            peg_out_graphs,
-                        };
+                        self.state.state = ContractState::Deposited { peg_out_graphs };
                     }
 
                     None
@@ -628,7 +744,8 @@ impl ContractSM {
                     ..
                 } => {
                     if self.state.block_height
-                        >= claim_height + connector_params.payout_optimistic_timelock as u64
+                        >= claim_height
+                            + self.cfg.connector_params.payout_optimistic_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(
@@ -645,7 +762,7 @@ impl ContractSM {
                     ..
                 } => {
                     if self.state.block_height
-                        >= post_assert_height + connector_params.payout_timelock as u64
+                        >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
                         && &fulfiller == self.cfg.operator_table.pov_op_key()
                     {
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
@@ -664,48 +781,41 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
-            ContractState::Deposited {
-                deposit_idx,
-                peg_out_graphs,
-            } => {
-                if assignment.idx() != deposit_idx {
-                    return Err(TransitionErr);
-                }
+        if assignment.idx() != self.cfg.deposit_idx {
+            return Err(TransitionErr);
+        }
 
-                match assignment.deposit_state() {
-                    DepositState::Dispatched(dispatched_state) => {
-                        let fulfiller_idx = dispatched_state.assignee();
-                        let fulfiller = match self.cfg.operator_table.idx_to_op_key(&fulfiller_idx)
-                        {
-                            Some(op_key) => op_key.clone(),
-                            None => {
-                                return Err(TransitionErr);
-                            }
-                        };
-                        let deadline = dispatched_state.exec_deadline();
-                        let active_graph = peg_out_graphs
-                            .get(&fulfiller)
-                            .ok_or(TransitionErr)?
-                            .to_owned();
-                        self.state.state = ContractState::Assigned {
-                            deposit_idx,
-                            peg_out_graphs,
-                            fulfiller,
-                            deadline,
-                            active_graph,
-                        };
-                        Ok(if fulfiller_idx == self.cfg.operator_table.pov_idx() {
-                            Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::PublishFulfillment,
-                            ))
-                        } else {
-                            None
-                        })
-                    }
-                    _ => Err(TransitionErr),
+        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+            ContractState::Deposited { peg_out_graphs } => match assignment.deposit_state() {
+                DepositState::Dispatched(dispatched_state) => {
+                    let fulfiller_idx = dispatched_state.assignee();
+                    let fulfiller = match self.cfg.operator_table.idx_to_op_key(&fulfiller_idx) {
+                        Some(op_key) => op_key.clone(),
+                        None => {
+                            return Err(TransitionErr);
+                        }
+                    };
+                    let deadline = dispatched_state.exec_deadline();
+                    let active_graph = peg_out_graphs
+                        .get(&fulfiller)
+                        .ok_or(TransitionErr)?
+                        .to_owned();
+                    self.state.state = ContractState::Assigned {
+                        peg_out_graphs,
+                        fulfiller,
+                        deadline,
+                        active_graph,
+                    };
+                    Ok(if fulfiller_idx == self.cfg.operator_table.pov_idx() {
+                        Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::PublishFulfillment,
+                        ))
+                    } else {
+                        None
+                    })
                 }
-            }
+                _ => Err(TransitionErr),
+            },
             _ => Err(TransitionErr),
         }
     }
@@ -717,7 +827,6 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
             ContractState::Assigned {
-                deposit_idx,
                 peg_out_graphs,
                 fulfiller,
                 active_graph,
@@ -736,7 +845,6 @@ impl ContractSM {
                 };
 
                 self.state.state = ContractState::Fulfilled {
-                    deposit_idx,
                     peg_out_graphs,
                     fulfiller,
                     active_graph,
@@ -755,7 +863,6 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
             ContractState::Fulfilled {
-                deposit_idx,
                 peg_out_graphs,
                 fulfiller,
                 active_graph,
@@ -772,7 +879,6 @@ impl ContractSM {
                 };
 
                 self.state.state = ContractState::Claimed {
-                    deposit_idx,
                     peg_out_graphs,
                     claim_height: height,
                     fulfiller,
@@ -803,7 +909,6 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
             ContractState::Claimed {
-                deposit_idx,
                 peg_out_graphs,
                 fulfiller,
                 active_graph,
@@ -822,7 +927,6 @@ impl ContractSM {
                 };
 
                 self.state.state = ContractState::Challenged {
-                    deposit_idx,
                     peg_out_graphs,
                     fulfiller,
                     active_graph,
@@ -841,7 +945,6 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
             ContractState::Challenged {
-                deposit_idx,
                 peg_out_graphs,
                 fulfiller,
                 active_graph,
@@ -858,7 +961,6 @@ impl ContractSM {
                 };
 
                 self.state.state = ContractState::Asserted {
-                    deposit_idx,
                     peg_out_graphs,
                     post_assert_height,
                     fulfiller,
@@ -963,7 +1065,3 @@ impl ContractSM {
             .txid
     }
 }
-
-/// Placeholder struct for the graph signature payload we get from our peers.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GraphSignatures {}

@@ -17,7 +17,9 @@ rustdoc.all = "warn"
 
 [dependencies]
 alpen-bridge-params.workspace = true
+strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 
 strata-btcio.workspace = true
@@ -28,10 +30,12 @@ strata-state.workspace = true
 
 bincode = "1.3.3"
 bitcoin.workspace = true
+bitvm.workspace = true
 btc-notify.workspace = true
 futures.workspace = true
 musig2.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true

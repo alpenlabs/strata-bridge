@@ -7,20 +7,25 @@ use alpen_bridge_params::{
     prelude::{ConnectorParams, PegOutGraphParams},
     sidesystem::SideSystemParams,
 };
-use bitcoin::{hashes::sha256d::Hash, Block, Network, Txid};
+use bitcoin::{hashes::sha256d::Hash, Block, Network, OutPoint, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
+use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
 use thiserror::Error;
 use tokio::task::JoinHandle;
 
 use crate::{
-    contract_persister::{ContractPersister, PersistErr},
-    contract_state_machine::{ContractEvent, ContractSM, OperatorDuty, TransitionErr},
+    contract_persister::{ContractPersistErr, ContractPersister},
+    contract_state_machine::{
+        ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
+    },
     predicates::{deposit_request_info, is_rollup_commitment},
+    stake_chain_persister::{StakeChainPersister, StakePersistErr},
+    stake_chain_state_machine::{StakeChainErr, StakeChainSM},
 };
 
 /// System that handles all of the chain and p2p events and forwards them to their respective
@@ -34,17 +39,23 @@ impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     #[expect(clippy::too_many_arguments)]
     pub fn new(
+        // Static Config Parameters
         network: Network,
-        operator_table: OperatorTable,
-        zmq_client: BtcZmqClient,
         tx_tag: Vec<u8>,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
         sidesystem_params: SideSystemParams,
+        operator_table: OperatorTable,
+        // Subsystem Handles
+        zmq_client: BtcZmqClient,
+        rpc_client: BitcoinClient,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
+        stake_chain_persister: StakeChainPersister,
     ) -> Self {
         let thread_handle = tokio::task::spawn(async move {
+            let crash = |_e: ContractManagerErr| todo!();
+
             let active_contracts = match contract_persister.load_all().await {
                 Ok(contract_data) => contract_data
                     .into_iter()
@@ -55,16 +66,46 @@ impl ContractManager {
                         )
                     })
                     .collect::<BTreeMap<Txid, ContractSM>>(),
-                Err(_) => {
-                    todo!() // TODO(proofofkeags): probably wanna crash here?
+                Err(e) => crash(e.into()),
+            };
+
+            let stake_chains = match stake_chain_persister.load().await {
+                Ok((loaded_operator_table, stake_chains)) => {
+                    if loaded_operator_table == operator_table {
+                        StakeChainSM::restore(network, loaded_operator_table, stake_chains)
+                    } else {
+                        crash(ContractManagerErr::ContractPersistErr(ContractPersistErr));
+                        return;
+                    }
+                }
+                Err(e) => {
+                    crash(e.into());
+                    return;
                 }
             };
-            // TODO(proofofkeags): synchronize state with chain state
+
+            let current = match rpc_client.get_block_count().await {
+                Ok(a) => a,
+                Err(e) => {
+                    crash(e.into());
+                    return;
+                }
+            };
+
+            // It's extremely unlikely that these will ever differ at all but it's possible for
+            // them to differ by at most 1 in the scenario where we crash mid-batch when committing
+            // contract state to disk.
+            let mut cursor = active_contracts
+                .iter()
+                .min_by(|(_, sm1), (_, sm2)| {
+                    sm1.state().block_height.cmp(&sm2.state().block_height)
+                })
+                .map(|(_, sm)| sm.state().block_height)
+                .unwrap_or(current);
 
             let mut ctx = ContractManagerCtx {
                 // TODO(proofofkeags): prune the active contract set and still preserve the ability
                 // to recover this value.
-                next_deposit_idx: active_contracts.len() as u32,
                 network,
                 operator_table,
                 tx_tag,
@@ -73,7 +114,27 @@ impl ContractManager {
                 sidesystem_params,
                 contract_persister,
                 active_contracts,
+                stake_chain_persister,
+                stake_chains,
             };
+
+            while cursor < current {
+                let next = cursor + 1;
+                let block = match rpc_client.get_block_at(next).await {
+                    Ok(a) => a,
+                    Err(e) => {
+                        crash(e.into());
+                        return;
+                    }
+                };
+                let blockhash = block.block_hash();
+                if let Err(e) = ctx.process_block(block).await {
+                    tracing::error!("failed to process block {}: {}", blockhash, e);
+                    break;
+                }
+
+                cursor = next;
+            }
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
             loop {
@@ -109,13 +170,21 @@ impl Drop for ContractManager {
 /// Unified error type for everything that can happen in the ContractManager.
 #[derive(Debug, Error)]
 pub enum ContractManagerErr {
-    /// Errors related to writing stuff to disk.
-    #[error("failed to commit state to disk: {0}")]
-    PersistErr(#[from] PersistErr),
+    /// Errors related to writing contract state to disk.
+    #[error("failed to commit contract state to disk: {0}")]
+    ContractPersistErr(#[from] ContractPersistErr),
+
+    /// Errors related to committing stake chain state to disk.
+    #[error("failed to commit stake chain state to disk: {0}")]
+    StakePersistErr(#[from] StakePersistErr),
 
     /// Errors related to state machines being unable to process ContractEvents
-    #[error("state machine received an invalid event: {0}")]
+    #[error("contract state machine received an invalid event: {0}")]
     TransitionErr(#[from] TransitionErr),
+
+    /// Errors related to events updating operators' stake chains.
+    #[error("stake chain state machine received an invalid event: {0}")]
+    StakeChainErr(#[from] StakeChainErr),
 
     /// Errors related to PegOutGraph generation.
     #[error("peg out graph generation failed: {0}")]
@@ -124,10 +193,13 @@ pub enum ContractManagerErr {
     /// Errors related to receiving P2P messages at protocol-invalid times.
     #[error("invalid p2p message: {0:?}")]
     InvalidP2PMessage(Box<UnsignedGossipsubMsg>),
+
+    /// Errors related to calling Bitcoin Core's RPC interface.
+    #[error("bitcoin core rpc call failed with: {0}")]
+    BitcoinCoreRPCErr(#[from] ClientError),
 }
 
 struct ContractManagerCtx {
-    next_deposit_idx: u32,
     network: Network,
     tx_tag: Vec<u8>,
     connector_params: ConnectorParams,
@@ -135,7 +207,9 @@ struct ContractManagerCtx {
     sidesystem_params: SideSystemParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
+    stake_chain_persister: StakeChainPersister,
     active_contracts: BTreeMap<Txid, ContractSM>,
+    stake_chains: StakeChainSM,
 }
 
 impl ContractManagerCtx {
@@ -150,7 +224,7 @@ impl ContractManagerCtx {
             }
 
             let txid = tx.compute_txid();
-            let stake_index = self.next_deposit_idx;
+            let stake_index = self.active_contracts.len() as u32;
             if let Some(deposit_info) = deposit_request_info(
                 &tx,
                 &self.sidesystem_params,
@@ -169,10 +243,25 @@ impl ContractManagerCtx {
                     }
                 };
 
+                if self
+                    .active_contracts
+                    .contains_key(&deposit_tx.compute_txid())
+                {
+                    // We already processed this. Do not create another contract attached to this
+                    // deposit txid.
+                    continue;
+                }
+
+                // TODO(proofofkeags): prune the active contract set and still preserve the ability
+                // to recover this value.
+                let deposit_idx = self.active_contracts.len() as u32;
                 let (sm, duty) = ContractSM::new(
+                    self.network,
                     self.operator_table.clone(),
+                    self.connector_params,
                     height,
                     height + self.pegout_graph_params.refund_delay as u64,
+                    deposit_idx,
                     deposit_tx,
                 );
                 self.contract_persister.init(sm.cfg(), sm.state()).await?;
@@ -186,10 +275,14 @@ impl ContractManagerCtx {
             }
 
             if let Some(contract) = self.active_contracts.get_mut(&txid) {
-                if let Ok(duty) = contract.process_contract_event(
-                    ContractEvent::DepositConfirmation(tx, self.next_deposit_idx),
-                    self.connector_params,
-                ) {
+                if contract.state().block_height >= height {
+                    // Don't process events if we've already processed them.
+                    continue;
+                }
+
+                if let Ok(duty) =
+                    contract.process_contract_event(ContractEvent::DepositConfirmation(tx))
+                {
                     self.contract_persister
                         .commit(&txid, contract.state())
                         .await?;
@@ -202,10 +295,14 @@ impl ContractManagerCtx {
             }
 
             for (deposit_txid, contract) in self.active_contracts.iter_mut() {
+                if contract.state().block_height >= height {
+                    // Don't process events if we've already processed them.
+                    continue;
+                }
+
                 if contract.transaction_filter()(&tx) {
                     let duty = contract.process_contract_event(
                         ContractEvent::PegOutGraphConfirmation(tx.clone(), height),
-                        self.connector_params,
                     )?;
                     self.contract_persister
                         .commit(deposit_txid, contract.state())
@@ -220,9 +317,7 @@ impl ContractManagerCtx {
         // Now that we've handled all the transaction level events, we should inform all the
         // CSMs that a new block has arrived
         for (_, contract) in self.active_contracts.iter_mut() {
-            if let Some(duty) = contract
-                .process_contract_event(ContractEvent::Block(height), self.connector_params)?
-            {
+            if let Some(duty) = contract.process_contract_event(ContractEvent::Block(height))? {
                 duties.push(duty);
             }
         }
@@ -235,17 +330,67 @@ impl ContractManagerCtx {
     }
 
     async fn process_p2p_message(&mut self, msg: GossipsubMsg) -> Result<(), ContractManagerErr> {
-        match msg.unsigned {
-            UnsignedGossipsubMsg::StakeChainExchange { .. } => todo!(),
+        match msg.unsigned.clone() {
+            UnsignedGossipsubMsg::StakeChainExchange {
+                stake_chain_id,
+                pre_stake_txid,
+                pre_stake_vout,
+            } => {
+                self.stake_chains.process_exchange(
+                    msg.key,
+                    stake_chain_id,
+                    OutPoint::new(pre_stake_txid, pre_stake_vout),
+                )?;
+
+                self.stake_chain_persister
+                    .commit(self.stake_chains.state())
+                    .await?;
+
+                Ok(())
+            }
             UnsignedGossipsubMsg::DepositSetup {
-                scope, wots_pks, ..
+                scope,
+                hash,
+                funding_txid,
+                funding_vout,
+                operator_pk,
+                wots_pks,
             } => {
                 let deposit_txid = Txid::from_raw_hash(*Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::WotsKeys(msg.key, Box::new(wots_pks)),
-                        self.connector_params,
-                    )? {
+                    let setup = DepositSetup {
+                        hash,
+                        funding_outpoint: OutPoint::new(funding_txid, funding_vout),
+                        operator_pk,
+                        wots_pks: wots_pks.clone(),
+                    };
+                    self.stake_chains.process_setup(msg.key.clone(), &setup)?;
+                    self.stake_chain_persister
+                        .commit(self.stake_chains.state())
+                        .await?;
+
+                    let deposit_idx = contract.cfg().deposit_idx;
+                    let stake_tx = if let Some(stake_tx) =
+                        self.stake_chains.stake_tx(&msg.key, deposit_idx as usize)
+                    {
+                        stake_tx
+                    } else {
+                        return Err(ContractManagerErr::StakeChainErr(StakeChainErr));
+                    };
+
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::DepositSetup(
+                            msg.key.clone(),
+                            self.operator_table
+                                .op_key_to_btc_key(&msg.key)
+                                .unwrap()
+                                .x_only_public_key()
+                                .0,
+                            hash,
+                            stake_tx,
+                            Box::new(wots_pks),
+                        ))?
+                    {
                         self.execute_duty(duty);
                     }
                 }
@@ -257,10 +402,9 @@ impl ContractManagerCtx {
             } => {
                 let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&txid) {
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::GraphNonces(msg.key, nonces),
-                        self.connector_params,
-                    )? {
+                    if let Some(duty) = contract
+                        .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
+                    {
                         self.execute_duty(duty);
                     }
                 } else if let Some((_, contract)) = self
@@ -274,10 +418,9 @@ impl ContractManagerCtx {
                         )));
                     }
                     let nonce = nonces.pop().unwrap();
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::RootNonce(msg.key, nonce),
-                        self.connector_params,
-                    )? {
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::RootNonce(msg.key, nonce))?
+                    {
                         self.execute_duty(duty);
                     }
                 }
@@ -290,10 +433,9 @@ impl ContractManagerCtx {
             } => {
                 let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&txid) {
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::GraphSigs(msg.key, signatures),
-                        self.connector_params,
-                    )? {
+                    if let Some(duty) = contract
+                        .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
+                    {
                         self.execute_duty(duty);
                     }
                 } else if let Some((_, contract)) = self
@@ -302,14 +444,16 @@ impl ContractManagerCtx {
                     .find(|(_, contract)| contract.deposit_request_txid() == txid)
                 {
                     if signatures.len() != 1 {
-                        // TODO(proofofkeags): is this an error?
-                        todo!()
+                        // TODO(proofofkeags): is this an error? For now we just ignore the message
+                        // entirely.
+                        return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
+                            msg.unsigned,
+                        )));
                     }
                     let sig = signatures.pop().unwrap();
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::RootSig(msg.key, sig),
-                        self.connector_params,
-                    )? {
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::RootSig(msg.key, sig))?
+                    {
                         self.execute_duty(duty)
                     }
                 }
