@@ -534,29 +534,20 @@ impl ContractSM {
     ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
         // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
         // rid of the rats nest of code below.
-        let mut public_inputs: [[[u8; 20]; 68]; NUM_PUBS] = [[[0; 20]; 68]; NUM_PUBS];
         if g16_keys.public_inputs.len() != NUM_PUBS {
             return Err(TransitionErr);
         }
-        for (i, input) in g16_keys.public_inputs.into_iter().enumerate() {
-            public_inputs[i] = *input;
-        }
+        let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
 
-        let mut fqs: [[[u8; 20]; 68]; NUM_U256] = [[[0; 20]; 68]; NUM_U256];
         if g16_keys.fqs.len() != NUM_U256 {
             return Err(TransitionErr);
         }
-        for (i, fq) in g16_keys.fqs.into_iter().enumerate() {
-            fqs[i] = *fq;
-        }
+        let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
 
-        let mut hashes: [[[u8; 20]; 36]; NUM_HASH] = [[[0; 20]; 36]; NUM_HASH];
         if g16_keys.hashes.len() != NUM_HASH {
             return Err(TransitionErr);
         }
-        for (i, hash) in g16_keys.hashes.into_iter().enumerate() {
-            hashes[i] = *hash;
-        }
+        let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
 
         Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
     }
