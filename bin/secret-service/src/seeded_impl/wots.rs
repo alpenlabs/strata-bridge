@@ -7,13 +7,13 @@ use musig2::secp256k1::SECP256K1;
 use secret_service_proto::v1::traits::{Server, WotsSigner};
 use sha2::Sha256;
 
-use super::paths::{WOTS_IKM_160_PATH, WOTS_IKM_256_PATH};
+use super::paths::{WOTS_IKM_128_PATH, WOTS_IKM_256_PATH};
 
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
 pub struct SeededWotsSigner {
-    /// Initial key material for 160-bit WOTS keys.
-    ikm_160: [u8; 32],
+    /// Initial key material for 128-bit WOTS keys.
+    ikm_128: [u8; 32],
     /// Initial key material for 256-bit WOTS keys.
     ikm_256: [u8; 32],
 }
@@ -22,8 +22,8 @@ impl SeededWotsSigner {
     /// Creates a new WOTS signer from an operator's base private key (m/20000').
     pub fn new(base: &Xpriv) -> Self {
         Self {
-            ikm_160: base
-                .derive_priv(SECP256K1, &WOTS_IKM_160_PATH)
+            ikm_128: base
+                .derive_priv(SECP256K1, &WOTS_IKM_128_PATH)
                 .unwrap()
                 .private_key
                 .secret_bytes(),
@@ -37,9 +37,9 @@ impl SeededWotsSigner {
 }
 
 impl WotsSigner<Server> for SeededWotsSigner {
-    async fn get_160_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 160] {
-        let hk = Hkdf::<Sha256>::new(None, &self.ikm_160);
-        let mut okm = [0u8; 20 * 160];
+    async fn get_128_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 128] {
+        let hk = Hkdf::<Sha256>::new(None, &self.ikm_128);
+        let mut okm = [0u8; 20 * 128];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),
             (&vout.to_le_bytes(), 4),

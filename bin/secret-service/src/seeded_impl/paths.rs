@@ -2,10 +2,10 @@
 
 use bitcoin::bip32::ChildNumber;
 
-/// Path for initial key material used for 160-bit WOTS keys
-pub const WOTS_IKM_160_PATH: &[ChildNumber] = &[
+/// Path for initial key material used for 128-bit WOTS keys
+pub const WOTS_IKM_128_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 79 },
-    ChildNumber::Hardened { index: 160 },
+    ChildNumber::Hardened { index: 128 },
     ChildNumber::Hardened { index: 0 },
 ];
 /// Path for initial key material used for 256-bit WOTS keys

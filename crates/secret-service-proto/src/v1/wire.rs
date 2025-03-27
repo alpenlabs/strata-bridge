@@ -141,10 +141,10 @@ pub enum ServerMessage {
     /// [`Musig2SignerSecondRound::finalize`](super::traits::Musig2SignerSecondRound::finalize).
     Musig2SecondRoundFinalize(Musig2SessionResult),
 
-    /// Response for [`WotsSigner::get_160_key`](super::traits::WotsSigner::get_160_key).
-    WotsGet160Key {
+    /// Response for [`WotsSigner::get_128_key`](super::traits::WotsSigner::get_128_key).
+    WotsGet128Key {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 160],
+        key: [u8; 20 * 128],
     },
 
     /// Response for [`WotsSigner::get_256_key`](super::traits::WotsSigner::get_256_key).
@@ -328,8 +328,8 @@ pub enum ClientMessage {
         session_id: usize,
     },
 
-    /// Request for [`WotsSigner::get_160_key`](super::traits::WotsSigner::get_160_key).
-    WotsGet160Key {
+    /// Request for [`WotsSigner::get_128_key`](super::traits::WotsSigner::get_128_key).
+    WotsGet128Key {
         /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
         txid: [u8; 32],
 
