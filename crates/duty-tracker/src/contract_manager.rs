@@ -1,7 +1,10 @@
 //! This module implements the top level ContractManager. This system is responsible for monitoring
 //! and responding to chain events and operator p2p network messages according to the Strata Bridge
 //! protocol rules.
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::Duration,
+};
 
 use alpen_bridge_params::{
     prelude::{ConnectorParams, PegOutGraphParams},
@@ -13,10 +16,12 @@ use futures::StreamExt;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
-use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
-use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
+use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use thiserror::Error;
-use tokio::task::JoinHandle;
+use tokio::{task::JoinHandle, time};
+use tracing::warn;
 
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
@@ -41,7 +46,7 @@ impl ContractManager {
     pub fn new(
         // Static Config Parameters
         network: Network,
-        tx_tag: Vec<u8>,
+        nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
         sidesystem_params: SideSystemParams,
@@ -108,7 +113,6 @@ impl ContractManager {
                 // to recover this value.
                 network,
                 operator_table,
-                tx_tag,
                 connector_params,
                 pegout_graph_params,
                 sidesystem_params,
@@ -137,6 +141,7 @@ impl ContractManager {
             }
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
+            let mut interval = time::interval(nag_interval);
             loop {
                 tokio::select! {
                     Some(block) = block_sub.next() => {
@@ -153,6 +158,12 @@ impl ContractManager {
                         },
                         Err(e) => {
                             tracing::error!("{}", e);
+                        }
+                    },
+                    _ = interval.tick() => {
+                        let nags = ctx.nag();
+                        for nag in nags {
+                            p2p_handle.send_command(nag).await;
                         }
                     }
                 }
@@ -201,7 +212,6 @@ pub enum ContractManagerErr {
 
 struct ContractManagerCtx {
     network: Network,
-    tx_tag: Vec<u8>,
     connector_params: ConnectorParams,
     pegout_graph_params: PegOutGraphParams,
     sidesystem_params: SideSystemParams,
@@ -231,10 +241,11 @@ impl ContractManagerCtx {
                 &self.pegout_graph_params,
                 stake_index,
             ) {
+                let deposit_request_txid = txid;
                 let deposit_tx = match deposit_info.construct_signing_data(
                     &self.operator_table.tx_build_context(self.network),
                     self.pegout_graph_params.deposit_amount,
-                    Some(&self.tx_tag),
+                    Some(self.pegout_graph_params.tag.as_bytes()),
                 ) {
                     Ok(data) => data.psbt.unsigned_tx,
                     Err(_) => {
@@ -262,6 +273,7 @@ impl ContractManagerCtx {
                     height,
                     height + self.pegout_graph_params.refund_delay as u64,
                     deposit_idx,
+                    deposit_request_txid,
                     deposit_tx,
                 );
                 self.contract_persister.init(sm.cfg(), sm.state()).await?;
@@ -393,6 +405,13 @@ impl ContractManagerCtx {
                     {
                         self.execute_duty(duty);
                     }
+                } else {
+                    // One of the other operators has may have seen a DRT that we have not yet
+                    // seen
+                    warn!(
+                        "Received a P2P message about an unknown contract: {}",
+                        deposit_txid
+                    );
                 }
                 Ok(())
             }
@@ -461,6 +480,117 @@ impl ContractManagerCtx {
                 Ok(())
             }
         }
+    }
+
+    /// Generates a list of all of the commands needed to acquire P2P messages needed to move a
+    /// deposit from the requested to deposited states.
+    fn nag(&self) -> Vec<Command> {
+        // Get the operator set as a whole.
+        let want = self.operator_table.p2p_keys();
+
+        let mut all_commands = Vec::new();
+
+        for (txid, contract) in self.active_contracts.iter() {
+            let state = &contract.state().state;
+            if let crate::contract_state_machine::ContractState::Requested {
+                deposit_request_txid,
+                wots_keys,
+                graph_nonces,
+                graph_sigs,
+                root_nonces,
+                root_sigs,
+                ..
+            } = state
+            {
+                let mut commands = Vec::new();
+
+                // Get all of the operator keys who have already given us their wots keys.
+                let have = wots_keys
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<P2POperatorPubKey>>();
+
+                // Take the difference and add it to the list of things to nag.
+                commands.extend(want.difference(&have).map(|key| {
+                    let scope = Scope::from_bytes(*txid.as_ref());
+                    Command::RequestMessage(GetMessageRequest::DepositSetup {
+                        scope,
+                        operator_pk: key.clone(),
+                    })
+                }));
+
+                // We can simultaneously nag for the nonces as well.
+                let have = graph_nonces
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<P2POperatorPubKey>>();
+                commands.extend(want.difference(&have).map(|key| {
+                    let session_id = SessionId::from_bytes(*txid.as_ref());
+                    Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
+                        session_id,
+                        operator_pk: key.clone(),
+                    })
+                }));
+
+                // If this is not empty then we can't nag for the next steps in the process.
+                if !commands.is_empty() {
+                    all_commands.extend(commands.into_iter());
+                    continue;
+                }
+
+                // Otherwise we can move onto the graph signatures.
+                let have = graph_sigs
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<P2POperatorPubKey>>();
+                commands.extend(want.difference(&have).map(|key| {
+                    let session_id = SessionId::from_bytes(*txid.as_ref());
+                    Command::RequestMessage(GetMessageRequest::Musig2SignaturesExchange {
+                        session_id,
+                        operator_pk: key.clone(),
+                    })
+                }));
+
+                // If this is not empty then we can't yet nag for the root nonces.
+                if !commands.is_empty() {
+                    all_commands.extend(commands.into_iter());
+                    continue;
+                }
+
+                // Otherwise we can.
+                let have = root_nonces
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<P2POperatorPubKey>>();
+                commands.extend(want.difference(&have).map(|key| {
+                    let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
+                    Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
+                        session_id,
+                        operator_pk: key.clone(),
+                    })
+                }));
+
+                if !commands.is_empty() {
+                    all_commands.extend(commands.into_iter());
+                    continue;
+                }
+
+                // Finally we can nag for the root sigs.
+                let have = root_sigs
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<P2POperatorPubKey>>();
+                commands.extend(want.difference(&have).map(|key| {
+                    let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
+                    Command::RequestMessage(GetMessageRequest::Musig2SignaturesExchange {
+                        session_id,
+                        operator_pk: key.clone(),
+                    })
+                }));
+            }
+        }
+
+        all_commands
     }
 
     fn execute_duty(&mut self, _duty: OperatorDuty) {
