@@ -7,7 +7,7 @@ use ark_groth16::VerifyingKey;
 
 use crate::sp1;
 
-pub static GROTH16_VERIFICATION_KEY: LazyLock<g16::VerifyingKey> = LazyLock::new(|| {
+pub static GROTH16_VERIFICATION_KEY: LazyLock<VerifyingKey<Bn254>> = LazyLock::new(|| {
     let vkey_hash = if std::env::var("ZKVM_MOCK")
         .map(|v| v == "1" || v.to_lowercase() == "true")
         .unwrap_or(false)
