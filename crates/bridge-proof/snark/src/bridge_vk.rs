@@ -8,7 +8,10 @@ use ark_groth16::VerifyingKey;
 use crate::sp1;
 
 pub static GROTH16_VERIFICATION_KEY: LazyLock<VerifyingKey<Bn254>> = LazyLock::new(|| {
-    let vkey_hash = if cfg!(feature = "mock") {
+    let vkey_hash = if std::env::var("ZKVM_MOCK")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
+    {
         println!("Detected mock environment, using mock vk");
 
         const MOCK_KEY: &str = "f11a13dc16284374ad770eb12246bbcd2931cf02e76e0bc4046156cb2cd7d8f4";

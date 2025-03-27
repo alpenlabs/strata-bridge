@@ -33,6 +33,3 @@ strata-btcio.workspace = true
 borsh.workspace = true
 corepc-node.workspace = true
 sp1-verifier.workspace = true
-
-[features]
-mock = ["strata-bridge-proof-snark/mock"]

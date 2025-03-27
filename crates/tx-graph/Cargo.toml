@@ -35,6 +35,3 @@ corepc-node.workspace = true
 rkyv.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
-
-[features]
-mock = ["strata-bridge-connectors/mock"]

@@ -1,16 +1,17 @@
 use bitcoin::{consensus, ScriptBuf, Transaction, Txid};
+use strata_crypto::groth16_verifier::verify_rollup_groth16_proof_receipt;
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::{
-    block_credential::CredRule, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
+    batch::SignedCheckpoint, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
 };
-use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
+use strata_state::{batch::verify_signed_checkpoint_sig, chain_state::Chainstate};
 
 use crate::error::{BridgeProofError, BridgeRelatedTx};
 
-pub(crate) fn extract_checkpoint(
+pub(crate) fn extract_valid_chainstate_from_checkpoint(
     tx: &Transaction,
     rollup_params: &RollupParams,
-) -> Result<BatchCheckpoint, BridgeProofError> {
+) -> Result<Chainstate, BridgeProofError> {
     let filter_config = TxFilterConfig::derive_from(rollup_params)
         .map_err(|e| BridgeProofError::InvalidParams(e.to_string()))?;
 
@@ -21,16 +22,33 @@ pub(crate) fn extract_checkpoint(
                     continue;
                 }
 
-                if let Ok(checkpoint) =
-                    borsh::from_slice::<SignedBatchCheckpoint>(payload[0].data())
-                {
-                    if let CredRule::SchnorrKey(seq_pubkey) = &rollup_params.cred_rule {
-                        assert!(
-                            checkpoint.verify_sig(seq_pubkey),
-                            "invalid signature for checkpoint"
-                        );
+                if let Ok(checkpoint) = borsh::from_slice::<SignedCheckpoint>(payload[0].data()) {
+                    if !verify_signed_checkpoint_sig(&checkpoint, &rollup_params.cred_rule) {
+                        return Err(BridgeProofError::UnsatisfiedStrataCredRule);
                     }
-                    return Ok(checkpoint.into());
+
+                    let chainstate: Chainstate =
+                        borsh::from_slice(checkpoint.checkpoint().sidecar().chainstate())
+                            .expect("invalid chainstate");
+
+                    if chainstate.compute_state_root()
+                        != checkpoint
+                            .checkpoint()
+                            .batch_transition()
+                            .chainstate_transition
+                            .post_state_root
+                    {
+                        return Err(BridgeProofError::ChainStateMismatch);
+                    }
+
+                    let proof_receipt = checkpoint.checkpoint().construct_receipt();
+                    if verify_rollup_groth16_proof_receipt(&proof_receipt, &rollup_params.rollup_vk)
+                        .is_err()
+                    {
+                        return Err(BridgeProofError::InvalidStrataProof);
+                    }
+
+                    return Ok(chainstate);
                 }
             }
         }
@@ -123,7 +141,7 @@ mod tests {
         let checkpoint_inscribed_tx = checkpoint_inscribed_tx_bundle.transaction();
 
         let rollup_params = load_test_rollup_params();
-        let res = extract_checkpoint(checkpoint_inscribed_tx, &rollup_params);
+        let res = extract_valid_chainstate_from_checkpoint(checkpoint_inscribed_tx, &rollup_params);
         assert!(
             res.is_ok(),
             "must be able to extract checkpoint but got: {:?}",

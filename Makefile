@@ -35,13 +35,13 @@ build: ## Build the workspace into the `target` directory.
 
 ##@ Test
 
-UNIT_TEST_ARGS := --locked --workspace --profile ci -F mock --retries 2 --status-level fail --no-capture
+UNIT_TEST_ARGS := --locked --workspace --profile ci --retries 2 --status-level fail --no-capture
 COV_FILE := lcov.info
 
 .PHONY: test-unit
 test-unit: ## Run unit tests.
 	-cargo install cargo-nextest --locked
-	cargo nextest run $(UNIT_TEST_ARGS)
+	ZKVM_MOCK=1 cargo nextest run $(UNIT_TEST_ARGS)
 
 .PHONY: cov-unit
 cov-unit: ## Run unit tests with coverage.

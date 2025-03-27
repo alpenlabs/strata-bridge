@@ -1,3 +1,4 @@
+use strata_primitives::l1::L1VerificationError;
 use thiserror::Error;
 
 /// Represents all possible errors that can occur during the verification of a bridge proof.
@@ -18,7 +19,7 @@ pub(crate) enum BridgeProofError {
     InvalidMerkleProof(BridgeRelatedTx),
 
     /// The chain state root does not match the checkpoint's state root.
-    #[error("Mismatch between input ChainState and CheckpointTx ChainState")]
+    #[error("Mismatch between ChainState in Checkpoint Sidecar and CheckpointTx transition proof")]
     ChainStateMismatch,
 
     /// The chain state has encountered an internal error that is derived from `ChainStateError`.
@@ -31,8 +32,16 @@ pub(crate) enum BridgeProofError {
     InvalidWithdrawalData,
 
     /// The operator's signature is invalid
-    #[error("Signature is invalid")]
-    InvalidSignature,
+    #[error("Operator's signature is invalid")]
+    InvalidOperatorSignature,
+
+    /// Strata's credential rule is not satisfied
+    #[error("Strata's Credential Rule is not satisfied")]
+    UnsatisfiedStrataCredRule,
+
+    /// Strata's Proof in Checkpoint Transaction is invalid
+    #[error("Strata proof in checkpoint transaction is invalid")]
+    InvalidStrataProof,
 
     /// The operator's fulfilled the withdrawal request after the deadline
     #[error("Withdrawal fulfilled after deadline exceeded")]
@@ -45,6 +54,10 @@ pub(crate) enum BridgeProofError {
     /// Insufficient blocks submitted after the withdrawal fulfillment transaction.
     #[error("Expected at least {0} blocks after the withdrawal fulfillment transaction, but {1} were provided.")]
     InsufficientBlocksAfterWithdrawalFulfillment(usize, usize),
+
+    /// Provided header does not follow consensus rules
+    #[error("Invalid header")]
+    InvalidHeader(#[from] L1VerificationError),
 }
 
 /// Represents errors that occur during the verification of chain state.
