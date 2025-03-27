@@ -10425,7 +10425,6 @@ dependencies = [
  "strata-l1tx",
  "strata-primitives",
  "strata-rpc-api",
- "strata-rpc-types",
  "strata-state",
  "tokio",
  "tracing",

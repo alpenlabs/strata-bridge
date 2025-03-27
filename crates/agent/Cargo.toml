@@ -25,7 +25,6 @@ strata-btcio.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true
 strata-rpc-api = { workspace = true, features = ["client"] }
-strata-rpc-types.workspace = true
 strata-state.workspace = true
 
 anyhow.workspace = true
@@ -45,3 +44,7 @@ serde_json.workspace = true
 sp1-verifier.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+
+[features]
+default = ["client"]
+client = ["jsonrpsee/client"]
