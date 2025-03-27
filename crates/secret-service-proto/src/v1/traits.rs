@@ -233,14 +233,14 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
 ///
 /// This signer returns deterministic keys so the caller can assemble a transaction.
 pub trait WotsSigner<O: Origin>: Send {
-    /// Returns a deterministic key usable for signing 160 bits of data, with 20 bytes per bit;
+    /// Returns a deterministic key usable for signing 128 bits of data, with 20 bytes per bit;
     /// given a transaction ID, vout, and WOTS index.
-    fn get_160_key(
+    fn get_128_key(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 160]>> + Send;
+    ) -> impl Future<Output = O::Container<[u8; 20 * 128]>> + Send;
 
     /// Returns a key usable for signing 256 bits of data, with 20 bytes per bit;
     /// given a transaction ID, vout, and WOTS index.

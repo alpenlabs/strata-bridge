@@ -458,13 +458,13 @@ where
                 }
             }
 
-            ArchivedClientMessage::WotsGet160Key { index, vout, txid } => {
+            ArchivedClientMessage::WotsGet128Key { index, vout, txid } => {
                 let txid = Txid::from_slice(txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_160_key(txid, vout.into(), index.into())
+                    .get_128_key(txid, vout.into(), index.into())
                     .await;
-                ServerMessage::WotsGet160Key { key }
+                ServerMessage::WotsGet128Key { key }
             }
 
             ArchivedClientMessage::WotsGet256Key { index, vout, txid } => {
