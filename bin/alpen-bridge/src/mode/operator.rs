@@ -49,6 +49,12 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .secret_key()
         .await
         .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
+
+    info!(
+        "Retrieved P2P secret key from S2: {sk_fingerprint:?}",
+        sk_fingerprint = sk
+    );
+
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
 
     let db = init_database_handle(&config).await;
@@ -87,6 +93,7 @@ async fn init_secret_service_client(config: &SecretServiceConfig) -> SecretServi
         .expect("good client config");
 
     let s2_config = secret_service_client::Config {
+        // fixme: use dns lookup
         server_addr: config.server_addr.parse().expect("invalid server address"),
         server_hostname: config.server_hostname.clone(),
         local_addr: None,

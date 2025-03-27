@@ -1,0 +1,30 @@
+finality_depth = 6
+datadir = "/app/data"
+rpc_addr = "0.0.0.0:5678"
+# stub option ftm
+is_faulty = false
+
+[secret_service_client]
+server_addr = "172.28.1.5:69"
+server_hostname = "secret-service"
+timeout = 1000
+cert = "/app/tls/cert.der"
+key = "/app/tls/key.der"
+service_ca = "/app/tls/s2.ca.der"
+
+[btc_client]
+url = "http://localhost:18443"
+user = "user"
+pass = "password"
+retry_count = 3
+retry_interval = 1000
+
+[db]
+max_retry_count = 3
+backoff_period = { secs = 1000, nanos = 0 }
+
+[p2p]
+idle_connection_timeout = { secs = 1000, nanos = 0 }
+listening_addr = "/ip4/127.0.0.1/tcp/1234"
+connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
+num_threads = 4

@@ -292,3 +292,5 @@ certs
 
 # certificates and private keys in der format
 *.der
+
+tls/
