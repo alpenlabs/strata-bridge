@@ -1,3 +1,4 @@
+//! State machine for managing the current state of all the operators' stake chains.
 use std::{collections::BTreeMap, fmt::Display};
 
 use alpen_bridge_params::prelude::StakeChainParams;

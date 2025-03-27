@@ -1,3 +1,8 @@
+//! This module is responsible for persisting the state of the stake chain to a database and
+//! retreiving it when needed.
+// FIXME: remove these once this impl is complete
+#![expect(missing_docs)]
+#![expect(unused)]
 use std::{collections::BTreeMap, fmt::Display};
 
 use sqlx::{Pool, Sqlite};
