@@ -22,7 +22,7 @@ pub struct DepositInfoInterop {
 
     /// The amount in bitcoins that the user is sending.
     ///
-    /// This amount should be greater than the [`BRIDGE_DENOMINATION`]
+    /// This amount should be greater than the `BRIDGE_DENOMINATION`
     /// for the deposit to be confirmed
     /// on bitcoin. The excess amount is used as miner fees for the
     /// Deposit Transaction.
@@ -37,7 +37,7 @@ pub struct DepositInfoInterop {
     /// (DRT) output used to
     /// sanity check computation internally i.e., whether the known
     /// information (n/n script spend
-    /// path, [`static@UNSPENDABLE_INTERNAL_KEY`]) + the
+    /// path, `static@UNSPENDABLE_INTERNAL_KEY`) + the
     /// [`Self::take_back_leaf_hash`] yields the
     /// same P2TR address.
     pub original_taproot_addr: BitcoinAddress,
@@ -80,8 +80,8 @@ pub enum BridgeDutyInterop {
 /// The withdrawal duties are fetched from the current chain state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcBridgeDutiesInterop {
-    /// The actual [`BridgeDuty`]'s assigned to an operator which includes both the deposit and
-    /// withdrawal duties.
+    /// The actual [`BridgeDutyInterop`]'s assigned to an operator which includes both the deposit
+    /// and withdrawal duties.
     pub duties: Vec<BridgeDutyInterop>,
 
     /// The starting index (inclusive) from which the duties are fetched.

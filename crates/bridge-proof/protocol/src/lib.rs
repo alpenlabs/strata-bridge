@@ -41,7 +41,7 @@ pub struct BridgeProofInput {
     /// Vector of Bitcoin headers starting after the one that has been verified by the `header_vs`
     pub headers: Vec<Header>,
 
-    /// The index of the deposit within the [Chainstate] deposit table.
+    /// The index of the deposit within the `Chainstate` deposit table.
     /// Must match the corresponding information in the withdrawal fulfillment transaction.
     pub deposit_idx: u32,
 
