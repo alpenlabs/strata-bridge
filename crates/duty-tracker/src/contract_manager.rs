@@ -405,7 +405,10 @@ impl ContractManagerCtx {
         Ok(())
     }
 
-    fn process_assignments(&mut self, tx: &bitcoin::Transaction) -> Result<(), ContractManagerErr> {
+    /// This function validates whether a transaction is a valid Strata checkpoint transaction,
+    /// extracts any valid assigned deposit entries and produces the `Assignment` [`ContractEvent`]
+    /// so that it can be processed further.
+    fn process_assignments(&mut self, tx: &Transaction) -> Result<(), ContractManagerErr> {
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.sidesystem_params) {
             let chain_state = checkpoint.sidecar().chainstate();
 

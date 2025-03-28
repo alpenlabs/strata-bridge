@@ -100,6 +100,8 @@ pub(crate) fn is_disprove(post_assert_txid: Txid) -> TxPredicate {
     })
 }
 
+/// Creates a filter predicate that checks if a transaction is a valid withdrawal fulfillment
+/// transaction.
 pub(crate) fn is_fulfillment_tx(
     network: Network,
     tag: &[u8],
