@@ -2042,6 +2042,7 @@ where
         debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
         let withdrawal_metadata = WithdrawalMetadata {
+            tag: MAGIC_BYTES,
             operator_idx: own_index,
             deposit_idx,
             deposit_txid,

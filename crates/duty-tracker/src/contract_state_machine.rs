@@ -473,7 +473,7 @@ impl ContractSM {
             if operator_ids.iter().any(|operator_idx| {
                 is_fulfillment_tx(
                     cfg.network,
-                    cfg.peg_out_graph_params.tag.as_bytes(),
+                    &cfg.peg_out_graph_params,
                     *operator_idx,
                     cfg.deposit_idx,
                     deposit_txid,
@@ -881,7 +881,7 @@ impl ContractSM {
                 let cfg = self.cfg();
                 if !is_fulfillment_tx(
                     cfg.network,
-                    cfg.peg_out_graph_params.tag.as_bytes(),
+                    &cfg.peg_out_graph_params,
                     cfg.operator_table.pov_idx(),
                     cfg.deposit_idx,
                     cfg.deposit_tx.compute_txid(),

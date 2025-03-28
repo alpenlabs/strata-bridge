@@ -104,13 +104,21 @@ pub(crate) fn is_disprove(post_assert_txid: Txid) -> TxPredicate {
 /// transaction.
 pub(crate) fn is_fulfillment_tx(
     network: Network,
-    tag: &[u8],
+    pegout_graph_params: &PegOutGraphParams,
     operator_idx: OperatorIdx,
     deposit_idx: u32,
     deposit_txid: Txid,
     recipient: Descriptor,
 ) -> TxPredicate {
-    let tag = tag.to_owned();
+    let PegOutGraphParams {
+        tag,
+        deposit_amount,
+        operator_fee,
+        ..
+    } = pegout_graph_params;
+    let tag = tag.as_bytes().to_owned();
+    let output_amount = *deposit_amount - *operator_fee;
+
     Arc::new(move |tx| {
         let mut outputs = tx.output.iter();
 
