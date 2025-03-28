@@ -240,7 +240,7 @@ pub trait WotsSigner<O: Origin>: Send {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 128]>> + Send;
+    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
 
     /// Returns a key usable for signing 256 bits of data, with 20 bytes per bit;
     /// given a transaction ID, vout, and WOTS index.
@@ -249,7 +249,7 @@ pub trait WotsSigner<O: Origin>: Send {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 256]>> + Send;
+    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
 }
 
 /// The Stake Chain preimages are used to generate deterministic preimages for the Stake Chain

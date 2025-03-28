@@ -144,13 +144,13 @@ pub enum ServerMessage {
     /// Response for [`WotsSigner::get_128_key`](super::traits::WotsSigner::get_128_key).
     WotsGet128Key {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 128],
+        key: [u8; 20 * 36],
     },
 
     /// Response for [`WotsSigner::get_256_key`](super::traits::WotsSigner::get_256_key).
     WotsGet256Key {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 256],
+        key: [u8; 20 * 68],
     },
 
     /// Response for

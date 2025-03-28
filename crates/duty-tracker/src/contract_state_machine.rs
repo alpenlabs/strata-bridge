@@ -272,7 +272,10 @@ pub enum OperatorDuty {
     Abort,
 
     /// Instructs us to publish our own wots keys for this contract.
-    PublishWOTSKeys,
+    PublishWOTSKeys {
+        /// Transaction ID of the DT
+        txid: Txid,
+    },
 
     /// Instructs us to publish our graph nonces for this contract.
     PublishGraphNonces,

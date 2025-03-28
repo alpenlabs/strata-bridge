@@ -37,9 +37,9 @@ impl SeededWotsSigner {
 }
 
 impl WotsSigner<Server> for SeededWotsSigner {
-    async fn get_128_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 128] {
+    async fn get_128_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 36] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_128);
-        let mut okm = [0u8; 20 * 128];
+        let mut okm = [0u8; 20 * 36];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),
             (&vout.to_le_bytes(), 4),
@@ -49,9 +49,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
         okm
     }
 
-    async fn get_256_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 256] {
+    async fn get_256_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 68] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
-        let mut okm = [0u8; 20 * 256];
+        let mut okm = [0u8; 20 * 68];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),
             (&vout.to_le_bytes(), 4),

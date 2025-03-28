@@ -2,7 +2,7 @@
 pub mod sync;
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, Network, Psbt, ScriptBuf, XOnlyPublicKey},
+    bitcoin::{Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, XOnlyPublicKey},
     descriptor,
     error::CreateTxError,
     KeychainKind, LocalOutput, Wallet,
@@ -150,6 +150,28 @@ impl OperatorWallet {
         tx_builder.finish()
     }
 
+    /// Attempts to find a funding UTXO for a stake, ignoring outpoints for which ignore returns
+    /// `true`
+    pub fn claim_funding_utxo(&self, ignore: impl Fn(OutPoint) -> bool) -> FundingUtxo {
+        let mut utxos = self
+            .stakechain_wallet
+            .list_unspent()
+            .filter(|utxo| {
+                !ignore(utxo.outpoint) && utxo.txout.value == self.config.stake_funding_utxo_value
+            })
+            .collect::<Vec<_>>();
+        if utxos.is_empty() {
+            FundingUtxo::Empty
+        } else if utxos.len() < self.config.stake_funding_utxo_pool_size {
+            FundingUtxo::ShouldRefill {
+                op: utxos.pop().unwrap().outpoint,
+                left: utxos.len(),
+            }
+        } else {
+            FundingUtxo::Available(utxos.pop().unwrap().outpoint)
+        }
+    }
+
     /// Tries to find the `s` connector UTXO from the prestake transaction
     pub fn s_utxo(&self) -> Option<LocalOutput> {
         self.stakechain_wallet
@@ -178,6 +200,11 @@ impl OperatorWallet {
         &self.general_addr_script_buf
     }
 
+    /// Returns an immutable reference to the general wallet
+    pub fn general_wallet(&self) -> &Wallet {
+        &self.general_wallet
+    }
+
     /// Syncs the wallet using the backend provided on construction
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         self.sync_backend
@@ -188,4 +215,21 @@ impl OperatorWallet {
             .await?;
         Ok(())
     }
+}
+
+#[derive(Debug)]
+/// Represents the wallet suggesting a specific UTXO
+pub enum FundingUtxo {
+    /// The wallet found a UTXO that can be used for funding
+    Available(OutPoint),
+    /// The wallet found a UTXO that can be used for funding, but also needs you to perform a
+    /// refill
+    ShouldRefill {
+        /// Funding outpoint
+        op: OutPoint,
+        /// How many funding utxos we have left
+        left: usize,
+    },
+    /// Really bad if this happens because you should've refilled when we told you too.
+    Empty,
 }

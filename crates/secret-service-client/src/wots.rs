@@ -33,7 +33,7 @@ impl WotsSigner<Client> for WotsClient {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> <Client as Origin>::Container<[u8; 20 * 128]> {
+    ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
         let msg = ClientMessage::WotsGet128Key {
             index,
             vout,
@@ -51,7 +51,7 @@ impl WotsSigner<Client> for WotsClient {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> <Client as Origin>::Container<[u8; 20 * 256]> {
+    ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
         let msg = ClientMessage::WotsGet256Key {
             index,
             vout,
