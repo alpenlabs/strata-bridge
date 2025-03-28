@@ -77,7 +77,6 @@ strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
 strata-state = { git = "https://github.com/alpenlabs/strata.git" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
-strata-p2p-db = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 
@@ -158,7 +157,6 @@ serde_json = { version = "1.0", default-features = false, features = [
 ] }
 serde_with = "3.12.0"
 sha2 = "0.10"
-sled = "0.34.7"
 sp1-sdk = "4.0.0"
 sp1-verifier = "4.1.1"
 sqlx = { version = "0.8.2", features = [
@@ -172,7 +170,6 @@ sqlx = { version = "0.8.2", features = [
 tempfile = "3.10.1"
 terrors = "0.3.2"
 thiserror = "2.0.3"
-threadpool = "1.8.1"
 tokio = { version = "1.37", features = ["full"] }
 tokio-util = { version = "0.7.13", default-features = false, features = ["rt"] }
 toml = "0.8.20"

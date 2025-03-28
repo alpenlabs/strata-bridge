@@ -1,13 +1,8 @@
+//! GetMessage tests.
+
 use anyhow::bail;
 use strata_common::logging::{self, LoggerConfig};
-use strata_p2p::{
-    commands::{Command, UnsignedPublishMessage},
-    events::Event,
-};
-use strata_p2p_db::{
-    sled::AsyncDB, DepositSetupEntry, NoncesEntry, PartialSignaturesEntry, RepositoryExt,
-    StakeChainEntry,
-};
+use strata_p2p::{commands::Command, events::Event};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
 use tracing::info;
@@ -18,6 +13,7 @@ use super::common::{
     mock_stake_chain_info, Setup,
 };
 
+/// Tests the get message request-response flow.
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
 async fn request_response() -> anyhow::Result<()> {
     const OPERATORS_NUM: usize = 2;
@@ -62,8 +58,8 @@ async fn request_response() -> anyhow::Result<()> {
     )
     .await?;
 
-    // create command to request info from the last operator
-    let operator_pk: P2POperatorPubKey = operators[OPERATORS_NUM - 1].kp.public().clone().into();
+    // create command to request info from the first operator
+    let operator_pk: P2POperatorPubKey = operators[0].kp.public().clone().into();
     let command_stake_chain = Command::RequestMessage(GetMessageRequest::StakeChainExchange {
         stake_chain_id,
         operator_pk: operator_pk.clone(),
@@ -82,32 +78,36 @@ async fn request_response() -> anyhow::Result<()> {
             operator_pk: operator_pk.clone(),
         });
 
-    // put data in the last operator, so that he can respond it
-    match mock_stake_chain_info(&operators[OPERATORS_NUM - 1].kp.clone(), stake_chain_id) {
-        Command::PublishMessage(msg) => match msg.msg {
-            UnsignedPublishMessage::StakeChainExchange {
-                stake_chain_id,
-                pre_stake_txid,
-                pre_stake_vout,
-            } => {
-                let entry = StakeChainEntry {
-                    entry: (pre_stake_txid, pre_stake_vout),
-                    signature: msg.signature,
-                    key: msg.key,
-                };
-                <AsyncDB as RepositoryExt>::set_stake_chain_info_if_not_exists::<'_, '_>(
-                    &operators[OPERATORS_NUM - 1].db,
-                    stake_chain_id,
-                    entry,
-                )
-                .await?;
-            }
-            _ => unreachable!(),
-        },
-        _ => unreachable!(),
-    }
-    operators[0].handle.send_command(command_stake_chain).await;
+    // Send stake chain request and handle response from the last operator
+    operators[OPERATORS_NUM - 1]
+        .handle
+        .send_command(command_stake_chain)
+        .await;
+
+    // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
+    match event {
+        Event::ReceivedRequest(request) => match request {
+            GetMessageRequest::StakeChainExchange {
+                stake_chain_id: req_stake_chain_id,
+                operator_pk: req_operator_pk,
+            } if req_stake_chain_id == stake_chain_id && req_operator_pk == operator_pk => {
+                // Construct and send response
+                let mock_msg = mock_stake_chain_info(&operators[0].kp.clone(), stake_chain_id);
+                if let Command::PublishMessage(msg) = mock_msg {
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
+                }
+            }
+            _ => bail!("Got unexpected request in the first operator"),
+        },
+        _ => bail!("Got unexpected event in the first operator"),
+    }
+
+    // Wait for response on the last operator
+    let event = operators[OPERATORS_NUM - 1].handle.next_event().await?;
     match event {
         Event::ReceivedMessage(msg) => match &msg.unsigned {
             UnsignedGossipsubMsg::StakeChainExchange {
@@ -116,46 +116,41 @@ async fn request_response() -> anyhow::Result<()> {
             } if msg.key == operator_pk && *received_id == stake_chain_id => {
                 info!("Got stake chain info from the last operator")
             }
-            _ => bail!("Got event other than expected 'stake_chain_info'",),
+            _ => bail!("Got event other than expected 'stake_chain_info' in the last operator"),
         },
+        _ => bail!("Got event other than expected 'stake_chain_info' in the last operator"),
     }
 
-    // put data in the last operator, so that he can respond it
-    match mock_deposit_setup(&operators[OPERATORS_NUM - 1].kp.clone(), scope) {
-        Command::PublishMessage(msg) => match msg.msg {
-            UnsignedPublishMessage::DepositSetup {
-                scope,
-                hash,
-                funding_txid,
-                funding_vout,
-                operator_pk,
-                wots_pks,
-            } => {
-                let entry = DepositSetupEntry {
-                    signature: msg.signature,
-                    key: msg.key,
-                    hash,
-                    funding_txid,
-                    funding_vout,
-                    operator_pk,
-                    wots_pks,
-                };
-                <AsyncDB as RepositoryExt>::set_deposit_setup_if_not_exists::<'_, '_>(
-                    &operators[OPERATORS_NUM - 1].db,
-                    scope,
-                    entry,
-                )
-                .await?;
-            }
-            _ => unreachable!(),
-        },
-        _ => unreachable!(),
-    }
-    operators[0]
+    // Send deposit setup request and handle response from the last operator
+    operators[OPERATORS_NUM - 1]
         .handle
         .send_command(command_deposit_setup)
         .await;
+
+    // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
+    match event {
+        Event::ReceivedRequest(request) => match request {
+            GetMessageRequest::DepositSetup {
+                scope: req_scope,
+                operator_pk: req_operator_pk,
+            } if req_scope == scope && req_operator_pk == operator_pk => {
+                // Construct and send response
+                let mock_msg = mock_deposit_setup(&operators[0].kp.clone(), scope);
+                if let Command::PublishMessage(msg) = mock_msg {
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
+                }
+            }
+            _ => bail!("Got unexpected request in the first operator"),
+        },
+        _ => bail!("Got unexpected event in the first operator"),
+    }
+
+    // Wait for response on the last operator
+    let event = operators[OPERATORS_NUM - 1].handle.next_event().await?;
     match event {
         Event::ReceivedMessage(msg) => match &msg.unsigned {
             UnsignedGossipsubMsg::DepositSetup {
@@ -164,38 +159,41 @@ async fn request_response() -> anyhow::Result<()> {
             } if msg.key == operator_pk && *received_scope == scope => {
                 info!("Got deposit setup info from the last operator")
             }
-            _ => bail!("Got event other than expected 'deposit_setup'",),
+            _ => bail!("Got event other than expected 'deposit_setup' in the last operator"),
         },
+        _ => bail!("Got event other than expected 'deposit_setup' in the last operator"),
     }
 
-    // put data in the last operator, so that he can respond it
-    match mock_deposit_nonces(&operators[OPERATORS_NUM - 1].kp.clone(), session_id) {
-        Command::PublishMessage(msg) => match msg.msg {
-            UnsignedPublishMessage::Musig2NoncesExchange {
-                session_id,
-                pub_nonces,
-            } => {
-                let entry = NoncesEntry {
-                    signature: msg.signature,
-                    key: msg.key,
-                    entry: pub_nonces,
-                };
-                <AsyncDB as RepositoryExt>::set_pub_nonces_if_not_exist::<'_, '_>(
-                    &operators[OPERATORS_NUM - 1].db,
-                    session_id,
-                    entry,
-                )
-                .await?;
-            }
-            _ => unreachable!(),
-        },
-        _ => unreachable!(),
-    }
-    operators[0]
+    // Send deposit nonces request and handle response from the last operator
+    operators[OPERATORS_NUM - 1]
         .handle
         .send_command(command_deposit_nonces)
         .await;
+
+    // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
+    match event {
+        Event::ReceivedRequest(request) => match request {
+            GetMessageRequest::Musig2NoncesExchange {
+                session_id: req_session_id,
+                operator_pk: req_operator_pk,
+            } if req_session_id == session_id && req_operator_pk == operator_pk => {
+                // Construct and send response
+                let mock_msg = mock_deposit_nonces(&operators[0].kp.clone(), session_id);
+                if let Command::PublishMessage(msg) = mock_msg {
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
+                }
+            }
+            _ => bail!("Got unexpected request in the first operator"),
+        },
+        _ => bail!("Got unexpected event in the first operator"),
+    }
+
+    // Wait for response on the last operator
+    let event = operators[OPERATORS_NUM - 1].handle.next_event().await?;
     match event {
         Event::ReceivedMessage(msg) => match &msg.unsigned {
             UnsignedGossipsubMsg::Musig2NoncesExchange {
@@ -204,35 +202,41 @@ async fn request_response() -> anyhow::Result<()> {
             } if msg.key == operator_pk && *received_session_id == session_id => {
                 info!("Got deposit pubnonces from the last operator")
             }
-            _ => bail!("Got event other than expected 'deposit_pubnonces'",),
+            _ => bail!("Got event other than expected 'deposit_pubnonces' in the last operator"),
         },
+        _ => bail!("Got event other than expected 'deposit_pubnonces' in the last operator"),
     }
 
-    // put data in the last operator, so that he can respond it
-    match mock_deposit_sigs(&operators[OPERATORS_NUM - 1].kp.clone(), session_id) {
-        Command::PublishMessage(msg) => match msg.msg {
-            UnsignedPublishMessage::Musig2SignaturesExchange {
-                session_id,
-                partial_sigs,
-            } => {
-                let entry = PartialSignaturesEntry {
-                    signature: msg.signature,
-                    key: msg.key,
-                    entry: partial_sigs,
-                };
-                <AsyncDB as RepositoryExt>::set_partial_signatures_if_not_exists::<'_, '_>(
-                    &operators[OPERATORS_NUM - 1].db,
-                    session_id,
-                    entry,
-                )
-                .await?;
-            }
-            _ => unreachable!(),
-        },
-        _ => unreachable!(),
-    }
-    operators[0].handle.send_command(command_deposit_sigs).await;
+    // Send deposit signatures request and handle response from the last operator
+    operators[OPERATORS_NUM - 1]
+        .handle
+        .send_command(command_deposit_sigs)
+        .await;
+
+    // Wait for request on the first operator
     let event = operators[0].handle.next_event().await?;
+    match event {
+        Event::ReceivedRequest(request) => match request {
+            GetMessageRequest::Musig2SignaturesExchange {
+                session_id: req_session_id,
+                operator_pk: req_operator_pk,
+            } if req_session_id == session_id && req_operator_pk == operator_pk => {
+                // Construct and send response
+                let mock_msg = mock_deposit_sigs(&operators[0].kp.clone(), session_id);
+                if let Command::PublishMessage(msg) = mock_msg {
+                    operators[0]
+                        .handle
+                        .send_command(Command::PublishMessage(msg))
+                        .await;
+                }
+            }
+            _ => bail!("Got unexpected request in the first operator"),
+        },
+        _ => bail!("Got unexpected event in the first operator"),
+    }
+
+    // Wait for response on the last operator
+    let event = operators[OPERATORS_NUM - 1].handle.next_event().await?;
     match event {
         Event::ReceivedMessage(msg) => match &msg.unsigned {
             UnsignedGossipsubMsg::Musig2SignaturesExchange {
@@ -241,11 +245,12 @@ async fn request_response() -> anyhow::Result<()> {
             } if msg.key == operator_pk && *received_session_id == session_id => {
                 info!("Got deposit partial signatures from the last operator")
             }
-            _ => bail!("Got event other than expected 'deposit_partial_sigs'",),
+            _ => bail!("Got event other than expected 'deposit_partial_sigs' in the last operator"),
         },
+        _ => bail!("Got event other than expected 'deposit_partial_sigs' in the last operator"),
     }
-    cancel.cancel();
 
+    cancel.cancel();
     tasks.wait().await;
 
     Ok(())

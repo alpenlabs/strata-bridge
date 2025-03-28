@@ -159,6 +159,8 @@ impl ContractManager {
                         Err(e) => {
                             tracing::error!("{}", e);
                         }
+                        // TODO: fix me with the get request events
+                        _ => {}
                     },
                     _ = interval.tick() => {
                         let nags = ctx.nag();
