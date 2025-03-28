@@ -5,8 +5,8 @@ use std::sync::Arc;
 
 use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
 use bitcoin::{
-    key::constants::SCHNORR_PUBLIC_KEY_SIZE, opcodes::all::OP_RETURN, OutPoint, Script,
-    Transaction, Txid, XOnlyPublicKey,
+    consensus, key::constants::SCHNORR_PUBLIC_KEY_SIZE, opcodes::all::OP_RETURN, Network, OutPoint,
+    Script, Transaction, Txid, XOnlyPublicKey,
 };
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::deposit::DepositInfo;
@@ -26,9 +26,7 @@ fn op_return_data(script: &Script) -> Option<&[u8]> {
     }
 }
 
-const MAGIC_BYTES: &[u8; 6] = b"strata";
-
-fn magic_tagged_data<'a, const N: usize>(tag: &[u8; N], script: &'a Script) -> Option<&'a [u8]> {
+fn magic_tagged_data<'script>(tag: &[u8], script: &'script Script) -> Option<&'script [u8]> {
     op_return_data(script).and_then(|data| {
         if data.starts_with(tag) {
             Some(&data[tag.len()..])
@@ -96,9 +94,65 @@ pub(crate) fn is_disprove(post_assert_txid: Txid) -> TxPredicate {
     })
 }
 
-pub(crate) fn is_fulfillment_tx(_deposit_txid: Txid) -> TxPredicate {
-    //TODO(proofofkeags): implement
-    Arc::new(|_| false)
+pub(crate) fn is_fulfillment_tx(
+    network: Network,
+    tag: &[u8],
+    operator_idx: OperatorIdx,
+    deposit_idx: u32,
+    deposit_txid: Txid,
+    recipient: Descriptor,
+) -> TxPredicate {
+    let tag = tag.to_owned();
+    Arc::new(move |tx| {
+        let mut outputs = tx.output.iter();
+
+        if let Ok(recipient_addr) = recipient.to_address(network) {
+            if let Some(recipient_script_pubkey) =
+                outputs.next().map(|output| &output.script_pubkey)
+            {
+                if recipient_script_pubkey != &recipient_addr.script_pubkey() {
+                    return false;
+                }
+            }
+        }
+
+        if let Some(metadata) = outputs
+            .next()
+            .and_then(|output| op_return_data(&output.script_pubkey))
+        {
+            if !metadata.starts_with(&tag) {
+                return false;
+            }
+
+            let mut offset = tag.len();
+
+            let operator_idx = operator_idx.to_be_bytes();
+            let operator_idx_size = operator_idx.len();
+            if metadata.get(offset..offset + operator_idx_size) != Some(&operator_idx) {
+                return false;
+            }
+
+            offset += operator_idx_size;
+
+            let deposit_idx = deposit_idx.to_be_bytes();
+            let deposit_idx_size = deposit_idx.len();
+            if metadata.get(offset..offset + deposit_idx_size) != Some(&deposit_idx) {
+                return false;
+            }
+
+            offset += deposit_idx_size;
+
+            let deposit_txid = consensus::encode::serialize(&deposit_txid);
+            let deposit_txid_size = deposit_txid.len();
+            if metadata.get(offset..offset + deposit_txid_size) != Some(&deposit_txid) {
+                return false;
+            }
+
+            return true;
+        }
+
+        false
+    })
 }
 
 pub(crate) fn is_rollup_commitment(_tx: &Transaction) -> bool {

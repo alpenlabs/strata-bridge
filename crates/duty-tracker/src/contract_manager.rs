@@ -33,7 +33,7 @@ use crate::{
     contract_state_machine::{
         ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
     },
-    predicates::{deposit_request_info, is_rollup_commitment},
+    predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::{StakeChainPersister, StakePersistErr},
     stake_chain_state_machine::{StakeChainErr, StakeChainSM},
 };
@@ -333,6 +333,7 @@ impl ContractManagerCtx {
                     self.network,
                     self.operator_table.clone(),
                     self.connector_params,
+                    self.pegout_graph_params.clone(),
                     height,
                     height + self.pegout_graph_params.refund_delay as u64,
                     deposit_idx,
@@ -375,7 +376,7 @@ impl ContractManagerCtx {
                     continue;
                 }
 
-                if contract.transaction_filter()(&tx) {
+                if contract.transaction_filter(&tx) {
                     let duty = contract.process_contract_event(
                         ContractEvent::PegOutGraphConfirmation(tx.clone(), height),
                     )?;
