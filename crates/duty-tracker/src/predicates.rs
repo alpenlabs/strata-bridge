@@ -120,56 +120,51 @@ pub(crate) fn is_fulfillment_tx(
     let output_amount = *deposit_amount - *operator_fee;
 
     Arc::new(move |tx| {
-        let mut outputs = tx.output.iter();
-
-        if let Ok(recipient_addr) = recipient.to_address(network) {
-            if let Some(out) = outputs.next() {
-                if out.script_pubkey != recipient_addr.script_pubkey() {
-                    return false;
-                }
-
-                if out.value != output_amount {
-                    return false;
-                }
+        let first_output_ok = match (recipient.to_address(network), tx.output.first()) {
+            (Ok(recipient_addr), Some(output)) => {
+                output.script_pubkey == recipient_addr.script_pubkey()
+                    && output.value == output_amount
             }
-        }
+            _ => false,
+        };
 
-        if let Some(metadata) = outputs
-            .next()
+        let second_output_ok = if let Some(metadata) = tx
+            .output
+            .get(1)
             .and_then(|output| op_return_data(&output.script_pubkey))
         {
-            if !metadata.starts_with(&tag) {
-                return false;
-            }
+            let begin_with_tag = metadata.starts_with(&tag);
 
-            let mut offset = tag.len();
+            let operator_id_offset = tag.len();
 
             let operator_idx = operator_idx.to_be_bytes();
             let operator_idx_size = operator_idx.len();
-            if metadata.get(offset..offset + operator_idx_size) != Some(&operator_idx) {
-                return false;
-            }
+            let operator_id_valid = metadata
+                .get(operator_id_offset..operator_id_offset + operator_idx_size)
+                == Some(&operator_idx);
 
-            offset += operator_idx_size;
+            let deposit_id_offset = operator_id_offset + operator_idx_size;
 
             let deposit_idx = deposit_idx.to_be_bytes();
             let deposit_idx_size = deposit_idx.len();
-            if metadata.get(offset..offset + deposit_idx_size) != Some(&deposit_idx) {
-                return false;
-            }
+            let deposit_id_valid = metadata
+                .get(deposit_id_offset..deposit_id_offset + deposit_idx_size)
+                == Some(&deposit_idx);
 
-            offset += deposit_idx_size;
+            let deposit_txid_offset = deposit_id_offset + deposit_idx_size;
 
             let deposit_txid = consensus::encode::serialize(&deposit_txid);
             let deposit_txid_size = deposit_txid.len();
-            if metadata.get(offset..offset + deposit_txid_size) != Some(&deposit_txid) {
-                return false;
-            }
+            let deposit_txid_valid = metadata
+                .get(deposit_txid_offset..deposit_txid_offset + deposit_txid_size)
+                == Some(&deposit_txid);
 
-            return true;
-        }
+            begin_with_tag && operator_id_valid && deposit_id_valid && deposit_txid_valid
+        } else {
+            false
+        };
 
-        false
+        first_output_ok && second_output_ok
     })
 }
 
