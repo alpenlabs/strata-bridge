@@ -13,7 +13,7 @@ use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::{deposit::DepositInfo, types::OperatorIdx};
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
-use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
+use strata_state::batch::{Checkpoint, SignedCheckpoint};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -164,7 +164,7 @@ pub(crate) fn is_fulfillment_tx(
 pub(crate) fn parse_strata_checkpoint(
     tx: &Transaction,
     rollup_params: &RollupParams,
-) -> Option<BatchCheckpoint> {
+) -> Option<Checkpoint> {
     let filter_config =
         TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
 
@@ -175,7 +175,7 @@ pub(crate) fn parse_strata_checkpoint(
                 return None;
             }
             if let Ok(signed_batch_checkpoint) =
-                borsh::from_slice::<SignedBatchCheckpoint>(inscription[0].data())
+                borsh::from_slice::<SignedCheckpoint>(inscription[0].data())
             {
                 return Some(signed_batch_checkpoint.into());
             }

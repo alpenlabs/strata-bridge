@@ -3432,7 +3432,7 @@ dependencies = [
  "strata-p2p",
  "strata-p2p-types",
  "strata-p2p-wire",
- "strata-primitives 0.1.0 (git+https://github.com/alpenlabs/strata.git?rev=c5a46a9e80ee12c25868a5276dd13b56fe0c4e7c)",
+ "strata-primitives",
  "strata-state",
  "thiserror 2.0.12",
  "tokio",

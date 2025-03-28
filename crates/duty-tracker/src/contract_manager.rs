@@ -25,6 +25,7 @@ use strata_p2p::{
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
+use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use thiserror::Error;
 use tokio::{task::JoinHandle, time};
 use tracing::{error, warn};
@@ -293,9 +294,7 @@ impl ContractManagerCtx {
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
         for tx in block.txdata {
-            if let Some(_checkpoint) = parse_strata_checkpoint(&tx, &self.sidesystem_params) {
-                todo!() // handle checkpoint
-            }
+            self.process_assignments(&tx)?;
 
             let txid = tx.compute_txid();
             let stake_index = self.active_contracts.len() as u32;
@@ -402,6 +401,36 @@ impl ContractManagerCtx {
         for duty in duties {
             self.execute_duty(duty);
         }
+
+        Ok(())
+    }
+
+    fn process_assignments(&mut self, tx: &bitcoin::Transaction) -> Result<(), ContractManagerErr> {
+        if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.sidesystem_params) {
+            let chain_state = checkpoint.sidecar().chainstate();
+
+            if let Ok(chain_state) = borsh::from_slice::<Chainstate>(chain_state) {
+                let deposits_table = chain_state.deposits_table().deposits();
+
+                let assigned_deposit_entries = deposits_table.filter(|entry| {
+                    matches!(
+                        entry.deposit_state(),
+                        DepositState::Dispatched(details)
+                            if details.assignee() == self.operator_table.pov_idx())
+                });
+
+                for entry in assigned_deposit_entries {
+                    let deposit_txid = entry.output().outpoint().txid;
+
+                    let sm = self
+                        .active_contracts
+                        .get_mut(&deposit_txid)
+                        .expect("withdrawal info must be for an active contract");
+
+                    sm.process_contract_event(ContractEvent::Assignment(entry.clone()))?;
+                }
+            }
+        };
 
         Ok(())
     }
