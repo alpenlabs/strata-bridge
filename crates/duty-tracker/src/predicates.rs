@@ -3,13 +3,17 @@
 
 use std::sync::Arc;
 
-use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
+use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{
     consensus, key::constants::SCHNORR_PUBLIC_KEY_SIZE, opcodes::all::OP_RETURN, Network, OutPoint,
     Script, Transaction, Txid, XOnlyPublicKey,
 };
+use bitcoin_bosd::Descriptor;
 use btc_notify::client::TxPredicate;
-use strata_bridge_primitives::deposit::DepositInfo;
+use strata_bridge_primitives::{deposit::DepositInfo, types::OperatorIdx};
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
+use strata_primitives::params::RollupParams;
+use strata_state::batch::{BatchCheckpoint, SignedBatchCheckpoint};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -38,7 +42,7 @@ fn magic_tagged_data<'script>(tag: &[u8], script: &'script Script) -> Option<&'s
 
 pub(crate) fn deposit_request_info(
     tx: &Transaction,
-    sidesystem_params: &SideSystemParams,
+    sidesystem_params: &RollupParams,
     pegout_graph_params: &PegOutGraphParams,
     stake_index: u32,
 ) -> Option<DepositInfo> {
@@ -48,9 +52,11 @@ pub(crate) fn deposit_request_info(
     }
     // TODO(proofofkeags): validate that the script_pubkey pays to the right operator set
 
-    let ee_address_size = sidesystem_params.ee_addr_size;
-    let (recovery_x_only_pk, el_addr) =
-        magic_tagged_data(MAGIC_BYTES, &tx.output.get(1)?.script_pubkey).and_then(|meta| {
+    let ee_address_size = sidesystem_params.address_length as usize;
+    let tag = pegout_graph_params.tag.as_bytes();
+
+    let (recovery_x_only_pk, el_addr) = magic_tagged_data(tag, &tx.output.get(1)?.script_pubkey)
+        .and_then(|meta| {
             if meta.len() != SCHNORR_PUBLIC_KEY_SIZE + ee_address_size {
                 return None;
             }
@@ -155,6 +161,26 @@ pub(crate) fn is_fulfillment_tx(
     })
 }
 
-pub(crate) fn is_rollup_commitment(_tx: &Transaction) -> bool {
-    todo!()
+pub(crate) fn parse_strata_checkpoint(
+    tx: &Transaction,
+    rollup_params: &RollupParams,
+) -> Option<BatchCheckpoint> {
+    let filter_config =
+        TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
+
+    if let Some(script) = tx.input[0].witness.tapscript() {
+        let script = script.to_bytes();
+        if let Ok(inscription) = parse_envelope_payloads(&script.into(), &filter_config) {
+            if inscription.is_empty() {
+                return None;
+            }
+            if let Ok(signed_batch_checkpoint) =
+                borsh::from_slice::<SignedBatchCheckpoint>(inscription[0].data())
+            {
+                return Some(signed_batch_checkpoint.into());
+            }
+        }
+    }
+
+    None
 }

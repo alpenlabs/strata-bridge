@@ -24,6 +24,7 @@ use strata_p2p::{
 };
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
+use strata_primitives::params::RollupParams;
 use thiserror::Error;
 use tokio::{task::JoinHandle, time};
 use tracing::{error, warn};
@@ -54,7 +55,7 @@ impl ContractManager {
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
-        sidesystem_params: SideSystemParams,
+        sidesystem_params: RollupParams,
         operator_table: OperatorTable,
         // Subsystem Handles
         zmq_client: BtcZmqClient,
@@ -277,7 +278,7 @@ struct ContractManagerCtx {
     network: Network,
     connector_params: ConnectorParams,
     pegout_graph_params: PegOutGraphParams,
-    sidesystem_params: SideSystemParams,
+    sidesystem_params: RollupParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
     stake_chain_persister: StakeChainPersister,
@@ -292,8 +293,8 @@ impl ContractManagerCtx {
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
         for tx in block.txdata {
-            if is_rollup_commitment(&tx) {
-                todo!() // TODO(proofofkeags): handle the processing of the rollup commitment/state.
+            if let Some(_checkpoint) = parse_strata_checkpoint(&tx, &self.sidesystem_params) {
+                todo!() // handle checkpoint
             }
 
             let txid = tx.compute_txid();

@@ -1,7 +1,7 @@
 //! This module is responsible for being able to save the contents of the ContractSM to disk.
 use std::fmt::Display;
 
-use alpen_bridge_params::prelude::ConnectorParams;
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
 use bincode::ErrorKind;
 use bitcoin::Txid;
 use sqlx::{
@@ -168,6 +168,7 @@ impl ContractPersister {
                     pre_assert_timelock,
                     payout_timelock,
                 },
+                peg_out_graph_params: PegOutGraphParams::default(), // FIXME: update this later
                 deposit_idx,
                 deposit_tx,
             },
@@ -227,6 +228,8 @@ impl ContractPersister {
                             pre_assert_timelock,
                             payout_timelock,
                         },
+                        peg_out_graph_params: PegOutGraphParams::default(), // FIXME: update this
+                        // later
                         deposit_idx,
                         deposit_tx,
                     },
