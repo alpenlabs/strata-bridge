@@ -123,10 +123,12 @@ pub(crate) fn is_fulfillment_tx(
         let mut outputs = tx.output.iter();
 
         if let Ok(recipient_addr) = recipient.to_address(network) {
-            if let Some(recipient_script_pubkey) =
-                outputs.next().map(|output| &output.script_pubkey)
-            {
-                if recipient_script_pubkey != &recipient_addr.script_pubkey() {
+            if let Some(out) = outputs.next() {
+                if out.script_pubkey != recipient_addr.script_pubkey() {
+                    return false;
+                }
+
+                if out.value != output_amount {
                     return false;
                 }
             }
@@ -193,4 +195,100 @@ pub(crate) fn parse_strata_checkpoint(
     }
 
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use alpen_bridge_params::prelude::PegOutGraphParams;
+    use bitcoin::{Amount, Block, OutPoint, ScriptBuf, TxOut};
+    use bitcoin_bosd::Descriptor;
+    use strata_bridge_test_utils::prelude::{generate_txid, generate_xonly_pubkey};
+    use strata_bridge_tx_graph::transactions::prelude::{
+        WithdrawalFulfillment, WithdrawalMetadata,
+    };
+    use strata_primitives::params::RollupParams;
+
+    use super::parse_strata_checkpoint;
+    use crate::predicates::is_fulfillment_tx;
+
+    #[test]
+    fn test_fulfillment_predicate() {
+        let peg_out_graph_params = PegOutGraphParams::default();
+
+        let metadata = WithdrawalMetadata {
+            tag: peg_out_graph_params.tag.as_bytes(),
+            operator_idx: 1,
+            deposit_idx: 2,
+            deposit_txid: generate_txid(),
+        };
+
+        let sender_outpoints = vec![OutPoint {
+            txid: generate_txid(),
+            vout: 0,
+        }];
+        let amount = peg_out_graph_params.deposit_amount - peg_out_graph_params.operator_fee;
+        let change = TxOut {
+            value: Amount::from_sat(1_000),
+            script_pubkey: ScriptBuf::from_bytes(vec![1u8; 32]),
+        };
+        let test_key = generate_xonly_pubkey().serialize();
+        let recipient_desc = Descriptor::new_p2tr(&test_key).unwrap();
+
+        let withdrawal_fulfillment_tx = WithdrawalFulfillment::new(
+            metadata,
+            sender_outpoints,
+            amount,
+            Some(change),
+            recipient_desc.clone(),
+        );
+
+        let mut withdrawal_fulfillment_tx = withdrawal_fulfillment_tx.tx();
+
+        let network = bitcoin::Network::Regtest;
+        let fulfillment_filter = is_fulfillment_tx(
+            network,
+            &peg_out_graph_params,
+            metadata.operator_idx,
+            metadata.deposit_idx,
+            metadata.deposit_txid,
+            recipient_desc,
+        );
+
+        assert!(
+            fulfillment_filter(&withdrawal_fulfillment_tx),
+            "must identify valid fulfillment tx"
+        );
+
+        withdrawal_fulfillment_tx.output[0].value = Amount::from_sat(10);
+        assert!(
+            !fulfillment_filter(&withdrawal_fulfillment_tx),
+            "must not identify invalid fulfillment tx"
+        );
+    }
+
+    #[test]
+    fn test_checkpoint_predicate() {
+        let rollup_params = std::fs::read_to_string("../../test-data/rollup_params.json").unwrap();
+        let rollup_params: RollupParams = serde_json::from_str(&rollup_params).unwrap();
+
+        let blocks_bytes = std::fs::read("../../test-data/blocks.bin").unwrap();
+        let blocks: Vec<Block> = bincode::deserialize(&blocks_bytes).unwrap();
+
+        // these values are known during test-data generation
+        let block_height = 1644;
+        let tx_index = 2;
+
+        let strata_checkpoint_tx = blocks
+            .iter()
+            .find(|block| block.bip34_block_height().unwrap() == block_height)
+            .expect("expected height with strata checkpoint must exist")
+            .txdata
+            .get(tx_index)
+            .expect("expected index of checkpoint must exist in txdata");
+
+        assert!(
+            parse_strata_checkpoint(strata_checkpoint_tx, &rollup_params).is_some(),
+            "must be able to parse valid strata checkpoint tx"
+        );
+    }
 }

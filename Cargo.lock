@@ -3426,6 +3426,7 @@ dependencies = [
  "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
+ "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
  "strata-btcio",
  "strata-l1tx",

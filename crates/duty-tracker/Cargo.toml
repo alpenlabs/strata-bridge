@@ -45,3 +45,6 @@ thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = "0.1.17"
 tracing.workspace = true
+
+[dev-dependencies]
+strata-bridge-test-utils.workspace = true
