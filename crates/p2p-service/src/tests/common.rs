@@ -1,6 +1,6 @@
 //! Helper functions for the P2P tests.
 
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use anyhow::bail;
 use bitcoin::{
@@ -19,18 +19,15 @@ use strata_p2p::{
     events::Event,
     swarm::{self, handle::P2PHandle, P2PConfig, P2P},
 };
-use strata_p2p_db::sled::AsyncDB;
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
-use threadpool::ThreadPool;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, trace};
 
 pub(crate) struct Operator {
-    pub(crate) p2p: P2P<AsyncDB>,
+    pub(crate) p2p: P2P,
     pub(crate) handle: P2PHandle,
     pub(crate) kp: SecpKeypair,
-    pub(crate) db: AsyncDB,
 }
 
 impl Operator {
@@ -42,8 +39,6 @@ impl Operator {
         cancel: CancellationToken,
         signers_allowlist: Vec<P2POperatorPubKey>,
     ) -> anyhow::Result<Self> {
-        let db = sled::Config::new().temporary(true).open()?;
-
         let config = P2PConfig {
             keypair: keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
@@ -54,14 +49,12 @@ impl Operator {
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
-        let db = AsyncDB::new(ThreadPool::new(1), Arc::new(db));
-        let (p2p, handle) = P2P::<AsyncDB>::from_config(config, cancel, db.clone(), swarm, None)?;
+        let (p2p, handle) = P2P::from_config(config, cancel, swarm, None)?;
 
         Ok(Self {
             handle,
             p2p,
             kp: keypair,
-            db,
         })
     }
 }
@@ -71,7 +64,6 @@ pub(crate) struct OperatorHandle {
     pub(crate) handle: P2PHandle,
     pub(crate) peer_id: PeerId,
     pub(crate) kp: SecpKeypair,
-    pub(crate) db: AsyncDB, // We include DB here to manipulate internal data and flow mechanics.
 }
 
 pub(crate) struct Setup {
@@ -208,7 +200,6 @@ impl Setup {
                 handle: operator.handle,
                 peer_id,
                 kp: operator.kp,
-                db: operator.db,
             });
         }
 
