@@ -415,12 +415,8 @@ impl ContractManagerCtx {
             if let Ok(chain_state) = borsh::from_slice::<Chainstate>(chain_state) {
                 let deposits_table = chain_state.deposits_table().deposits();
 
-                let assigned_deposit_entries = deposits_table.filter(|entry| {
-                    matches!(
-                        entry.deposit_state(),
-                        DepositState::Dispatched(details)
-                            if details.assignee() == self.operator_table.pov_idx())
-                });
+                let assigned_deposit_entries = deposits_table
+                    .filter(|entry| matches!(entry.deposit_state(), DepositState::Dispatched(_)));
 
                 for entry in assigned_deposit_entries {
                     let deposit_txid = entry.output().outpoint().txid;
