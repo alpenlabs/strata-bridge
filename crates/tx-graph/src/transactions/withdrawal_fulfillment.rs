@@ -154,7 +154,7 @@ mod tests {
         let deposit_idx: u32 = OsRng.gen();
         let deposit_txid = generate_txid();
 
-        let tag = b"tes-tag";
+        let tag = b"test-tag";
         let withdrawal_metadata = WithdrawalMetadata {
             tag,
             operator_idx,
