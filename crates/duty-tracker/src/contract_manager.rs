@@ -10,18 +10,23 @@ use alpen_bridge_params::{
     prelude::{ConnectorParams, PegOutGraphParams},
     sidesystem::SideSystemParams,
 };
-use bitcoin::{hashes::sha256d::Hash, Block, Network, OutPoint, Txid};
+use bitcoin::{hashes::sha256d, Block, Network, OutPoint, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
-use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId};
+use strata_p2p::{
+    self,
+    commands::{Command, UnsignedPublishMessage},
+    events::Event,
+    swarm::handle::P2PHandle,
+};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use thiserror::Error;
 use tokio::{task::JoinHandle, time};
-use tracing::warn;
+use tracing::{error, warn};
 
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
@@ -133,7 +138,7 @@ impl ContractManager {
                 };
                 let blockhash = block.block_hash();
                 if let Err(e) = ctx.process_block(block).await {
-                    tracing::error!("failed to process block {}: {}", blockhash, e);
+                    error!("failed to process block {}: {}", blockhash, e);
                     break;
                 }
 
@@ -147,20 +152,76 @@ impl ContractManager {
                     Some(block) = block_sub.next() => {
                         let blockhash = block.block_hash();
                         if let Err(e) = ctx.process_block(block).await {
-                            tracing::error!("failed to process block {}: {}", blockhash, e);
+                            error!("failed to process block {}: {}", blockhash, e);
                             break;
                         }
                     },
                     Some(event) = p2p_handle.next() => match event {
-                        Ok(Event::ReceivedMessage(msg)) => if let Err(e) = ctx.process_p2p_message(msg.clone()).await {
-                            tracing::error!("failed to process p2p msg {:?}: {}", msg, e);
-                            break;
+                        Ok(Event::ReceivedMessage(msg)) => {
+                            if let Err(e) = ctx.process_p2p_message(msg.clone()).await {
+                                error!("failed to process p2p msg {:?}: {}", msg, e);
+                                break;
+                            }
                         },
-                        Err(e) => {
-                            tracing::error!("{}", e);
+                        Ok(Event::ReceivedRequest(req)) => match req {
+                            GetMessageRequest::StakeChainExchange { stake_chain_id, .. } => {
+                                // TODO(proofofkeags): actually choose the correct stake chain
+                                // inputs based off the stake chain id we receive.
+                                if let Some(inputs) = ctx.stake_chains
+                                    .state()
+                                    .get(ctx.operator_table.pov_op_key()) {
+                                        let exchange = UnsignedPublishMessage::StakeChainExchange {
+                                            stake_chain_id,
+                                            pre_stake_txid: inputs.pre_stake_outpoint.txid,
+                                            pre_stake_vout: inputs.pre_stake_outpoint.vout
+                                        };
+
+                                        p2p_handle.send_command(
+                                            Command::PublishMessage(
+                                                p2p_handle.sign_message(exchange)
+                                            )
+                                        ).await;
+                                    }
+                            }
+                            GetMessageRequest::DepositSetup { scope: _, .. } => {
+                                ctx.execute_duty(OperatorDuty::PublishWOTSKeys);
+                            }
+                            GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
+                                let session_id_as_txid = Txid::from_raw_hash(
+                                    *sha256d::Hash::from_bytes_ref(session_id.as_ref())
+                                );
+
+                                if ctx.active_contracts.contains_key(&session_id_as_txid) {
+                                    ctx.execute_duty(OperatorDuty::PublishGraphNonces);
+                                } else if ctx.active_contracts
+                                    .values()
+                                    .map(|sm| sm.deposit_request_txid())
+                                    .any(|txid| txid == session_id_as_txid) {
+
+                                    ctx.execute_duty(OperatorDuty::PublishRootNonce);
+                                }
+
+                                // otherwise ignore this message.
+                            }
+                            GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
+                                let session_id_as_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+
+                                if ctx.active_contracts.contains_key(&session_id_as_txid) {
+                                    ctx.execute_duty(OperatorDuty::PublishGraphSignatures);
+                                } else if ctx.active_contracts
+                                    .values()
+                                    .map(|sm| sm.deposit_request_txid())
+                                    .any(|txid| txid == session_id_as_txid) {
+
+                                    ctx.execute_duty(OperatorDuty::PublishRootSignature);
+                                }
+
+                                // otherwise ignore this message.
+                            }
                         }
-                        // TODO: fix me with the get request events
-                        _ => {}
+                        Err(e) => {
+                            error!("{}", e);
+                        }
                     },
                     _ = interval.tick() => {
                         let nags = ctx.nag();
@@ -370,7 +431,8 @@ impl ContractManagerCtx {
                 operator_pk,
                 wots_pks,
             } => {
-                let deposit_txid = Txid::from_raw_hash(*Hash::from_bytes_ref(scope.as_ref()));
+                let deposit_txid =
+                    Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
                     let setup = DepositSetup {
                         hash,
@@ -421,7 +483,7 @@ impl ContractManagerCtx {
                 session_id,
                 mut nonces,
             } => {
-                let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
+                let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&txid) {
                     if let Some(duty) = contract
                         .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
@@ -452,7 +514,7 @@ impl ContractManagerCtx {
                 session_id,
                 mut signatures,
             } => {
-                let txid = Txid::from_raw_hash(*Hash::from_bytes_ref(session_id.as_ref()));
+                let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&txid) {
                     if let Some(duty) = contract
                         .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
@@ -491,6 +553,24 @@ impl ContractManagerCtx {
         let want = self.operator_table.p2p_keys();
 
         let mut all_commands = Vec::new();
+        all_commands.extend(
+            want.difference(
+                &self
+                    .stake_chains
+                    .state()
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<P2POperatorPubKey>>(),
+            )
+            .cloned()
+            .map(|operator_pk| {
+                let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
+                Command::RequestMessage(GetMessageRequest::StakeChainExchange {
+                    stake_chain_id,
+                    operator_pk,
+                })
+            }),
+        );
 
         for (txid, contract) in self.active_contracts.iter() {
             let state = &contract.state().state;
