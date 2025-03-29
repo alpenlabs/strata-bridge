@@ -1970,7 +1970,7 @@ where
                 stake_id,
                 withdrawal_fulfillment_txid,
             );
-            let claim_tx_with_commitment = claim_tx.finalize(*claim_commitment, connectors.kickoff);
+            let claim_tx_with_commitment = claim_tx.finalize(*claim_commitment);
 
             let raw_claim_tx: String = consensus::encode::serialize_hex(&claim_tx_with_commitment);
             trace!(event = "finalized claim tx", %deposit_txid, ?claim_tx_with_commitment, %raw_claim_tx, %own_index);
