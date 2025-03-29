@@ -196,6 +196,7 @@ mod tests {
             "Change output is missing or incorrect"
         );
 
+        let tag = withdrawal_metadata.tag.to_lower_hex_string();
         let operator_idx = withdrawal_metadata
             .operator_idx
             .to_be_bytes()
@@ -211,7 +212,7 @@ mod tests {
             second_output.value == op_return_amount
                 && second_output.script_pubkey.is_op_return()
                 && second_output.script_pubkey[2..].to_hex_string()
-                    == format!("{}{}{}", operator_idx, deposit_idx, deposit_txid),
+                    == format!("{}{}{}{}", tag, operator_idx, deposit_idx, deposit_txid),
             "OP_RETURN output is missing or invalid"
         );
     }
