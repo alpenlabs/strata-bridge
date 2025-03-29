@@ -759,7 +759,7 @@ impl ContractManagerCtx {
                 // withdrawal_fulfillment uses index 0
                 let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
                     &wots_client
-                        .get_256_secret_key(deposit_txid, VOUT, 0)
+                        .get_256_public_key(deposit_txid, VOUT, 0)
                         .await?,
                 );
                 const NUM_FQS: usize = NUM_U256;
