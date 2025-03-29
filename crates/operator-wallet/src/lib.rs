@@ -217,7 +217,7 @@ impl OperatorWallet {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 /// Represents the wallet suggesting a specific UTXO
 pub enum FundingUtxo {
     /// The wallet found a UTXO that can be used for funding
