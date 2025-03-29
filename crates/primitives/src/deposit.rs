@@ -3,7 +3,7 @@
 //! Contains types, traits and implementations related to creating various transactions used in the
 //! bridge-in dataflow.
 
-use alpen_bridge_params::{prelude::PegOutGraphParams, sidesystem::SideSystemParams};
+use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{
     key::TapTweak,
     secp256k1::SECP256K1,
@@ -11,6 +11,7 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
+use strata_primitives::params::RollupParams;
 
 use crate::{
     build_context::{BuildContext, TxKind},
@@ -144,7 +145,7 @@ impl DepositInfo {
         &self,
         build_context: &C,
         pegout_graph_params: &PegOutGraphParams,
-        sidesystem_params: &SideSystemParams,
+        sidesystem_params: &RollupParams,
     ) -> BridgeTxBuilderResult<TxSigningData> {
         let PegOutGraphParams {
             tag,
@@ -157,7 +158,7 @@ impl DepositInfo {
             build_context,
             *deposit_amount,
             tag.as_bytes(),
-            sidesystem_params.ee_addr_size,
+            sidesystem_params.address_length as usize,
         )?;
 
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
@@ -292,6 +293,8 @@ impl DepositInfo {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use bitcoin::Network;
 
     use super::*;
@@ -304,8 +307,12 @@ mod tests {
         },
     };
 
-    fn test_sidesystem_params() -> SideSystemParams {
-        SideSystemParams { ee_addr_size: 20 }
+    fn test_sidesystem_params() -> RollupParams {
+        let test_rollup_params = fs::read_to_string("../../test-data/rollup_params.json")
+            .expect("could not read test rollup params");
+
+        serde_json::from_str::<RollupParams>(&test_rollup_params)
+            .expect("rollup-params in test-data must have valid structure")
     }
 
     #[test]

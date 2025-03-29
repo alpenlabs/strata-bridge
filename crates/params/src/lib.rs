@@ -4,6 +4,5 @@
 pub mod connectors;
 pub(crate) mod default;
 pub mod prelude;
-pub mod sidesystem;
 pub mod stake_chain;
 pub mod tx_graph;

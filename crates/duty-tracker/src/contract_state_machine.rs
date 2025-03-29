@@ -1,7 +1,7 @@
 //! This module defines the core state machine for the Bridge Deposit Contract. All of the states,
 //! events and transition rules are encoded in this structure. When the ContractSM accepts an event
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
-use std::{collections::BTreeMap, fmt::Display, sync::Arc};
+use std::{collections::BTreeMap, fmt::Display};
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
@@ -11,12 +11,12 @@ use bitcoin::{
     },
     Network, OutPoint, Transaction, Txid, XOnlyPublicKey,
 };
+use bitcoin_bosd::Descriptor;
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-use btc_notify::client::TxPredicate;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
-    types::BitcoinBlockHeight,
+    types::{BitcoinBlockHeight, OperatorIdx},
     wots::{Groth16PublicKeys, PublicKeys, Wots256PublicKey},
 };
 use strata_bridge_stake_chain::{
@@ -178,7 +178,10 @@ pub enum ContractState {
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: P2POperatorPubKey,
+        fulfiller: OperatorIdx,
+
+        /// The descriptor of the recipient.
+        recipient: Descriptor,
 
         /// The deadline by which the operator must fulfill the withdrawal before it is reassigned.
         deadline: BitcoinBlockHeight,
@@ -196,7 +199,7 @@ pub enum ContractState {
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: P2POperatorPubKey,
+        fulfiller: OperatorIdx,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -215,7 +218,7 @@ pub enum ContractState {
         claim_height: BitcoinBlockHeight,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: P2POperatorPubKey,
+        fulfiller: OperatorIdx,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -230,7 +233,7 @@ pub enum ContractState {
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: P2POperatorPubKey,
+        fulfiller: OperatorIdx,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -248,7 +251,7 @@ pub enum ContractState {
         post_assert_height: BitcoinBlockHeight,
 
         /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: P2POperatorPubKey,
+        fulfiller: OperatorIdx,
 
         /// The graph that belongs to the assigned operator.
         active_graph: PegOutGraphSummary,
@@ -357,6 +360,9 @@ pub struct ContractCfg {
     /// outputs.
     pub connector_params: ConnectorParams,
 
+    /// Consensus critical parameters associated with the transactions in the peg out graph.
+    pub peg_out_graph_params: PegOutGraphParams,
+
     /// The global index of this contract. This is decided by the bridge upon the recognition of
     /// a deposit request.
     pub deposit_idx: u32,
@@ -391,6 +397,7 @@ impl ContractSM {
         network: Network,
         operator_table: OperatorTable,
         connector_params: ConnectorParams,
+        peg_out_graph_params: PegOutGraphParams,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_idx: u32,
@@ -401,6 +408,7 @@ impl ContractSM {
             network,
             operator_table,
             connector_params,
+            peg_out_graph_params,
             deposit_idx,
             deposit_tx,
         };
@@ -431,7 +439,7 @@ impl ContractSM {
     }
 
     /// Filter that specifies which transactions should be delivered to this state machine.
-    pub fn transaction_filter(&self) -> TxPredicate {
+    pub fn transaction_filter(&self, tx: &Transaction) -> bool {
         let deposit_txid = self.cfg.deposit_tx.compute_txid();
         let graphs = match &self.state.state {
             ContractState::Requested { .. } => Vec::new(),
@@ -456,18 +464,34 @@ impl ContractSM {
             ContractState::Disproved {} => Vec::new(),
             ContractState::Resolved {} => Vec::new(),
         };
-        Arc::new(move |tx: &Transaction| {
-            let txid = tx.compute_txid();
-            graphs.iter().any(|g| {
-                deposit_txid == txid
-                    || g.claim_txid == txid
-                    || g.payout_optimistic_txid == txid
-                    || g.post_assert_txid == txid
-                    || g.payout_txid == txid
-                    || is_challenge(g.claim_txid)(tx)
-                    || is_disprove(g.post_assert_txid)(tx)
-                    || is_fulfillment_tx(deposit_txid)(tx)
-            })
+
+        let cfg = self.cfg();
+        let txid = tx.compute_txid();
+
+        let operator_ids = cfg.operator_table.operator_idxs();
+        if let ContractState::Assigned { recipient, .. } = &self.state.state {
+            if operator_ids.iter().any(|operator_idx| {
+                is_fulfillment_tx(
+                    cfg.network,
+                    &cfg.peg_out_graph_params,
+                    *operator_idx,
+                    cfg.deposit_idx,
+                    deposit_txid,
+                    recipient.clone(),
+                )(tx)
+            }) {
+                return true;
+            }
+        }
+
+        graphs.iter().any(|g| {
+            deposit_txid == txid
+                || g.claim_txid == txid
+                || g.payout_optimistic_txid == txid
+                || g.post_assert_txid == txid
+                || g.payout_txid == txid
+                || is_challenge(g.claim_txid)(tx)
+                || is_disprove(g.post_assert_txid)(tx)
         })
     }
 
@@ -752,7 +776,7 @@ impl ContractSM {
                     if self.state.block_height
                         >= claim_height
                             + self.cfg.connector_params.payout_optimistic_timelock as u64
-                        && &fulfiller == self.cfg.operator_table.pov_op_key()
+                        && fulfiller == self.cfg.operator_table.pov_idx()
                     {
                         Some(OperatorDuty::FulfillerDuty(
                             FulfillerDuty::PublishPayoutOptimistic,
@@ -769,7 +793,7 @@ impl ContractSM {
                 } => {
                     if self.state.block_height
                         >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
-                        && &fulfiller == self.cfg.operator_table.pov_op_key()
+                        && fulfiller == self.cfg.operator_table.pov_idx()
                     {
                         Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
                     } else {
@@ -794,8 +818,8 @@ impl ContractSM {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
             ContractState::Deposited { peg_out_graphs } => match assignment.deposit_state() {
                 DepositState::Dispatched(dispatched_state) => {
-                    let fulfiller_idx = dispatched_state.assignee();
-                    let fulfiller = match self.cfg.operator_table.idx_to_op_key(&fulfiller_idx) {
+                    let fulfiller = dispatched_state.assignee();
+                    let fulfiller_key = match self.cfg.operator_table.idx_to_op_key(&fulfiller) {
                         Some(op_key) => op_key.clone(),
                         None => {
                             return Err(TransitionErr);
@@ -803,22 +827,35 @@ impl ContractSM {
                     };
                     let deadline = dispatched_state.exec_deadline();
                     let active_graph = peg_out_graphs
-                        .get(&fulfiller)
+                        .get(&fulfiller_key)
                         .ok_or(TransitionErr)?
                         .to_owned();
-                    self.state.state = ContractState::Assigned {
-                        peg_out_graphs,
-                        fulfiller,
-                        deadline,
-                        active_graph,
-                    };
-                    Ok(if fulfiller_idx == self.cfg.operator_table.pov_idx() {
-                        Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::PublishFulfillment,
-                        ))
+
+                    let recipient = dispatched_state
+                        .cmd()
+                        .withdraw_outputs()
+                        .first()
+                        .map(|out| out.destination());
+
+                    if let Some(recipient) = recipient {
+                        self.state.state = ContractState::Assigned {
+                            peg_out_graphs,
+                            fulfiller,
+                            deadline,
+                            active_graph,
+                            recipient: recipient.clone(),
+                        };
+
+                        Ok(if fulfiller == self.cfg.operator_table.pov_idx() {
+                            Some(OperatorDuty::FulfillerDuty(
+                                FulfillerDuty::PublishFulfillment,
+                            ))
+                        } else {
+                            None
+                        })
                     } else {
-                        None
-                    })
+                        Ok(None)
+                    }
                 }
                 _ => Err(TransitionErr),
             },
@@ -836,15 +873,25 @@ impl ContractSM {
                 peg_out_graphs,
                 fulfiller,
                 active_graph,
+                recipient,
                 ..
             } => {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
                 // operator.
-                if !is_fulfillment_tx(self.cfg.deposit_tx.compute_txid())(tx) {
+                let cfg = self.cfg();
+                if !is_fulfillment_tx(
+                    cfg.network,
+                    &cfg.peg_out_graph_params,
+                    cfg.operator_table.pov_idx(),
+                    cfg.deposit_idx,
+                    cfg.deposit_tx.compute_txid(),
+                    recipient,
+                )(tx)
+                {
                     return Err(TransitionErr);
                 }
 
-                let duty = if &fulfiller == self.cfg.operator_table.pov_op_key() {
+                let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
                 } else {
                     None
@@ -878,7 +925,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if &fulfiller != self.cfg.operator_table.pov_op_key() {
+                let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim))
                 } else {
                     None
@@ -924,7 +971,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if &fulfiller == self.cfg.operator_table.pov_op_key() {
+                let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishAssertChain,
                     ))
@@ -960,7 +1007,7 @@ impl ContractSM {
                     return Err(TransitionErr);
                 }
 
-                let duty = if &fulfiller != self.cfg.operator_table.pov_op_key() {
+                let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion))
                 } else {
                     None

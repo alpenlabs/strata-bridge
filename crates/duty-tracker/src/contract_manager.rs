@@ -6,11 +6,8 @@ use std::{
     time::Duration,
 };
 
-use alpen_bridge_params::{
-    prelude::{ConnectorParams, PegOutGraphParams},
-    sidesystem::SideSystemParams,
-};
-use bitcoin::{hashes::sha256d, Block, Network, OutPoint, Txid};
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
+use bitcoin::{hashes::sha256d, Block, Network, OutPoint, Transaction, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
@@ -24,6 +21,8 @@ use strata_p2p::{
 };
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
+use strata_primitives::params::RollupParams;
+use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use thiserror::Error;
 use tokio::{task::JoinHandle, time};
 use tracing::{error, warn};
@@ -33,7 +32,7 @@ use crate::{
     contract_state_machine::{
         ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
     },
-    predicates::{deposit_request_info, is_rollup_commitment},
+    predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::{StakeChainPersister, StakePersistErr},
     stake_chain_state_machine::{StakeChainErr, StakeChainSM},
 };
@@ -54,7 +53,7 @@ impl ContractManager {
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
-        sidesystem_params: SideSystemParams,
+        sidesystem_params: RollupParams,
         operator_table: OperatorTable,
         // Subsystem Handles
         zmq_client: BtcZmqClient,
@@ -277,7 +276,7 @@ struct ContractManagerCtx {
     network: Network,
     connector_params: ConnectorParams,
     pegout_graph_params: PegOutGraphParams,
-    sidesystem_params: SideSystemParams,
+    sidesystem_params: RollupParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
     stake_chain_persister: StakeChainPersister,
@@ -292,9 +291,7 @@ impl ContractManagerCtx {
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
         for tx in block.txdata {
-            if is_rollup_commitment(&tx) {
-                todo!() // TODO(proofofkeags): handle the processing of the rollup commitment/state.
-            }
+            self.process_assignments(&tx)?;
 
             let txid = tx.compute_txid();
             let stake_index = self.active_contracts.len() as u32;
@@ -333,6 +330,7 @@ impl ContractManagerCtx {
                     self.network,
                     self.operator_table.clone(),
                     self.connector_params,
+                    self.pegout_graph_params.clone(),
                     height,
                     height + self.pegout_graph_params.refund_delay as u64,
                     deposit_idx,
@@ -375,7 +373,7 @@ impl ContractManagerCtx {
                     continue;
                 }
 
-                if contract.transaction_filter()(&tx) {
+                if contract.transaction_filter(&tx) {
                     let duty = contract.process_contract_event(
                         ContractEvent::PegOutGraphConfirmation(tx.clone(), height),
                     )?;
@@ -400,6 +398,35 @@ impl ContractManagerCtx {
         for duty in duties {
             self.execute_duty(duty);
         }
+
+        Ok(())
+    }
+
+    /// This function validates whether a transaction is a valid Strata checkpoint transaction,
+    /// extracts any valid assigned deposit entries and produces the `Assignment` [`ContractEvent`]
+    /// so that it can be processed further.
+    fn process_assignments(&mut self, tx: &Transaction) -> Result<(), ContractManagerErr> {
+        if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.sidesystem_params) {
+            let chain_state = checkpoint.sidecar().chainstate();
+
+            if let Ok(chain_state) = borsh::from_slice::<Chainstate>(chain_state) {
+                let deposits_table = chain_state.deposits_table().deposits();
+
+                let assigned_deposit_entries = deposits_table
+                    .filter(|entry| matches!(entry.deposit_state(), DepositState::Dispatched(_)));
+
+                for entry in assigned_deposit_entries {
+                    let deposit_txid = entry.output().outpoint().txid;
+
+                    let sm = self
+                        .active_contracts
+                        .get_mut(&deposit_txid)
+                        .expect("withdrawal info must be for an active contract");
+
+                    sm.process_contract_event(ContractEvent::Assignment(entry.clone()))?;
+                }
+            }
+        };
 
         Ok(())
     }

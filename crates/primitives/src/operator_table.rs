@@ -101,6 +101,10 @@ impl OperatorTable {
         self.op_key.keys().cloned().collect()
     }
 
+    pub fn operator_idxs(&self) -> BTreeSet<OperatorIdx> {
+        self.idx_key.keys().copied().collect()
+    }
+
     pub fn public_key_table(&self) -> PublickeyTable {
         PublickeyTable(self.idx_key.iter().map(|(k, v)| (*k, v.1)).collect())
     }

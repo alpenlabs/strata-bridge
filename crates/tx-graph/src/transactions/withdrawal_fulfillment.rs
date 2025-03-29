@@ -13,7 +13,10 @@ pub struct WithdrawalFulfillment(Transaction);
 ///
 /// This metadata is used to identify the operator and deposit index in the bridge withdrawal proof.
 #[derive(Debug, Clone, Copy)]
-pub struct WithdrawalMetadata {
+pub struct WithdrawalMetadata<'tag> {
+    /// The tag used to mark the withdrawal metadata transaction.
+    pub tag: &'tag [u8],
+
     /// The index of the operator as per the information in the chain state in Strata.
     ///
     /// This is required in order to link a withdrawal fulfillment transaction to an operator so
@@ -48,7 +51,7 @@ impl WithdrawalFulfillment {
     /// NOTE: This transaction is not signed and must be done so before broadcasting by calling
     /// `signrawtransaction` on the Bitcoin Core RPC, for example.
     pub fn new(
-        metadata: WithdrawalMetadata,
+        metadata: WithdrawalMetadata<'_>,
         sender_outpoints: Vec<OutPoint>,
         amount: Amount,
         change: Option<TxOut>,
@@ -60,6 +63,7 @@ impl WithdrawalFulfillment {
         let op_return_amount = Amount::from_int_btc(0);
 
         let WithdrawalMetadata {
+            tag,
             operator_idx,
             deposit_idx,
             deposit_txid,
@@ -71,6 +75,7 @@ impl WithdrawalFulfillment {
 
         let op_return_script = op_return_nonce(
             &[
+                tag,
                 &op_id_prefix[..],
                 &deposit_id_prefix[..],
                 &deposit_txid_data[..],
@@ -149,7 +154,9 @@ mod tests {
         let deposit_idx: u32 = OsRng.gen();
         let deposit_txid = generate_txid();
 
+        let tag = b"test-tag";
         let withdrawal_metadata = WithdrawalMetadata {
+            tag,
             operator_idx,
             deposit_idx,
             deposit_txid,
@@ -189,6 +196,7 @@ mod tests {
             "Change output is missing or incorrect"
         );
 
+        let tag = withdrawal_metadata.tag.to_lower_hex_string();
         let operator_idx = withdrawal_metadata
             .operator_idx
             .to_be_bytes()
@@ -204,7 +212,7 @@ mod tests {
             second_output.value == op_return_amount
                 && second_output.script_pubkey.is_op_return()
                 && second_output.script_pubkey[2..].to_hex_string()
-                    == format!("{}{}{}", operator_idx, deposit_idx, deposit_txid),
+                    == format!("{}{}{}{}", tag, operator_idx, deposit_idx, deposit_txid),
             "OP_RETURN output is missing or invalid"
         );
     }
