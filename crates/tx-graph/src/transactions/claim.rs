@@ -23,6 +23,11 @@ pub struct ClaimTx {
     psbt: Psbt,
 
     output_amount: Amount,
+
+    prevouts: Vec<TxOut>,
+    witnesses: Vec<TaprootWitness>,
+
+    connector_k: ConnectorK,
 }
 
 impl ClaimTx {
@@ -73,6 +78,9 @@ impl ClaimTx {
         Self {
             psbt,
             output_amount: c0_amt,
+            prevouts: vec![prevout],
+            witnesses,
+            connector_k,
         }
     }
 
@@ -113,12 +121,9 @@ impl ClaimTx {
         2
     }
 
-    pub fn finalize(
-        mut self,
-        signature: wots256::Signature,
-        connector_k: ConnectorK,
-    ) -> Transaction {
-        connector_k.finalize_input(&mut self.psbt.inputs[0], signature);
+    pub fn finalize(mut self, signature: wots256::Signature) -> Transaction {
+        self.connector_k
+            .finalize_input(&mut self.psbt.inputs[0], signature);
 
         self.psbt
             .extract_tx()
@@ -211,7 +216,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let mut signed_claim_tx = claim_tx.finalize(*signature, connector_k);
+        let mut signed_claim_tx = claim_tx.finalize(*signature);
 
         let parsed_wots256 = ClaimTx::parse_witness(&signed_claim_tx)
             .expect("must be able to parse")
