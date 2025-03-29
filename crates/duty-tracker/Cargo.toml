@@ -30,7 +30,7 @@ strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
 
-bdk_wallet = "1.1.0"
+bdk_wallet.workspace = true
 bincode = "1.3.3"
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
