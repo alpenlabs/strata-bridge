@@ -23,7 +23,9 @@ use futures::{
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_connectors::prelude::ConnectorStake;
+use strata_bridge_connectors::prelude::{
+    ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorStake,
+};
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
@@ -33,6 +35,7 @@ use strata_bridge_primitives::{
 use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
 };
+use strata_bridge_tx_graph::transactions::claim::{ClaimData, ClaimTx};
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -1051,11 +1054,50 @@ async fn execute_duty(
 
             Ok(())
         }
-        OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
-            stake_index,
-            stake_tx,
-        }) => handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx).await,
-        _ => Ok(()),
+
+        OperatorDuty::Abort => todo!(),
+        OperatorDuty::PublishGraphNonces => todo!(),
+        OperatorDuty::PublishGraphSignatures => todo!(),
+        OperatorDuty::PublishRootNonce => todo!(),
+        OperatorDuty::PublishRootSignature => todo!(),
+        OperatorDuty::PublishDeposit => todo!(),
+        OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
+            FulfillerDuty::AdvanceStakeChain {
+                stake_index,
+                stake_tx,
+            } => {
+                handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx)
+                    .await
+            }
+            FulfillerDuty::PublishFulfillment { .. } => todo!(),
+            FulfillerDuty::PublishClaim => {
+                let claim_data = ClaimData {
+                    stake_outpoint: todo!(),
+                    deposit_txid: todo!(),
+                    input_amount: todo!(),
+                };
+                let connector_k = ConnectorK::new(todo!(), todo!());
+                let connector_c0 = ConnectorC0::new(todo!(), todo!(), todo!());
+                let connector_c1 = ConnectorC1::new(todo!(), todo!(), todo!());
+                let connector_n_of_n = ConnectorNOfN::new(todo!(), todo!());
+                let connector_cpfp = ConnectorCpfp::new(todo!(), todo!());
+                let claim = ClaimTx::new(
+                    claim_data,
+                    connector_k,
+                    connector_c0,
+                    connector_c1,
+                    connector_n_of_n,
+                    connector_cpfp,
+                );
+                claim.finalize(signature);
+
+                Ok(())
+            }
+            FulfillerDuty::PublishPayoutOptimistic => todo!(),
+            FulfillerDuty::PublishAssertChain => todo!(),
+            FulfillerDuty::PublishPayout => todo!(),
+        },
+        OperatorDuty::VerifierDuty(verifier_duty) => todo!(),
     }
 }
 
