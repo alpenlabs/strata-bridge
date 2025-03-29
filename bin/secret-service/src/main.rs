@@ -1,3 +1,5 @@
+#![feature(generic_const_exprs)]
+#![allow(incomplete_features)]
 //! Runs the Secret Service.
 
 // use secret_service_server::rustls::ServerConfig;

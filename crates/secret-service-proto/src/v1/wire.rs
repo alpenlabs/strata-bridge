@@ -141,16 +141,32 @@ pub enum ServerMessage {
     /// [`Musig2SignerSecondRound::finalize`](super::traits::Musig2SignerSecondRound::finalize).
     Musig2SecondRoundFinalize(Musig2SessionResult),
 
-    /// Response for [`WotsSigner::get_128_key`](super::traits::WotsSigner::get_128_key).
-    WotsGet128Key {
+    /// Response for
+    /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
+    WotsGet128SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 128],
+        key: [u8; 20 * 36],
     },
 
-    /// Response for [`WotsSigner::get_256_key`](super::traits::WotsSigner::get_256_key).
-    WotsGet256Key {
+    /// Response for
+    /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
+    WotsGet256SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 256],
+        key: [u8; 20 * 68],
+    },
+
+    /// Response for
+    /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
+    WotsGet128PublicKey {
+        /// A set of 20 byte keys, one for each bit that is committed to.
+        key: [u8; 20 * 36],
+    },
+
+    /// Response for
+    /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
+    WotsGet256PublicKey {
+        /// A set of 20 byte keys, one for each bit that is committed to.
+        key: [u8; 20 * 68],
     },
 
     /// Response for
@@ -328,13 +344,46 @@ pub enum ClientMessage {
         session_id: usize,
     },
 
-    /// Request for [`WotsSigner::get_128_key`](super::traits::WotsSigner::get_128_key).
-    WotsGet128Key {
+    /// Request for
+    /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
+    WotsGet128SecretKey {
+        /// [`Txid`](bitcoin::Txid) that this WOTS secret key is derived from.
+        prestake_txid: [u8; 32],
+
+        /// Transaction's vout that this WOTS secret key is derived from.
+        prestake_vout: u32,
+
+        /// Transaction's index that this WOTS secret key is derived from.
+        ///
+        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
+        /// hence to resolve the ambiguity, the index is needed.
+        index: u32,
+    },
+
+    /// Request for
+    /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
+    WotsGet256SecretKey {
+        /// [`Txid`](bitcoin::Txid) that this WOTS secret key is derived from.
+        prestake_txid: [u8; 32],
+
+        /// Transaction's vout that this WOTS secret key is derived from.
+        prestake_vout: u32,
+
+        /// Transaction's index that this WOTS secret key is derived from.
+        ///
+        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
+        /// hence to resolve the ambiguity, the index is needed.
+        index: u32,
+    },
+
+    /// Request for
+    /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
+    WotsGet128PublicKey {
         /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
-        txid: [u8; 32],
+        prestake_txid: [u8; 32],
 
         /// Transaction's vout that this WOTS public key is derived from.
-        vout: u32,
+        prestake_vout: u32,
 
         /// Transaction's index that this WOTS public key is derived from.
         ///
@@ -343,13 +392,14 @@ pub enum ClientMessage {
         index: u32,
     },
 
-    /// Request for [`WotsSigner::get_256_key`](super::traits::WotsSigner::get_256_key).
-    WotsGet256Key {
+    /// Request for
+    /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
+    WotsGet256PublicKey {
         /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
-        txid: [u8; 32],
+        prestake_txid: [u8; 32],
 
         /// Transaction's vout that this WOTS public key is derived from.
-        vout: u32,
+        prestake_vout: u32,
 
         /// Transaction's index that this WOTS public key is derived from.
         ///

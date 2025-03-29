@@ -3418,6 +3418,7 @@ name = "duty-tracker"
 version = "0.1.0"
 dependencies = [
  "alpen-bridge-params",
+ "bdk_wallet",
  "bincode",
  "bitcoin",
  "bitcoin-bosd",
@@ -3426,10 +3427,15 @@ dependencies = [
  "btc-notify",
  "futures",
  "musig2",
+ "operator-wallet",
+ "secret-service-client",
+ "secret-service-proto",
  "serde",
  "serde_json",
  "sqlx",
  "strata-bridge-connectors",
+ "strata-bridge-db",
+ "strata-bridge-p2p-service",
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",

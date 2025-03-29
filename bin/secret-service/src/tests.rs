@@ -122,8 +122,18 @@ async fn e2e() {
 
     // WOTS
     let wots = client.wots_signer();
-    wots.get_128_key(txid, 0, 0).await.expect("good response");
-    wots.get_256_key(txid, 0, 0).await.expect("good response");
+    wots.get_128_secret_key(txid, 0, 0)
+        .await
+        .expect("good response");
+    wots.get_128_public_key(txid, 0, 0)
+        .await
+        .expect("good response");
+    wots.get_256_secret_key(txid, 0, 0)
+        .await
+        .expect("good response");
+    wots.get_256_public_key(txid, 0, 0)
+        .await
+        .expect("good response");
 
     // Musig2
     let ms2_signer = client.musig2_signer();

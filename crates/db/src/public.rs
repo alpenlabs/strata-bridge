@@ -68,6 +68,8 @@ pub trait PublicDb {
         stake_id: u32,
     ) -> DbResult<Option<Txid>>;
 
+    async fn get_all_stake_data(&self, operator_id: OperatorIdx) -> DbResult<Vec<StakeTxData>>;
+
     async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()>;
 
     async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>>;

@@ -255,6 +255,16 @@ impl PublicDb for PublicDbInMemory {
             .copied())
     }
 
+    async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
+        Ok(self
+            .stake_data
+            .read()
+            .await
+            .get(&operator_idx)
+            .map(|map| map.values().cloned().collect())
+            .unwrap_or(vec![]))
+    }
+
     async fn register_claim_txid(
         &self,
         claim_txid: Txid,
