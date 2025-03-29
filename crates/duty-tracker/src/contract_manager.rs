@@ -12,7 +12,7 @@ use alpen_bridge_params::{
 };
 use bdk_wallet::error::CreateTxError;
 use bitcoin::{
-    hashes::{sha256, sha256d, sha256d::Hash, Hash as _},
+    hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
     Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
 };
@@ -751,25 +751,29 @@ impl ContractManagerCtx {
 
     async fn execute_duty(&mut self, duty: OperatorDuty) -> Result<(), ContractManagerErr> {
         match duty {
-            OperatorDuty::PublishWOTSKeys { txid } => {
+            OperatorDuty::PublishWOTSKeys { deposit_txid } => {
                 let operator_pk = self.s2_client.general_wallet_signer().pubkey().await?;
                 let wots_client = self.s2_client.wots_signer();
                 /// VOUT is static because irrelevant so we're just gonna use 0
                 const VOUT: u32 = 0;
                 // withdrawal_fulfillment uses index 0
                 let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-                    &wots_client.get_256_secret_key(txid, VOUT, 0).await?,
+                    &wots_client
+                        .get_256_secret_key(deposit_txid, VOUT, 0)
+                        .await?,
                 );
                 const NUM_FQS: usize = NUM_U256;
                 const NUM_PUB_INPUTS: usize = NUM_PUBS;
                 const NUM_HASHES: usize = NUM_HASH;
-                let public_inputs_ftrs: [_; NUM_PUB_INPUTS] =
-                    std::array::from_fn(|i| wots_client.get_256_public_key(txid, VOUT, i as u32));
-                let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-                    wots_client.get_256_public_key(txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+                let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
+                    wots_client.get_256_public_key(deposit_txid, VOUT, i as u32)
                 });
-                let hashes_ftrs: [_; NUM_HASHES] =
-                    std::array::from_fn(|i| wots_client.get_128_public_key(txid, VOUT, i as u32));
+                let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
+                    wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+                });
+                let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
+                    wots_client.get_128_public_key(deposit_txid, VOUT, i as u32)
+                });
 
                 let (public_inputs, fqs, hashes) = join3(
                     join_all(public_inputs_ftrs),
@@ -799,7 +803,7 @@ impl ContractManagerCtx {
                 let wots_pks =
                     WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
 
-                let scope = Scope::from_bytes(txid.as_raw_hash().to_byte_array());
+                let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
 
                 let stakechain_preimg = self
                     .s2_client

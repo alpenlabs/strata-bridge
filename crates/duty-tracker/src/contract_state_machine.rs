@@ -274,7 +274,7 @@ pub enum OperatorDuty {
     /// Instructs us to publish our own wots keys for this contract.
     PublishWOTSKeys {
         /// Transaction ID of the DT
-        txid: Txid,
+        deposit_txid: Txid,
     },
 
     /// Instructs us to publish our graph nonces for this contract.
