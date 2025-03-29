@@ -7,10 +7,7 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
-use bitcoin::{
-    hashes::{sha256d, sha256d::Hash},
-    Block, Network, OutPoint, Transaction, Txid,
-};
+use bitcoin::{hashes::sha256d, Block, Network, OutPoint, Transaction, Txid};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
