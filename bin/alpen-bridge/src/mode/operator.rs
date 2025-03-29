@@ -31,7 +31,7 @@ use strata_bridge_p2p_service::{
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::P2POperatorPubKey;
 use tokio::{spawn, task::JoinHandle, try_join};
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{
     config::{Config, P2PConfig, SecretServiceConfig},

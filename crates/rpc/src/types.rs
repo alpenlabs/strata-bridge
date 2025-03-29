@@ -1,5 +1,6 @@
 //! Types for the RPC server.
 
+use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 
 /// Enum representing the status of a bridge operator
