@@ -6,10 +6,7 @@ use std::{
     time::Duration,
 };
 
-use alpen_bridge_params::{
-    prelude::{ConnectorParams, PegOutGraphParams},
-    sidesystem::SideSystemParams,
-};
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
 use bdk_wallet::error::CreateTxError;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
@@ -211,8 +208,11 @@ impl ContractManager {
                                         ).await;
                                     }
                             }
-                            GetMessageRequest::DepositSetup { scope: _, .. } => {
-                                ctx.execute_duty(OperatorDuty::PublishWOTSKeys);
+                            GetMessageRequest::DepositSetup { scope, .. } => {
+                                let deposit_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
+                                let _ = ctx.execute_duty(OperatorDuty::PublishWOTSKeys {
+                                    deposit_txid,
+                                }).await;
                             }
                             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(
@@ -220,13 +220,13 @@ impl ContractManager {
                                 );
 
                                 if ctx.active_contracts.contains_key(&session_id_as_txid) {
-                                    ctx.execute_duty(OperatorDuty::PublishGraphNonces);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishGraphNonces).await;
                                 } else if ctx.active_contracts
                                     .values()
                                     .map(|sm| sm.deposit_request_txid())
                                     .any(|txid| txid == session_id_as_txid) {
 
-                                    ctx.execute_duty(OperatorDuty::PublishRootNonce);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishRootNonce).await;
                                 }
 
                                 // otherwise ignore this message.
@@ -235,13 +235,13 @@ impl ContractManager {
                                 let session_id_as_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
 
                                 if ctx.active_contracts.contains_key(&session_id_as_txid) {
-                                    ctx.execute_duty(OperatorDuty::PublishGraphSignatures);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishGraphSignatures).await;
                                 } else if ctx.active_contracts
                                     .values()
                                     .map(|sm| sm.deposit_request_txid())
                                     .any(|txid| txid == session_id_as_txid) {
 
-                                    ctx.execute_duty(OperatorDuty::PublishRootSignature);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishRootSignature).await;
                                 }
 
                                 // otherwise ignore this message.
