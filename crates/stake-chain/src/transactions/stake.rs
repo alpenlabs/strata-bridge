@@ -125,11 +125,7 @@ impl StakeTx {
         let utxos = [operator_funds, pre_stake];
         let tx_ins = create_tx_ins(utxos);
 
-        let connector_k = ConnectorK::new(
-            context.aggregated_pubkey(),
-            context.network(),
-            withdrawal_fulfillment_pk,
-        );
+        let connector_k = ConnectorK::new(context.network(), withdrawal_fulfillment_pk);
 
         let connector_p = ConnectorP::new(context.aggregated_pubkey(), hash, context.network());
 
@@ -214,11 +210,7 @@ impl StakeTx {
         let utxos = [input.operator_funds, prev_stake];
         let tx_ins = create_tx_ins(utxos);
 
-        let connector_k = ConnectorK::new(
-            context.aggregated_pubkey(),
-            context.network(),
-            input.withdrawal_fulfillment_pk,
-        );
+        let connector_k = ConnectorK::new(context.network(), input.withdrawal_fulfillment_pk);
         let connector_p =
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
