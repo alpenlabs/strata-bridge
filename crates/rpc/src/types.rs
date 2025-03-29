@@ -1,3 +1,5 @@
+//! Types for the RPC server.
+
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
 
@@ -5,9 +7,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RpcOperatorStatus {
-    /// Meant to represent functional as opposed to faulty.
+    /// Operator is online and ready to process transactions.
     Online,
-    /// Not responding
+
+    /// Operator is offline and not processing transactions.
     Offline,
     // TODO add faulty.
 }
@@ -18,23 +21,25 @@ pub enum RpcOperatorStatus {
 pub enum RpcDepositStatus {
     /// Deposit exists, but minting hasn't happened yet.
     InProgress {
-        /// Deposit request transaction id
+        /// Transaction ID of the deposit request transaction (DRT).
         deposit_request_txid: Txid,
     },
 
     /// Deposit exists, but was never completed (can be reclaimed).
     Failed {
-        /// Deposit request transaction id
+        /// Transaction ID of the deposit request transaction (DRT).
         deposit_request_txid: Txid,
-        /// Why the deposit failed
+
+        /// Reason for the failure.
         failure_reason: String,
     },
 
     /// Deposit has been fully processed and minted.
     Complete {
-        /// Deposit request transaction id
+        /// Transaction ID of the deposit request transaction (DRT).
         deposit_request_txid: Txid,
-        /// Deposit transaction id
+
+        /// Transaction ID of the deposit transaction (DT).
         deposit_txid: Txid,
     },
 }
@@ -43,11 +48,13 @@ pub enum RpcDepositStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeStep {
-    /// Claim
+    /// Challenge step is "Claim".
     Claim,
-    /// Challenge
+
+    /// Challenge step is "Challenge".
     Challenge,
-    /// Assert
+
+    /// Challenge step is "Assert".
     Assert,
 }
 
@@ -55,11 +62,12 @@ pub enum ChallengeStep {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcWithdrawalStatus {
-    /// Being processed
+    /// Withdrawal is in progress.
     InProgress,
-    /// Front payment has been made
+
+    /// Withdrawal has been fully processed and fulfilled.
     Complete {
-        /// Fulfillment transaction id
+        /// Transaction ID of the withdrawal fulfillment transaction.
         fulfillment_txid: Txid,
     },
 }
@@ -70,13 +78,13 @@ pub enum RpcWithdrawalStatus {
 pub enum RpcReimbursementStatus {
     /// Claim exists, challenge step is "Claim", no payout.
     InProgress {
-        /// Challenge step
+        /// Challenge step.
         challenge_step: ChallengeStep,
     },
 
     /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
     Challenged {
-        /// Challenge step
+        /// Challenge step.
         challenge_step: ChallengeStep,
     },
 
@@ -85,7 +93,7 @@ pub enum RpcReimbursementStatus {
 
     /// Claim has been successfully reimbursed.
     Complete {
-        /// Payout transaction id
+        /// Transaction ID of the payout transaction.
         payout_txid: Txid,
     },
 }
@@ -93,22 +101,23 @@ pub enum RpcReimbursementStatus {
 /// Represents deposit transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcDepositInfo {
-    /// Deposit status
+    /// Status of the deposit.
     pub status: RpcDepositStatus,
 }
 
 /// Represents withdrawal transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcWithdrawalInfo {
-    /// Withdrawal status
+    /// Status of the withdrawal.
     pub status: RpcWithdrawalStatus,
 }
 
 /// Represents reimbursement transaction details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcClaimInfo {
-    /// Claim transaction id
+    /// Transaction ID of the claim transaction.
     pub claim_txid: Txid,
-    /// Reimbursement status
+
+    /// Status of the reimbursement.
     pub status: RpcReimbursementStatus,
 }

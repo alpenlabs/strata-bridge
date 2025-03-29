@@ -4,7 +4,7 @@ use anyhow::Context;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use jsonrpsee::{core::RpcResult, RpcModule};
-use strata_bridge_rpc::StrataBridgeControlApiServer;
+use strata_bridge_rpc::traits::StrataBridgeControlApiServer;
 use tokio::sync::oneshot;
 use tracing::{info, warn};
 
@@ -42,7 +42,7 @@ where
     Ok(())
 }
 
-/// Struct to implement the [`strata_bridge_rpc::StrataBridgeControlApiServer`] on. Contains
+/// Struct to implement the [`StrataBridgeControlApiServer`] on. Contains
 /// fields corresponding the global context for the RPC.
 #[derive(Clone)]
 pub(crate) struct BridgeRpc {
