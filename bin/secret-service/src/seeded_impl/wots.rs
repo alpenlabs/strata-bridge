@@ -75,13 +75,13 @@ impl WotsSigner<Server> for SeededWotsSigner {
     #[expect(refining_impl_trait)]
     async fn get_128_public_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 36] {
         let sk = self.get_128_secret_key(txid, vout, index).await;
-        wots_public_key::<PS_HASH_TOTAL_LEN>(&PS_HASH, &sk)
+        wots_public_key::<PARAMS_HASH_TOTAL_LEN>(&PARAMS_HASH, &sk)
     }
 
     #[expect(refining_impl_trait)]
     async fn get_256_public_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 68] {
         let sk = self.get_256_secret_key(txid, vout, index).await;
-        wots_public_key::<PS_256_TOTAL_LEN>(&PS_256, &sk)
+        wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk)
     }
 }
 
@@ -161,9 +161,9 @@ impl Parameters {
 }
 
 /// Returns the public key for the given secret key and the parameters
-fn wots_public_key<const N: usize>(ps: &Parameters, secret_key: &[u8; 20 * N]) -> [u8; 20 * N]
+fn wots_public_key<const N: usize>(ps: &Parameters, secret_key: &[u8; 20 * N + 1]) -> [u8; 20 * N]
 where
-    [(); 20 * N + 1]:,
+    [(); 20 * N]:,
 {
     let mut public_key = [0u8; 20 * N];
     for i in 0..ps.total_length() {
@@ -185,20 +185,8 @@ where
     public_key
 }
 
-const PS_256: Parameters = Parameters::new_by_bit_length(32 * 8, 4);
-const PS_256_TOTAL_LEN: usize = PS_256.total_length() as usize;
-const PS_HASH: Parameters = Parameters::new_by_bit_length(16 * 8, 4);
-const PS_HASH_TOTAL_LEN: usize = PS_HASH.total_length() as usize;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_name() {
-        let sk: [u8; 20 * PS_HASH_TOTAL_LEN] = [0; 20 * PS_HASH_TOTAL_LEN];
-        // thread_rng().fill(&mut sk);
-        let pk = wots_public_key::<PS_HASH_TOTAL_LEN>(&PS_HASH, &sk);
-        dbg!((sk, pk));
-    }
-}
+// Taken from BitVM pile of amazing code.
+const PARAMS_256: Parameters = Parameters::new_by_bit_length(32 * 8, 4);
+const PARAMS_256_TOTAL_LEN: usize = PARAMS_256.total_length() as usize;
+const PARAMS_HASH: Parameters = Parameters::new_by_bit_length(16 * 8, 4);
+const PARAMS_HASH_TOTAL_LEN: usize = PARAMS_HASH.total_length() as usize;
