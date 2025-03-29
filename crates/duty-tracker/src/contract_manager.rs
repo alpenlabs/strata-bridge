@@ -10,6 +10,7 @@ use alpen_bridge_params::{
     prelude::{ConnectorParams, PegOutGraphParams},
     sidesystem::SideSystemParams,
 };
+use bdk_wallet::error::CreateTxError;
 use bitcoin::{
     hashes::{sha256, sha256d, sha256d::Hash, Hash as _},
     sighash::{Prevouts, SighashCache},
@@ -24,7 +25,7 @@ use futures::{
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
@@ -298,6 +299,18 @@ pub enum ContractManagerErr {
     /// Errors related to calling Bitcoin Core's RPC interface.
     #[error("bitcoin core rpc call failed with: {0}")]
     BitcoinCoreRPCErr(#[from] ClientError),
+
+    /// Errors from failed secret service requests
+    #[error("secret service request failed with {0:?}")]
+    SecretServiceErr(#[from] secret_service_proto::v1::traits::ClientError),
+
+    /// Errors from the bridge db
+    #[error("database error: {0:?}")]
+    DbErr(#[from] DbError),
+
+    /// Error during transaction creation
+    #[error("error while creating transaction: {0:?}")]
+    CreateTxErr(#[from] CreateTxError),
 }
 
 struct ContractManagerCtx {
@@ -375,7 +388,7 @@ impl ContractManagerCtx {
 
                 self.active_contracts.insert(txid, sm);
 
-                self.execute_duty(duty).await;
+                self.execute_duty(duty).await?;
 
                 // It's impossible for this transaction to be routable to another CSM so we move on
                 continue;
@@ -394,7 +407,7 @@ impl ContractManagerCtx {
                         .commit(&txid, contract.state())
                         .await?;
                     if let Some(duty) = duty {
-                        self.execute_duty(duty).await;
+                        self.execute_duty(duty).await?;
                     }
                 }
 
@@ -430,7 +443,7 @@ impl ContractManagerCtx {
         }
 
         for duty in duties {
-            self.execute_duty(duty).await;
+            self.execute_duty(duty).await?;
         }
 
         Ok(())
@@ -528,7 +541,7 @@ impl ContractManagerCtx {
                             Box::new(wots_pks),
                         ))?
                     {
-                        self.execute_duty(duty).await;
+                        self.execute_duty(duty).await?;
                     }
                 } else {
                     // One of the other operators has may have seen a DRT that we have not yet
@@ -549,7 +562,7 @@ impl ContractManagerCtx {
                     if let Some(duty) = contract
                         .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
                     {
-                        self.execute_duty(duty).await;
+                        self.execute_duty(duty).await?;
                     }
                 } else if let Some((_, contract)) = self
                     .active_contracts
@@ -565,7 +578,7 @@ impl ContractManagerCtx {
                     if let Some(duty) =
                         contract.process_contract_event(ContractEvent::RootNonce(msg.key, nonce))?
                     {
-                        self.execute_duty(duty).await;
+                        self.execute_duty(duty).await?;
                     }
                 }
 
@@ -580,7 +593,7 @@ impl ContractManagerCtx {
                     if let Some(duty) = contract
                         .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
                     {
-                        self.execute_duty(duty).await;
+                        self.execute_duty(duty).await?;
                     }
                 } else if let Some((_, contract)) = self
                     .active_contracts
@@ -598,7 +611,7 @@ impl ContractManagerCtx {
                     if let Some(duty) =
                         contract.process_contract_event(ContractEvent::RootSig(msg.key, sig))?
                     {
-                        self.execute_duty(duty).await
+                        self.execute_duty(duty).await?
                     }
                 }
 
@@ -736,21 +749,16 @@ impl ContractManagerCtx {
         all_commands
     }
 
-    async fn execute_duty(&mut self, duty: OperatorDuty) {
+    async fn execute_duty(&mut self, duty: OperatorDuty) -> Result<(), ContractManagerErr> {
         match duty {
             OperatorDuty::PublishWOTSKeys { txid } => {
-                let operator_pk = self
-                    .s2_client
-                    .general_wallet_signer()
-                    .pubkey()
-                    .await
-                    .unwrap();
+                let operator_pk = self.s2_client.general_wallet_signer().pubkey().await?;
                 let wots_client = self.s2_client.wots_signer();
                 /// VOUT is static because irrelevant so we're just gonna use 0
                 const VOUT: u32 = 0;
                 // withdrawal_fulfillment uses index 0
                 let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-                    &wots_client.get_256_secret_key(txid, VOUT, 0).await.unwrap(),
+                    &wots_client.get_256_secret_key(txid, VOUT, 0).await?,
                 );
                 const NUM_FQS: usize = NUM_U256;
                 const NUM_PUB_INPUTS: usize = NUM_PUBS;
@@ -771,16 +779,22 @@ impl ContractManagerCtx {
                 .await;
                 let public_inputs = public_inputs
                     .into_iter()
-                    .map(|result| Wots256PublicKey::from_flattened_bytes(&result.unwrap()))
-                    .collect();
+                    .map(|result| {
+                        result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes))
+                    })
+                    .collect::<Result<_, _>>()?;
                 let fqs = fqs
                     .into_iter()
-                    .map(|result| Wots256PublicKey::from_flattened_bytes(&result.unwrap()))
-                    .collect();
+                    .map(|result| {
+                        result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes))
+                    })
+                    .collect::<Result<_, _>>()?;
                 let hashes = hashes
                     .into_iter()
-                    .map(|result| Wots128PublicKey::from_flattened_bytes(&result.unwrap()))
-                    .collect();
+                    .map(|result| {
+                        result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes))
+                    })
+                    .collect::<Result<_, _>>()?;
 
                 let wots_pks =
                     WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
@@ -795,8 +809,7 @@ impl ContractManagerCtx {
                         self.stakechain_prestake_utxo.vout,
                         self.active_contracts.len() as u32, // i hate this lol
                     )
-                    .await
-                    .unwrap();
+                    .await?;
 
                 let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
 
@@ -810,8 +823,7 @@ impl ContractManagerCtx {
                         self.operator_table.pov_idx(),
                         self.active_contracts.len() as u32,
                     )
-                    .await
-                    .unwrap();
+                    .await?;
 
                 let funding_utxo = if let Some(sd) = maybe_stake_data {
                     sd.operator_funds
@@ -819,8 +831,7 @@ impl ContractManagerCtx {
                     let ignore = self
                         .db
                         .get_all_stake_data(self.operator_table.pov_idx())
-                        .await
-                        .unwrap()
+                        .await?
                         .into_iter()
                         .map(|data| data.operator_funds)
                         .collect::<HashSet<_>>();
@@ -831,8 +842,7 @@ impl ContractManagerCtx {
                             info!("refilling stakechain funding utxos, have {left} left");
                             let psbt = self
                                 .wallet
-                                .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)
-                                .unwrap();
+                                .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
                             let mut tx = psbt.unsigned_tx;
                             let txins_as_outs = tx
                                 .input
@@ -841,7 +851,7 @@ impl ContractManagerCtx {
                                     self.wallet
                                         .general_wallet()
                                         .get_utxo(txin.previous_output)
-                                        .unwrap()
+                                        .expect("always have this output because the wallet selected it in the first place")
                                         .txout
                                 })
                                 .collect::<Vec<_>>();
@@ -861,8 +871,7 @@ impl ContractManagerCtx {
                                     .s2_client
                                     .general_wallet_signer()
                                     .sign(&sighash.to_byte_array())
-                                    .await
-                                    .unwrap();
+                                    .await?;
 
                                 let signature = bitcoin::taproot::Signature {
                                     signature,
@@ -870,7 +879,7 @@ impl ContractManagerCtx {
                                 };
                                 sighasher
                                     .witness_mut(input_index)
-                                    .unwrap()
+                                    .expect("an input here")
                                     .push(signature.to_vec());
                             }
 
@@ -894,8 +903,9 @@ impl ContractManagerCtx {
                         wots_pks,
                     )
                     .await;
+                Ok(())
             }
-            _ => {}
+            _ => Ok(()),
         }
     }
 }

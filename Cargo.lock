@@ -3418,6 +3418,7 @@ name = "duty-tracker"
 version = "0.1.0"
 dependencies = [
  "alpen-bridge-params",
+ "bdk_wallet",
  "bincode",
  "bitcoin",
  "bitcoin-bosd",

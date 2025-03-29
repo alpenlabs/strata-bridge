@@ -344,3 +344,11 @@ pub enum ClientError {
     /// The server sent a message with an unexpected protocol version.
     WrongVersion,
 }
+
+impl std::error::Error for ClientError {}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{self:?}"))
+    }
+}
