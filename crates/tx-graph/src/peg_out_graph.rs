@@ -473,11 +473,7 @@ impl PegOutGraphConnectors {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
 
-        let kickoff = ConnectorK::new(
-            n_of_n_agg_pubkey,
-            network,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let kickoff = ConnectorK::new(network, wots_public_keys.withdrawal_fulfillment);
 
         let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network, params.pre_assert_timelock);
 
