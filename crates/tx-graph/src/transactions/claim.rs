@@ -196,14 +196,14 @@ mod tests {
                 deposit_txid,
                 input_amount: Amount::from_sat(OsRng.gen_range(1..100_000)),
             },
-            ConnectorK::new(pubkey, network, wots_public_key),
+            ConnectorK::new(network, wots_public_key),
             ConnectorC0::new(pubkey, network, pre_assert_timelock),
             ConnectorC1::new(pubkey, network, payout_optimistic_timelock),
             ConnectorNOfN::new(build_context.aggregated_pubkey(), network),
             ConnectorCpfp::new(pubkey, network),
         );
 
-        let connector_k = ConnectorK::new(pubkey, network, wots_public_key);
+        let connector_k = ConnectorK::new(network, wots_public_key);
         let withdrawal_fulfillment_txid = generate_txid();
 
         let signature = Wots256Signature::new(
