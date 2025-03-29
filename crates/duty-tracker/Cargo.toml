@@ -31,7 +31,7 @@ strata-primitives.workspace = true
 strata-state.workspace = true
 
 bdk_wallet.workspace = true
-bincode = "1.3.3"
+bincode.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitvm.workspace = true
