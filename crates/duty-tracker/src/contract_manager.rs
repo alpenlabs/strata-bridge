@@ -750,18 +750,18 @@ impl ContractManagerCtx {
                 const VOUT: u32 = 0;
                 // withdrawal_fulfillment uses index 0
                 let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-                    &wots_client.get_256_key(txid, VOUT, 0).await.unwrap(),
+                    &wots_client.get_256_secret_key(txid, VOUT, 0).await.unwrap(),
                 );
                 const NUM_FQS: usize = NUM_U256;
                 const NUM_PUB_INPUTS: usize = NUM_PUBS;
                 const NUM_HASHES: usize = NUM_HASH;
                 let public_inputs_ftrs: [_; NUM_PUB_INPUTS] =
-                    std::array::from_fn(|i| wots_client.get_256_key(txid, VOUT, i as u32));
+                    std::array::from_fn(|i| wots_client.get_256_public_key(txid, VOUT, i as u32));
                 let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-                    wots_client.get_256_key(txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+                    wots_client.get_256_public_key(txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
                 });
                 let hashes_ftrs: [_; NUM_HASHES] =
-                    std::array::from_fn(|i| wots_client.get_128_key(txid, VOUT, i as u32));
+                    std::array::from_fn(|i| wots_client.get_128_public_key(txid, VOUT, i as u32));
 
                 let (public_inputs, fqs, hashes) = join3(
                     join_all(public_inputs_ftrs),
@@ -871,7 +871,7 @@ impl ContractManagerCtx {
                                 sighasher
                                     .witness_mut(input_index)
                                     .unwrap()
-                                    .push(&signature.to_vec());
+                                    .push(signature.to_vec());
                             }
 
                             // todo! @zk2u broadcast refill tx
