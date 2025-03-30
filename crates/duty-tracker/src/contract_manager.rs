@@ -84,7 +84,15 @@ impl ContractManager {
         let thread_handle = tokio::task::spawn(async move {
             let crash = |_e: ContractManagerErr| todo!();
 
-            let active_contracts = match contract_persister.load_all().await {
+            let active_contracts = match contract_persister
+                .load_all(
+                    network,
+                    connector_params,
+                    pegout_graph_params.clone(),
+                    stake_chain_params,
+                )
+                .await
+            {
                 Ok(contract_data) => contract_data
                     .into_iter()
                     .map(|(cfg, state)| {
