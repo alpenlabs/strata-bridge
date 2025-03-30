@@ -120,19 +120,14 @@ impl StakeChainSM {
     ///
     /// This involves updating the in-memory cache to hold the new stake chain inputs and creating a
     /// new stake transaction corresponding to that input and adding its txid to the stake txid
-    /// cache.
-    ///
-    /// # Returns
-    ///
-    /// * true: if the new stake transaction was successfully created.
-    /// * false: if the new stake transaction was not created due to incomplete data. This can
-    ///   happen if the deposit setup message is received out of order during gossip.
+    /// cache. It returns the txid of the stake transaction if it was created and added to the cache
+    /// successfully.
     pub fn process_setup(
         &mut self,
         params: &StakeChainParams,
         operator: P2POperatorPubKey,
         setup: &DepositSetup,
-    ) -> Result<bool, StakeChainErr> {
+    ) -> Result<Option<Txid>, StakeChainErr> {
         info!(%operator, "processing deposit setup");
         if let Some(chain_input) = self.stake_chains.get_mut(&operator) {
             let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
@@ -149,11 +144,11 @@ impl StakeChainSM {
                     .or_default()
                     .push(stake_txid);
 
-                Ok(true)
+                Ok(Some(stake_txid))
             } else {
                 // if unable to create the stake tx, we ignore it but inform the caller.
                 // this can happen if the deposit setup msg is received out of order.
-                Ok(false)
+                Ok(None)
             }
         } else {
             warn!(%operator, "tried to process deposit setup for non-existent stake chain");

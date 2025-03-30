@@ -16,7 +16,7 @@ pub struct StakeChainPersister {
 }
 
 impl StakeChainPersister {
-    /// Creates a new instance of `StakeChainPersister`.
+    /// Creates a new instance of [`StakeChainPersister`].
     pub async fn new(db: SqliteDb) -> Result<Self, DbError> {
         Ok(StakeChainPersister { db })
     }
