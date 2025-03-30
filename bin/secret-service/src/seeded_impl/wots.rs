@@ -13,6 +13,9 @@ use sha2::Sha256;
 
 use super::paths::{WOTS_IKM_128_PATH, WOTS_IKM_256_PATH};
 
+const WINTERNITZ_DIGIT_WIDTH: usize = 4;
+const WINTERNITZ_CHECKSUM_SIZE: usize = 4;
+
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
 pub struct SeededWotsSigner {
@@ -47,9 +50,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
         prestake_txid: Txid,
         prestake_vout: u32,
         index: u32,
-    ) -> [u8; 20 * 36] {
+    ) -> [u8; 20 * (32 + WINTERNITZ_CHECKSUM_SIZE)] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_128);
-        let mut okm = [0u8; 20 * 36];
+        let mut okm = [0u8; 20 * (32 + WINTERNITZ_CHECKSUM_SIZE)];
         let info = make_buf! {
             (prestake_txid.as_raw_hash().as_byte_array(), 32),
             (&prestake_vout.to_le_bytes(), 4),
@@ -60,9 +63,14 @@ impl WotsSigner<Server> for SeededWotsSigner {
     }
 
     #[expect(refining_impl_trait)]
-    async fn get_256_secret_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 68] {
+    async fn get_256_secret_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> [u8; 20 * (64 + WINTERNITZ_CHECKSUM_SIZE)] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
-        let mut okm = [0u8; 20 * 68];
+        let mut okm = [0u8; 20 * (64 + WINTERNITZ_CHECKSUM_SIZE)];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),
             (&vout.to_le_bytes(), 4),
@@ -73,13 +81,23 @@ impl WotsSigner<Server> for SeededWotsSigner {
     }
 
     #[expect(refining_impl_trait)]
-    async fn get_128_public_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 36] {
+    async fn get_128_public_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> [u8; 20 * (32 + WINTERNITZ_CHECKSUM_SIZE)] {
         let sk = self.get_128_secret_key(txid, vout, index).await;
         wots_public_key::<PARAMS_HASH_TOTAL_LEN>(&PARAMS_HASH, &sk)
     }
 
     #[expect(refining_impl_trait)]
-    async fn get_256_public_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 68] {
+    async fn get_256_public_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> [u8; 20 * (64 + WINTERNITZ_CHECKSUM_SIZE)] {
         let sk = self.get_256_secret_key(txid, vout, index).await;
         wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk)
     }
@@ -99,61 +117,61 @@ pub(super) const fn log_base_ceil(n: u32, base: u32) -> u32 {
 /// Contains the parameters to use with `Winternitz` struct
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub struct Parameters {
-    /// Number of blocks of the actual message
+    /// Number of digits of the actual message
     message_length: u32,
-    /// Number of bits in one block
-    block_length: u32,
-    /// Number of blocks of the checksum part
+    /// Number of bits in one digit
+    digit_width: u32,
+    /// Number of digits of the checksum part
     checksum_length: u32,
 }
 
 impl Parameters {
-    /// Creates parameters with given message length (number of blocks in the message) and block
-    /// length (number of bits in one block, in the closed range 4, 8)
-    pub const fn new(message_block_count: u32, block_length: u32) -> Self {
+    /// Creates parameters with given message length (number of digits in the message) and digit
+    /// length (number of bits in one digit, in the closed range 4, 8)
+    pub const fn new(message_num_digits: u32, digit_width: u32) -> Self {
         assert!(
-            4 <= block_length && block_length <= 8,
-            "You can only choose block lengths in the range [4, 8]"
+            4 <= digit_width && digit_width <= 8,
+            "You can only choose digit widths in the range [4, 8]"
         );
         Parameters {
-            message_length: message_block_count,
-            block_length,
+            message_length: message_num_digits,
+            digit_width,
             checksum_length: log_base_ceil(
-                ((1 << block_length) - 1) * message_block_count,
-                1 << block_length,
+                ((1 << digit_width) - 1) * message_num_digits,
+                1 << digit_width,
             ) + 1,
         }
     }
 
-    /// Creates parameters with given message_length (number of bits in the message) and block
-    /// length (number of bits in one block, in the closed range 4, 8)
-    pub const fn new_by_bit_length(number_of_bits: u32, block_length: u32) -> Self {
+    /// Creates parameters with given message_length (number of bits in the message) and digit
+    /// width (number of bits in one digit, in the closed range 4, 8)
+    pub const fn new_by_bit_length(number_of_bits: u32, digit_width: u32) -> Self {
         assert!(
-            4 <= block_length && block_length <= 8,
-            "You can only choose block lengths in the range [4, 8]"
+            4 <= digit_width && digit_width <= 8,
+            "You can only choose digit widths in the range [4, 8]"
         );
-        let message_block_count = number_of_bits.div_ceil(block_length);
+        let message_num_digits = number_of_bits.div_ceil(digit_width);
         Parameters {
-            message_length: message_block_count,
-            block_length,
+            message_length: message_num_digits,
+            digit_width,
             checksum_length: log_base_ceil(
-                ((1 << block_length) - 1) * message_block_count,
-                1 << block_length,
+                ((1 << digit_width) - 1) * message_num_digits,
+                1 << digit_width,
             ) + 1,
         }
     }
 
     /// Maximum value of a digit
     pub const fn d(&self) -> u32 {
-        (1 << self.block_length) - 1
+        (1 << self.digit_width) - 1
     }
 
     /// Number of bytes that can be represented at maximum with the parameters
     pub const fn byte_message_length(&self) -> u32 {
-        (self.message_length * self.block_length + 7) / 8
+        (self.message_length * self.digit_width + 7) / 8
     }
 
-    /// Total number of blocks, i.e. sum of the number of blocks in the actual message and the
+    /// Total number of digits, i.e. sum of the number of digits in the actual message and the
     /// checksum
     pub const fn total_length(&self) -> u32 {
         self.message_length + self.checksum_length
@@ -186,9 +204,10 @@ where
 }
 
 // Taken from BitVM pile of amazing code.
-const PARAMS_256: Parameters = Parameters::new_by_bit_length(32 * 8, 4);
+const PARAMS_256: Parameters = Parameters::new_by_bit_length(32 * 8, WINTERNITZ_DIGIT_WIDTH as u32);
 const PARAMS_256_TOTAL_LEN: usize = PARAMS_256.total_length() as usize;
-const PARAMS_HASH: Parameters = Parameters::new_by_bit_length(16 * 8, 4);
+const PARAMS_HASH: Parameters =
+    Parameters::new_by_bit_length(16 * 8, WINTERNITZ_DIGIT_WIDTH as u32);
 const PARAMS_HASH_TOTAL_LEN: usize = PARAMS_HASH.total_length() as usize;
 
 #[cfg(test)]
