@@ -123,4 +123,16 @@ impl OperatorTable {
     pub fn tx_build_context(&self, network: Network) -> TxBuildContext {
         TxBuildContext::new(network, self.public_key_table(), self.pov)
     }
+
+    pub fn convert_map_op_to_btc<V>(
+        &self,
+        map: BTreeMap<P2POperatorPubKey, V>,
+    ) -> Result<BTreeMap<secp256k1::PublicKey, V>, P2POperatorPubKey> {
+        map.into_iter()
+            .map(|(op, v)| {
+                self.op_key_to_btc_key(&op)
+                    .map_or(Err(op), |btc| Ok((btc, v)))
+            })
+            .collect()
+    }
 }
