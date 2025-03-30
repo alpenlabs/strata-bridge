@@ -666,6 +666,7 @@ impl ContractSM {
                 peg_out_graphs.insert(signer, pog_summary);
 
                 Ok(
+                    // FIXME: update this condition when multi stake chain is implemented.
                     if stake_txs.len() == self.cfg.operator_table.cardinality() {
                         Some(OperatorDuty::PublishGraphNonces)
                     } else {

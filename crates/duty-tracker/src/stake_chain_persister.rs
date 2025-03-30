@@ -66,19 +66,22 @@ impl StakeChainPersister {
         let operator_ids = cfg.operator_idxs();
 
         for operator_id in operator_ids {
-            let stake_data = self.db.get_stake_data(operator_id, 0).await?;
+            let stake_data = self.db.get_all_stake_data(operator_id).await?;
             let pre_stake_outpoint = self.db.get_pre_stake(operator_id).await?;
             let p2p_key = cfg.idx_to_op_key(&operator_id);
             let btc_key = cfg.idx_to_btc_key(&operator_id);
 
-            match (stake_data, pre_stake_outpoint, p2p_key, btc_key) {
-                (Some(stake_data), Some(pre_stake_outpoint), Some(p2p_key), Some(btc_key)) => {
+            match (pre_stake_outpoint, p2p_key, btc_key) {
+                (Some(pre_stake_outpoint), Some(p2p_key), Some(btc_key)) => {
                     stake_chain_inputs.insert(
                         p2p_key.clone(),
                         StakeChainInputs {
                             operator_pubkey: btc_key.x_only_public_key().0,
                             pre_stake_outpoint,
-                            stake_inputs: IndexSet::from([stake_data]),
+                            // NOTE: convert stake data to an IndexedSet to avoid this conversion
+                            // alternatively, this is okay since the loading of the stake data only
+                            // happens once.
+                            stake_inputs: stake_data.into_iter().collect(),
                         },
                     );
                 }

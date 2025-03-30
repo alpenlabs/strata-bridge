@@ -24,6 +24,7 @@ use secret_service_proto::v1::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -875,6 +876,19 @@ impl ContractManagerCtx {
                         }
                     }
                 };
+
+                let withdrawal_fulfillment_pk =
+                    std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
+                let stake_data = StakeTxData {
+                    operator_funds: funding_utxo,
+                    hash: stakechain_preimg_hash,
+                    withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+                        withdrawal_fulfillment_pk,
+                    ),
+                };
+                self.db
+                    .add_stake_data(self.operator_table.pov_idx(), deposit_idx, stake_data)
+                    .await?;
 
                 self.p2p_msg_handle
                     .send_deposit_setup(
