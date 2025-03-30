@@ -307,13 +307,15 @@ impl ContractManager {
                                 );
 
                                 if ctx.state.active_contracts.contains_key(&session_id_as_txid) {
-                                    duties.push(OperatorDuty::PublishGraphNonces);
-                                } else if ctx.state.active_contracts
+                                    duties.push(OperatorDuty::PublishGraphNonces { deposit_txid: session_id_as_txid });
+                                } else if let Some(csm) = ctx.state.active_contracts
                                     .values()
-                                    .map(|sm| sm.deposit_request_txid())
-                                    .any(|txid| txid == session_id_as_txid) {
+                                    .find(|sm| sm.deposit_request_txid() == session_id_as_txid) {
 
-                                    duties.push(OperatorDuty::PublishRootNonce { deposit_request_txid: session_id_as_txid, takeback_key: todo!() });
+                                    duties.push(OperatorDuty::PublishRootNonce {
+                                        deposit_request_txid: session_id_as_txid,
+                                        takeback_key: *csm.cfg().deposit_info.x_only_public_key()
+                                    });
                                 } else {
                                     // otherwise ignore this message.
                                     warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
@@ -466,6 +468,7 @@ impl ContractManagerCtx {
                     deposit_idx,
                     deposit_request_txid,
                     deposit_tx,
+                    deposit_info,
                 );
                 self.state_handles
                     .contract_persister

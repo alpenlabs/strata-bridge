@@ -29,6 +29,7 @@ use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
     transactions::prelude::WithdrawalMetadata,
 };
+use strata_l1tx::deposit::deposit_tx;
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
@@ -326,7 +327,10 @@ pub enum OperatorDuty {
     },
 
     /// Instructs us to publish our graph nonces for this contract.
-    PublishGraphNonces,
+    PublishGraphNonces {
+        /// Transaction ID of the DT
+        deposit_txid: Txid,
+    },
 
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures,
@@ -442,6 +446,9 @@ pub struct ContractCfg {
 
     /// The predetermined deposit transaction that the rest of the graph is built from.
     pub deposit_tx: Transaction,
+
+    /// Information about the deposit
+    pub deposit_info: DepositInfo,
 }
 
 /// Holds the state machine values that change over the lifetime of the contract.
@@ -477,6 +484,7 @@ impl ContractSM {
         deposit_idx: u32,
         deposit_request_txid: Txid,
         deposit_tx: Transaction,
+        deposit_info: DepositInfo,
     ) -> (Self, OperatorDuty) {
         let cfg = ContractCfg {
             network,
@@ -486,6 +494,7 @@ impl ContractSM {
             stake_chain_params,
             deposit_idx,
             deposit_tx,
+            deposit_info,
         };
         let state = ContractState::Requested {
             deposit_request_txid,
@@ -727,10 +736,11 @@ impl ContractSM {
                     wots_public_keys: wots_key_record,
                     operator_pubkey,
                 };
+                let deposit_txid = self.cfg.deposit_tx.compute_txid();
                 let pog_summary = PegOutGraph::generate(
                     pog_input,
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
-                    self.cfg.deposit_tx.compute_txid(),
+                    deposit_txid,
                     self.cfg.peg_out_graph_params.clone(),
                     self.cfg.connector_params,
                     self.cfg.stake_chain_params,
@@ -748,7 +758,7 @@ impl ContractSM {
                     // FIXME: (@Rajil1213) update this condition when multi stake chain is
                     // implemented.
                     if stake_txs.len() == self.cfg.operator_table.cardinality() {
-                        Some(OperatorDuty::PublishGraphNonces)
+                        Some(OperatorDuty::PublishGraphNonces { deposit_txid })
                     } else {
                         None
                     },
@@ -792,8 +802,8 @@ impl ContractSM {
                         // we have all the sigs now
                         // issue deposit signature
                         Some(OperatorDuty::PublishRootNonce {
-                            deposit_request_txid: todo!(),
-                            takeback_key: todo!(),
+                            deposit_request_txid: self.deposit_request_txid(),
+                            takeback_key: *self.cfg.deposit_info.x_only_public_key(),
                         })
                     } else {
                         None
@@ -816,10 +826,9 @@ impl ContractSM {
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
-                        let stake_index = self.cfg.deposit_idx;
                         Some(OperatorDuty::PublishRootSignature {
                             nonces: root_nonces.clone(),
-                            deposit_info: todo!(),
+                            deposit_info: self.cfg.deposit_info.clone(),
                         })
                     } else {
                         None
