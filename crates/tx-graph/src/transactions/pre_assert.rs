@@ -1,5 +1,6 @@
 use bitcoin::{
-    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, Transaction, TxOut, Txid,
+    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, TapSighashType, Transaction,
+    TxOut, Txid,
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
@@ -153,6 +154,7 @@ impl PreAssertTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
         let (script_buf, control_block) = connector_c0.generate_spend_info();

@@ -134,6 +134,7 @@ impl PayoutTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
         let (connector_a3_script, connector_a3_control_block) =

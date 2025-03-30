@@ -73,6 +73,7 @@ impl ChallengeTx<Unfunded> {
 
         let input_index = tapleaf.get_input_index() as usize;
         psbt.inputs[input_index].witness_utxo = Some(prevouts[0].clone());
+        psbt.inputs[input_index].sighash_type = Some(TapSighashType::SinglePlusAnyoneCanPay.into());
 
         Self {
             psbt,

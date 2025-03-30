@@ -5,7 +5,7 @@ use core::fmt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
-use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
+use bitcoin::{hashes::sha256, relative, sighash::SighashCache, OutPoint, TapSighashType, Txid};
 use secp256k1::{Message, XOnlyPublicKey};
 use serde::{
     de::{SeqAccess, Visitor},
@@ -16,6 +16,7 @@ use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     constants::*,
+    scripts::taproot::create_message_hash,
     wots::{self, Groth16PublicKeys},
 };
 use tracing::debug;
@@ -181,6 +182,9 @@ pub struct PegOutGraph {
     /// The claim transaction that commits to a valid withdrawal fulfillment txid.
     pub claim_tx: ClaimTx,
 
+    /// The transaction used to challenge an operator's claim.
+    pub challenge_tx: ChallengeTx,
+
     /// The transaction used to reimburse operators when no challenge occurs.
     pub payout_optimistic: PayoutOptimisticTx,
 
@@ -264,6 +268,14 @@ impl PegOutGraph {
         );
         let claim_txid = claim_tx.compute_txid();
         debug!(event = "created claim tx", %claim_txid);
+
+        let challenge_input = ChallengeTxInput {
+            claim_outpoint: OutPoint::new(claim_txid, 1),
+            challenge_amt: graph_params.challenge_cost,
+            operator_pubkey: input.operator_pubkey,
+            network: context.network(),
+        };
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
 
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
@@ -377,6 +389,7 @@ impl PegOutGraph {
         Ok((
             Self {
                 claim_tx,
+                challenge_tx,
                 payout_optimistic,
                 assert_chain,
                 payout_tx,
@@ -403,9 +416,214 @@ impl PegOutGraph {
         }
     }
 
+    /// Generates the sighash message
     pub fn sighashes(&self) -> PegOutGraphSighashes {
-        // rajil's problem
-        todo!()
+        let challenge_tx = &self.challenge_tx;
+        let mut sighash_cache = SighashCache::new(&challenge_tx.psbt().unsigned_tx);
+        let prevouts = challenge_tx.prevouts();
+        let sighash_type = challenge_tx
+            .psbt()
+            .inputs
+            .first()
+            .expect("challenge tx must have an input")
+            .sighash_type
+            .expect("challenge tx must have a sighash type")
+            .taproot_hash_ty()
+            .unwrap_or(TapSighashType::SinglePlusAnyoneCanPay);
+        let witness_type = challenge_tx
+            .witnesses()
+            .first()
+            .expect("challenge tx must have an input");
+
+        let challenge =
+            create_message_hash(&mut sighash_cache, prevouts, witness_type, sighash_type, 0)
+                .expect("must be able to create message hash for challenge tx");
+
+        let AssertChain {
+            pre_assert,
+            post_assert,
+            ..
+        } = &self.assert_chain;
+
+        let mut sighash_cache = SighashCache::new(&pre_assert.psbt().unsigned_tx);
+        let prevouts = pre_assert.prevouts();
+        let witness_type = pre_assert
+            .witnesses()
+            .first()
+            .expect("pre-assert tx must have an input");
+        let sighash_type = pre_assert.psbt().inputs[0]
+            .sighash_type
+            .expect("pre-assert tx must have a sighash type")
+            .taproot_hash_ty()
+            .expect("tap sighash must be valid");
+        let pre_assert =
+            create_message_hash(&mut sighash_cache, prevouts, witness_type, sighash_type, 0)
+                .expect("must be able to create message hash for pre-assert");
+
+        let mut sighash_cache = SighashCache::new(&post_assert.psbt().unsigned_tx);
+        let prevouts = post_assert.prevouts();
+        let post_assert = post_assert
+            .psbt()
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let witness = post_assert
+                    .witnesses()
+                    .get(index)
+                    .expect("post-assert tx must have all the required witnesses");
+
+                let sighash_type = input
+                    .sighash_type
+                    .expect("post-assert tx must have a sighash type")
+                    .taproot_hash_ty()
+                    .unwrap_or(TapSighashType::Default);
+
+                create_message_hash(
+                    &mut sighash_cache,
+                    prevouts.clone(),
+                    witness,
+                    sighash_type,
+                    index,
+                )
+                .expect("must be able to create message hash for post-assert")
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("post-assert tx must have the right number of inputs in its psbt");
+
+        let payout_optimistic = &self.payout_optimistic;
+        let mut sighash_cache = SighashCache::new(&payout_optimistic.psbt().unsigned_tx);
+        let prevouts = self.payout_optimistic.prevouts();
+        let payout_optimistic = self
+            .payout_optimistic
+            .psbt()
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let witness = self
+                    .payout_optimistic
+                    .witnesses()
+                    .get(index)
+                    .expect("payout optimistic tx must have all the required witnesses");
+
+                let sighash_type = input
+                    .sighash_type
+                    .expect("payout optimistic tx must have a sighash type")
+                    .taproot_hash_ty()
+                    .unwrap_or(bitcoin::TapSighashType::Default);
+
+                create_message_hash(
+                    &mut sighash_cache,
+                    prevouts.clone(),
+                    witness,
+                    sighash_type,
+                    index,
+                )
+                .expect("must be able to create message hash for payout optimistic")
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("payout optimistic tx must have the right number of inputs in its psbt");
+
+        let payout_tx = &self.payout_tx;
+        let mut sighash_cache = SighashCache::new(&payout_tx.psbt().unsigned_tx);
+        let prevouts = payout_tx.prevouts();
+        let payout = payout_tx
+            .psbt()
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let witness = payout_tx
+                    .witnesses()
+                    .get(index)
+                    .expect("payout tx must have all the required witnesses");
+
+                let sighash_type = input
+                    .sighash_type
+                    .expect("payout tx must have a sighash type")
+                    .taproot_hash_ty()
+                    .unwrap_or(bitcoin::TapSighashType::Default);
+
+                create_message_hash(
+                    &mut sighash_cache,
+                    prevouts.clone(),
+                    witness,
+                    sighash_type,
+                    index,
+                )
+                .expect("must be able to create message hash for payout")
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("payout tx must have the right number of inputs in its psbt");
+
+        let disprove_tx = &self.disprove_tx;
+        let mut sighash_cache = SighashCache::new(&disprove_tx.psbt().unsigned_tx);
+        let prevouts = disprove_tx.prevouts();
+        let witness_type = disprove_tx
+            .witnesses()
+            .first()
+            .expect("disprove tx must have an input");
+        let sighash_type = disprove_tx.psbt().inputs[0]
+            .sighash_type
+            .expect("disprove tx must have a sighash type")
+            .taproot_hash_ty()
+            .unwrap_or(TapSighashType::Default);
+        let disprove =
+            create_message_hash(&mut sighash_cache, prevouts, witness_type, sighash_type, 0)
+                .expect("must be able to create message hash for disprove tx");
+
+        let slash_stake = self
+            .slash_stake_txs
+            .iter()
+            .map(|slash_stake_tx| {
+                let mut sighash_cache = SighashCache::new(&slash_stake_tx.psbt().unsigned_tx);
+                let prevouts = slash_stake_tx.prevouts();
+
+                slash_stake_tx
+                    .psbt()
+                    .inputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, input)| {
+                        let witness_type = slash_stake_tx
+                            .witnesses()
+                            .get(i)
+                            .expect("slash stake tx must have the right number of inputs");
+
+                        let sighash_type = input
+                            .sighash_type
+                            .expect("slash stake tx must have a sighash type")
+                            .taproot_hash_ty()
+                            .unwrap_or(TapSighashType::Default);
+
+                        create_message_hash(
+                            &mut sighash_cache,
+                            prevouts.clone(),
+                            witness_type,
+                            sighash_type,
+                            i,
+                        )
+                        .expect("must be able to create message hash for slash stake tx")
+                    })
+                    .collect::<Vec<_>>()
+                    .try_into()
+                    .expect("slash stake tx must have the right number of inputs")
+            })
+            .collect();
+
+        PegOutGraphSighashes {
+            challenge,
+            pre_assert,
+            post_assert,
+            payout_optimistic,
+            payout,
+            disprove,
+            slash_stake,
+        }
     }
 }
 
@@ -547,14 +765,23 @@ impl PegOutGraphConnectors {
 
 #[derive(Debug, Clone)]
 pub struct PegOutGraphSighashes {
+    /// The transaction used to challenge an operator's claim.
+    pub challenge: Message,
+
+    /// The transaction that creates UTXOs that allow committing to the assertion data.
+    pub pre_assert: Message,
+
+    /// The transaction that consolidates all the assert data transactions.
+    pub post_assert: [Message; NUM_ASSERT_DATA_TX],
+
     /// The transaction used to reimburse operators when no challenge occurs.
     pub payout_optimistic: [Message; 5],
 
     /// The payout transaction that reimburses the operator.
-    pub payout_tx: [Message; 4],
+    pub payout: [Message; 4],
 
     /// The disprove transaction that invalidates a claim and slashes the operator's stake.
-    pub disprove_tx: Message,
+    pub disprove: Message,
 
     /// The slash stake transactions that slash the operator's stake upon faulty advancement of
     /// the stake chain.
@@ -563,7 +790,7 @@ pub struct PegOutGraphSighashes {
     /// upon the consensus params for the bridge and the current deposit index. In general, the
     /// number of slash stake transactions should be `min(deposit_index,
     /// stake_chain_params.slash_stake_count)` (assuming that the deposit index is zero-indexed).
-    pub slash_stake_txs: Vec<[Message; 2]>,
+    pub slash_stake: Vec<[Message; 2]>,
 }
 
 #[cfg(test)]
@@ -1432,6 +1659,7 @@ mod tests {
             vec![],
         )
         .expect("must be able to generate peg-out graph");
+        let sighashes = graph.sighashes();
         let PegOutGraph {
             claim_tx,
             assert_chain,
@@ -1566,20 +1794,10 @@ mod tests {
             post_assert,
         } = assert_chain;
 
-        let mut sighash_cache = SighashCache::new(&pre_assert.psbt().unsigned_tx);
-        let prevouts = pre_assert.prevouts();
-        let witnesses = pre_assert.witnesses();
         let pre_assert_input_amount = pre_assert.input_amount();
         let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
-        let tx_hash = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            &witnesses[0],
-            TapSighashType::Default,
-            0,
-        )
-        .expect("must be able create a message hash for tx");
-        let n_of_n_sig = generate_agg_signature(&tx_hash, keypair, &witnesses[0]);
+        let n_of_n_sig =
+            generate_agg_signature(&sighashes.pre_assert, keypair, &pre_assert.witnesses()[0]);
         let signed_pre_assert = pre_assert.finalize(claim_out_0, n_of_n_sig);
         assert_eq!(
             signed_pre_assert.version,
@@ -1698,22 +1916,13 @@ mod tests {
 
         info!(%total_assert_vsize, %total_assert_with_child_vsize, "submitted all assert data txs");
 
-        let mut sighash_cache = SighashCache::new(&post_assert.psbt().unsigned_tx);
-
-        let prevouts = post_assert.prevouts();
-        let witnesses = post_assert.witnesses();
         let post_assert_sigs = (0..num_signed_assert_data_txs)
             .map(|i| {
-                let message = create_message_hash(
-                    &mut sighash_cache,
-                    prevouts.clone(),
-                    &witnesses[i],
-                    TapSighashType::Default,
-                    i,
+                generate_agg_signature(
+                    &sighashes.post_assert[i],
+                    keypair,
+                    &post_assert.witnesses()[i],
                 )
-                .expect("must be able to create a message hash");
-
-                generate_agg_signature(&message, keypair, &witnesses[i])
             })
             .collect::<Vec<_>>();
 

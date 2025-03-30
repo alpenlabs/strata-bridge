@@ -1,4 +1,7 @@
-use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{
+    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+    Txid,
+};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -92,6 +95,7 @@ impl PostAssertTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
         let witnesses = vec![TaprootWitness::Key; NUM_ASSERT_DATA_TX];
