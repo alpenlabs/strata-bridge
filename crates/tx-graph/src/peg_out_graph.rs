@@ -6,7 +6,7 @@ use std::{marker::PhantomData, mem::MaybeUninit};
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
 use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{Message, XOnlyPublicKey};
 use serde::{
     de::{SeqAccess, Visitor},
     ser::SerializeTuple,
@@ -402,6 +402,11 @@ impl PegOutGraph {
                 .collect(),
         }
     }
+
+    pub fn sighashes(&self) -> PegOutGraphSighashes {
+        // rajil's problem
+        todo!()
+    }
 }
 
 /// Connectors represent UTXOs in the peg-out graph.
@@ -538,6 +543,27 @@ impl PegOutGraphConnectors {
             hashlock_payout,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PegOutGraphSighashes {
+    /// The transaction used to reimburse operators when no challenge occurs.
+    pub payout_optimistic: [Message; 5],
+
+    /// The payout transaction that reimburses the operator.
+    pub payout_tx: [Message; 4],
+
+    /// The disprove transaction that invalidates a claim and slashes the operator's stake.
+    pub disprove_tx: Message,
+
+    /// The slash stake transactions that slash the operator's stake upon faulty advancement of
+    /// the stake chain.
+    ///
+    /// This is a vector of transactions since the number of these transactions can vary depending
+    /// upon the consensus params for the bridge and the current deposit index. In general, the
+    /// number of slash stake transactions should be `min(deposit_index,
+    /// stake_chain_params.slash_stake_count)` (assuming that the deposit index is zero-indexed).
+    pub slash_stake_txs: Vec<[Message; 2]>,
 }
 
 #[cfg(test)]

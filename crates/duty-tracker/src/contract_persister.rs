@@ -48,6 +48,7 @@ impl ContractPersister {
                 deposit_txid CHAR(64) PRIMARY KEY,
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
+                deposit_info VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
                 payout_optimistic_timelock INTEGER NOT NULL,
                 pre_assert_timelock INTEGER NOT NULL,
@@ -79,8 +80,9 @@ impl ContractPersister {
                 payout_optimistic_timelock,
                 pre_assert_timelock,
                 payout_timelock,
-                state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                state,
+                deposit_info
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
@@ -92,6 +94,7 @@ impl ContractPersister {
         .bind(cfg.connector_params.pre_assert_timelock)
         .bind(cfg.connector_params.payout_timelock)
         .bind(bincode::serialize(&state)?)
+        .bind(bincode::serialize(&cfg.deposit_info)?)
         .execute(&self.pool)
         .await
         .map_err(|_| ContractPersistErr)?;
@@ -132,7 +135,8 @@ impl ContractPersister {
                 payout_optimistic_timelock,
                 pre_assert_timelock,
                 payout_timelock,
-                state
+                state,
+                deposit_info
             ) FROM contracts WHERE deposit_txid = ?
             "#,
         )
@@ -159,6 +163,10 @@ impl ContractPersister {
             .try_get("payout_timelock")
             .map_err(|_| ContractPersistErr)?;
         let state = bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
+        let deposit_info = bincode::deserialize(
+            row.try_get("deposit_info")
+                .map_err(|_| ContractPersistErr)?,
+        )?;
         Ok((
             ContractCfg {
                 network,
@@ -171,6 +179,7 @@ impl ContractPersister {
                 peg_out_graph_params: PegOutGraphParams::default(), // FIXME: update this later
                 deposit_idx,
                 deposit_tx,
+                deposit_info,
             },
             state,
         ))
@@ -189,7 +198,8 @@ impl ContractPersister {
                 payout_optimistic_timelock,
                 pre_assert_timelock,
                 payout_timelock,
-                state
+                state,
+                deposit_info
             ) FROM contracts
             "#,
         )
@@ -219,6 +229,10 @@ impl ContractPersister {
                     .map_err(|_| ContractPersistErr)?;
                 let state =
                     bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
+                let deposit_info = bincode::deserialize(
+                    row.try_get("deposit_info")
+                        .map_err(|_| ContractPersistErr)?,
+                )?;
                 Ok((
                     ContractCfg {
                         network,
@@ -232,6 +246,7 @@ impl ContractPersister {
                         // later
                         deposit_idx,
                         deposit_tx,
+                        deposit_info,
                     },
                     state,
                 ))

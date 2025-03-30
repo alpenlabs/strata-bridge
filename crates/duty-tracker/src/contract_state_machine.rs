@@ -279,7 +279,10 @@ pub enum OperatorDuty {
     },
 
     /// Instructs us to publish our graph nonces for this contract.
-    PublishGraphNonces,
+    PublishGraphNonces {
+        /// Transaction ID of the DT
+        deposit_txid: Txid,
+    },
 
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures,
@@ -380,6 +383,9 @@ pub struct ContractCfg {
 
     /// The predetermined deposit transaction that the rest of the graph is built from.
     pub deposit_tx: Transaction,
+
+    /// Information about the deposit
+    pub deposit_info: DepositInfo,
 }
 
 /// Holds the state machine values that change over the lifetime of the contract.
@@ -414,6 +420,7 @@ impl ContractSM {
         deposit_idx: u32,
         deposit_request_txid: Txid,
         deposit_tx: Transaction,
+        deposit_info: DepositInfo,
     ) -> (Self, OperatorDuty) {
         let cfg = ContractCfg {
             network,
@@ -422,6 +429,7 @@ impl ContractSM {
             peg_out_graph_params,
             deposit_idx,
             deposit_tx,
+            deposit_info,
         };
         let state = ContractState::Requested {
             deposit_request_txid,
@@ -692,7 +700,10 @@ impl ContractSM {
                     if graph_sigs.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
-                        Some(OperatorDuty::PublishRootNonce)
+                        Some(OperatorDuty::PublishRootNonce {
+                            deposit_request_txid: self.deposit_request_txid(),
+                            takeback_key: *self.cfg.deposit_info.x_only_public_key(),
+                        })
                     } else {
                         None
                     },
@@ -714,10 +725,9 @@ impl ContractSM {
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
-                        let stake_index = self.cfg.deposit_idx;
                         Some(OperatorDuty::PublishRootSignature {
                             nonces: root_nonces.clone(),
-                            deposit_request_txid: self.deposit_request_txid(),
+                            deposit_info: self.cfg.deposit_info.clone(),
                         })
                     } else {
                         None
