@@ -21,7 +21,6 @@ use futures::{
     future::{join3, join_all},
     StreamExt,
 };
-use musig2::secp256k1::Message;
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::{
     musig2::{Musig2FirstRound, Musig2SecondRound},
@@ -43,6 +42,11 @@ use strata_bridge_primitives::{
 use strata_bridge_tx_graph::{
     errors::TxGraphError,
     peg_out_graph::{PegOutGraph, PegOutGraphSighashes},
+};
+use strata_bridge_stake_chain::prelude::{STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT};
+use strata_bridge_tx_graph::{
+    errors::TxGraphError,
+    peg_out_graph::{PegOutGraph, PegOutGraphInput},
     transactions::prelude::CovenantTx,
 };
 use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
@@ -66,7 +70,8 @@ use tracing::{error, info, warn};
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
     contract_state_machine::{
-        ContractEvent, ContractSM, ContractState, DepositSetup, OperatorDuty, TransitionErr,
+        convert_g16_keys, ContractEvent, ContractSM, ContractState, DepositSetup, OperatorDuty,
+        TransitionErr,
     },
     predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::{StakeChainPersister, StakePersistErr},
@@ -89,6 +94,7 @@ impl ContractManager {
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
+        stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
         // Subsystem Handles
@@ -159,6 +165,7 @@ impl ContractManager {
                 operator_table,
                 connector_params,
                 pegout_graph_params,
+                stake_chain_params,
                 sidesystem_params,
                 contract_persister,
                 active_contracts,
@@ -234,13 +241,13 @@ impl ContractManager {
                                     deposit_txid,
                                 }).await;
                             }
-                            GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
+                            GetMessageRequest::Musig2NoncesExchange { session_id, operator_pk, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(
                                     *sha256d::Hash::from_bytes_ref(session_id.as_ref())
                                 );
 
                                 if ctx.active_contracts.contains_key(&session_id_as_txid) {
-                                    let _ = ctx.execute_duty(OperatorDuty::PublishGraphNonces).await;
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishGraphNonces { deposit_txid: session_id_as_txid, operator_p2p_key: operator_pk }).await;
                                 } else if let Some(csm) = ctx.active_contracts
                                     .values()
                                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid) {
@@ -1019,7 +1026,6 @@ impl ContractManagerCtx {
                 nonces,
                 deposit_info,
             } => {
-                const VOUT: u32 = 0;
                 let our_pubkey = self.operator_table.pov_op_key();
                 let Entry::Occupied(mut entry) = self
                     .s2_musig2_sessions
@@ -1105,17 +1111,100 @@ impl ContractManagerCtx {
                 Ok(())
             }
 
-            OperatorDuty::PublishGraphNonces { deposit_txid } => {
-                let (pog, pog_conns) = PegOutGraph::generate(
+            OperatorDuty::PublishGraphNonces {
+                deposit_txid,
+                operator_p2p_key,
+            } => {
+                let Some(active_contract) = self.active_contracts.get(&deposit_txid) else {
+                    // this can only happen if some other operator is requesting nonces
+                    // and we have not yet observed the corresponding chain event.
+                    // so, it should be fine to ignore this error and allow the node to re-query our
+                    // node once we presumably observe the chain event.
+                    error!(
+                        ?deposit_txid,
+                        ?operator_p2p_key,
+                        "missing active contract for deposit txid"
+                    );
+                    return Ok(());
+                };
+
+                let stake_index = active_contract.cfg().deposit_idx;
+                let pov_idx = self.operator_table.pov_idx();
+                let operator_idx = self
+                    .operator_table
+                    .op_key_to_idx(&operator_p2p_key)
+                    .expect("operator key must be part of the operator table");
+
+                let Some(stake_data) = self.stake_chains.state().get(&operator_p2p_key) else {
+                    error!(?operator_p2p_key, %pov_idx, %operator_idx, %deposit_txid, %stake_index, "missing stake data for operator");
+
+                    // ignore this error to let the client re-request this data in the future
+                    if pov_idx != operator_idx {
+                        return Ok(());
+                    }
+
+                    // otherwise, we have somehow lost our own stake data!
+                    return Err(StakeChainErr)?;
+                };
+
+                let stake_input = stake_data
+                    .stake_inputs
+                    .get(stake_index as usize)
+                    .expect("we should have a stake input for this operator");
+                let Some(stake_tx) = self
+                    .stake_chains
+                    .stake_tx(&operator_p2p_key, stake_index as usize)
+                else {
+                    warn!(?operator_p2p_key, %pov_idx, %operator_idx, %deposit_txid, %stake_index, "missing stake tx for operator");
+
+                    // ignore this error to let the client re-request this data in the future
+                    return Ok(());
+                };
+
+                let stake_txid = stake_tx.compute_txid();
+                let stake_outpoint = OutPoint::new(stake_txid, STAKE_VOUT);
+                let withdrawal_fulfillment_outpoint =
+                    OutPoint::new(stake_txid, WITHDRAWAL_FULFILLMENT_VOUT);
+                let wots_public_keys = match &active_contract.state().state {
+                    ContractState::Requested { wots_keys, .. } => {
+                        let Some(wots_keys) = wots_keys.get(&operator_p2p_key) else {
+                            error!(%stake_index, %operator_idx, "wots data missing");
+                            // we should always have our own data but it could be that we don't have
+                            // the operator's wots key before their request for nonces reaches us.
+                            // so, let them re-query our data.
+                            return Ok(());
+                        };
+
+                        wots_keys.clone()
+                    }
+                    _ => unreachable!("this should only be called in the requested state"),
+                };
+
+                let input = PegOutGraphInput {
+                    stake_outpoint,
+                    withdrawal_fulfillment_outpoint,
+                    stake_hash: stake_input.hash,
+                    wots_public_keys: strata_bridge_primitives::wots::PublicKeys {
+                        withdrawal_fulfillment: strata_bridge_primitives::wots::Wots256PublicKey(
+                            std::array::from_fn(|i| wots_public_keys.withdrawal_fulfillment[i]),
+                        ),
+                        groth16: convert_g16_keys(wots_public_keys.groth16.clone())
+                            .expect("must have valid sizes"),
+                    },
+                    operator_pubkey: stake_data.operator_pubkey,
+                };
+
+                let (pog, _pog_conns) = PegOutGraph::generate(
                     input,
                     &self.operator_table.tx_build_context(self.network),
                     deposit_txid,
-                    self.pegout_graph_params,
+                    self.pegout_graph_params.clone(),
                     self.connector_params,
                     self.stake_chain_params,
-                    vec![],
+                    Vec::new(),
                 )
-                .unwrap();
+                .expect("must be able to generate peg out graph");
+
                 let sighashes = pog.sighashes();
                 let ordered_pubkeys = self
                     .operator_table
@@ -1124,20 +1213,25 @@ impl ContractManagerCtx {
                     .0
                     .values()
                     .map(|pk| pk.to_x_only_pubkey())
-                    .collect();
+                    .collect::<Vec<_>>();
 
                 // note that this will change as slash stake txs changes length
                 let mut nonces = Vec::with_capacity(10);
 
                 let payout_optimistic_txid = pog.payout_optimistic.compute_txid();
-                for (vout, message) in sighashes.payout_optimistic.into_iter().enumerate() {
+                for (vout, _message) in sighashes.payout_optimistic.into_iter().enumerate() {
                     let outpoint = OutPoint::new(payout_optimistic_txid, vout as u32);
-                    let witness = pog.payout_optimistic.witnesses()[vout];
+                    let witness = pog.payout_optimistic.witnesses()[vout].clone();
                     let r =
                         get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
                             self.s2_client
                                 .musig2_signer()
-                                .new_session(ordered_pubkeys, witness, deposit_txid, vout as u32)
+                                .new_session(
+                                    ordered_pubkeys.clone(),
+                                    witness,
+                                    deposit_txid,
+                                    vout as u32,
+                                )
                                 .await
                                 .map(|inner| {
                                     Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
@@ -1152,9 +1246,10 @@ impl ContractManagerCtx {
                 }
 
                 let payout_txid = pog.payout_tx.compute_txid();
-                for (vout, message) in sighashes.payout_tx.into_iter().enumerate() {
+                for (vout, _message) in sighashes.payout.into_iter().enumerate() {
                     let outpoint = OutPoint::new(payout_txid, vout as u32);
-                    let witness = pog.payout_tx.witnesses()[vout];
+                    let witness = pog.payout_tx.witnesses()[vout].clone();
+                    let ordered_pubkeys = ordered_pubkeys.clone();
                     let r =
                         get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
                             self.s2_client
@@ -1173,13 +1268,13 @@ impl ContractManagerCtx {
                     nonces.push(our_nonce);
                 }
 
-                let disprove_txid = pog.disprove_tx.compute_txid();
+                let _disprove_txid = pog.disprove_tx.compute_txid();
                 let outpoint = OutPoint::new(payout_txid, 0);
-                let witness = pog.payout_tx.witnesses()[0];
+                let witness = pog.payout_tx.witnesses()[0].clone();
                 let r = get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
                     self.s2_client
                         .musig2_signer()
-                        .new_session(ordered_pubkeys, witness, deposit_txid, 0)
+                        .new_session(ordered_pubkeys.clone(), witness, deposit_txid, 0)
                         .await
                         .map(|inner| {
                             Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
@@ -1192,11 +1287,13 @@ impl ContractManagerCtx {
                 let our_nonce = r1.our_nonce().await?;
                 nonces.push(our_nonce);
 
-                for (i, sighashes) in sighashes.slash_stake_txs.iter().enumerate() {
-                    let slash_stake_txid = pog.slash_stake_txs[i].compute_txid();
-                    for (vout, message) in sighashes.into_iter().enumerate() {
-                        let outpoint = OutPoint::new(slash_stake_txid, vout as u32);
-                        let witness = pog.payout_tx.witnesses()[vout];
+                for _tx in sighashes.slash_stake.iter() {
+                    let payout_txid = pog.payout_tx.compute_txid();
+                    for (vout, _message) in sighashes.payout.into_iter().enumerate() {
+                        let outpoint = OutPoint::new(payout_txid, vout as u32);
+                        let witness = pog.payout_tx.witnesses()[vout].clone();
+                        let ordered_pubkeys = ordered_pubkeys.clone();
+
                         let r = get_or_set_ms2_session(
                             &mut self.s2_musig2_sessions,
                             outpoint,
@@ -1239,9 +1336,11 @@ impl ContractManagerCtx {
 
 enum Musig2Round {
     Musig2FirstRound(Musig2FirstRound),
+    #[expect(dead_code)]
     Musig2SecondRound(Musig2SecondRound),
 }
 
+#[expect(clippy::needless_lifetimes)]
 async fn get_or_set_ms2_session<'a, Func, Ftr>(
     hm: &'a mut HashMap<OutPoint, Musig2Round>,
     k: OutPoint,
@@ -1259,7 +1358,7 @@ where
 
     // If key doesn't exist, create and insert new value
     let v = value().await?;
-    hm.insert(k.clone(), v);
+    hm.insert(k, v);
 
     // Return reference to the newly inserted value
     Ok(hm.get(&k).expect("Key was just inserted"))

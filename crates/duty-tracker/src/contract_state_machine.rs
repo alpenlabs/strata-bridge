@@ -639,11 +639,14 @@ impl ContractSM {
 
                 stake_txs.insert(signer.clone(), new_stake_tx);
                 wots_keys.insert(signer.clone(), new_wots_keys);
-                peg_out_graphs.insert(signer, pog_summary);
+                peg_out_graphs.insert(signer.clone(), pog_summary);
 
                 Ok(
                     if stake_txs.len() == self.cfg.operator_table.cardinality() {
-                        Some(OperatorDuty::PublishGraphNonces)
+                        Some(OperatorDuty::PublishGraphNonces {
+                            deposit_txid: self.deposit_txid(),
+                            operator_p2p_key: signer,
+                        })
                     } else {
                         None
                     },
