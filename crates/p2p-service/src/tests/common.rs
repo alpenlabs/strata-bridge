@@ -219,7 +219,9 @@ pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChain
 
 pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
     let mock_bytes = [0u8; 1_360 + 362_960];
+    let mock_index = 0;
     let unsigned = UnsignedPublishMessage::DepositSetup {
+        index: mock_index,
         scope,
         hash: sha256::Hash::const_hash(b"hash me!"),
         funding_txid: Txid::all_zeros(),

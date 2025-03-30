@@ -499,6 +499,7 @@ impl ContractManagerCtx {
             }
             UnsignedGossipsubMsg::DepositSetup {
                 scope,
+                index,
                 hash,
                 funding_txid,
                 funding_vout,
@@ -529,17 +530,18 @@ impl ContractManagerCtx {
                     };
 
                     if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::DepositSetup(
-                            msg.key.clone(),
-                            self.operator_table
+                        contract.process_contract_event(ContractEvent::DepositSetup {
+                            operator_p2p_key: msg.key.clone(),
+                            operator_btc_key: self
+                                .operator_table
                                 .op_key_to_btc_key(&msg.key)
                                 .unwrap()
                                 .x_only_public_key()
                                 .0,
-                            hash,
+                            stake_hash: hash,
                             stake_tx,
-                            Box::new(wots_pks),
-                        ))?
+                            wots_keys: Box::new(wots_pks),
+                        })?
                     {
                         self.execute_duty(duty).await?;
                     }

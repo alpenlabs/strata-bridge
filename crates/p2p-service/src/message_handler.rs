@@ -1,6 +1,6 @@
 //! Message handler for the Strata Bridge P2P.
 
-use bitcoin::{hashes::sha256, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, OutPoint, Txid, XOnlyPublicKey};
 use libp2p::{Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
 use strata_p2p::{
@@ -59,18 +59,19 @@ impl MessageHandler {
     /// Sends a deposit setup message to the network.
     pub async fn send_deposit_setup(
         &self,
+        index: u32,
         scope: Scope,
         hash: sha256::Hash,
-        funding_txid: Txid,
-        funding_vout: u32,
+        funding_outpoint: OutPoint,
         operator_pk: XOnlyPublicKey,
         wots_pks: WotsPublicKeys,
     ) {
         let msg = UnsignedPublishMessage::DepositSetup {
             scope,
+            index,
             hash,
-            funding_txid,
-            funding_vout,
+            funding_txid: funding_outpoint.txid,
+            funding_vout: funding_outpoint.vout,
             operator_pk,
             wots_pks,
         };
