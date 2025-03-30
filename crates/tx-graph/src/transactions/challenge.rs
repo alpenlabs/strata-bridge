@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use bitcoin::{
     key::TapTweak, psbt::ExtractTxError, sighash::Prevouts, taproot, Address, Amount, Network,
-    OutPoint, Psbt, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    OutPoint, Psbt, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
@@ -21,9 +21,16 @@ use super::{
 /// Data needed to construct a [`ChallengeTx`].
 #[derive(Debug, Clone)]
 pub struct ChallengeTxInput {
+    /// The outpoint of the claim transaction that the challenge tx spends.
     pub claim_outpoint: OutPoint,
+
+    /// The output amount on the challenge transaction.
     pub challenge_amt: Amount,
+
+    /// The public key of the operator that locks the output of the challenge transaction.
     pub operator_pubkey: XOnlyPublicKey,
+
+    /// The network where the constructed challenge transaction is valid.
     pub network: Network,
 }
 
