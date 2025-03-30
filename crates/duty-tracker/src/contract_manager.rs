@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bdk_wallet::{error::CreateTxError, miniscript::ToPublicKey};
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
@@ -40,7 +40,11 @@ use strata_bridge_primitives::{
         taproot::{create_message_hash, TaprootWitness},
     },
 };
-use strata_bridge_tx_graph::{errors::TxGraphError, peg_out_graph::{PegOutGraph, PegOutGraphSighashes}, transactions::prelude::CovenantTx};
+use strata_bridge_tx_graph::{
+    errors::TxGraphError,
+    peg_out_graph::{PegOutGraph, PegOutGraphSighashes},
+    transactions::prelude::CovenantTx,
+};
 use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -333,6 +337,7 @@ struct ContractManagerCtx {
     network: Network,
     connector_params: ConnectorParams,
     pegout_graph_params: PegOutGraphParams,
+    stake_chain_params: StakeChainParams,
     sidesystem_params: RollupParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
@@ -1101,7 +1106,16 @@ impl ContractManagerCtx {
             }
 
             OperatorDuty::PublishGraphNonces { deposit_txid } => {
-                let (pog, pog_conns) = PegOutGraph::generate(input, context, deposit_txid, graph_params, connector_params, stake_chain_params, prev_claim_txids).unwrap();
+                let (pog, pog_conns) = PegOutGraph::generate(
+                    input,
+                    &self.operator_table.tx_build_context(self.network),
+                    deposit_txid,
+                    self.pegout_graph_params,
+                    self.connector_params,
+                    self.stake_chain_params,
+                    vec![],
+                )
+                .unwrap();
                 let sighashes = pog.sighashes();
                 let ordered_pubkeys = self
                     .operator_table
@@ -1123,19 +1137,14 @@ impl ContractManagerCtx {
                         get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
                             self.s2_client
                                 .musig2_signer()
-                                .new_session(
-                                    ordered_pubkeys,
-                                    witness,
-                                    deposit_txid,
-                                    vout as u32,
-                                )
+                                .new_session(ordered_pubkeys, witness, deposit_txid, vout as u32)
                                 .await
                                 .map(|inner| {
                                     Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
                                 })
                         })
                         .await?;
-                    let Musig2Round::Musig2FirstRound(r1) = r  else {
+                    let Musig2Round::Musig2FirstRound(r1) = r else {
                         todo!()
                     };
                     let our_nonce = r1.our_nonce().await?;
@@ -1150,19 +1159,14 @@ impl ContractManagerCtx {
                         get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
                             self.s2_client
                                 .musig2_signer()
-                                .new_session(
-                                    ordered_pubkeys,
-                                    witness,
-                                    deposit_txid,
-                                    vout as u32,
-                                )
+                                .new_session(ordered_pubkeys, witness, deposit_txid, vout as u32)
                                 .await
                                 .map(|inner| {
                                     Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
                                 })
                         })
                         .await?;
-                    let Musig2Round::Musig2FirstRound(r1) = r  else {
+                    let Musig2Round::Musig2FirstRound(r1) = r else {
                         todo!()
                     };
                     let our_nonce = r1.our_nonce().await?;
@@ -1172,35 +1176,31 @@ impl ContractManagerCtx {
                 let disprove_txid = pog.disprove_tx.compute_txid();
                 let outpoint = OutPoint::new(payout_txid, 0);
                 let witness = pog.payout_tx.witnesses()[0];
-                let r =
-                    get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
-                        self.s2_client
-                            .musig2_signer()
-                            .new_session(
-                                ordered_pubkeys,
-                                witness,
-                                deposit_txid,
-                                0,
-                            )
-                            .await
-                            .map(|inner| {
-                                Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
-                            })
-                    })
-                    .await?;
-                let Musig2Round::Musig2FirstRound(r1) = r  else {
+                let r = get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
+                    self.s2_client
+                        .musig2_signer()
+                        .new_session(ordered_pubkeys, witness, deposit_txid, 0)
+                        .await
+                        .map(|inner| {
+                            Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
+                        })
+                })
+                .await?;
+                let Musig2Round::Musig2FirstRound(r1) = r else {
                     todo!()
                 };
                 let our_nonce = r1.our_nonce().await?;
                 nonces.push(our_nonce);
 
-                for (i, tx) in sighashes.slash_stake_txs.iter().enumerate() {
-                    let payout_txid = pog.payout_tx.compute_txid();
-                    for (vout, message) in sighashes.payout_tx.into_iter().enumerate() {
-                        let outpoint = OutPoint::new(payout_txid, vout as u32);
+                for (i, sighashes) in sighashes.slash_stake_txs.iter().enumerate() {
+                    let slash_stake_txid = pog.slash_stake_txs[i].compute_txid();
+                    for (vout, message) in sighashes.into_iter().enumerate() {
+                        let outpoint = OutPoint::new(slash_stake_txid, vout as u32);
                         let witness = pog.payout_tx.witnesses()[vout];
-                        let r =
-                            get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
+                        let r = get_or_set_ms2_session(
+                            &mut self.s2_musig2_sessions,
+                            outpoint,
+                            || async {
                                 self.s2_client
                                     .musig2_signer()
                                     .new_session(
@@ -1211,11 +1211,14 @@ impl ContractManagerCtx {
                                     )
                                     .await
                                     .map(|inner| {
-                                        Musig2Round::Musig2FirstRound(inner.expect("valid first round"))
+                                        Musig2Round::Musig2FirstRound(
+                                            inner.expect("valid first round"),
+                                        )
                                     })
-                            })
-                            .await?;
-                        let Musig2Round::Musig2FirstRound(r1) = r  else {
+                            },
+                        )
+                        .await?;
+                        let Musig2Round::Musig2FirstRound(r1) = r else {
                             todo!()
                         };
                         let our_nonce = r1.our_nonce().await?;
@@ -1223,7 +1226,10 @@ impl ContractManagerCtx {
                     }
                 }
 
-                self.s2_client.musig2_signer().new_session(ordered_pubkeys, witness, input_txid, input_vout)
+                self.p2p_msg_handle
+                    .send_musig2_nonces(deposit_txid, nonces)
+                    .await;
+
                 Ok(())
             }
             _ => Ok(()),
