@@ -382,6 +382,9 @@ pub struct ContractCfg {
     /// Consensus critical parameters associated with the transactions in the peg out graph.
     pub peg_out_graph_params: PegOutGraphParams,
 
+    /// Consensus critical parameters associated with the stake chain.
+    pub stake_chain_params: StakeChainParams,
+
     /// The global index of this contract. This is decided by the bridge upon the recognition of
     /// a deposit request.
     pub deposit_idx: u32,
@@ -417,6 +420,7 @@ impl ContractSM {
         operator_table: OperatorTable,
         connector_params: ConnectorParams,
         peg_out_graph_params: PegOutGraphParams,
+        stake_chain_params: StakeChainParams,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_idx: u32,
@@ -428,6 +432,7 @@ impl ContractSM {
             operator_table,
             connector_params,
             peg_out_graph_params,
+            stake_chain_params,
             deposit_idx,
             deposit_tx,
         };
