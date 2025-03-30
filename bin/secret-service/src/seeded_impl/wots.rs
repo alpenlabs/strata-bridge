@@ -13,7 +13,10 @@ use sha2::Sha256;
 
 use super::paths::{WOTS_IKM_128_PATH, WOTS_IKM_256_PATH};
 
+// Changing this number may cause certain code to break as the signing code is not designed to
+// handle cases where the digit width doesn't divide byte width without residue.
 const WINTERNITZ_DIGIT_WIDTH: usize = 4;
+const WINTERNITZ_MAX_DIGIT: usize = (2 << WINTERNITZ_DIGIT_WIDTH) - 1;
 
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
@@ -115,13 +118,18 @@ pub(super) const fn log_base_ceil(n: u32, base: u32) -> u32 {
 
 /// Calculates the total WOTS key width based off of the number of bits in the message being signed
 /// and the number of bits per WOTS digit.
-const fn key_width(num_bits: u32, digit_width: usize) -> usize {
-    let num_digits = num_bits.div_ceil(digit_width as u32);
+const fn key_width(num_bits: usize, digit_width: usize) -> usize {
+    let num_digits = num_bits.div_ceil(digit_width);
+    num_digits + checksum_width(num_bits, digit_width)
+}
+
+/// Calculates the total WOTS key digits used for the checksum.
+const fn checksum_width(num_bits: usize, digit_width: usize) -> usize {
+    let num_digits = num_bits.div_ceil(digit_width);
     let max_digit = (2 << digit_width) - 1;
     let max_checksum = num_digits * max_digit;
-    let checksum_bytes = log_base_ceil(max_checksum, 256);
-    let checksum_digits = (checksum_bytes * 8).div_ceil(digit_width as u32);
-    (num_digits + checksum_digits) as usize
+    let checksum_bytes = log_base_ceil(max_checksum as u32, 256) as usize;
+    (checksum_bytes * 8).div_ceil(digit_width)
 }
 
 /// Contains the parameters to use with `Winternitz` struct
@@ -211,6 +219,127 @@ where
         public_key[start..end].copy_from_slice(hash.as_byte_array());
     }
     public_key
+}
+
+fn wots_sign<const N: usize>(
+    msg: &[u8; N.div_ceil(8)],
+    secret_key: &[u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)],
+) -> [u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)]
+where
+    [(); N.div_ceil(WINTERNITZ_DIGIT_WIDTH)]:,
+    [(); checksum_width(N, WINTERNITZ_DIGIT_WIDTH)]:,
+{
+    let num_digits = N.div_ceil(WINTERNITZ_DIGIT_WIDTH);
+
+    // Break the message up into an array of the individual WOTS digits.
+    let mut digits = [0u8; N.div_ceil(WINTERNITZ_DIGIT_WIDTH)];
+
+    // Starting with the left most bit (most significant) we iterate through the bits of the
+    // original message. By the end of this for-loop we will have populated the digits array with
+    // all of the digits of the message.
+    //
+    // TODO(proofofkeags): There is a *possible* subtle issue here where if we use a digit width
+    // that doesn't divide a byte that we might not pad the correct side of the original message. It
+    // is unclear whether the message would be left or right padded in this scenario and since the
+    // BitVM implementation hard-codes everything to a digit width of 4, it's hard to know. This
+    // likely will not be an issue in practice ever since it is extremely unlikely we will ever want
+    // a digit width other than 4 but I include this note for completeness.
+    for bit_idx in 0..N {
+        // We map each bit to its byte index as well as a shift offset that within that byte that
+        // we will use.
+        let src_byte = bit_idx / 8;
+        let src_bit = bit_idx % 8;
+
+        // We also map each bit to its corresponding destination digit (corollary for the source
+        // byte) as well as a shift offset within that digit. We also do a digit-wise reversal in
+        // this step since BitVM demands that we arrange the digits in "little endian" order where
+        // the least significant digit appears first in the array. As such, we take the most
+        // significant bits (the ones with the lowest index) and map them to the last digits and
+        // work our way backwards.
+        let dest_digit = num_digits - 1 - bit_idx / WINTERNITZ_DIGIT_WIDTH;
+        let dest_bit = bit_idx % WINTERNITZ_DIGIT_WIDTH;
+
+        // We use the byte index and shift offset from the source message and translate it to a
+        // single bit value {0, 1}.
+        let bit = (msg[src_byte] >> (8 - 1 - src_bit)) & 1;
+
+        // We or that bit together with the existing digits array at the proper digit index.
+        digits[dest_digit] |= bit << (WINTERNITZ_DIGIT_WIDTH - 1 - dest_bit);
+    }
+
+    // Now that we have broken everything up into digits we are prepared to sign each individual
+    // digit.
+    let mut signature = [0; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)];
+    for idx in 0..num_digits {
+        // We populate an initial array segment using the secret key bytes at the proper location.
+        let segment: [u8; 20] = std::array::from_fn(|x| secret_key[x + 20 * idx]);
+
+        // We initialize a hash with the raw byte value of the secret key.
+        let mut hash = hash160::Hash::from_byte_array(segment);
+
+        // Consistent with the WOTS protocol we iterate the hash chain forwards by the max digit
+        // value minus the value of the digit being signed.
+        for _ in 0..(WINTERNITZ_MAX_DIGIT as u8 - digits[idx]) {
+            hash = hash160::Hash::hash(hash.as_ref());
+        }
+
+        // With the hash value computed, we memcpy it to its proper position in the signature array.
+        signature[20 * idx..20 * (idx + 1)].copy_from_slice(hash.as_byte_array());
+    }
+
+    // At this point we now need to create and sign the checksum value. This part can be tricky with
+    // rust's casting semantics so some of this code may be unnecessarily defensive.
+
+    // The max checksum value drives how many bytes are ultimately allocated to the checksum itself.
+    let max_checksum = num_digits * WINTERNITZ_MAX_DIGIT;
+    let num_checksum_bytes = log_base_ceil(max_checksum as u32, 256) as usize;
+    let num_checksum_digits = (num_checksum_bytes * 8).div_ceil(WINTERNITZ_DIGIT_WIDTH);
+
+    // We compute the checksum value as the max possible checksum value minus the sum of all of the
+    // digits.
+    let checksum_val: u32 =
+        (num_digits * WINTERNITZ_MAX_DIGIT - digits.iter().fold(0, |a, b| a + *b as usize)) as u32;
+
+    // We create a checksum (de)accumulator since we will be applying destructive updates to it as
+    // we incrementally compute the checksum signature.
+    let mut checksum_acc = checksum_val;
+
+    // We compute a 1 byte mask that we will use to mask off each digit that appears in the
+    // checksum. We can get away with this approach since the checksum will never be larger than a
+    // u64, so we can use shift operations the entire way. This didn't work with the original
+    // message since we were operating over byte arrays instead of integer types.
+    let mask = 0xFFu8 << (8 - WINTERNITZ_DIGIT_WIDTH) >> WINTERNITZ_DIGIT_WIDTH;
+
+    // For each checksum digit we ...
+    for checksum_digit_idx in 0..num_checksum_digits {
+        // Here we initialize a byte array with the proper section of the secret key. This begins
+        // after all of the original digits and is further indexed by the index of the checksum
+        // digit we are working with right now.
+        let segment: [u8; 20] =
+            std::array::from_fn(|x| secret_key[x + 20 * (checksum_digit_idx + num_digits)]);
+
+        // Again, we initialize a hash from those secret key bytes.
+        let mut hash = hash160::Hash::from_byte_array(segment);
+
+        // We iterate the hash forwards by MAX_DIGIT - actual digit which is computed by masking off
+        // everything except the least significant digit width bits of our (de)accumulator.
+        for _ in 0..(WINTERNITZ_MAX_DIGIT as u32 - (checksum_acc & mask as u32)) {
+            hash = hash160::Hash::hash(hash.as_ref());
+        }
+
+        // With the hash value computed, we memcpy it to its proper position in the signature array.
+        signature
+            [20 * (num_digits + checksum_digit_idx)..20 * (num_digits + checksum_digit_idx + 1)]
+            .copy_from_slice(hash.as_byte_array());
+
+        // Finally we rightshift the checksum (de)accumulator by the digit width so that the new
+        // least significant bits of the (de)accumulator are the next digit of the checkusm to be
+        // signed.
+        checksum_acc >>= WINTERNITZ_DIGIT_WIDTH;
+    }
+
+    // We finally have our signature.
+    signature
 }
 
 // Taken from BitVM pile of amazing code.
