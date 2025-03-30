@@ -461,6 +461,29 @@ impl PublicDb for SqliteDb {
         .await
     }
 
+    async fn get_all_stake_data(&self, operator_id: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
+        execute_with_retries(self.config(), || async {
+            Ok(sqlx::query_as!(
+                models::DbStakeTxData,
+                r#"SELECT
+                    funding_txid AS "funding_txid: DbTxid",
+                    funding_vout AS "funding_vout: DbInputIndex",
+                    hash AS "hash: DbHash",
+                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
+                    FROM operator_stake_data
+                    WHERE operator_id = $1"#,
+                operator_id,
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .into_iter()
+            .map(Into::into)
+            .collect())
+        })
+        .await
+    }
+
     async fn register_claim_txid(
         &self,
         claim_txid: Txid,

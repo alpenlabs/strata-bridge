@@ -30,7 +30,8 @@ strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
 
-bincode = "1.3.3"
+bdk_wallet.workspace = true
+bincode.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitvm.workspace = true
@@ -38,9 +39,14 @@ borsh.workspace = true
 btc-notify.workspace = true
 futures.workspace = true
 musig2.workspace = true
+operator-wallet = { version = "0.1.0", path = "../operator-wallet" }
+secret-service-client.workspace = true
+secret-service-proto.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+strata-bridge-db.workspace = true
+strata-bridge-p2p-service.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-stream = "0.1.17"

@@ -2,14 +2,28 @@
 //! and responding to chain events and operator p2p network messages according to the Strata Bridge
 //! protocol rules.
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     time::Duration,
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
-use bitcoin::{hashes::sha256d, Block, Network, OutPoint, Transaction, Txid};
+use bdk_wallet::error::CreateTxError;
+use bitcoin::{
+    hashes::{sha256, sha256d, Hash as _},
+    sighash::{Prevouts, SighashCache},
+    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
+};
+use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
-use futures::StreamExt;
+use futures::{
+    future::{join3, join_all},
+    StreamExt,
+};
+use operator_wallet::{FundingUtxo, OperatorWallet};
+use secret_service_client::SecretServiceClient;
+use secret_service_proto::v1::traits::*;
+use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
@@ -19,13 +33,16 @@ use strata_p2p::{
     events::Event,
     swarm::handle::P2PHandle,
 };
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
+use strata_p2p_types::{
+    P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
+    WotsPublicKeys,
+};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use thiserror::Error;
 use tokio::{task::JoinHandle, time};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
@@ -61,6 +78,10 @@ impl ContractManager {
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
         stake_chain_persister: StakeChainPersister,
+        s2_client: SecretServiceClient,
+        wallet: OperatorWallet,
+        stakechain_prestake_utxo: OutPoint,
+        db: SqliteDb,
     ) -> Self {
         let thread_handle = tokio::task::spawn(async move {
             let crash = |_e: ContractManagerErr| todo!();
@@ -124,6 +145,11 @@ impl ContractManager {
                 active_contracts,
                 stake_chain_persister,
                 stake_chains,
+                wallet,
+                s2_client,
+                p2p_msg_handle: MessageHandler::new(p2p_handle.clone()),
+                stakechain_prestake_utxo,
+                db,
             };
 
             while cursor < current {
@@ -182,8 +208,11 @@ impl ContractManager {
                                         ).await;
                                     }
                             }
-                            GetMessageRequest::DepositSetup { scope: _, .. } => {
-                                ctx.execute_duty(OperatorDuty::PublishWOTSKeys);
+                            GetMessageRequest::DepositSetup { scope, .. } => {
+                                let deposit_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
+                                let _ = ctx.execute_duty(OperatorDuty::PublishWOTSKeys {
+                                    deposit_txid,
+                                }).await;
                             }
                             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(
@@ -191,13 +220,13 @@ impl ContractManager {
                                 );
 
                                 if ctx.active_contracts.contains_key(&session_id_as_txid) {
-                                    ctx.execute_duty(OperatorDuty::PublishGraphNonces);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishGraphNonces).await;
                                 } else if ctx.active_contracts
                                     .values()
                                     .map(|sm| sm.deposit_request_txid())
                                     .any(|txid| txid == session_id_as_txid) {
 
-                                    ctx.execute_duty(OperatorDuty::PublishRootNonce);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishRootNonce).await;
                                 }
 
                                 // otherwise ignore this message.
@@ -206,13 +235,13 @@ impl ContractManager {
                                 let session_id_as_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
 
                                 if ctx.active_contracts.contains_key(&session_id_as_txid) {
-                                    ctx.execute_duty(OperatorDuty::PublishGraphSignatures);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishGraphSignatures).await;
                                 } else if ctx.active_contracts
                                     .values()
                                     .map(|sm| sm.deposit_request_txid())
                                     .any(|txid| txid == session_id_as_txid) {
 
-                                    ctx.execute_duty(OperatorDuty::PublishRootSignature);
+                                    let _ = ctx.execute_duty(OperatorDuty::PublishRootSignature).await;
                                 }
 
                                 // otherwise ignore this message.
@@ -270,6 +299,18 @@ pub enum ContractManagerErr {
     /// Errors related to calling Bitcoin Core's RPC interface.
     #[error("bitcoin core rpc call failed with: {0}")]
     BitcoinCoreRPCErr(#[from] ClientError),
+
+    /// Errors from failed secret service requests
+    #[error("secret service request failed with {0:?}")]
+    SecretServiceErr(#[from] secret_service_proto::v1::traits::ClientError),
+
+    /// Errors from the bridge db
+    #[error("database error: {0:?}")]
+    DbErr(#[from] DbError),
+
+    /// Error during transaction creation
+    #[error("error while creating transaction: {0:?}")]
+    CreateTxErr(#[from] CreateTxError),
 }
 
 struct ContractManagerCtx {
@@ -282,6 +323,12 @@ struct ContractManagerCtx {
     stake_chain_persister: StakeChainPersister,
     active_contracts: BTreeMap<Txid, ContractSM>,
     stake_chains: StakeChainSM,
+    wallet: OperatorWallet,
+    s2_client: SecretServiceClient,
+    /// NOTE: DO NOT CALL .next() because it will mess with the contract manager and break shit
+    p2p_msg_handle: MessageHandler,
+    stakechain_prestake_utxo: OutPoint,
+    db: SqliteDb,
 }
 
 impl ContractManagerCtx {
@@ -341,7 +388,7 @@ impl ContractManagerCtx {
 
                 self.active_contracts.insert(txid, sm);
 
-                self.execute_duty(duty);
+                self.execute_duty(duty).await?;
 
                 // It's impossible for this transaction to be routable to another CSM so we move on
                 continue;
@@ -360,7 +407,7 @@ impl ContractManagerCtx {
                         .commit(&txid, contract.state())
                         .await?;
                     if let Some(duty) = duty {
-                        self.execute_duty(duty);
+                        self.execute_duty(duty).await?;
                     }
                 }
 
@@ -396,7 +443,7 @@ impl ContractManagerCtx {
         }
 
         for duty in duties {
-            self.execute_duty(duty);
+            self.execute_duty(duty).await?;
         }
 
         Ok(())
@@ -494,7 +541,7 @@ impl ContractManagerCtx {
                             Box::new(wots_pks),
                         ))?
                     {
-                        self.execute_duty(duty);
+                        self.execute_duty(duty).await?;
                     }
                 } else {
                     // One of the other operators has may have seen a DRT that we have not yet
@@ -515,7 +562,7 @@ impl ContractManagerCtx {
                     if let Some(duty) = contract
                         .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
                     {
-                        self.execute_duty(duty);
+                        self.execute_duty(duty).await?;
                     }
                 } else if let Some((_, contract)) = self
                     .active_contracts
@@ -531,7 +578,7 @@ impl ContractManagerCtx {
                     if let Some(duty) =
                         contract.process_contract_event(ContractEvent::RootNonce(msg.key, nonce))?
                     {
-                        self.execute_duty(duty);
+                        self.execute_duty(duty).await?;
                     }
                 }
 
@@ -546,7 +593,7 @@ impl ContractManagerCtx {
                     if let Some(duty) = contract
                         .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
                     {
-                        self.execute_duty(duty);
+                        self.execute_duty(duty).await?;
                     }
                 } else if let Some((_, contract)) = self
                     .active_contracts
@@ -564,7 +611,7 @@ impl ContractManagerCtx {
                     if let Some(duty) =
                         contract.process_contract_event(ContractEvent::RootSig(msg.key, sig))?
                     {
-                        self.execute_duty(duty)
+                        self.execute_duty(duty).await?
                     }
                 }
 
@@ -702,7 +749,167 @@ impl ContractManagerCtx {
         all_commands
     }
 
-    fn execute_duty(&mut self, _duty: OperatorDuty) {
-        todo!() // execute duty
+    async fn execute_duty(&mut self, duty: OperatorDuty) -> Result<(), ContractManagerErr> {
+        match duty {
+            OperatorDuty::PublishWOTSKeys { deposit_txid } => {
+                let operator_pk = self.s2_client.general_wallet_signer().pubkey().await?;
+                let wots_client = self.s2_client.wots_signer();
+                /// VOUT is static because irrelevant so we're just gonna use 0
+                const VOUT: u32 = 0;
+                // withdrawal_fulfillment uses index 0
+                let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
+                    &wots_client
+                        .get_256_public_key(deposit_txid, VOUT, 0)
+                        .await?,
+                );
+                const NUM_FQS: usize = NUM_U256;
+                const NUM_PUB_INPUTS: usize = NUM_PUBS;
+                const NUM_HASHES: usize = NUM_HASH;
+                let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
+                    wots_client.get_256_public_key(deposit_txid, VOUT, i as u32)
+                });
+                let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
+                    wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+                });
+                let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
+                    wots_client.get_128_public_key(deposit_txid, VOUT, i as u32)
+                });
+
+                let (public_inputs, fqs, hashes) = join3(
+                    join_all(public_inputs_ftrs),
+                    join_all(fqs_ftrs),
+                    join_all(hashes_ftrs),
+                )
+                .await;
+                let public_inputs = public_inputs
+                    .into_iter()
+                    .map(|result| {
+                        result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes))
+                    })
+                    .collect::<Result<_, _>>()?;
+                let fqs = fqs
+                    .into_iter()
+                    .map(|result| {
+                        result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes))
+                    })
+                    .collect::<Result<_, _>>()?;
+                let hashes = hashes
+                    .into_iter()
+                    .map(|result| {
+                        result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes))
+                    })
+                    .collect::<Result<_, _>>()?;
+
+                let wots_pks =
+                    WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
+
+                let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
+
+                let stakechain_preimg = self
+                    .s2_client
+                    .stake_chain_preimages()
+                    .get_preimg(
+                        self.stakechain_prestake_utxo.txid,
+                        self.stakechain_prestake_utxo.vout,
+                        self.active_contracts.len() as u32, // i hate this lol
+                    )
+                    .await?;
+
+                let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
+
+                // check if there's a funding outpoint already for this stake index
+                // otherwise, find a new unspent one from operator wallet and filter out all the
+                // outpoints already in the db
+
+                let maybe_stake_data = self
+                    .db
+                    .get_stake_data(
+                        self.operator_table.pov_idx(),
+                        self.active_contracts.len() as u32,
+                    )
+                    .await?;
+
+                let funding_utxo = if let Some(sd) = maybe_stake_data {
+                    sd.operator_funds
+                } else {
+                    let ignore = self
+                        .db
+                        .get_all_stake_data(self.operator_table.pov_idx())
+                        .await?
+                        .into_iter()
+                        .map(|data| data.operator_funds)
+                        .collect::<HashSet<_>>();
+                    let funding_op = self.wallet.claim_funding_utxo(|op| ignore.contains(&op));
+                    match funding_op {
+                        FundingUtxo::Available(outpoint) => outpoint,
+                        FundingUtxo::ShouldRefill { op, left } => {
+                            info!("refilling stakechain funding utxos, have {left} left");
+                            let psbt = self
+                                .wallet
+                                .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+                            let mut tx = psbt.unsigned_tx;
+                            let txins_as_outs = tx
+                                .input
+                                .iter()
+                                .map(|txin| {
+                                    self.wallet
+                                        .general_wallet()
+                                        .get_utxo(txin.previous_output)
+                                        .expect("always have this output because the wallet selected it in the first place")
+                                        .txout
+                                })
+                                .collect::<Vec<_>>();
+                            let mut sighasher = SighashCache::new(&mut tx);
+
+                            let sighash_type = TapSighashType::All;
+                            let prevouts = Prevouts::All(&txins_as_outs);
+                            for input_index in 0..txins_as_outs.len() {
+                                let sighash = sighasher
+                                    .taproot_key_spend_signature_hash(
+                                        input_index,
+                                        &prevouts,
+                                        sighash_type,
+                                    )
+                                    .expect("failed to construct sighash");
+                                let signature = self
+                                    .s2_client
+                                    .general_wallet_signer()
+                                    .sign(&sighash.to_byte_array())
+                                    .await?;
+
+                                let signature = bitcoin::taproot::Signature {
+                                    signature,
+                                    sighash_type,
+                                };
+                                sighasher
+                                    .witness_mut(input_index)
+                                    .expect("an input here")
+                                    .push(signature.to_vec());
+                            }
+
+                            // todo! @zk2u broadcast refill tx
+
+                            op
+                        }
+                        FundingUtxo::Empty => {
+                            panic!("aaaaaa there's no funding utxos for a new stake")
+                        }
+                    }
+                };
+
+                self.p2p_msg_handle
+                    .send_deposit_setup(
+                        scope,
+                        stakechain_preimg_hash,
+                        funding_utxo.txid,
+                        funding_utxo.vout,
+                        operator_pk,
+                        wots_pks,
+                    )
+                    .await;
+                Ok(())
+            }
+            _ => Ok(()),
+        }
     }
 }

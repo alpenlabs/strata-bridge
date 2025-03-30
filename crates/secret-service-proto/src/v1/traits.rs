@@ -233,23 +233,45 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
 ///
 /// This signer returns deterministic keys so the caller can assemble a transaction.
 pub trait WotsSigner<O: Origin>: Send {
-    /// Returns a deterministic key usable for signing 128 bits of data, with 20 bytes per bit;
-    /// given a transaction ID, vout, and WOTS index.
-    fn get_128_key(
+    /// Returns a deterministic WOTS secret key for a given prestake transaction ID, prestake vout,
+    /// and WOTS index. The secret key can be obtained via [`Self::get_128_secret_key`] with the
+    /// same arguments.
+    fn get_128_secret_key(
         &self,
-        txid: Txid,
-        vout: u32,
+        prestake_txid: Txid,
+        prestake_vout: u32,
         index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 128]>> + Send;
+    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
 
-    /// Returns a key usable for signing 256 bits of data, with 20 bytes per bit;
-    /// given a transaction ID, vout, and WOTS index.
-    fn get_256_key(
+    /// Returns a deterministic WOTS secret key for a given prestake transaction ID, prestake vout,
+    /// and WOTS index. The public key can be obtained via [`Self::get_256_public_key`] with the
+    /// same arguments.
+    fn get_256_secret_key(
         &self,
-        txid: Txid,
-        vout: u32,
+        prestake_txid: Txid,
+        prestake_vout: u32,
         index: u32,
-    ) -> impl Future<Output = O::Container<[u8; 20 * 256]>> + Send;
+    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
+
+    /// Returns a deterministic WOTS public key for a given prestake transaction ID, prestake vout,
+    /// and WOTS index. The secret key can be obtained via [`Self::get_128_secret_key`] with the
+    /// same arguments.
+    fn get_128_public_key(
+        &self,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        index: u32,
+    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
+
+    /// Returns a deterministic public key for a given prestake transaction ID, prestake vout,
+    /// and WOTS index. The secret key can be obtained via [`Self::get_256_secret_key`] with the
+    /// same parameters.
+    fn get_256_public_key(
+        &self,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        index: u32,
+    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
 }
 
 /// The Stake Chain preimages are used to generate deterministic preimages for the Stake Chain
@@ -321,4 +343,12 @@ pub enum ClientError {
 
     /// The server sent a message with an unexpected protocol version.
     WrongVersion,
+}
+
+impl std::error::Error for ClientError {}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{self:?}"))
+    }
 }

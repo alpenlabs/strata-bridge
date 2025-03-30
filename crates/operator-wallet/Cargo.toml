@@ -4,14 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bdk_bitcoind_rpc = "0.18.0"
-bdk_esplora = { version = "0.20.1", features = [
-  "async-https",
-  "async-https-rustls",
-  "tokio",
-], default-features = false }
-bdk_wallet = "1.1.0"
-
+bdk_bitcoind_rpc.workspace = true
+bdk_esplora.workspace = true
+bdk_wallet.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

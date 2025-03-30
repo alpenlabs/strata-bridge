@@ -28,37 +28,73 @@ impl WotsClient {
 }
 
 impl WotsSigner<Client> for WotsClient {
-    async fn get_128_key(
+    async fn get_128_secret_key(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> <Client as Origin>::Container<[u8; 20 * 128]> {
-        let msg = ClientMessage::WotsGet128Key {
+    ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
+        let msg = ClientMessage::WotsGet128SecretKey {
             index,
-            vout,
-            txid: txid.as_raw_hash().to_byte_array(),
+            prestake_vout: vout,
+            prestake_txid: txid.as_raw_hash().to_byte_array(),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-        let ServerMessage::WotsGet128Key { key } = res else {
+        let ServerMessage::WotsGet128SecretKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
         Ok(key)
     }
 
-    async fn get_256_key(
+    async fn get_256_secret_key(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> <Client as Origin>::Container<[u8; 20 * 256]> {
-        let msg = ClientMessage::WotsGet256Key {
+    ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
+        let msg = ClientMessage::WotsGet256SecretKey {
             index,
-            vout,
-            txid: txid.as_raw_hash().to_byte_array(),
+            prestake_vout: vout,
+            prestake_txid: txid.as_raw_hash().to_byte_array(),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-        let ServerMessage::WotsGet256Key { key } = res else {
+        let ServerMessage::WotsGet256SecretKey { key } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(key)
+    }
+
+    async fn get_128_public_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
+        let msg = ClientMessage::WotsGet128PublicKey {
+            index,
+            prestake_vout: vout,
+            prestake_txid: txid.as_raw_hash().to_byte_array(),
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::WotsGet128PublicKey { key } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(key)
+    }
+
+    async fn get_256_public_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
+        let msg = ClientMessage::WotsGet256PublicKey {
+            index,
+            prestake_vout: vout,
+            prestake_txid: txid.as_raw_hash().to_byte_array(),
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let ServerMessage::WotsGet256PublicKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
         Ok(key)
