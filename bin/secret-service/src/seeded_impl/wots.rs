@@ -14,7 +14,6 @@ use sha2::Sha256;
 use super::paths::{WOTS_IKM_128_PATH, WOTS_IKM_256_PATH};
 
 const WINTERNITZ_DIGIT_WIDTH: usize = 4;
-const WINTERNITZ_CHECKSUM_SIZE: usize = 4;
 
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
@@ -50,9 +49,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
         prestake_txid: Txid,
         prestake_vout: u32,
         index: u32,
-    ) -> [u8; 20 * (32 + WINTERNITZ_CHECKSUM_SIZE)] {
+    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_128);
-        let mut okm = [0u8; 20 * (32 + WINTERNITZ_CHECKSUM_SIZE)];
+        let mut okm = [0u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)];
         let info = make_buf! {
             (prestake_txid.as_raw_hash().as_byte_array(), 32),
             (&prestake_vout.to_le_bytes(), 4),
@@ -68,9 +67,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> [u8; 20 * (64 + WINTERNITZ_CHECKSUM_SIZE)] {
+    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
-        let mut okm = [0u8; 20 * (64 + WINTERNITZ_CHECKSUM_SIZE)];
+        let mut okm = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),
             (&vout.to_le_bytes(), 4),
@@ -86,9 +85,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> [u8; 20 * (32 + WINTERNITZ_CHECKSUM_SIZE)] {
+    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_128_secret_key(txid, vout, index).await;
-        wots_public_key::<PARAMS_HASH_TOTAL_LEN>(&PARAMS_HASH, &sk)
+        wots_public_key::<PARAMS_128_TOTAL_LEN>(&PARAMS_128, &sk)
     }
 
     #[expect(refining_impl_trait)]
@@ -97,7 +96,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         txid: Txid,
         vout: u32,
         index: u32,
-    ) -> [u8; 20 * (64 + WINTERNITZ_CHECKSUM_SIZE)] {
+    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_256_secret_key(txid, vout, index).await;
         wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk)
     }
@@ -112,6 +111,17 @@ pub(super) const fn log_base_ceil(n: u32, base: u32) -> u32 {
         res += 1;
     }
     res
+}
+
+/// Calculates the total WOTS key width based off of the number of bits in the message being signed
+/// and the number of bits per WOTS digit.
+const fn key_width(num_bits: u32, digit_width: usize) -> usize {
+    let num_digits = num_bits.div_ceil(digit_width as u32);
+    let max_digit = (2 << digit_width) - 1;
+    let max_checksum = num_digits * max_digit;
+    let checksum_bytes = log_base_ceil(max_checksum, 256);
+    let checksum_digits = (checksum_bytes * 8).div_ceil(digit_width as u32);
+    (num_digits + checksum_digits) as usize
 }
 
 /// Contains the parameters to use with `Winternitz` struct
@@ -204,11 +214,10 @@ where
 }
 
 // Taken from BitVM pile of amazing code.
-const PARAMS_256: Parameters = Parameters::new_by_bit_length(32 * 8, WINTERNITZ_DIGIT_WIDTH as u32);
+const PARAMS_256: Parameters = Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32);
 const PARAMS_256_TOTAL_LEN: usize = PARAMS_256.total_length() as usize;
-const PARAMS_HASH: Parameters =
-    Parameters::new_by_bit_length(16 * 8, WINTERNITZ_DIGIT_WIDTH as u32);
-const PARAMS_HASH_TOTAL_LEN: usize = PARAMS_HASH.total_length() as usize;
+const PARAMS_128: Parameters = Parameters::new_by_bit_length(128, WINTERNITZ_DIGIT_WIDTH as u32);
+const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 
 #[cfg(test)]
 mod tests {
@@ -216,8 +225,8 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        let sk: [u8; 20 * PARAMS_HASH_TOTAL_LEN] = [0; 20 * PARAMS_HASH_TOTAL_LEN];
-        let pk = wots_public_key::<PARAMS_HASH_TOTAL_LEN>(&PARAMS_HASH, &sk);
+        let sk: [u8; 20 * PARAMS_128_TOTAL_LEN] = [0; 20 * PARAMS_128_TOTAL_LEN];
+        let pk = wots_public_key::<PARAMS_128_TOTAL_LEN>(&PARAMS_128, &sk);
         // This matches with the current BitVM implementation (as of 2025-03-30).
         let expected = [
             231, 105, 12, 202, 16, 103, 212, 67, 88, 20, 155, 195, 135, 65, 116, 73, 91, 255, 27,
@@ -261,5 +270,11 @@ mod tests {
             14, 234, 153, 15, 134, 178,
         ];
         assert_eq!(pk, expected);
+    }
+
+    #[test]
+    fn test_key_width() {
+        assert_eq!(key_width(128, 4), 36);
+        assert_eq!(key_width(256, 4), 68);
     }
 }
