@@ -591,29 +591,6 @@ impl ContractSM {
         }
     }
 
-    fn convert_g16_keys(
-        g16_keys: strata_p2p_types::Groth16PublicKeys,
-    ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
-        // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
-        // rid of the rats nest of code below.
-        if g16_keys.public_inputs.len() != NUM_PUBS {
-            return Err(TransitionErr);
-        }
-        let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
-
-        if g16_keys.fqs.len() != NUM_U256 {
-            return Err(TransitionErr);
-        }
-        let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
-
-        if g16_keys.hashes.len() != NUM_HASH {
-            return Err(TransitionErr);
-        }
-        let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
-
-        Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
-    }
-
     fn process_deposit_setup(
         &mut self,
         signer: P2POperatorPubKey,
@@ -635,7 +612,7 @@ impl ContractSM {
                     withdrawal_fulfillment: Wots256PublicKey(
                         new_wots_keys.withdrawal_fulfillment.0,
                     ),
-                    groth16: Self::convert_g16_keys(new_wots_keys.groth16.clone())?,
+                    groth16: convert_g16_keys(new_wots_keys.groth16.clone())?,
                 };
                 let pog_input = PegOutGraphInput {
                     stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
@@ -1151,4 +1128,27 @@ impl ContractSM {
             .previous_output
             .txid
     }
+}
+
+pub(crate) fn convert_g16_keys(
+    g16_keys: strata_p2p_types::Groth16PublicKeys,
+) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
+    // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
+    // rid of the rats nest of code below.
+    if g16_keys.public_inputs.len() != NUM_PUBS {
+        return Err(TransitionErr);
+    }
+    let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
+
+    if g16_keys.fqs.len() != NUM_U256 {
+        return Err(TransitionErr);
+    }
+    let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
+
+    if g16_keys.hashes.len() != NUM_HASH {
+        return Err(TransitionErr);
+    }
+    let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
+
+    Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
 }
