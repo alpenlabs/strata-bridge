@@ -2476,10 +2476,14 @@ where
             operator_pubkey,
             stake_inputs,
             pre_stake_outpoint,
-            params: stake_chain_params,
         };
 
-        let stake_chain = StakeChain::new(&self.build_context, &stake_chain_inputs, connector_cpfp);
+        let stake_chain = StakeChain::new(
+            &self.build_context,
+            &stake_chain_inputs,
+            &stake_chain_params,
+            connector_cpfp,
+        );
 
         for (index, stake_txid) in stake_chain
             .iter()
@@ -2539,11 +2543,15 @@ where
             operator_pubkey,
             pre_stake_outpoint: pre_stake,
             stake_inputs: stake_inputs.clone(),
-            params,
         };
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, self.build_context.network());
-        let stake_chain = StakeChain::new(&self.build_context, &stake_chain_inputs, connector_cpfp);
+        let stake_chain = StakeChain::new(
+            &self.build_context,
+            &stake_chain_inputs,
+            &params,
+            connector_cpfp,
+        );
 
         // Broadcast all stake transactions.
         // This is a dumb approach in that it does not check if a stake transaction was previously

@@ -67,7 +67,6 @@ impl StakeChainSM {
             operator_pubkey,
             stake_inputs: Vec::new(),
             pre_stake_outpoint,
-            params: StakeChainParams::default(),
         };
 
         if let Some(a) = self.stake_chains.insert(operator.clone(), inputs) {

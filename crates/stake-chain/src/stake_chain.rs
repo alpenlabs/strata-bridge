@@ -4,7 +4,8 @@
 use std::ops::{Deref, DerefMut};
 
 use alpen_bridge_params::stake_chain::StakeChainParams;
-use bitcoin::{hashes::sha256, relative, Amount, OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
+use indexmap::IndexSet;
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::build_context::BuildContext;
 
@@ -48,13 +49,14 @@ impl StakeChain {
     pub fn new(
         context: &impl BuildContext,
         stake_chain_inputs: &StakeChainInputs,
+        stake_chain_params: &StakeChainParams,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
         let first_stake_inputs = stake_chain_inputs.stake_inputs[0];
 
         let first_stake_tx = StakeTx::create_initial(
             context,
-            stake_chain_inputs.params,
+            stake_chain_params,
             first_stake_inputs.hash,
             first_stake_inputs.withdrawal_fulfillment_pk,
             stake_chain_inputs.pre_stake_outpoint,
@@ -86,7 +88,7 @@ impl StakeChain {
 
                 let new_stake_tx = StakeTx::advance(
                     context,
-                    stake_chain_inputs.params,
+                    stake_chain_params,
                     *stake_input,
                     prev_hash,
                     prev_stake,
@@ -152,24 +154,14 @@ pub struct StakeChainInputs {
     pub operator_pubkey: XOnlyPublicKey,
 
     /// Inputs required for individual stake transactions.
-    pub stake_inputs: Vec<StakeTxData>,
+    pub stake_inputs: IndexSet<StakeTxData>,
 
     /// [`OutPoint`] from the [`PreStakeTx`](crate::transactions::PreStakeTx) that carries the
     /// stake.
     pub pre_stake_outpoint: OutPoint,
-
-    /// Stake Chain protocol parameters.
-    pub params: StakeChainParams,
 }
 
 impl StakeChainInputs {
-    /// Stake amount.
-    ///
-    /// The staking amount is the amount that is staked in the transaction graph for a single stake.
-    pub fn amount(&self) -> Amount {
-        self.params.stake_amount
-    }
-
     /// Stake hashes for all the [`StakeChainInputs`]s.
     ///
     /// The stake hashes are used to derive the locking script and must be shared with between
@@ -188,7 +180,7 @@ impl StakeChainInputs {
     ///
     /// If you need the stake hash for all the stakes, use [`StakeChainInputs::stake_hashes`].
     pub fn stake_hash_at_index(&self, index: usize) -> Option<sha256::Hash> {
-        self.stake_inputs.get(index).map(|v| v.hash)
+        self.stake_inputs.iter().nth(index).map(|v| v.hash)
     }
 
     /// Operator funds for all the [`StakeChainInputs`]s.
@@ -213,39 +205,35 @@ impl StakeChainInputs {
     ///
     /// If you need the operator funds for all the stakes, use [`StakeChainInputs::operator_funds`].
     pub fn operator_funds_at_index(&self, index: usize) -> Option<OutPoint> {
-        self.stake_inputs.get(index).map(|v| v.operator_funds)
+        self.stake_inputs
+            .iter()
+            .nth(index)
+            .map(|v| v.operator_funds)
     }
 
     /// Prevout of the first stake transaction.
     pub fn pre_stake_prevout(&self) -> OutPoint {
         self.pre_stake_outpoint
     }
-
-    /// Relative timelock interval to advance the stake chain.
-    ///
-    /// The stake chain can be advanced forward by revealing a preimage to a locking script that is
-    /// also relative timelocked to a certain `ΔS` interval.
-    pub fn delta(&self) -> relative::LockTime {
-        self.params.delta
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, time::Duration};
 
     use bitcoin::{
         absolute,
         bip32::{ChildNumber, Xpriv},
-        hashes::Hash,
+        hashes::{sha256d, Hash},
         key::{Keypair, TapTweak},
+        relative,
         sighash::{self, Prevouts, SighashCache},
         taproot::{self, LeafVersion},
         transaction, Address, Amount, BlockHash, Network, OutPoint, TapLeafHash, Transaction, TxIn,
-        TxOut, Witness,
+        TxOut, Txid, Witness,
     };
     use corepc_node::{Conf, Node};
-    use secp256k1::{Message, SECP256K1};
+    use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
     use strata_bridge_connectors::prelude::ConnectorStake;
     use strata_bridge_primitives::{build_context::TxBuildContext, wots};
     use strata_common::logging::{self, LoggerConfig};
@@ -705,17 +693,21 @@ mod tests {
                 hash: stake_hashes[i],
                 withdrawal_fulfillment_pk: wots_public_keys[i],
             })
-            .collect::<Vec<StakeTxData>>();
+            .collect();
 
         let stake_chain_inputs = StakeChainInputs {
             operator_pubkey,
             stake_inputs,
             pre_stake_outpoint: pre_stake_prevout.previous_output,
-            params,
         };
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
-        let stake_chain = StakeChain::new(&tx_build_context, &stake_chain_inputs, connector_cpfp);
+        let stake_chain = StakeChain::new(
+            &tx_build_context,
+            &stake_chain_inputs,
+            &params,
+            connector_cpfp,
+        );
 
         // Sign the StakeTx 0
         let prevouts = [
@@ -852,5 +844,63 @@ mod tests {
             .expect("must have txid");
 
         info!(%stake_chain_2_txid, "StakeTx 2 broadcasted");
+    }
+
+    #[test]
+    fn bench_stake_chain_generation() {
+        logging::init(LoggerConfig::new(
+            "bench_stake_chain_generation".to_string(),
+        ));
+
+        const STAKE_CHAIN_SIZE: usize = 100;
+        const ITER: usize = 10;
+
+        let mut total_time = Duration::from_secs(0);
+
+        for i in 0..ITER {
+            info!(iteration = i, "generating stake chain");
+            let (_sk, pk) = generate_keypair(&mut OsRng);
+            let pubkeys = BTreeMap::from([(0, pk)]);
+
+            let build_context = TxBuildContext::new(Network::Regtest, pubkeys.into(), 0);
+            let connector_cpfp = ConnectorCpfp::new(pk.x_only_public_key().0, Network::Regtest);
+            let stake_chain_inputs = StakeChainInputs {
+                operator_pubkey: pk.x_only_public_key().0,
+                stake_inputs: [StakeTxData {
+                    operator_funds: OutPoint::null(),
+                    hash: sha256::Hash::hash(&[0; 32]),
+                    withdrawal_fulfillment_pk: wots::Wots256PublicKey::new(
+                        "0",
+                        Txid::from_raw_hash(sha256d::Hash::hash(&[0; 32])),
+                    ),
+                }; STAKE_CHAIN_SIZE]
+                    .into_iter()
+                    .collect(),
+                pre_stake_outpoint: OutPoint::null(),
+            };
+            info!(size = %stake_chain_inputs.stake_inputs.len(), "generated stake chain inputs");
+
+            info!("generating stake chain");
+            let start_time = std::time::Instant::now();
+            let stake_chain = StakeChain::new(
+                &build_context,
+                &stake_chain_inputs,
+                &StakeChainParams::default(),
+                connector_cpfp,
+            );
+            let stop_time = std::time::Instant::now();
+
+            let elapsed_time = stop_time.duration_since(start_time);
+            info!(?elapsed_time, size=%stake_chain.len(), "StakeChain generated");
+
+            total_time += elapsed_time;
+        }
+
+        let average_time = total_time.checked_div(ITER as u32).unwrap();
+        info!(
+            ?average_time,
+            size = STAKE_CHAIN_SIZE,
+            "average time to generate stake chain"
+        );
     }
 }

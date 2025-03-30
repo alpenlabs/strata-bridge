@@ -94,7 +94,7 @@ impl StakeTx {
     #[expect(clippy::too_many_arguments)]
     pub fn create_initial(
         context: &impl BuildContext,
-        params: StakeChainParams,
+        params: &StakeChainParams,
         hash: sha256::Hash,
         withdrawal_fulfillment_pk: Wots256PublicKey,
         pre_stake: OutPoint,
@@ -184,7 +184,7 @@ impl StakeTx {
     /// stake transaction exists.
     pub fn advance(
         context: &impl BuildContext,
-        params: StakeChainParams,
+        params: &StakeChainParams,
         input: StakeTxData,
         prev_hash: sha256::Hash,
         prev_stake: OutPoint,
