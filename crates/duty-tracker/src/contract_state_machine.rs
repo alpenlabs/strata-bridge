@@ -15,6 +15,7 @@ use bitcoin_bosd::Descriptor;
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
+    deposit::DepositInfo,
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, OperatorIdx},
     wots::{Groth16PublicKeys, PublicKeys, Wots256PublicKey},
@@ -331,10 +332,17 @@ pub enum OperatorDuty {
     PublishGraphSignatures,
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
-    PublishRootNonce,
+    PublishRootNonce {
+        /// Transaction ID of the DRT
+        deposit_request_txid: Txid,
+        takeback_key: XOnlyPublicKey,
+    },
 
     /// Instructs us to send out signatures for the deposit transaction.
-    PublishRootSignature,
+    PublishRootSignature {
+        nonces: BTreeMap<P2POperatorPubKey, PubNonce>,
+        deposit_info: DepositInfo,
+    },
 
     /// Instructs us to submit the deposit transaction to the network.
     PublishDeposit,
@@ -783,7 +791,10 @@ impl ContractSM {
                     if graph_sigs.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
-                        Some(OperatorDuty::PublishRootNonce)
+                        Some(OperatorDuty::PublishRootNonce {
+                            deposit_request_txid: todo!(),
+                            takeback_key: todo!(),
+                        })
                     } else {
                         None
                     },
@@ -805,7 +816,11 @@ impl ContractSM {
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
-                        Some(OperatorDuty::PublishRootSignature)
+                        let stake_index = self.cfg.deposit_idx;
+                        Some(OperatorDuty::PublishRootSignature {
+                            nonces: root_nonces.clone(),
+                            deposit_info: todo!(),
+                        })
                     } else {
                         None
                     },

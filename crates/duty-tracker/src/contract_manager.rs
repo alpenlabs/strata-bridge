@@ -2,38 +2,52 @@
 //! and responding to chain events and operator p2p network messages according to the Strata Bridge
 //! protocol rules.
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap, HashSet},
+    future::Future,
     sync::Arc,
     time::Duration,
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bdk_wallet::miniscript::ToPublicKey;
+use bdk_wallet::{error::CreateTxError, miniscript::ToPublicKey};
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
-    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
+    taproot::LeafVersion,
+    Block, FeeRate, Network, OutPoint, TapNodeHash, TapSighashType, Transaction, Txid,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
 use futures::{
-    future::{join3, join_all},
+    future::{join3, join_all, try_join_all},
     StreamExt,
 };
 use operator_wallet::{FundingUtxo, OperatorWallet};
-use secret_service_client::SecretServiceClient;
+use secret_service_client::{
+    musig2::{Musig2FirstRound, Musig2SecondRound},
+    SecretServiceClient,
+};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::ConnectorStake;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{
+    errors::DbError, operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb,
+};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxKind},
+    deposit::DepositInfo,
     operator_table::OperatorTable,
+    scripts::{
+        prelude::drt_take_back,
+        taproot::{create_message_hash, TaprootWitness},
+    },
+    wots::PublicKeys,
 };
 use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
 };
-use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
+use strata_bridge_tx_graph::errors::TxGraphError;
+use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
     commands::{Command, UnsignedPublishMessage},
@@ -53,7 +67,7 @@ use tracing::{error, info, warn};
 use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
-        ContractEvent, ContractSM, DepositSetup, FulfillerDuty, OperatorDuty,
+        ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
     },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
@@ -299,7 +313,7 @@ impl ContractManager {
                                     .map(|sm| sm.deposit_request_txid())
                                     .any(|txid| txid == session_id_as_txid) {
 
-                                    duties.push(OperatorDuty::PublishRootNonce);
+                                    duties.push(OperatorDuty::PublishRootNonce { deposit_request_txid: session_id_as_txid, takeback_key: todo!() });
                                 } else {
                                     // otherwise ignore this message.
                                     warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
@@ -310,12 +324,18 @@ impl ContractManager {
 
                                 if ctx.state.active_contracts.contains_key(&session_id_as_txid) {
                                     duties.push(OperatorDuty::PublishGraphSignatures);
-                                } else if ctx.state.active_contracts
+                                } else if let Some(csm) = ctx.state.active_contracts
                                     .values()
-                                    .map(|sm| sm.deposit_request_txid())
-                                    .any(|txid| txid == session_id_as_txid) {
+                                    .find(|sm| sm.deposit_request_txid() == session_id_as_txid) {
+                                    let nonces = match &csm.state().state {
+                                        ContractState::Requested { root_nonces, .. } => root_nonces.clone(),
+                                        invalid_state => {
+                                            warn!(?invalid_state, "cannot send nonces if the contract is not in the requested state");
+                                            BTreeMap::new()
+                                        }
+                                    };
 
-                                    duties.push(OperatorDuty::PublishRootSignature);
+                                    duties.push(OperatorDuty::PublishRootSignature { nonces, deposit_info: todo!() });
                                 } else {
                                     // otherwise ignore this message.
                                     warn!(txid=%session_id_as_txid, "received a musig2 signatures exchange for an unknown session");
@@ -1045,6 +1065,298 @@ async fn execute_duty(
                 )
                 .await;
 
+            let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
+
+            let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
+
+            let stakechain_preimg = output_handles
+                .s2_client
+                .stake_chain_preimages()
+                .get_preimg(
+                    stake_chain_inputs.pre_stake_outpoint.txid,
+                    stake_chain_inputs.pre_stake_outpoint.vout,
+                    deposit_idx,
+                )
+                .await?;
+
+            let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
+
+            // check if there's a funding outpoint already for this stake index
+            // otherwise, find a new unspent one from operator wallet and filter out all the
+            // outpoints already in the db
+
+            let maybe_stake_data = output_handles
+                .db
+                .get_stake_data(cfg.operator_table.pov_idx(), deposit_idx)
+                .await?;
+
+            let funding_utxo = if let Some(sd) = maybe_stake_data {
+                sd.operator_funds
+            } else {
+                let mut wallet = output_handles.wallet.write().await;
+                let ignore = output_handles
+                    .db
+                    .get_all_stake_data(cfg.operator_table.pov_idx())
+                    .await?
+                    .into_iter()
+                    .map(|data| data.operator_funds)
+                    .collect::<HashSet<_>>();
+                let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+                match funding_op {
+                    FundingUtxo::Available(outpoint) => outpoint,
+                    FundingUtxo::ShouldRefill { op, left } => {
+                        info!("refilling stakechain funding utxos, have {left} left");
+                        let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+                        let mut tx = psbt.unsigned_tx;
+                        let txins_as_outs = tx
+                            .input
+                            .iter()
+                            .map(|txin| {
+                                wallet
+                                    .general_wallet()
+                                    .get_utxo(txin.previous_output)
+                                    .expect("always have this output because the wallet selected it in the first place")
+                                    .txout
+                            })
+                            .collect::<Vec<_>>();
+                        let mut sighasher = SighashCache::new(&mut tx);
+
+                        let sighash_type = TapSighashType::All;
+                        let prevouts = Prevouts::All(&txins_as_outs);
+                        for input_index in 0..txins_as_outs.len() {
+                            let sighash = sighasher
+                                .taproot_key_spend_signature_hash(
+                                    input_index,
+                                    &prevouts,
+                                    sighash_type,
+                                )
+                                .expect("failed to construct sighash");
+                            let signature = output_handles
+                                .s2_client
+                                .general_wallet_signer()
+                                .sign(&sighash.to_byte_array(), None)
+                                .await?;
+
+                            let signature = bitcoin::taproot::Signature {
+                                signature,
+                                sighash_type,
+                            };
+                            sighasher
+                                .witness_mut(input_index)
+                                .expect("an input here")
+                                .push(signature.to_vec());
+                        }
+
+                        // FIXME: Use something other than 0.
+                        output_handles
+                            .tx_driver
+                            .drive(tx, 0)
+                            .await
+                            .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+
+                        op
+                    }
+                    FundingUtxo::Empty => {
+                        panic!("aaaaaa there's no funding utxos for a new stake")
+                    }
+                }
+            };
+
+            let withdrawal_fulfillment_pk =
+                std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
+            let stake_data = StakeTxData {
+                operator_funds: funding_utxo,
+                hash: stakechain_preimg_hash,
+                withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+                    withdrawal_fulfillment_pk,
+                ),
+            };
+            output_handles
+                .db
+                .add_stake_data(cfg.operator_table.pov_idx(), deposit_idx, stake_data)
+                .await?;
+
+            output_handles
+                .msg_handler
+                .send_deposit_setup(
+                    deposit_idx,
+                    scope,
+                    stakechain_preimg_hash,
+                    funding_utxo,
+                    operator_pk,
+                    wots_pks,
+                )
+                .await;
+            Ok(())
+        }
+        OperatorDuty::PublishRootNonce {
+            deposit_request_txid,
+            takeback_key,
+        } => {
+            const VOUT: u32 = 0;
+
+            if let Some(our_nonce) = output_handles
+                .db
+                .collected_pubnonces(deposit_request_txid, VOUT)
+                .await?
+                .get(&cfg.operator_table.pov_idx())
+            {
+                output_handles
+                    .msg_handler
+                    .send_musig2_nonces(
+                        SessionId::from_bytes(deposit_request_txid.as_raw_hash().to_byte_array()),
+                        vec![our_nonce.clone()],
+                    )
+                    .await;
+                return Ok(());
+            }
+
+            let ordered_pubkeys = cfg
+                .operator_table
+                .tx_build_context(cfg.network)
+                .pubkey_table()
+                .0
+                .values()
+                .map(|pk| pk.to_x_only_pubkey())
+                .collect();
+            let drt_takeback_script =
+                drt_take_back(takeback_key, cfg.pegout_graph_params.refund_delay);
+            let session_id = OutPoint::new(deposit_request_txid, VOUT);
+
+            let r = get_or_set_ms2_session(&mut self.s2_musig2_sessions, session_id, || async {
+                output_handles
+                    .s2_client
+                    .musig2_signer()
+                    .new_session(
+                        ordered_pubkeys,
+                        TaprootWitness::Tweaked {
+                            tweak: TapNodeHash::from_script(
+                                &drt_takeback_script,
+                                LeafVersion::TapScript,
+                            ),
+                        },
+                        deposit_request_txid,
+                        0,
+                    )
+                    .await
+                    .map(|inner| Musig2Round::Musig2FirstRound(inner.expect("valid first round")))
+            })
+            .await?;
+
+            let Musig2Round::Musig2FirstRound(r1) = r else {
+                // only possible when the database is modified externally
+                // stop touching your database
+                // it doesn't want to be touched
+                unreachable!("the database doesn't want the tea") // https://youtu.be/oQbei5JGiT8
+            };
+            let our_nonce = r1.our_nonce().await?;
+
+            output_handles
+                .db
+                .add_pubnonce(
+                    deposit_request_txid,
+                    VOUT,
+                    cfg.operator_table.pov_idx(),
+                    our_nonce,
+                )
+                .await?;
+
+            output_handles
+                .msg_handler
+                .send_musig2_nonces(
+                    SessionId::from_bytes(deposit_request_txid.as_raw_hash().to_byte_array()),
+                    vec![r1.our_nonce().await?],
+                )
+                .await;
+
+            Ok(())
+        }
+        OperatorDuty::PublishRootSignature {
+            nonces,
+            deposit_info,
+        } => {
+            const VOUT: u32 = 0;
+            let our_pubkey = cfg.operator_table.pov_op_key();
+            let Entry::Occupied(mut entry) = self
+                .s2_musig2_sessions
+                .entry(*deposit_info.deposit_request_outpoint())
+            else {
+                todo!()
+            };
+            let Musig2Round::Musig2FirstRound(r1) = entry.get_mut() else {
+                todo!()
+            };
+            for (p2p_key, nonce) in nonces
+                .into_iter()
+                .filter(|(p2p_pk, _)| p2p_pk != our_pubkey)
+            {
+                let musig2_pubkey = cfg
+                    .operator_table
+                    .op_key_to_btc_key(&p2p_key)
+                    .expect("we should have a musig2 pubkey for this operator")
+                    .to_x_only_pubkey();
+                r1.receive_pub_nonce(musig2_pubkey, nonce).await?;
+            }
+
+            assert!(r1.is_complete().await?);
+            let Musig2Round::Musig2FirstRound(r1) = entry.remove() else {
+                todo!()
+            };
+
+            let maybe_tx_signing_data = deposit_info
+                .construct_signing_data(
+                    &cfg.operator_table.tx_build_context(cfg.network),
+                    cfg.pegout_graph_params.deposit_amount,
+                    Some(cfg.pegout_graph_params.tag.as_bytes()),
+                )
+                .expect("this should've already been checked when contract is instantiated");
+
+            let deposit_psbt = &maybe_tx_signing_data.psbt;
+            let mut sighash_cache = SighashCache::new(&maybe_tx_signing_data.psbt.unsigned_tx);
+            let prevouts = deposit_psbt
+                .inputs
+                .iter()
+                .map(|input| {
+                    input
+                        .witness_utxo
+                        .as_ref()
+                        .expect("must have been set")
+                        .clone()
+                })
+                .collect::<Vec<_>>();
+            let witness_type = &maybe_tx_signing_data.spend_path;
+            let sighash_type = TapSighashType::All;
+            let input_index = 0;
+
+            let msg = create_message_hash(
+                &mut sighash_cache,
+                Prevouts::All(&prevouts),
+                witness_type,
+                sighash_type,
+                input_index,
+            )
+            .expect("must be able to consturct the message hash for DT");
+
+            let r2 = r1.finalize(*msg.as_ref()).await?.expect("round 2");
+            let our_partial_sig = r2.our_signature().await?;
+            self.s2_musig2_sessions.insert(
+                *deposit_info.deposit_request_outpoint(),
+                Musig2Round::Musig2SecondRound(r2),
+            );
+
+            output_handles
+                .msg_handler
+                .send_musig2_signatures(
+                    SessionId::from_bytes(
+                        deposit_info
+                            .deposit_request_outpoint()
+                            .txid
+                            .as_raw_hash()
+                            .to_byte_array(),
+                    ),
+                    vec![our_partial_sig],
+                )
+                .await;
             Ok(())
         }
         OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
@@ -1148,4 +1460,31 @@ async fn handle_advance_stake_chain(
         .await?;
 
     Ok(())
+}
+enum Musig2Round {
+    Musig2FirstRound(Musig2FirstRound),
+    Musig2SecondRound(Musig2SecondRound),
+}
+
+async fn get_or_set_ms2_session<'a, Func, Ftr>(
+    hm: &'a mut HashMap<OutPoint, Musig2Round>,
+    k: OutPoint,
+    value: Func,
+) -> Result<&'a Musig2Round, secret_service_proto::v1::traits::ClientError>
+where
+    Ftr: Future<Output = Result<Musig2Round, secret_service_proto::v1::traits::ClientError>>,
+    Func: FnOnce() -> Ftr,
+{
+    // Check if the key exists first
+    if hm.contains_key(&k) {
+        // Get a reference after confirming existence
+        return Ok(hm.get(&k).expect("Key exists"));
+    }
+
+    // If key doesn't exist, create and insert new value
+    let v = value().await?;
+    hm.insert(k.clone(), v);
+
+    // Return reference to the newly inserted value
+    Ok(hm.get(&k).expect("Key was just inserted"))
 }
