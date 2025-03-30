@@ -620,10 +620,22 @@ impl ContractSM {
         Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
     }
 
+    /// Generates the duty to publish graph nonces if the contract is in the
+    /// [Requested](ContractState::Requested) state.
+    ///
+    /// # Parameters
+    ///
+    /// - `signer`: the p2p key of the operator that owns the graph.
+    /// - `operator_pubkey`: the operator's public key used for CPFP outputs and receiving
+    ///   reimbursements.
+    /// - `new_stake_hash`: the hash of the stake transaction associated with the graph that is to
+    ///   be generated.
+    /// - `new_stake_tx`: the stake transaction associated with the graph that is to be generated.
+    /// - `new_wots_keys`: the WOTS keys associated with the graph that is to be generated.
     fn process_deposit_setup(
         &mut self,
         signer: P2POperatorPubKey,
-        signer_btc_key: XOnlyPublicKey,
+        operator_pubkey: XOnlyPublicKey,
         new_stake_hash: sha256::Hash,
         new_stake_tx: StakeTx,
         new_wots_keys: WotsPublicKeys,
@@ -651,15 +663,15 @@ impl ContractSM {
                     ),
                     stake_hash: new_stake_hash,
                     wots_public_keys: wots_key_record,
-                    operator_pubkey: signer_btc_key,
+                    operator_pubkey,
                 };
                 let pog_summary = PegOutGraph::generate(
                     pog_input,
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
                     self.cfg.deposit_tx.compute_txid(),
-                    PegOutGraphParams::default(),
-                    ConnectorParams::default(),
-                    StakeChainParams::default(),
+                    self.cfg.peg_out_graph_params.clone(),
+                    self.cfg.connector_params,
+                    self.cfg.stake_chain_params,
                     Vec::new(),
                 )
                 .map_err(|_| TransitionErr)?
