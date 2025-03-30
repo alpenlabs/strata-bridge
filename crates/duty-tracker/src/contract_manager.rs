@@ -97,10 +97,7 @@ impl ContractManager {
                 Err(e) => crash(e.into()),
             };
 
-            let stake_chains = match stake_chain_persister
-                .load(&operator_table, &stake_chain_params)
-                .await
-            {
+            let stake_chains = match stake_chain_persister.load(&operator_table).await {
                 Ok(stake_chains) => {
                     match StakeChainSM::restore(
                         network,

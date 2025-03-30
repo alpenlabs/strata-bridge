@@ -1,33 +1,27 @@
 //! This module is responsible for persisting the state of the stake chain to a database and
 //! retrieving it when needed.
-// FIXME: remove these once this impl is complete
-#![expect(missing_docs)]
-#![expect(unused)]
-use std::{collections::BTreeMap, fmt::Display};
+use std::collections::BTreeMap;
 
-use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::OutPoint;
-use indexmap::IndexSet;
-use sqlx::{Pool, Sqlite};
 use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_primitives::operator_table::OperatorTable;
-use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
+use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
 use strata_p2p_types::P2POperatorPubKey;
-use thiserror::Error;
 use tracing::warn;
 
-use crate::errors::StakeChainErr;
-
+/// A database wrapper for dumping ad retrieving stake chain data.
 #[derive(Debug)]
 pub struct StakeChainPersister {
     db: SqliteDb,
 }
 
 impl StakeChainPersister {
+    /// Creates a new instance of `StakeChainPersister`.
     pub async fn new(db: SqliteDb) -> Result<Self, DbError> {
         Ok(StakeChainPersister { db })
     }
 
+    /// Commits the pre stake outpoint to disk.
     pub async fn commit_prestake(
         &self,
         operator_id: u32,
@@ -36,6 +30,7 @@ impl StakeChainPersister {
         self.db.set_pre_stake(operator_id, prestake).await
     }
 
+    /// Commits the stake chain inputs to the database.
     pub async fn commit_stake_data(
         &self,
         cfg: &OperatorTable,
@@ -57,11 +52,11 @@ impl StakeChainPersister {
         Ok(())
     }
 
+    /// Loads the stake chain inputs from disk in order to build the stake chain.
     pub async fn load(
         &self,
         cfg: &OperatorTable,
-        params: &StakeChainParams,
-    ) -> Result<(BTreeMap<P2POperatorPubKey, StakeChainInputs>), DbError> {
+    ) -> Result<BTreeMap<P2POperatorPubKey, StakeChainInputs>, DbError> {
         let mut stake_chain_inputs = BTreeMap::new();
         let operator_ids = cfg.operator_idxs();
 
