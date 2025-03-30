@@ -39,10 +39,6 @@ use strata_bridge_primitives::{
         taproot::{create_message_hash, TaprootWitness},
     },
 };
-use strata_bridge_tx_graph::{
-    errors::TxGraphError,
-    peg_out_graph::{PegOutGraph, PegOutGraphSighashes},
-};
 use strata_bridge_stake_chain::prelude::{STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT};
 use strata_bridge_tx_graph::{
     errors::TxGraphError,
@@ -1323,8 +1319,9 @@ impl ContractManagerCtx {
                     }
                 }
 
+                let session_id = SessionId::from_bytes(deposit_txid.to_byte_array());
                 self.p2p_msg_handle
-                    .send_musig2_nonces(deposit_txid, nonces)
+                    .send_musig2_nonces(session_id, nonces)
                     .await;
 
                 Ok(())
