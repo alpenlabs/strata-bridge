@@ -99,4 +99,44 @@ impl WotsSigner<Client> for WotsClient {
         };
         Ok(key)
     }
+
+    async fn get_128_signature(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+        msg: &[u8; 16],
+    ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
+        let wire_msg = ClientMessage::WotsGet128Signature {
+            index,
+            prestake_vout: vout,
+            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            msg: *msg,
+        };
+        let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
+        let ServerMessage::WotsGet128Signature { sig } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(sig)
+    }
+
+    async fn get_256_signature(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+        msg: &[u8; 32],
+    ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
+        let wire_msg = ClientMessage::WotsGet256Signature {
+            index,
+            prestake_vout: vout,
+            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            msg: *msg,
+        };
+        let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
+        let ServerMessage::WotsGet256Signature { sig } = res else {
+            return Err(ClientError::WrongMessage(res.into()));
+        };
+        Ok(sig)
+    }
 }

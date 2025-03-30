@@ -103,6 +103,30 @@ impl WotsSigner<Server> for SeededWotsSigner {
         let sk = self.get_256_secret_key(txid, vout, index).await;
         wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk)
     }
+
+    #[expect(refining_impl_trait)]
+    async fn get_128_signature(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+        msg: &[u8; 16],
+    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
+        let sk = self.get_128_secret_key(txid, vout, index).await;
+        wots_sign::<128>(msg, &sk)
+    }
+
+    #[expect(refining_impl_trait)]
+    async fn get_256_signature(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+        msg: &[u8; 32],
+    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
+        let sk = self.get_256_secret_key(txid, vout, index).await;
+        wots_sign::<256>(msg, &sk)
+    }
 }
 
 /// Calculates ceil(log_base(n))
