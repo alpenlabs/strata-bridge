@@ -6,7 +6,7 @@ use std::{
     time::Duration,
 };
 
-use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bdk_wallet::error::CreateTxError;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
@@ -25,8 +25,7 @@ use secret_service_proto::v1::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
-use strata_bridge_tx_graph::errors::TxGraphError;
-use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
+use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
     commands::{Command, UnsignedPublishMessage},
@@ -40,17 +39,18 @@ use strata_p2p_types::{
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
-use thiserror::Error;
 use tokio::{task::JoinHandle, time};
 use tracing::{error, info, warn};
 
 use crate::{
-    contract_persister::ContractPersister,
-    contract_state_machine::{ContractEvent, ContractSM, DepositSetup, OperatorDuty},
+    contract_persister::{ContractPersistErr, ContractPersister},
+    contract_state_machine::{
+        ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
+    },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
-    stake_chain_persister::{StakeChainPersister, StakePersistErr},
-    stake_chain_state_machine::{StakeChainErr, StakeChainSM},
+    stake_chain_persister::StakeChainPersister,
+    stake_chain_state_machine::StakeChainSM,
 };
 
 /// System that handles all of the chain and p2p events and forwards them to their respective
@@ -69,6 +69,7 @@ impl ContractManager {
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
+        stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
         // Subsystem Handles
@@ -98,13 +99,22 @@ impl ContractManager {
                 Err(e) => crash(e.into()),
             };
 
-            let stake_chains = match stake_chain_persister.load().await {
-                Ok((loaded_operator_table, stake_chains)) => {
-                    if loaded_operator_table == operator_table {
-                        StakeChainSM::restore(network, loaded_operator_table, stake_chains)
-                    } else {
-                        crash(ContractManagerErr::ContractPersistErr(ContractPersistErr));
-                        return;
+            let stake_chains = match stake_chain_persister
+                .load(&operator_table, &stake_chain_params)
+                .await
+            {
+                Ok(stake_chains) => {
+                    match StakeChainSM::restore(
+                        network,
+                        operator_table.clone(),
+                        &stake_chain_params,
+                        stake_chains,
+                    ) {
+                        Ok(stake_chains) => stake_chains,
+                        Err(e) => {
+                            crash(ContractManagerErr::StakeChainErr(e));
+                            return;
+                        }
                     }
                 }
                 Err(e) => {
@@ -448,10 +458,6 @@ impl ContractManagerCtx {
                     OutPoint::new(pre_stake_txid, pre_stake_vout),
                 )?;
 
-                self.stake_chain_persister
-                    .commit(self.stake_chains.state())
-                    .await?;
-
                 Ok(())
             }
             UnsignedGossipsubMsg::DepositSetup {
@@ -467,24 +473,27 @@ impl ContractManagerCtx {
                     Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
                     let setup = DepositSetup {
+                        index,
                         hash,
                         funding_outpoint: OutPoint::new(funding_txid, funding_vout),
                         operator_pk,
                         wots_pks: wots_pks.clone(),
                     };
-                    self.stake_chains.process_setup(msg.key.clone(), &setup)?;
+                    self.stake_chains.process_setup(
+                        &self.stake_chain_params,
+                        msg.key.clone(),
+                        &setup,
+                    )?;
+
                     self.stake_chain_persister
-                        .commit(self.stake_chains.state())
+                        .commit_stake_data(&self.operator_table, self.stake_chains.state().clone())
                         .await?;
 
                     let deposit_idx = contract.cfg().deposit_idx;
-                    let stake_tx = if let Some(stake_tx) =
-                        self.stake_chains.stake_tx(&msg.key, deposit_idx as usize)
-                    {
-                        stake_tx
-                    } else {
-                        return Err(ContractManagerErr::StakeChainErr(StakeChainErr));
-                    };
+                    let stake_tx = self
+                        .stake_chains
+                        .stake_tx(&self.stake_chain_params, &msg.key, deposit_idx as usize)?
+                        .ok_or(StakeChainErr::StakeTxNotFound(msg.key.clone(), deposit_idx))?;
 
                     if let Some(duty) =
                         contract.process_contract_event(ContractEvent::DepositSetup {

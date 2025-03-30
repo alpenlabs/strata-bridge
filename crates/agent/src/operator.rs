@@ -24,6 +24,7 @@ use bitvm::{
     chunk::api::{api_generate_full_tapscripts, generate_assertions, validate_assertions},
     signatures::wots_api::HASH_LEN,
 };
+use indexmap::IndexSet;
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
@@ -2445,7 +2446,7 @@ where
 
         info!(action = "creating stake chain", length = %stake_chain_length, %own_index);
 
-        let mut stake_inputs = Vec::with_capacity(stake_chain_length as usize);
+        let mut stake_inputs: IndexSet<StakeTxData> = IndexSet::new();
         for i in 0..stake_chain_length {
             let preimage = self.agent.generate_preimage(&self.msk, i);
             let hash = hashes::sha256::Hash::hash(&preimage);
@@ -2464,11 +2465,11 @@ where
 
             info!(action = "adding stake data to db", %own_index, index = %i);
             self.public_db
-                .add_stake_data(own_index, stake_tx_data)
+                .add_stake_data(own_index, i, stake_tx_data)
                 .await
                 .unwrap();
 
-            stake_inputs.push(stake_tx_data);
+            stake_inputs.insert(stake_tx_data);
         }
 
         let stake_chain_params = StakeChainParams::default();
@@ -2525,7 +2526,7 @@ where
         let operator_address = self.agent.taproot_address(self.build_context.network());
 
         let num_stake_txs = stake_id as usize + 1;
-        let mut stake_inputs = Vec::with_capacity(num_stake_txs);
+        let mut stake_inputs = IndexSet::new();
         for i in 0..num_stake_txs {
             let stake_data = self
                 .public_db
@@ -2535,7 +2536,7 @@ where
                 .unwrap(); // FIXME:
                            // Handle me
 
-            stake_inputs.push(stake_data);
+            stake_inputs.insert(stake_data);
         }
 
         let params = StakeChainParams::default();

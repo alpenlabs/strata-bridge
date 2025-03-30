@@ -34,6 +34,7 @@ bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-bosd.workspace = true
 bitvm = { workspace = true }
 borsh = { workspace = true }
+indexmap.workspace = true
 jsonrpsee.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
 rand.workspace = true

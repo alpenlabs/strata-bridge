@@ -18,6 +18,7 @@ rustdoc.all = "warn"
 [dependencies]
 alpen-bridge-params.workspace = true
 strata-bridge-connectors.workspace = true
+strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
@@ -38,6 +39,7 @@ bitvm.workspace = true
 borsh.workspace = true
 btc-notify.workspace = true
 futures.workspace = true
+indexmap.workspace = true
 musig2.workspace = true
 operator-wallet = { version = "0.1.0", path = "../operator-wallet" }
 secret-service-client.workspace = true

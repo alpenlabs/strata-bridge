@@ -23,7 +23,7 @@ use crate::{
 
 /// The metadata required to create a [`StakeTx`] transaction in the stake chain (except the first
 /// stake transaction).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Eq)]
 pub struct StakeTxData {
     /// The [`OutPoint`] used to fund the dust outputs for the tx-graph for the given stake
     /// transaction.
@@ -36,6 +36,20 @@ pub struct StakeTxData {
     /// by the Claim transaction to bitcommit to the [`Txid`] of the Withdrawal Fulfilllment
     /// Transaction.
     pub withdrawal_fulfillment_pk: Wots256PublicKey,
+}
+
+impl PartialEq for StakeTxData {
+    fn eq(&self, other: &Self) -> bool {
+        self.operator_funds == other.operator_funds
+        // technically, reusing the same hash/fulfillment keys is not secure but not fundamentally
+        // impossible
+    }
+}
+
+impl std::hash::Hash for StakeTxData {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.operator_funds.hash(state);
+    }
 }
 
 /// The [`StakeTx`] transaction is used to move stake across transactions.
