@@ -7,7 +7,6 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bdk_wallet::error::CreateTxError;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
@@ -43,10 +42,8 @@ use tokio::{task::JoinHandle, time};
 use tracing::{error, info, warn};
 
 use crate::{
-    contract_persister::{ContractPersistErr, ContractPersister},
-    contract_state_machine::{
-        ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
-    },
+    contract_persister::ContractPersister,
+    contract_state_machine::{ContractEvent, ContractSM, DepositSetup, OperatorDuty},
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::StakeChainPersister,
@@ -220,9 +217,20 @@ impl ContractManager {
                             }
                             GetMessageRequest::DepositSetup { scope, .. } => {
                                 let deposit_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
-                                let _ = ctx.execute_duty(OperatorDuty::PublishWOTSKeys {
-                                    deposit_txid,
-                                }).await;
+                                if let Some(deposit_idx) = ctx.active_contracts.get(&deposit_txid).map(|sm| sm.cfg().deposit_idx) {
+                                    match ctx.execute_duty(OperatorDuty::PublishWOTSKeys {
+                                        deposit_txid,
+                                        deposit_idx,
+                                    }).await {
+                                        Ok(()) => { info!(%deposit_idx, %deposit_txid, "published deposit setup message"); },
+                                        Err(e) => {
+                                            // NOTE: might want to panic here.
+                                            error!(%e, %deposit_idx, %deposit_txid, "could not publish deposit setup message");
+                                        }
+                                    }
+                                } else {
+                                    warn!(%deposit_txid, "received deposit setup message for unknown contract");
+                                }
                             }
                             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(
@@ -719,7 +727,10 @@ impl ContractManagerCtx {
 
     async fn execute_duty(&mut self, duty: OperatorDuty) -> Result<(), ContractManagerErr> {
         match duty {
-            OperatorDuty::PublishWOTSKeys { deposit_txid } => {
+            OperatorDuty::PublishWOTSKeys {
+                deposit_idx,
+                deposit_txid,
+            } => {
                 let operator_pk = self.s2_client.general_wallet_signer().pubkey().await?;
                 let wots_client = self.s2_client.wots_signer();
                 /// VOUT is static because irrelevant so we're just gonna use 0
@@ -779,7 +790,7 @@ impl ContractManagerCtx {
                     .get_preimg(
                         self.stakechain_prestake_utxo.txid,
                         self.stakechain_prestake_utxo.vout,
-                        self.active_contracts.len() as u32, // i hate this lol
+                        deposit_idx,
                     )
                     .await?;
 
@@ -867,10 +878,10 @@ impl ContractManagerCtx {
 
                 self.p2p_msg_handle
                     .send_deposit_setup(
+                        deposit_idx,
                         scope,
                         stakechain_preimg_hash,
-                        funding_utxo.txid,
-                        funding_utxo.vout,
+                        funding_utxo,
                         operator_pk,
                         wots_pks,
                     )

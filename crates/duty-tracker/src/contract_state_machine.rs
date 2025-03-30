@@ -288,6 +288,9 @@ pub enum OperatorDuty {
     PublishWOTSKeys {
         /// Transaction ID of the DT
         deposit_txid: Txid,
+
+        /// The index of the deposit
+        deposit_idx: u32,
     },
 
     /// Instructs us to publish our graph nonces for this contract.
