@@ -284,8 +284,8 @@ pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
 
-    /// Instructs us to publish our own wots keys for this contract.
-    PublishWOTSKeys {
+    /// Instructs us to publish the setup data for this contract.
+    PublishDepositSetup {
         /// Transaction ID of the DT
         deposit_txid: Txid,
 

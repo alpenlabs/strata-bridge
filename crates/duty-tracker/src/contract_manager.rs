@@ -218,7 +218,7 @@ impl ContractManager {
                             GetMessageRequest::DepositSetup { scope, .. } => {
                                 let deposit_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
                                 if let Some(deposit_idx) = ctx.active_contracts.get(&deposit_txid).map(|sm| sm.cfg().deposit_idx) {
-                                    match ctx.execute_duty(OperatorDuty::PublishWOTSKeys {
+                                    match ctx.execute_duty(OperatorDuty::PublishDepositSetup {
                                         deposit_txid,
                                         deposit_idx,
                                     }).await {
@@ -727,7 +727,7 @@ impl ContractManagerCtx {
 
     async fn execute_duty(&mut self, duty: OperatorDuty) -> Result<(), ContractManagerErr> {
         match duty {
-            OperatorDuty::PublishWOTSKeys {
+            OperatorDuty::PublishDepositSetup {
                 deposit_idx,
                 deposit_txid,
             } => {
