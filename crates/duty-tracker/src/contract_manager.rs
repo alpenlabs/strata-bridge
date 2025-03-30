@@ -22,7 +22,7 @@ use futures::{
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_tx_graph::errors::TxGraphError;
@@ -45,10 +45,9 @@ use tokio::{task::JoinHandle, time};
 use tracing::{error, info, warn};
 
 use crate::{
-    contract_persister::{ContractPersistErr, ContractPersister},
-    contract_state_machine::{
-        ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
-    },
+    contract_persister::ContractPersister,
+    contract_state_machine::{ContractEvent, ContractSM, DepositSetup, OperatorDuty},
+    errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::{StakeChainPersister, StakePersistErr},
     stake_chain_state_machine::{StakeChainErr, StakeChainSM},
@@ -267,50 +266,6 @@ impl Drop for ContractManager {
     fn drop(&mut self) {
         self.thread_handle.abort();
     }
-}
-
-/// Unified error type for everything that can happen in the ContractManager.
-#[derive(Debug, Error)]
-pub enum ContractManagerErr {
-    /// Errors related to writing contract state to disk.
-    #[error("failed to commit contract state to disk: {0}")]
-    ContractPersistErr(#[from] ContractPersistErr),
-
-    /// Errors related to committing stake chain state to disk.
-    #[error("failed to commit stake chain state to disk: {0}")]
-    StakePersistErr(#[from] StakePersistErr),
-
-    /// Errors related to state machines being unable to process ContractEvents
-    #[error("contract state machine received an invalid event: {0}")]
-    TransitionErr(#[from] TransitionErr),
-
-    /// Errors related to events updating operators' stake chains.
-    #[error("stake chain state machine received an invalid event: {0}")]
-    StakeChainErr(#[from] StakeChainErr),
-
-    /// Errors related to PegOutGraph generation.
-    #[error("peg out graph generation failed: {0}")]
-    TxGraphError(#[from] TxGraphError),
-
-    /// Errors related to receiving P2P messages at protocol-invalid times.
-    #[error("invalid p2p message: {0:?}")]
-    InvalidP2PMessage(Box<UnsignedGossipsubMsg>),
-
-    /// Errors related to calling Bitcoin Core's RPC interface.
-    #[error("bitcoin core rpc call failed with: {0}")]
-    BitcoinCoreRPCErr(#[from] ClientError),
-
-    /// Errors from failed secret service requests
-    #[error("secret service request failed with {0:?}")]
-    SecretServiceErr(#[from] secret_service_proto::v1::traits::ClientError),
-
-    /// Errors from the bridge db
-    #[error("database error: {0:?}")]
-    DbErr(#[from] DbError),
-
-    /// Error during transaction creation
-    #[error("error while creating transaction: {0:?}")]
-    CreateTxErr(#[from] CreateTxError),
 }
 
 struct ContractManagerCtx {
