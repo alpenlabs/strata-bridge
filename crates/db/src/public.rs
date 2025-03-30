@@ -77,6 +77,7 @@ pub trait PublicDb {
     async fn add_stake_data(
         &self,
         operator_id: OperatorIdx,
+        stake_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()>;
 

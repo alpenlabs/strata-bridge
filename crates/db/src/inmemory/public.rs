@@ -221,19 +221,16 @@ impl PublicDb for PublicDbInMemory {
     async fn add_stake_data(
         &self,
         operator_id: OperatorIdx,
+        stake_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()> {
         let mut operator_stake_data = self.stake_data.write().await;
-        // count the number of stake data for this operator
-        let stake_id = operator_stake_data
-            .get(&operator_id)
-            .map_or(0, |m| m.keys().count() as u32);
 
         if let Some(data) = operator_stake_data.get_mut(&operator_id) {
-            data.insert(stake_id, stake_data);
+            data.insert(stake_index, stake_data);
         } else {
             let mut data = HashMap::new();
-            data.insert(stake_id, stake_data);
+            data.insert(stake_index, stake_data);
 
             operator_stake_data.insert(operator_id, data);
         }
