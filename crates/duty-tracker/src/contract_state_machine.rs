@@ -282,6 +282,9 @@ pub enum OperatorDuty {
     PublishGraphNonces {
         /// Transaction ID of the DT
         deposit_txid: Txid,
+
+        /// The p2p key of the operator for whom to publish the graph nonces.
+        operator_p2p_key: P2POperatorPubKey,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -291,12 +294,18 @@ pub enum OperatorDuty {
     PublishRootNonce {
         /// Transaction ID of the DRT
         deposit_request_txid: Txid,
+
+        /// The schnorr key that locks the funds in the DRT for the user to take back after a
+        /// parameterized refund delay.
         takeback_key: XOnlyPublicKey,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
     PublishRootSignature {
+        /// The nonces received from peers.
         nonces: BTreeMap<P2POperatorPubKey, PubNonce>,
+
+        /// The data required to construct the deposit transaction.
         deposit_info: DepositInfo,
     },
 
