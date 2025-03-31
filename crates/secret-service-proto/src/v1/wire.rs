@@ -170,6 +170,14 @@ pub enum ServerMessage {
     },
 
     /// Response for
+    /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
+    WotsGet128Signature { sig: [u8; 20 * 36] },
+
+    /// Response for
+    /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
+    WotsGet256Signature { sig: [u8; 20 * 68] },
+
+    /// Response for
     /// [`StakeChainPreimages::get_preimg`](super::traits::StakeChainPreimages::get_preimg).
     StakeChainGetPreimage {
         /// The preimage that was requested.
@@ -406,6 +414,44 @@ pub enum ClientMessage {
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
         index: u32,
+    },
+
+    /// Request for
+    /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
+    WotsGet128Signature {
+        /// [`Txid`](bitcoin::Txid) that this WOTS signature is derived from.
+        prestake_txid: [u8; 32],
+
+        /// Transaction's vout that this WOTS signature is derived from.
+        prestake_vout: u32,
+
+        /// Transaction's index that this WOTS signature is derived from.
+        ///
+        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
+        /// hence to resolve the ambiguity, the index is needed.
+        index: u32,
+
+        /// 128-bit message to be signed.
+        msg: [u8; 16],
+    },
+
+    /// Request for
+    /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
+    WotsGet256Signature {
+        /// [`Txid`](bitcoin::Txid) that this WOTS signature is derived from.
+        prestake_txid: [u8; 32],
+
+        /// Transaction's vout that this WOTS signature is derived from.
+        prestake_vout: u32,
+
+        /// Transaction's index that this WOTS signature is derived from.
+        ///
+        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
+        /// hence to resolve the ambiguity, the index is needed.
+        index: u32,
+
+        /// 256-bit message to be signed.
+        msg: [u8; 32],
     },
 
     /// Request for

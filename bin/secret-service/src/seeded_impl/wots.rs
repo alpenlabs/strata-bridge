@@ -13,6 +13,11 @@ use sha2::Sha256;
 
 use super::paths::{WOTS_IKM_128_PATH, WOTS_IKM_256_PATH};
 
+// Changing this number may cause certain code to break as the signing code is not designed to
+// handle cases where the digit width doesn't divide byte width without residue.
+const WINTERNITZ_DIGIT_WIDTH: usize = 4;
+const WINTERNITZ_MAX_DIGIT: usize = (2 << WINTERNITZ_DIGIT_WIDTH) - 1;
+
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
 pub struct SeededWotsSigner {
@@ -47,9 +52,9 @@ impl WotsSigner<Server> for SeededWotsSigner {
         prestake_txid: Txid,
         prestake_vout: u32,
         index: u32,
-    ) -> [u8; 20 * 36] {
+    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_128);
-        let mut okm = [0u8; 20 * 36];
+        let mut okm = [0u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)];
         let info = make_buf! {
             (prestake_txid.as_raw_hash().as_byte_array(), 32),
             (&prestake_vout.to_le_bytes(), 4),
@@ -60,9 +65,14 @@ impl WotsSigner<Server> for SeededWotsSigner {
     }
 
     #[expect(refining_impl_trait)]
-    async fn get_256_secret_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 68] {
+    async fn get_256_secret_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
         let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
-        let mut okm = [0u8; 20 * 68];
+        let mut okm = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),
             (&vout.to_le_bytes(), 4),
@@ -73,15 +83,49 @@ impl WotsSigner<Server> for SeededWotsSigner {
     }
 
     #[expect(refining_impl_trait)]
-    async fn get_128_public_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 36] {
+    async fn get_128_public_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_128_secret_key(txid, vout, index).await;
-        wots_public_key::<PARAMS_HASH_TOTAL_LEN>(&PARAMS_HASH, &sk)
+        wots_public_key::<PARAMS_128_TOTAL_LEN>(&PARAMS_128, &sk)
     }
 
     #[expect(refining_impl_trait)]
-    async fn get_256_public_key(&self, txid: Txid, vout: u32, index: u32) -> [u8; 20 * 68] {
+    async fn get_256_public_key(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_256_secret_key(txid, vout, index).await;
         wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk)
+    }
+
+    #[expect(refining_impl_trait)]
+    async fn get_128_signature(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+        msg: &[u8; 16],
+    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
+        let sk = self.get_128_secret_key(txid, vout, index).await;
+        wots_sign::<128>(msg, &sk)
+    }
+
+    #[expect(refining_impl_trait)]
+    async fn get_256_signature(
+        &self,
+        txid: Txid,
+        vout: u32,
+        index: u32,
+        msg: &[u8; 32],
+    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
+        let sk = self.get_256_secret_key(txid, vout, index).await;
+        wots_sign::<256>(msg, &sk)
     }
 }
 
@@ -96,64 +140,80 @@ pub(super) const fn log_base_ceil(n: u32, base: u32) -> u32 {
     res
 }
 
+/// Calculates the total WOTS key width based off of the number of bits in the message being signed
+/// and the number of bits per WOTS digit.
+const fn key_width(num_bits: usize, digit_width: usize) -> usize {
+    let num_digits = num_bits.div_ceil(digit_width);
+    num_digits + checksum_width(num_bits, digit_width)
+}
+
+/// Calculates the total WOTS key digits used for the checksum.
+const fn checksum_width(num_bits: usize, digit_width: usize) -> usize {
+    let num_digits = num_bits.div_ceil(digit_width);
+    let max_digit = (2 << digit_width) - 1;
+    let max_checksum = num_digits * max_digit;
+    let checksum_bytes = log_base_ceil(max_checksum as u32, 256) as usize;
+    (checksum_bytes * 8).div_ceil(digit_width)
+}
+
 /// Contains the parameters to use with `Winternitz` struct
 #[derive(Eq, PartialEq, Hash, Clone, Debug)]
 pub struct Parameters {
-    /// Number of blocks of the actual message
+    /// Number of digits of the actual message
     message_length: u32,
-    /// Number of bits in one block
-    block_length: u32,
-    /// Number of blocks of the checksum part
+    /// Number of bits in one digit
+    digit_width: u32,
+    /// Number of digits of the checksum part
     checksum_length: u32,
 }
 
 impl Parameters {
-    /// Creates parameters with given message length (number of blocks in the message) and block
-    /// length (number of bits in one block, in the closed range 4, 8)
-    pub const fn new(message_block_count: u32, block_length: u32) -> Self {
+    /// Creates parameters with given message length (number of digits in the message) and digit
+    /// length (number of bits in one digit, in the closed range 4, 8)
+    pub const fn new(message_num_digits: u32, digit_width: u32) -> Self {
         assert!(
-            4 <= block_length && block_length <= 8,
-            "You can only choose block lengths in the range [4, 8]"
+            4 <= digit_width && digit_width <= 8,
+            "You can only choose digit widths in the range [4, 8]"
         );
         Parameters {
-            message_length: message_block_count,
-            block_length,
+            message_length: message_num_digits,
+            digit_width,
             checksum_length: log_base_ceil(
-                ((1 << block_length) - 1) * message_block_count,
-                1 << block_length,
+                ((1 << digit_width) - 1) * message_num_digits,
+                1 << digit_width,
             ) + 1,
         }
     }
 
-    /// Creates parameters with given message_length (number of bits in the message) and block
-    /// length (number of bits in one block, in the closed range 4, 8)
-    pub const fn new_by_bit_length(number_of_bits: u32, block_length: u32) -> Self {
+    /// Creates parameters with given message_length (number of bits in the message) and digit
+    /// width (number of bits in one digit, in the closed range 4, 8)
+    pub const fn new_by_bit_length(number_of_bits: u32, digit_width: u32) -> Self {
         assert!(
-            4 <= block_length && block_length <= 8,
-            "You can only choose block lengths in the range [4, 8]"
+            4 <= digit_width && digit_width <= 8,
+            "You can only choose digit widths in the range [4, 8]"
         );
-        let message_block_count = number_of_bits.div_ceil(block_length);
+        let message_num_digits = number_of_bits.div_ceil(digit_width);
         Parameters {
-            message_length: message_block_count,
-            block_length,
+            message_length: message_num_digits,
+            digit_width,
             checksum_length: log_base_ceil(
-                ((1 << block_length) - 1) * message_block_count,
-                1 << block_length,
+                ((1 << digit_width) - 1) * message_num_digits,
+                1 << digit_width,
             ) + 1,
         }
     }
 
     /// Maximum value of a digit
-    pub const fn d(&self) -> u32 {
-        (1 << self.block_length) - 1
+    pub const fn max_digit_value(&self) -> u32 {
+        (1 << self.digit_width) - 1
     }
 
     /// Number of bytes that can be represented at maximum with the parameters
     pub const fn byte_message_length(&self) -> u32 {
-        (self.message_length * self.block_length + 7) / 8
+        (self.message_length * self.digit_width + 7) / 8
     }
 
-    /// Total number of blocks, i.e. sum of the number of blocks in the actual message and the
+    /// Total number of digits, i.e. sum of the number of digits in the actual message and the
     /// checksum
     pub const fn total_length(&self) -> u32 {
         self.message_length + self.checksum_length
@@ -174,7 +234,7 @@ where
             buf
         };
         let mut hash = hash160::Hash::hash(&secret_i);
-        for _ in 0..ps.d() {
+        for _ in 0..ps.max_digit_value() {
             hash = hash160::Hash::hash(&hash[..]);
         }
 
@@ -185,11 +245,132 @@ where
     public_key
 }
 
+fn wots_sign<const N: usize>(
+    msg: &[u8; N.div_ceil(8)],
+    secret_key: &[u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)],
+) -> [u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)]
+where
+    [(); N.div_ceil(WINTERNITZ_DIGIT_WIDTH)]:,
+    [(); checksum_width(N, WINTERNITZ_DIGIT_WIDTH)]:,
+{
+    let num_digits = N.div_ceil(WINTERNITZ_DIGIT_WIDTH);
+
+    // Break the message up into an array of the individual WOTS digits.
+    let mut digits = [0u8; N.div_ceil(WINTERNITZ_DIGIT_WIDTH)];
+
+    // Starting with the left most bit (most significant) we iterate through the bits of the
+    // original message. By the end of this for-loop we will have populated the digits array with
+    // all of the digits of the message.
+    //
+    // TODO(proofofkeags): There is a *possible* subtle issue here where if we use a digit width
+    // that doesn't divide a byte that we might not pad the correct side of the original message. It
+    // is unclear whether the message would be left or right padded in this scenario and since the
+    // BitVM implementation hard-codes everything to a digit width of 4, it's hard to know. This
+    // likely will not be an issue in practice ever since it is extremely unlikely we will ever want
+    // a digit width other than 4 but I include this note for completeness.
+    for bit_idx in 0..N {
+        // We map each bit to its byte index as well as a shift offset that within that byte that
+        // we will use.
+        let src_byte = bit_idx / 8;
+        let src_bit = bit_idx % 8;
+
+        // We also map each bit to its corresponding destination digit (corollary for the source
+        // byte) as well as a shift offset within that digit. We also do a digit-wise reversal in
+        // this step since BitVM demands that we arrange the digits in "little endian" order where
+        // the least significant digit appears first in the array. As such, we take the most
+        // significant bits (the ones with the lowest index) and map them to the last digits and
+        // work our way backwards.
+        let dest_digit = num_digits - 1 - bit_idx / WINTERNITZ_DIGIT_WIDTH;
+        let dest_bit = bit_idx % WINTERNITZ_DIGIT_WIDTH;
+
+        // We use the byte index and shift offset from the source message and translate it to a
+        // single bit value {0, 1}.
+        let bit = (msg[src_byte] >> (8 - 1 - src_bit)) & 1;
+
+        // We or that bit together with the existing digits array at the proper digit index.
+        digits[dest_digit] |= bit << (WINTERNITZ_DIGIT_WIDTH - 1 - dest_bit);
+    }
+
+    // Now that we have broken everything up into digits we are prepared to sign each individual
+    // digit.
+    let mut signature = [0; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)];
+    for idx in 0..num_digits {
+        // We populate an initial array segment using the secret key bytes at the proper location.
+        let segment: [u8; 20] = std::array::from_fn(|x| secret_key[x + 20 * idx]);
+
+        // We initialize a hash with the raw byte value of the secret key.
+        let mut hash = hash160::Hash::from_byte_array(segment);
+
+        // Consistent with the WOTS protocol we iterate the hash chain forwards by the max digit
+        // value minus the value of the digit being signed.
+        for _ in 0..(WINTERNITZ_MAX_DIGIT as u8 - digits[idx]) {
+            hash = hash160::Hash::hash(hash.as_ref());
+        }
+
+        // With the hash value computed, we memcpy it to its proper position in the signature array.
+        signature[20 * idx..20 * (idx + 1)].copy_from_slice(hash.as_byte_array());
+    }
+
+    // At this point we now need to create and sign the checksum value. This part can be tricky with
+    // rust's casting semantics so some of this code may be unnecessarily defensive.
+
+    // The max checksum value drives how many bytes are ultimately allocated to the checksum itself.
+    let max_checksum = num_digits * WINTERNITZ_MAX_DIGIT;
+    let num_checksum_bytes = log_base_ceil(max_checksum as u32, 256) as usize;
+    let num_checksum_digits = (num_checksum_bytes * 8).div_ceil(WINTERNITZ_DIGIT_WIDTH);
+
+    // We compute the checksum value as the max possible checksum value minus the sum of all of the
+    // digits.
+    let checksum_val: u32 =
+        (num_digits * WINTERNITZ_MAX_DIGIT - digits.iter().fold(0, |a, b| a + *b as usize)) as u32;
+
+    // We create a checksum (de)accumulator since we will be applying destructive updates to it as
+    // we incrementally compute the checksum signature.
+    let mut checksum_acc = checksum_val;
+
+    // We compute a 1 byte mask that we will use to mask off each digit that appears in the
+    // checksum. We can get away with this approach since the checksum will never be larger than a
+    // u64, so we can use shift operations the entire way. This didn't work with the original
+    // message since we were operating over byte arrays instead of integer types.
+    let mask = 0xFFu8 << (8 - WINTERNITZ_DIGIT_WIDTH) >> WINTERNITZ_DIGIT_WIDTH;
+
+    // For each checksum digit we ...
+    for checksum_digit_idx in 0..num_checksum_digits {
+        // Here we initialize a byte array with the proper section of the secret key. This begins
+        // after all of the original digits and is further indexed by the index of the checksum
+        // digit we are working with right now.
+        let segment: [u8; 20] =
+            std::array::from_fn(|x| secret_key[x + 20 * (checksum_digit_idx + num_digits)]);
+
+        // Again, we initialize a hash from those secret key bytes.
+        let mut hash = hash160::Hash::from_byte_array(segment);
+
+        // We iterate the hash forwards by MAX_DIGIT - actual digit which is computed by masking off
+        // everything except the least significant digit width bits of our (de)accumulator.
+        for _ in 0..(WINTERNITZ_MAX_DIGIT as u32 - (checksum_acc & mask as u32)) {
+            hash = hash160::Hash::hash(hash.as_ref());
+        }
+
+        // With the hash value computed, we memcpy it to its proper position in the signature array.
+        signature
+            [20 * (num_digits + checksum_digit_idx)..20 * (num_digits + checksum_digit_idx + 1)]
+            .copy_from_slice(hash.as_byte_array());
+
+        // Finally we rightshift the checksum (de)accumulator by the digit width so that the new
+        // least significant bits of the (de)accumulator are the next digit of the checkusm to be
+        // signed.
+        checksum_acc >>= WINTERNITZ_DIGIT_WIDTH;
+    }
+
+    // We finally have our signature.
+    signature
+}
+
 // Taken from BitVM pile of amazing code.
-const PARAMS_256: Parameters = Parameters::new_by_bit_length(32 * 8, 4);
+const PARAMS_256: Parameters = Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32);
 const PARAMS_256_TOTAL_LEN: usize = PARAMS_256.total_length() as usize;
-const PARAMS_HASH: Parameters = Parameters::new_by_bit_length(16 * 8, 4);
-const PARAMS_HASH_TOTAL_LEN: usize = PARAMS_HASH.total_length() as usize;
+const PARAMS_128: Parameters = Parameters::new_by_bit_length(128, WINTERNITZ_DIGIT_WIDTH as u32);
+const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 
 #[cfg(test)]
 mod tests {
@@ -197,8 +378,8 @@ mod tests {
 
     #[test]
     fn sanity_check() {
-        let sk: [u8; 20 * PARAMS_HASH_TOTAL_LEN] = [0; 20 * PARAMS_HASH_TOTAL_LEN];
-        let pk = wots_public_key::<PARAMS_HASH_TOTAL_LEN>(&PARAMS_HASH, &sk);
+        let sk: [u8; 20 * PARAMS_128_TOTAL_LEN] = [0; 20 * PARAMS_128_TOTAL_LEN];
+        let pk = wots_public_key::<PARAMS_128_TOTAL_LEN>(&PARAMS_128, &sk);
         // This matches with the current BitVM implementation (as of 2025-03-30).
         let expected = [
             231, 105, 12, 202, 16, 103, 212, 67, 88, 20, 155, 195, 135, 65, 116, 73, 91, 255, 27,
@@ -242,5 +423,11 @@ mod tests {
             14, 234, 153, 15, 134, 178,
         ];
         assert_eq!(pk, expected);
+    }
+
+    #[test]
+    fn test_key_width() {
+        assert_eq!(key_width(128, 4), 36);
+        assert_eq!(key_width(256, 4), 68);
     }
 }

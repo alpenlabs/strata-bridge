@@ -272,6 +272,22 @@ pub trait WotsSigner<O: Origin>: Send {
         prestake_vout: u32,
         index: u32,
     ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
+
+    fn get_128_signature(
+        &self,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        index: u32,
+        msg: &[u8; 16],
+    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
+
+    fn get_256_signature(
+        &self,
+        prestake_txid: Txid,
+        prestake_vout: u32,
+        index: u32,
+        msg: &[u8; 32],
+    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
 }
 
 /// The Stake Chain preimages are used to generate deterministic preimages for the Stake Chain

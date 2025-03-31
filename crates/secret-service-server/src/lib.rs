@@ -510,6 +510,34 @@ where
                 ServerMessage::WotsGet256PublicKey { key }
             }
 
+            ArchivedClientMessage::WotsGet128Signature {
+                prestake_txid,
+                prestake_vout,
+                index,
+                msg,
+            } => {
+                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let sig = service
+                    .wots_signer()
+                    .get_128_signature(prestake_txid, prestake_vout.into(), index.into(), msg)
+                    .await;
+                ServerMessage::WotsGet128Signature { sig }
+            }
+
+            ArchivedClientMessage::WotsGet256Signature {
+                prestake_txid,
+                prestake_vout,
+                index,
+                msg,
+            } => {
+                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let sig = service
+                    .wots_signer()
+                    .get_256_signature(prestake_txid, prestake_vout.into(), index.into(), msg)
+                    .await;
+                ServerMessage::WotsGet256Signature { sig }
+            }
+
             ArchivedClientMessage::StakeChainGetPreimage {
                 prestake_txid,
                 prestake_vout,
