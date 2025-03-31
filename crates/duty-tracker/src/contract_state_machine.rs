@@ -333,10 +333,19 @@ pub enum OperatorDuty {
 
         /// The p2p key of the operator for whom to publish the graph nonces.
         operator_p2p_key: P2POperatorPubKey,
+
+        pog: PegOutGraph,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
-    PublishGraphSignatures,
+    PublishGraphSignatures {
+        /// Transaction ID of the DT
+        deposit_txid: Txid,
+        /// The p2p key of the operator for whom to publish the graph signatures
+        operator_p2p_key: P2POperatorPubKey,
+        pubnonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
+        pog: PegOutGraph,
+    },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
     PublishRootNonce {
@@ -790,7 +799,9 @@ impl ContractSM {
                 graph_nonces.insert(signer, nonces);
                 Ok(
                     if graph_nonces.len() == self.cfg.operator_table.cardinality() {
-                        Some(OperatorDuty::PublishGraphSignatures)
+                        Some(OperatorDuty::PublishGraphSignatures {
+                            pubnonces: graph_nonces.clone(),
+                        })
                     } else {
                         None
                     },
