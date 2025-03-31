@@ -6,8 +6,7 @@ use std::{
     time::Duration,
 };
 
-use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
-use bdk_wallet::error::CreateTxError;
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
@@ -22,11 +21,11 @@ use futures::{
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
-use strata_bridge_tx_graph::errors::TxGraphError;
-use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
+use strata_bridge_stake_chain::transactions::stake::StakeTxData;
+use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
     commands::{Command, UnsignedPublishMessage},
@@ -40,18 +39,16 @@ use strata_p2p_types::{
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
-use thiserror::Error;
 use tokio::{task::JoinHandle, time};
 use tracing::{error, info, warn};
 
 use crate::{
-    contract_persister::{ContractPersistErr, ContractPersister},
-    contract_state_machine::{
-        ContractEvent, ContractSM, DepositSetup, OperatorDuty, TransitionErr,
-    },
+    contract_persister::ContractPersister,
+    contract_state_machine::{ContractEvent, ContractSM, DepositSetup, OperatorDuty},
+    errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
-    stake_chain_persister::{StakeChainPersister, StakePersistErr},
-    stake_chain_state_machine::{StakeChainErr, StakeChainSM},
+    stake_chain_persister::StakeChainPersister,
+    stake_chain_state_machine::StakeChainSM,
 };
 
 /// System that handles all of the chain and p2p events and forwards them to their respective
@@ -70,6 +67,7 @@ impl ContractManager {
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
+        stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
         // Subsystem Handles
@@ -99,13 +97,19 @@ impl ContractManager {
                 Err(e) => crash(e.into()),
             };
 
-            let stake_chains = match stake_chain_persister.load().await {
-                Ok((loaded_operator_table, stake_chains)) => {
-                    if loaded_operator_table == operator_table {
-                        StakeChainSM::restore(network, loaded_operator_table, stake_chains)
-                    } else {
-                        crash(ContractManagerErr::ContractPersistErr(ContractPersistErr));
-                        return;
+            let stake_chains = match stake_chain_persister.load(&operator_table).await {
+                Ok(stake_chains) => {
+                    match StakeChainSM::restore(
+                        network,
+                        operator_table.clone(),
+                        stake_chain_params,
+                        stake_chains,
+                    ) {
+                        Ok(stake_chains) => stake_chains,
+                        Err(e) => {
+                            crash(ContractManagerErr::StakeChainErr(e));
+                            return;
+                        }
                     }
                 }
                 Err(e) => {
@@ -210,9 +214,20 @@ impl ContractManager {
                             }
                             GetMessageRequest::DepositSetup { scope, .. } => {
                                 let deposit_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
-                                let _ = ctx.execute_duty(OperatorDuty::PublishWOTSKeys {
-                                    deposit_txid,
-                                }).await;
+                                if let Some(deposit_idx) = ctx.active_contracts.get(&deposit_txid).map(|sm| sm.cfg().deposit_idx) {
+                                    match ctx.execute_duty(OperatorDuty::PublishDepositSetup {
+                                        deposit_txid,
+                                        deposit_idx,
+                                    }).await {
+                                        Ok(()) => { info!(%deposit_idx, %deposit_txid, "published deposit setup message"); },
+                                        Err(e) => {
+                                            // NOTE: might want to panic here.
+                                            error!(%e, %deposit_idx, %deposit_txid, "could not publish deposit setup message");
+                                        }
+                                    }
+                                } else {
+                                    warn!(%deposit_txid, "received deposit setup message for unknown contract");
+                                }
                             }
                             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(
@@ -269,50 +284,6 @@ impl Drop for ContractManager {
     fn drop(&mut self) {
         self.thread_handle.abort();
     }
-}
-
-/// Unified error type for everything that can happen in the ContractManager.
-#[derive(Debug, Error)]
-pub enum ContractManagerErr {
-    /// Errors related to writing contract state to disk.
-    #[error("failed to commit contract state to disk: {0}")]
-    ContractPersistErr(#[from] ContractPersistErr),
-
-    /// Errors related to committing stake chain state to disk.
-    #[error("failed to commit stake chain state to disk: {0}")]
-    StakePersistErr(#[from] StakePersistErr),
-
-    /// Errors related to state machines being unable to process ContractEvents
-    #[error("contract state machine received an invalid event: {0}")]
-    TransitionErr(#[from] TransitionErr),
-
-    /// Errors related to events updating operators' stake chains.
-    #[error("stake chain state machine received an invalid event: {0}")]
-    StakeChainErr(#[from] StakeChainErr),
-
-    /// Errors related to PegOutGraph generation.
-    #[error("peg out graph generation failed: {0}")]
-    TxGraphError(#[from] TxGraphError),
-
-    /// Errors related to receiving P2P messages at protocol-invalid times.
-    #[error("invalid p2p message: {0:?}")]
-    InvalidP2PMessage(Box<UnsignedGossipsubMsg>),
-
-    /// Errors related to calling Bitcoin Core's RPC interface.
-    #[error("bitcoin core rpc call failed with: {0}")]
-    BitcoinCoreRPCErr(#[from] ClientError),
-
-    /// Errors from failed secret service requests
-    #[error("secret service request failed with {0:?}")]
-    SecretServiceErr(#[from] secret_service_proto::v1::traits::ClientError),
-
-    /// Errors from the bridge db
-    #[error("database error: {0:?}")]
-    DbErr(#[from] DbError),
-
-    /// Error during transaction creation
-    #[error("error while creating transaction: {0:?}")]
-    CreateTxErr(#[from] CreateTxError),
 }
 
 struct ContractManagerCtx {
@@ -493,14 +464,11 @@ impl ContractManagerCtx {
                     OutPoint::new(pre_stake_txid, pre_stake_vout),
                 )?;
 
-                self.stake_chain_persister
-                    .commit(self.stake_chains.state())
-                    .await?;
-
                 Ok(())
             }
             UnsignedGossipsubMsg::DepositSetup {
                 scope,
+                index,
                 hash,
                 funding_txid,
                 funding_vout,
@@ -511,37 +479,37 @@ impl ContractManagerCtx {
                     Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
                 if let Some(contract) = self.active_contracts.get_mut(&deposit_txid) {
                     let setup = DepositSetup {
+                        index,
                         hash,
                         funding_outpoint: OutPoint::new(funding_txid, funding_vout),
                         operator_pk,
                         wots_pks: wots_pks.clone(),
                     };
                     self.stake_chains.process_setup(msg.key.clone(), &setup)?;
+
                     self.stake_chain_persister
-                        .commit(self.stake_chains.state())
+                        .commit_stake_data(&self.operator_table, self.stake_chains.state().clone())
                         .await?;
 
                     let deposit_idx = contract.cfg().deposit_idx;
-                    let stake_tx = if let Some(stake_tx) =
-                        self.stake_chains.stake_tx(&msg.key, deposit_idx as usize)
-                    {
-                        stake_tx
-                    } else {
-                        return Err(ContractManagerErr::StakeChainErr(StakeChainErr));
-                    };
+                    let stake_tx = self
+                        .stake_chains
+                        .stake_tx(&msg.key, deposit_idx as usize)?
+                        .ok_or(StakeChainErr::StakeTxNotFound(msg.key.clone(), deposit_idx))?;
 
                     if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::DepositSetup(
-                            msg.key.clone(),
-                            self.operator_table
+                        contract.process_contract_event(ContractEvent::DepositSetup {
+                            operator_p2p_key: msg.key.clone(),
+                            operator_btc_key: self
+                                .operator_table
                                 .op_key_to_btc_key(&msg.key)
                                 .unwrap()
                                 .x_only_public_key()
                                 .0,
-                            hash,
+                            stake_hash: hash,
                             stake_tx,
-                            Box::new(wots_pks),
-                        ))?
+                            wots_keys: Box::new(wots_pks),
+                        })?
                     {
                         self.execute_duty(duty).await?;
                     }
@@ -753,7 +721,10 @@ impl ContractManagerCtx {
 
     async fn execute_duty(&mut self, duty: OperatorDuty) -> Result<(), ContractManagerErr> {
         match duty {
-            OperatorDuty::PublishWOTSKeys { deposit_txid } => {
+            OperatorDuty::PublishDepositSetup {
+                deposit_idx,
+                deposit_txid,
+            } => {
                 let operator_pk = self.s2_client.general_wallet_signer().pubkey().await?;
                 let wots_client = self.s2_client.wots_signer();
                 /// VOUT is static because irrelevant so we're just gonna use 0
@@ -813,7 +784,7 @@ impl ContractManagerCtx {
                     .get_preimg(
                         self.stakechain_prestake_utxo.txid,
                         self.stakechain_prestake_utxo.vout,
-                        self.active_contracts.len() as u32, // i hate this lol
+                        deposit_idx,
                     )
                     .await?;
 
@@ -899,12 +870,25 @@ impl ContractManagerCtx {
                     }
                 };
 
+                let withdrawal_fulfillment_pk =
+                    std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
+                let stake_data = StakeTxData {
+                    operator_funds: funding_utxo,
+                    hash: stakechain_preimg_hash,
+                    withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+                        withdrawal_fulfillment_pk,
+                    ),
+                };
+                self.db
+                    .add_stake_data(self.operator_table.pov_idx(), deposit_idx, stake_data)
+                    .await?;
+
                 self.p2p_msg_handle
                     .send_deposit_setup(
+                        deposit_idx,
                         scope,
                         stakechain_preimg_hash,
-                        funding_utxo.txid,
-                        funding_utxo.vout,
+                        funding_utxo,
                         operator_pk,
                         wots_pks,
                     )

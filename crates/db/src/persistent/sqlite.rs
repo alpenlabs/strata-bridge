@@ -393,24 +393,13 @@ impl PublicDb for SqliteDb {
     async fn add_stake_data(
         &self,
         operator_id: OperatorIdx,
+        stake_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()> {
         execute_with_retries(&self.config, || {
             let pool = self.pool.to_owned();
             async move {
                 let mut tx = pool.begin().await.map_err(StorageError::from)?;
-                // count the number of stake data for this operator
-                let stake_id = sqlx::query!(
-                    "SELECT COUNT(*) AS cnt FROM operator_stake_data WHERE operator_id = $1",
-                    operator_id
-                )
-                .fetch_all(&mut *tx)
-                .await
-                .map_err(StorageError::from)?
-                .first()
-                .map(|row| row.cnt)
-                .unwrap_or(0);
-
                 let stake_data = DbStakeTxData::from(stake_data);
 
                 sqlx::query!(
@@ -418,7 +407,7 @@ impl PublicDb for SqliteDb {
                         (operator_id, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
                         VALUES ($1, $2, $3, $4, $5, $6)",
                     operator_id,
-                    stake_id,
+                    stake_index,
                     stake_data.funding_txid,
                     stake_data.funding_vout,
                     stake_data.hash,
@@ -1705,7 +1694,7 @@ mod tests {
                     .is_ok_and(|v| v.is_none()),
                 "stake data must not exist initially"
             );
-            db.add_stake_data(operator_id, stake_data)
+            db.add_stake_data(operator_id, stake_id, stake_data)
                 .await
                 .expect("must be able to set stake data");
             assert!(

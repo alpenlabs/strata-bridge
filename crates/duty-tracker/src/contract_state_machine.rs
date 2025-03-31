@@ -34,6 +34,9 @@ use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 /// message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositSetup {
+    /// The index of the stake transaction associated with this deposit.
+    pub index: u32,
+
     /// The stake hash we received in the DepositSetup P2P message.
     pub hash: sha256::Hash,
 
@@ -48,6 +51,7 @@ pub struct DepositSetup {
     /// The public wots keys we received from the DepositSetup P2P message.
     pub wots_pks: WotsPublicKeys,
 }
+
 impl DepositSetup {
     /// Conversion function into StakeTxData.
     pub fn stake_tx_data(&self) -> StakeTxData {
@@ -67,13 +71,22 @@ impl DepositSetup {
 #[derive(Debug)]
 pub enum ContractEvent {
     /// Signifies that we have a new set of WOTS keys from one of our peers.
-    DepositSetup(
-        P2POperatorPubKey,
-        XOnlyPublicKey,
-        sha256::Hash,
-        StakeTx,
-        Box<WotsPublicKeys>,
-    ),
+    DepositSetup {
+        /// The operator's P2P public key.
+        operator_p2p_key: P2POperatorPubKey,
+
+        /// The operator's X-only public key used for CPFP outputs, payouts and funding inputs.
+        operator_btc_key: XOnlyPublicKey,
+
+        /// The hash used in the hashlock in the previous stake transaction.
+        stake_hash: sha256::Hash,
+
+        /// The stake transaction that holds the stake corresponding to the current contract.
+        stake_tx: StakeTx,
+
+        /// The wots keys needed to construct the pog.
+        wots_keys: Box<WotsPublicKeys>,
+    },
 
     /// Signifies that we have a new set of nonces for the peg out graph from one of our peers.
     GraphNonces(P2POperatorPubKey, Vec<PubNonce>),
@@ -271,10 +284,13 @@ pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
 
-    /// Instructs us to publish our own wots keys for this contract.
-    PublishWOTSKeys {
+    /// Instructs us to publish the setup data for this contract.
+    PublishDepositSetup {
         /// Transaction ID of the DT
         deposit_txid: Txid,
+
+        /// The index of the deposit
+        deposit_idx: u32,
     },
 
     /// Instructs us to publish our graph nonces for this contract.
@@ -506,9 +522,19 @@ impl ContractSM {
         ev: ContractEvent,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match ev {
-            ContractEvent::DepositSetup(op, btc_key, stake_hash, stake_tx, wots_keys) => {
-                self.process_deposit_setup(op, btc_key, stake_hash, stake_tx, *wots_keys)
-            }
+            ContractEvent::DepositSetup {
+                operator_p2p_key,
+                operator_btc_key,
+                stake_hash,
+                stake_tx,
+                wots_keys,
+            } => self.process_deposit_setup(
+                operator_p2p_key,
+                operator_btc_key,
+                stake_hash,
+                stake_tx,
+                *wots_keys,
+            ),
             ContractEvent::GraphNonces(op, nonces) => self.process_graph_nonces(op, nonces),
             ContractEvent::GraphSigs(op, sigs) => self.process_graph_signatures(op, sigs),
             ContractEvent::RootNonce(op, nonce) => self.process_root_nonce(op, nonce),
@@ -640,6 +666,8 @@ impl ContractSM {
                 peg_out_graphs.insert(signer, pog_summary);
 
                 Ok(
+                    // FIXME: (@Rajil1213) update this condition when multi stake chain is
+                    // implemented.
                     if stake_txs.len() == self.cfg.operator_table.cardinality() {
                         Some(OperatorDuty::PublishGraphNonces)
                     } else {

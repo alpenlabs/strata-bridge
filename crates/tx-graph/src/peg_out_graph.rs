@@ -1270,7 +1270,7 @@ mod tests {
 
         let first_stake = StakeTx::create_initial(
             context,
-            stake_chain_params,
+            &stake_chain_params,
             stake_hash,
             wots_public_keys.withdrawal_fulfillment,
             pre_stake,
@@ -1948,7 +1948,7 @@ mod tests {
 
         let new_stake_tx = StakeTx::advance(
             &context,
-            stake_chain_params,
+            &stake_chain_params,
             stake_data,
             input.stake_hash,
             input.stake_outpoint,
