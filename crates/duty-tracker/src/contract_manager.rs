@@ -1333,10 +1333,10 @@ async fn execute_duty(
                 let our_nonce = r1.our_nonce().await?;
                 nonces.push(our_nonce);
 
-                for _tx in sighashes.slash_stake.iter() {
-                    let payout_txid = pog.payout_tx.compute_txid();
+                for (slash_stake_i, _tx) in sighashes.slash_stake.iter().enumerate() {
+                    let slash_stake_txid = pog.slash_stake_txs[slash_stake_i].compute_txid();
                     for (vout, _message) in sighashes.payout.into_iter().enumerate() {
-                        let outpoint = OutPoint::new(payout_txid, vout as u32);
+                        let outpoint = OutPoint::new(slash_stake_txid, vout as u32);
                         let witness = pog.payout_tx.witnesses()[vout].clone();
                         let ordered_pubkeys = ordered_pubkeys.clone();
 
@@ -1350,7 +1350,7 @@ async fn execute_duty(
                                     .new_session(
                                         ordered_pubkeys,
                                         witness,
-                                        deposit_txid,
+                                        slash_stake_txid,
                                         vout as u32,
                                     )
                                     .await
