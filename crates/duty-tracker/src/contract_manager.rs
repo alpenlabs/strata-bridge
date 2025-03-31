@@ -83,6 +83,52 @@ use crate::{
     tx_driver::TxDriver,
 };
 
+macro_rules! get_or_create_nonce {
+    ($self:expr, $outpoint:expr, $ordered_pubkeys:expr, $witness:expr) => {{
+        if let Some(pubnonce) = $self
+            .db
+            .collected_pubnonces($outpoint.txid, $outpoint.vout)
+            .await?
+            .get(&$self.operator_table.pov_idx())
+        {
+            pubnonce.clone()
+        } else {
+            let r = get_or_set_ms2_session(&mut $self.s2_musig2_sessions, $outpoint, || async {
+                $self
+                    .s2_client
+                    .musig2_signer()
+                    .new_session(
+                        $ordered_pubkeys.clone(),
+                        $witness,
+                        $outpoint.txid,
+                        $outpoint.vout,
+                    )
+                    .await
+                    .map(|inner| Musig2Round::Musig2FirstRound(inner.expect("valid first round")))
+            })
+            .await?;
+
+            let Musig2Round::Musig2FirstRound(r1) = r else {
+                todo!()
+            };
+
+            let our_nonce = r1.our_nonce().await?;
+
+            $self
+                .db
+                .add_pubnonce(
+                    $outpoint.txid,
+                    $outpoint.vout,
+                    $self.operator_table.pov_idx(),
+                    our_nonce.clone(),
+                )
+                .await?;
+
+            our_nonce
+        }
+    }};
+}
+
 /// System that handles all of the chain and p2p events and forwards them to their respective
 /// [`ContractSM`]s.
 #[derive(Debug)]
@@ -1333,39 +1379,16 @@ async fn execute_duty(
                 let our_nonce = r1.our_nonce().await?;
                 nonces.push(our_nonce);
 
-                for (slash_stake_i, _tx) in sighashes.slash_stake.iter().enumerate() {
-                    let slash_stake_txid = pog.slash_stake_txs[slash_stake_i].compute_txid();
-                    for (vout, _message) in sighashes.payout.into_iter().enumerate() {
-                        let outpoint = OutPoint::new(slash_stake_txid, vout as u32);
-                        let witness = pog.payout_tx.witnesses()[vout].clone();
-                        let ordered_pubkeys = ordered_pubkeys.clone();
-
-                        let r = get_or_set_ms2_session(
-                            &mut self.s2_musig2_sessions,
+                for slash_stake_idx in 0..sighashes.slash_stake.len() {
+                    let slash_stake_txid = pog.slash_stake_txs[slash_stake_idx].compute_txid();
+                    for input_idx in 0..sighashes.payout.len() {
+                        let outpoint = OutPoint::new(slash_stake_txid, input_idx as u32);
+                        let our_nonce = get_or_create_nonce!(
+                            self,
                             outpoint,
-                            || async {
-                                output_handles
-                                    .s2_client
-                                    .musig2_signer()
-                                    .new_session(
-                                        ordered_pubkeys,
-                                        witness,
-                                        slash_stake_txid,
-                                        vout as u32,
-                                    )
-                                    .await
-                                    .map(|inner| {
-                                        Musig2Round::Musig2FirstRound(
-                                            inner.expect("valid first round"),
-                                        )
-                                    })
-                            },
-                        )
-                        .await?;
-                        let Musig2Round::Musig2FirstRound(r1) = r else {
-                            todo!()
-                        };
-                        let our_nonce = r1.our_nonce().await?;
+                            ordered_pubkeys,
+                            pog.payout_tx.witnesses()[input_idx].clone()
+                        );
                         nonces.push(our_nonce);
                     }
                 }
@@ -1646,12 +1669,11 @@ enum Musig2Round {
     Musig2SecondRound(Musig2SecondRound),
 }
 
-#[expect(clippy::needless_lifetimes)]
-async fn get_or_set_ms2_session<'a, Func, Ftr>(
-    hm: &'a mut HashMap<OutPoint, Musig2Round>,
+async fn get_or_set_ms2_session<Func, Ftr>(
+    hm: &mut HashMap<OutPoint, Musig2Round>,
     k: OutPoint,
-    value: Func,
-) -> Result<&'a Musig2Round, secret_service_proto::v1::traits::ClientError>
+    create: Func,
+) -> Result<&Musig2Round, secret_service_proto::v1::traits::ClientError>
 where
     Ftr: Future<Output = Result<Musig2Round, secret_service_proto::v1::traits::ClientError>>,
     Func: FnOnce() -> Ftr,
@@ -1663,7 +1685,7 @@ where
     }
 
     // If key doesn't exist, create and insert new value
-    let v = value().await?;
+    let v = create().await?;
     hm.insert(k, v);
 
     // Return reference to the newly inserted value
