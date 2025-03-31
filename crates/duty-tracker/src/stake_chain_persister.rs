@@ -89,7 +89,6 @@ impl StakeChainPersister {
                         ?btc_key,
                         "ignoring incomplete data"
                     );
-                    continue;
                 }
             }
         }
