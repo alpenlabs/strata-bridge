@@ -205,6 +205,11 @@ impl OperatorWallet {
         &self.general_wallet
     }
 
+    /// Returns an immutable reference to the stakechain wallet
+    pub fn stakechain_wallet(&self) -> &Wallet {
+        &self.stakechain_wallet
+    }
+
     /// Syncs the wallet using the backend provided on construction
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         self.sync_backend

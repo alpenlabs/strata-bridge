@@ -7,8 +7,13 @@ use std::{
 };
 
 use anyhow::anyhow;
-use bdk_bitcoind_rpc::bitcoincore_rpc;
-use bitcoin::{secp256k1::SecretKey, XOnlyPublicKey};
+use bdk_bitcoind_rpc::bitcoincore_rpc::{self, RpcApi};
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::SecretKey,
+    sighash::{Prevouts, SighashCache, TapSighashType},
+    taproot, FeeRate, OutPoint, TxOut,
+};
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
@@ -22,12 +27,12 @@ use secret_service_client::{
     },
     SecretServiceClient,
 };
-use secret_service_proto::v1::traits::{P2PSigner, SecretService, WalletSigner};
+use secret_service_proto::v1::traits::{Musig2Signer, P2PSigner, SecretService, WalletSigner};
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use strata_bridge_db::persistent::sqlite::SqliteDb;
+use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
@@ -83,23 +88,114 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     // Operator wallet stuff.
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
     let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
+    let my_key = s2_client.musig2_signer().pubkey().await?;
+    let my_index = params
+        .keys
+        .musig2
+        .iter()
+        .position(|k| k == &my_key)
+        .expect("should be able to find my index");
     let operator_wallet_config = OperatorWalletConfig::new(
         OPERATOR_FUNDS,
         // NOTE: 32 seems an OK-ish pool size for the operator wallet.
-        //       These will be reused that's why its a 'pool'.
+        //       These will be refilled that's why its a 'pool'.
         32,
         SEGWIT_MIN_AMOUNT,
         params.stake_chain.stake_amount,
         params.network,
     );
-    let sync_backend = Backend::BitcoinCore(bitcoin_rpc_client);
-    let operator_wallet = init_operator_wallet(
+    let sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
+    let mut operator_wallet = OperatorWallet::new(
         general_key,
         stakechain_key,
         operator_wallet_config,
         sync_backend,
     );
+    // Handle the pre-stake tx.
+    if db
+        .get_pre_stake(my_index as u32)
+        .await
+        .expect("should be able to consult the database")
+        .is_none()
+    {
+        // This means that we don't have a pre-stake tx in the database.
+        // We need to create a pre-stake tx, sign it, broadcast it and save it to the database.
+        // BitcoinD is ancient technology, so we need to convert the fee rate estimate to a proper
+        // FeeRate.
+        let fee_rate = bitcoin_rpc_client
+            .estimate_smart_fee(1, None)
+            .expect("should be able to get the fee rate estimate")
+            .fee_rate
+            .and_then(|per_kw| per_kw.checked_div(1_000))
+            .and_then(|per_vb| FeeRate::from_sat_per_vb(per_vb.to_sat()))
+            .unwrap_or(FeeRate::from_sat_per_vb_unchecked(3));
 
+        // We need to sync the wallet.
+        operator_wallet
+            .sync()
+            .await
+            .expect("should be able to sync the wallet");
+
+        // Create the PreStake tx.
+        let pre_stake_psbt = operator_wallet
+            .create_prestake_tx(fee_rate)
+            .expect("should be able to create the pre-stake tx");
+        // Get the unsigned pre-stake tx.
+        let pre_stake_tx = pre_stake_psbt.unsigned_tx;
+        let pre_stake_txid = pre_stake_tx.compute_txid();
+
+        // Collect all the UTXOs in the stakechain wallet that match the pre-stake tx inputs.
+        const VOUT: u32 = 0;
+        let stakechain_wallet = operator_wallet.stakechain_wallet();
+        let prevouts = pre_stake_tx
+            .input
+            .iter()
+            .map(|i| {
+                let outpoint = i.previous_output;
+                stakechain_wallet
+                    .get_utxo(outpoint)
+                    .expect("should be able to get the outpoint")
+                    .txout
+            })
+            .collect::<Vec<TxOut>>();
+        let prevouts = Prevouts::All(&prevouts);
+        let mut sighasher = SighashCache::new(pre_stake_tx);
+        let sighash = sighasher
+            .taproot_key_spend_signature_hash(VOUT as usize, &prevouts, TapSighashType::All)
+            .expect("must be able to compute the sighash");
+
+        // Sign the pre-stake tx.
+        let signature = s2_client
+            .general_wallet_signer()
+            .sign(&sighash.to_byte_array())
+            .await?;
+
+        let signature = taproot::Signature {
+            signature,
+            sighash_type: TapSighashType::All,
+        };
+        sighasher
+            .witness_mut(0)
+            .expect("must be able to get the witness")
+            .push(signature.to_vec());
+        let signed_pre_stake_tx = sighasher.into_transaction();
+
+        // Broadcast the pre-stake tx.
+        bitcoin_rpc_client
+            .send_raw_transaction(&signed_pre_stake_tx)
+            .expect("should be able to broadcast the pre-stake tx");
+
+        // Save the pre-stake tx to the database.
+        let pre_stake_outpoint = OutPoint {
+            txid: pre_stake_txid,
+            vout: VOUT,
+        };
+        db.set_pre_stake(my_index as u32, pre_stake_outpoint)
+            .await
+            .expect("should be able to save the pre-stake tx to the database");
+    }
+
+    // Initialize the duty tracker.
     init_duty_tracker(
         &params,
         &config,
@@ -305,18 +401,4 @@ async fn start_rpc_server(
             .expect("failed to start RPC server");
     });
     Ok(handle)
-}
-
-fn init_operator_wallet(
-    general_key: XOnlyPublicKey,
-    stakechain_key: XOnlyPublicKey,
-    config: OperatorWalletConfig,
-    sync_backend: Backend,
-) -> OperatorWallet {
-    unimplemented!("@storopoli");
-    let operator_wallet = OperatorWallet::new(general_key, stakechain_key, config, sync_backend);
-    // TODO: handle genesis PreStake tx.
-    //       If available in the database, we can skip this.
-    //       Otherwise, we need to create a PreStake tx, broadcast it and save it to the database.
-    operator_wallet
 }
