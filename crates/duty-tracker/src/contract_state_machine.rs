@@ -621,7 +621,7 @@ impl ContractSM {
     }
 
     /// Generates the duty to publish graph nonces if the contract is in the
-    /// [Requested](ContractState::Requested) state.
+    /// [`Requested`](ContractState::Requested) state.
     ///
     /// # Parameters
     ///
