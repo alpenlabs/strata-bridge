@@ -620,8 +620,12 @@ impl ContractSM {
         Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
     }
 
-    /// Generates the duty to publish graph nonces if the contract is in the
-    /// [`Requested`](ContractState::Requested) state.
+    /// Updates the current state of the machine with the new data i.e., the new stake transaction,
+    /// the new wots keys and all the resulting transaction IDs in the transaction graph that
+    /// need to be monitored on chain.
+    ///
+    /// This only happens if the contract is in the [`Requested`](ContractState::Requested) state.
+    /// This may produce the duty to publish the graph nonces.
     ///
     /// # Parameters
     ///
