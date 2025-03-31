@@ -44,11 +44,13 @@ use strata_bridge_primitives::{
     wots::PublicKeys,
 };
 use strata_bridge_stake_chain::{
-    prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
+    prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    stake_chain::StakeChainInputs,
+    transactions::stake::StakeTxData,
 };
 use strata_bridge_tx_graph::{
     errors::TxGraphError,
-    peg_out_graph::{PegOutGraph, PegOutGraphSighashes},
+    peg_out_graph::{PegOutGraph, PegOutGraphInput},
     transactions::prelude::CovenantTx,
 };
 use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
@@ -71,7 +73,8 @@ use tracing::{error, info, warn};
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
     contract_state_machine::{
-        ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
+        convert_g16_keys, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
+        OperatorDuty, TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
@@ -304,14 +307,17 @@ impl ContractManager {
                                 } else {
                                     warn!(%deposit_txid, "received deposit setup message for unknown contract");
                                 }
-                            },
-                            GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
+                            }
+                            GetMessageRequest::Musig2NoncesExchange { session_id, operator_pk, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(
                                     *sha256d::Hash::from_bytes_ref(session_id.as_ref())
                                 );
 
                                 if ctx.state.active_contracts.contains_key(&session_id_as_txid) {
-                                    duties.push(OperatorDuty::PublishGraphNonces { deposit_txid: session_id_as_txid });
+                                    duties.push(OperatorDuty::PublishGraphNonces {
+                                        deposit_txid:session_id_as_txid,
+                                        operator_p2p_key: operator_pk
+                                    });
                                 } else if let Some(csm) = ctx.state.active_contracts
                                     .values()
                                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid) {
@@ -1279,7 +1285,10 @@ async fn execute_duty(
             Ok(())
         }
 
-        OperatorDuty::PublishGraphNonces { deposit_txid } => {
+        OperatorDuty::PublishGraphNonces {
+            deposit_txid,
+            operator_p2p_key,
+        } => {
             let (pog, pog_conns) = PegOutGraph::generate(
                 input,
                 &cfg.operator_table.tx_build_context(cfg.network),
@@ -1323,10 +1332,53 @@ async fn execute_duty(
                 };
                 let our_nonce = r1.our_nonce().await?;
                 nonces.push(our_nonce);
+
+                for _tx in sighashes.slash_stake.iter() {
+                    let payout_txid = pog.payout_tx.compute_txid();
+                    for (vout, _message) in sighashes.payout.into_iter().enumerate() {
+                        let outpoint = OutPoint::new(payout_txid, vout as u32);
+                        let witness = pog.payout_tx.witnesses()[vout].clone();
+                        let ordered_pubkeys = ordered_pubkeys.clone();
+
+                        let r = get_or_set_ms2_session(
+                            &mut self.s2_musig2_sessions,
+                            outpoint,
+                            || async {
+                                output_handles
+                                    .s2_client
+                                    .musig2_signer()
+                                    .new_session(
+                                        ordered_pubkeys,
+                                        witness,
+                                        deposit_txid,
+                                        vout as u32,
+                                    )
+                                    .await
+                                    .map(|inner| {
+                                        Musig2Round::Musig2FirstRound(
+                                            inner.expect("valid first round"),
+                                        )
+                                    })
+                            },
+                        )
+                        .await?;
+                        let Musig2Round::Musig2FirstRound(r1) = r else {
+                            todo!()
+                        };
+                        let our_nonce = r1.our_nonce().await?;
+                        nonces.push(our_nonce);
+                    }
+                }
+
+                let session_id = SessionId::from_bytes(deposit_txid.to_byte_array());
+                output_handles
+                    .msg_handler
+                    .send_musig2_nonces(session_id, nonces)
+                    .await;
             }
 
             let payout_txid = pog.payout_tx.compute_txid();
-            for (vout, message) in sighashes.payout_tx.into_iter().enumerate() {
+            for (vout, message) in sighashes.payout.into_iter().enumerate() {
                 let outpoint = OutPoint::new(payout_txid, vout as u32);
                 let witness = pog.payout_tx.witnesses()[vout];
                 let r = get_or_set_ms2_session(&mut self.s2_musig2_sessions, outpoint, || async {
@@ -1365,7 +1417,7 @@ async fn execute_duty(
             let our_nonce = r1.our_nonce().await?;
             nonces.push(our_nonce);
 
-            for (i, sighashes) in sighashes.slash_stake_txs.iter().enumerate() {
+            for (i, sighashes) in sighashes.slash_stake.iter().enumerate() {
                 let slash_stake_txid = pog.slash_stake_txs[i].compute_txid();
                 for (vout, message) in sighashes.into_iter().enumerate() {
                     let outpoint = OutPoint::new(slash_stake_txid, vout as u32);
@@ -1590,9 +1642,11 @@ async fn handle_advance_stake_chain(
 }
 enum Musig2Round {
     Musig2FirstRound(Musig2FirstRound),
+    #[expect(dead_code)]
     Musig2SecondRound(Musig2SecondRound),
 }
 
+#[expect(clippy::needless_lifetimes)]
 async fn get_or_set_ms2_session<'a, Func, Ftr>(
     hm: &'a mut HashMap<OutPoint, Musig2Round>,
     k: OutPoint,
@@ -1610,7 +1664,7 @@ where
 
     // If key doesn't exist, create and insert new value
     let v = value().await?;
-    hm.insert(k.clone(), v);
+    hm.insert(k, v);
 
     // Return reference to the newly inserted value
     Ok(hm.get(&k).expect("Key was just inserted"))

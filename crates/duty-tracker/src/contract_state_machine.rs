@@ -330,6 +330,9 @@ pub enum OperatorDuty {
     PublishGraphNonces {
         /// Transaction ID of the DT
         deposit_txid: Txid,
+
+        /// The p2p key of the operator for whom to publish the graph nonces.
+        operator_p2p_key: P2POperatorPubKey,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -339,12 +342,18 @@ pub enum OperatorDuty {
     PublishRootNonce {
         /// Transaction ID of the DRT
         deposit_request_txid: Txid,
+
+        /// The schnorr key that locks the funds in the DRT for the user to take back after a
+        /// parameterized refund delay.
         takeback_key: XOnlyPublicKey,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
     PublishRootSignature {
+        /// The nonces received from peers.
         nonces: BTreeMap<P2POperatorPubKey, PubNonce>,
+
+        /// The data required to construct the deposit transaction.
         deposit_info: DepositInfo,
     },
 
@@ -724,7 +733,7 @@ impl ContractSM {
                     withdrawal_fulfillment: Wots256PublicKey(
                         new_wots_keys.withdrawal_fulfillment.0,
                     ),
-                    groth16: Self::convert_g16_keys(new_wots_keys.groth16.clone())?,
+                    groth16: convert_g16_keys(new_wots_keys.groth16.clone())?,
                 };
                 let pog_input = PegOutGraphInput {
                     stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
@@ -752,13 +761,16 @@ impl ContractSM {
 
                 stake_txs.insert(signer.clone(), new_stake_tx);
                 wots_keys.insert(signer.clone(), new_wots_keys);
-                peg_out_graphs.insert(signer, pog_summary);
+                peg_out_graphs.insert(signer.clone(), pog_summary);
 
                 Ok(
                     // FIXME: (@Rajil1213) update this condition when multi stake chain is
                     // implemented.
                     if stake_txs.len() == self.cfg.operator_table.cardinality() {
-                        Some(OperatorDuty::PublishGraphNonces { deposit_txid })
+                        Some(OperatorDuty::PublishGraphNonces {
+                            deposit_txid: self.deposit_txid(),
+                            operator_p2p_key: signer,
+                        })
                     } else {
                         None
                     },
@@ -1287,4 +1299,27 @@ impl ContractSM {
             .previous_output
             .txid
     }
+}
+
+pub(crate) fn convert_g16_keys(
+    g16_keys: strata_p2p_types::Groth16PublicKeys,
+) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
+    // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
+    // rid of the rats nest of code below.
+    if g16_keys.public_inputs.len() != NUM_PUBS {
+        return Err(TransitionErr);
+    }
+    let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
+
+    if g16_keys.fqs.len() != NUM_U256 {
+        return Err(TransitionErr);
+    }
+    let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
+
+    if g16_keys.hashes.len() != NUM_HASH {
+        return Err(TransitionErr);
+    }
+    let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
+
+    Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
 }
