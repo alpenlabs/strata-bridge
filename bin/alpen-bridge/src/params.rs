@@ -1,5 +1,5 @@
 use alpen_bridge_params::prelude::{PegOutGraphParams, StakeChainParams};
-use bitcoin::hex::DisplayHex;
+use bitcoin::{hex::DisplayHex, Network};
 use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -11,6 +11,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 /// behavior that will prevent the bridge from functioning.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Params {
+    /// The network on which the bridge is operating.
+    pub network: Network,
+
     /// The height at which the bridge node starts scanning for relevant transactions.
     pub genesis_height: u32,
 
@@ -115,6 +118,7 @@ mod tests {
         let deposit_amount = Amount::from_int_btc(1).to_sat();
         let params = format!(
             r#"
+            network = "signet"
             genesis_height = 101
 
             [keys]

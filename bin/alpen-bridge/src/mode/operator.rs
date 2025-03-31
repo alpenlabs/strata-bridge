@@ -2,15 +2,18 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
 use anyhow::anyhow;
-use bitcoin::secp256k1::SecretKey;
+use bdk_bitcoind_rpc::bitcoincore_rpc;
+use bitcoin::{secp256k1::SecretKey, XOnlyPublicKey};
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
+use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
 use secp256k1::SECP256K1;
 use secret_service_client::{
     rustls::{
@@ -19,7 +22,7 @@ use secret_service_client::{
     },
     SecretServiceClient,
 };
-use secret_service_proto::v1::traits::{P2PSigner, SecretService};
+use secret_service_proto::v1::traits::{P2PSigner, SecretService, WalletSigner};
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
@@ -28,6 +31,8 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
+use strata_bridge_primitives::constants::SEGWIT_MIN_AMOUNT;
+use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::P2POperatorPubKey;
 use tokio::{spawn, task::JoinHandle, try_join};
@@ -44,8 +49,8 @@ use crate::{
 pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<()> {
     info!("bootstrapping operator node");
 
+    // Secret Service stuff.
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
-
     let sk = s2_client
         .p2p_signer()
         .secret_key()
@@ -57,13 +62,52 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         sk_fingerprint = sk
     );
 
+    // P2P message handler.
     let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
     let p2p_handle_rpc = message_handler.handle.clone();
 
+    // Database instances.
     let db = init_database_handle(&config).await;
     let db_rpc = db.clone();
 
-    init_duty_tracker(&params, &config, s2_client, message_handler, db);
+    // BitcoinD RPC client for the Operator Wallet.
+    let auth = bitcoincore_rpc::Auth::UserPass(
+        config.btc_client.user.to_string(),
+        config.btc_client.pass.to_string(),
+    );
+    let bitcoin_rpc_client = Arc::new(
+        bitcoincore_rpc::Client::new(config.btc_client.url.as_str(), auth)
+            .expect("should be able to create bitcoin client"),
+    );
+
+    // Operator wallet stuff.
+    let general_key = s2_client.general_wallet_signer().pubkey().await?;
+    let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
+    let operator_wallet_config = OperatorWalletConfig::new(
+        OPERATOR_FUNDS,
+        // NOTE: 32 seems an OK-ish pool size for the operator wallet.
+        //       These will be reused that's why its a 'pool'.
+        32,
+        SEGWIT_MIN_AMOUNT,
+        params.stake_chain.stake_amount,
+        params.network,
+    );
+    let sync_backend = Backend::BitcoinCore(bitcoin_rpc_client);
+    let operator_wallet = init_operator_wallet(
+        general_key,
+        stakechain_key,
+        operator_wallet_config,
+        sync_backend,
+    );
+
+    init_duty_tracker(
+        &params,
+        &config,
+        s2_client,
+        message_handler,
+        operator_wallet,
+        db,
+    );
 
     let rpc_address = config.rpc_addr.clone();
     let rpc_task = start_rpc_server(rpc_address, db_rpc, p2p_handle_rpc, params.clone()).await?;
@@ -242,6 +286,7 @@ fn init_duty_tracker(
     _config: &Config,
     _s2_client: SecretServiceClient,
     _message_handler: MessageHandler,
+    _operator_wallet: OperatorWallet,
     _db: SqliteDb,
 ) {
     unimplemented!("@ProofOfKeags");
@@ -260,4 +305,18 @@ async fn start_rpc_server(
             .expect("failed to start RPC server");
     });
     Ok(handle)
+}
+
+fn init_operator_wallet(
+    general_key: XOnlyPublicKey,
+    stakechain_key: XOnlyPublicKey,
+    config: OperatorWalletConfig,
+    sync_backend: Backend,
+) -> OperatorWallet {
+    unimplemented!("@storopoli");
+    let operator_wallet = OperatorWallet::new(general_key, stakechain_key, config, sync_backend);
+    // TODO: handle genesis PreStake tx.
+    //       If available in the database, we can skip this.
+    //       Otherwise, we need to create a PreStake tx, broadcast it and save it to the database.
+    operator_wallet
 }

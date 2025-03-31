@@ -19,11 +19,13 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 alpen-bridge-params.workspace = true
+operator-wallet.workspace = true
 secret-service-client.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
+strata-bridge-stake-chain.workspace = true
 strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 
@@ -31,6 +33,7 @@ strata-common.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true
+bdk_bitcoind_rpc.workspace = true
 bitcoin.workspace = true
 chrono.workspace = true
 clap.workspace = true

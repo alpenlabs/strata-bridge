@@ -42,7 +42,7 @@ btc-notify.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 musig2.workspace = true
-operator-wallet = { version = "0.1.0", path = "../operator-wallet" }
+operator-wallet.workspace = true
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
 serde.workspace = true
