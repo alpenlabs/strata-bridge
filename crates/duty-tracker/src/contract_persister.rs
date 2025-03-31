@@ -1,9 +1,9 @@
 //! This module is responsible for being able to save the contents of the ContractSM to disk.
 use std::fmt::Display;
 
-use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams};
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bincode::ErrorKind;
-use bitcoin::Txid;
+use bitcoin::{Network, Txid};
 use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
@@ -49,9 +49,6 @@ impl ContractPersister {
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
-                payout_optimistic_timelock INTEGER NOT NULL,
-                pre_assert_timelock INTEGER NOT NULL,
-                payout_timelock INTEGER NOT NULL,
                 state VARBINARY NOT NULL,
             );
             "#,
@@ -74,23 +71,15 @@ impl ContractPersister {
                 deposit_txid,
                 deposit_idx,
                 deposit_tx,
-                network,
                 operator_table,
-                payout_optimistic_timelock,
-                pre_assert_timelock,
-                payout_timelock,
                 state
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             "#,
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
         .bind(cfg.deposit_idx)
         .bind(bincode::serialize(&cfg.deposit_tx)?)
-        .bind(serde_json::to_string(&cfg.network)?)
         .bind(bincode::serialize(&cfg.operator_table)?)
-        .bind(cfg.connector_params.payout_optimistic_timelock)
-        .bind(cfg.connector_params.pre_assert_timelock)
-        .bind(cfg.connector_params.payout_timelock)
         .bind(bincode::serialize(&state)?)
         .execute(&self.pool)
         .await
@@ -121,17 +110,17 @@ impl ContractPersister {
     pub async fn load(
         &self,
         deposit_txid: Txid,
+        network: Network,
+        peg_out_graph_params: PegOutGraphParams,
+        connector_params: ConnectorParams,
+        stake_chain_params: StakeChainParams,
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
         let row: SqliteRow = sqlx::query(
             r#"
             SELECT (
                 deposit_idx,
                 deposit_tx,
-                network,
                 operator_table,
-                payout_optimistic_timelock,
-                pre_assert_timelock,
-                payout_timelock,
                 state
             ) FROM contracts WHERE deposit_txid = ?
             "#,
@@ -143,34 +132,21 @@ impl ContractPersister {
         let deposit_idx = row.try_get("deposit_idx").map_err(|_| ContractPersistErr)?;
         let deposit_tx =
             bincode::deserialize(row.try_get("deposit_tx").map_err(|_| ContractPersistErr)?)?;
-        let network =
-            serde_json::from_str(row.try_get("network").map_err(|_| ContractPersistErr)?)?;
         let operator_table = bincode::deserialize(
             row.try_get("operator_table")
                 .map_err(|_| ContractPersistErr)?,
         )?;
-        let payout_optimistic_timelock = row
-            .try_get("payout_optimistic_timelock")
-            .map_err(|_| ContractPersistErr)?;
-        let pre_assert_timelock = row
-            .try_get("pre_assert_timelock")
-            .map_err(|_| ContractPersistErr)?;
-        let payout_timelock = row
-            .try_get("payout_timelock")
-            .map_err(|_| ContractPersistErr)?;
         let state = bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
+
         Ok((
             ContractCfg {
-                network,
                 operator_table,
-                connector_params: ConnectorParams {
-                    payout_optimistic_timelock,
-                    pre_assert_timelock,
-                    payout_timelock,
-                },
-                peg_out_graph_params: PegOutGraphParams::default(), // FIXME: update this later
                 deposit_idx,
                 deposit_tx,
+                network,
+                connector_params,
+                peg_out_graph_params,
+                stake_chain_params,
             },
             state,
         ))
@@ -178,17 +154,19 @@ impl ContractPersister {
 
     /// Loads both the [`ContractCfg`] and [`MachineState`] from disk for all contracts in the
     /// system.
-    pub async fn load_all(&self) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
+    pub async fn load_all(
+        &self,
+        network: Network,
+        connector_params: ConnectorParams,
+        peg_out_graph_params: PegOutGraphParams,
+        stake_chain_params: StakeChainParams,
+    ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let rows = sqlx::query(
             r#"
             SELECT (
                 deposit_idx,
                 deposit_tx,
-                network,
                 operator_table,
-                payout_optimistic_timelock,
-                pre_assert_timelock,
-                payout_timelock,
                 state
             ) FROM contracts
             "#,
@@ -202,33 +180,19 @@ impl ContractPersister {
                 let deposit_tx = bincode::deserialize(
                     row.try_get("deposit_tx").map_err(|_| ContractPersistErr)?,
                 )?;
-                let network =
-                    serde_json::from_str(row.try_get("network").map_err(|_| ContractPersistErr)?)?;
                 let operator_table = bincode::deserialize(
                     row.try_get("operator_table")
                         .map_err(|_| ContractPersistErr)?,
                 )?;
-                let payout_optimistic_timelock = row
-                    .try_get("payout_optimistic_timelock")
-                    .map_err(|_| ContractPersistErr)?;
-                let pre_assert_timelock = row
-                    .try_get("pre_assert_timelock")
-                    .map_err(|_| ContractPersistErr)?;
-                let payout_timelock = row
-                    .try_get("payout_timelock")
-                    .map_err(|_| ContractPersistErr)?;
                 let state =
                     bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
                 Ok((
                     ContractCfg {
                         network,
                         operator_table,
-                        connector_params: ConnectorParams {
-                            payout_optimistic_timelock,
-                            pre_assert_timelock,
-                            payout_timelock,
-                        },
-                        peg_out_graph_params: PegOutGraphParams::default(), // FIXME: update this
+                        connector_params,
+                        peg_out_graph_params: peg_out_graph_params.clone(),
+                        stake_chain_params,
                         // later
                         deposit_idx,
                         deposit_tx,

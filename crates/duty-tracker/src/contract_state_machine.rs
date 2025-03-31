@@ -382,6 +382,9 @@ pub struct ContractCfg {
     /// Consensus critical parameters associated with the transactions in the peg out graph.
     pub peg_out_graph_params: PegOutGraphParams,
 
+    /// Consensus critical parameters associated with the stake chain.
+    pub stake_chain_params: StakeChainParams,
+
     /// The global index of this contract. This is decided by the bridge upon the recognition of
     /// a deposit request.
     pub deposit_idx: u32,
@@ -417,6 +420,7 @@ impl ContractSM {
         operator_table: OperatorTable,
         connector_params: ConnectorParams,
         peg_out_graph_params: PegOutGraphParams,
+        stake_chain_params: StakeChainParams,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
         deposit_idx: u32,
@@ -428,6 +432,7 @@ impl ContractSM {
             operator_table,
             connector_params,
             peg_out_graph_params,
+            stake_chain_params,
             deposit_idx,
             deposit_tx,
         };
@@ -615,10 +620,26 @@ impl ContractSM {
         Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
     }
 
+    /// Updates the current state of the machine with the new data i.e., the new stake transaction,
+    /// the new wots keys and all the resulting transaction IDs in the transaction graph that
+    /// need to be monitored on chain.
+    ///
+    /// This only happens if the contract is in the [`Requested`](ContractState::Requested) state.
+    /// This may produce the duty to publish the graph nonces.
+    ///
+    /// # Parameters
+    ///
+    /// - `signer`: the p2p key of the operator that owns the graph.
+    /// - `operator_pubkey`: the operator's public key used for CPFP outputs and receiving
+    ///   reimbursements.
+    /// - `new_stake_hash`: the hash of the stake transaction associated with the graph that is to
+    ///   be generated.
+    /// - `new_stake_tx`: the stake transaction associated with the graph that is to be generated.
+    /// - `new_wots_keys`: the WOTS keys associated with the graph that is to be generated.
     fn process_deposit_setup(
         &mut self,
         signer: P2POperatorPubKey,
-        signer_btc_key: XOnlyPublicKey,
+        operator_pubkey: XOnlyPublicKey,
         new_stake_hash: sha256::Hash,
         new_stake_tx: StakeTx,
         new_wots_keys: WotsPublicKeys,
@@ -646,15 +667,15 @@ impl ContractSM {
                     ),
                     stake_hash: new_stake_hash,
                     wots_public_keys: wots_key_record,
-                    operator_pubkey: signer_btc_key,
+                    operator_pubkey,
                 };
                 let pog_summary = PegOutGraph::generate(
                     pog_input,
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
                     self.cfg.deposit_tx.compute_txid(),
-                    PegOutGraphParams::default(),
-                    ConnectorParams::default(),
-                    StakeChainParams::default(),
+                    self.cfg.peg_out_graph_params.clone(),
+                    self.cfg.connector_params,
+                    self.cfg.stake_chain_params,
                     Vec::new(),
                 )
                 .map_err(|_| TransitionErr)?

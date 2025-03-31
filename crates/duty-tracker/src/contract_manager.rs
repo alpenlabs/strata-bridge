@@ -84,7 +84,15 @@ impl ContractManager {
         let thread_handle = tokio::task::spawn(async move {
             let crash = |_e: ContractManagerErr| todo!();
 
-            let active_contracts = match contract_persister.load_all().await {
+            let active_contracts = match contract_persister
+                .load_all(
+                    network,
+                    connector_params,
+                    pegout_graph_params.clone(),
+                    stake_chain_params,
+                )
+                .await
+            {
                 Ok(contract_data) => contract_data
                     .into_iter()
                     .map(|(cfg, state)| {
@@ -144,6 +152,7 @@ impl ContractManager {
                 operator_table,
                 connector_params,
                 pegout_graph_params,
+                stake_chain_params,
                 sidesystem_params,
                 contract_persister,
                 active_contracts,
@@ -290,6 +299,7 @@ struct ContractManagerCtx {
     network: Network,
     connector_params: ConnectorParams,
     pegout_graph_params: PegOutGraphParams,
+    stake_chain_params: StakeChainParams,
     sidesystem_params: RollupParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
@@ -351,6 +361,7 @@ impl ContractManagerCtx {
                     self.operator_table.clone(),
                     self.connector_params,
                     self.pegout_graph_params.clone(),
+                    self.stake_chain_params,
                     height,
                     height + self.pegout_graph_params.refund_delay as u64,
                     deposit_idx,
