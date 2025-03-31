@@ -3,13 +3,16 @@
 use std::time::Duration;
 
 use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
+use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::{config::Configuration, constants::DEFAULT_IDLE_CONNECTION_TIMEOUT};
 
 /// Bootstrap the p2p node by hooking up all the required services.
-pub async fn bootstrap(config: &Configuration) -> anyhow::Result<(P2PHandle, CancellationToken)> {
+pub async fn bootstrap(
+    config: &Configuration,
+) -> anyhow::Result<(P2PHandle, CancellationToken, JoinHandle<()>)> {
     let p2p_config = P2PConfig {
         keypair: config.keypair.clone(),
         idle_connection_timeout: config
@@ -32,7 +35,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<(P2PHandle, Can
     let _ = p2p.establish_connections().await;
 
     info!("listening for network events and commands from handles");
-    let _ = p2p.listen().await;
+    let listen_task = tokio::spawn(p2p.listen());
 
-    Ok((handle, cancel))
+    Ok((handle, cancel, listen_task))
 }

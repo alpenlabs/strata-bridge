@@ -1,6 +1,10 @@
 //! In-memory persistence for operator's secret data.
 
-use bitcoin::{bip32::Xpriv, key::Keypair, XOnlyPublicKey};
+use bitcoin::{
+    bip32::Xpriv,
+    key::{Keypair, TapTweak},
+    XOnlyPublicKey,
+};
 use musig2::secp256k1::{schnorr::Signature, Message, SECP256K1};
 use secret_service_proto::v1::traits::{Origin, Server, WalletSigner};
 use strata_bridge_primitives::secp::EvenSecretKey;
@@ -28,6 +32,8 @@ impl GeneralWalletSigner {
 impl WalletSigner<Server> for GeneralWalletSigner {
     async fn sign(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<Signature> {
         self.kp
+            .tap_tweak(SECP256K1, None)
+            .to_inner()
             .sign_schnorr(Message::from_digest_slice(digest).unwrap())
     }
 

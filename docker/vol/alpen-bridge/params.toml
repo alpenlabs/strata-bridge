@@ -1,8 +1,9 @@
+network = "regtest"
 genesis_height = 101
 
 [keys]
 musig2 = [
-  "c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164",
+  "04f34abe97ddc0462931303a927e77e7ae2a7a652e91f1023373684a0930c5a8",
   "d57243dbb3ef14caeac8f724fea1449d802133495ef1675f210b074206ff9275",
 ]
 p2p = [
