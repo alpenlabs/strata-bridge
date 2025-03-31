@@ -73,8 +73,9 @@ impl StakeChainPersister {
                         StakeChainInputs {
                             operator_pubkey: btc_key.x_only_public_key().0,
                             pre_stake_outpoint,
-                            // NOTE: convert stake data to an IndexedSet to avoid this conversion
-                            // alternatively, this is okay since the loading of the stake data only
+                            // NOTE: (@Rajil1213) convert stake data to an IndexedSet to avoid this
+                            // conversion alternatively, this is okay
+                            // since the loading of the stake data only
                             // happens once.
                             stake_inputs: stake_data.into_iter().collect(),
                         },
