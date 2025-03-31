@@ -204,7 +204,7 @@ impl Parameters {
     }
 
     /// Maximum value of a digit
-    pub const fn d(&self) -> u32 {
+    pub const fn max_digit_value(&self) -> u32 {
         (1 << self.digit_width) - 1
     }
 
@@ -234,7 +234,7 @@ where
             buf
         };
         let mut hash = hash160::Hash::hash(&secret_i);
-        for _ in 0..ps.d() {
+        for _ in 0..ps.max_digit_value() {
             hash = hash160::Hash::hash(&hash[..]);
         }
 
