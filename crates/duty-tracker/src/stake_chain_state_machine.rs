@@ -20,6 +20,7 @@ use crate::{contract_state_machine::DepositSetup, errors::StakeChainErr};
 #[derive(Debug, Clone)]
 pub struct StakeChainSM {
     network: Network,
+    params: StakeChainParams,
     operator_table: OperatorTable,
     stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     stake_txids: BTreeMap<P2POperatorPubKey, Vec<Txid>>,
@@ -27,9 +28,10 @@ pub struct StakeChainSM {
 
 impl StakeChainSM {
     /// Constructor for a brand new StakeChainSM.
-    pub fn new(network: Network, operator_table: OperatorTable) -> Self {
+    pub fn new(network: Network, operator_table: OperatorTable, params: StakeChainParams) -> Self {
         StakeChainSM {
             network,
+            params,
             operator_table,
             stake_chains: BTreeMap::new(),
             stake_txids: BTreeMap::new(),
@@ -40,7 +42,7 @@ impl StakeChainSM {
     pub fn restore(
         network: Network,
         operator_table: OperatorTable,
-        params: &StakeChainParams,
+        params: StakeChainParams,
         stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<Self, StakeChainErr> {
         let missing_p2p_keys = operator_table
@@ -62,7 +64,7 @@ impl StakeChainSM {
                 StakeChain::new(
                     &operator_table.tx_build_context(network),
                     inputs,
-                    params,
+                    &params,
                     ConnectorCpfp::new(inputs.operator_pubkey, network),
                 )
             })
@@ -78,6 +80,7 @@ impl StakeChainSM {
 
         Ok(StakeChainSM {
             network,
+            params,
             operator_table,
             stake_chains,
             stake_txids,
@@ -124,7 +127,6 @@ impl StakeChainSM {
     /// successfully.
     pub fn process_setup(
         &mut self,
-        params: &StakeChainParams,
         operator: P2POperatorPubKey,
         setup: &DepositSetup,
     ) -> Result<Option<Txid>, StakeChainErr> {
@@ -136,7 +138,7 @@ impl StakeChainSM {
             }
 
             // also try to create a new stake tx and update the txid table
-            if let Some(stake_tx) = self.stake_tx(params, &operator, setup.index as usize)? {
+            if let Some(stake_tx) = self.stake_tx(&operator, setup.index as usize)? {
                 let stake_txid = stake_tx.compute_txid();
 
                 self.stake_txids
@@ -164,7 +166,6 @@ impl StakeChainSM {
     /// Gets the stake transaction for the operator at the stake index of the argument.
     pub fn stake_tx(
         &self,
-        params: &StakeChainParams,
         op: &P2POperatorPubKey,
         nth: usize,
     ) -> Result<Option<StakeTx>, StakeChainErr> {
@@ -189,7 +190,7 @@ impl StakeChainSM {
 
                     let first_stake = StakeTx::create_initial(
                         &context,
-                        params,
+                        &self.params,
                         stake_hash,
                         withdrawal_fulfillment_pk,
                         pre_stake,
@@ -221,7 +222,7 @@ impl StakeChainSM {
 
                 let stake_tx = StakeTx::advance(
                     &context,
-                    params,
+                    &self.params,
                     *input,
                     prev_input.hash,
                     prev_stake,

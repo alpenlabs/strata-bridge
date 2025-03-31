@@ -102,7 +102,7 @@ impl ContractManager {
                     match StakeChainSM::restore(
                         network,
                         operator_table.clone(),
-                        &stake_chain_params,
+                        stake_chain_params,
                         stake_chains,
                     ) {
                         Ok(stake_chains) => stake_chains,
@@ -144,7 +144,6 @@ impl ContractManager {
                 operator_table,
                 connector_params,
                 pegout_graph_params,
-                stake_chain_params,
                 sidesystem_params,
                 contract_persister,
                 active_contracts,
@@ -289,7 +288,6 @@ struct ContractManagerCtx {
     network: Network,
     connector_params: ConnectorParams,
     pegout_graph_params: PegOutGraphParams,
-    stake_chain_params: StakeChainParams,
     sidesystem_params: RollupParams,
     operator_table: OperatorTable,
     contract_persister: ContractPersister,
@@ -485,11 +483,7 @@ impl ContractManagerCtx {
                         operator_pk,
                         wots_pks: wots_pks.clone(),
                     };
-                    self.stake_chains.process_setup(
-                        &self.stake_chain_params,
-                        msg.key.clone(),
-                        &setup,
-                    )?;
+                    self.stake_chains.process_setup(msg.key.clone(), &setup)?;
 
                     self.stake_chain_persister
                         .commit_stake_data(&self.operator_table, self.stake_chains.state().clone())
@@ -498,7 +492,7 @@ impl ContractManagerCtx {
                     let deposit_idx = contract.cfg().deposit_idx;
                     let stake_tx = self
                         .stake_chains
-                        .stake_tx(&self.stake_chain_params, &msg.key, deposit_idx as usize)?
+                        .stake_tx(&msg.key, deposit_idx as usize)?
                         .ok_or(StakeChainErr::StakeTxNotFound(msg.key.clone(), deposit_idx))?;
 
                     if let Some(duty) =
