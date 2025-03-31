@@ -5,6 +5,7 @@ use bitcoin::{
     hashes::{hash160, Hash},
     Txid,
 };
+use bitvm::signatures::wots_api::{wots256, wots_hash};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
@@ -113,7 +114,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         msg: &[u8; 16],
     ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_128_secret_key(txid, vout, index).await;
-        wots_sign::<128>(msg, &sk)
+        wots_sign_128_bitvm(msg, &sk)
     }
 
     #[expect(refining_impl_trait)]
@@ -125,7 +126,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         msg: &[u8; 32],
     ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_256_secret_key(txid, vout, index).await;
-        wots_sign::<256>(msg, &sk)
+        wots_sign_256_bitvm(msg, &sk)
     }
 }
 
@@ -245,7 +246,53 @@ where
     public_key
 }
 
-fn wots_sign<const N: usize>(
+fn wots_sign_128_bitvm(
+    msg: &[u8; 16],
+    secret_key: &[u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)],
+) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
+    let split_secret_key: [[u8; 20]; key_width(128, WINTERNITZ_DIGIT_WIDTH)] =
+        std::array::from_fn(|i| {
+            let mut key = [0; 20];
+            key.copy_from_slice(&secret_key[20 * i..20 * (i + 1)]);
+            key
+        });
+
+    let msg_sig_compact = wots_hash::compact::get_signature_with_secrets(split_secret_key, msg);
+    let mut sig = [0u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)];
+    for i in 0..key_width(128, WINTERNITZ_DIGIT_WIDTH) {
+        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
+    }
+    sig
+}
+
+fn wots_sign_256_bitvm(
+    msg: &[u8; 32],
+    secret_key: &[u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)],
+) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
+    let split_secret_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
+        std::array::from_fn(|i| {
+            let mut key = [0; 20];
+            key.copy_from_slice(&secret_key[20 * i..20 * (i + 1)]);
+            key
+        });
+
+    let msg_sig_compact = wots256::compact::get_signature_with_secrets(split_secret_key, msg);
+    let mut sig = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
+    for i in 0..key_width(256, WINTERNITZ_DIGIT_WIDTH) {
+        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
+    }
+    sig
+}
+
+/// This function was an attempt at implementing WOTS signing from scratch. However during some
+/// investigation into how this is implemented in BitVM it was determined to be incompatible for
+/// some non-obvious reasons relating to how BitVM organizes it's signatures. We are leaving this
+/// function here for now in case BitVM can use a more sane signature layout, but for now we are
+/// using the fucked up BitVM version to guarantee compatibility while we pin down whether or not
+/// the BitVM scheme is fixable without massively expanding the Bitcoin locking script sizes
+/// required to guarantee the security of the bridge funds.
+#[expect(dead_code)]
+fn wots_sign_naive<const N: usize>(
     msg: &[u8; N.div_ceil(8)],
     secret_key: &[u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)],
 ) -> [u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)]
