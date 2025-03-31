@@ -227,9 +227,10 @@ impl ContractManager {
                                     .any(|txid| txid == session_id_as_txid) {
 
                                     let _ = ctx.execute_duty(OperatorDuty::PublishRootNonce).await;
+                                } else {
+                                    // otherwise ignore this message.
+                                    warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
                                 }
-
-                                // otherwise ignore this message.
                             }
                             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
                                 let session_id_as_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
@@ -242,9 +243,10 @@ impl ContractManager {
                                     .any(|txid| txid == session_id_as_txid) {
 
                                     let _ = ctx.execute_duty(OperatorDuty::PublishRootSignature).await;
+                                } else {
+                                    // otherwise ignore this message.
+                                    warn!(txid=%session_id_as_txid, "received a musig2 signatures exchange for an unknown session");
                                 }
-
-                                // otherwise ignore this message.
                             }
                         }
                         Err(e) => {
