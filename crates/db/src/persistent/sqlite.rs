@@ -1135,6 +1135,40 @@ impl OperatorDb for SqliteDb {
         .await
     }
 
+    async fn set_last_published_stake_index(&self, index: u32) -> DbResult<()> {
+        execute_with_retries(self.config(), || async {
+            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
+            let stake_index = index as i64;
+            sqlx::query!(
+                "INSERT OR REPLACE INTO last_published_stake_index
+                    (stake_index)
+                    VALUES ($1)",
+                stake_index,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(StorageError::from)?;
+
+            tx.commit().await.map_err(StorageError::from)?;
+
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_last_published_stake_index(&self) -> DbResult<Option<u32>> {
+        execute_with_retries(self.config(), || async {
+            let row = sqlx::query!("SELECT stake_index FROM last_published_stake_index")
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(StorageError::from)?;
+
+            Ok(row.map(|r| r.stake_index as u32))
+        })
+        .await
+    }
+
     async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>> {
         execute_with_retries(self.config(), || async {
             let deposit_txid = DbTxid::from(deposit_txid);
