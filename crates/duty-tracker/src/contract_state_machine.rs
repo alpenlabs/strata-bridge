@@ -185,8 +185,8 @@ pub enum ContractState {
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
     },
 
-    /// This state describes everything from the moment the withdrawal is assigned, to the moment
-    /// the fulfillment transaction confirms.
+    /// This state describes everything from the moment stake transaction corresponding to this
+    /// deposit confirms to the moment the fulfillment transaction confirms.
     Assigned {
         /// These are the actual peg-out-graph summaries for each operator. This will be stored so
         /// we can monitor the transactions relevant to advancing the contract through its
@@ -321,6 +321,12 @@ pub enum OperatorDuty {
 /// This is a duty that has to be carried out if we are the assigned operator.
 #[derive(Debug)]
 pub enum FulfillerDuty {
+    /// Originates when strata state on L1 is published.
+    AdvanceStakeChain {
+        /// Index of the stake transaction to advance to.
+        stake_index: u32,
+    },
+
     /// Originates when strata state on L1 is published and assignment is self.
     PublishFulfillment {
         /// Withdrawal metadata.
@@ -329,9 +335,6 @@ pub enum FulfillerDuty {
         /// The BOSD Descriptor of the user.
         user_descriptor: Descriptor,
     },
-
-    /// Originates when Fulfillment has been completed
-    AdvanceStakeChain,
 
     /// Originates when Fulfillment confirms (is buried?)
     PublishClaim,
@@ -909,14 +912,8 @@ impl ContractSM {
 
                         Ok(if fulfiller == self.cfg.operator_table.pov_idx() {
                             Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::PublishFulfillment {
-                                    withdrawal_metadata: WithdrawalMetadata {
-                                        tag: self.cfg.peg_out_graph_params.tag.as_bytes().to_vec(),
-                                        operator_idx: fulfiller,
-                                        deposit_idx: assignment.idx(),
-                                        deposit_txid: assignment.output().outpoint().txid,
-                                    },
-                                    user_descriptor: recipient.clone(),
+                                FulfillerDuty::AdvanceStakeChain {
+                                    stake_index: self.cfg.deposit_idx,
                                 },
                             ))
                         } else {
@@ -961,7 +958,11 @@ impl ContractSM {
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
-                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::AdvanceStakeChain {
+                            stake_index: cfg.deposit_idx,
+                        },
+                    ))
                 } else {
                     None
                 };

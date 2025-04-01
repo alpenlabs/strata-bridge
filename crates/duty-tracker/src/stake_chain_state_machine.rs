@@ -23,6 +23,7 @@ pub struct StakeChainSM {
     params: StakeChainParams,
     operator_table: OperatorTable,
     stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
+    last_published_stake_index: Option<u32>,
     stake_txids: BTreeMap<P2POperatorPubKey, Vec<Txid>>,
 }
 
@@ -35,6 +36,7 @@ impl StakeChainSM {
             operator_table,
             stake_chains: BTreeMap::new(),
             stake_txids: BTreeMap::new(),
+            last_published_stake_index: None,
         }
     }
 
@@ -44,6 +46,7 @@ impl StakeChainSM {
         operator_table: OperatorTable,
         params: StakeChainParams,
         stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
+        last_published_stake_index: Option<u32>,
     ) -> Result<Self, StakeChainErr> {
         let missing_p2p_keys = operator_table
             .p2p_keys()
@@ -84,6 +87,7 @@ impl StakeChainSM {
             operator_table,
             stake_chains,
             stake_txids,
+            last_published_stake_index,
         })
     }
 
@@ -163,6 +167,11 @@ impl StakeChainSM {
         &self.stake_chains
     }
 
+    /// Returns the index of the last published stake transaction.
+    pub fn last_published_stake_index(&self) -> Option<u32> {
+        self.last_published_stake_index
+    }
+
     /// Gets the stake transaction for the operator at the stake index of the argument.
     pub fn stake_tx(
         &self,
@@ -234,5 +243,11 @@ impl StakeChainSM {
             }
             _ => Ok(None),
         }
+    }
+
+    /// Advances the internal state of the stake chain state machine to increase the index of the
+    /// last published stake.
+    pub fn process_advancement(&mut self) {
+        self.last_published_stake_index = self.last_published_stake_index.map(|i| i + 1);
     }
 }

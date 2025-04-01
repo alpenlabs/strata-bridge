@@ -10,7 +10,10 @@ use strata_p2p_types::P2POperatorPubKey;
 use strata_p2p_wire::p2p::v1::UnsignedGossipsubMsg;
 use thiserror::Error;
 
-use crate::{contract_persister::ContractPersistErr, contract_state_machine::TransitionErr};
+use crate::{
+    contract_persister::ContractPersistErr, contract_state_machine::TransitionErr,
+    tx_driver::DriveErr,
+};
 
 /// Unified error type for everything that can happen in the ContractManager.
 #[derive(Debug, Error)]
@@ -54,6 +57,10 @@ pub enum ContractManagerErr {
     /// General catch-all for errors.
     #[error("error: {0}")]
     FatalErr(#[from] Box<dyn Error + 'static>),
+
+    /// Error from the tx driver while submitting/tracking transaction on chain.
+    #[error("failed to submit or track transaction: {0:?}")]
+    TxDriverErr(#[from] DriveErr),
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.
