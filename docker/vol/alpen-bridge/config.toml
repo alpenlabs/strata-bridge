@@ -3,6 +3,7 @@ datadir = "/app/data"
 rpc_addr = "0.0.0.0:5678"
 # stub option ftm
 is_faulty = false
+stake_funding_pool_size = 32
 
 [secret_service_client]
 server_addr = "172.28.1.5:69"

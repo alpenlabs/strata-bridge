@@ -9,7 +9,6 @@ use std::{
 use anyhow::anyhow;
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::{
-    consensus,
     hashes::Hash,
     secp256k1::SecretKey,
     sighash::{Prevouts, SighashCache, TapSighashType},
@@ -327,6 +326,7 @@ async fn start_rpc_server(
     Ok(handle)
 }
 
+/// Initializes the operator wallet
 async fn init_operator_wallet(
     config: &Config,
     params: &Params,
@@ -359,9 +359,7 @@ async fn init_operator_wallet(
     info!(%my_index, "my index");
     let operator_wallet_config = OperatorWalletConfig::new(
         OPERATOR_FUNDS,
-        // NOTE: 32 seems an OK-ish pool size for the operator wallet.
-        //       These will be refilled that's why its a 'pool'.
-        32,
+        config.stake_funding_pool_size,
         SEGWIT_MIN_AMOUNT,
         params.stake_chain.stake_amount,
         params.network,
@@ -427,7 +425,6 @@ async fn handle_stakechain_genesis(
         info!(%pre_stake_txid, "created the pre-stake tx");
 
         // Collect all the UTXOs in the stakechain wallet that match the pre-stake tx inputs.
-        const VOUT: u32 = 0;
         let general_wallet = operator_wallet.general_wallet();
         let prevouts = pre_stake_tx
             .input
@@ -442,31 +439,29 @@ async fn handle_stakechain_genesis(
             })
             .collect::<Vec<TxOut>>();
         info!(?prevouts, "prevouts");
+        let num_inputs = prevouts.len();
         let prevouts = Prevouts::All(&prevouts);
         let mut sighasher = SighashCache::new(pre_stake_tx);
-        let sighash = sighasher
-            .taproot_key_spend_signature_hash(VOUT as usize, &prevouts, TapSighashType::Default)
-            .expect("must be able to compute the sighash");
+        // Sign all the inputs.
+        for input in 0..num_inputs {
+            let sighash = sighasher
+                .taproot_key_spend_signature_hash(input, &prevouts, TapSighashType::Default)
+                .expect("must be able to compute the sighash");
 
-        // Sign the pre-stake tx.
-        let signature = s2_client
-            .general_wallet_signer()
-            .sign(&sighash.to_byte_array(), None)
-            .await
-            .expect("should be able to sign the pre-stake tx");
+            // Sign the pre-stake tx.
+            let signature = s2_client
+                .general_wallet_signer()
+                .sign(&sighash.to_byte_array(), None)
+                .await
+                .expect("should be able to sign the pre-stake tx");
 
-        // let signature = taproot::Signature {
-        //     signature,
-        //     sighash_type: TapSighashType::Default,
-        // };
-        sighasher
-            .witness_mut(0)
-            .expect("must be able to get the witness")
-            .push(signature.serialize());
+            sighasher
+                .witness_mut(input)
+                .expect("must be able to get the witness")
+                .push(signature.serialize());
+        }
         let signed_pre_stake_tx = sighasher.into_transaction();
         info!(%pre_stake_txid, "signed the pre-stake tx");
-        info!(signed_pre_stake_tx = %consensus::encode::serialize_hex(&signed_pre_stake_tx), "signed pre-stake tx");
-        dbg!(&signed_pre_stake_tx);
 
         // Broadcast the pre-stake tx.
         bitcoin_rpc_client
@@ -478,7 +473,7 @@ async fn handle_stakechain_genesis(
         // Save the pre-stake tx to the database.
         let pre_stake_outpoint = OutPoint {
             txid: pre_stake_txid,
-            vout: VOUT,
+            vout: 0, // NOTE: the protocol specifies that the s_connector vout is 0
         };
         db.set_pre_stake(my_index, pre_stake_outpoint)
             .await

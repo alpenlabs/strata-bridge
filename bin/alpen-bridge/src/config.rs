@@ -44,6 +44,11 @@ pub(crate) struct Config {
     ///
     /// NOTE: This is only for testing purposes and *must* not be used in production.
     pub is_faulty: bool,
+
+    /// Stake funding UTXO pool size.
+    ///
+    /// These will be refreshed in the background by the operator wallet.
+    pub stake_funding_pool_size: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,6 +110,7 @@ mod tests {
             datadir = ".data"
             rpc_addr = "localhost:5678"
             is_faulty = false
+            stake_funding_pool_size = 32
 
             [secret_service_client]
             server_addr = "localhost:1234"
