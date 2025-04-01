@@ -26,6 +26,7 @@ strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-stake-chain.workspace = true
+strata-btcio.workspace = true
 strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 
