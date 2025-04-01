@@ -8,7 +8,7 @@ use std::{
 
 use bitcoin::{
     hashes::Hash,
-    key::{Parity, Secp256k1},
+    key::{Parity, Secp256k1, TapTweak},
     Network, Txid, XOnlyPublicKey,
 };
 use musig2::{
@@ -73,10 +73,12 @@ async fn e2e() {
     let general_wallet_signer = client.general_wallet_signer();
     let stakechain_wallet_signer = client.stakechain_wallet_signer();
     let general_pubkey = general_wallet_signer.pubkey().await.expect("good response");
+    let (general_tweaked_pubkey, _) = general_pubkey.tap_tweak(SECP256K1, None);
     let stakechain_pubkey = stakechain_wallet_signer
         .pubkey()
         .await
         .expect("good response");
+    let (stakechain_tweaked_pubkey, _) = stakechain_pubkey.tap_tweak(SECP256K1, None);
 
     let secp_ctx = Arc::new(Secp256k1::verification_only());
     let handles = (0..100)
@@ -88,17 +90,19 @@ async fn e2e() {
                 let to_sign = thread_rng().gen();
                 let msg = Message::from_digest(to_sign);
                 let sig = general_wallet_signer
-                    .sign(&to_sign)
-                    .await
-                    .expect("good response");
-                assert!(secp_ctx.verify_schnorr(&sig, &msg, &general_pubkey).is_ok());
-
-                let sig = stakechain_wallet_signer
-                    .sign(&to_sign)
+                    .sign(&to_sign, None)
                     .await
                     .expect("good response");
                 assert!(secp_ctx
-                    .verify_schnorr(&sig, &msg, &stakechain_pubkey)
+                    .verify_schnorr(&sig, &msg, &general_tweaked_pubkey.to_inner())
+                    .is_ok());
+
+                let sig = stakechain_wallet_signer
+                    .sign(&to_sign, None)
+                    .await
+                    .expect("good response");
+                assert!(secp_ctx
+                    .verify_schnorr(&sig, &msg, &stakechain_tweaked_pubkey.to_inner())
                     .is_ok());
             })
         })

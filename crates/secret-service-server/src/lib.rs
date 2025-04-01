@@ -10,7 +10,7 @@ pub mod musig2_session_mgr;
 
 use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
-use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
 use musig2_session_mgr::Musig2SessionManager;
 pub use quinn::rustls;
@@ -21,6 +21,7 @@ use quinn::{
 };
 use rkyv::{
     deserialize,
+    option::ArchivedOption,
     rancor::{self, Error},
     util::AlignedVec,
 };
@@ -193,8 +194,14 @@ where
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
         ArchivedVersionedClientMessage::V1(req) => match req {
-            ArchivedClientMessage::GeneralWalletSign { digest } => {
-                let sig = service.general_wallet_signer().sign(digest).await;
+            ArchivedClientMessage::GeneralWalletSign { digest, tweak } => {
+                let tweak = match tweak {
+                    ArchivedOption::None => None,
+                    ArchivedOption::Some(t) => {
+                        Some(TapNodeHash::from_slice(t).expect("guaranteed correct length"))
+                    }
+                };
+                let sig = service.general_wallet_signer().sign(digest, tweak).await;
                 ServerMessage::GeneralWalletSign {
                     sig: sig.serialize(),
                 }
@@ -207,8 +214,14 @@ where
                 }
             }
 
-            ArchivedClientMessage::StakechainWalletSign { digest } => {
-                let sig = service.stakechain_wallet_signer().sign(digest).await;
+            ArchivedClientMessage::StakechainWalletSign { digest, tweak } => {
+                let tweak = match tweak {
+                    ArchivedOption::None => None,
+                    ArchivedOption::Some(t) => {
+                        Some(TapNodeHash::from_slice(t).expect("guaranteed correct length"))
+                    }
+                };
+                let sig = service.stakechain_wallet_signer().sign(digest, tweak).await;
                 ServerMessage::StakechainWalletSign {
                     sig: sig.serialize(),
                 }

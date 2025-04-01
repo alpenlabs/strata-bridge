@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use bitcoin::{Txid, XOnlyPublicKey};
+use bitcoin::{TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, SecretKey},
@@ -71,7 +71,11 @@ where
 /// used for any other purpose.
 pub trait WalletSigner<O: Origin>: Send {
     /// Signs a `digest` using the operator's [`SecretKey`].
-    fn sign(&self, digest: &[u8; 32]) -> impl Future<Output = O::Container<Signature>> + Send;
+    fn sign(
+        &self,
+        digest: &[u8; 32],
+        tweak: Option<TapNodeHash>,
+    ) -> impl Future<Output = O::Container<Signature>> + Send;
 
     /// Returns the public key of the operator's secret key.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;

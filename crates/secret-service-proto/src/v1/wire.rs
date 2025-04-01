@@ -222,6 +222,9 @@ pub enum ClientMessage {
     GeneralWalletSign {
         /// The digest of the data the client wants signed.
         digest: [u8; 32],
+
+        /// The tweak used to sign the message.
+        tweak: Option<[u8; 32]>,
     },
 
     /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
@@ -231,6 +234,9 @@ pub enum ClientMessage {
     StakechainWalletSign {
         /// The digest of the data the client wants signed.
         digest: [u8; 32],
+
+        /// The tweak used to sign the message.
+        tweak: Option<[u8; 32]>,
     },
 
     /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).

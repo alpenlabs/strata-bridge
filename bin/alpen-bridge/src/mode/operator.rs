@@ -182,7 +182,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         // Sign the pre-stake tx.
         let signature = s2_client
             .general_wallet_signer()
-            .sign(&sighash.to_byte_array())
+            .sign(&sighash.to_byte_array(), None)
             .await?;
 
         // let signature = taproot::Signature {

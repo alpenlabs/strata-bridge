@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
 use musig2::secp256k1::schnorr::Signature;
 use quinn::Connection;
 use secret_service_proto::v1::{
@@ -30,8 +30,15 @@ impl GeneralWalletClient {
 }
 
 impl WalletSigner<Client> for GeneralWalletClient {
-    async fn sign(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::GeneralWalletSign { digest: *digest };
+    async fn sign(
+        &self,
+        digest: &[u8; 32],
+        tweak: Option<TapNodeHash>,
+    ) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::GeneralWalletSign {
+            digest: *digest,
+            tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::GeneralWalletSign { sig } => {
@@ -71,8 +78,15 @@ impl StakechainWalletClient {
 }
 
 impl WalletSigner<Client> for StakechainWalletClient {
-    async fn sign(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::StakechainWalletSign { digest: *digest };
+    async fn sign(
+        &self,
+        digest: &[u8; 32],
+        tweak: Option<TapNodeHash>,
+    ) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::StakechainWalletSign {
+            digest: *digest,
+            tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::StakechainWalletSign { sig } => {
