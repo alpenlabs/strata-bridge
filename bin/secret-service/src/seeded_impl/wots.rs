@@ -229,9 +229,8 @@ where
     let mut public_key = [0u8; 20 * N];
     for i in 0..ps.total_length() {
         let secret_i = {
-            let mut buf = [0; 20 * N + 1];
-            buf[..20 * N].copy_from_slice(secret_key);
-            buf[20 * N] = i as u8;
+            let mut buf = [0; 20];
+            buf.copy_from_slice(&secret_key[20 * i as usize..20 * (i + 1) as usize]);
             buf
         };
         let mut hash = hash160::Hash::hash(&secret_i);
@@ -503,7 +502,6 @@ mod tests {
             &Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32),
             &sk,
         );
-        let pk = wots256::generate_public_key_with_secrets(sk);
         let mut pk_grouped = [[0u8; 20]; 68];
         for i in 0..68 {
             pk_grouped[i].copy_from_slice(&pk[20 * i..20 * (i + 1)]);
@@ -514,7 +512,7 @@ mod tests {
                 { s.to_vec() }
             }
             { wots256::compact::checksig_verify(pk_grouped) }
-            // for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
+            for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };
         let res = execute_script(scr);
