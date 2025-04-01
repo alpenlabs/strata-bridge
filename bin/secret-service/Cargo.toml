@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitcoin.workspace = true
+bitcoin-script.workspace = true
 bitvm.workspace = true
 colored = "3.0.0"
 hkdf = "0.12.4"
