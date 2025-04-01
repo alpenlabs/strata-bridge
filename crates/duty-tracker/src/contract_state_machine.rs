@@ -343,6 +343,8 @@ pub enum OperatorDuty {
         deposit_txid: Txid,
         /// The p2p key of the operator for whom to publish the graph signatures
         operator_p2p_key: P2POperatorPubKey,
+        /// Nonces collected from each operator's musig2 sessions.
+        /// Order of Vecs is determined by implementation.
         pubnonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
         pog: PegOutGraph,
     },
@@ -504,6 +506,7 @@ impl ContractSM {
         deposit_tx: Transaction,
         deposit_info: DepositInfo,
     ) -> (Self, OperatorDuty) {
+        let deposit_txid = deposit_tx.compute_txid();
         let cfg = ContractCfg {
             network,
             operator_table,
@@ -531,7 +534,10 @@ impl ContractSM {
         };
         (
             ContractSM { cfg, state },
-            OperatorDuty::PublishGraphSignatures,
+            OperatorDuty::PublishDepositSetup {
+                deposit_txid,
+                deposit_idx,
+            },
         )
     }
 
@@ -796,11 +802,13 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
             ContractState::Requested { graph_nonces, .. } => {
-                graph_nonces.insert(signer, nonces);
+                graph_nonces.insert(signer.clone(), nonces);
                 Ok(
                     if graph_nonces.len() == self.cfg.operator_table.cardinality() {
                         Some(OperatorDuty::PublishGraphSignatures {
                             pubnonces: graph_nonces.clone(),
+                            deposit_txid: self.deposit_txid(),
+                            operator_p2p_key: signer,
                         })
                     } else {
                         None

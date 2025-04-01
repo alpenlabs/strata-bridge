@@ -9,7 +9,7 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bdk_wallet::{error::CreateTxError, miniscript::ToPublicKey};
+use bdk_wallet::miniscript::ToPublicKey;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
@@ -49,11 +49,10 @@ use strata_bridge_stake_chain::{
     transactions::stake::StakeTxData,
 };
 use strata_bridge_tx_graph::{
-    errors::TxGraphError,
     peg_out_graph::{PegOutGraph, PegOutGraphInput},
     transactions::prelude::CovenantTx,
 };
-use strata_btcio::rpc::{error::ClientError, traits::ReaderRpc, BitcoinClient};
+use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
     commands::{Command, UnsignedPublishMessage},
@@ -71,7 +70,7 @@ use tokio::{sync::RwLock, task::JoinHandle, time};
 use tracing::{error, info, warn};
 
 use crate::{
-    contract_persister::{ContractPersistErr, ContractPersister},
+    contract_persister::ContractPersister,
     contract_state_machine::{
         convert_g16_keys, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
         OperatorDuty, TransitionErr,
@@ -133,30 +132,49 @@ macro_rules! get_or_create_nonce {
 
 macro_rules! generate_partial_sig {
     ($self:expr, $outpoint:expr, $pubnonces:expr, $nonce_idx:expr, $sighash:expr, $partial_sigs:expr) => {{
-        let mut r1 = $self
-            .s2_musig2_sessions
-            .remove(&$outpoint)
-            .unwrap()
-            .r1_owned()
-            .unwrap();
-
-        for (operator, nonces) in &$pubnonces {
-            r1.receive_pub_nonce(
-                $self
-                    .operator_table
-                    .op_key_to_btc_key(operator)
-                    .unwrap()
-                    .to_x_only_pubkey(),
-                nonces[$nonce_idx].clone(),
-            )
+        let our_sig = if let Some(our_sig) = $self
+            .db
+            .collected_signatures_per_msg($outpoint.txid, $outpoint.vout)
             .await?
-            .unwrap();
-        }
+            .and_then(|(_, sig_map)| sig_map.get(&$self.operator_table.pov_idx()).cloned())
+        {
+            our_sig
+        } else {
+            let mut r1 = $self
+                .s2_musig2_sessions
+                .remove(&$outpoint)
+                .unwrap()
+                .r1_owned()
+                .unwrap();
 
-        assert!(r1.is_complete().await?);
-        let r2 = r1.finalize($sighash).await?.unwrap();
-        let our_sig = r2.our_signature().await?;
-        $self.s2_musig2_sessions.insert($outpoint, r2.into());
+            for (operator, nonces) in &$pubnonces {
+                r1.receive_pub_nonce(
+                    $self
+                        .operator_table
+                        .op_key_to_btc_key(operator)
+                        .unwrap()
+                        .to_x_only_pubkey(),
+                    nonces[$nonce_idx].clone(),
+                )
+                .await?
+                .unwrap();
+            }
+
+            assert!(r1.is_complete().await?);
+            let r2 = r1.finalize($sighash).await?.unwrap();
+            let our_sig = r2.our_signature().await?;
+            $self.s2_musig2_sessions.insert($outpoint, r2.into());
+            $self
+                .db
+                .add_partial_signature(
+                    $outpoint.txid,
+                    $outpoint.vout,
+                    $self.operator_table.pov_idx(),
+                    our_sig,
+                )
+                .await?;
+            our_sig
+        };
         $partial_sigs.push(our_sig);
         $nonce_idx += 1;
     }};
@@ -415,12 +433,15 @@ impl ContractManager {
                             GetMessageRequest::Musig2SignaturesExchange { session_id, operator_pk } => {
                                 let session_id_as_txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
 
-                                if ctx.state.active_contracts.contains_key(&session_id_as_txid) {
-                                    let pog = ctx.gen_pog(session_id_as_txid, operator_pk).expect("pog generation must succeed");
+                                if let Some(csm) = ctx.state.active_contracts.get(&session_id_as_txid) {
+                                    let pog = ctx.gen_pog(session_id_as_txid, operator_pk.clone()).expect("pog generation must succeed");
+                                    let ContractState::Requested { graph_nonces, .. } = &csm.state().state else {
+                                        continue;
+                                    };
                                     duties.push(OperatorDuty::PublishGraphSignatures {
                                         deposit_txid: session_id_as_txid,
                                         operator_p2p_key: operator_pk,
-                                        pubnonces: todo!(),
+                                        pubnonces: graph_nonces.clone(),
                                         pog,
                                     });
                                 } else if let Some(csm) = ctx.state.active_contracts
@@ -1040,10 +1061,11 @@ impl ContractManagerCtx {
             .iter()
             .nth(stake_index as usize)
             .expect("we should have a stake input for this operator");
-        let Ok(Some(stake_tx)) = self
+        let Some(stake_tx) = self
             .state
             .stake_chains
             .stake_tx(&operator_p2p_key, stake_index as usize)
+            .map_err(|e| Err(ContractManagerErr::from(e)))?
         else {
             warn!(?operator_p2p_key, %pov_idx, %operator_idx, %deposit_txid, %stake_index, "missing stake tx for operator");
 
@@ -1890,28 +1912,10 @@ impl From<Musig2SecondRound> for Musig2Round {
 }
 
 impl Musig2Round {
-    fn r1_mut(&mut self) -> Result<&mut Musig2FirstRound, &mut Musig2SecondRound> {
-        match self {
-            Musig2Round::Musig2FirstRound(r1) => Ok(r1),
-            Musig2Round::Musig2SecondRound(r2) => Err(r2),
-        }
-    }
-    fn r2_mut(&mut self) -> Result<&mut Musig2SecondRound, &mut Musig2FirstRound> {
-        match self {
-            Musig2Round::Musig2SecondRound(r2) => Ok(r2),
-            Musig2Round::Musig2FirstRound(r1) => Err(r1),
-        }
-    }
     fn r1_owned(self) -> Result<Musig2FirstRound, Musig2SecondRound> {
         match self {
             Musig2Round::Musig2FirstRound(r1) => Ok(r1),
             Musig2Round::Musig2SecondRound(r2) => Err(r2),
-        }
-    }
-    fn r2_owned(self) -> Result<Musig2SecondRound, Musig2FirstRound> {
-        match self {
-            Musig2Round::Musig2SecondRound(r2) => Ok(r2),
-            Musig2Round::Musig2FirstRound(r1) => Err(r1),
         }
     }
 }
