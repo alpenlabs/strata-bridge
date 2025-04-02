@@ -21,6 +21,7 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    stake_chain::StakeChainInputs,
     transactions::stake::StakeTxData,
 };
 use strata_bridge_tx_graph::{
@@ -306,6 +307,7 @@ pub enum ContractState {
 
 /// This is the superset of all possible operator duties.
 #[derive(Debug)]
+#[expect(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
@@ -317,6 +319,9 @@ pub enum OperatorDuty {
 
         /// The index of the deposit
         deposit_idx: u32,
+
+        /// The data about the stake transaction.
+        stake_chain_inputs: StakeChainInputs,
     },
 
     /// Instructs us to publish our graph nonces for this contract.
