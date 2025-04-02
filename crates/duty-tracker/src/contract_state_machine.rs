@@ -369,7 +369,12 @@ pub enum OperatorDuty {
     },
 
     /// Instructs us to submit the deposit transaction to the network.
-    PublishDeposit,
+    PublishDeposit {
+        /// Deposit transaction to be signed and published.
+        deposit_tx: Transaction,
+        /// Partial signatures from peers.
+        partial_sigs: BTreeMap<P2POperatorPubKey, PartialSignature>,
+    },
 
     /// Injection function for a FulfillerDuty.
     FulfillerDuty(FulfillerDuty),
@@ -537,6 +542,7 @@ impl ContractSM {
             OperatorDuty::PublishDepositSetup {
                 deposit_txid,
                 deposit_idx,
+                stake_chain_inputs: todo!(),
             },
         )
     }
@@ -688,29 +694,6 @@ impl ContractSM {
         }
     }
 
-    fn convert_g16_keys(
-        g16_keys: strata_p2p_types::Groth16PublicKeys,
-    ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
-        // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
-        // rid of the rats nest of code below.
-        if g16_keys.public_inputs.len() != NUM_PUBS {
-            return Err(TransitionErr);
-        }
-        let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
-
-        if g16_keys.fqs.len() != NUM_U256 {
-            return Err(TransitionErr);
-        }
-        let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
-
-        if g16_keys.hashes.len() != NUM_HASH {
-            return Err(TransitionErr);
-        }
-        let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
-
-        Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
-    }
-
     /// Updates the current state of the machine with the new data i.e., the new stake transaction,
     /// the new wots keys and all the resulting transaction IDs in the transaction graph that
     /// need to be monitored on chain.
@@ -785,6 +768,7 @@ impl ContractSM {
                         Some(OperatorDuty::PublishGraphNonces {
                             deposit_txid: self.deposit_txid(),
                             operator_p2p_key: signer,
+                            pog: todo!(),
                         })
                     } else {
                         None
@@ -809,6 +793,7 @@ impl ContractSM {
                             pubnonces: graph_nonces.clone(),
                             deposit_txid: self.deposit_txid(),
                             operator_p2p_key: signer,
+                            pog: todo!(),
                         })
                     } else {
                         None
@@ -883,7 +868,11 @@ impl ContractSM {
                     if root_sigs.len() == self.cfg.operator_table.cardinality() {
                         // we have all the deposit sigs now
                         // we can publish the deposit
-                        Some(OperatorDuty::PublishDeposit)
+
+                        Some(OperatorDuty::PublishDeposit {
+                            partial_sigs: root_sigs.clone(),
+                            deposit_tx: self.cfg().deposit_tx.clone(),
+                        })
                     } else {
                         None
                     },

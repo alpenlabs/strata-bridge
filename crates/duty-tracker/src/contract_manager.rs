@@ -1792,6 +1792,40 @@ async fn execute_duty(
                 .await;
             Ok(())
         }
+        OperatorDuty::PublishDeposit {
+            deposit_tx,
+            partial_sigs,
+        } => {
+            let Entry::Occupied(mut entry) = self
+                .s2_musig2_sessions
+                .entry(deposit_tx.input[0].previous_output)
+            else {
+                panic!("aaaaaaaa why don't we have a musig2 session???")
+            };
+            let r2 = entry.get_mut().r2_mut().unwrap();
+            for (op_p2p_key, partial_sig) in partial_sigs {
+                let btc_key = cfg.operator_table.op_key_to_btc_key(&op_p2p_key).unwrap();
+                r2.receive_signature(btc_key.to_x_only_pubkey(), partial_sig)
+                    .await?
+                    .expect("valid sig");
+            }
+            assert!(r2.is_complete().await?);
+            let r2 = entry.remove().r2_owned().unwrap();
+            let sig = r2.finalize().await?.expect("good sig");
+            let mut sighasher = SighashCache::new(deposit_tx);
+            sighasher
+                .witness_mut(0)
+                .expect("deposit tx has a first input")
+                .push(sig.serialize());
+            let tx = sighasher.into_transaction();
+            output_handles
+                .tx_driver
+                .drive(tx, 0)
+                .await
+                .expect("deposit tx should get confirmed");
+            Ok(())
+        }
+
         OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
             stake_index,
             stake_tx,
@@ -1916,6 +1950,20 @@ impl Musig2Round {
         match self {
             Musig2Round::Musig2FirstRound(r1) => Ok(r1),
             Musig2Round::Musig2SecondRound(r2) => Err(r2),
+        }
+    }
+
+    fn r2_owned(self) -> Result<Musig2SecondRound, Musig2FirstRound> {
+        match self {
+            Musig2Round::Musig2SecondRound(r2) => Ok(r2),
+            Musig2Round::Musig2FirstRound(r1) => Err(r1),
+        }
+    }
+
+    fn r2_mut(&mut self) -> Result<&mut Musig2SecondRound, &mut Musig2FirstRound> {
+        match self {
+            Musig2Round::Musig2SecondRound(r2) => Ok(r2),
+            Musig2Round::Musig2FirstRound(r1) => Err(r1),
         }
     }
 }
