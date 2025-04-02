@@ -130,6 +130,12 @@ macro_rules! get_or_create_nonce {
     }};
 }
 
+/// Loads from db or creates a partial signature for a given outpoint by receiving all pubnonces for
+/// the first round of musig2, finalizing into round 2 and producing our partial signature and
+/// saving it to the database for future use.
+///
+/// Outside of this macro, our partial sig is sent to all the other operators so it can be
+/// aggregated into the final signature.
 macro_rules! generate_partial_sig {
     ($self:expr, $outpoint:expr, $pubnonces:expr, $nonce_idx:expr, $sighash:expr, $partial_sigs:expr) => {{
         let our_sig = if let Some(our_sig) = $self
