@@ -948,7 +948,7 @@ async fn execute_duty(
                             .expect("failed to construct sighash");
                         let signature = s2_client
                             .general_wallet_signer()
-                            .sign(&sighash.to_byte_array())
+                            .sign(&sighash.to_byte_array(), None)
                             .await?;
 
                         let signature = bitcoin::taproot::Signature {
