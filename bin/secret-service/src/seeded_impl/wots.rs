@@ -275,10 +275,10 @@ fn wots_sign_256_bitvm(
             key
         });
 
-    let msg_sig_compact = wots256::get_signature_with_secrets(split_secret_key, msg);
+    let msg_sig_compact = wots256::compact::get_signature_with_secrets(split_secret_key, msg);
     let mut sig = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
     for i in 0..key_width(256, WINTERNITZ_DIGIT_WIDTH) {
-        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i].0);
+        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
     }
     sig
 }
@@ -490,13 +490,7 @@ mod tests {
         let mut sig_grouped = [[0u8; 20]; 68];
         for i in 0..68 {
             sig_grouped[i].copy_from_slice(&sig[20 * i..20 * (i + 1)]);
-            // if i % 2 == 0 {
-            //     sig_grouped[i].1 = msg[i / 2] & 0xF;
-            // } else {
-            //     sig_grouped[i].1 = msg[i / 2] >> 4;
-            // }
         }
-        // let sig_witness = SignatureImpl::to_script(sig_grouped);
 
         let pk = wots_public_key::<68>(
             &Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32),
@@ -515,15 +509,8 @@ mod tests {
             for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };
-        let res = execute_script(scr);
-        // println!("{:?}", res.final_stack);
-        println!("{:?}", res.success);
-        for i in 0..res.final_stack.len() {
-            println!("{:?}", res.final_stack.get(i));
-        }
-        assert!(res.success && res.final_stack.len() == 1);
 
-        println!("msg: {:?}", msg);
-        println!("sk: {:?}", sk);
+        let res = execute_script(scr);
+        assert!(res.success && res.final_stack.len() == 1);
     }
 }
