@@ -158,7 +158,7 @@ where
             }
         };
         // attempt to finalize the second round
-        Ok(second_round.finalize().await.map_err(OneOf::new)?)
+        second_round.finalize().await.map_err(OneOf::new)
     }
 
     /// removes a SecondRound from self.second_rounds.
