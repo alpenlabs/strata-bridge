@@ -49,6 +49,7 @@ use crate::{
     predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
+    tx_driver::TxDriver,
 };
 
 /// System that handles all of the chain and p2p events and forwards them to their respective
@@ -73,6 +74,7 @@ impl ContractManager {
         // Subsystem Handles
         zmq_client: BtcZmqClient,
         rpc_client: BitcoinClient,
+        tx_driver: TxDriver,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
         stake_chain_persister: StakeChainPersister,
@@ -161,6 +163,7 @@ impl ContractManager {
                 wallet,
                 s2_client,
                 p2p_msg_handle: MessageHandler::new(p2p_handle.clone()),
+                tx_driver,
                 stakechain_prestake_utxo,
                 db,
             };
@@ -310,6 +313,7 @@ struct ContractManagerCtx {
     s2_client: SecretServiceClient,
     /// NOTE: DO NOT CALL .next() because it will mess with the contract manager and break shit
     p2p_msg_handle: MessageHandler,
+    tx_driver: TxDriver,
     stakechain_prestake_utxo: OutPoint,
     db: SqliteDb,
 }
@@ -871,7 +875,11 @@ impl ContractManagerCtx {
                                     .push(signature.to_vec());
                             }
 
-                            // todo! @zk2u broadcast refill tx
+                            // FIXME: Use something other than 0.
+                            self.tx_driver
+                                .drive(tx, 0)
+                                .await
+                                .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
 
                             op
                         }
