@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  NIGHTLY: nightly-2024-11-01
 
 permissions: {}
 
@@ -21,9 +22,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install ${{ env.NIGHTLY }}
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly-2024-11-01
+          toolchain: ${{ env.NIGHTLY }}
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -52,6 +54,47 @@ jobs:
           DATABASE_URL: sqlite://./operator.db
           SKIP_GUEST_BUILD: 1
 
+  miri:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      matrix:
+        package:
+          - secret-service-server
+          # - strata-bridge-tx-graph # broken given sp1 does not like miri.
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          submodules: true
+
+      - name: Install ${{ env.NIGHTLY }}
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          toolchain: ${{ env.NIGHTLY }}
+          components: miri
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --locked
+
+      - name: Run db migrations
+        run: make migrate
+
+      - name: cargo miri test
+        run: cargo miri test -p ${{ matrix.package }}
+        env:
+          MIRIFLAGS: ""
+          SKIP_GUEST_BUILD: 1
+
   fmt:
     name: Check code formatting
     runs-on: ubuntu-latest
@@ -61,11 +104,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@nightly
+      - name: Install ${{ env.NIGHTLY }}
+        uses: dtolnay/rust-toolchain@nightly
         with:
+          toolchain: ${{ env.NIGHTLY }}
           components: rustfmt
-          toolchain: nightly-2024-11-01
-      - run: cargo fmt --all --check
+      - name: cargo fmt check
+        run: cargo fmt --all --check
 
   codespell:
     name: Check code spellings
