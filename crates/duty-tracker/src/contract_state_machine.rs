@@ -548,6 +548,7 @@ impl ContractSM {
 
         graphs.iter().any(|g| {
             deposit_txid == txid
+                || g.stake_txid == txid
                 || g.claim_txid == txid
                 || g.payout_optimistic_txid == txid
                 || g.post_assert_txid == txid
@@ -621,7 +622,7 @@ impl ContractSM {
         match &self.state.state {
             ContractState::Requested { .. } => Err(TransitionErr),
             ContractState::Deposited { .. } => Err(TransitionErr),
-            ContractState::Assigned { .. } => self.process_stake_chain_advancement(),
+            ContractState::Assigned { .. } => self.process_stake_chain_advancement(tx),
             ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
             ContractState::Claimed { .. } => self
@@ -945,7 +946,10 @@ impl ContractSM {
         }
     }
 
-    fn process_stake_chain_advancement(&mut self) -> Result<Option<OperatorDuty>, TransitionErr> {
+    fn process_stake_chain_advancement(
+        &mut self,
+        tx: &Transaction,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
             ContractState::Assigned {
                 peg_out_graphs,
@@ -954,6 +958,10 @@ impl ContractSM {
                 deadline,
                 active_graph,
             } => {
+                if tx.compute_txid() != active_graph.stake_txid {
+                    return Err(TransitionErr);
+                }
+
                 self.state.state = ContractState::StakeTxReady {
                     peg_out_graphs,
                     fulfiller,
