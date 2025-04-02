@@ -1,5 +1,7 @@
 //! Error types for the duty tracker.
 
+use std::error::Error;
+
 use bdk_wallet::error::CreateTxError;
 use strata_bridge_db::errors::DbError;
 use strata_bridge_tx_graph::errors::TxGraphError;
@@ -48,6 +50,10 @@ pub enum ContractManagerErr {
     /// Error during transaction creation
     #[error("error while creating transaction: {0:?}")]
     CreateTxErr(#[from] CreateTxError),
+
+    /// General catch-all for errors.
+    #[error("error: {0}")]
+    FatalErr(#[from] Box<dyn Error + 'static>),
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.

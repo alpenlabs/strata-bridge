@@ -1,6 +1,6 @@
 //! This module implements a system that will accept signed transactions and ensure they are posted
 //! to the blockchain within a reasonable time.
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, error::Error, fmt};
 
 use bitcoin::Transaction;
 use btc_notify::{
@@ -22,6 +22,19 @@ pub enum DriveErr {
     /// Indicates that the TxDriver has been dropped and no more events should be expected.
     DriverAborted,
 }
+
+impl fmt::Display for DriveErr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DriveErr::DriverAborted => write!(
+                f,
+                "TxDriver has been aborted, no more events should be expected"
+            ),
+        }
+    }
+}
+
+impl Error for DriveErr {}
 
 struct TxDriveJob {
     tx: Transaction,
