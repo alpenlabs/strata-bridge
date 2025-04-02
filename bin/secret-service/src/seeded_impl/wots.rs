@@ -5,7 +5,7 @@ use bitcoin::{
     hashes::{hash160, Hash},
     Txid,
 };
-use bitvm::signatures::wots_api::{wots256, wots_hash, SignatureImpl};
+use bitvm::signatures::wots_api::{wots256, wots_hash};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
@@ -420,8 +420,7 @@ const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 
 #[cfg(test)]
 mod tests {
-    use bitvm::{bn254::fq::Fq, execute_script, treepp::script};
-    use wots256::compact::Signature;
+    use bitvm::{execute_script, treepp::script};
 
     use super::*;
 
