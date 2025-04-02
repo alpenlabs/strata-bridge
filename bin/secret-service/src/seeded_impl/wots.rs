@@ -5,6 +5,7 @@ use bitcoin::{
     hashes::{hash160, Hash},
     Txid,
 };
+use bitvm::signatures::wots_api::{wots256, wots_hash};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
@@ -113,7 +114,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         msg: &[u8; 16],
     ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_128_secret_key(txid, vout, index).await;
-        wots_sign::<128>(msg, &sk)
+        wots_sign_128_bitvm(msg, &sk)
     }
 
     #[expect(refining_impl_trait)]
@@ -125,7 +126,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         msg: &[u8; 32],
     ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
         let sk = self.get_256_secret_key(txid, vout, index).await;
-        wots_sign::<256>(msg, &sk)
+        wots_sign_256_bitvm(msg, &sk)
     }
 }
 
@@ -223,14 +224,13 @@ impl Parameters {
 /// Returns the public key for the given secret key and the parameters
 fn wots_public_key<const N: usize>(ps: &Parameters, secret_key: &[u8; 20 * N]) -> [u8; 20 * N]
 where
-    [(); 20 * N + 1]:,
+    [(); 20 * N]:,
 {
     let mut public_key = [0u8; 20 * N];
     for i in 0..ps.total_length() {
         let secret_i = {
-            let mut buf = [0; 20 * N + 1];
-            buf[..20 * N].copy_from_slice(secret_key);
-            buf[20 * N] = i as u8;
+            let mut buf = [0; 20];
+            buf.copy_from_slice(&secret_key[20 * i as usize..20 * (i + 1) as usize]);
             buf
         };
         let mut hash = hash160::Hash::hash(&secret_i);
@@ -245,7 +245,53 @@ where
     public_key
 }
 
-fn wots_sign<const N: usize>(
+fn wots_sign_128_bitvm(
+    msg: &[u8; 16],
+    secret_key: &[u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)],
+) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
+    let split_secret_key: [[u8; 20]; key_width(128, WINTERNITZ_DIGIT_WIDTH)] =
+        std::array::from_fn(|i| {
+            let mut key = [0; 20];
+            key.copy_from_slice(&secret_key[20 * i..20 * (i + 1)]);
+            key
+        });
+
+    let msg_sig_compact = wots_hash::compact::get_signature_with_secrets(split_secret_key, msg);
+    let mut sig = [0u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)];
+    for i in 0..key_width(128, WINTERNITZ_DIGIT_WIDTH) {
+        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
+    }
+    sig
+}
+
+fn wots_sign_256_bitvm(
+    msg: &[u8; 32],
+    secret_key: &[u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)],
+) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
+    let split_secret_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
+        std::array::from_fn(|i| {
+            let mut key = [0; 20];
+            key.copy_from_slice(&secret_key[20 * i..20 * (i + 1)]);
+            key
+        });
+
+    let msg_sig_compact = wots256::compact::get_signature_with_secrets(split_secret_key, msg);
+    let mut sig = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
+    for i in 0..key_width(256, WINTERNITZ_DIGIT_WIDTH) {
+        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
+    }
+    sig
+}
+
+/// This function was an attempt at implementing WOTS signing from scratch. However during some
+/// investigation into how this is implemented in BitVM it was determined to be incompatible for
+/// some non-obvious reasons relating to how BitVM organizes it's signatures. We are leaving this
+/// function here for now in case BitVM can use a more sane signature layout, but for now we are
+/// using the fucked up BitVM version to guarantee compatibility while we pin down whether or not
+/// the BitVM scheme is fixable without massively expanding the Bitcoin locking script sizes
+/// required to guarantee the security of the bridge funds.
+#[expect(dead_code)]
+fn wots_sign_naive<const N: usize>(
     msg: &[u8; N.div_ceil(8)],
     secret_key: &[u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)],
 ) -> [u8; 20 * key_width(N, WINTERNITZ_DIGIT_WIDTH)]
@@ -374,60 +420,112 @@ const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 
 #[cfg(test)]
 mod tests {
+    use bitvm::{execute_script, treepp::script};
+
     use super::*;
 
     #[test]
-    fn sanity_check() {
-        let sk: [u8; 20 * PARAMS_128_TOTAL_LEN] = [0; 20 * PARAMS_128_TOTAL_LEN];
-        let pk = wots_public_key::<PARAMS_128_TOTAL_LEN>(&PARAMS_128, &sk);
-        // This matches with the current BitVM implementation (as of 2025-03-30).
-        let expected = [
-            231, 105, 12, 202, 16, 103, 212, 67, 88, 20, 155, 195, 135, 65, 116, 73, 91, 255, 27,
-            70, 30, 116, 139, 34, 50, 125, 124, 82, 60, 40, 216, 178, 154, 2, 48, 249, 4, 243, 84,
-            111, 38, 171, 180, 122, 186, 199, 172, 99, 135, 191, 255, 174, 165, 114, 161, 255, 198,
-            160, 84, 82, 188, 128, 134, 40, 192, 171, 90, 216, 178, 246, 213, 201, 74, 232, 167,
-            100, 226, 134, 51, 181, 151, 30, 201, 192, 23, 94, 122, 102, 16, 224, 193, 187, 190,
-            148, 27, 31, 206, 56, 85, 76, 41, 133, 232, 56, 23, 75, 122, 182, 65, 33, 134, 224, 87,
-            202, 253, 200, 41, 121, 228, 233, 145, 217, 217, 187, 157, 45, 162, 72, 178, 193, 70,
-            22, 243, 100, 112, 11, 163, 37, 217, 59, 160, 87, 112, 183, 16, 200, 64, 125, 94, 64,
-            73, 245, 40, 95, 253, 38, 194, 158, 179, 23, 53, 191, 54, 192, 95, 238, 216, 169, 63,
-            215, 3, 105, 199, 124, 244, 138, 146, 178, 235, 115, 65, 204, 163, 129, 254, 159, 62,
-            105, 176, 218, 164, 253, 163, 220, 103, 199, 152, 99, 83, 190, 214, 135, 68, 99, 21,
-            80, 86, 229, 210, 241, 70, 161, 131, 164, 214, 78, 187, 222, 68, 14, 27, 207, 75, 80,
-            2, 158, 77, 73, 83, 251, 78, 247, 242, 35, 134, 22, 137, 242, 225, 191, 24, 182, 175,
-            138, 218, 215, 102, 178, 164, 206, 52, 195, 138, 61, 135, 128, 222, 248, 107, 75, 216,
-            132, 8, 46, 86, 233, 2, 108, 116, 204, 196, 114, 208, 58, 163, 248, 216, 2, 185, 249,
-            247, 191, 28, 2, 5, 222, 27, 81, 32, 88, 204, 91, 36, 154, 125, 187, 78, 43, 114, 162,
-            239, 213, 93, 117, 118, 235, 104, 183, 81, 7, 221, 78, 58, 195, 218, 209, 104, 30, 220,
-            107, 127, 81, 100, 205, 103, 110, 240, 113, 11, 79, 14, 232, 188, 20, 82, 91, 103, 212,
-            134, 56, 1, 73, 107, 173, 126, 105, 143, 51, 2, 110, 160, 85, 111, 180, 251, 222, 174,
-            164, 76, 3, 234, 201, 131, 149, 186, 183, 91, 127, 174, 159, 249, 160, 97, 160, 241,
-            41, 242, 83, 79, 132, 76, 77, 59, 22, 21, 111, 59, 23, 206, 154, 48, 236, 157, 92, 117,
-            175, 235, 141, 42, 131, 50, 252, 122, 149, 177, 186, 226, 181, 186, 151, 57, 231, 119,
-            21, 212, 51, 252, 71, 187, 100, 182, 242, 39, 245, 19, 67, 66, 198, 226, 215, 242, 190,
-            210, 205, 56, 183, 161, 112, 76, 175, 146, 74, 219, 80, 205, 129, 197, 237, 162, 33,
-            112, 41, 56, 63, 247, 71, 6, 77, 43, 203, 80, 173, 44, 55, 220, 27, 25, 171, 253, 191,
-            191, 91, 130, 88, 49, 192, 186, 234, 205, 25, 242, 25, 219, 74, 157, 84, 249, 148, 243,
-            72, 8, 132, 133, 210, 234, 40, 43, 236, 178, 127, 144, 93, 27, 128, 25, 34, 2, 246,
-            158, 53, 255, 103, 119, 137, 48, 95, 22, 205, 111, 179, 92, 21, 119, 12, 215, 101, 71,
-            21, 85, 87, 152, 68, 129, 80, 222, 165, 200, 109, 23, 167, 142, 252, 173, 109, 217,
-            252, 169, 2, 190, 4, 108, 173, 42, 206, 204, 144, 159, 46, 4, 179, 101, 26, 179, 138,
-            53, 210, 170, 169, 43, 90, 199, 212, 106, 244, 103, 238, 9, 172, 83, 125, 104, 171,
-            194, 173, 103, 175, 113, 235, 140, 93, 51, 136, 100, 10, 152, 111, 119, 100, 144, 23,
-            130, 60, 97, 192, 216, 43, 68, 41, 251, 34, 157, 247, 81, 228, 175, 12, 83, 240, 212,
-            98, 189, 245, 228, 206, 114, 44, 132, 190, 53, 15, 26, 49, 87, 50, 17, 202, 213, 91,
-            203, 52, 47, 31, 148, 48, 49, 47, 36, 141, 58, 54, 247, 171, 181, 23, 68, 225, 48, 52,
-            149, 92, 10, 18, 199, 117, 249, 247, 248, 144, 244, 208, 100, 38, 27, 22, 176, 116, 62,
-            2, 46, 127, 164, 207, 179, 197, 19, 18, 156, 30, 170, 66, 6, 159, 137, 29, 69, 244,
-            205, 179, 57, 98, 140, 103, 223, 130, 198, 212, 248, 98, 203, 134, 208, 142, 144, 2,
-            14, 234, 153, 15, 134, 178,
-        ];
-        assert_eq!(pk, expected);
+    fn wots_pubkey_matches_bitvm() {
+        // Generate a secret key, this could be random.
+        let sk: [u8; 20 * 68] = std::array::from_fn(|i| (i / 20) as u8);
+
+        // Generate the public key from the secret key.
+        let pk = wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk);
+
+        // Split the public key so we can compare it to bitvm output.
+        let split_public_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
+            std::array::from_fn(|i| {
+                let mut key = [0; 20];
+                key.copy_from_slice(&pk[20 * i..20 * (i + 1)]);
+                key
+            });
+
+        // Split that secret key so we can feed it to the bitvm implementation
+        let split_secret_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
+            std::array::from_fn(|i| {
+                let mut key = [0; 20];
+                key.copy_from_slice(&sk[20 * i..20 * (i + 1)]);
+                key
+            });
+
+        // Generate the public key with bitvm.
+        let pk_bitvm = wots256::generate_public_key_with_secrets(split_secret_key);
+
+        // Compare them.
+        assert_eq!(pk_bitvm, split_public_key);
     }
 
     #[test]
     fn test_key_width() {
         assert_eq!(key_width(128, 4), 36);
         assert_eq!(key_width(256, 4), 68);
+    }
+
+    #[test]
+    fn test_wots_256_sign() {
+        let msg: [u8; 32] = std::array::from_fn(|i| 3 * i as u8);
+        let sk: [u8; 20 * 68] = std::array::from_fn(|i| (i / 20) as u8);
+
+        let sig = wots_sign_256_bitvm(&msg, &sk);
+
+        let mut sig_grouped = [[0u8; 20]; 68];
+        for i in 0..68 {
+            sig_grouped[i].copy_from_slice(&sig[20 * i..20 * (i + 1)]);
+        }
+
+        let pk = wots_public_key::<68>(
+            &Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32),
+            &sk,
+        );
+        let mut pk_grouped = [[0u8; 20]; 68];
+        for i in 0..68 {
+            pk_grouped[i].copy_from_slice(&pk[20 * i..20 * (i + 1)]);
+        }
+
+        let scr = script! {
+            for s in sig_grouped {
+                { s.to_vec() }
+            }
+            { wots256::compact::checksig_verify(pk_grouped) }
+            for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
+            OP_TRUE
+        };
+
+        let res = execute_script(scr);
+        assert!(res.success && res.final_stack.len() == 1);
+    }
+
+    #[test]
+    fn test_wots_128_sign() {
+        let msg: [u8; 16] = std::array::from_fn(|i| 3 * i as u8);
+        let sk: [u8; 20 * 36] = std::array::from_fn(|i| (i / 20) as u8);
+
+        let sig = wots_sign_128_bitvm(&msg, &sk);
+
+        let mut sig_grouped = [[0u8; 20]; 36];
+        for i in 0..36 {
+            sig_grouped[i].copy_from_slice(&sig[20 * i..20 * (i + 1)]);
+        }
+
+        let pk = wots_public_key::<36>(
+            &Parameters::new_by_bit_length(128, WINTERNITZ_DIGIT_WIDTH as u32),
+            &sk,
+        );
+        let mut pk_grouped = [[0u8; 20]; 36];
+        for i in 0..36 {
+            pk_grouped[i].copy_from_slice(&pk[20 * i..20 * (i + 1)]);
+        }
+
+        let scr = script! {
+            for s in sig_grouped {
+                { s.to_vec() }
+            }
+            { wots_hash::compact::checksig_verify(pk_grouped) }
+            for _ in 0..128/4 { OP_DROP } // drop data (in nibbles) from stack
+            OP_TRUE
+        };
+
+        let res = execute_script(scr);
+        assert!(res.success && res.final_stack.len() == 1);
     }
 }
