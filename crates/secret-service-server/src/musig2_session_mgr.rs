@@ -291,8 +291,6 @@ where
 }
 
 /// Represents the state of a slot in the MuSig2 session manager.
-///
-/// Used with the [`bool_arr`](crate::bool_arr) to improve scan performance.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SlotState {
     /// There's no MuSig2 session in this slot.
@@ -329,12 +327,6 @@ impl From<SlotState> for (bool, bool) {
 }
 
 /// Compact storage for [`SlotState`] values, encoding each as two bits.
-///
-/// # Implementation Details
-///
-/// - Stores values in N `u64` integers (`8N` bytes total)
-/// - Provides O(1) access time for get/set operations
-/// - Implements space-efficient storage with 2 bits per entry
 #[derive(Debug)]
 pub struct SlotStateArray<const N: usize>([u64; N / 32])
 where
