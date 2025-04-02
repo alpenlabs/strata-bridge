@@ -1042,10 +1042,13 @@ impl ContractManagerCtx {
             .general_wallet_signer()
             .sign(messages[0].as_ref(), None)
             .await?;
+
         let signed_stake_tx = if stake_index == 0 {
+            // the first stake transaction spends the pre-stake which is locked by the key in the
+            // stake-chain wallet
             let stake_signature = self
                 .s2_client
-                .stakechain_wallet_signer()
+                .general_wallet_signer()
                 .sign(messages[1].as_ref(), None)
                 .await?;
 
@@ -1082,6 +1085,12 @@ impl ContractManagerCtx {
                 self.network,
             );
 
+            // all the stake transactions except the first one are locked with the general wallet
+            // signer.
+            // this is a caveat of the fact that we only share one x-only pubkey during deposit
+            // setup which is used for reimbursements/cpfp.
+            // so instead of sharing ones, we can just reuse this key (which is part of a taproot
+            // address).
             let stake_signature = self
                 .s2_client
                 .stakechain_wallet_signer()
@@ -1100,6 +1109,8 @@ impl ContractManagerCtx {
         // FIXME: (@Rajil1213) change this to the current block height
         // once the tx driver's deadline handling is implemented
         self.tx_driver.drive(signed_stake_tx, confirm_by).await?;
+
+        self.stake_chains.process_advancement();
 
         Ok(())
     }

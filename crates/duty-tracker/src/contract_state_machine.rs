@@ -210,7 +210,7 @@ pub enum ContractState {
     /// This state describes everything from the moment stake transaction corresponding to this
     /// deposit confirms to the moment the fulfillment transaction confirms for the assigned
     /// operator.
-    AdvancedStakeChain {
+    StakeTxReady {
         /// These are the actual peg-out-graph summaries for each operator. This will be stored so
         /// we can monitor the transactions relevant to advancing the contract through its
         /// lifecycle.
@@ -505,7 +505,7 @@ impl ContractSM {
             ContractState::Deposited { peg_out_graphs, .. } => {
                 peg_out_graphs.iter().map(|(_, g)| g.clone()).collect()
             }
-            ContractState::AdvancedStakeChain { peg_out_graphs, .. } => {
+            ContractState::StakeTxReady { peg_out_graphs, .. } => {
                 peg_out_graphs.iter().map(|(_, g)| g.clone()).collect()
             }
             ContractState::Assigned { peg_out_graphs, .. } => {
@@ -622,7 +622,7 @@ impl ContractSM {
             ContractState::Requested { .. } => Err(TransitionErr),
             ContractState::Deposited { .. } => Err(TransitionErr),
             ContractState::Assigned { .. } => self.process_stake_chain_advancement(),
-            ContractState::AdvancedStakeChain { .. } => self.process_fulfillment_confirmation(tx),
+            ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
             ContractState::Claimed { .. } => self
                 .process_challenge_confirmation(tx)
@@ -847,36 +847,10 @@ impl ContractSM {
                     }
                 }
                 ContractState::Deposited { .. } => None,
-                ContractState::Assigned {
-                    peg_out_graphs,
-                    deadline,
-                    ..
-                } => {
-                    if self.state.block_height >= deadline {
-                        self.state.state = ContractState::Deposited { peg_out_graphs };
-                    }
-
-                    Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::AdvanceStakeChain {
-                            stake_index: self.cfg.deposit_idx,
-                        },
-                    ))
-                }
-                ContractState::AdvancedStakeChain {
-                    peg_out_graphs,
-                    deadline,
-                    ..
-                } => {
-                    if self.state.block_height >= deadline {
-                        self.state.state = ContractState::Deposited { peg_out_graphs };
-
-                        None
-                    } else {
-                        Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::PublishFulfillment,
-                        ))
-                    }
-                }
+                // handled in `process_peg_out_graph_tx_confirmation`
+                ContractState::Assigned { .. } => None,
+                // handled in `process_peg_out_graph_tx_confirmation`
+                ContractState::StakeTxReady { .. } => None,
                 ContractState::Fulfilled { .. } => None,
                 ContractState::Claimed {
                     fulfiller,
@@ -980,10 +954,10 @@ impl ContractSM {
                 deadline,
                 active_graph,
             } => {
-                self.state.state = ContractState::AdvancedStakeChain {
+                self.state.state = ContractState::StakeTxReady {
                     peg_out_graphs,
                     fulfiller,
-                    recipient,
+                    recipient: recipient.clone(),
                     deadline,
                     active_graph,
                 };
@@ -995,8 +969,18 @@ impl ContractSM {
 
                 // if this withdrawal is assigned to this operator, then it needs to fulfill
                 // it.
+                let withdrawal_metadata = WithdrawalMetadata {
+                    tag: self.cfg.peg_out_graph_params.tag.as_bytes().to_vec(),
+                    operator_idx: fulfiller,
+                    deposit_idx: self.cfg.deposit_idx,
+                    deposit_txid: self.cfg.deposit_tx.compute_txid(),
+                };
+
                 Ok(Some(OperatorDuty::FulfillerDuty(
-                    FulfillerDuty::PublishFulfillment,
+                    FulfillerDuty::PublishFulfillment {
+                        withdrawal_metadata,
+                        user_descriptor: recipient,
+                    },
                 )))
             }
             _ => Err(TransitionErr),
@@ -1009,7 +993,7 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
-            ContractState::AdvancedStakeChain {
+            ContractState::StakeTxReady {
                 peg_out_graphs,
                 fulfiller,
                 active_graph,
