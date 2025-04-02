@@ -481,7 +481,7 @@ mod tests {
     }
 
     #[test]
-    fn test_wots_sign() {
+    fn test_wots_256_sign() {
         let msg: [u8; 32] = std::array::from_fn(|i| 3 * i as u8);
         let sk: [u8; 20 * 68] = std::array::from_fn(|i| (i / 20) as u8);
 
@@ -507,6 +507,40 @@ mod tests {
             }
             { wots256::compact::checksig_verify(pk_grouped) }
             for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
+            OP_TRUE
+        };
+
+        let res = execute_script(scr);
+        assert!(res.success && res.final_stack.len() == 1);
+    }
+
+    #[test]
+    fn test_wots_128_sign() {
+        let msg: [u8; 16] = std::array::from_fn(|i| 3 * i as u8);
+        let sk: [u8; 20 * 36] = std::array::from_fn(|i| (i / 20) as u8);
+
+        let sig = wots_sign_128_bitvm(&msg, &sk);
+
+        let mut sig_grouped = [[0u8; 20]; 36];
+        for i in 0..36 {
+            sig_grouped[i].copy_from_slice(&sig[20 * i..20 * (i + 1)]);
+        }
+
+        let pk = wots_public_key::<36>(
+            &Parameters::new_by_bit_length(128, WINTERNITZ_DIGIT_WIDTH as u32),
+            &sk,
+        );
+        let mut pk_grouped = [[0u8; 20]; 36];
+        for i in 0..36 {
+            pk_grouped[i].copy_from_slice(&pk[20 * i..20 * (i + 1)]);
+        }
+
+        let scr = script! {
+            for s in sig_grouped {
+                { s.to_vec() }
+            }
+            { wots_hash::compact::checksig_verify(pk_grouped) }
+            for _ in 0..128/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };
 
