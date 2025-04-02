@@ -57,6 +57,11 @@ jobs:
   miri:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      matrix:
+        package:
+          - secret-service-server
+          # - strata-bridge-tx-graph # broken given sp1 does not like miri.
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,12 +83,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install SP1 Toolchain
-        run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash && ~/.sp1/bin/sp1up
-          export PATH=~/.sp1/bin:$PATH
-          cargo prove --version
-
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked
 
@@ -91,7 +90,7 @@ jobs:
         run: make migrate
 
       - name: cargo miri test
-        run: cargo miri test
+        run: cargo miri test -p ${{ matrix.package }}
         env:
           MIRIFLAGS: ""
           SKIP_GUEST_BUILD: 1
