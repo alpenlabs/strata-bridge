@@ -1312,8 +1312,6 @@ impl ContractSM {
 pub(crate) fn convert_g16_keys(
     g16_keys: strata_p2p_types::Groth16PublicKeys,
 ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
-    // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
-    // rid of the rats nest of code below.
     if g16_keys.public_inputs.len() != NUM_PUBS {
         return Err(TransitionErr);
     }

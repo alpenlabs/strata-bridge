@@ -1016,6 +1016,12 @@ impl ContractManagerCtx {
         all_commands
     }
 
+    /// Constructs the pegout graph for given deposit and
+    ///
+    /// - `Ok(pog)` means the pegout graph was successfully constructed
+    /// - `Err(Ok(()))` means the pegout graph was not constructed, and the incoming message should
+    ///   be ignored
+    /// - `Err(Err(e))` means there was some error constructing the pegout graph
     fn gen_pog(
         &self,
         deposit_txid: Txid,

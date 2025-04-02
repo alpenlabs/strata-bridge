@@ -73,12 +73,9 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                payout_optimistic_timelock,
-                pre_assert_timelock,
-                payout_timelock,
                 state,
                 deposit_info
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
@@ -127,9 +124,6 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                payout_optimistic_timelock,
-                pre_assert_timelock,
-                payout_timelock,
                 state,
                 deposit_info
             ) FROM contracts WHERE deposit_txid = ?
@@ -183,9 +177,6 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                payout_optimistic_timelock,
-                pre_assert_timelock,
-                payout_timelock,
                 state,
                 deposit_info
             ) FROM contracts
