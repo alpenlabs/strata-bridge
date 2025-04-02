@@ -2,15 +2,23 @@
 use std::{
     env, fs, io,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 
 use anyhow::anyhow;
-use bitcoin::secp256k1::SecretKey;
+use bdk_bitcoind_rpc::bitcoincore_rpc;
+use bitcoin::{
+    hashes::Hash,
+    secp256k1::SecretKey,
+    sighash::{Prevouts, SighashCache, TapSighashType},
+    FeeRate, OutPoint, TxOut,
+};
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
+use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
 use secp256k1::SECP256K1;
 use secret_service_client::{
     rustls::{
@@ -19,14 +27,20 @@ use secret_service_client::{
     },
     SecretServiceClient,
 };
-use secret_service_proto::v1::traits::{P2PSigner, SecretService};
+use secret_service_proto::v1::traits::{Musig2Signer, P2PSigner, SecretService, WalletSigner};
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use strata_bridge_db::persistent::sqlite::SqliteDb;
+use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
+};
+use strata_bridge_primitives::{constants::SEGWIT_MIN_AMOUNT, types::OperatorIdx};
+use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
+use strata_btcio::rpc::{
+    traits::{BroadcasterRpc, ReaderRpc},
+    BitcoinClient,
 };
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::P2POperatorPubKey;
@@ -44,34 +58,82 @@ use crate::{
 pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<()> {
     info!("bootstrapping operator node");
 
+    // Secret Service stuff.
+    info!("initializing the secret service client");
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
-
     let sk = s2_client
         .p2p_signer()
         .secret_key()
         .await
         .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
-
     info!(
         "Retrieved P2P secret key from S2: {sk_fingerprint:?}",
         sk_fingerprint = sk
     );
 
-    let message_handler = init_p2p_msg_handler(&config, &params, sk).await?;
-    let p2p_handle_rpc = message_handler.handle.clone();
+    let my_btc_key = s2_client.musig2_signer().pubkey().await?;
+    info!(%my_btc_key, "Retrieved MuSig2 operator key from S2");
 
+    // Database instances.
     let db = init_database_handle(&config).await;
     let db_rpc = db.clone();
+    let db_stakechain = db.clone();
 
-    init_duty_tracker(&params, &config, s2_client, message_handler, db);
+    // Create the async BitcoinD RPC client.
+    let bitcoin_rpc_client = Arc::new(BitcoinClient::new(
+        config.btc_client.url.to_string(),
+        config.btc_client.user.to_string(),
+        config.btc_client.pass.to_string(),
+        config.btc_client.retry_count,
+        config.btc_client.retry_interval,
+    )?);
 
+    // Initialize the operator wallet.
+    let mut operator_wallet = init_operator_wallet(&config, &params, s2_client.clone()).await?;
+
+    // Get the operator's key index.
+    let my_index = params
+        .keys
+        .musig2
+        .iter()
+        .position(|k| k == &my_btc_key)
+        .expect("should be able to find my index") as u32;
+
+    // Handle the stakechain genesis.
+    handle_stakechain_genesis(
+        db_stakechain,
+        s2_client.clone(),
+        &mut operator_wallet,
+        my_index,
+        bitcoin_rpc_client.clone(), // duty tracker also needs an Arc<BitcoinClient>
+    )
+    .await;
+
+    // P2P message handler.
+    let (message_handler, p2p_task) = init_p2p_msg_handler(&config, &params, sk).await?;
+    info!(?message_handler, "initialized the P2P message handler");
+    let p2p_handle_rpc = message_handler.handle.clone();
+
+    // Initialize the duty tracker.
+    info!("initializing the duty tracker");
+    init_duty_tracker(
+        &params,
+        &config,
+        s2_client,
+        message_handler,
+        operator_wallet,
+        db,
+    );
+    info!("initialized the duty tracker");
+
+    info!("starting the RPC server");
     let rpc_address = config.rpc_addr.clone();
     let rpc_task = start_rpc_server(rpc_address, db_rpc, p2p_handle_rpc, params.clone()).await?;
+    info!("started the RPC server");
 
     // Wait for all tasks to run
     // They are supposed to run indefinitely in most cases
-    // TODO: add duty tracker task
-    try_join!(rpc_task)?;
+    try_join!(rpc_task, p2p_task)?;
 
     Ok(())
 }
@@ -127,7 +189,7 @@ async fn init_p2p_msg_handler(
     config: &Config,
     params: &Params,
     sk: SecretKey,
-) -> anyhow::Result<MessageHandler> {
+) -> anyhow::Result<(MessageHandler, JoinHandle<()>)> {
     let my_key = LibP2pSecpPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
         .expect("infallible");
     let other_operators: Vec<LibP2pSecpPublicKey> = params
@@ -164,8 +226,8 @@ async fn init_p2p_msg_handler(
         signers_allowlist,
         num_threads,
     );
-    let (p2p_handle, _cancel) = p2p_bootstrap(&config).await?;
-    Ok(MessageHandler::new(p2p_handle))
+    let (p2p_handle, _cancel, listen_task) = p2p_bootstrap(&config).await?;
+    Ok((MessageHandler::new(p2p_handle), listen_task))
 }
 
 async fn init_database_handle(config: &Config) -> SqliteDb {
@@ -189,6 +251,8 @@ async fn init_database_handle(config: &Config) -> SqliteDb {
 
     let current_dir = env::current_dir().expect("should be able to get current working directory");
     let migrations_path = current_dir.join("migrations");
+    info!(?migrations_path, "migrations path");
+    info!(exists = %migrations_path.exists(), "migrations path exists");
 
     let migrator = Migrator::new(migrations_path)
         .await
@@ -242,6 +306,7 @@ fn init_duty_tracker(
     _config: &Config,
     _s2_client: SecretServiceClient,
     _message_handler: MessageHandler,
+    _operator_wallet: OperatorWallet,
     _db: SqliteDb,
 ) {
     unimplemented!("@ProofOfKeags");
@@ -260,4 +325,150 @@ async fn start_rpc_server(
             .expect("failed to start RPC server");
     });
     Ok(handle)
+}
+
+/// Initializes the operator wallet
+async fn init_operator_wallet(
+    config: &Config,
+    params: &Params,
+    s2_client: SecretServiceClient,
+) -> anyhow::Result<OperatorWallet> {
+    // BitcoinD RPC client for the Operator Wallet.
+    let auth = bitcoincore_rpc::Auth::UserPass(
+        config.btc_client.user.to_string(),
+        config.btc_client.pass.to_string(),
+    );
+    let bitcoin_rpc_client = Arc::new(
+        bitcoincore_rpc::Client::new(config.btc_client.url.as_str(), auth)
+            .expect("should be able to create bitcoin client"),
+    );
+    info!(?bitcoin_rpc_client, "bitcoin rpc client");
+
+    // Operator wallet stuff.
+    let general_key = s2_client.general_wallet_signer().pubkey().await?;
+    info!(%general_key, "operator wallet general key");
+    let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
+    info!(%stakechain_key, "operator wallet stakechain key");
+    let operator_wallet_config = OperatorWalletConfig::new(
+        OPERATOR_FUNDS,
+        config.operator_wallet.stake_funding_pool_size,
+        SEGWIT_MIN_AMOUNT,
+        params.stake_chain.stake_amount,
+        params.network,
+    );
+
+    let sync_backend = Backend::BitcoinCore(bitcoin_rpc_client.clone());
+    info!(?sync_backend, "operator wallet sync backend");
+    let operator_wallet = OperatorWallet::new(
+        general_key,
+        stakechain_key,
+        operator_wallet_config,
+        sync_backend,
+    );
+    info!(?operator_wallet, "created operator wallet");
+
+    Ok(operator_wallet)
+}
+
+/// Handles the stakechain genesis.
+///
+/// If the pre-stake tx is not in the database, this function will create a pre-stake tx, sign it,
+/// broadcast it and save it to the database.
+async fn handle_stakechain_genesis(
+    db: SqliteDb,
+    s2_client: SecretServiceClient,
+    operator_wallet: &mut OperatorWallet,
+    my_index: OperatorIdx,
+    bitcoin_rpc_client: Arc<BitcoinClient>,
+) {
+    if db
+        .get_pre_stake(my_index)
+        .await
+        .expect("should be able to consult the database")
+        .is_none()
+    {
+        // This means that we don't have a pre-stake tx in the database.
+        // We need to create a pre-stake tx, sign it, broadcast it and save it to the database.
+        info!("no pre-stake tx in the database, creating one");
+        let fee_rate = bitcoin_rpc_client
+            .estimate_smart_fee(1)
+            .await
+            .expect("should be able to get the fee rate estimate");
+
+        let fee_rate =
+            FeeRate::from_sat_per_vb(fee_rate).expect("should be able to create a fee rate");
+
+        info!(%fee_rate, "fetched fee rate from bitcoin client");
+
+        // We need to sync the wallet.
+        info!("syncing the operator wallet");
+        operator_wallet
+            .sync()
+            .await
+            .expect("should be able to sync the wallet");
+        info!("synced the operator wallet");
+
+        // Create the PreStake tx.
+        let pre_stake_psbt = operator_wallet
+            .create_prestake_tx(fee_rate)
+            .expect("should be able to create the pre-stake tx");
+        // Get the unsigned pre-stake tx.
+        let pre_stake_tx = pre_stake_psbt.unsigned_tx;
+        let pre_stake_txid = pre_stake_tx.compute_txid();
+        info!(%pre_stake_txid, "created the pre-stake tx");
+
+        // Collect all the UTXOs in the stakechain wallet that match the pre-stake tx inputs.
+        let general_wallet = operator_wallet.general_wallet();
+        let txins_as_outs = pre_stake_tx
+            .input
+            .iter()
+            .map(|i| {
+                let outpoint = i.previous_output;
+                info!(?outpoint, "outpoint");
+                general_wallet
+                    .get_utxo(outpoint)
+                    .expect("should be able to get the outpoint")
+                    .txout
+            })
+            .collect::<Vec<TxOut>>();
+        let prevouts = Prevouts::All(&txins_as_outs);
+        let mut sighasher = SighashCache::new(pre_stake_tx);
+        // Sign all the inputs.
+        for input in 0..txins_as_outs.len() {
+            let sighash = sighasher
+                .taproot_key_spend_signature_hash(input, &prevouts, TapSighashType::Default)
+                .expect("must be able to compute the sighash");
+
+            // Sign the pre-stake tx.
+            let signature = s2_client
+                .general_wallet_signer()
+                .sign(&sighash.to_byte_array(), None)
+                .await
+                .expect("should be able to sign the pre-stake tx");
+
+            sighasher
+                .witness_mut(input)
+                .expect("must be able to get the witness")
+                .push(signature.serialize());
+        }
+        let signed_pre_stake_tx = sighasher.into_transaction();
+        info!(%pre_stake_txid, "signed the pre-stake tx");
+
+        // Broadcast the pre-stake tx.
+        bitcoin_rpc_client
+            .send_raw_transaction(&signed_pre_stake_tx)
+            .await
+            .expect("should be able to broadcast the pre-stake tx");
+        info!(%pre_stake_txid, "broadcasted the pre-stake tx");
+
+        // Save the pre-stake tx to the database.
+        let pre_stake_outpoint = OutPoint {
+            txid: pre_stake_txid,
+            vout: 0, // NOTE: the protocol specifies that the s_connector vout is 0
+        };
+        db.set_pre_stake(my_index, pre_stake_outpoint)
+            .await
+            .expect("should be able to save the pre-stake tx to the database");
+        info!(%pre_stake_txid, "saved the pre-stake tx to the database");
+    }
 }

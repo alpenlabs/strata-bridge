@@ -21,8 +21,19 @@ services:
       - RUST_LOG=info
     volumes:
       - ./docker/vol/alpen-bridge:/app
+      - ./migrations:/app/migrations
     networks:
       bridge:
+  bitcoind:
+    image: bitcoin/bitcoin:28.1
+    volumes:
+      - ./docker/bitcoin/entrypoint.sh:/entrypoint.sh
+    ports:
+      - 18443:18443
+      - 18444:18444
+    networks:
+      bridge:
+        ipv4_address: 172.28.1.6
 
 networks:
   bridge:

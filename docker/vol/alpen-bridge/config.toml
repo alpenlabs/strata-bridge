@@ -13,7 +13,7 @@ key = "/app/tls/key.der"
 service_ca = "/app/tls/s2.ca.der"
 
 [btc_client]
-url = "http://localhost:18443"
+url = "http://172.28.1.6:18443"
 user = "user"
 pass = "password"
 retry_count = 3
@@ -28,3 +28,6 @@ idle_connection_timeout = { secs = 1000, nanos = 0 }
 listening_addr = "/ip4/127.0.0.1/tcp/1234"
 connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
 num_threads = 4
+
+[operator_wallet]
+stake_funding_pool_size = 32

@@ -16,6 +16,7 @@ FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 
 # Copy the built binaries from the builder stage
 COPY --from=builder /app/alpen-bridge /usr/local/bin/alpen-bridge
+COPY --from=builder /app/migrations /app/migrations
 COPY docker/alpen-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 EXPOSE 5678
