@@ -21,7 +21,7 @@ union Round<FirstRound, SecondRound> {
 /// [`Musig2SessionManager`] is responsible for tracking and managing Secret Service's
 /// MuSig2 sessions.
 #[derive(Debug)]
-pub struct Musig2SessionManager<FirstRound, SecondRound, const N: usize = 8096>
+pub struct Musig2SessionManager<FirstRound, SecondRound, const N: usize = 8_096>
 where
     SecondRound: Musig2SignerSecondRound<Server>,
     FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
@@ -328,20 +328,7 @@ impl From<SlotState> for (bool, bool) {
     }
 }
 
-/// Compact storage for types representable as two boolean values (four possible states).
-///
-/// Each entry is stored as two bits, with the following mapping:
-///
-/// - Bit 0: First boolean value (LSB)
-/// - Bit 1: Second boolean value
-///
-/// The generic type `T` must implement bidirectional conversion to/from `(bool, bool)`.
-/// IMPORTANT: When T is `(false, false)`, it represents an empty state.
-///
-/// # Type Parameters
-///
-/// - `N`: Number of `u64` chunks used for storage (capacity = `N × 32`)
-/// - `T`: Stored type that can be converted to/from `(bool, bool)` pairs
+/// Compact storage for [`SlotState`] values, encoding each as two bits.
 ///
 /// # Implementation Details
 ///
@@ -390,7 +377,9 @@ where
     /// Gets the two boolean values at specified index.
     /// Panics if `index >= N`.
     pub fn get(&self, index: usize) -> SlotState {
+        // calculate which u64 stores the slot
         let chunk_idx = index / 32;
+        // calculate which slot inside the u64 stores the value
         let slot = index % 32;
         let chunk = self.0[chunk_idx];
 
@@ -402,14 +391,16 @@ where
     /// Sets the two boolean values at specified index.
     /// Panics if `index >= N`.
     pub fn set(&mut self, index: usize, value: SlotState) {
+        // calculate which u64 stores the slot
         let chunk_idx = index / 32;
+        // calculate which slot inside the u64 stores the value
         let slot = index % 32;
         let chunk = &mut self.0[chunk_idx];
-
-        let mask = !(0b11 << (slot * 2));
         let values: (bool, bool) = value.into();
-        let new_bits = (values.0 as u64) | ((values.1 as u64) << 1);
 
+        // update the chunk
+        let mask = !(0b11 << (slot * 2));
+        let new_bits = (values.0 as u64) | ((values.1 as u64) << 1);
         *chunk = (*chunk & mask) | (new_bits << (slot * 2));
     }
 }
