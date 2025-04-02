@@ -13,8 +13,6 @@ use secret_service_proto::v1::traits::{Musig2SignerFirstRound, Musig2SignerSecon
 use terrors::OneOf;
 use tokio::sync::Mutex;
 
-use crate::bool_arr::DoubleBoolArray;
-
 union Round<FirstRound, SecondRound> {
     r1: ManuallyDrop<Arc<Mutex<FirstRound>>>,
     r2: ManuallyDrop<Arc<Mutex<SecondRound>>>,
@@ -31,7 +29,7 @@ where
 {
     /// Tracker is used for tracking whether a session is in first round,
     /// second round or completed.
-    tracker: DoubleBoolArray<N, SlotState>,
+    tracker: SlotStateArray<N>,
 
     /// Stores first/second rounds of musig2 instances. self.tracker is used to
     /// determine which round is active.
@@ -47,7 +45,7 @@ where
 {
     fn default() -> Self {
         Self {
-            tracker: DoubleBoolArray::default(),
+            tracker: SlotStateArray::default(),
             rounds: std::array::from_fn(|_| MaybeUninit::uninit()),
         }
     }
@@ -95,7 +93,7 @@ where
 
     #[inline]
     fn slot_state(&self, session_id: usize) -> Result<SlotState, OutOfRange> {
-        match session_id < DoubleBoolArray::<N, SlotState>::capacity() {
+        match session_id < SlotStateArray::<N>::capacity() {
             true => Ok(self.tracker.get(session_id)),
             false => Err(OutOfRange),
         }
@@ -295,7 +293,7 @@ where
 /// Represents the state of a slot in the MuSig2 session manager.
 ///
 /// Used with the [`bool_arr`](crate::bool_arr) to improve scan performance.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum SlotState {
     /// There's no MuSig2 session in this slot.
     Empty,
@@ -326,6 +324,181 @@ impl From<SlotState> for (bool, bool) {
             SlotState::Empty => (false, false),
             SlotState::FirstRound => (true, false),
             SlotState::SecondRound => (false, true),
+        }
+    }
+}
+
+/// Compact storage for types representable as two boolean values (four possible states).
+///
+/// Each entry is stored as two bits, with the following mapping:
+///
+/// - Bit 0: First boolean value (LSB)
+/// - Bit 1: Second boolean value
+///
+/// The generic type `T` must implement bidirectional conversion to/from `(bool, bool)`.
+/// IMPORTANT: When T is `(false, false)`, it represents an empty state.
+///
+/// # Type Parameters
+///
+/// - `N`: Number of `u64` chunks used for storage (capacity = `N × 32`)
+/// - `T`: Stored type that can be converted to/from `(bool, bool)` pairs
+///
+/// # Implementation Details
+///
+/// - Stores values in N `u64` integers (`8N` bytes total)
+/// - Provides O(1) access time for get/set operations
+/// - Implements space-efficient storage with 2 bits per entry
+#[derive(Debug)]
+pub struct SlotStateArray<const N: usize>([u64; N / 32])
+where
+    [(); N / 32]:;
+
+impl<const N: usize> Default for SlotStateArray<N>
+where
+    [(); N / 32]:,
+{
+    fn default() -> Self {
+        Self([0; N / 32])
+    }
+}
+
+impl<const N: usize> SlotStateArray<N>
+where
+    [(); N / 32]:,
+{
+    /// Returns the capacity of the array in terms of the number of `(bool, bool)` slots it can
+    /// hold.
+    pub const fn capacity() -> usize {
+        N
+    }
+
+    /// Finds the index of the first slot with the specified value.
+    pub fn find_first_slot_with(&self, state: SlotState) -> Option<usize> {
+        let (target_0, target_1) = state.into();
+        let target = (target_0 as u64) | ((target_1 as u64) << 1);
+        for (chunk_idx, &chunk) in self.0.iter().enumerate() {
+            for slot in 0..32 {
+                let mask = 0b11 << (slot * 2);
+                if (chunk & mask) == target {
+                    return Some(chunk_idx * 32 + slot);
+                }
+            }
+        }
+        None
+    }
+
+    /// Gets the two boolean values at specified index.
+    /// Panics if `index >= N`.
+    pub fn get(&self, index: usize) -> SlotState {
+        let chunk_idx = index / 32;
+        let slot = index % 32;
+        let chunk = self.0[chunk_idx];
+
+        let bits = (chunk >> (slot * 2)) & 0b11;
+        SlotState::try_from(((bits & 0b01) != 0, (bits & 0b10) != 0))
+            .expect("SlotState::try_from(SlotState::Into) should always succeed")
+    }
+
+    /// Sets the two boolean values at specified index.
+    /// Panics if `index >= N`.
+    pub fn set(&mut self, index: usize, value: SlotState) {
+        let chunk_idx = index / 32;
+        let slot = index % 32;
+        let chunk = &mut self.0[chunk_idx];
+
+        let mask = !(0b11 << (slot * 2));
+        let values: (bool, bool) = value.into();
+        let new_bits = (values.0 as u64) | ((values.1 as u64) << 1);
+
+        *chunk = (*chunk & mask) | (new_bits << (slot * 2));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capacity_calculation() {
+        assert_eq!(SlotStateArray::<128>::capacity(), 128);
+        assert_eq!(SlotStateArray::<32>::capacity(), 32);
+    }
+
+    #[test]
+    fn default_initialization() {
+        let arr = SlotStateArray::<128>::default();
+        assert_eq!(arr.find_first_slot_with(SlotState::Empty), Some(0));
+    }
+
+    #[test]
+    fn basic_set_get() {
+        let mut arr = SlotStateArray::<128>::default();
+
+        arr.set(0, SlotState::FirstRound);
+        assert_eq!(arr.get(0), SlotState::FirstRound);
+
+        arr.set(31, SlotState::SecondRound);
+        assert_eq!(arr.get(31), SlotState::SecondRound);
+
+        arr.set(63, SlotState::FirstRound);
+        assert_eq!(arr.get(63), SlotState::FirstRound);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn get_out_of_bounds() {
+        let arr = SlotStateArray::<128>::default();
+        arr.get(129);
+    }
+
+    #[test]
+    #[should_panic(expected = "out of bounds")]
+    fn set_out_of_bounds() {
+        let mut arr = SlotStateArray::<128>::default();
+        arr.set(129, SlotState::FirstRound);
+    }
+
+    #[test]
+    fn find_empty_slots() {
+        let mut arr = SlotStateArray::<64>::default();
+
+        arr.set(5, SlotState::FirstRound);
+        assert_eq!(arr.find_first_slot_with(SlotState::Empty), Some(0));
+
+        arr.set(0, SlotState::FirstRound);
+        assert_eq!(arr.find_first_slot_with(SlotState::Empty), Some(1));
+
+        for i in 0..64 {
+            arr.set(i, SlotState::FirstRound);
+        }
+        assert_eq!(arr.find_first_slot_with(SlotState::Empty), None);
+    }
+
+    #[test]
+    fn slot_independence() {
+        let mut arr = SlotStateArray::<128>::default();
+
+        arr.set(0, SlotState::FirstRound);
+        arr.set(1, SlotState::SecondRound);
+        arr.set(2, SlotState::Empty);
+
+        assert_eq!(arr.get(0), SlotState::FirstRound);
+        assert_eq!(arr.get(1), SlotState::SecondRound);
+        assert_eq!(arr.get(2), SlotState::Empty);
+    }
+
+    #[test]
+    fn all_state_combinations() {
+        let mut arr = SlotStateArray::<128>::default();
+        let states = [
+            SlotState::FirstRound,
+            SlotState::SecondRound,
+            SlotState::Empty,
+        ];
+
+        for (i, state) in states.iter().enumerate() {
+            arr.set(i, *state);
+            assert_eq!(arr.get(i), *state);
         }
     }
 }

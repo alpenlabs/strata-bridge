@@ -5,7 +5,6 @@
 //! This handles networking and communication with clients, but does not implement the traits
 //! for the secret service protocol.
 
-pub mod bool_arr;
 pub mod musig2_session_mgr;
 
 use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
