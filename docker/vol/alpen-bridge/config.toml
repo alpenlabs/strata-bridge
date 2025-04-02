@@ -3,7 +3,6 @@ datadir = "/app/data"
 rpc_addr = "0.0.0.0:5678"
 # stub option ftm
 is_faulty = false
-stake_funding_pool_size = 32
 
 [secret_service_client]
 server_addr = "172.28.1.5:69"
@@ -29,3 +28,6 @@ idle_connection_timeout = { secs = 1000, nanos = 0 }
 listening_addr = "/ip4/127.0.0.1/tcp/1234"
 connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
 num_threads = 4
+
+[operator_wallet]
+stake_funding_pool_size = 32

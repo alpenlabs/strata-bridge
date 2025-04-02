@@ -66,12 +66,13 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .secret_key()
         .await
         .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
-    let my_key = s2_client.musig2_signer().pubkey().await?;
-
     info!(
         "Retrieved P2P secret key from S2: {sk_fingerprint:?}",
         sk_fingerprint = sk
     );
+
+    let my_btc_key = s2_client.musig2_signer().pubkey().await?;
+    info!(%my_btc_key, "Retrieved MuSig2 operator key from S2");
 
     // Database instances.
     let db = init_database_handle(&config).await;
@@ -95,7 +96,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .keys
         .musig2
         .iter()
-        .position(|k| k == &my_key)
+        .position(|k| k == &my_btc_key)
         .expect("should be able to find my index") as u32;
 
     // Handle the stakechain genesis.
@@ -348,18 +349,9 @@ async fn init_operator_wallet(
     info!(%general_key, "operator wallet general key");
     let stakechain_key = s2_client.stakechain_wallet_signer().pubkey().await?;
     info!(%stakechain_key, "operator wallet stakechain key");
-    let my_key = s2_client.musig2_signer().pubkey().await?;
-    info!(%my_key, "MuSig2 operator key");
-    let my_index = params
-        .keys
-        .musig2
-        .iter()
-        .position(|k| k == &my_key)
-        .expect("should be able to find my index");
-    info!(%my_index, "my index");
     let operator_wallet_config = OperatorWalletConfig::new(
         OPERATOR_FUNDS,
-        config.stake_funding_pool_size,
+        config.operator_wallet.stake_funding_pool_size,
         SEGWIT_MIN_AMOUNT,
         params.stake_chain.stake_amount,
         params.network,
@@ -403,9 +395,10 @@ async fn handle_stakechain_genesis(
             .await
             .expect("should be able to get the fee rate estimate");
 
-        let fee_rate = FeeRate::from_sat_per_vb_unchecked(fee_rate);
+        let fee_rate =
+            FeeRate::from_sat_per_vb(fee_rate).expect("should be able to create a fee rate");
 
-        info!(?fee_rate, "fee rate");
+        info!(%fee_rate, "fetched fee rate from bitcoin client");
 
         // We need to sync the wallet.
         info!("syncing the operator wallet");
@@ -426,7 +419,7 @@ async fn handle_stakechain_genesis(
 
         // Collect all the UTXOs in the stakechain wallet that match the pre-stake tx inputs.
         let general_wallet = operator_wallet.general_wallet();
-        let prevouts = pre_stake_tx
+        let txins_as_outs = pre_stake_tx
             .input
             .iter()
             .map(|i| {
@@ -438,12 +431,10 @@ async fn handle_stakechain_genesis(
                     .txout
             })
             .collect::<Vec<TxOut>>();
-        info!(?prevouts, "prevouts");
-        let num_inputs = prevouts.len();
-        let prevouts = Prevouts::All(&prevouts);
+        let prevouts = Prevouts::All(&txins_as_outs);
         let mut sighasher = SighashCache::new(pre_stake_tx);
         // Sign all the inputs.
-        for input in 0..num_inputs {
+        for input in 0..txins_as_outs.len() {
             let sighash = sighasher
                 .taproot_key_spend_signature_hash(input, &prevouts, TapSighashType::Default)
                 .expect("must be able to compute the sighash");

@@ -45,10 +45,8 @@ pub(crate) struct Config {
     /// NOTE: This is only for testing purposes and *must* not be used in production.
     pub is_faulty: bool,
 
-    /// Stake funding UTXO pool size.
-    ///
-    /// These will be refreshed in the background by the operator wallet.
-    pub stake_funding_pool_size: usize,
+    /// The configuration for the operator wallet.
+    pub operator_wallet: OperatorWalletConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,6 +97,15 @@ pub(crate) struct P2PConfig {
     pub num_threads: Option<usize>,
 }
 
+/// Operator wallet configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct OperatorWalletConfig {
+    /// Stake funding UTXO pool size.
+    ///
+    /// These will be refreshed in the background by the operator wallet.
+    pub stake_funding_pool_size: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,7 +117,6 @@ mod tests {
             datadir = ".data"
             rpc_addr = "localhost:5678"
             is_faulty = false
-            stake_funding_pool_size = 32
 
             [secret_service_client]
             server_addr = "localhost:1234"
@@ -136,6 +142,9 @@ mod tests {
             listening_addr = "/ip4/127.0.0.1/tcp/1234"
             connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
             num_threads = 4
+
+            [operator_wallet]
+            stake_funding_pool_size = 32
         "#;
 
         let config = toml::from_str::<Config>(config);
