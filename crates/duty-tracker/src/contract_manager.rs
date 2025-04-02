@@ -345,6 +345,40 @@ impl Drop for ContractManager {
     }
 }
 
+/// The handles required by the duty tracker to execute duties.
+struct OutputHandles {
+    wallet: RwLock<OperatorWallet>,
+    msg_handler: MessageHandler,
+    s2_client: SecretServiceClient,
+    tx_driver: TxDriver,
+    db: SqliteDb,
+}
+
+/// The actual state that is being tracked by the [`ContractManager`].
+#[derive(Debug)]
+struct ExecutionState {
+    active_contracts: BTreeMap<Txid, ContractSM>,
+    stake_chains: StakeChainSM,
+}
+
+/// The proxy for the state being tracked by the [`ContractManager`].
+#[derive(Debug)]
+struct StateHandles {
+    contract_persister: ContractPersister,
+    stake_chain_persister: StakeChainPersister,
+}
+
+/// The parameters that all duty executions depend upon.
+#[derive(Debug, Clone)]
+struct ExecutionConfig {
+    network: Network,
+    connector_params: ConnectorParams,
+    pegout_graph_params: PegOutGraphParams,
+    stake_chain_params: StakeChainParams,
+    sidesystem_params: RollupParams,
+    operator_table: OperatorTable,
+}
+
 struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
@@ -798,34 +832,6 @@ impl ContractManagerCtx {
 
         all_commands
     }
-}
-
-struct OutputHandles {
-    wallet: RwLock<OperatorWallet>,
-    msg_handler: MessageHandler,
-    s2_client: SecretServiceClient,
-    tx_driver: TxDriver,
-    db: SqliteDb,
-}
-
-struct ExecutionState {
-    active_contracts: BTreeMap<Txid, ContractSM>,
-    stake_chains: StakeChainSM,
-}
-
-struct StateHandles {
-    contract_persister: ContractPersister,
-    stake_chain_persister: StakeChainPersister,
-}
-
-#[derive(Debug, Clone)]
-struct ExecutionConfig {
-    network: Network,
-    connector_params: ConnectorParams,
-    pegout_graph_params: PegOutGraphParams,
-    stake_chain_params: StakeChainParams,
-    sidesystem_params: RollupParams,
-    operator_table: OperatorTable,
 }
 
 async fn execute_duty(
