@@ -319,7 +319,10 @@ pub enum OperatorDuty {
 #[derive(Debug)]
 pub enum FulfillerDuty {
     /// Originates when strata state on L1 is published and assignment is self.
-    PublishFulfillment,
+    PublishFulfillment {
+        /// The BOSD Descriptor of the user.
+        user_descriptor: Descriptor,
+    },
 
     /// Originates when Fulfillment has been completed
     AdvanceStakeChain,
@@ -900,7 +903,9 @@ impl ContractSM {
 
                         Ok(if fulfiller == self.cfg.operator_table.pov_idx() {
                             Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::PublishFulfillment,
+                                FulfillerDuty::PublishFulfillment {
+                                    user_descriptor: recipient.clone(),
+                                },
                             ))
                         } else {
                             None
