@@ -41,6 +41,11 @@ impl WalletSigner<Server> for GeneralWalletSigner {
             .sign_schnorr(Message::from_digest_slice(digest).unwrap())
     }
 
+    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<Signature> {
+        self.kp
+            .sign_schnorr(Message::from_digest_slice(digest).unwrap())
+    }
+
     async fn pubkey(&self) -> <Server as Origin>::Container<XOnlyPublicKey> {
         self.kp.x_only_public_key().0
     }
@@ -73,6 +78,11 @@ impl WalletSigner<Server> for StakechainWalletSigner {
         self.kp
             .tap_tweak(SECP256K1, tweak)
             .to_inner()
+            .sign_schnorr(Message::from_digest_slice(digest).unwrap())
+    }
+
+    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<Signature> {
+        self.kp
             .sign_schnorr(Message::from_digest_slice(digest).unwrap())
     }
 

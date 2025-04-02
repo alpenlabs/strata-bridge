@@ -89,6 +89,8 @@ async fn e2e() {
             tokio::spawn(async move {
                 let to_sign = thread_rng().gen();
                 let msg = Message::from_digest(to_sign);
+
+                // sign general wallet
                 let sig = general_wallet_signer
                     .sign(&to_sign, None)
                     .await
@@ -97,12 +99,29 @@ async fn e2e() {
                     .verify_schnorr(&sig, &msg, &general_tweaked_pubkey.to_inner())
                     .is_ok());
 
+                // sign general wallet no tweak
+                let sig = general_wallet_signer
+                    .sign_no_tweak(&to_sign)
+                    .await
+                    .expect("good response");
+                assert!(secp_ctx.verify_schnorr(&sig, &msg, &general_pubkey).is_ok());
+
+                // sign stakechain wallet
                 let sig = stakechain_wallet_signer
                     .sign(&to_sign, None)
                     .await
                     .expect("good response");
                 assert!(secp_ctx
                     .verify_schnorr(&sig, &msg, &stakechain_tweaked_pubkey.to_inner())
+                    .is_ok());
+
+                // sign stakechain wallet no tweak
+                let sig = stakechain_wallet_signer
+                    .sign_no_tweak(&to_sign)
+                    .await
+                    .expect("good response");
+                assert!(secp_ctx
+                    .verify_schnorr(&sig, &msg, &stakechain_pubkey)
                     .is_ok());
             })
         })

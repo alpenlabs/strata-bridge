@@ -48,6 +48,17 @@ impl WalletSigner<Client> for GeneralWalletClient {
         }
     }
 
+    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::GeneralWalletSignNoTweak { digest: *digest };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        match res {
+            ServerMessage::GeneralWalletSign { sig } => {
+                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
+            }
+            _ => Err(ClientError::WrongMessage(res.into())),
+        }
+    }
+
     async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
         let msg = ClientMessage::GeneralWalletPubkey;
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
@@ -87,6 +98,17 @@ impl WalletSigner<Client> for StakechainWalletClient {
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        match res {
+            ServerMessage::StakechainWalletSign { sig } => {
+                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
+            }
+            _ => Err(ClientError::WrongMessage(res.into())),
+        }
+    }
+
+    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::StakechainWalletSignNoTweak { digest: *digest };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::StakechainWalletSign { sig } => {

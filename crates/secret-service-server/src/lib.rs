@@ -207,6 +207,13 @@ where
                 }
             }
 
+            ArchivedClientMessage::GeneralWalletSignNoTweak { digest } => {
+                let sig = service.general_wallet_signer().sign_no_tweak(digest).await;
+                ServerMessage::GeneralWalletSign {
+                    sig: sig.serialize(),
+                }
+            }
+
             ArchivedClientMessage::GeneralWalletPubkey => {
                 let pubkey = service.general_wallet_signer().pubkey().await;
                 ServerMessage::GeneralWalletPubkey {
@@ -222,6 +229,16 @@ where
                     }
                 };
                 let sig = service.stakechain_wallet_signer().sign(digest, tweak).await;
+                ServerMessage::StakechainWalletSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ArchivedClientMessage::StakechainWalletSignNoTweak { digest } => {
+                let sig = service
+                    .stakechain_wallet_signer()
+                    .sign_no_tweak(digest)
+                    .await;
                 ServerMessage::StakechainWalletSign {
                     sig: sig.serialize(),
                 }

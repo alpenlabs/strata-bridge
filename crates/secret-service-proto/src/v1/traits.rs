@@ -77,6 +77,15 @@ pub trait WalletSigner<O: Origin>: Send {
         tweak: Option<TapNodeHash>,
     ) -> impl Future<Output = O::Container<Signature>> + Send;
 
+    /// Signs a digest using the operator's [`SecretKey`] assuming that the tweak is not necessary.
+    ///
+    /// A common use case is when the key is part of a taproot script (i.e., in a script path
+    /// spend).
+    fn sign_no_tweak(
+        &self,
+        digest: &[u8; 32],
+    ) -> impl Future<Output = O::Container<Signature>> + Send;
+
     /// Returns the public key of the operator's secret key.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }

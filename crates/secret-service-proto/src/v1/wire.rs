@@ -227,6 +227,12 @@ pub enum ClientMessage {
         tweak: Option<[u8; 32]>,
     },
 
+    /// Request for [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak).
+    GeneralWalletSignNoTweak {
+        /// The digest of the data the client wants signed.
+        digest: [u8; 32],
+    },
+
     /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
     GeneralWalletPubkey,
 
@@ -237,6 +243,12 @@ pub enum ClientMessage {
 
         /// The tweak used to sign the message.
         tweak: Option<[u8; 32]>,
+    },
+
+    /// Request for [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak).
+    StakechainWalletSignNoTweak {
+        /// The digest of the data the client wants signed.
+        digest: [u8; 32],
     },
 
     /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
