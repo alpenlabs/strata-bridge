@@ -21,7 +21,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 #[derive(Debug, Error)]
 pub enum DriveErr {
     /// Indicates that the TxDriver has been dropped and no more events should be expected.
-    #[error("tx driver has been dropped")]
+    #[error("tx driver has been aborted, no more events should be expected")]
     DriverAborted,
 }
 
