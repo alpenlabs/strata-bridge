@@ -930,12 +930,11 @@ impl ContractManagerCtx {
                     // Create the transaction to pay the user.
                     // We can only the general UTXOs and MUST NOT use CPFP UTXOs.
                     let psbt = self.wallet.outfront_withdrawal(
-                        // TODO: Proper fee estimation.
                         FeeRate::BROADCAST_MIN,
                         user_p2tr_address,
                         amount,
                     )?;
-                    let mut tx = psbt.unsigned_tx;
+                    let tx = psbt.unsigned_tx;
                     let txins_as_outs = tx
                                                     .input
                                                     .iter()
@@ -947,7 +946,7 @@ impl ContractManagerCtx {
                                                             .txout
                                                     })
                                                     .collect::<Vec<_>>();
-                    let mut sighasher = SighashCache::new(&mut tx);
+                    let mut sighasher = SighashCache::new(tx);
 
                     let sighash_type = TapSighashType::All;
                     let prevouts = Prevouts::All(&txins_as_outs);
@@ -970,8 +969,12 @@ impl ContractManagerCtx {
                             .expect("an input here")
                             .push(signature.to_vec());
                     }
-                    let _signed_tx = sighasher.into_transaction();
-                    // todo! @zk2u broadcast the signed tx
+                    let signed_tx = sighasher.into_transaction();
+                    // FIXME: Use something other than 0.
+                    self.tx_driver
+                        .drive(signed_tx, 0)
+                        .await
+                        .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
                     Ok(())
                 }
                 FulfillerDuty::AdvanceStakeChain => Ok(()),
