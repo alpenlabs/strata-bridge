@@ -60,6 +60,9 @@ pub struct PegOutGraphInput {
 /// [`PegOutGraph`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphSummary {
+    /// Txid of the stake transaction that this graph is associated with.
+    pub stake_txid: Txid,
+
     /// Txid of [`PegOutGraph::claim_tx`]
     pub claim_txid: Txid,
 
@@ -389,6 +392,9 @@ impl PegOutGraph {
 
     pub fn summarize(&self) -> PegOutGraphSummary {
         PegOutGraphSummary {
+            stake_txid: self.claim_tx.psbt().unsigned_tx.input[0]
+                .previous_output
+                .txid,
             claim_txid: self.claim_tx.compute_txid(),
             payout_optimistic_txid: self.payout_optimistic.compute_txid(),
             pre_assert_txid: self.assert_chain.pre_assert.compute_txid(),

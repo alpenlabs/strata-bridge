@@ -2,8 +2,10 @@
 //! retrieving it when needed.
 use std::collections::BTreeMap;
 
-use bitcoin::OutPoint;
-use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
+use bitcoin::{OutPoint, XOnlyPublicKey};
+use strata_bridge_db::{
+    errors::DbError, operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb,
+};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
 use strata_p2p_types::P2POperatorPubKey;
@@ -56,22 +58,23 @@ impl StakeChainPersister {
     pub async fn load(
         &self,
         cfg: &OperatorTable,
-    ) -> Result<BTreeMap<P2POperatorPubKey, StakeChainInputs>, DbError> {
+        operator_pubkey: XOnlyPublicKey,
+    ) -> Result<(Option<u32>, BTreeMap<P2POperatorPubKey, StakeChainInputs>), DbError> {
         let mut stake_chain_inputs = BTreeMap::new();
         let operator_ids = cfg.operator_idxs();
+        let last_published_stake_index = self.db.get_last_published_stake_index().await?;
 
         for operator_id in operator_ids {
             let stake_data = self.db.get_all_stake_data(operator_id).await?;
             let pre_stake_outpoint = self.db.get_pre_stake(operator_id).await?;
             let p2p_key = cfg.idx_to_op_key(&operator_id);
-            let btc_key = cfg.idx_to_btc_key(&operator_id);
 
-            match (pre_stake_outpoint, p2p_key, btc_key) {
-                (Some(pre_stake_outpoint), Some(p2p_key), Some(btc_key)) => {
+            match (pre_stake_outpoint, p2p_key) {
+                (Some(pre_stake_outpoint), Some(p2p_key)) => {
                     stake_chain_inputs.insert(
                         p2p_key.clone(),
                         StakeChainInputs {
-                            operator_pubkey: btc_key.x_only_public_key().0,
+                            operator_pubkey,
                             pre_stake_outpoint,
                             // NOTE: (@Rajil1213) convert stake data to an IndexedSet to avoid this
                             // conversion alternatively, this is okay
@@ -86,13 +89,13 @@ impl StakeChainPersister {
                         ?stake_data,
                         ?pre_stake_outpoint,
                         ?p2p_key,
-                        ?btc_key,
+                        ?operator_pubkey,
                         "ignoring incomplete data"
                     );
                 }
             }
         }
 
-        Ok(stake_chain_inputs)
+        Ok((last_published_stake_index, stake_chain_inputs))
     }
 }

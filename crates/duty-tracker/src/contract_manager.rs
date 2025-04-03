@@ -8,6 +8,7 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
+use bdk_wallet::miniscript::ToPublicKey;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
@@ -22,9 +23,13 @@ use futures::{
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
+use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
+use strata_bridge_primitives::{
+    build_context::{BuildContext, TxKind},
+    operator_table::OperatorTable,
+};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
@@ -110,13 +115,24 @@ impl ContractManager {
                 Err(e) => crash(e.into()),
             };
 
-            let stake_chains = match stake_chain_persister.load(&operator_table).await {
-                Ok(stake_chains) => {
+            let operator_pubkey = s2_client
+                .general_wallet_signer()
+                .pubkey()
+                .await
+                .expect("must be able to get stake chain wallet key")
+                .to_x_only_pubkey();
+
+            let stake_chains = match stake_chain_persister
+                .load(&operator_table, operator_pubkey)
+                .await
+            {
+                Ok((last_published_stake_index, stake_chains)) => {
                     match StakeChainSM::restore(
                         network,
                         operator_table.clone(),
                         stake_chain_params,
                         stake_chains,
+                        last_published_stake_index,
                     ) {
                         Ok(stake_chains) => stake_chains,
                         Err(e) => {
@@ -164,9 +180,9 @@ impl ContractManager {
                 stake_chain_persister,
                 stake_chains,
                 wallet,
+                tx_driver,
                 s2_client,
                 p2p_msg_handle: MessageHandler::new(p2p_handle.clone()),
-                tx_driver,
                 stakechain_prestake_utxo,
                 db,
             };
@@ -313,10 +329,10 @@ struct ContractManagerCtx {
     active_contracts: BTreeMap<Txid, ContractSM>,
     stake_chains: StakeChainSM,
     wallet: OperatorWallet,
+    tx_driver: TxDriver,
     s2_client: SecretServiceClient,
     /// NOTE: DO NOT CALL .next() because it will mess with the contract manager and break shit
     p2p_msg_handle: MessageHandler,
-    tx_driver: TxDriver,
     stakechain_prestake_utxo: OutPoint,
     db: SqliteDb,
 }
@@ -918,6 +934,9 @@ impl ContractManagerCtx {
                 Ok(())
             }
             OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
+                FulfillerDuty::AdvanceStakeChain { stake_index } => {
+                    self.handle_advance_stake_chain(stake_index).await
+                }
                 FulfillerDuty::PublishFulfillment {
                     withdrawal_metadata,
                     user_descriptor,
@@ -992,7 +1011,6 @@ impl ContractManagerCtx {
                         .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
                     Ok(())
                 }
-                FulfillerDuty::AdvanceStakeChain => Ok(()),
                 FulfillerDuty::PublishClaim => Ok(()),
                 FulfillerDuty::PublishPayoutOptimistic => Ok(()),
                 FulfillerDuty::PublishAssertChain => Ok(()),
@@ -1000,5 +1018,100 @@ impl ContractManagerCtx {
             },
             _ => Ok(()),
         }
+    }
+
+    async fn handle_advance_stake_chain(
+        &mut self,
+        stake_index: u32,
+    ) -> Result<(), ContractManagerErr> {
+        let p2p_key = self.operator_table.pov_op_key();
+        let stake_tx = match self.stake_chains.stake_tx(p2p_key, stake_index as usize) {
+            Ok(Some(stake_tx)) => stake_tx,
+            Ok(None) => {
+                let pov_idx = self.operator_table.pov_idx();
+                error!(%p2p_key, %stake_index, %pov_idx, "stake tx data missing");
+
+                return Err(StakeChainErr::StakeTxNotFound(p2p_key.clone(), stake_index))?;
+            }
+            Err(e) => return Err(e)?,
+        };
+
+        let messages = stake_tx.sighashes();
+        let funds_signature = self
+            .s2_client
+            .general_wallet_signer()
+            .sign(messages[0].as_ref(), None)
+            .await?;
+
+        let signed_stake_tx = if stake_index == 0 {
+            // the first stake transaction spends the pre-stake which is locked by the key in the
+            // stake-chain wallet
+            let stake_signature = self
+                .s2_client
+                .general_wallet_signer()
+                .sign(messages[1].as_ref(), None)
+                .await?;
+
+            stake_tx.finalize_initial(funds_signature, stake_signature)
+        } else {
+            let pre_image_client = self.s2_client.stake_chain_preimages();
+            let OutPoint {
+                txid: pre_stake_txid,
+                vout: pre_stake_vout,
+            } = self.stakechain_prestake_utxo;
+            let prev_preimage = pre_image_client
+                .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
+                .await?;
+            let n_of_n_agg_pubkey = self
+                .operator_table
+                .tx_build_context(self.network)
+                .aggregated_pubkey();
+            let operator_pubkey = self
+                .s2_client
+                .general_wallet_signer()
+                .pubkey()
+                .await?
+                .to_x_only_pubkey();
+            let stake_hash = pre_image_client
+                .get_preimg(pre_stake_txid, pre_stake_vout, stake_index)
+                .await?;
+            let stake_hash = sha256::Hash::hash(&stake_hash);
+            let StakeChainParams { delta, .. } = self.stake_chain_params;
+            let prev_connector_s = ConnectorStake::new(
+                n_of_n_agg_pubkey,
+                operator_pubkey,
+                stake_hash,
+                delta,
+                self.network,
+            );
+
+            // all the stake transactions except the first one are locked with the general wallet
+            // signer.
+            // this is a caveat of the fact that we only share one x-only pubkey during deposit
+            // setup which is used for reimbursements/cpfp.
+            // so instead of sharing ones, we can just reuse this key (which is part of a taproot
+            // address).
+            let stake_signature = self
+                .s2_client
+                .stakechain_wallet_signer()
+                .sign_no_tweak(messages[1].as_ref())
+                .await?;
+
+            stake_tx.finalize(
+                &prev_preimage,
+                funds_signature,
+                stake_signature,
+                prev_connector_s,
+            )
+        };
+
+        let confirm_by = 1;
+        // FIXME: (@Rajil1213) change this to the current block height
+        // once the tx driver's deadline handling is implemented
+        self.tx_driver.drive(signed_stake_tx, confirm_by).await?;
+
+        self.stake_chains.process_advancement();
+
+        Ok(())
     }
 }

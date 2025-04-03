@@ -59,6 +59,12 @@ CREATE TABLE IF NOT EXISTS operator_stake_data (
     PRIMARY KEY (operator_id, deposit_id)      -- Compound primary key
 );
 
+-- Table to store the index of the last published stake transaction.
+CREATE TABLE IF NOT EXISTS last_published_stake_index (
+    id INTEGER PRIMARY KEY CHECK (id = 1),  -- Singleton row with a fixed id
+    stake_index INTEGER NOT NULL                  -- Last fetched duty index
+);
+
 -- Table for claim_txid_to_operator_index_and_deposit_txid
 CREATE TABLE IF NOT EXISTS claim_txid_to_operator_index_and_deposit_txid (
     claim_txid TEXT PRIMARY KEY,           -- Store as hex string

@@ -1,6 +1,6 @@
 //! This module implements a system that will accept signed transactions and ensure they are posted
 //! to the blockchain within a reasonable time.
-use std::{collections::BTreeMap, error::Error, fmt};
+use std::collections::BTreeMap;
 
 use bitcoin::Transaction;
 use btc_notify::{
@@ -9,6 +9,7 @@ use btc_notify::{
 };
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
 use strata_btcio::rpc::{traits::BroadcasterRpc, BitcoinClient};
+use thiserror::Error;
 use tokio::{
     select,
     sync::mpsc::{unbounded_channel, UnboundedSender},
@@ -17,24 +18,12 @@ use tokio::{
 use tokio_stream::wrappers::UnboundedReceiverStream;
 
 /// Error type for the TxDriver.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum DriveErr {
     /// Indicates that the TxDriver has been dropped and no more events should be expected.
+    #[error("tx driver has been aborted, no more events should be expected")]
     DriverAborted,
 }
-
-impl fmt::Display for DriveErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            DriveErr::DriverAborted => write!(
-                f,
-                "TxDriver has been aborted, no more events should be expected"
-            ),
-        }
-    }
-}
-
-impl Error for DriveErr {}
 
 struct TxDriveJob {
     tx: Transaction,

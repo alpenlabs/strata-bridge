@@ -1,6 +1,6 @@
 [toolchain]
 # update this after https://github.com/rust-lang/rust/issues/134044 is fixed.
-channel = "nightly-2024-11-01"
+channel = "nightly-2024-10-31"
 components = [
   "cargo",
   "clippy",

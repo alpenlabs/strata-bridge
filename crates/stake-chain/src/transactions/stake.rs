@@ -2,8 +2,13 @@
 
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
-    hashes::sha256, key::TapTweak, secp256k1::schnorr, transaction, Address, Amount, FeeRate,
-    OutPoint, Psbt, Sequence, Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+    hashes::{sha256, Hash},
+    key::TapTweak,
+    secp256k1::{schnorr, Message},
+    sighash::{Prevouts, SighashCache},
+    taproot::LeafVersion,
+    transaction, Address, Amount, FeeRate, OutPoint, Psbt, Sequence, TapLeafHash, TapSighashType,
+    Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
@@ -338,6 +343,59 @@ impl StakeTx {
         Ok(FeeRate::from_sat_per_vb_unchecked(
             fee.to_sat() / vsize as u64,
         ))
+    }
+
+    /// Generates the transaction message sighash for the stake transaction.
+    pub fn sighashes(&self) -> [Message; 2] {
+        let unsigned_tx = &self.psbt.unsigned_tx;
+
+        let prevouts = self
+            .psbt
+            .inputs
+            .iter()
+            .map(|input| {
+                input
+                    .witness_utxo
+                    .clone()
+                    .expect("must have a witness utxo")
+            })
+            .collect::<Vec<_>>();
+
+        let prevouts = Prevouts::All(&prevouts);
+        let witnesses = self.witnesses();
+        let mut sighasher = SighashCache::new(unsigned_tx);
+
+        self.psbt
+            .inputs
+            .iter()
+            .enumerate()
+            .map(|(input_index, input)| {
+                let sighash_type = input
+                    .sighash_type
+                    .map(|sighash_type| sighash_type.taproot_hash_ty())
+                    .unwrap_or(Ok(TapSighashType::Default))
+                    .expect("default value must be Ok");
+
+                let tap_sighash = match &witnesses[0] {
+                    TaprootWitness::Script { script_buf, .. } => sighasher
+                        .taproot_script_spend_signature_hash(
+                            input_index,
+                            &prevouts,
+                            TapLeafHash::from_script(script_buf, LeafVersion::TapScript),
+                            sighash_type,
+                        )
+                        .expect("must be able to get taproot script spend signature hash"),
+
+                    TaprootWitness::Key | TaprootWitness::Tweaked { .. } => sighasher
+                        .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
+                        .expect("must be able to get taproot key spend signature hash"),
+                };
+
+                Message::from_digest(tap_sighash.to_byte_array())
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("stake tx must have two inputs")
     }
 
     /// Finalizes the first stake transaction.
