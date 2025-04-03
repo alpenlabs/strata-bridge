@@ -35,7 +35,7 @@ pub struct WithdrawalMetadata<'tag> {
     /// withdrawal fulfillment transaction.
     pub deposit_idx: u32,
 
-    /// The txid of the deposit UTXO that that can be withdrawn via this withdrawal fulfillment.
+    /// The txid of the deposit UTXO that can be withdrawn via this withdrawal fulfillment.
     ///
     /// This is required for tying the peg-out graph with the deposit txid being claimed by just
     /// inspecting the withdrawal fulfillment transaction itself. This serves the same purpose as
@@ -43,6 +43,22 @@ pub struct WithdrawalMetadata<'tag> {
     /// two since the `deposit_idx` is computed after the fact when the deposit transaction is
     /// confirmed on chain.
     pub deposit_txid: Txid,
+}
+
+impl WithdrawalMetadata<'_> {
+    pub fn op_return_data(&self) -> Vec<u8> {
+        let op_id_prefix: [u8; 4] = self.operator_idx.to_be_bytes();
+        let deposit_id_prefix: [u8; 4] = self.deposit_idx.to_be_bytes();
+        let deposit_txid_data = consensus::encode::serialize(&self.deposit_txid);
+        [
+            self.tag,
+            &op_id_prefix[..],
+            &deposit_id_prefix[..],
+            &deposit_txid_data[..],
+        ]
+        .concat()
+        .to_vec()
+    }
 }
 
 impl WithdrawalFulfillment {
@@ -62,26 +78,8 @@ impl WithdrawalFulfillment {
 
         let op_return_amount = Amount::from_int_btc(0);
 
-        let WithdrawalMetadata {
-            tag,
-            operator_idx,
-            deposit_idx,
-            deposit_txid,
-        } = metadata;
-
-        let op_id_prefix: [u8; 4] = operator_idx.to_be_bytes();
-        let deposit_id_prefix: [u8; 4] = deposit_idx.to_be_bytes();
-        let deposit_txid_data = consensus::encode::serialize(&deposit_txid);
-
-        let op_return_script = op_return_nonce(
-            &[
-                tag,
-                &op_id_prefix[..],
-                &deposit_id_prefix[..],
-                &deposit_txid_data[..],
-            ]
-            .concat(),
-        );
+        let op_return_data = metadata.op_return_data();
+        let op_return_script = op_return_nonce(&op_return_data);
 
         let mut scripts_and_amounts = vec![
             (recipient_pubkey, amount),
