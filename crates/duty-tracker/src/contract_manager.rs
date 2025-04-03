@@ -978,7 +978,7 @@ impl ContractManagerCtx {
                         let signature = self
                             .s2_client
                             .general_wallet_signer()
-                            .sign(&sighash.to_byte_array())
+                            .sign(&sighash.to_byte_array(), None)
                             .await?;
 
                         let signature = taproot::Signature {
