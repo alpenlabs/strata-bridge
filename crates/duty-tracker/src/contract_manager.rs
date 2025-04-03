@@ -3,6 +3,7 @@
 //! protocol rules.
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
+    io,
     time::Duration,
 };
 
@@ -25,6 +26,7 @@ use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
+use strata_bridge_tx_graph::transactions::prelude::WithdrawalMetadata;
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -839,16 +841,16 @@ impl ContractManagerCtx {
                                 .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
                             let mut tx = psbt.unsigned_tx;
                             let txins_as_outs = tx
-                                        .input
-                                        .iter()
-                                        .map(|txin| {
-                                            self.wallet
-                                                .general_wallet()
-                                                .get_utxo(txin.previous_output)
-                                                .expect("always have this output because the wallet selected it in the first place")
-                                                .txout
-                                        })
-                                        .collect::<Vec<_>>();
+                                .input
+                                .iter()
+                                .map(|txin| {
+                                    self.wallet
+                                        .general_wallet()
+                                        .get_utxo(txin.previous_output)
+                                        .expect("always have this output because the wallet selected it in the first place")
+                                        .txout
+                                })
+                                .collect::<Vec<_>>();
                             let mut sighasher = SighashCache::new(&mut tx);
 
                             let sighash_type = TapSighashType::All;
@@ -917,7 +919,19 @@ impl ContractManagerCtx {
                 Ok(())
             }
             OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
-                FulfillerDuty::PublishFulfillment { user_descriptor } => {
+                FulfillerDuty::PublishFulfillment {
+                    operator_idx,
+                    deposit_idx,
+                    deposit_txid,
+                    user_descriptor,
+                } => {
+                    if operator_idx != self.operator_table.pov_idx() {
+                        // NOTE: It is also checked upstream but we do it here again.
+                        return Err(ContractManagerErr::FatalErr(Box::new(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!("Invalid operator index: {}", operator_idx),
+                        ))));
+                    }
                     // NOTE: The user x-only public key is assumed to be already tweaked.
                     let user_p2tr_address =
                         user_descriptor.to_address(self.network).map_err(|_| {
@@ -927,25 +941,32 @@ impl ContractManagerCtx {
                         })?;
                     let amount = self.pegout_graph_params.deposit_amount
                         - self.pegout_graph_params.operator_fee;
+                    let metadata = WithdrawalMetadata {
+                        tag: self.pegout_graph_params.tag.as_bytes(),
+                        operator_idx,
+                        deposit_idx,
+                        deposit_txid,
+                    };
                     // Create the transaction to pay the user.
                     // We can only the general UTXOs and MUST NOT use CPFP UTXOs.
-                    let psbt = self.wallet.outfront_withdrawal(
+                    let psbt = self.wallet.front_withdrawal(
                         FeeRate::BROADCAST_MIN,
                         user_p2tr_address,
                         amount,
+                        &metadata.op_return_data(),
                     )?;
                     let tx = psbt.unsigned_tx;
                     let txins_as_outs = tx
-                                                    .input
-                                                    .iter()
-                                                    .map(|txin| {
-                                                        self.wallet
-                                                            .general_wallet()
-                                                            .get_utxo(txin.previous_output)
-                                                            .expect("always have this output because the wallet selected it in the first place")
-                                                            .txout
-                                                    })
-                                                    .collect::<Vec<_>>();
+                        .input
+                        .iter()
+                        .map(|txin| {
+                            self.wallet
+                                .general_wallet()
+                                .get_utxo(txin.previous_output)
+                                .expect("always have this output because the wallet selected it in the first place")
+                                .txout
+                        })
+                        .collect::<Vec<_>>();
                     let mut sighasher = SighashCache::new(tx);
 
                     let sighash_type = TapSighashType::All;
