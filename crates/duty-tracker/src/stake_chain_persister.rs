@@ -3,9 +3,7 @@
 use std::collections::BTreeMap;
 
 use bitcoin::{OutPoint, XOnlyPublicKey};
-use strata_bridge_db::{
-    errors::DbError, operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb,
-};
+use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
 use strata_p2p_types::P2POperatorPubKey;
@@ -59,10 +57,9 @@ impl StakeChainPersister {
         &self,
         cfg: &OperatorTable,
         operator_pubkey: XOnlyPublicKey,
-    ) -> Result<(Option<u32>, BTreeMap<P2POperatorPubKey, StakeChainInputs>), DbError> {
+    ) -> Result<BTreeMap<P2POperatorPubKey, StakeChainInputs>, DbError> {
         let mut stake_chain_inputs = BTreeMap::new();
         let operator_ids = cfg.operator_idxs();
-        let last_published_stake_index = self.db.get_last_published_stake_index().await?;
 
         for operator_id in operator_ids {
             let stake_data = self.db.get_all_stake_data(operator_id).await?;
@@ -96,6 +93,6 @@ impl StakeChainPersister {
             }
         }
 
-        Ok((last_published_stake_index, stake_chain_inputs))
+        Ok(stake_chain_inputs)
     }
 }

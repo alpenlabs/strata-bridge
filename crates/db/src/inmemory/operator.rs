@@ -30,9 +30,6 @@ pub struct OperatorDbInMemory {
 
     /// Deposit Txid (in withdrawal duty) -> latest checkpoint index
     checkpoint_table: RwLock<HashMap<Txid, u64>>,
-
-    /// Last published stake index
-    last_published_stake_index: RwLock<Option<u32>>,
 }
 
 #[async_trait]
@@ -166,18 +163,6 @@ impl OperatorDb for OperatorDbInMemory {
 
     async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>> {
         Ok(self.peg_out_graphs.read().await.get(&deposit_txid).cloned())
-    }
-
-    async fn set_last_published_stake_index(&self, index: u32) -> DbResult<()> {
-        let mut last_published_stake_index = self.last_published_stake_index.write().await;
-
-        *last_published_stake_index = Some(index);
-
-        Ok(())
-    }
-
-    async fn get_last_published_stake_index(&self) -> DbResult<Option<u32>> {
-        Ok(*self.last_published_stake_index.read().await)
     }
 
     async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>> {

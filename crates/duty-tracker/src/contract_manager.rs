@@ -127,13 +127,12 @@ impl ContractManager {
                 .load(&operator_table, operator_pubkey)
                 .await
             {
-                Ok((last_published_stake_index, stake_chains)) => {
+                Ok(stake_chains) => {
                     match StakeChainSM::restore(
                         network,
                         operator_table.clone(),
                         stake_chain_params,
                         stake_chains,
-                        last_published_stake_index,
                     ) {
                         Ok(stake_chains) => stake_chains,
                         Err(e) => {
@@ -551,8 +550,6 @@ impl ContractManagerCtx {
                         warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
                         continue;
                     };
-
-                    self.state.stake_chains.process_advancement();
 
                     match sm
                         .process_contract_event(ContractEvent::Assignment(entry.clone(), stake_tx))
