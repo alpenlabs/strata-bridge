@@ -108,10 +108,6 @@ pub trait OperatorDb {
 
     async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>>;
 
-    async fn set_last_published_stake_index(&self, index: u32) -> DbResult<()>;
-
-    async fn get_last_published_stake_index(&self) -> DbResult<Option<u32>>;
-
     async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>>;
 
     async fn set_checkpoint_index(&self, deposit_txid: Txid, checkpoint_idx: u64) -> DbResult<()>;
