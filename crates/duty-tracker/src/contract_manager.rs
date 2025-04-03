@@ -3,7 +3,7 @@
 //! protocol rules.
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
-    io,
+    sync::Arc,
     time::Duration,
 };
 
@@ -12,7 +12,7 @@ use bdk_wallet::miniscript::ToPublicKey;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
-    taproot, Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
+    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
@@ -30,9 +30,9 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxKind},
     operator_table::OperatorTable,
 };
-use strata_bridge_stake_chain::transactions::stake::StakeTxData;
-use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
-use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
+use strata_bridge_stake_chain::{
+    prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
+};
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -395,7 +395,8 @@ impl ContractManagerCtx {
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
         for tx in block.txdata {
-            self.process_assignments(&tx)?;
+            let assignment_duties = self.process_assignments(&tx).await?;
+            duties.extend(assignment_duties.into_iter());
 
             let txid = tx.compute_txid();
             let stake_index = self.state.active_contracts.len() as u32;
@@ -412,8 +413,12 @@ impl ContractManagerCtx {
                     Some(self.cfg.pegout_graph_params.tag.as_bytes()),
                 ) {
                     Ok(data) => data.psbt.unsigned_tx,
-                    Err(_) => {
-                        // TODO(proofofkeags): what does this mean? @Rajil1213
+                    Err(err) => {
+                        error!(
+                            ?deposit_info,
+                            %err,
+                            "invalid metadata supplied in deposit request"
+                        );
                         continue;
                     }
                 };
@@ -512,7 +517,12 @@ impl ContractManagerCtx {
     /// This function validates whether a transaction is a valid Strata checkpoint transaction,
     /// extracts any valid assigned deposit entries and produces the `Assignment` [`ContractEvent`]
     /// so that it can be processed further.
-    fn process_assignments(&mut self, tx: &Transaction) -> Result<(), ContractManagerErr> {
+    async fn process_assignments(
+        &mut self,
+        tx: &Transaction,
+    ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
+        let mut duties = Vec::new();
+
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
             let chain_state = checkpoint.sidecar().chainstate();
 
@@ -531,12 +541,47 @@ impl ContractManagerCtx {
                         .get_mut(&deposit_txid)
                         .expect("withdrawal info must be for an active contract");
 
-                    sm.process_contract_event(ContractEvent::Assignment(entry.clone()))?;
+                    let pov_op_p2p_key = self.cfg.operator_table.pov_op_key();
+                    let stake_index = entry.idx();
+                    let Ok(Some(stake_tx)) = self
+                        .state
+                        .stake_chains
+                        .stake_tx(pov_op_p2p_key, stake_index as usize)
+                    else {
+                        warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
+                        continue;
+                    };
+
+                    self.state.stake_chains.process_advancement();
+
+                    match sm
+                        .process_contract_event(ContractEvent::Assignment(entry.clone(), stake_tx))
+                    {
+                        Ok(Some(duty)) => {
+                            info!("committing stake chain state");
+                            self.state_handles
+                                .stake_chain_persister
+                                .commit_stake_data(
+                                    &self.cfg.operator_table,
+                                    self.state.stake_chains.state().clone(),
+                                )
+                                .await?;
+
+                            duties.push(duty);
+                        }
+                        Ok(None) => {
+                            info!(?entry, "no duty generated for assignment");
+                        }
+                        Err(e) => {
+                            error!(%e, "could not generate duty for assignment event");
+                            return Err(e)?;
+                        }
+                    }
                 }
             }
         };
 
-        Ok(())
+        Ok(duties)
     }
 
     async fn process_p2p_message(
@@ -1002,103 +1047,108 @@ async fn execute_duty(
                     wots_pks,
                 )
                 .await;
+
             Ok(())
         }
+        OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
+            stake_index,
+            stake_tx,
+        }) => handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx).await,
         _ => Ok(()),
     }
+}
 
-    async fn handle_advance_stake_chain(
-        &mut self,
-        stake_index: u32,
-    ) -> Result<(), ContractManagerErr> {
-        let p2p_key = self.operator_table.pov_op_key();
-        let stake_tx = match self.stake_chains.stake_tx(p2p_key, stake_index as usize) {
-            Ok(Some(stake_tx)) => stake_tx,
-            Ok(None) => {
-                let pov_idx = self.operator_table.pov_idx();
-                error!(%p2p_key, %stake_index, %pov_idx, "stake tx data missing");
+async fn handle_advance_stake_chain(
+    cfg: &ExecutionConfig,
+    output_handles: Arc<OutputHandles>,
+    stake_index: u32,
+    stake_tx: StakeTx,
+) -> Result<(), ContractManagerErr> {
+    let operator_id = cfg.operator_table.pov_idx();
+    let op_p2p_key = cfg.operator_table.pov_op_key();
 
-                return Err(StakeChainErr::StakeTxNotFound(p2p_key.clone(), stake_index))?;
-            }
-            Err(e) => return Err(e)?,
-        };
+    let pre_stake_outpoint = output_handles
+        .db
+        .get_pre_stake(operator_id)
+        .await?
+        .ok_or(StakeChainErr::StakeSetupDataNotFound(op_p2p_key.clone()))?;
 
-        let messages = stake_tx.sighashes();
-        let funds_signature = self
+    let messages = stake_tx.sighashes();
+    let funds_signature = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .sign(messages[0].as_ref(), None)
+        .await?;
+
+    let signed_stake_tx = if stake_index == 0 {
+        // the first stake transaction spends the pre-stake which is locked by the key in the
+        // stake-chain wallet
+        let stake_signature = output_handles
             .s2_client
             .general_wallet_signer()
-            .sign(messages[0].as_ref(), None)
+            .sign(messages[1].as_ref(), None)
             .await?;
 
-        let signed_stake_tx = if stake_index == 0 {
-            // the first stake transaction spends the pre-stake which is locked by the key in the
-            // stake-chain wallet
-            let stake_signature = self
-                .s2_client
-                .general_wallet_signer()
-                .sign(messages[1].as_ref(), None)
-                .await?;
+        stake_tx.finalize_initial(funds_signature, stake_signature)
+    } else {
+        let pre_image_client = output_handles.s2_client.stake_chain_preimages();
+        let OutPoint {
+            txid: pre_stake_txid,
+            vout: pre_stake_vout,
+        } = pre_stake_outpoint;
+        let prev_preimage = pre_image_client
+            .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
+            .await?;
+        let n_of_n_agg_pubkey = cfg
+            .operator_table
+            .tx_build_context(cfg.network)
+            .aggregated_pubkey();
+        let operator_pubkey = output_handles
+            .s2_client
+            .general_wallet_signer()
+            .pubkey()
+            .await?
+            .to_x_only_pubkey();
+        let stake_hash = pre_image_client
+            .get_preimg(pre_stake_txid, pre_stake_vout, stake_index)
+            .await?;
+        let stake_hash = sha256::Hash::hash(&stake_hash);
+        let StakeChainParams { delta, .. } = cfg.stake_chain_params;
+        let prev_connector_s = ConnectorStake::new(
+            n_of_n_agg_pubkey,
+            operator_pubkey,
+            stake_hash,
+            delta,
+            cfg.network,
+        );
 
-            stake_tx.finalize_initial(funds_signature, stake_signature)
-        } else {
-            let pre_image_client = self.s2_client.stake_chain_preimages();
-            let OutPoint {
-                txid: pre_stake_txid,
-                vout: pre_stake_vout,
-            } = self.stakechain_prestake_utxo;
-            let prev_preimage = pre_image_client
-                .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
-                .await?;
-            let n_of_n_agg_pubkey = self
-                .operator_table
-                .tx_build_context(self.network)
-                .aggregated_pubkey();
-            let operator_pubkey = self
-                .s2_client
-                .general_wallet_signer()
-                .pubkey()
-                .await?
-                .to_x_only_pubkey();
-            let stake_hash = pre_image_client
-                .get_preimg(pre_stake_txid, pre_stake_vout, stake_index)
-                .await?;
-            let stake_hash = sha256::Hash::hash(&stake_hash);
-            let StakeChainParams { delta, .. } = self.stake_chain_params;
-            let prev_connector_s = ConnectorStake::new(
-                n_of_n_agg_pubkey,
-                operator_pubkey,
-                stake_hash,
-                delta,
-                self.network,
-            );
+        // all the stake transactions except the first one are locked with the general wallet
+        // signer.
+        // this is a caveat of the fact that we only share one x-only pubkey during deposit
+        // setup which is used for reimbursements/cpfp.
+        // so instead of sharing ones, we can just reuse this key (which is part of a taproot
+        // address).
+        let stake_signature = output_handles
+            .s2_client
+            .stakechain_wallet_signer()
+            .sign_no_tweak(messages[1].as_ref())
+            .await?;
 
-            // all the stake transactions except the first one are locked with the general wallet
-            // signer.
-            // this is a caveat of the fact that we only share one x-only pubkey during deposit
-            // setup which is used for reimbursements/cpfp.
-            // so instead of sharing ones, we can just reuse this key (which is part of a taproot
-            // address).
-            let stake_signature = self
-                .s2_client
-                .stakechain_wallet_signer()
-                .sign_no_tweak(messages[1].as_ref())
-                .await?;
+        stake_tx.finalize(
+            &prev_preimage,
+            funds_signature,
+            stake_signature,
+            prev_connector_s,
+        )
+    };
 
-            stake_tx.finalize(
-                &prev_preimage,
-                funds_signature,
-                stake_signature,
-                prev_connector_s,
-            )
-        };
+    let confirm_by = 1;
+    // FIXME: (@Rajil1213) change this to the current block height
+    // once the tx driver's deadline handling is implemented
+    output_handles
+        .tx_driver
+        .drive(signed_stake_tx, confirm_by)
+        .await?;
 
-        let confirm_by = 1;
-        // FIXME: (@Rajil1213) change this to the current block height
-        // once the tx driver's deadline handling is implemented
-        self.tx_driver.drive(signed_stake_tx, confirm_by).await?;
-
-        self.stake_chains.process_advancement();
-
-        Ok(())
-    }
+    Ok(())
 }
