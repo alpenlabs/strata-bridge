@@ -8,7 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  NIGHTLY: nightly-2024-11-01
+  NIGHTLY: nightly-2024-10-31
 
 permissions: {}
 
