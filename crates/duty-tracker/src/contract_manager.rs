@@ -3,6 +3,7 @@
 //! protocol rules.
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
+    io,
     time::Duration,
 };
 
@@ -10,7 +11,7 @@ use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChai
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
-    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
+    taproot, Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
@@ -44,7 +45,9 @@ use tracing::{error, info, warn};
 
 use crate::{
     contract_persister::ContractPersister,
-    contract_state_machine::{ContractEvent, ContractSM, DepositSetup, OperatorDuty},
+    contract_state_machine::{
+        ContractEvent, ContractSM, DepositSetup, FulfillerDuty, OperatorDuty,
+    },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
     stake_chain_persister::StakeChainPersister,
@@ -865,7 +868,7 @@ impl ContractManagerCtx {
                                     .sign(&sighash.to_byte_array(), None)
                                     .await?;
 
-                                let signature = bitcoin::taproot::Signature {
+                                let signature = taproot::Signature {
                                     signature,
                                     sighash_type,
                                 };
@@ -914,6 +917,87 @@ impl ContractManagerCtx {
                     .await;
                 Ok(())
             }
+            OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
+                FulfillerDuty::PublishFulfillment {
+                    withdrawal_metadata,
+                    user_descriptor,
+                } => {
+                    if withdrawal_metadata.operator_idx != self.operator_table.pov_idx() {
+                        // NOTE: It is also checked upstream but we do it here again.
+                        return Err(ContractManagerErr::FatalErr(Box::new(io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!(
+                                "Invalid operator index: {}",
+                                withdrawal_metadata.operator_idx
+                            ),
+                        ))));
+                    }
+                    // NOTE: The user x-only public key is assumed to be already tweaked.
+                    let user_p2tr_address =
+                        user_descriptor.to_address(self.network).map_err(|_| {
+                            ContractManagerErr::CreateTxErr(
+                                bdk_wallet::error::CreateTxError::NoRecipients,
+                            )
+                        })?;
+                    let amount = self.pegout_graph_params.deposit_amount
+                        - self.pegout_graph_params.operator_fee;
+                    // Create the transaction to pay the user.
+                    // We can only the general UTXOs and MUST NOT use CPFP UTXOs.
+                    let psbt = self.wallet.front_withdrawal(
+                        FeeRate::BROADCAST_MIN,
+                        user_p2tr_address,
+                        amount,
+                        &withdrawal_metadata.op_return_data(),
+                    )?;
+                    let tx = psbt.unsigned_tx;
+                    let txins_as_outs = tx
+                        .input
+                        .iter()
+                        .map(|txin| {
+                            self.wallet
+                                .general_wallet()
+                                .get_utxo(txin.previous_output)
+                                .expect("always have this output because the wallet selected it in the first place")
+                                .txout
+                        })
+                        .collect::<Vec<_>>();
+                    let mut sighasher = SighashCache::new(tx);
+
+                    let sighash_type = TapSighashType::All;
+                    let prevouts = Prevouts::All(&txins_as_outs);
+                    for input_index in 0..txins_as_outs.len() {
+                        let sighash = sighasher
+                            .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
+                            .expect("failed to construct sighash");
+                        let signature = self
+                            .s2_client
+                            .general_wallet_signer()
+                            .sign(&sighash.to_byte_array(), None)
+                            .await?;
+
+                        let signature = taproot::Signature {
+                            signature,
+                            sighash_type,
+                        };
+                        sighasher
+                            .witness_mut(input_index)
+                            .expect("an input here")
+                            .push(signature.to_vec());
+                    }
+                    let signed_tx = sighasher.into_transaction();
+                    // FIXME: Use something other than 0.
+                    self.tx_driver
+                        .drive(signed_tx, 0)
+                        .await
+                        .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+                    Ok(())
+                }
+                FulfillerDuty::AdvanceStakeChain => Ok(()),
+                FulfillerDuty::PublishClaim => Ok(()),
+                FulfillerDuty::PublishPayoutOptimistic => Ok(()),
+                FulfillerDuty::PublishAssertChain => Ok(()),
+                FulfillerDuty::PublishPayout => Ok(()),
+            },
             _ => Ok(()),
         }
     }

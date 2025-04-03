@@ -211,7 +211,7 @@ mod tests {
         let peg_out_graph_params = PegOutGraphParams::default();
 
         let metadata = WithdrawalMetadata {
-            tag: peg_out_graph_params.tag.as_bytes(),
+            tag: peg_out_graph_params.tag.as_bytes().to_vec(),
             operator_idx: 1,
             deposit_idx: 2,
             deposit_txid: generate_txid(),
@@ -230,7 +230,7 @@ mod tests {
         let recipient_desc = Descriptor::new_p2tr(&test_key).unwrap();
 
         let withdrawal_fulfillment_tx = WithdrawalFulfillment::new(
-            metadata,
+            metadata.clone(),
             sender_outpoints,
             amount,
             Some(change),

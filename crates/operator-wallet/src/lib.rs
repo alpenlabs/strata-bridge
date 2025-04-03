@@ -2,7 +2,10 @@
 pub mod sync;
 
 use bdk_wallet::{
-    bitcoin::{Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, XOnlyPublicKey},
+    bitcoin::{
+        script::PushBytesBuf, Address, AddressType, Amount, FeeRate, Network, OutPoint, Psbt,
+        ScriptBuf, XOnlyPublicKey,
+    },
     descriptor,
     error::CreateTxError,
     KeychainKind, LocalOutput, Wallet,
@@ -127,6 +130,39 @@ impl OperatorWallet {
             .collect::<Vec<_>>();
         debug!("found {} non-CPFP UTXOs", v.len());
         v
+    }
+
+    /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
+    /// address. (excluding CPFP outputs). Needs signing by the general wallet.
+    ///
+    /// The caller is responsible of assuring that the `OP_RETURN` data is within standard limits,
+    /// i.e. `<= 80` bytes.
+    pub fn front_withdrawal(
+        &mut self,
+        fee_rate: FeeRate,
+        user_p2tr_address: Address,
+        amount: Amount,
+        op_return_data: &[u8],
+    ) -> Result<Psbt, CreateTxError> {
+        if user_p2tr_address.address_type() != Some(AddressType::P2tr) {
+            return Err(CreateTxError::NoRecipients);
+        }
+        let mut push_data = PushBytesBuf::new();
+        push_data
+            .extend_from_slice(op_return_data)
+            .expect("op_return_data should be within limit");
+        let cpfp_utxos = self
+            .cpfp_utxos()
+            .into_iter()
+            .map(|lo| lo.outpoint)
+            .collect();
+        let mut tx_builder = self.general_wallet.build_tx();
+        // DON'T spend any of the cpfp outputs
+        tx_builder.unspendable(cpfp_utxos);
+        tx_builder.fee_rate(fee_rate);
+        tx_builder.add_recipient(user_p2tr_address.script_pubkey(), amount);
+        tx_builder.add_data(&push_data);
+        tx_builder.finish()
     }
 
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet

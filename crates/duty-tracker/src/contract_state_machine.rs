@@ -23,7 +23,10 @@ use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
     transactions::stake::StakeTxData,
 };
-use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
+use strata_bridge_tx_graph::{
+    peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
+    transactions::prelude::WithdrawalMetadata,
+};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
@@ -319,7 +322,13 @@ pub enum OperatorDuty {
 #[derive(Debug)]
 pub enum FulfillerDuty {
     /// Originates when strata state on L1 is published and assignment is self.
-    PublishFulfillment,
+    PublishFulfillment {
+        /// Withdrawal metadata.
+        withdrawal_metadata: WithdrawalMetadata,
+
+        /// The BOSD Descriptor of the user.
+        user_descriptor: Descriptor,
+    },
 
     /// Originates when Fulfillment has been completed
     AdvanceStakeChain,
@@ -900,7 +909,15 @@ impl ContractSM {
 
                         Ok(if fulfiller == self.cfg.operator_table.pov_idx() {
                             Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::PublishFulfillment,
+                                FulfillerDuty::PublishFulfillment {
+                                    withdrawal_metadata: WithdrawalMetadata {
+                                        tag: self.cfg.peg_out_graph_params.tag.as_bytes().to_vec(),
+                                        operator_idx: fulfiller,
+                                        deposit_idx: assignment.idx(),
+                                        deposit_txid: assignment.output().outpoint().txid,
+                                    },
+                                    user_descriptor: recipient.clone(),
+                                },
                             ))
                         } else {
                             None

@@ -12,10 +12,10 @@ pub struct WithdrawalFulfillment(Transaction);
 /// Metadata to be posted in the withdrawal transaction.
 ///
 /// This metadata is used to identify the operator and deposit index in the bridge withdrawal proof.
-#[derive(Debug, Clone, Copy)]
-pub struct WithdrawalMetadata<'tag> {
+#[derive(Debug, Clone)]
+pub struct WithdrawalMetadata {
     /// The tag used to mark the withdrawal metadata transaction.
-    pub tag: &'tag [u8],
+    pub tag: Vec<u8>,
 
     /// The index of the operator as per the information in the chain state in Strata.
     ///
@@ -35,7 +35,7 @@ pub struct WithdrawalMetadata<'tag> {
     /// withdrawal fulfillment transaction.
     pub deposit_idx: u32,
 
-    /// The txid of the deposit UTXO that that can be withdrawn via this withdrawal fulfillment.
+    /// The txid of the deposit UTXO that can be withdrawn via this withdrawal fulfillment.
     ///
     /// This is required for tying the peg-out graph with the deposit txid being claimed by just
     /// inspecting the withdrawal fulfillment transaction itself. This serves the same purpose as
@@ -45,13 +45,29 @@ pub struct WithdrawalMetadata<'tag> {
     pub deposit_txid: Txid,
 }
 
+impl WithdrawalMetadata {
+    pub fn op_return_data(&self) -> Vec<u8> {
+        let op_id_prefix: [u8; 4] = self.operator_idx.to_be_bytes();
+        let deposit_id_prefix: [u8; 4] = self.deposit_idx.to_be_bytes();
+        let deposit_txid_data = consensus::encode::serialize(&self.deposit_txid);
+        [
+            self.tag.as_slice(),
+            &op_id_prefix[..],
+            &deposit_id_prefix[..],
+            &deposit_txid_data[..],
+        ]
+        .concat()
+        .to_vec()
+    }
+}
+
 impl WithdrawalFulfillment {
     /// Constructs a new instance of the withdrawal transaction.
     ///
     /// NOTE: This transaction is not signed and must be done so before broadcasting by calling
     /// `signrawtransaction` on the Bitcoin Core RPC, for example.
     pub fn new(
-        metadata: WithdrawalMetadata<'_>,
+        metadata: WithdrawalMetadata,
         sender_outpoints: Vec<OutPoint>,
         amount: Amount,
         change: Option<TxOut>,
@@ -62,26 +78,8 @@ impl WithdrawalFulfillment {
 
         let op_return_amount = Amount::from_int_btc(0);
 
-        let WithdrawalMetadata {
-            tag,
-            operator_idx,
-            deposit_idx,
-            deposit_txid,
-        } = metadata;
-
-        let op_id_prefix: [u8; 4] = operator_idx.to_be_bytes();
-        let deposit_id_prefix: [u8; 4] = deposit_idx.to_be_bytes();
-        let deposit_txid_data = consensus::encode::serialize(&deposit_txid);
-
-        let op_return_script = op_return_nonce(
-            &[
-                tag,
-                &op_id_prefix[..],
-                &deposit_id_prefix[..],
-                &deposit_txid_data[..],
-            ]
-            .concat(),
-        );
+        let op_return_data = metadata.op_return_data();
+        let op_return_script = op_return_nonce(&op_return_data);
 
         let mut scripts_and_amounts = vec![
             (recipient_pubkey, amount),
@@ -154,7 +152,7 @@ mod tests {
         let deposit_idx: u32 = OsRng.gen();
         let deposit_txid = generate_txid();
 
-        let tag = b"test-tag";
+        let tag = b"test-tag".to_vec();
         let withdrawal_metadata = WithdrawalMetadata {
             tag,
             operator_idx,
@@ -166,7 +164,7 @@ mod tests {
             value: change_amount,
         };
         let withdrawal_fulfillment = WithdrawalFulfillment::new(
-            withdrawal_metadata,
+            withdrawal_metadata.clone(),
             sender_outpoints,
             amount,
             Some(change),
