@@ -12,10 +12,10 @@ pub struct WithdrawalFulfillment(Transaction);
 /// Metadata to be posted in the withdrawal transaction.
 ///
 /// This metadata is used to identify the operator and deposit index in the bridge withdrawal proof.
-#[derive(Debug, Clone, Copy)]
-pub struct WithdrawalMetadata<'tag> {
+#[derive(Debug, Clone)]
+pub struct WithdrawalMetadata {
     /// The tag used to mark the withdrawal metadata transaction.
-    pub tag: &'tag [u8],
+    pub tag: Vec<u8>,
 
     /// The index of the operator as per the information in the chain state in Strata.
     ///
@@ -45,13 +45,13 @@ pub struct WithdrawalMetadata<'tag> {
     pub deposit_txid: Txid,
 }
 
-impl WithdrawalMetadata<'_> {
+impl WithdrawalMetadata {
     pub fn op_return_data(&self) -> Vec<u8> {
         let op_id_prefix: [u8; 4] = self.operator_idx.to_be_bytes();
         let deposit_id_prefix: [u8; 4] = self.deposit_idx.to_be_bytes();
         let deposit_txid_data = consensus::encode::serialize(&self.deposit_txid);
         [
-            self.tag,
+            self.tag.as_slice(),
             &op_id_prefix[..],
             &deposit_id_prefix[..],
             &deposit_txid_data[..],
@@ -67,7 +67,7 @@ impl WithdrawalFulfillment {
     /// NOTE: This transaction is not signed and must be done so before broadcasting by calling
     /// `signrawtransaction` on the Bitcoin Core RPC, for example.
     pub fn new(
-        metadata: WithdrawalMetadata<'_>,
+        metadata: WithdrawalMetadata,
         sender_outpoints: Vec<OutPoint>,
         amount: Amount,
         change: Option<TxOut>,
@@ -152,7 +152,7 @@ mod tests {
         let deposit_idx: u32 = OsRng.gen();
         let deposit_txid = generate_txid();
 
-        let tag = b"test-tag";
+        let tag = b"test-tag".to_vec();
         let withdrawal_metadata = WithdrawalMetadata {
             tag,
             operator_idx,
@@ -164,7 +164,7 @@ mod tests {
             value: change_amount,
         };
         let withdrawal_fulfillment = WithdrawalFulfillment::new(
-            withdrawal_metadata,
+            withdrawal_metadata.clone(),
             sender_outpoints,
             amount,
             Some(change),

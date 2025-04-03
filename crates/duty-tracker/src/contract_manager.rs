@@ -26,7 +26,6 @@ use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{build_context::TxKind, operator_table::OperatorTable};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
-use strata_bridge_tx_graph::transactions::prelude::WithdrawalMetadata;
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -920,16 +919,17 @@ impl ContractManagerCtx {
             }
             OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
                 FulfillerDuty::PublishFulfillment {
-                    operator_idx,
-                    deposit_idx,
-                    deposit_txid,
+                    withdrawal_metadata,
                     user_descriptor,
                 } => {
-                    if operator_idx != self.operator_table.pov_idx() {
+                    if withdrawal_metadata.operator_idx != self.operator_table.pov_idx() {
                         // NOTE: It is also checked upstream but we do it here again.
                         return Err(ContractManagerErr::FatalErr(Box::new(io::Error::new(
                             io::ErrorKind::InvalidInput,
-                            format!("Invalid operator index: {}", operator_idx),
+                            format!(
+                                "Invalid operator index: {}",
+                                withdrawal_metadata.operator_idx
+                            ),
                         ))));
                     }
                     // NOTE: The user x-only public key is assumed to be already tweaked.
@@ -941,19 +941,13 @@ impl ContractManagerCtx {
                         })?;
                     let amount = self.pegout_graph_params.deposit_amount
                         - self.pegout_graph_params.operator_fee;
-                    let metadata = WithdrawalMetadata {
-                        tag: self.pegout_graph_params.tag.as_bytes(),
-                        operator_idx,
-                        deposit_idx,
-                        deposit_txid,
-                    };
                     // Create the transaction to pay the user.
                     // We can only the general UTXOs and MUST NOT use CPFP UTXOs.
                     let psbt = self.wallet.front_withdrawal(
                         FeeRate::BROADCAST_MIN,
                         user_p2tr_address,
                         amount,
-                        &metadata.op_return_data(),
+                        &withdrawal_metadata.op_return_data(),
                     )?;
                     let tx = psbt.unsigned_tx;
                     let txins_as_outs = tx

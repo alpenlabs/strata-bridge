@@ -23,7 +23,10 @@ use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
     transactions::stake::StakeTxData,
 };
-use strata_bridge_tx_graph::peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary};
+use strata_bridge_tx_graph::{
+    peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
+    transactions::prelude::WithdrawalMetadata,
+};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
@@ -320,36 +323,8 @@ pub enum OperatorDuty {
 pub enum FulfillerDuty {
     /// Originates when strata state on L1 is published and assignment is self.
     PublishFulfillment {
-        /// The index of the operator as per the information in the chain state in Strata.
-        ///
-        /// This is required in order to link a withdrawal fulfillment transaction to an operator
-        /// so that the a valid withdrawal fulfillment transaction by one operator cannot
-        /// be used in the proof of another operator, and to ensure that the operators only
-        /// process withdrawal requests assigned to themselves. Part of these enforcements
-        /// happen through the proof statements where the operator is required to sign the
-        /// txid of the withdrawal fulfillment transaction.
-        ///
-        /// NOTE: adding here for sanity checks and not relying on any other state.
-        operator_idx: OperatorIdx,
-
-        /// The index of the deposit as per the information in the chain state in Strata.
-        ///
-        /// This is required in order to link a withdrawal fulfillment transaction to a deposit so
-        /// that two withdrawal requests that are otherwise identical (same address, same
-        /// period, same operator) cannot be used to withdrawal two different bridged-in
-        /// UTXOs off of the same withdrawal fulfillment transaction.
-        deposit_idx: u32,
-
-        /// The txid of the deposit UTXO that can be withdrawn via this withdrawal fulfillment.
-        ///
-        /// This is required for tying the peg-out graph with the deposit txid being claimed by
-        /// just inspecting the withdrawal fulfillment transaction itself. This serves the
-        /// same purpose as the `deposit_idx` field. However, the `deposit_txid` is a more
-        /// direct way of linking the two since the `deposit_idx` is computed after the
-        /// fact when the deposit transaction is confirmed on chain.
-        ///
-        /// NOTE: adding here for sanity checks and not relying on any other state.
-        deposit_txid: Txid,
+        /// Withdrawal metadata.
+        withdrawal_metadata: WithdrawalMetadata,
 
         /// The BOSD Descriptor of the user.
         user_descriptor: Descriptor,
@@ -935,9 +910,12 @@ impl ContractSM {
                         Ok(if fulfiller == self.cfg.operator_table.pov_idx() {
                             Some(OperatorDuty::FulfillerDuty(
                                 FulfillerDuty::PublishFulfillment {
-                                    operator_idx: fulfiller,
-                                    deposit_idx: assignment.idx(),
-                                    deposit_txid: assignment.output().outpoint().txid,
+                                    withdrawal_metadata: WithdrawalMetadata {
+                                        tag: self.cfg.peg_out_graph_params.tag.as_bytes().to_vec(),
+                                        operator_idx: fulfiller,
+                                        deposit_idx: assignment.idx(),
+                                        deposit_txid: assignment.output().outpoint().txid,
+                                    },
                                     user_descriptor: recipient.clone(),
                                 },
                             ))
