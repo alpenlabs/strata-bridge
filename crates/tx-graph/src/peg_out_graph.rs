@@ -89,7 +89,7 @@ pub struct PegOutGraphSummary {
 
 /// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
 /// length arrays of larger than 32.
-fn serialize_assert_vector<T: Serialize, S: Serializer>(
+pub fn serialize_assert_vector<T: Serialize, S: Serializer>(
     data: &[T; NUM_ASSERT_DATA_TX],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
@@ -102,7 +102,7 @@ fn serialize_assert_vector<T: Serialize, S: Serializer>(
 
 /// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
 /// length arrays of larger than 32.
-fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+pub fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<[T; NUM_ASSERT_DATA_TX], D::Error> {
     // THE AUTHORS OF SERDE CAN BURN IN HELL. Seriously whoever thought of serde's design is fucking
