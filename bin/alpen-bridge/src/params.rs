@@ -1,15 +1,16 @@
-use alpen_bridge_params::prelude::{PegOutGraphParams, StakeChainParams};
+use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hex::DisplayHex, Network};
 use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
+use strata_primitives::params::RollupParams;
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
 /// These parameters are configurable and can be changed by the operator but note that differences
 /// in how these are configured among the bridge operators in the network will lead to different
 /// behavior that will prevent the bridge from functioning.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub(crate) struct Params {
     /// The network on which the bridge is operating.
     pub network: Network,
@@ -33,6 +34,13 @@ pub(crate) struct Params {
     /// Difference in these values among the bridge operators will lead to different stake chain
     /// structures and thereby, invalid signatures being exchanged.
     pub stake_chain: StakeChainParams,
+
+    /// The consensus-critical parameters that define the locking conditions for each connector.
+    pub connectors: ConnectorParams,
+
+    /// Consensus parameters that don't change for the lifetime of the network
+    /// (unless there's some weird hard fork).
+    pub sidesystem: RollupParams,
 }
 
 /// The keys used by the operators encoded in hex strings for convenience.
@@ -127,16 +135,42 @@ mod tests {
 
             [tx_graph]
             tag = "bridge-tag"
-            deposit_amount = {}
-            operator_fee = 1000000
-            challenge_cost = 10000000
-            refund_delay = 1008
+            deposit_amount = {0}
+            operator_fee = 1_000_000
+            challenge_cost = 10_000_000
+            refund_delay = 1_008
 
             [stake_chain]
-            stake_amount      = 100000000
-            burn_amount       = 10000000
+            stake_amount      = 100_000_000
+            burn_amount       = 10_000_000
             delta             = {{ Blocks = 6 }} # escape curly braces
             slash_stake_count = 24
+
+            [connectors]
+            payout_optimistic_timelock = 1_008
+            pre_assert_timelock = 1_152
+            payout_timelock = 1_008
+
+            [sidesystem]
+            rollup_name = "alpen-bridge"
+            block_time = 1_000
+            da_tag = "alpen-bridge-da"
+            checkpoint_tag = "alpen-bridge-checkpoint"
+            cred_rule = "unchecked"
+            horizon_l1_height = 1_000
+            genesis_l1_height = 1_000
+            operator_config.static = [{{ signing_pk = "0x0000000000000000000000000000000000000000000000000000000000000000", wallet_pk = "0x0000000000000000000000000000000000000000000000000000000000000000" }}]
+            evm_genesis_block_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            evm_genesis_block_state_root = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            l1_reorg_safe_depth = 1_000
+            target_l2_batch_size = 1_000
+            address_length = 20
+            deposit_amount = {0}
+            rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            dispatch_assignment_dur = 1000
+            proof_publish_mode = "strict"
+            max_deposits_in_block = 20
+            network = "signet"
         "#,
             deposit_amount
         );

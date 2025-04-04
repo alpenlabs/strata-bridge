@@ -45,6 +45,7 @@ resolver = "2"
 # deps in this workspace
 alpen-bridge-params = { path = "crates/params" }
 btc-notify = { path = "crates/btc-notify" }
+duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }

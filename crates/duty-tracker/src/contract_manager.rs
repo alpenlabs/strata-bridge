@@ -47,7 +47,11 @@ use strata_p2p_types::{
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
-use tokio::{sync::RwLock, task::JoinHandle, time};
+use tokio::{
+    sync::RwLock,
+    task::{self, JoinHandle},
+    time,
+};
 use tracing::{error, info, warn};
 
 use crate::{
@@ -92,7 +96,7 @@ impl ContractManager {
         wallet: OperatorWallet,
         db: SqliteDb,
     ) -> Self {
-        let thread_handle = tokio::task::spawn(async move {
+        let thread_handle = task::spawn(async move {
             let crash = |_e: ContractManagerErr| todo!();
 
             let active_contracts = match contract_persister
