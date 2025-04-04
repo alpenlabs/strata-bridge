@@ -159,14 +159,14 @@ mod tests {
             cred_rule = "unchecked"
             horizon_l1_height = 1_000
             genesis_l1_height = 1_000
-            operator_config = [{{ signing_pk = "0x0000000000000000000000000000000000000000000000000000000000000000", wallet_pk = "0x0000000000000000000000000000000000000000000000000000000000000000" }}]
+            operator_config.static = [{{ signing_pk = "0x0000000000000000000000000000000000000000000000000000000000000000", wallet_pk = "0x0000000000000000000000000000000000000000000000000000000000000000" }}]
             evm_genesis_block_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
             evm_genesis_block_state_root = "0x0000000000000000000000000000000000000000000000000000000000000000"
             l1_reorg_safe_depth = 1_000
             target_l2_batch_size = 1_000
             address_length = 20
             deposit_amount = {0}
-            rollup_vk = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000000000"
             dispatch_assignment_dur = 1000
             proof_publish_mode = "strict"
             max_deposits_in_block = 20
