@@ -6,7 +6,7 @@ use std::{marker::PhantomData, mem::MaybeUninit};
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
 use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
-use secp256k1::XOnlyPublicKey;
+use secp256k1::{Message, XOnlyPublicKey};
 use serde::{
     de::{SeqAccess, Visitor},
     ser::SerializeTuple,
@@ -89,7 +89,7 @@ pub struct PegOutGraphSummary {
 
 /// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
 /// length arrays of larger than 32.
-fn serialize_assert_vector<T: Serialize, S: Serializer>(
+pub fn serialize_assert_vector<T: Serialize, S: Serializer>(
     data: &[T; NUM_ASSERT_DATA_TX],
     serializer: S,
 ) -> Result<S::Ok, S::Error> {
@@ -102,7 +102,7 @@ fn serialize_assert_vector<T: Serialize, S: Serializer>(
 
 /// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
 /// length arrays of larger than 32.
-fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
+pub fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<[T; NUM_ASSERT_DATA_TX], D::Error> {
     // THE AUTHORS OF SERDE CAN BURN IN HELL. Seriously whoever thought of serde's design is fucking
@@ -183,6 +183,9 @@ fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 pub struct PegOutGraph {
     /// The claim transaction that commits to a valid withdrawal fulfillment txid.
     pub claim_tx: ClaimTx,
+
+    /// The transaction used to challenge an operator's claim.
+    pub challenge_tx: ChallengeTx,
 
     /// The transaction used to reimburse operators when no challenge occurs.
     pub payout_optimistic: PayoutOptimisticTx,
@@ -267,6 +270,14 @@ impl PegOutGraph {
         );
         let claim_txid = claim_tx.compute_txid();
         debug!(event = "created claim tx", %claim_txid);
+
+        let challenge_input = ChallengeTxInput {
+            claim_outpoint: OutPoint::new(claim_txid, 1),
+            challenge_amt: graph_params.challenge_cost,
+            operator_pubkey: input.operator_pubkey,
+            network: context.network(),
+        };
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
 
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
@@ -380,6 +391,7 @@ impl PegOutGraph {
         Ok((
             Self {
                 claim_tx,
+                challenge_tx,
                 payout_optimistic,
                 assert_chain,
                 payout_tx,
@@ -406,6 +418,59 @@ impl PegOutGraph {
                 .iter()
                 .map(|tx| tx.compute_txid())
                 .collect(),
+        }
+    }
+
+    /// Generates the sighash message
+    pub fn sighashes(&self) -> PegOutGraphSighashes {
+        let challenge = self.challenge_tx.sighash()[0];
+
+        let AssertChain {
+            pre_assert,
+            post_assert,
+            ..
+        } = &self.assert_chain;
+
+        let pre_assert = pre_assert.sighash()[0];
+
+        let post_assert = post_assert
+            .sighash()
+            .try_into()
+            .expect("post assert tx must have the right number of sighashes");
+
+        let payout_optimistic = self
+            .payout_optimistic
+            .sighash()
+            .try_into()
+            .expect("payout optimistic tx must have the right number of sighashes");
+
+        let payout = self
+            .payout_tx
+            .sighash()
+            .try_into()
+            .expect("payout tx must have the right number of sighashes");
+
+        let disprove = self.disprove_tx.sighash()[0];
+
+        let slash_stake = self
+            .slash_stake_txs
+            .iter()
+            .map(|slash_stake| {
+                slash_stake
+                    .sighash()
+                    .try_into()
+                    .expect("slash stake tx must have the right number of sighashes")
+            })
+            .collect();
+
+        PegOutGraphSighashes {
+            challenge,
+            pre_assert,
+            post_assert,
+            payout_optimistic,
+            payout,
+            disprove,
+            slash_stake,
         }
     }
 }
@@ -544,6 +609,36 @@ impl PegOutGraphConnectors {
             hashlock_payout,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PegOutGraphSighashes {
+    /// The transaction used to challenge an operator's claim.
+    pub challenge: Message,
+
+    /// The transaction that creates UTXOs that allow committing to the assertion data.
+    pub pre_assert: Message,
+
+    /// The transaction that consolidates all the assert data transactions.
+    pub post_assert: [Message; NUM_ASSERT_DATA_TX],
+
+    /// The transaction used to reimburse operators when no challenge occurs.
+    pub payout_optimistic: [Message; 5],
+
+    /// The payout transaction that reimburses the operator.
+    pub payout: [Message; 4],
+
+    /// The disprove transaction that invalidates a claim and slashes the operator's stake.
+    pub disprove: Message,
+
+    /// The slash stake transactions that slash the operator's stake upon faulty advancement of
+    /// the stake chain.
+    ///
+    /// This is a vector of transactions since the number of these transactions can vary depending
+    /// upon the consensus params for the bridge and the current deposit index. In general, the
+    /// number of slash stake transactions should be `min(deposit_index,
+    /// stake_chain_params.slash_stake_count)` (assuming that the deposit index is zero-indexed).
+    pub slash_stake: Vec<[Message; 2]>,
 }
 
 #[cfg(test)]
@@ -1412,6 +1507,7 @@ mod tests {
             vec![],
         )
         .expect("must be able to generate peg-out graph");
+        let sighashes = graph.sighashes();
         let PegOutGraph {
             claim_tx,
             assert_chain,
@@ -1546,20 +1642,10 @@ mod tests {
             post_assert,
         } = assert_chain;
 
-        let mut sighash_cache = SighashCache::new(&pre_assert.psbt().unsigned_tx);
-        let prevouts = pre_assert.prevouts();
-        let witnesses = pre_assert.witnesses();
         let pre_assert_input_amount = pre_assert.input_amount();
         let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
-        let tx_hash = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            &witnesses[0],
-            TapSighashType::Default,
-            0,
-        )
-        .expect("must be able create a message hash for tx");
-        let n_of_n_sig = generate_agg_signature(&tx_hash, keypair, &witnesses[0]);
+        let n_of_n_sig =
+            generate_agg_signature(&sighashes.pre_assert, keypair, &pre_assert.witnesses()[0]);
         let signed_pre_assert = pre_assert.finalize(claim_out_0, n_of_n_sig);
         assert_eq!(
             signed_pre_assert.version,
@@ -1678,22 +1764,13 @@ mod tests {
 
         info!(%total_assert_vsize, %total_assert_with_child_vsize, "submitted all assert data txs");
 
-        let mut sighash_cache = SighashCache::new(&post_assert.psbt().unsigned_tx);
-
-        let prevouts = post_assert.prevouts();
-        let witnesses = post_assert.witnesses();
         let post_assert_sigs = (0..num_signed_assert_data_txs)
             .map(|i| {
-                let message = create_message_hash(
-                    &mut sighash_cache,
-                    prevouts.clone(),
-                    &witnesses[i],
-                    TapSighashType::Default,
-                    i,
+                generate_agg_signature(
+                    &sighashes.post_assert[i],
+                    keypair,
+                    &post_assert.witnesses()[i],
                 )
-                .expect("must be able to create a message hash");
-
-                generate_agg_signature(&message, keypair, &witnesses[i])
             })
             .collect::<Vec<_>>();
 

@@ -1,6 +1,6 @@
 use std::array;
 
-use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
 use bitvm::{chunk::api::Signatures as g16Signatures, signatures::wots_api::wots256, treepp::*};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
@@ -71,6 +71,7 @@ impl AssertDataTxBatch {
 
             let mut psbt = Psbt::from_unsigned_tx(tx).expect("must have an empty witness");
             psbt.inputs[0].witness_utxo = Some(prevout);
+            psbt.inputs[0].sighash_type = Some(TapSighashType::Default.into());
 
             psbt
         }))

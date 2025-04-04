@@ -48,6 +48,7 @@ impl ContractPersister {
                 deposit_txid CHAR(64) PRIMARY KEY,
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
+                deposit_info VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
                 state VARBINARY NOT NULL,
             );
@@ -72,8 +73,9 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                state
-            ) VALUES (?, ?, ?, ?, ?)
+                state,
+                deposit_info
+            ) VALUES (?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
@@ -81,6 +83,7 @@ impl ContractPersister {
         .bind(bincode::serialize(&cfg.deposit_tx)?)
         .bind(bincode::serialize(&cfg.operator_table)?)
         .bind(bincode::serialize(&state)?)
+        .bind(bincode::serialize(&cfg.deposit_info)?)
         .execute(&self.pool)
         .await
         .map_err(|_| ContractPersistErr)?;
@@ -121,7 +124,8 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                state
+                state,
+                deposit_info
             ) FROM contracts WHERE deposit_txid = ?
             "#,
         )
@@ -138,6 +142,11 @@ impl ContractPersister {
         )?;
         let state = bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
 
+        let deposit_info = bincode::deserialize(
+            row.try_get("deposit_info")
+                .map_err(|_| ContractPersistErr)?,
+        )?;
+
         Ok((
             ContractCfg {
                 operator_table,
@@ -147,6 +156,7 @@ impl ContractPersister {
                 connector_params,
                 peg_out_graph_params,
                 stake_chain_params,
+                deposit_info,
             },
             state,
         ))
@@ -167,7 +177,8 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                state
+                state,
+                deposit_info
             ) FROM contracts
             "#,
         )
@@ -186,6 +197,10 @@ impl ContractPersister {
                 )?;
                 let state =
                     bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
+                let deposit_info = bincode::deserialize(
+                    row.try_get("deposit_info")
+                        .map_err(|_| ContractPersistErr)?,
+                )?;
                 Ok((
                     ContractCfg {
                         network,
@@ -196,6 +211,7 @@ impl ContractPersister {
                         // later
                         deposit_idx,
                         deposit_tx,
+                        deposit_info,
                     },
                     state,
                 ))

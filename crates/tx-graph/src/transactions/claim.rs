@@ -1,4 +1,7 @@
-use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{
+    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+    Txid,
+};
 use bitvm::signatures::wots_api::wots256;
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::scripts::prelude::*;
@@ -74,6 +77,7 @@ impl ClaimTx {
         };
 
         psbt.inputs[0].witness_utxo = Some(prevout.clone());
+        psbt.inputs[0].sighash_type = Some(TapSighashType::Default.into());
 
         let (input_script, control_block) = connector_k.generate_spend_info();
         let witnesses = vec![TaprootWitness::Script {

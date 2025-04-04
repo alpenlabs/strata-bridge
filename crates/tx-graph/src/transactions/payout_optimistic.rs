@@ -139,6 +139,7 @@ impl PayoutOptimisticTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
         let (payout_script, control_block) = connector_c1.generate_spend_info();

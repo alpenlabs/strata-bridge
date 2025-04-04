@@ -95,8 +95,10 @@ impl DisproveTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
+        // update the sighash type on the first input.
         psbt.inputs[0].sighash_type = Some(PsbtSighashType::from(TapSighashType::Single));
 
         Self {

@@ -34,6 +34,26 @@ impl Musig2Client {
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
+
+    /// Reconstructs a MuSig2 first round from a session ID. This is dangerous because it bypasses
+    /// the normal session creation process and so could be invalid.
+    pub fn dangerous_first_round(&self, session_id: usize) -> Musig2FirstRound {
+        Musig2FirstRound {
+            session_id,
+            connection: self.conn.clone(),
+            config: self.config.clone(),
+        }
+    }
+
+    /// Reconstructs a MuSig2 second round from a session ID. This is dangerous because it bypasses
+    /// the normal session creation process and so could be invalid.
+    pub fn dangerous_second_round(&self, session_id: usize) -> Musig2SecondRound {
+        Musig2SecondRound {
+            session_id,
+            connection: self.conn.clone(),
+            config: self.config.clone(),
+        }
+    }
 }
 
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
