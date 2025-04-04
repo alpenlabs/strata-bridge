@@ -331,7 +331,6 @@ async fn init_duty_tracker(
     let pegout_graph_params = params.tx_graph.clone();
     let stake_chain_params = params.stake_chain;
     let sidesystem_params = params.sidesystem.clone();
-    // let operator_table = params.operator_table.clone();
     let operator_table_entries: Vec<(u32, P2POperatorPubKey, secp256k1::PublicKey)> = params
         .keys
         .p2p
