@@ -60,7 +60,7 @@ impl BtcZmqClient {
     /// Primary constructor for [`BtcZmqClient`].
     ///
     /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`.
-    pub fn connect(cfg: BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
+    pub fn connect(cfg: &BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
         trace!(?cfg, "subscribing to bitcoind");
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
@@ -240,7 +240,7 @@ mod e2e_tests {
             .with_rawtx_connection_string("tcp://127.0.0.1:23885")
             .with_sequence_connection_string("tcp://127.0.0.1:23886");
 
-        let client = BtcZmqClient::connect(cfg)?;
+        let client = BtcZmqClient::connect(&cfg)?;
 
         Ok((client, bitcoind))
     }

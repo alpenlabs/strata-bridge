@@ -1,3 +1,5 @@
+use serde::{Deserialize, Serialize};
+
 use crate::constants::DEFAULT_BURY_DEPTH;
 
 /// Main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
@@ -9,7 +11,7 @@ use crate::constants::DEFAULT_BURY_DEPTH;
 ///
 /// You should construct a [`BtcZmqConfig`] with [`Default::default`] and modify it with the member
 /// methods on this struct.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BtcZmqConfig {
     /// Depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
     pub(crate) bury_depth: usize,

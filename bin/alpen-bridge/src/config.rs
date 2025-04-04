@@ -1,5 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
+use btc_notify::client::BtcZmqConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::persistent::config::DbConfig;
@@ -47,6 +48,12 @@ pub(crate) struct Config {
 
     /// The configuration for the operator wallet.
     pub operator_wallet: OperatorWalletConfig,
+
+    /// The configuration for the Bitcoin ZMQ client.
+    pub btc_zmq: BtcZmqConfig,
+
+    /// Nag interval for the contract manager in the duty tracker.
+    pub nag_interval: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,11 +124,12 @@ mod tests {
             datadir = ".data"
             rpc_addr = "localhost:5678"
             is_faulty = false
+            nag_interval = { secs = 60, nanos = 0 }
 
             [secret_service_client]
             server_addr = "localhost:1234"
             server_hostname = "localhost"
-            timeout = 1000
+            timeout = 1_000
             cert = "cert.pem"
             key = "key.pem"
             service_ca = "ca.pem"
@@ -131,20 +139,28 @@ mod tests {
             user = "user"
             pass = "password"
             retry_count = 3
-            retry_interval = 1000
+            retry_interval = 1_000
 
             [db]
             max_retry_count = 3
-            backoff_period = { secs = 1000, nanos = 0 }
+            backoff_period = { secs = 1_000, nanos = 0 }
 
             [p2p]
-            idle_connection_timeout = { secs = 1000, nanos = 0 }
+            idle_connection_timeout = { secs = 1_000, nanos = 0 }
             listening_addr = "/ip4/127.0.0.1/tcp/1234"
             connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
             num_threads = 4
 
             [operator_wallet]
             stake_funding_pool_size = 32
+
+            [btc_zmq]
+            bury_depth = 6
+            hashblock_connection_string = "tcp://127.0.0.1:28332"
+            hashtx_connection_string = "tcp://127.0.0.1:28333"
+            rawblock_connection_string = "tcp://127.0.0.1:28334"
+            rawtx_connection_string = "tcp://127.0.0.1:28335"
+            sequence_connection_string = "tcp://127.0.0.1:28336"
         "#;
 
         let config = toml::from_str::<Config>(config);

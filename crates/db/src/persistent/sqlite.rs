@@ -66,6 +66,11 @@ impl SqliteDb {
     pub fn config(&self) -> &DbConfig {
         &self.config
     }
+
+    /// Returns the underlying [`SqlitePool`].
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
 }
 
 #[async_trait]

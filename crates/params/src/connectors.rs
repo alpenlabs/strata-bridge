@@ -4,7 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 /// The consensus-critical parameters that define the locking conditions for each connector.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ConnectorParams {
     /// The relative timelock (measured in number of blocks) on the Claim transaction output that
     /// is used to lock funds in the N-of-N and used in the PayoutOptimistic transaction.

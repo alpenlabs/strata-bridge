@@ -19,6 +19,8 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 alpen-bridge-params.workspace = true
+btc-notify.workspace = true
+duty-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
 strata-bridge-db.workspace = true
@@ -29,6 +31,7 @@ strata-bridge-stake-chain.workspace = true
 strata-btcio.workspace = true
 strata-p2p.workspace = true
 strata-p2p-types.workspace = true
+strata-primitives.workspace = true
 
 strata-common.workspace = true
 

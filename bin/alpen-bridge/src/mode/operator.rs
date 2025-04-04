@@ -14,12 +14,17 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache, TapSighashType},
     FeeRate, OutPoint, TxOut,
 };
+use btc_notify::client::BtcZmqClient;
+use duty_tracker::{
+    contract_manager::ContractManager, contract_persister::ContractPersister,
+    stake_chain_persister::StakeChainPersister, tx_driver::TxDriver,
+};
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
 use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
-use secp256k1::SECP256K1;
+use secp256k1::{Parity, SECP256K1};
 use secret_service_client::{
     rustls::{
         pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -36,7 +41,9 @@ use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
-use strata_bridge_primitives::{constants::SEGWIT_MIN_AMOUNT, types::OperatorIdx};
+use strata_bridge_primitives::{
+    constants::SEGWIT_MIN_AMOUNT, operator_table::OperatorTable, types::OperatorIdx,
+};
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_btcio::rpc::{
     traits::{BroadcasterRpc, ReaderRpc},
@@ -80,13 +87,13 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let db_stakechain = db.clone();
 
     // Create the async BitcoinD RPC client.
-    let bitcoin_rpc_client = Arc::new(BitcoinClient::new(
+    let bitcoin_rpc_client = BitcoinClient::new(
         config.btc_client.url.to_string(),
         config.btc_client.user.to_string(),
         config.btc_client.pass.to_string(),
         config.btc_client.retry_count,
         config.btc_client.retry_interval,
-    )?);
+    )?;
 
     // Initialize the operator wallet.
     let mut operator_wallet = init_operator_wallet(&config, &params, s2_client.clone()).await?;
@@ -105,7 +112,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         s2_client.clone(),
         &mut operator_wallet,
         my_index,
-        bitcoin_rpc_client.clone(), // duty tracker also needs an Arc<BitcoinClient>
+        Arc::new(bitcoin_rpc_client.clone()),
     )
     .await;
 
@@ -115,16 +122,21 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let p2p_handle_rpc = message_handler.handle.clone();
 
     // Initialize the duty tracker.
-    info!("initializing the duty tracker");
+    info!("initializing the duty tracker with the contract manager");
+    let zmq_client =
+        BtcZmqClient::connect(&config.btc_zmq).expect("should be able to connect to zmq");
     init_duty_tracker(
         &params,
         &config,
+        bitcoin_rpc_client.clone(),
+        zmq_client,
         s2_client,
         message_handler,
         operator_wallet,
         db,
-    );
-    info!("initialized the duty tracker");
+    )
+    .await?;
+    info!("initialized the contract manager");
 
     info!("starting the RPC server");
     let rpc_address = config.rpc_addr.clone();
@@ -301,15 +313,68 @@ fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
     db_path
 }
 
-fn init_duty_tracker(
-    _params: &Params,
-    _config: &Config,
-    _s2_client: SecretServiceClient,
-    _message_handler: MessageHandler,
-    _operator_wallet: OperatorWallet,
-    _db: SqliteDb,
-) {
-    unimplemented!("@ProofOfKeags");
+/// Initializes the duty tracker by creating a new [`ContractManager`].
+#[expect(clippy::too_many_arguments)]
+async fn init_duty_tracker(
+    params: &Params,
+    config: &Config,
+    rpc_client: BitcoinClient,
+    zmq_client: BtcZmqClient,
+    s2_client: SecretServiceClient,
+    message_handler: MessageHandler,
+    operator_wallet: OperatorWallet,
+    db: SqliteDb,
+) -> anyhow::Result<ContractManager> {
+    let network = params.network;
+    let nag_interval = config.nag_interval;
+    let connector_params = params.connectors;
+    let pegout_graph_params = params.tx_graph.clone();
+    let stake_chain_params = params.stake_chain;
+    let sidesystem_params = params.sidesystem.clone();
+    // let operator_table = params.operator_table.clone();
+    let operator_table_entries: Vec<(u32, P2POperatorPubKey, secp256k1::PublicKey)> = params
+        .keys
+        .p2p
+        .iter()
+        .zip(params.keys.musig2.iter())
+        .map(|(p2p_key, musig2_x_only_key)| {
+            let p2p_key = P2POperatorPubKey::from(p2p_key.clone());
+            let musig2_key = musig2_x_only_key.public_key(Parity::Even);
+            (p2p_key, musig2_key)
+        })
+        .enumerate()
+        .map(|(idx, (p2p, musig2))| (idx as u32, p2p, musig2))
+        .collect();
+    let my_btc_key = s2_client.musig2_signer().pubkey().await?;
+    let my_idx = operator_table_entries
+        .iter()
+        .position(|(_, _, key)| key.x_only_public_key().0 == my_btc_key)
+        .expect("should be able to find my index");
+    let operator_table =
+        OperatorTable::new(operator_table_entries, my_idx as u32).expect("my index exists");
+    let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
+    let p2p_handle = message_handler.handle.clone();
+    let contract_persister = ContractPersister::new(db.pool().clone()).await?;
+    let stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
+
+    Ok(ContractManager::new(
+        network,
+        nag_interval,
+        connector_params,
+        pegout_graph_params,
+        stake_chain_params,
+        sidesystem_params,
+        operator_table,
+        zmq_client,
+        rpc_client,
+        tx_driver,
+        p2p_handle,
+        contract_persister,
+        stake_chain_persister,
+        s2_client,
+        operator_wallet,
+        db,
+    ))
 }
 
 async fn start_rpc_server(
