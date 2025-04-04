@@ -1326,6 +1326,7 @@ async fn execute_duty(
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
             takeback_key,
+            s2_musig2_session_id,
         } => {
             const VOUT: u32 = 0;
 
@@ -1345,44 +1346,22 @@ async fn execute_duty(
                 return Ok(());
             }
 
-            let ordered_pubkeys = cfg
-                .operator_table
-                .tx_build_context(cfg.network)
-                .pubkey_table()
-                .0
-                .values()
-                .map(|pk| pk.to_x_only_pubkey())
-                .collect();
-            let drt_takeback_script =
-                drt_take_back(takeback_key, cfg.pegout_graph_params.refund_delay);
-            let session_id = OutPoint::new(deposit_request_txid, VOUT);
+            // let ordered_pubkeys = cfg
+            //     .operator_table
+            //     .tx_build_context(cfg.network)
+            //     .pubkey_table()
+            //     .0
+            //     .values()
+            //     .map(|pk| pk.to_x_only_pubkey())
+            //     .collect();
+            // let drt_takeback_script =
+            //     drt_take_back(takeback_key, cfg.pegout_graph_params.refund_delay);
+            // let session_id = OutPoint::new(deposit_request_txid, VOUT);
 
-            let r = get_or_set_ms2_session(&mut self.s2_musig2_sessions, session_id, || async {
-                output_handles
-                    .s2_client
-                    .musig2_signer()
-                    .new_session(
-                        ordered_pubkeys,
-                        TaprootWitness::Tweaked {
-                            tweak: TapNodeHash::from_script(
-                                &drt_takeback_script,
-                                LeafVersion::TapScript,
-                            ),
-                        },
-                        deposit_request_txid,
-                        0,
-                    )
-                    .await
-                    .map(|inner| Musig2Round::Musig2FirstRound(inner.expect("valid first round")))
-            })
-            .await?;
-
-            let Musig2Round::Musig2FirstRound(r1) = r else {
-                // only possible when the database is modified externally
-                // stop touching your database
-                // it doesn't want to be touched
-                unreachable!("the database doesn't want the tea") // https://youtu.be/oQbei5JGiT8
-            };
+            let r1 = output_handles
+                .s2_client
+                .musig2_signer()
+                .dangerous_first_round(s2_musig2_session_id);
             let our_nonce = r1.our_nonce().await?;
 
             output_handles
@@ -1391,7 +1370,7 @@ async fn execute_duty(
                     deposit_request_txid,
                     VOUT,
                     cfg.operator_table.pov_idx(),
-                    our_nonce,
+                    our_nonce.clone(),
                 )
                 .await?;
 
@@ -1736,18 +1715,14 @@ async fn execute_duty(
         OperatorDuty::PublishRootSignature {
             nonces,
             deposit_info,
+            s2_musig2_session_id,
         } => {
             const VOUT: u32 = 0;
             let our_pubkey = cfg.operator_table.pov_op_key();
-            let Entry::Occupied(mut entry) = self
-                .s2_musig2_sessions
-                .entry(*deposit_info.deposit_request_outpoint())
-            else {
-                todo!()
-            };
-            let Musig2Round::Musig2FirstRound(r1) = entry.get_mut() else {
-                todo!()
-            };
+            let mut r1 = output_handles
+                .s2_client
+                .musig2_signer()
+                .dangerous_first_round(s2_musig2_session_id);
             for (p2p_key, nonce) in nonces
                 .into_iter()
                 .filter(|(p2p_pk, _)| p2p_pk != our_pubkey)
@@ -1761,9 +1736,6 @@ async fn execute_duty(
             }
 
             assert!(r1.is_complete().await?);
-            let Musig2Round::Musig2FirstRound(r1) = entry.remove() else {
-                todo!()
-            };
 
             let maybe_tx_signing_data = deposit_info
                 .construct_signing_data(
@@ -1801,10 +1773,6 @@ async fn execute_duty(
 
             let r2 = r1.finalize(*msg.as_ref()).await?.expect("round 2");
             let our_partial_sig = r2.our_signature().await?;
-            self.s2_musig2_sessions.insert(
-                *deposit_info.deposit_request_outpoint(),
-                Musig2Round::Musig2SecondRound(r2),
-            );
 
             output_handles
                 .msg_handler
@@ -1824,14 +1792,12 @@ async fn execute_duty(
         OperatorDuty::PublishDeposit {
             deposit_tx,
             partial_sigs,
+            s2_musig2_session_id,
         } => {
-            let Entry::Occupied(mut entry) = self
-                .s2_musig2_sessions
-                .entry(deposit_tx.input[0].previous_output)
-            else {
-                panic!("aaaaaaaa why don't we have a musig2 session???")
-            };
-            let r2 = entry.get_mut().r2_mut().unwrap();
+            let mut r2 = output_handles
+                .s2_client
+                .musig2_signer()
+                .dangerous_second_round(s2_musig2_session_id);
             for (op_p2p_key, partial_sig) in partial_sigs {
                 let btc_key = cfg.operator_table.op_key_to_btc_key(&op_p2p_key).unwrap();
                 r2.receive_signature(btc_key.to_x_only_pubkey(), partial_sig)
@@ -1839,7 +1805,6 @@ async fn execute_duty(
                     .expect("valid sig");
             }
             assert!(r2.is_complete().await?);
-            let r2 = entry.remove().r2_owned().unwrap();
             let sig = r2.finalize().await?.expect("good sig");
             let mut sighasher = SighashCache::new(deposit_tx);
             sighasher

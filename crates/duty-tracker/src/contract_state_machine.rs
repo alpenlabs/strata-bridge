@@ -361,6 +361,7 @@ pub enum OperatorDuty {
         /// The schnorr key that locks the funds in the DRT for the user to take back after a
         /// parameterized refund delay.
         takeback_key: XOnlyPublicKey,
+        s2_musig2_session_id: usize,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
@@ -370,6 +371,8 @@ pub enum OperatorDuty {
 
         /// The data required to construct the deposit transaction.
         deposit_info: DepositInfo,
+
+        s2_musig2_session_id: usize,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -378,6 +381,8 @@ pub enum OperatorDuty {
         deposit_tx: Transaction,
         /// Partial signatures from peers.
         partial_sigs: BTreeMap<P2POperatorPubKey, PartialSignature>,
+
+        s2_musig2_session_id: usize,
     },
 
     /// Injection function for a FulfillerDuty.
