@@ -15,6 +15,7 @@ use bitcoin_bosd::Descriptor;
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
+    constants::NUM_ASSERT_DATA_TX,
     deposit::DepositInfo,
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, OperatorIdx},
@@ -335,6 +336,8 @@ pub enum OperatorDuty {
         operator_p2p_key: P2POperatorPubKey,
 
         pog: PegOutGraph,
+
+        s2_musig2_session_ids: PegOutGraphContainer<usize>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -347,6 +350,7 @@ pub enum OperatorDuty {
         /// Order of Vecs is determined by implementation.
         pubnonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
         pog: PegOutGraph,
+        s2_musig2_session_ids: PegOutGraphContainer<usize>,
     },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
@@ -1328,4 +1332,15 @@ pub(crate) fn convert_g16_keys(
     let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
 
     Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
+}
+
+#[derive(Debug)]
+pub struct PegOutGraphContainer<T> {
+    pub challenge: T,
+    pub pre_assert: T,
+    pub post_assert: [T; NUM_ASSERT_DATA_TX],
+    pub payout_optimistic: [T; 5],
+    pub payout: [T; 4],
+    pub disprove: T,
+    pub slash_stake: Vec<[T; 2]>,
 }

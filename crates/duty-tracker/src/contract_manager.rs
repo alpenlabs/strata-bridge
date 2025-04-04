@@ -22,6 +22,7 @@ use futures::{
     future::{join3, join_all, try_join_all},
     StreamExt,
 };
+use musig2::{PartialSignature, PubNonce};
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::{
     musig2::{Musig2FirstRound, Musig2SecondRound},
@@ -35,6 +36,7 @@ use strata_bridge_db::{
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxKind},
+    constants::NUM_ASSERT_DATA_TX,
     deposit::DepositInfo,
     operator_table::OperatorTable,
     scripts::{
@@ -73,7 +75,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         convert_g16_keys, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
-        OperatorDuty, TransitionErr,
+        OperatorDuty, PegOutGraphContainer, TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
@@ -81,110 +83,6 @@ use crate::{
     stake_chain_state_machine::StakeChainSM,
     tx_driver::TxDriver,
 };
-
-/// Helper macro for loading a Musig2 round 1 nonce from the database or create by creating a new
-/// session with the secret service.
-macro_rules! get_or_create_nonce {
-    ($self:expr, $outpoint:expr, $ordered_pubkeys:expr, $witness:expr) => {{
-        if let Some(pubnonce) = $self
-            .db
-            .collected_pubnonces($outpoint.txid, $outpoint.vout)
-            .await?
-            .get(&$self.operator_table.pov_idx())
-        {
-            pubnonce.clone()
-        } else {
-            let r = get_or_set_ms2_session(&mut $self.s2_musig2_sessions, $outpoint, || async {
-                $self
-                    .s2_client
-                    .musig2_signer()
-                    .new_session(
-                        $ordered_pubkeys.clone(),
-                        $witness,
-                        $outpoint.txid,
-                        $outpoint.vout,
-                    )
-                    .await
-                    .map(|inner| Musig2Round::Musig2FirstRound(inner.expect("valid first round")))
-            })
-            .await?;
-
-            let Musig2Round::Musig2FirstRound(r1) = r else {
-                todo!()
-            };
-
-            let our_nonce = r1.our_nonce().await?;
-
-            $self
-                .db
-                .add_pubnonce(
-                    $outpoint.txid,
-                    $outpoint.vout,
-                    $self.operator_table.pov_idx(),
-                    our_nonce.clone(),
-                )
-                .await?;
-
-            our_nonce
-        }
-    }};
-}
-
-/// Loads from db or creates a partial signature for a given outpoint by receiving all pubnonces for
-/// the first round of musig2, finalizing into round 2 and producing our partial signature and
-/// saving it to the database for future use.
-///
-/// Outside of this macro, our partial sig is sent to all the other operators so it can be
-/// aggregated into the final signature.
-macro_rules! generate_partial_sig {
-    ($self:expr, $outpoint:expr, $pubnonces:expr, $nonce_idx:expr, $sighash:expr, $partial_sigs:expr) => {{
-        let our_sig = if let Some(our_sig) = $self
-            .db
-            .collected_signatures_per_msg($outpoint.txid, $outpoint.vout)
-            .await?
-            .and_then(|(_, sig_map)| sig_map.get(&$self.operator_table.pov_idx()).cloned())
-        {
-            our_sig
-        } else {
-            let mut r1 = $self
-                .s2_musig2_sessions
-                .remove(&$outpoint)
-                .unwrap()
-                .r1_owned()
-                .unwrap();
-
-            for (operator, nonces) in &$pubnonces {
-                r1.receive_pub_nonce(
-                    $self
-                        .operator_table
-                        .op_key_to_btc_key(operator)
-                        .unwrap()
-                        .to_x_only_pubkey(),
-                    nonces[$nonce_idx].clone(),
-                )
-                .await?
-                .unwrap();
-            }
-
-            assert!(r1.is_complete().await?);
-            let r2 = r1.finalize($sighash).await?.unwrap();
-            let our_sig = r2.our_signature().await?;
-            $self.s2_musig2_sessions.insert($outpoint, r2.into());
-            $self
-                .db
-                .add_partial_signature(
-                    $outpoint.txid,
-                    $outpoint.vout,
-                    $self.operator_table.pov_idx(),
-                    our_sig,
-                )
-                .await?;
-            our_sig
-        };
-        $partial_sigs.push(our_sig);
-        $nonce_idx += 1;
-    }};
-}
 
 /// System that handles all of the chain and p2p events and forwards them to their respective
 /// [`ContractSM`]s.
@@ -1512,6 +1410,7 @@ async fn execute_duty(
             deposit_txid,
             operator_p2p_key,
             pog,
+            s2_musig2_session_ids,
         } => {
             let sighashes = pog.sighashes();
             let ordered_pubkeys = cfg
@@ -1526,80 +1425,119 @@ async fn execute_duty(
             // note that this will change as slash stake txs changes length
             let mut nonces = Vec::with_capacity(10);
 
+            async fn get_or_create_nonce(
+                outpoint: OutPoint,
+                output_handles: &OutputHandles,
+                cfg: &ExecutionConfig,
+                ms2_session_id: usize,
+            ) -> Result<PubNonce, ContractManagerErr> {
+                if let Some(pubnonce) = output_handles
+                    .db
+                    .collected_pubnonces(outpoint.txid, outpoint.vout)
+                    .await?
+                    .get(&cfg.operator_table.pov_idx())
+                {
+                    Ok(pubnonce.clone())
+                } else {
+                    let r1 = output_handles
+                        .s2_client
+                        .musig2_signer()
+                        .dangerous_first_round(ms2_session_id);
+                    let our_nonce = r1.our_nonce().await?;
+                    output_handles
+                        .db
+                        .add_pubnonce(
+                            outpoint.txid,
+                            outpoint.vout,
+                            cfg.operator_table.pov_idx(),
+                            our_nonce.clone(),
+                        )
+                        .await?;
+                    Ok(our_nonce)
+                }
+            }
+
             let outpoint = OutPoint::new(pog.challenge_tx.compute_txid(), 0);
-            let our_nonce = get_or_create_nonce!(
-                self,
+            let our_nonce = get_or_create_nonce(
                 outpoint,
-                ordered_pubkeys,
-                pog.challenge_tx.witnesses()[outpoint.vout as usize].clone()
-            );
+                &output_handles,
+                &cfg,
+                s2_musig2_session_ids.challenge,
+            )
+            .await?;
             nonces.push(our_nonce);
 
             let outpoint = OutPoint::new(pog.assert_chain.pre_assert.compute_txid(), 0);
-            let our_nonce = get_or_create_nonce!(
-                self,
+            let our_nonce = get_or_create_nonce(
                 outpoint,
-                ordered_pubkeys,
-                pog.assert_chain.pre_assert.witnesses()[outpoint.vout as usize].clone()
-            );
+                &output_handles,
+                &cfg,
+                s2_musig2_session_ids.pre_assert,
+            )
+            .await?;
             nonces.push(our_nonce);
 
-            let post_assert_txid = pog.assert_chain.pre_assert.compute_txid();
+            let post_assert_txid = pog.assert_chain.post_assert.compute_txid();
             for input_idx in 0..sighashes.post_assert.len() {
                 let outpoint = OutPoint::new(post_assert_txid, input_idx as u32);
-                let our_nonce = get_or_create_nonce!(
-                    self,
+                let our_nonce = get_or_create_nonce(
                     outpoint,
-                    ordered_pubkeys,
-                    pog.assert_chain.pre_assert.witnesses()[outpoint.vout as usize].clone()
-                );
+                    &output_handles,
+                    &cfg,
+                    s2_musig2_session_ids.post_assert[input_idx],
+                )
+                .await?;
                 nonces.push(our_nonce);
             }
 
             let payout_optimistic_txid = pog.payout_optimistic.compute_txid();
             for input_idx in 0..sighashes.payout_optimistic.len() {
                 let outpoint = OutPoint::new(payout_optimistic_txid, input_idx as u32);
-                let our_nonce = get_or_create_nonce!(
-                    self,
+                let our_nonce = get_or_create_nonce(
                     outpoint,
-                    ordered_pubkeys,
-                    pog.payout_optimistic.witnesses()[outpoint.vout as usize].clone()
-                );
+                    &output_handles,
+                    &cfg,
+                    s2_musig2_session_ids.payout_optimistic[input_idx],
+                )
+                .await?;
                 nonces.push(our_nonce);
             }
 
             let payout_txid = pog.payout_tx.compute_txid();
             for input_idx in 0..sighashes.payout.len() {
                 let outpoint = OutPoint::new(payout_txid, input_idx as u32);
-                let our_nonce = get_or_create_nonce!(
-                    self,
+                let our_nonce = get_or_create_nonce(
                     outpoint,
-                    ordered_pubkeys,
-                    pog.payout_tx.witnesses()[outpoint.vout as usize].clone()
-                );
+                    &output_handles,
+                    &cfg,
+                    s2_musig2_session_ids.payout[input_idx],
+                )
+                .await?;
                 nonces.push(our_nonce);
             }
 
             let disprove_txid = pog.disprove_tx.compute_txid();
             let outpoint = OutPoint::new(disprove_txid, 0);
-            let our_nonce = get_or_create_nonce!(
-                self,
+            let our_nonce = get_or_create_nonce(
                 outpoint,
-                ordered_pubkeys,
-                pog.payout_tx.witnesses()[outpoint.vout as usize].clone()
-            );
+                &output_handles,
+                &cfg,
+                s2_musig2_session_ids.disprove,
+            )
+            .await?;
             nonces.push(our_nonce);
 
             for slash_stake_idx in 0..sighashes.slash_stake.len() {
                 let slash_stake_txid = pog.slash_stake_txs[slash_stake_idx].compute_txid();
                 for input_idx in 0..sighashes.payout.len() {
                     let outpoint = OutPoint::new(slash_stake_txid, input_idx as u32);
-                    let our_nonce = get_or_create_nonce!(
-                        self,
+                    let our_nonce = get_or_create_nonce(
                         outpoint,
-                        ordered_pubkeys,
-                        pog.payout_tx.witnesses()[input_idx].clone()
-                    );
+                        &output_handles,
+                        &cfg,
+                        s2_musig2_session_ids.slash_stake[slash_stake_idx][input_idx],
+                    )
+                    .await?;
                     nonces.push(our_nonce);
                 }
             }
@@ -1618,6 +1556,7 @@ async fn execute_duty(
             pubnonces,
             operator_p2p_key,
             pog,
+            s2_musig2_session_ids,
         } => {
             let sighashes = pog.sighashes();
 
@@ -1625,87 +1564,165 @@ async fn execute_duty(
 
             let mut partial_sigs = Vec::new();
 
+            async fn gen_partial_sig(
+                outpoint: OutPoint,
+                pubnonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
+                output_handles: &OutputHandles,
+                cfg: &ExecutionConfig,
+                nonce_idx: usize,
+                sighash: [u8; 32],
+                ms2_session_id: usize,
+            ) -> Result<PartialSignature, ContractManagerErr> {
+                let mut r1 = output_handles
+                    .s2_client
+                    .musig2_signer()
+                    .dangerous_first_round(ms2_session_id);
+                if let Some(our_sig) = output_handles
+                    .db
+                    .collected_signatures_per_msg(outpoint.txid, outpoint.vout)
+                    .await?
+                    .and_then(|(_, sig_map)| sig_map.get(&cfg.operator_table.pov_idx()).cloned())
+                {
+                    Ok(our_sig)
+                } else {
+                    for (operator, nonces) in &pubnonces {
+                        r1.receive_pub_nonce(
+                            cfg.operator_table
+                                .op_key_to_btc_key(operator)
+                                .unwrap()
+                                .to_x_only_pubkey(),
+                            nonces[nonce_idx].clone(),
+                        )
+                        .await?
+                        .unwrap();
+                    }
+                    assert!(r1.is_complete().await?);
+                    let r2 = r1.finalize(sighash).await?.unwrap();
+                    let our_sig = r2.our_signature().await?;
+                    output_handles
+                        .db
+                        .add_partial_signature(
+                            outpoint.txid,
+                            outpoint.vout,
+                            cfg.operator_table.pov_idx(),
+                            our_sig,
+                        )
+                        .await?;
+                    Ok(our_sig)
+                }
+            }
+
             let outpoint = OutPoint::new(pog.challenge_tx.compute_txid(), 0);
-            generate_partial_sig!(
-                self,
+            let our_sig = gen_partial_sig(
                 outpoint,
                 pubnonces,
+                &output_handles,
+                &cfg,
                 nonce_idx,
                 *sighashes.challenge.as_ref(),
-                partial_sigs
-            );
+                s2_musig2_session_ids.challenge,
+            )
+            .await?;
+            partial_sigs.push(our_sig);
+            nonce_idx += 1;
 
             let outpoint = OutPoint::new(pog.assert_chain.pre_assert.compute_txid(), 0);
-            generate_partial_sig!(
-                self,
+            let our_sig = gen_partial_sig(
                 outpoint,
                 pubnonces,
+                &output_handles,
+                &cfg,
                 nonce_idx,
-                *sighashes.challenge.as_ref(),
-                partial_sigs
-            );
+                *sighashes.pre_assert.as_ref(),
+                s2_musig2_session_ids.pre_assert,
+            )
+            .await?;
+            partial_sigs.push(our_sig);
+            nonce_idx += 1;
 
             for input_idx in 0..sighashes.post_assert.len() {
-                let outpoint =
-                    OutPoint::new(pog.assert_chain.pre_assert.compute_txid(), input_idx as u32);
-                generate_partial_sig!(
-                    self,
+                let outpoint = OutPoint::new(
+                    pog.assert_chain.post_assert.compute_txid(),
+                    input_idx as u32,
+                );
+                let our_sig = gen_partial_sig(
                     outpoint,
                     pubnonces,
+                    &output_handles,
+                    &cfg,
                     nonce_idx,
-                    *sighashes.challenge.as_ref(),
-                    partial_sigs
-                );
+                    *sighashes.post_assert[input_idx].as_ref(),
+                    s2_musig2_session_ids.post_assert[input_idx],
+                )
+                .await?;
+                partial_sigs.push(our_sig);
+                nonce_idx += 1;
             }
 
             let payout_optimistic_txid = pog.payout_optimistic.compute_txid();
             for input_idx in 0..sighashes.payout_optimistic.len() {
                 let outpoint = OutPoint::new(payout_optimistic_txid, input_idx as u32);
-                generate_partial_sig!(
-                    self,
+                let our_sig = gen_partial_sig(
                     outpoint,
                     pubnonces,
+                    &output_handles,
+                    &cfg,
                     nonce_idx,
-                    *sighashes.challenge.as_ref(),
-                    partial_sigs
-                );
+                    *sighashes.payout_optimistic[input_idx].as_ref(),
+                    s2_musig2_session_ids.payout_optimistic[input_idx],
+                )
+                .await?;
+                partial_sigs.push(our_sig);
+                nonce_idx += 1;
             }
 
             let payout_txid = pog.payout_tx.compute_txid();
             for input_idx in 0..sighashes.payout.len() {
                 let outpoint = OutPoint::new(payout_txid, input_idx as u32);
-                generate_partial_sig!(
-                    self,
+                let our_sig = gen_partial_sig(
                     outpoint,
                     pubnonces,
+                    &output_handles,
+                    &cfg,
                     nonce_idx,
-                    *sighashes.challenge.as_ref(),
-                    partial_sigs
-                );
+                    *sighashes.payout[input_idx].as_ref(),
+                    s2_musig2_session_ids.payout[input_idx],
+                )
+                .await?;
+                partial_sigs.push(our_sig);
+                nonce_idx += 1;
             }
 
             let outpoint = OutPoint::new(pog.disprove_tx.compute_txid(), 0);
-            generate_partial_sig!(
-                self,
+            let our_sig = gen_partial_sig(
                 outpoint,
                 pubnonces,
+                &output_handles,
+                &cfg,
                 nonce_idx,
-                *sighashes.challenge.as_ref(),
-                partial_sigs
-            );
+                *sighashes.disprove.as_ref(),
+                s2_musig2_session_ids.disprove,
+            )
+            .await?;
+            partial_sigs.push(our_sig);
+            nonce_idx += 1;
 
             for slash_stake_idx in 0..sighashes.slash_stake.len() {
                 let slash_stake_txid = pog.slash_stake_txs[slash_stake_idx].compute_txid();
                 for input_idx in 0..sighashes.payout.len() {
                     let outpoint = OutPoint::new(slash_stake_txid, input_idx as u32);
-                    generate_partial_sig!(
-                        self,
+                    let our_sig = gen_partial_sig(
                         outpoint,
                         pubnonces,
+                        &output_handles,
+                        &cfg,
                         nonce_idx,
-                        *sighashes.challenge.as_ref(),
-                        partial_sigs
-                    );
+                        *sighashes.slash_stake[slash_stake_idx][input_idx].as_ref(),
+                        s2_musig2_session_ids.slash_stake[slash_stake_idx][input_idx],
+                    )
+                    .await?;
+                    partial_sigs.push(our_sig);
+                    nonce_idx += 1;
                 }
             }
 
