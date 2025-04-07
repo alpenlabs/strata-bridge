@@ -402,10 +402,10 @@ pub enum VerifierDuty {
 
 /// Error representing an invalid state transition.
 #[derive(Debug, Clone, Error)]
-pub struct TransitionErr;
+pub struct TransitionErr(pub String);
 impl Display for TransitionErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TransitionErr")
+        write!(f, "TransitionErr: {}", self.0)
     }
 }
 
@@ -609,7 +609,11 @@ impl ContractSM {
         tx: Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if tx.compute_txid() != self.cfg.deposit_tx.compute_txid() {
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "deposit confirmation for ({}) delivered to wrong CSM ({})",
+                tx.compute_txid(),
+                self.cfg.deposit_tx.compute_txid()
+            )));
         }
 
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
@@ -617,7 +621,11 @@ impl ContractSM {
             self.state.state = ContractState::Deposited { peg_out_graphs }
         } else {
             self.state.state = current;
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "deposit confirmation ({}) delivered to CSM not in Requested state ({:?})",
+                tx.compute_txid(),
+                self.state.state
+            )));
         }
 
         Ok(None)
@@ -630,8 +638,16 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &self.state.state {
-            ContractState::Requested { .. } => Err(TransitionErr),
-            ContractState::Deposited { .. } => Err(TransitionErr),
+            ContractState::Requested { .. } => Err(TransitionErr(format!(
+                "peg out graph confirmation ({}) delivered to CSM in Requested state ({:?})",
+                tx.compute_txid(),
+                self.state.state
+            ))),
+            ContractState::Deposited { .. } => Err(TransitionErr(format!(
+                "peg out graph confirmation ({}) delivered to CSM in Deposited state ({:?})",
+                tx.compute_txid(),
+                self.state.state
+            ))),
             ContractState::Assigned { .. } => self.process_stake_chain_advancement(tx),
             ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
@@ -642,8 +658,16 @@ impl ContractSM {
             ContractState::Asserted { .. } => self
                 .process_disprove_confirmation(tx)
                 .or_else(|_| self.process_defended_payout_confirmation(tx)),
-            ContractState::Disproved {} => Err(TransitionErr),
-            ContractState::Resolved { .. } => Err(TransitionErr),
+            ContractState::Disproved {} => Err(TransitionErr(format!(
+                "peg out graph confirmation ({}) delivered to CSM in Disproved state ({:?})",
+                tx.compute_txid(),
+                self.state.state
+            ))),
+            ContractState::Resolved { .. } => Err(TransitionErr(format!(
+                "peg out graph confirmation ({}) delivered to CSM in Resolved state ({:?})",
+                tx.compute_txid(),
+                self.state.state
+            ))),
         }
     }
 
@@ -653,17 +677,26 @@ impl ContractSM {
         // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
         // rid of the rats nest of code below.
         if g16_keys.public_inputs.len() != NUM_PUBS {
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "Could not convert groth 16 keys: invalid length of public inputs ({})",
+                g16_keys.public_inputs.len()
+            )));
         }
         let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
 
         if g16_keys.fqs.len() != NUM_U256 {
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "Could not convert groth 16 keys: invalid length of fqs ({})",
+                g16_keys.fqs.len()
+            )));
         }
         let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
 
         if g16_keys.hashes.len() != NUM_HASH {
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "Could not convert groth 16 keys: invalid length of hashes ({})",
+                g16_keys.hashes.len()
+            )));
         }
         let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
 
@@ -728,7 +761,11 @@ impl ContractSM {
                     self.cfg.stake_chain_params,
                     Vec::new(),
                 )
-                .map_err(|_| TransitionErr)?
+                .map_err(|_| {
+                    TransitionErr(
+                        "peg out graph generation failure during deposit setup".to_string(),
+                    )
+                })?
                 .0
                 .summarize();
 
@@ -746,7 +783,10 @@ impl ContractSM {
                     },
                 )
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_deposit_setup ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -766,7 +806,10 @@ impl ContractSM {
                     },
                 )
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_graph_nonces ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -789,7 +832,10 @@ impl ContractSM {
                     },
                 )
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_graph_signatures ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -811,7 +857,10 @@ impl ContractSM {
                     },
                 )
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_root_nonce ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -834,7 +883,10 @@ impl ContractSM {
                     },
                 )
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_root_signature ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -846,7 +898,11 @@ impl ContractSM {
         if self.state.block_height + 1 == height {
             self.state.block_height = height;
         } else {
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "received unexpected new block notification, wanted {}, got {}",
+                self.state.block_height + 1,
+                height
+            )));
         }
         Ok(
             match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
@@ -908,7 +964,11 @@ impl ContractSM {
         stake_tx: StakeTx,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if assignment.idx() != self.cfg.deposit_idx {
-            return Err(TransitionErr);
+            return Err(TransitionErr(format!(
+                "unexpected assignment ({}) delivered to CSM ({})",
+                assignment.idx(),
+                self.cfg.deposit_idx
+            )));
         }
 
         match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
@@ -918,13 +978,19 @@ impl ContractSM {
                     let fulfiller_key = match self.cfg.operator_table.idx_to_op_key(&fulfiller) {
                         Some(op_key) => op_key.clone(),
                         None => {
-                            return Err(TransitionErr);
+                            return Err(TransitionErr(format!(
+                                "could not convert operator index {} to operator key",
+                                fulfiller
+                            )));
                         }
                     };
                     let deadline = dispatched_state.exec_deadline();
                     let active_graph = peg_out_graphs
                         .get(&fulfiller_key)
-                        .ok_or(TransitionErr)?
+                        .ok_or(TransitionErr(format!(
+                            "missing peg out graph for operator {}",
+                            fulfiller_key
+                        )))?
                         .to_owned();
 
                     let recipient = dispatched_state
@@ -954,9 +1020,15 @@ impl ContractSM {
                         Ok(None)
                     }
                 }
-                _ => Err(TransitionErr),
+                _ => Err(TransitionErr(format!(
+                    "received a non-dispatched deposit entry as an assignment {:?}",
+                    assignment
+                ))),
             },
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_assignment ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -964,7 +1036,8 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match current {
             ContractState::Assigned {
                 peg_out_graphs,
                 fulfiller,
@@ -973,7 +1046,9 @@ impl ContractSM {
                 active_graph,
             } => {
                 if tx.compute_txid() != active_graph.stake_txid {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "stake chain advancement txid ({}) doesn't match the stake txid of the active graph ({})", tx.compute_txid(), active_graph.stake_txid,
+                    )));
                 }
 
                 self.state.state = ContractState::StakeTxReady {
@@ -1005,7 +1080,10 @@ impl ContractSM {
                     },
                 )))
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_stake_chain_advancement ({:?})",
+                current
+            ))),
         }
     }
 
@@ -1014,7 +1092,8 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match current {
             ContractState::StakeTxReady {
                 peg_out_graphs,
                 fulfiller,
@@ -1034,7 +1113,11 @@ impl ContractSM {
                     recipient,
                 )(tx)
                 {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "invalid fulfillment transaction ({}) delivered to CSM ({})",
+                        tx.compute_txid(),
+                        self.cfg.deposit_tx.compute_txid()
+                    )));
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
@@ -1051,7 +1134,10 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_fulfillment_confirmation ({:?})",
+                current
+            ))),
         }
     }
 
@@ -1060,7 +1146,8 @@ impl ContractSM {
         height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match current {
             ContractState::Fulfilled {
                 peg_out_graphs,
                 fulfiller,
@@ -1068,7 +1155,10 @@ impl ContractSM {
                 ..
             } => {
                 if tx.compute_txid() != active_graph.claim_txid {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "invalid claim confirmation ({})",
+                        tx.compute_txid()
+                    )));
                 }
 
                 let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
@@ -1086,7 +1176,10 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_claim_confirmation ({:?})",
+                current
+            ))),
         }
     }
 
@@ -1098,7 +1191,10 @@ impl ContractSM {
             ContractState::Claimed { .. } => Ok(Some(OperatorDuty::VerifierDuty(
                 VerifierDuty::PublishChallenge,
             ))),
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_claim_verification_failure ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -1106,7 +1202,8 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match current {
             ContractState::Claimed {
                 peg_out_graphs,
                 fulfiller,
@@ -1114,7 +1211,10 @@ impl ContractSM {
                 ..
             } => {
                 if !is_challenge(active_graph.claim_txid)(tx) {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "invalid challenge transaction ({}) in process_challenge_confirmation",
+                        tx.compute_txid()
+                    )));
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
@@ -1133,7 +1233,10 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_challenge_confirmation ({:?})",
+                current
+            ))),
         }
     }
 
@@ -1142,7 +1245,8 @@ impl ContractSM {
         post_assert_height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match current {
             ContractState::Challenged {
                 peg_out_graphs,
                 fulfiller,
@@ -1150,7 +1254,10 @@ impl ContractSM {
                 ..
             } => {
                 if tx.compute_txid() != active_graph.post_assert_txid {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "invalid post assert transaction ({}) in process_assert_chain_confirmation",
+                        tx.compute_txid()
+                    )));
                 }
 
                 let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
@@ -1168,7 +1275,10 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_assert_chain_confirmation ({:?})",
+                current
+            ))),
         }
     }
 
@@ -1176,11 +1286,15 @@ impl ContractSM {
     fn process_assertion_verification_failure(
         &mut self,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match current {
             ContractState::Asserted { .. } => Ok(Some(OperatorDuty::VerifierDuty(
                 VerifierDuty::PublishDisprove,
             ))),
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_assert_verification_failure ({:?})",
+                current
+            ))),
         }
     }
 
@@ -1191,14 +1305,20 @@ impl ContractSM {
         match self.state.state.clone() {
             ContractState::Asserted { active_graph, .. } => {
                 if !is_disprove(active_graph.post_assert_txid)(tx) {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "invalid disprove transaction ({}) in process_disprove_confirmation",
+                        tx.compute_txid()
+                    )));
                 }
 
                 self.state.state = ContractState::Disproved {};
 
                 Ok(None)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_disprove_confirmation ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -1209,14 +1329,17 @@ impl ContractSM {
         match self.state.state.clone() {
             ContractState::Claimed { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.payout_optimistic_txid {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!("invalid optimistic payout transaction ({}) in process_optimistic_payout_confirmation", tx.compute_txid())));
                 }
 
                 self.state.state = ContractState::Resolved {};
 
                 Ok(None)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_optimistic_payout_confirmation ({:?})",
+                self.state.state
+            ))),
         }
     }
 
@@ -1227,14 +1350,19 @@ impl ContractSM {
         match self.state.state.clone() {
             ContractState::Asserted { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.payout_txid {
-                    return Err(TransitionErr);
+                    return Err(TransitionErr(format!(
+                        "invalid defended payout transaction ({}) in process_defended_payout_confirmation", tx.compute_txid()
+                    )));
                 }
 
                 self.state.state = ContractState::Resolved {};
 
                 Ok(None)
             }
-            _ => Err(TransitionErr),
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_defended_payout_confirmation ({:?})",
+                self.state.state
+            ))),
         }
     }
 
