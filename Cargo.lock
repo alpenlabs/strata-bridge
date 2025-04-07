@@ -2269,6 +2269,7 @@ dependencies = [
  "proptest",
  "serde",
  "serial_test",
+ "strata-common",
  "tokio",
  "tracing",
 ]
