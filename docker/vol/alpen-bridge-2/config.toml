@@ -6,7 +6,7 @@ is_faulty = false
 nag_interval = { secs = 60, nanos = 0 }
 
 [secret_service_client]
-server_addr = "172.28.1.5:69"
+server_addr = "172.28.1.6:69"
 server_hostname = "secret-service"
 timeout = 1000
 cert = "/app/tls/cert.der"
@@ -26,8 +26,8 @@ backoff_period = { secs = 1000, nanos = 0 }
 
 [p2p]
 idle_connection_timeout = { secs = 1000, nanos = 0 }
-listening_addr = "/ip4/127.0.0.1/tcp/1234"
-connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
+listening_addr = "/ip4/172.28.0.6/tcp/5679"
+connect_to = ["/ip4/172.28.0.5/tcp/5679", "/ip4/172.28.0.7/tcp/5679"]
 num_threads = 4
 
 [operator_wallet]
