@@ -119,20 +119,21 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .position(|k| k == &my_btc_pk)
         .expect("should be able to find my index") as u32;
 
+    // P2P message handler.
+    let (message_handler, p2p_task) = init_p2p_msg_handler(&config, &params, p2p_sk).await?;
+    info!(?message_handler, "initialized the P2P message handler");
+    let p2p_handle_rpc = message_handler.handle.clone();
+
     // Handle the stakechain genesis.
     handle_stakechain_genesis(
         db_stakechain,
         s2_client.clone(),
+        message_handler.clone(),
         &mut operator_wallet,
         my_index,
         Arc::new(bitcoin_rpc_client.clone()),
     )
     .await;
-
-    // P2P message handler.
-    let (message_handler, p2p_task) = init_p2p_msg_handler(&config, &params, p2p_sk).await?;
-    info!(?message_handler, "initialized the P2P message handler");
-    let p2p_handle_rpc = message_handler.handle.clone();
 
     // Initialize the duty tracker.
     info!("initializing the duty tracker with the contract manager");
@@ -458,16 +459,22 @@ async fn init_operator_wallet(
 async fn handle_stakechain_genesis(
     db: SqliteDb,
     s2_client: SecretServiceClient,
+    message_handler: MessageHandler,
     operator_wallet: &mut OperatorWallet,
     my_index: OperatorIdx,
     bitcoin_rpc_client: Arc<BitcoinClient>,
 ) {
-    if db
+    if let Some(pre_stake) = db
         .get_pre_stake(my_index)
         .await
         .expect("should be able to consult the database")
-        .is_none()
     {
+        let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
+        info!(%stake_chain_id, "broadcasting pre-stake information");
+        message_handler
+            .send_stake_chain_exchange(stake_chain_id, pre_stake.txid, pre_stake.vout)
+            .await;
+    } else {
         // This means that we don't have a pre-stake tx in the database.
         // We need to create a pre-stake tx, sign it, broadcast it and save it to the database.
         info!("no pre-stake tx in the database, creating one");
@@ -551,5 +558,11 @@ async fn handle_stakechain_genesis(
             .await
             .expect("should be able to save the pre-stake tx to the database");
         info!(%pre_stake_txid, "saved the pre-stake tx to the database");
+
+        let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
+        info!(%stake_chain_id, "broadcasting pre-stake information");
+        message_handler
+            .send_stake_chain_exchange(stake_chain_id, pre_stake_txid, 0)
+            .await;
     }
 }
