@@ -12,7 +12,7 @@ use bdk_wallet::miniscript::ToPublicKey;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
-    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
+    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
@@ -22,13 +22,14 @@ use futures::{
 };
 use musig2::{PartialSignature, PubNonce};
 use operator_wallet::{FundingUtxo, OperatorWallet};
-use secret_service_client::SecretServiceClient;
+use secret_service_client::{musig2::Musig2Client, SecretServiceClient};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxKind},
+    constants::NUM_ASSERT_DATA_TX,
     operator_table::OperatorTable,
     scripts::taproot::create_message_hash,
 };
@@ -62,7 +63,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         convert_g16_keys, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
-        OperatorDuty,
+        OperatorDuty, PegOutGraphInputF,
     },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
@@ -1580,7 +1581,7 @@ async fn execute_duty(
             }
 
             // FIXME: @Zk2u this has to be wrong because we can't know the challenge txid up front.
-            let outpoint = OutPoint::new(pog.challenge_tx.compute_txid(), 0);
+            let outpoint = OutPoint::new(pog.claim_tx.compute_txid(), 1);
             let our_sig = gen_partial_sig(
                 outpoint,
                 &pubnonces,
@@ -1914,4 +1915,165 @@ async fn handle_advance_stake_chain(
         .await?;
 
     Ok(())
+}
+
+fn preallocate_graph_sessions(
+    s2: &Musig2Client,
+    pubkeys: Vec<XOnlyPublicKey>,
+    graph: &PegOutGraph,
+) -> PegOutGraphInputF<usize> {
+    // Challenge
+    let witness_info = graph
+        .challenge_tx
+        .witnesses()
+        .first()
+        .expect("challenge tx must have witness value at index 0")
+        .clone();
+
+    let prevout = graph
+        .challenge_tx
+        .psbt()
+        .unsigned_tx
+        .input
+        .first()
+        .expect("challenge tx must have an input value at index 0")
+        .previous_output;
+
+    let challenge_fut = s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout);
+
+    // Pre-Assert
+    let witness_info = graph
+        .assert_chain
+        .pre_assert
+        .witnesses()
+        .first()
+        .expect("pre-assert tx must have witness value at index 0")
+        .clone();
+    let prevout = graph
+        .assert_chain
+        .pre_assert
+        .psbt()
+        .unsigned_tx
+        .input
+        .first()
+        .expect("pre-assert tx must have an input value at index 0")
+        .previous_output;
+
+    let pre_assert_fut = s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout);
+
+    // Post-Assert
+    let mut post_assert_futs = Vec::new();
+    for i in 0..NUM_ASSERT_DATA_TX {
+        let witness_info = graph
+            .assert_chain
+            .post_assert
+            .witnesses()
+            .get(i)
+            .expect(&format!(
+                "post-assert tx must have witness value at index {i}"
+            ))
+            .clone();
+        let prevout = graph
+            .assert_chain
+            .pre_assert
+            .psbt()
+            .unsigned_tx
+            .input
+            .get(i)
+            .expect(&format!(
+                "post-assert tx must have an input value at index {i}"
+            ))
+            .previous_output;
+
+        post_assert_futs.push(s2.new_session(
+            pubkeys.clone(),
+            witness_info,
+            prevout.txid,
+            prevout.vout,
+        ));
+    }
+
+    // Payout-Optimistic
+    let mut payout_optimistic_futs = Vec::new();
+    for i in 0..5 {
+        let witness_info = graph
+            .payout_optimistic
+            .witnesses()
+            .get(i)
+            .expect(&format!(
+                "payout-optimistic tx must have witness value at index {i}"
+            ))
+            .clone();
+        let prevout = graph
+            .payout_optimistic
+            .psbt()
+            .unsigned_tx
+            .input
+            .get(i)
+            .expect(&format!(
+                "payout-optimistic tx must have an input value at index {i}"
+            ))
+            .previous_output;
+
+        payout_optimistic_futs.push(s2.new_session(
+            pubkeys.clone(),
+            witness_info,
+            prevout.txid,
+            prevout.vout,
+        ));
+    }
+
+    // Payout-Defended
+    let mut payout_futs = Vec::new();
+    for i in 0..4 {
+        let witness_info = graph
+            .payout_tx
+            .witnesses()
+            .get(i)
+            .expect(&format!(
+                "payout-optimistic tx must have witness value at index {i}"
+            ))
+            .clone();
+        let prevout = graph
+            .payout_tx
+            .psbt()
+            .unsigned_tx
+            .input
+            .get(i)
+            .expect(&format!(
+                "payout-optimistic tx must have an input value at index {i}"
+            ))
+            .previous_output;
+
+        payout_futs.push(s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout));
+    }
+
+    // Disprove
+    let witness_info = graph
+        .disprove_tx
+        .witnesses()
+        .first()
+        .expect("pre-assert tx must have witness value at index 0")
+        .clone();
+    let prevout = graph
+        .disprove_tx
+        .psbt()
+        .unsigned_tx
+        .input
+        .first()
+        .expect("pre-assert tx must have an input value at index 0")
+        .previous_output;
+
+    let disprove_fut = s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout);
+
+    // Slash-Stake
+    PegOutGraphInputF {
+        challenge: todo!(),
+        pre_assert: todo!(),
+        post_assert: todo!(),
+        payout_optimistic: todo!(),
+        payout: todo!(),
+        disprove: todo!(),
+        slash_stake: todo!(),
+    }
 }
