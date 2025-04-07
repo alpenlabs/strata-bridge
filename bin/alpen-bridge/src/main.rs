@@ -15,8 +15,7 @@ mod mode;
 mod params;
 mod rpc_server;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     logging::init(LoggerConfig::with_base_name("strata-bridge"));
 
     // Sleep for 10 seconds to ensure the Bitcoin node is ready
@@ -32,18 +31,35 @@ async fn main() {
 
     match cli.mode {
         OperationMode::Operator => {
-            operator::bootstrap(params, config)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("operator loop crashed: {:?}", e);
-                });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(1024 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .expect("must be able to create runtime");
+
+            runtime.block_on(async move {
+                operator::bootstrap(params, config)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("operator loop crashed: {:?}", e);
+                    });
+            });
         }
         OperationMode::Verifier => {
-            verifier::bootstrap(params, config)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("verifier loop crashed: {:?}", e);
-                });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(2 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .expect("must be able to create runtime");
+            runtime.block_on(async move {
+                verifier::bootstrap(params, config)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("verifier loop crashed: {:?}", e);
+                    });
+            });
         }
     }
 }

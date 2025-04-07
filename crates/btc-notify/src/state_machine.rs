@@ -140,8 +140,7 @@ impl BtcZmqSM {
                     // stream processing would cause this to fire during a
                     // reorg. Race conditions MUST NOT cause this to fire. This MUST
                     // be fixed.
-                    error!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "invariant violated: blocks received out of order");
-                    panic!("invariant violated: blocks received out of order");
+                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "detected possible reorg");
                 }
             }
             // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup

@@ -1,6 +1,6 @@
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Context, Result};
-use bitcoin::{address::Address, taproot::TapNodeHash, Network};
+use bitcoin::{address::Address, taproot::TapNodeHash, Network, XOnlyPublicKey};
 use bitcoincore_rpc::{
     json::{
         CreateRawTransactionInput, WalletCreateFundedPsbtOptions, WalletCreateFundedPsbtResult,
@@ -16,7 +16,7 @@ pub(crate) trait PsbtWallet {
         &self,
         destination_address: &Address,
         evm_address: &EvmAddress,
-        script_hash: &TapNodeHash,
+        take_back_key: &XOnlyPublicKey,
         network: &Network,
     ) -> Result<String>;
 
@@ -38,10 +38,10 @@ impl PsbtWallet for BitcoinRpcWallet {
         &self,
         destination_address: &Address,
         evm_address: &EvmAddress,
-        script_hash: &TapNodeHash,
+        take_back_key: &XOnlyPublicKey,
         network: &Network,
     ) -> Result<String> {
-        let op_return_bytes = build_op_return_script(evm_address, script_hash);
+        let op_return_bytes = build_op_return_script(evm_address, take_back_key);
         let change_address = self
             .client
             .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))

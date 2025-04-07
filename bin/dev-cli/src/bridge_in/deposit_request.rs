@@ -57,11 +57,11 @@ pub(crate) fn build_timelock_miniscript(recovery_xonly_pubkey: XOnlyPublicKey) -
 
 pub(crate) fn build_op_return_script(
     evm_address: &EvmAddress,
-    script_hash: &TapNodeHash,
+    take_back_key: &XOnlyPublicKey,
 ) -> Vec<u8> {
     let magic_bytes = b"bridge-tag".to_vec();
     let mut data = magic_bytes;
-    data.extend(script_hash.to_raw_hash().as_byte_array());
+    data.extend(take_back_key.serialize());
     data.extend(evm_address.as_slice());
 
     data

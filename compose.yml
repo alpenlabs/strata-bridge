@@ -20,6 +20,7 @@ services:
     environment:
       - MODE=operator
       - RUST_LOG=info,btc_notify=debug,alpen_bridge=debug
+      - RUST_BACKTRACE=full
     ports:
       - 15678:5678
       - 15679:5679

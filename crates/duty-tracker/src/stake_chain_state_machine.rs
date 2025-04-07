@@ -45,18 +45,9 @@ impl StakeChainSM {
         params: StakeChainParams,
         stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<Self, StakeChainErr> {
-        let missing_p2p_keys = operator_table
-            .p2p_keys()
-            .iter()
-            .filter(|p2p_key| !stake_chains.contains_key(p2p_key))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if !missing_p2p_keys.is_empty() {
-            return Err(StakeChainErr::IncompleteState(missing_p2p_keys));
-        }
         let p2p_keys = operator_table.p2p_keys();
 
+        info!("reconstructing stake txids");
         let stake_txids = p2p_keys
             .iter()
             .filter_map(|p2p_key| stake_chains.get(p2p_key))

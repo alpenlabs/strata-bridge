@@ -56,7 +56,7 @@ fn handle_bridge_in(args: cli::BridgeInArgs) -> Result<()> {
     let psbt = psbt_wallet.create_psbt(
         &taproot_address,
         &strata_address,
-        &script_hash,
+        &recovery_pubkey,
         &constants::NETWORK,
     )?;
     psbt_wallet.sign_and_broadcast_psbt(&psbt)?;

@@ -51,7 +51,7 @@ use strata_btcio::rpc::{
     BitcoinClient,
 };
 use strata_p2p::swarm::handle::P2PHandle;
-use strata_p2p_types::P2POperatorPubKey;
+use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
 use tokio::{spawn, task::JoinHandle, try_join};
 use tracing::{debug, info};
 
@@ -136,10 +136,10 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
 
     // Initialize the duty tracker.
     info!("initializing the duty tracker with the contract manager");
-    debug!(?config.btc_zmq, "btc zmq config");
-    let zmq_client =
-        BtcZmqClient::connect(&config.btc_zmq).expect("should be able to connect to zmq");
-    init_duty_tracker(
+    let zmq_client = BtcZmqClient::connect(&config.btc_zmq)
+        .await
+        .expect("should be able to connect to zmq");
+    let contract_manager_task = init_duty_tracker(
         &params,
         &config,
         bitcoin_rpc_client.clone(),
@@ -159,7 +159,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
 
     // Wait for all tasks to run
     // They are supposed to run indefinitely in most cases
-    try_join!(rpc_task, p2p_task)?;
+    try_join!(rpc_task, p2p_task, contract_manager_task)?;
 
     Ok(())
 }
@@ -338,7 +338,7 @@ async fn init_duty_tracker(
     message_handler: MessageHandler,
     operator_wallet: OperatorWallet,
     db: SqliteDb,
-) -> anyhow::Result<ContractManager> {
+) -> anyhow::Result<JoinHandle<()>> {
     let network = params.network;
     let nag_interval = config.nag_interval;
     let connector_params = params.connectors;

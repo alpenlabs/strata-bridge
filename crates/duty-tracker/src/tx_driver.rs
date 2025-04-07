@@ -49,9 +49,6 @@ impl TxDriver {
             let mut active_jobs = BTreeMap::new();
             loop {
                 select! {
-                    _block = block_subscription.next().fuse() => {
-                        // TODO(proofofkeags): Compare against deadlines and CPFP using anchor.
-                    }
                     Some(job) = new_jobs_receiver_stream.next().fuse() => {
                         let rawtx_filter = job.tx.clone();
                         let rawtx_rpc_client = job.tx.clone();
@@ -105,6 +102,9 @@ impl TxDriver {
                             }
                             _ => {}
                         }
+                    }
+                    _block = block_subscription.next().fuse() => {
+                        // TODO(proofofkeags): Compare against deadlines and CPFP using anchor.
                     }
                 }
             }

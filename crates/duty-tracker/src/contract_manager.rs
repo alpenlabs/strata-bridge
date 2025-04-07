@@ -76,6 +76,7 @@ pub struct ContractManager {
 impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     #[expect(clippy::too_many_arguments)]
+    #[expect(clippy::new_ret_no_self)]
     pub fn new(
         // Static Config Parameters
         network: Network,
@@ -95,8 +96,8 @@ impl ContractManager {
         s2_client: SecretServiceClient,
         wallet: OperatorWallet,
         db: SqliteDb,
-    ) -> Self {
-        let thread_handle = task::spawn(async move {
+    ) -> JoinHandle<()> {
+        task::spawn(async move {
             let crash = |e: ContractManagerErr| {
                 error!(?e, "crashing");
                 panic!("{e}");
@@ -343,8 +344,7 @@ impl ContractManager {
                     }
                 }
             }
-        });
-        ContractManager { thread_handle }
+        })
     }
 }
 impl Drop for ContractManager {
