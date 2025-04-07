@@ -97,7 +97,12 @@ impl ContractManager {
         db: SqliteDb,
     ) -> Self {
         let thread_handle = task::spawn(async move {
-            let crash = |_e: ContractManagerErr| todo!();
+            let crash = |e: ContractManagerErr| {
+                error!(?e, "crashing");
+                panic!("{e}");
+            };
+
+            info!("loading all active contracts");
 
             let active_contracts = match contract_persister
                 .load_all(

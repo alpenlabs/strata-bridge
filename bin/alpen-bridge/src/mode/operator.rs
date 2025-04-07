@@ -12,7 +12,7 @@ use bitcoin::{
     hashes::Hash,
     secp256k1::SecretKey,
     sighash::{Prevouts, SighashCache, TapSighashType},
-    FeeRate, OutPoint, TxOut,
+    FeeRate, OutPoint, TxOut, XOnlyPublicKey,
 };
 use btc_notify::client::BtcZmqClient;
 use duty_tracker::{
@@ -23,6 +23,7 @@ use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
+use musig2::KeyAggContext;
 use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
 use secp256k1::{Parity, SECP256K1};
 use secret_service_client::{
@@ -68,18 +69,30 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     // Secret Service stuff.
     info!("initializing the secret service client");
     let s2_client = init_secret_service_client(&config.secret_service_client).await;
-    let sk = s2_client
+    let p2p_sk = s2_client
         .p2p_signer()
         .secret_key()
         .await
         .map_err(|e| anyhow!("error while asking for p2p key: {e:?}"))?;
     info!(
         "Retrieved P2P secret key from S2: {sk_fingerprint:?}",
-        sk_fingerprint = sk
+        sk_fingerprint = p2p_sk
     );
+    let p2p_pk = p2p_sk.public_key(SECP256K1);
+    info!(%p2p_pk, "Retrieved P2P public key from S2");
 
-    let my_btc_key = s2_client.musig2_signer().pubkey().await?;
-    info!(%my_btc_key, "Retrieved MuSig2 operator key from S2");
+    let my_btc_pk = s2_client.musig2_signer().pubkey().await?;
+    info!(%my_btc_pk, "Retrieved MuSig2 operator key from S2");
+
+    let pks = params
+        .keys
+        .musig2
+        .iter()
+        .map(|k| k.public_key(Parity::Even))
+        .collect::<Vec<_>>();
+    let aggregated_xonly_pubkey: XOnlyPublicKey =
+        KeyAggContext::new(pks).unwrap().aggregated_pubkey();
+    info!(%aggregated_xonly_pubkey, "Aggregated MuSig2 bridge key");
 
     // Database instances.
     let db = init_database_handle(&config).await;
@@ -103,7 +116,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .keys
         .musig2
         .iter()
-        .position(|k| k == &my_btc_key)
+        .position(|k| k == &my_btc_pk)
         .expect("should be able to find my index") as u32;
 
     // Handle the stakechain genesis.
@@ -117,12 +130,13 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     .await;
 
     // P2P message handler.
-    let (message_handler, p2p_task) = init_p2p_msg_handler(&config, &params, sk).await?;
+    let (message_handler, p2p_task) = init_p2p_msg_handler(&config, &params, p2p_sk).await?;
     info!(?message_handler, "initialized the P2P message handler");
     let p2p_handle_rpc = message_handler.handle.clone();
 
     // Initialize the duty tracker.
     info!("initializing the duty tracker with the contract manager");
+    debug!(?config.btc_zmq, "btc zmq config");
     let zmq_client =
         BtcZmqClient::connect(&config.btc_zmq).expect("should be able to connect to zmq");
     init_duty_tracker(
@@ -352,8 +366,11 @@ async fn init_duty_tracker(
     let operator_table =
         OperatorTable::new(operator_table_entries, my_idx as u32).expect("my index exists");
     let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
+    info!("initializing the p2p handle");
     let p2p_handle = message_handler.handle.clone();
+    info!("initializing the contract persister");
     let contract_persister = ContractPersister::new(db.pool().clone()).await?;
+    info!("initializing the stake chain persister");
     let stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
 
     Ok(ContractManager::new(
