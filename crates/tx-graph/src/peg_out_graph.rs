@@ -473,11 +473,7 @@ impl PegOutGraphConnectors {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
 
-        let kickoff = ConnectorK::new(
-            n_of_n_agg_pubkey,
-            network,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let kickoff = ConnectorK::new(network, wots_public_keys.withdrawal_fulfillment);
 
         let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network, params.pre_assert_timelock);
 
@@ -700,7 +696,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
+        let signed_claim_tx = claim_tx.finalize(*claim_sig);
         info!(
             vsize = signed_claim_tx.vsize(),
             action = "broadcasting claim tx",
@@ -1443,7 +1439,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
+        let signed_claim_tx = claim_tx.finalize(*claim_sig);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(
@@ -1872,7 +1868,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_ongoing_claim_tx = ongoing_claim_tx.finalize(*claim_sig, kickoff);
+        let signed_ongoing_claim_tx = ongoing_claim_tx.finalize(*claim_sig);
         info!(
             action = "broadcasting claim tx",
             vsize = signed_ongoing_claim_tx.vsize(),
