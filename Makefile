@@ -68,19 +68,6 @@ clean-cargo: ## cargo clean
 clean-docker-data: ## Remove docker data files inside /docker/.data
 	rm -rf $(DOCKER_DIR)/$(DOCKER_DATADIR) 2>/dev/null
 
-.PHONY: clean
-clean: clean-docker-data clean-cargo ## clean functional tests directory, cargo clean, clean docker data
-	@echo "\n\033[36m======== CLEAN_COMPLETE ========\033[0m\n"
-
-.PHONY: docker-up
-docker-up: ## docker compose up
-	cd $(DOCKER_DIR) && docker compose up -d
-
-.PHONY: docker-down
-docker-down: ## docker compose down
-	cd $(DOCKER_DIR) && docker compose down && \
-	rm -rf $(DOCKER_DIR)/$(DOCKER_DATADIR) 2>/dev/null
-
 ##@ Docker
 
 .PHONY: build-base
@@ -93,7 +80,15 @@ build-rt: ## Builds the runtime image used as the final container
 
 .PHONY: build-compose
 build-compose: ## Builds all images in the compose.yml
-	docker compose build
+	docker compose down && docker compose up --build
+
+.PHONY: clean
+clean:
+	rm -rf docker/vol/*/data
+
+.PHONY: clean-docker ## cleans data and rebuilds all containers
+clean-docker: build-base build-rt clean build-compose ## Builds the base image, runtime image and all images in the compose.yml
+	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE ========\033[0m\n"
 
 .PHONY: gen-s2-tls
 gen-s2-tls: ## (Re)generates the TLS CAs, certs and keys for S2 and the bridge to connect
