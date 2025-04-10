@@ -237,7 +237,7 @@ mod e2e_tests {
 
     use corepc_node::serde_json::json;
     use serial_test::serial;
-    use strata_common::logging::{self, LoggerConfig};
+    use strata_bridge_common::logging::{self, LoggerConfig};
 
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
@@ -269,7 +269,7 @@ mod e2e_tests {
         Ok((client, bitcoind))
     }
 
-    fn setup_two_clients(
+    async fn setup_two_clients(
     ) -> Result<(BtcZmqClient, BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
@@ -293,9 +293,9 @@ mod e2e_tests {
             .with_sequence_connection_string("tcp://127.0.0.1:23886");
 
         info!("connecting to bitcoind with client 1");
-        let client_1 = BtcZmqClient::connect(&cfg)?;
+        let client_1 = BtcZmqClient::connect(&cfg).await?;
         info!("connecting to bitcoind with client 2");
-        let client_2 = BtcZmqClient::connect(&cfg)?;
+        let client_2 = BtcZmqClient::connect(&cfg).await?;
 
         Ok((client_1, client_2, bitcoind))
     }
@@ -354,7 +354,7 @@ mod e2e_tests {
         logging::init(LoggerConfig::new("btc-notify".to_string()));
 
         info!("setting up two clients");
-        let (client_1, client_2, bitcoind) = setup_two_clients()?;
+        let (client_1, client_2, bitcoind) = setup_two_clients().await?;
         info!("subscribing to blocks");
 
         let mut block_sub_1 = client_1.subscribe_blocks().await;
