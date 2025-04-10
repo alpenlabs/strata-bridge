@@ -469,7 +469,9 @@ impl ContractSM {
         deposit_idx: u32,
         deposit_request_txid: Txid,
         deposit_tx: Transaction,
+        stake_chain_inputs: StakeChainInputs,
     ) -> (Self, OperatorDuty) {
+        let deposit_txid = deposit_tx.compute_txid();
         let cfg = ContractCfg {
             network,
             operator_table,
@@ -496,7 +498,11 @@ impl ContractSM {
         };
         (
             ContractSM { cfg, state },
-            OperatorDuty::PublishGraphSignatures,
+            OperatorDuty::PublishDepositSetup {
+                deposit_txid,
+                deposit_idx,
+                stake_chain_inputs,
+            },
         )
     }
 
