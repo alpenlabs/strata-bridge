@@ -8,11 +8,11 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bdk_wallet::miniscript::ToPublicKey;
+use bdk_wallet::{miniscript::ToPublicKey, Wallet};
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
     sighash::{Prevouts, SighashCache},
-    Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid,
+    Block, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, Txid,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
@@ -1044,52 +1044,29 @@ async fn execute_duty(
                 FundingUtxo::Available(outpoint) => outpoint,
                 FundingUtxo::ShouldRefill { op, left } => {
                     info!("refilling stakechain funding utxos, have {left} left");
+
                     let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-                    let mut tx = psbt.unsigned_tx;
-                    let txins_as_outs = tx
-                        .input
-                        .iter()
-                        .map(|txin| {
-                            wallet
-                                .general_wallet()
-                                .get_utxo(txin.previous_output)
-                                .expect("always have this output because the wallet selected it in the first place")
-                                .txout
-                        })
-                        .collect::<Vec<_>>();
-                    let mut sighasher = SighashCache::new(&mut tx);
-
-                    let sighash_type = TapSighashType::All;
-                    let prevouts = Prevouts::All(&txins_as_outs);
-                    for input_index in 0..txins_as_outs.len() {
-                        let sighash = sighasher
-                            .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
-                            .expect("failed to construct sighash");
-                        let signature = s2_client
-                            .general_wallet_signer()
-                            .sign(&sighash.to_byte_array(), None)
-                            .await?;
-
-                        let signature = bitcoin::taproot::Signature {
-                            signature,
-                            sighash_type,
-                        };
-                        sighasher
-                            .witness_mut(input_index)
-                            .expect("an input here")
-                            .push(signature.to_vec());
-                    }
-
-                    // FIXME: Use something other than 0.
-                    tx_driver
-                        .drive(tx, 0)
-                        .await
-                        .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+                    finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt)
+                        .await?;
 
                     op
                 }
                 FundingUtxo::Empty => {
-                    panic!("aaaaaa there's no funding utxos for a new stake")
+                    // The first time we run the node, it may be the case that the wallet starts off
+                    // empty.
+                    //
+                    // For every case afterwards, we should receive a `ShouldRefill` message before
+                    // the wallet is actually empty.
+                    let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+                    finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt)
+                        .await?;
+
+                    let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+
+                    match funding_utxo {
+                        FundingUtxo::Available(outpoint) => outpoint,
+                        _ => panic!("aaaaa no funding utxos available even after refill"),
+                    }
                 }
             };
 
@@ -1127,6 +1104,51 @@ async fn execute_duty(
         }) => handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx).await,
         _ => Ok(()),
     }
+}
+
+async fn finalize_claim_funding_tx(
+    s2_client: &SecretServiceClient,
+    tx_driver: &TxDriver,
+    general_wallet: &Wallet,
+    psbt: Psbt,
+) -> Result<(), ContractManagerErr> {
+    let mut tx = psbt.unsigned_tx;
+    let txins_as_outs = tx
+        .input
+        .iter()
+        .map(|txin| {
+            general_wallet
+                .get_utxo(txin.previous_output)
+                .expect("always have this output because the wallet selected it in the first place")
+                .txout
+        })
+        .collect::<Vec<_>>();
+    let mut sighasher = SighashCache::new(&mut tx);
+    let sighash_type = TapSighashType::All;
+    let prevouts = Prevouts::All(&txins_as_outs);
+    for input_index in 0..txins_as_outs.len() {
+        let sighash = sighasher
+            .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
+            .expect("failed to construct sighash");
+        let signature = s2_client
+            .general_wallet_signer()
+            .sign(&sighash.to_byte_array(), None)
+            .await?;
+
+        let signature = bitcoin::taproot::Signature {
+            signature,
+            sighash_type,
+        };
+        sighasher
+            .witness_mut(input_index)
+            .expect("an input here")
+            .push(signature.to_vec());
+    }
+    tx_driver
+        .drive(tx, 0)
+        .await
+        .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+    Ok(())
 }
 
 async fn handle_advance_stake_chain(
