@@ -18,10 +18,8 @@ mod rpc_server;
 fn main() {
     logging::init(LoggerConfig::with_base_name("strata-bridge"));
 
-    // Sleep for 10 seconds to ensure the Bitcoin node is ready
-    // and wallets are funded.
-    info!("sleeping for 10 seconds");
-    tokio::time::sleep(Duration::from_secs(10)).await;
+    info!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
+    sleep(STARTUP_DELAY);
 
     let cli = args::Cli::parse();
     info!(mode = %cli.mode, "starting bridge node");
