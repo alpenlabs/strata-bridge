@@ -5,11 +5,17 @@ bitcoind -daemon -server -txindex -printtoconsole -regtest -rpcallowip=0.0.0.0/0
 sleep 1
 
 # TESTING
-# Generate 101 blocks to the address of the operator wallet
+# Generate a block to the address of the operator's general wallet
 bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 generatetoaddress 1 bcrt1p8whq75c5u2ccy00y7amzrlkc453acatz2fhcwjhks425qf5zx8pqqmvn20
-bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 generatetoaddress 1 bcrt1pjrd2pungnh6ae7acw9dt92t5hj8gkn2gh8nuwu2r3kakklkswqrquyus8n
-bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 generatetoaddress 1 bcrt1p8ctkj8tl2zxxhlt8ux8qyha0yxlg43yjvqwd6v2fl6acrnt3xrcq62cv6k
+sleep 0.1
 
+bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 generatetoaddress 1 bcrt1pjrd2pungnh6ae7acw9dt92t5hj8gkn2gh8nuwu2r3kakklkswqrquyus8n
+sleep 0.1
+
+bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 generatetoaddress 1 bcrt1p8ctkj8tl2zxxhlt8ux8qyha0yxlg43yjvqwd6v2fl6acrnt3xrcq62cv6k
+sleep 0.1
+
+# mine enough blocks to the default wallet address to mature coinbase funds
 bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 createwallet default
 bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 loadwallet default
 MY_ADDRESS=$(bitcoin-cli -rpcuser=user -rpcpassword=password -regtest -rpcconnect=172.28.1.8 -rpcport=18443 -rpcwallet=default getnewaddress)
