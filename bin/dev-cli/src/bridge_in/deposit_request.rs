@@ -3,7 +3,6 @@ use std::str::FromStr;
 use alloy::primitives::Address as EvmAddress;
 use bitcoin::{
     address::Address,
-    hashes::Hash,
     hex::DisplayHex,
     key::Keypair,
     secp256k1::{Secp256k1, XOnlyPublicKey},

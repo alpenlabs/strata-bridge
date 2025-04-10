@@ -1,6 +1,6 @@
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Context, Result};
-use bitcoin::{address::Address, taproot::TapNodeHash, Network, XOnlyPublicKey};
+use bitcoin::{address::Address, Network, XOnlyPublicKey};
 use bitcoincore_rpc::{
     json::{
         CreateRawTransactionInput, WalletCreateFundedPsbtOptions, WalletCreateFundedPsbtResult,
