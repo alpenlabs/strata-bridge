@@ -238,9 +238,9 @@ mod tests {
     };
     use corepc_node::{Conf, Node};
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_connectors::prelude::ConnectorStake;
     use strata_bridge_primitives::{build_context::TxBuildContext, wots};
-    use strata_common::logging::{self, LoggerConfig};
     use tracing::{info, trace};
 
     use super::*;

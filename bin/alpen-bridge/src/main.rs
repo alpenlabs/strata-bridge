@@ -1,4 +1,4 @@
-use std::{fs, path::Path, time::Duration};
+use std::{fs, path::Path, thread::sleep, time::Duration};
 
 use args::OperationMode;
 use clap::Parser;
@@ -6,7 +6,7 @@ use config::Config;
 use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::{logging, logging::LoggerConfig};
 use tracing::{debug, info};
 
 mod args;
@@ -15,8 +15,10 @@ mod mode;
 mod params;
 mod rpc_server;
 
+const STARTUP_DELAY: Duration = Duration::from_secs(10);
+
 fn main() {
-    logging::init(LoggerConfig::with_base_name("strata-bridge"));
+    logging::init(LoggerConfig::with_base_name("bridge-node"));
 
     info!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
     sleep(STARTUP_DELAY);

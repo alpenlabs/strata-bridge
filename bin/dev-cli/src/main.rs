@@ -14,7 +14,7 @@ use bitcoin::secp256k1::Secp256k1;
 use bitcoin_bosd::Descriptor;
 use bridge_in::{deposit_request, wallet};
 use clap::Parser;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging::{self, LoggerConfig};
 use tracing::info;
 
 use crate::bridge_in::wallet::PsbtWallet;

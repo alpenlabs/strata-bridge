@@ -183,6 +183,7 @@ mod tests {
     };
     use corepc_node::{Conf, Node};
     use secp256k1::rand::{rngs::OsRng, Rng};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
@@ -196,7 +197,6 @@ mod tests {
         musig2::generate_agg_signature,
         prelude::{generate_keypair, get_funding_utxo_exact},
     };
-    use strata_common::logging::{self, LoggerConfig};
     use tracing::info;
 
     use super::{SlashStakeData, SlashStakeTx};

@@ -30,6 +30,6 @@ borsh.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-common.workspace = true
+strata-bridge-common.workspace = true
 tracing.workspace = true
 prover-test-utils.workspace = true

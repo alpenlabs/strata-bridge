@@ -100,7 +100,7 @@ mod tests {
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         load_op_signature, load_test_rollup_params,
     };
-    use strata_common::logging::{self, LoggerConfig};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use tracing::debug;
     use zkaleido::ZkVmProgram;
 
