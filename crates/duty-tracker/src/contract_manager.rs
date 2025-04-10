@@ -52,7 +52,7 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::{
     contract_persister::ContractPersister,
@@ -219,10 +219,13 @@ impl ContractManager {
                 match ctx.process_block(block).await {
                     Ok(duties) => {
                         duties.into_iter().for_each(|duty| {
+                            info!(?duty, "starting duty execution from lagging blocks");
                             let cfg = cfg.clone();
                             let output_handles = output_handles.clone();
                             tokio::task::spawn(async move {
-                                let _ = execute_duty(cfg, output_handles, duty).await;
+                                if let Err(e) = execute_duty(cfg, output_handles, duty).await {
+                                    error!(%e, "failed to execute duty");
+                                }
                             });
                         });
                     }
@@ -346,6 +349,18 @@ impl ContractManager {
                         }
                     }
                 }
+
+                duties.into_iter().for_each(|duty| {
+                    info!(?duty, "starting duty execution from new blocks");
+
+                    let cfg = cfg.clone();
+                    let output_handles = output_handles.clone();
+                    tokio::task::spawn(async move {
+                        if let Err(e) = execute_duty(cfg, output_handles, duty).await {
+                            error!(%e, "failed to execute duty");
+                        }
+                    });
+                });
             }
         })
     }
@@ -634,6 +649,14 @@ impl ContractManagerCtx {
             } => {
                 let deposit_txid =
                     Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
+                let sender_id = self
+                    .cfg
+                    .operator_table
+                    .op_key_to_idx(&msg.key)
+                    .expect("sender must be in the operator table");
+
+                info!(%index, %deposit_txid, %operator_pk, %sender_id, "receiving deposit setup message");
+
                 if let Some(contract) = self.state.active_contracts.get_mut(&deposit_txid) {
                     let setup = DepositSetup {
                         index,
@@ -642,10 +665,13 @@ impl ContractManagerCtx {
                         operator_pk,
                         wots_pks: wots_pks.clone(),
                     };
+
+                    info!(%deposit_txid, %sender_id, %index, "processing stake chain setup");
                     self.state
                         .stake_chains
                         .process_setup(msg.key.clone(), &setup)?;
 
+                    info!(%deposit_txid, %sender_id, %index, "committing stake chain setup to disk");
                     self.state_handles
                         .stake_chain_persister
                         .commit_stake_data(
@@ -907,6 +933,7 @@ async fn execute_duty(
             deposit_txid,
             stake_chain_inputs,
         } => {
+            info!(%deposit_txid, %deposit_idx, "constructing deposit setup message");
             let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
             let wots_client = s2_client.wots_signer();
             /// VOUT is static because irrelevant so we're just gonna use 0
@@ -936,6 +963,8 @@ async fn execute_duty(
                 join_all(hashes_ftrs),
             )
             .await;
+
+            info!(%deposit_txid, %deposit_idx, "constructing wots keys");
             let public_inputs = public_inputs
                 .into_iter()
                 .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
@@ -974,13 +1003,23 @@ async fn execute_duty(
             // otherwise, find a new unspent one from operator wallet and filter out all the
             // outpoints already in the db
 
+            info!(%deposit_txid, %deposit_idx, "fetching funding outpoint for the stake transaction");
             let ignore = stake_inputs
                 .iter()
                 .map(|input| input.operator_funds.to_owned())
                 .collect::<HashSet<OutPoint>>();
 
             let mut wallet = wallet.write().await;
+            info!("syncing wallet before fetching funding utxos for the stake");
+
+            match wallet.sync().await {
+                Ok(()) => info!("synced wallet successfully"),
+                Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
+            }
+
+            info!(?ignore, "claiming funding utxos");
             let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+
             let funding_utxo = match funding_op {
                 FundingUtxo::Available(outpoint) => outpoint,
                 FundingUtxo::ShouldRefill { op, left } => {
@@ -1043,9 +1082,12 @@ async fn execute_duty(
                     withdrawal_fulfillment_pk,
                 ),
             };
+
+            info!(%deposit_txid, %deposit_idx, "adding stake data to the database");
             db.add_stake_data(cfg.operator_table.pov_idx(), deposit_idx, stake_data)
                 .await?;
 
+            info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
             p2p_handle
                 .send_deposit_setup(
                     deposit_idx,
