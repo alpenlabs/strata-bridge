@@ -420,6 +420,10 @@ impl ContractManagerCtx {
         // TODO(proofofkeags): persist entire block worth of states at once. Ensure all the state
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
+        // this is to aggregate and commit new contracts separately so that the block event that
+        // advances the cursor does not advance the cursor on the newly created contracts.
+        let mut new_contracts = Vec::new();
+
         for tx in block.txdata {
             let assignment_duties = self.process_assignments(&tx).await?;
             duties.extend(assignment_duties.into_iter());
@@ -462,6 +466,15 @@ impl ContractManagerCtx {
                 // TODO(proofofkeags): prune the active contract set and still preserve the ability
                 // to recover this value.
                 let deposit_idx = self.state.active_contracts.len() as u32;
+
+                let pov_key = self.cfg.operator_table.pov_op_key();
+                let stake_chain_inputs = self
+                    .state
+                    .stake_chains
+                    .state()
+                    .get(pov_key)
+                    .expect("this operator's p2p key must exist in the operator table")
+                    .clone();
                 let (sm, duty) = ContractSM::new(
                     self.cfg.network,
                     self.cfg.operator_table.clone(),
@@ -473,14 +486,10 @@ impl ContractManagerCtx {
                     deposit_idx,
                     deposit_request_txid,
                     deposit_tx,
+                    stake_chain_inputs,
                 );
-                self.state_handles
-                    .contract_persister
-                    .init(sm.cfg(), sm.state())
-                    .await?;
 
-                self.state.active_contracts.insert(txid, sm);
-
+                new_contracts.push(sm);
                 duties.push(duty);
 
                 // It's impossible for this transaction to be routable to another CSM so we move on
@@ -493,37 +502,32 @@ impl ContractManagerCtx {
                     continue;
                 }
 
-                if let Ok(duty) =
-                    contract.process_contract_event(ContractEvent::DepositConfirmation(tx))
-                {
-                    self.state_handles
-                        .contract_persister
-                        .commit(&txid, contract.state())
-                        .await?;
-                    if let Some(duty) = duty {
-                        duties.push(duty);
-                    }
+                match contract.process_contract_event(ContractEvent::DepositConfirmation(tx)) {
+                    Ok(Some(duty)) => duties.push(duty),
+                    Ok(None) => trace!("this is fine"),
+                    Err(e) => error!(%e, "failed to process deposit confirmation"),
                 }
 
                 continue;
             }
 
-            for (deposit_txid, contract) in self.state.active_contracts.iter_mut() {
+            for (_deposit_txid, contract) in self.state.active_contracts.iter_mut() {
                 if contract.state().block_height >= height {
                     // Don't process events if we've already processed them.
                     continue;
                 }
 
                 if contract.transaction_filter(&tx) {
-                    let duty = contract.process_contract_event(
-                        ContractEvent::PegOutGraphConfirmation(tx.clone(), height),
-                    )?;
-                    self.state_handles
-                        .contract_persister
-                        .commit(deposit_txid, contract.state())
-                        .await?;
-                    if let Some(duty) = duty {
-                        duties.push(duty);
+                    match contract.process_contract_event(ContractEvent::PegOutGraphConfirmation(
+                        tx.clone(),
+                        height,
+                    )) {
+                        Ok(Some(duty)) => duties.push(duty),
+                        Ok(None) => trace!("this is fine"),
+                        Err(e) => {
+                            error!(%e, "failed to process pegout graph confirmation");
+                            return Err(e)?;
+                        }
                     }
                 }
             }
@@ -535,6 +539,22 @@ impl ContractManagerCtx {
             if let Some(duty) = contract.process_contract_event(ContractEvent::Block(height))? {
                 duties.push(duty);
             }
+        }
+
+        self.state_handles
+            .contract_persister
+            .commit_all(self.state.active_contracts.iter())
+            .await?;
+
+        for sm in new_contracts {
+            self.state_handles
+                .contract_persister
+                .init(sm.cfg(), sm.state())
+                .await?;
+
+            self.state
+                .active_contracts
+                .insert(sm.deposit_request_txid(), sm);
         }
 
         Ok(duties)

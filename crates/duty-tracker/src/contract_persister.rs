@@ -9,7 +9,7 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::contract_state_machine::{ContractCfg, MachineState};
+use crate::contract_state_machine::{ContractCfg, ContractSM, MachineState};
 
 /// Error type for the [`ContractPersister`] methods.
 #[derive(Debug, Clone, Error)]
@@ -104,6 +104,20 @@ impl ContractPersister {
         Ok(())
     }
 
+    /// Commits all the machine state in the give contract into the persistence layer.
+    pub async fn commit_all(
+        &self,
+        active_contracts: impl Iterator<Item = (&Txid, &ContractSM)>,
+    ) -> Result<(), ContractPersistErr> {
+        for (txid, contract_sm) in active_contracts {
+            let machine_state = contract_sm.state();
+            // FIXME: (@Rajil1213) wrap all commits into a single db transaction.
+            self.commit(txid, machine_state).await?;
+        }
+
+        Ok(())
+    }
+
     /// Loads both the [`ContractCfg`] and [`MachineState`] from disk for a given [`Txid`].
     pub async fn load(
         &self,
@@ -115,7 +129,7 @@ impl ContractPersister {
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
         let row: SqliteRow = sqlx::query(
             r#"
-            SELECT 
+            SELECT
                 deposit_idx,
                 deposit_tx,
                 operator_table,
@@ -168,7 +182,7 @@ impl ContractPersister {
     ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let rows = sqlx::query(
             r#"
-            SELECT 
+            SELECT
                 deposit_idx,
                 deposit_tx,
                 operator_table,
