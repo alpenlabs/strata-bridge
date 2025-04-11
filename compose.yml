@@ -92,6 +92,19 @@ services:
       - 28334:28334
       - 28335:28335
       - 28336:28336
+    # see logs from the bridge node to populate these env vars
+    #
+    # Example:
+    #
+    # INFO operator_wallet: crates/operator-wallet/src/lib.rs:87: general wallet address: bcrt1pjrd2pungnh6ae7acw9dt92t5hj8gkn2gh8nuwu2r3kakklkswqrquyus8n
+    # INFO operator_wallet: crates/operator-wallet/src/lib.rs:95: stakechain wallet address: bcrt1pga206rnnd9vchqvs5s0gax4v99pdzlml470f3tfw8nfaemmmu0wsjru24g
+    environment:
+      - GENERAL_WALLET_1=$GENERAL_WALLET_1
+      - STAKE_CHAIN_WALLET_1=$STAKE_CHAIN_WALLET_1
+      - GENERAL_WALLET_2=$GENERAL_WALLET_2
+      - STAKE_CHAIN_WALLET_2=$STAKE_CHAIN_WALLET_2
+      - GENERAL_WALLET_3=$GENERAL_WALLET_3
+      - STAKE_CHAIN_WALLET_3=$STAKE_CHAIN_WALLET_3
     networks:
       bridge:
         ipv4_address: 172.28.1.8
