@@ -160,8 +160,8 @@ impl StakeChainSM {
         op: &P2POperatorPubKey,
         nth: usize,
     ) -> Result<Option<StakeTx>, StakeChainErr> {
-        match (self.stake_chains.get(op), self.stake_txids.get(op)) {
-            (Some(stake_chain_inputs), Some(stake_txids)) => {
+        match self.stake_chains.get(op) {
+            Some(stake_chain_inputs) => {
                 let pre_stake = stake_chain_inputs.pre_stake_outpoint;
 
                 let context = self.operator_table.tx_build_context(self.network);
@@ -192,6 +192,11 @@ impl StakeChainSM {
 
                     return Ok(Some(first_stake));
                 }
+
+                let stake_txids = self
+                    .stake_txids
+                    .get(op)
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
 
                 let prev_stake_txid =
                     stake_txids
