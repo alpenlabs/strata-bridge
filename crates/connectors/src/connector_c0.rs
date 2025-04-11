@@ -168,8 +168,8 @@ mod tests {
     };
     use corepc_node::{Conf, Node};
     use secp256k1::SECP256K1;
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::{prelude::generate_keypair, tx::get_connector_txs};
-    use strata_common::logging::{self, LoggerConfig};
     use tracing::debug;
 
     use super::*;

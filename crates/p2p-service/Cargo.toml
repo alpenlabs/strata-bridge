@@ -25,7 +25,7 @@ tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
-strata-common.workspace = true
+strata-bridge-common.workspace = true
 
 futures.workspace = true
 tokio.workspace = true

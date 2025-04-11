@@ -72,10 +72,10 @@ mod tests {
     };
     use corepc_node::{serde_json::json, Conf, Node};
     use secp256k1::{Message, SECP256K1};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
     use strata_bridge_test_utils::{prelude::generate_keypair, tx::FEES};
     use strata_btcio::rpc::types::{ListUnspent, SignRawTransactionWithWallet};
-    use strata_common::logging::{self, LoggerConfig};
 
     use super::*;
 

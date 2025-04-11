@@ -52,6 +52,15 @@ impl StakeChain {
         stake_chain_params: &StakeChainParams,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        // Instantiate a vector with the length `M`.
+        let stake_inputs = &stake_chain_inputs.stake_inputs;
+        let num_inputs = stake_inputs.len();
+        let mut stake_chain = Vec::with_capacity(num_inputs);
+
+        if num_inputs == 0 {
+            return Self(stake_chain);
+        }
+
         let first_stake_inputs = stake_chain_inputs.stake_inputs[0];
 
         let first_stake_tx = StakeTx::create_initial(
@@ -66,11 +75,6 @@ impl StakeChain {
         );
         let mut stake_txid = first_stake_tx.compute_txid();
 
-        // Instantiate a vector with the length `M`.
-        let stake_inputs = &stake_chain_inputs.stake_inputs;
-        let num_inputs = stake_inputs.len();
-
-        let mut stake_chain = Vec::with_capacity(num_inputs);
         stake_chain.push(first_stake_tx);
 
         stake_inputs
@@ -234,9 +238,9 @@ mod tests {
     };
     use corepc_node::{Conf, Node};
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_connectors::prelude::ConnectorStake;
     use strata_bridge_primitives::{build_context::TxBuildContext, wots};
-    use strata_common::logging::{self, LoggerConfig};
     use tracing::{info, trace};
 
     use super::*;

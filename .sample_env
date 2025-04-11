@@ -1,5 +1,19 @@
+# when connecting to strata while running dev-bridge
+
 export DATABASE_URL="sqlite://./operator.db"
 export BTC_PORT=18443
 export BTC_USER=rpcuser
 export BTC_PASSWORD=rpcpassword
 export WALLET_PREFIX=wallet
+
+# for docker in this repository
+
+GENERAL_WALLET_1=
+STAKE_CHAIN_WALLET_1=
+GENERAL_WALLET_2=
+STAKE_CHAIN_WALLET_2=
+GENERAL_WALLET_3=
+STAKE_CHAIN_WALLET_3=
+SP1_PROVER=
+NETWORK_RPC_URL=
+NETWORK_PRIVATE_KEY=

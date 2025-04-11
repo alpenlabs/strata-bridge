@@ -7,7 +7,7 @@ use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::Pu
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
 use strata_p2p_types::P2POperatorPubKey;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 /// A database wrapper for dumping ad retrieving stake chain data.
 #[derive(Debug)]
@@ -42,8 +42,15 @@ impl StakeChainPersister {
                 .map(|op_id| (op_id, chain_inputs))
         });
 
+        info!("committing all stake chain data to disk");
         for (operator_id, chain_inputs) in op_id_and_chain_inputs {
             for (stake_index, stake_input) in chain_inputs.stake_inputs.iter().enumerate() {
+                debug!(
+                    ?operator_id,
+                    ?stake_index,
+                    ?stake_input,
+                    "committing stake data to disk"
+                );
                 self.db
                     .add_stake_data(operator_id, stake_index as u32, stake_input.to_owned())
                     .await?;

@@ -13,7 +13,7 @@ pub mod xpriv;
 use bootstrap::bootstrap;
 use clap::Parser;
 use cli::Cli;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging::{self, LoggerConfig};
 use tracing::{info, trace};
 
 fn main() {

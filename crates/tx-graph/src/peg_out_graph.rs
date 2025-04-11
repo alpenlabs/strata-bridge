@@ -571,6 +571,7 @@ mod tests {
         rand::{rngs::OsRng, Rng},
         Keypair, SECP256K1,
     };
+    use strata_bridge_common::logging;
     use strata_bridge_db::{inmemory::public::PublicDbInMemory, public::PublicDb};
     use strata_bridge_primitives::{
         build_context::TxBuildContext,
@@ -591,7 +592,6 @@ mod tests {
         tx::{get_mock_deposit, FEES},
     };
     use strata_btcio::rpc::types::{GetTxOut, SignRawTransactionWithWallet};
-    use strata_common::logging;
     use tracing::{info, warn};
 
     use super::*;

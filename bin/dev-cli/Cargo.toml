@@ -15,6 +15,7 @@ rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 
 [dependencies]
+strata-bridge-common.workspace = true
 strata-bridge-primitives.workspace = true
 
 alloy = { version = "0.3.6", features = ["full", "node-bindings"] }
@@ -22,8 +23,6 @@ alloy-signer = "0.3.6"
 bitcoin = "0.32.2"
 bitcoincore-rpc = "0.19.0"
 miniscript = "12.2.0"
-
-strata-common.workspace = true
 
 anyhow.workspace = true
 bitcoin-bosd.workspace = true

@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, thread::sleep, time::Duration};
 
 use args::OperationMode;
 use clap::Parser;
@@ -6,7 +6,7 @@ use config::Config;
 use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::{logging, logging::LoggerConfig};
 use tracing::{debug, info};
 
 mod args;
@@ -15,9 +15,13 @@ mod mode;
 mod params;
 mod rpc_server;
 
-#[tokio::main]
-async fn main() {
-    logging::init(LoggerConfig::with_base_name("strata-bridge"));
+const STARTUP_DELAY: Duration = Duration::from_secs(10);
+
+fn main() {
+    logging::init(LoggerConfig::with_base_name("bridge-node"));
+
+    info!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
+    sleep(STARTUP_DELAY);
 
     let cli = args::Cli::parse();
     info!(mode = %cli.mode, "starting bridge node");
@@ -27,18 +31,35 @@ async fn main() {
 
     match cli.mode {
         OperationMode::Operator => {
-            operator::bootstrap(params, config)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("operator loop crashed: {:?}", e);
-                });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(1024 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .expect("must be able to create runtime");
+
+            runtime.block_on(async move {
+                operator::bootstrap(params, config)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("operator loop crashed: {:?}", e);
+                    });
+            });
         }
         OperationMode::Verifier => {
-            verifier::bootstrap(params, config)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("verifier loop crashed: {:?}", e);
-                });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(4)
+                .thread_stack_size(2 * 1024 * 1024)
+                .enable_all()
+                .build()
+                .expect("must be able to create runtime");
+            runtime.block_on(async move {
+                verifier::bootstrap(params, config)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("verifier loop crashed: {:?}", e);
+                    });
+            });
         }
     }
 }

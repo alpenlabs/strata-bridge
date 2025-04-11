@@ -14,7 +14,7 @@ use bitcoin::secp256k1::Secp256k1;
 use bitcoin_bosd::Descriptor;
 use bridge_in::{deposit_request, wallet};
 use clap::Parser;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging::{self, LoggerConfig};
 use tracing::info;
 
 use crate::bridge_in::wallet::PsbtWallet;
@@ -50,13 +50,13 @@ fn handle_bridge_in(args: cli::BridgeInArgs) -> Result<()> {
         deposit_request::build_n_of_n_multisig_miniscript(aggregated_pubkey);
     let timelock_script = deposit_request::build_timelock_miniscript(recovery_pubkey);
 
-    let (script_hash, taproot_address) =
+    let (_script_hash, taproot_address) =
         deposit_request::generate_taproot_address(&secp, n_of_n_multisig_script, timelock_script);
 
     let psbt = psbt_wallet.create_psbt(
         &taproot_address,
         &strata_address,
-        &script_hash,
+        &recovery_pubkey,
         &constants::NETWORK,
     )?;
     psbt_wallet.sign_and_broadcast_psbt(&psbt)?;

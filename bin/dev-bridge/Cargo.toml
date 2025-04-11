@@ -16,6 +16,7 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 strata-bridge-agent.workspace = true
+strata-bridge-common.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
@@ -23,7 +24,6 @@ strata-primitives.workspace = true
 strata-rpc-api.workspace = true
 
 strata-btcio.workspace = true
-strata-common.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

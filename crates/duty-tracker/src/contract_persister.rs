@@ -1,5 +1,4 @@
 //! This module is responsible for being able to save the contents of the ContractSM to disk.
-use std::fmt::Display;
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bincode::ErrorKind;
@@ -10,24 +9,23 @@ use sqlx::{
 };
 use thiserror::Error;
 
-use crate::contract_state_machine::{ContractCfg, MachineState};
+use crate::contract_state_machine::{ContractCfg, ContractSM, MachineState};
 
 /// Error type for the [`ContractPersister`] methods.
 #[derive(Debug, Clone, Error)]
-pub struct ContractPersistErr;
-impl Display for ContractPersistErr {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("PersistErr")
-    }
+pub enum ContractPersistErr {
+    /// Unexpected error.
+    #[error("Unexpected error: {0}")]
+    Unexpected(String),
 }
 impl From<Box<ErrorKind>> for ContractPersistErr {
-    fn from(_: Box<ErrorKind>) -> Self {
-        ContractPersistErr
+    fn from(e: Box<ErrorKind>) -> Self {
+        ContractPersistErr::Unexpected(e.to_string())
     }
 }
 impl From<serde_json::Error> for ContractPersistErr {
-    fn from(_value: serde_json::Error) -> Self {
-        ContractPersistErr
+    fn from(e: serde_json::Error) -> Self {
+        ContractPersistErr::Unexpected(e.to_string())
     }
 }
 
@@ -49,13 +47,13 @@ impl ContractPersister {
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
-                state VARBINARY NOT NULL,
-            );
+                state VARBINARY NOT NULL
+            )
             "#,
         )
         .execute(&pool)
         .await
-        .map_err(|_| ContractPersistErr)?;
+        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
         Ok(ContractPersister { pool })
     }
 
@@ -83,7 +81,7 @@ impl ContractPersister {
         .bind(bincode::serialize(&state)?)
         .execute(&self.pool)
         .await
-        .map_err(|_| ContractPersistErr)?;
+        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
         Ok(())
     }
 
@@ -95,14 +93,28 @@ impl ContractPersister {
     ) -> Result<(), ContractPersistErr> {
         let _: SqliteQueryResult = sqlx::query(
             r#"
-            UPDATE contracts SET state = ? WHERE deposit_txid = ?;
+            UPDATE contracts SET state = ? WHERE deposit_txid = ?
             "#,
         )
         .bind(bincode::serialize(state)?)
         .bind(deposit_txid.to_string())
         .execute(&self.pool)
         .await
-        .map_err(|_| ContractPersistErr)?;
+        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        Ok(())
+    }
+
+    /// Commits all the machine state in the give contract into the persistence layer.
+    pub async fn commit_all(
+        &self,
+        active_contracts: impl Iterator<Item = (&Txid, &ContractSM)>,
+    ) -> Result<(), ContractPersistErr> {
+        for (txid, contract_sm) in active_contracts {
+            let machine_state = contract_sm.state();
+            // FIXME: (@Rajil1213) wrap all commits into a single db transaction.
+            self.commit(txid, machine_state).await?;
+        }
+
         Ok(())
     }
 
@@ -117,26 +129,33 @@ impl ContractPersister {
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
         let row: SqliteRow = sqlx::query(
             r#"
-            SELECT (
+            SELECT
                 deposit_idx,
                 deposit_tx,
                 operator_table,
                 state
-            ) FROM contracts WHERE deposit_txid = ?
+            FROM contracts WHERE deposit_txid = ?
             "#,
         )
         .bind(deposit_txid.to_string())
         .fetch_one(&self.pool)
         .await
-        .map_err(|_| ContractPersistErr)?;
-        let deposit_idx = row.try_get("deposit_idx").map_err(|_| ContractPersistErr)?;
-        let deposit_tx =
-            bincode::deserialize(row.try_get("deposit_tx").map_err(|_| ContractPersistErr)?)?;
+        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        let deposit_idx = row
+            .try_get("deposit_idx")
+            .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        let deposit_tx = bincode::deserialize(
+            row.try_get("deposit_tx")
+                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
+        )?;
         let operator_table = bincode::deserialize(
             row.try_get("operator_table")
-                .map_err(|_| ContractPersistErr)?,
+                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
         )?;
-        let state = bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
+        let state = bincode::deserialize(
+            row.try_get("state")
+                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
+        )?;
 
         Ok((
             ContractCfg {
@@ -163,29 +182,34 @@ impl ContractPersister {
     ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let rows = sqlx::query(
             r#"
-            SELECT (
+            SELECT
                 deposit_idx,
                 deposit_tx,
                 operator_table,
                 state
-            ) FROM contracts
+            FROM contracts
             "#,
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|_| ContractPersistErr)?;
+        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
         rows.into_iter()
             .map(|row| {
-                let deposit_idx = row.try_get("deposit_idx").map_err(|_| ContractPersistErr)?;
+                let deposit_idx = row
+                    .try_get("deposit_idx")
+                    .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
                 let deposit_tx = bincode::deserialize(
-                    row.try_get("deposit_tx").map_err(|_| ContractPersistErr)?,
+                    row.try_get("deposit_tx")
+                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
                 )?;
                 let operator_table = bincode::deserialize(
                     row.try_get("operator_table")
-                        .map_err(|_| ContractPersistErr)?,
+                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
                 )?;
-                let state =
-                    bincode::deserialize(row.try_get("state").map_err(|_| ContractPersistErr)?)?;
+                let state = bincode::deserialize(
+                    row.try_get("state")
+                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
+                )?;
                 Ok((
                     ContractCfg {
                         network,

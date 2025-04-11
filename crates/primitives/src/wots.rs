@@ -4,6 +4,7 @@ use bitcoin::Txid;
 use bitvm::{
     chunk::api::{
         Assertions as g16Assertions, PublicKeys as g16PublicKeys, Signatures as g16Signatures,
+        NUM_HASH, NUM_PUBS, NUM_U256,
     },
     signatures::wots_api::{wots256, wots_hash},
 };
@@ -142,6 +143,48 @@ impl PublicKeys {
             withdrawal_fulfillment: Wots256PublicKey::new(msk, deposit_txid),
             groth16: Groth16PublicKeys::new(msk, deposit_txid),
         }
+    }
+}
+
+impl TryFrom<strata_p2p_types::WotsPublicKeys> for PublicKeys {
+    type Error = String;
+
+    fn try_from(value: strata_p2p_types::WotsPublicKeys) -> Result<Self, Self::Error> {
+        let g16_keys = value.groth16;
+        let withdrawal_fulfillment = value.withdrawal_fulfillment;
+        let withdrawal_fulfillment =
+            Wots256PublicKey(std::array::from_fn(|i| withdrawal_fulfillment[i]));
+
+        if g16_keys.public_inputs.len() != NUM_PUBS {
+            return Err(format!(
+                "Could not convert groth 16 keys: invalid length of public inputs ({})",
+                g16_keys.public_inputs.len()
+            ));
+        }
+        let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
+
+        if g16_keys.fqs.len() != NUM_U256 {
+            return Err(format!(
+                "Could not convert groth 16 keys: invalid length of fqs ({})",
+                g16_keys.fqs.len()
+            ));
+        }
+        let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
+
+        if g16_keys.hashes.len() != NUM_HASH {
+            return Err(format!(
+                "Could not convert groth 16 keys: invalid length of hashes ({})",
+                g16_keys.hashes.len()
+            ));
+        }
+        let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
+
+        let groth16 = Groth16PublicKeys((public_inputs, fqs, hashes));
+
+        Ok(Self {
+            withdrawal_fulfillment,
+            groth16,
+        })
     }
 }
 

@@ -95,14 +95,8 @@ impl OperatorWallet {
         info!("stakechain wallet address: {stakechain_addr}");
         Self {
             config,
-            stakechain_addr_script_buf: stakechain_wallet
-                .peek_address(KeychainKind::External, 0)
-                .address
-                .script_pubkey(),
-            general_addr_script_buf: general_wallet
-                .peek_address(KeychainKind::External, 0)
-                .address
-                .script_pubkey(),
+            stakechain_addr_script_buf: stakechain_addr.script_pubkey(),
+            general_addr_script_buf: general_addr.script_pubkey(),
             general_wallet,
             stakechain_wallet,
             sync_backend,

@@ -1,29 +1,85 @@
-services:
-  secret-service:
+x-base-secret-service: &base-secret-service
     image: secret-service:latest
     build:
       context: .
       dockerfile: ./docker/secret-service/Dockerfile
     environment:
       - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
+      - RUST_LOG=info
+
+x-base-bridge-node: &base-bridge-node
+  image: strata-bridge:latest
+  build:
+    context: .
+    dockerfile: ./docker/alpen-bridge/Dockerfile
+  environment:
+    - MODE=operator
+    - RUST_LOG=info,duty_tracker=debug,btc_notify=debug,alpen_bridge=debug
+    - RUST_BACKTRACE=full
+    - SP1_PROVER=$SP1_PROVER
+    - NETWORK_RPC_URL=$NETWORK_RPC_URL
+    - NETWORK_PRIVATE_KEY=$NETWORK_PRIVATE_KEY
+  depends_on:
+    - bitcoind
+
+services:
+  secret-service-1:
+    <<: *base-secret-service
     volumes:
-      - ./docker/vol/secret-service:/app
+      - ./docker/vol/secret-service-1:/app
     networks:
       bridge:
         ipv4_address: 172.28.1.5
-  bridge:
-    image: alpen-bridge:latest
-    build:
-      context: .
-      dockerfile: ./docker/alpen-bridge/Dockerfile
-    environment:
-      - MODE=operator
-      - RUST_LOG=info
+  bridge-1:
+    <<: *base-bridge-node
+    ports:
+      - 15678:5678
+      - 15679:5679
     volumes:
-      - ./docker/vol/alpen-bridge:/app
+      - ./docker/vol/alpen-bridge-1:/app
       - ./migrations:/app/migrations
     networks:
       bridge:
+        ipv4_address: 172.28.0.5
+
+  secret-service-2:
+    <<: *base-secret-service
+    volumes:
+      - ./docker/vol/secret-service-2:/app
+    networks:
+      bridge:
+        ipv4_address: 172.28.1.6
+  bridge-2:
+    <<: *base-bridge-node
+    ports:
+      - 25678:5678
+      - 25679:5679
+    volumes:
+      - ./docker/vol/alpen-bridge-2:/app
+      - ./migrations:/app/migrations
+    networks:
+      bridge:
+        ipv4_address: 172.28.0.6
+
+  secret-service-3:
+    <<: *base-secret-service
+    volumes:
+      - ./docker/vol/secret-service-3:/app
+    networks:
+      bridge:
+        ipv4_address: 172.28.1.7
+  bridge-3:
+    <<: *base-bridge-node
+    ports:
+      - 35678:5678
+      - 35679:5679
+    volumes:
+      - ./docker/vol/alpen-bridge-3:/app
+      - ./migrations:/app/migrations
+    networks:
+      bridge:
+        ipv4_address: 172.28.0.7
+
   bitcoind:
     image: bitcoin/bitcoin:28.1
     volumes:
@@ -31,9 +87,27 @@ services:
     ports:
       - 18443:18443
       - 18444:18444
+      - 28332:28332
+      - 28333:28333
+      - 28334:28334
+      - 28335:28335
+      - 28336:28336
+    # see logs from the bridge node to populate these env vars
+    #
+    # Example:
+    #
+    # INFO operator_wallet: crates/operator-wallet/src/lib.rs:87: general wallet address: bcrt1pjrd2pungnh6ae7acw9dt92t5hj8gkn2gh8nuwu2r3kakklkswqrquyus8n
+    # INFO operator_wallet: crates/operator-wallet/src/lib.rs:95: stakechain wallet address: bcrt1pga206rnnd9vchqvs5s0gax4v99pdzlml470f3tfw8nfaemmmu0wsjru24g
+    environment:
+      - GENERAL_WALLET_1=$GENERAL_WALLET_1
+      - STAKE_CHAIN_WALLET_1=$STAKE_CHAIN_WALLET_1
+      - GENERAL_WALLET_2=$GENERAL_WALLET_2
+      - STAKE_CHAIN_WALLET_2=$STAKE_CHAIN_WALLET_2
+      - GENERAL_WALLET_3=$GENERAL_WALLET_3
+      - STAKE_CHAIN_WALLET_3=$STAKE_CHAIN_WALLET_3
     networks:
       bridge:
-        ipv4_address: 172.28.1.6
+        ipv4_address: 172.28.1.8
 
 networks:
   bridge:

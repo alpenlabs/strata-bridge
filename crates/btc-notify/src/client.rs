@@ -3,16 +3,16 @@
 //! Once the client is initialized, consumers of this API will create [`Subscription`]s with
 //! [`BtcZmqClient::subscribe_blocks`] or [`BtcZmqClient::subscribe_transactions`]. These
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
-use std::{error::Error, sync::Arc};
+use std::{error::Error, sync::Arc, time::Duration};
 
 use bitcoin::{Block, Transaction};
-use bitcoincore_zmq::Message;
+use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
 use futures::StreamExt;
 use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
 };
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 
 pub use crate::{
     config::BtcZmqConfig,
@@ -60,7 +60,7 @@ impl BtcZmqClient {
     /// Primary constructor for [`BtcZmqClient`].
     ///
     /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`.
-    pub fn connect(cfg: &BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
+    pub async fn connect(cfg: &BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
         trace!(?cfg, "subscribing to bitcoind");
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
@@ -74,7 +74,25 @@ impl BtcZmqClient {
             .map(String::as_str)
             .collect::<Vec<&str>>();
 
-        let mut stream = bitcoincore_zmq::subscribe_async(&sockets)?;
+        let mut stream = match tokio::time::timeout(
+            Duration::from_millis(2000),
+            subscribe_async_wait_handshake(&sockets),
+        )
+        .await
+        {
+            Ok(Ok(stream)) => {
+                // Ok(Ok(_)), ok from both functions.
+                stream
+            }
+            Ok(Err(err)) => {
+                // Ok(Err(_)), ok from `timeout` but an error from the subscribe function.
+                panic!("subscribe error: {err}");
+            }
+            Err(_) => {
+                // Err(_), err from `timeout` means that it timed out.
+                panic!("bitcoin-core zmq subscription handshake timed out");
+            }
+        };
 
         let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<Block>>::new()));
         let block_subs_thread = block_subs.clone();
@@ -86,10 +104,11 @@ impl BtcZmqClient {
                 // This loop has no break condition. It is only aborted when the BtcZmqClient is
                 // dropped.
                 info!("listening for ZMQ events");
+
                 while let Some(res) = stream.next().await {
                     let mut sm = state_machine_thread.lock().await;
                     let diff = match res {
-                        Ok(msg) => {
+                        Ok(SocketMessage::Message(msg)) => {
                             let topic = msg.topic_str();
                             match msg {
                                 Message::HashBlock(_, _) => {
@@ -126,14 +145,18 @@ impl BtcZmqClient {
                                 }
                             }
                         }
+                        Ok(monitoring_msg) => {
+                            warn!(?monitoring_msg, "ignoring monitoring message");
+                            Vec::new()
+                        }
                         Err(e) => {
                             error!(%e, "Error processing ZMQ message");
                             Vec::new()
                         }
                     };
 
+                    info!("applying filtering predicates on the btc chain state diff");
                     tx_subs_thread.lock().await.retain(|sub| {
-                        info!("applying filtering predicates on the btc chain state diff");
                         for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
                             // Now we send the diff to the relevant subscribers.
                             // If we ever encounter a send error,
@@ -214,11 +237,12 @@ mod e2e_tests {
 
     use corepc_node::serde_json::json;
     use serial_test::serial;
+    use strata_bridge_common::logging::{self, LoggerConfig};
 
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
 
-    fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
+    async fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
         // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
@@ -240,9 +264,40 @@ mod e2e_tests {
             .with_rawtx_connection_string("tcp://127.0.0.1:23885")
             .with_sequence_connection_string("tcp://127.0.0.1:23886");
 
-        let client = BtcZmqClient::connect(&cfg)?;
+        let client = BtcZmqClient::connect(&cfg).await?;
 
         Ok((client, bitcoind))
+    }
+
+    async fn setup_two_clients(
+    ) -> Result<(BtcZmqClient, BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
+        let mut bitcoin_conf = corepc_node::Conf::default();
+        bitcoin_conf.enable_zmq = true;
+        // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
+        bitcoin_conf.args.extend(vec![
+            "-zmqpubhashblock=tcp://127.0.0.1:23882",
+            "-zmqpubhashtx=tcp://127.0.0.1:23883",
+            "-zmqpubrawblock=tcp://127.0.0.1:23884",
+            "-zmqpubrawtx=tcp://127.0.0.1:23885",
+            "-zmqpubsequence=tcp://127.0.0.1:23886",
+            "-debug=zmq",
+        ]);
+        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+
+        let cfg = BtcZmqConfig::default()
+            .with_bury_depth(DEFAULT_BURY_DEPTH)
+            .with_hashblock_connection_string("tcp://127.0.0.1:23882")
+            .with_hashtx_connection_string("tcp://127.0.0.1:23883")
+            .with_rawblock_connection_string("tcp://127.0.0.1:23884")
+            .with_rawtx_connection_string("tcp://127.0.0.1:23885")
+            .with_sequence_connection_string("tcp://127.0.0.1:23886");
+
+        info!("connecting to bitcoind with client 1");
+        let client_1 = BtcZmqClient::connect(&cfg).await?;
+        info!("connecting to bitcoind with client 2");
+        let client_2 = BtcZmqClient::connect(&cfg).await?;
+
+        Ok((client_1, client_2, bitcoind))
     }
 
     // This is disabled because it is merely a testing helper function to ensure tests complete in
@@ -266,8 +321,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Subscribe to new blocks
         let mut block_sub = client.subscribe_blocks().await;
@@ -293,10 +350,48 @@ mod e2e_tests {
 
     #[tokio::test]
     #[serial]
+    async fn multiple_subscribers_receive_same_events() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
+        info!("setting up two clients");
+        let (client_1, client_2, bitcoind) = setup_two_clients().await?;
+        info!("subscribing to blocks");
+
+        let mut block_sub_1 = client_1.subscribe_blocks().await;
+        let mut block_sub_2 = client_2.subscribe_blocks().await;
+
+        info!("mining block");
+        let newly_mined = bitcoind
+            .client
+            .generate_to_address(1, &bitcoind.client.new_address()?)?
+            .into_model()?;
+
+        info!("waiting for block in client 1");
+        let blk_1 = block_sub_1.next().await.map(|b| b.block_hash());
+        info!("got block in client 1");
+        info!("waiting for block in client 2");
+        let blk_2 = block_sub_2.next().await.map(|b| b.block_hash());
+        info!("got block in client 2");
+
+        assert_eq!(newly_mined.0.first(), blk_1.as_ref());
+        assert_eq!(newly_mined.0.first(), blk_2.as_ref());
+
+        // Explicitly drop the clients here to prevent rustc from "optimizing" the code and dropping
+        // them earlier, aborting the producer thread
+        drop(client_1);
+        drop(client_2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>>
     {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Subscribe to all transactions.
         let mut tx_sub = client.subscribe_transactions(|_| true).await;
@@ -330,8 +425,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Get a new address that we will use to send money to.
         let new_address = bitcoind.client.new_address()?;
@@ -381,8 +478,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -435,8 +534,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -557,8 +658,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -620,8 +723,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn dropped_tx_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;
@@ -689,8 +794,10 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn dropped_block_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
-        let (client, bitcoind) = setup()?;
+        let (client, bitcoind) = setup().await?;
 
         // Create a new address that will serve as the recipient of new transactions.
         let new_address = bitcoind.client.new_address()?;

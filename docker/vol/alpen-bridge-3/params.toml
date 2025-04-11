@@ -1,0 +1,57 @@
+network = "regtest"
+genesis_height = 101
+
+[keys]
+musig2 = [
+  "04f34abe97ddc0462931303a927e77e7ae2a7a652e91f1023373684a0930c5a8",
+  "e5eb3ca200f4cd2efe6bfc117db446b00bd9b2857e0bac850286d7930db6195a",
+  "071a341d82bfa3f9e15b200fbb1508857b5710a970fd5e5c0742ebf1534501cb",
+]
+p2p = [
+  "024e7c523324aafa772df6694493290a064e6cd9b050248219925e123e0c700933",
+  "0276982decb4593bebcec351781f3ecdc7b24277778fc8c0b8286e65e7969e39c4",
+  "02145f9f39af8968055771b4411e7e5ec188d1611dc1df631ba42303369564554f",
+]
+
+[tx_graph]
+tag = "bridge-tag"
+deposit_amount = 100_000_000
+operator_fee = 1_000_000
+challenge_cost = 10_000_000
+refund_delay = 1008
+
+[stake_chain]
+stake_amount = 100_000_000
+burn_amount = 10_000_000
+delta = { Blocks = 6 }
+slash_stake_count = 24
+
+[connectors]
+payout_optimistic_timelock = 1_008
+pre_assert_timelock = 1_152
+payout_timelock = 1_008
+
+[sidesystem]
+deposit_amount = 100_000_000
+operator_config.static = [
+  { signing_pk = "0x0202020202020202020202020202020202020202020202020202020202020202", wallet_pk = "0x04f34abe97ddc0462931303a927e77e7ae2a7a652e91f1023373684a0930c5a8" },
+  { signing_pk = "0x0202020202020202020202020202020202020202020202020202020202020202", wallet_pk = "0xe5eb3ca200f4cd2efe6bfc117db446b00bd9b2857e0bac850286d7930db6195a" },
+  { signing_pk = "0x0202020202020202020202020202020202020202020202020202020202020202", wallet_pk = "0x071a341d82bfa3f9e15b200fbb1508857b5710a970fd5e5c0742ebf1534501cb" },
+]
+rollup_name = "alpen-bridge"
+block_time = 1_000
+da_tag = "alpen-bridge-da"
+checkpoint_tag = "alpen-bridge-checkpoint"
+cred_rule = "unchecked"
+horizon_l1_height = 1_000
+genesis_l1_height = 1_000
+evm_genesis_block_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
+evm_genesis_block_state_root = "0x0000000000000000000000000000000000000000000000000000000000000000"
+l1_reorg_safe_depth = 1_000
+target_l2_batch_size = 1_000
+address_length = 20
+rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000000000"
+dispatch_assignment_dur = 1000
+proof_publish_mode = "strict"
+max_deposits_in_block = 20
+network = "signet"

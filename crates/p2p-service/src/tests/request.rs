@@ -1,7 +1,7 @@
 //! GetMessage tests.
 
 use anyhow::bail;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_p2p::{commands::Command, events::Event};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};

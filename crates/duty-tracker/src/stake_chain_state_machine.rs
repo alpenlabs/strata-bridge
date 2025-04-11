@@ -45,18 +45,9 @@ impl StakeChainSM {
         params: StakeChainParams,
         stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<Self, StakeChainErr> {
-        let missing_p2p_keys = operator_table
-            .p2p_keys()
-            .iter()
-            .filter(|p2p_key| !stake_chains.contains_key(p2p_key))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if !missing_p2p_keys.is_empty() {
-            return Err(StakeChainErr::IncompleteState(missing_p2p_keys));
-        }
         let p2p_keys = operator_table.p2p_keys();
 
+        info!("reconstructing stake txids");
         let stake_txids = p2p_keys
             .iter()
             .filter_map(|p2p_key| stake_chains.get(p2p_key))
@@ -135,6 +126,9 @@ impl StakeChainSM {
             let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
             if !new_entry {
                 warn!(%operator, "stake input already exists for this operator");
+
+                // remove the added item
+                chain_input.stake_inputs.pop();
             }
 
             // also try to create a new stake tx and update the txid table
@@ -169,8 +163,8 @@ impl StakeChainSM {
         op: &P2POperatorPubKey,
         nth: usize,
     ) -> Result<Option<StakeTx>, StakeChainErr> {
-        match (self.stake_chains.get(op), self.stake_txids.get(op)) {
-            (Some(stake_chain_inputs), Some(stake_txids)) => {
+        match self.stake_chains.get(op) {
+            Some(stake_chain_inputs) => {
                 let pre_stake = stake_chain_inputs.pre_stake_outpoint;
 
                 let context = self.operator_table.tx_build_context(self.network);
@@ -201,6 +195,11 @@ impl StakeChainSM {
 
                     return Ok(Some(first_stake));
                 }
+
+                let stake_txids = self
+                    .stake_txids
+                    .get(op)
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
 
                 let prev_stake_txid =
                     stake_txids
