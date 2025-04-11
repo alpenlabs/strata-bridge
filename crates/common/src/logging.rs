@@ -1,4 +1,4 @@
-//! Provides utilties to initialize logging and OpenTelemetry tracing.
+//! Provides utilities to initialize logging and OpenTelemetry tracing.
 use std::env;
 
 use opentelemetry::{trace::TracerProvider, KeyValue};
