@@ -910,57 +910,61 @@ impl ContractSM {
                 height
             )));
         }
-        Ok(
-            match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
-                ContractState::Requested { abort_deadline, .. } => {
-                    if self.state.block_height >= abort_deadline {
-                        Some(OperatorDuty::Abort)
-                    } else {
-                        None
-                    }
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+
+        let duty = match current {
+            ContractState::Requested { abort_deadline, .. } => {
+                if self.state.block_height >= abort_deadline {
+                    Some(OperatorDuty::Abort)
+                } else {
+                    None
                 }
-                ContractState::Deposited { .. } => None,
-                // handled in `process_peg_out_graph_tx_confirmation`
-                ContractState::Assigned { .. } => None,
-                // handled in `process_peg_out_graph_tx_confirmation`
-                ContractState::StakeTxReady { .. } => None,
-                ContractState::Fulfilled { .. } => None,
-                ContractState::Claimed {
-                    fulfiller,
-                    claim_height,
-                    ..
-                } => {
-                    if self.state.block_height
-                        >= claim_height
-                            + self.cfg.connector_params.payout_optimistic_timelock as u64
-                        && fulfiller == self.cfg.operator_table.pov_idx()
-                    {
-                        Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::PublishPayoutOptimistic,
-                        ))
-                    } else {
-                        None
-                    }
+            }
+            ContractState::Deposited { .. } => None,
+            // handled in `process_peg_out_graph_tx_confirmation`
+            ContractState::Assigned { .. } => None,
+            // handled in `process_peg_out_graph_tx_confirmation`
+            ContractState::StakeTxReady { .. } => None,
+            ContractState::Fulfilled { .. } => None,
+            ContractState::Claimed {
+                fulfiller,
+                claim_height,
+                ..
+            } => {
+                if self.state.block_height
+                    >= claim_height + self.cfg.connector_params.payout_optimistic_timelock as u64
+                    && fulfiller == self.cfg.operator_table.pov_idx()
+                {
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishPayoutOptimistic,
+                    ))
+                } else {
+                    None
                 }
-                ContractState::Challenged { .. } => None,
-                ContractState::Asserted {
-                    post_assert_height,
-                    fulfiller,
-                    ..
-                } => {
-                    if self.state.block_height
-                        >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
-                        && fulfiller == self.cfg.operator_table.pov_idx()
-                    {
-                        Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
-                    } else {
-                        None
-                    }
+            }
+            ContractState::Challenged { .. } => None,
+            ContractState::Asserted {
+                post_assert_height,
+                fulfiller,
+                ..
+            } => {
+                if self.state.block_height
+                    >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
+                    && fulfiller == self.cfg.operator_table.pov_idx()
+                {
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
+                } else {
+                    None
                 }
-                ContractState::Disproved {} => None,
-                ContractState::Resolved {} => None,
-            },
-        )
+            }
+            ContractState::Disproved {} => None,
+            ContractState::Resolved {} => None,
+        };
+
+        // restore state
+        self.state.state = current;
+
+        Ok(duty)
     }
 
     /// Processes an assignment from the strata state commitment.
