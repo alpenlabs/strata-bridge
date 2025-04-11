@@ -952,8 +952,10 @@ async fn execute_duty(
             deposit_txid,
             stake_chain_inputs,
         } => {
-            info!(%deposit_txid, %deposit_idx, "constructing deposit setup message");
+            let pov_idx = cfg.operator_table.pov_idx();
+            let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
             let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
+
             let wots_client = s2_client.wots_signer();
             /// VOUT is static because irrelevant so we're just gonna use 0
             const VOUT: u32 = 0;
@@ -999,8 +1001,30 @@ async fn execute_duty(
 
             let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
 
-            let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
+            // this duty is generated when this operator not only when a deposit request is observed
+            // but also when nagged by other operators.
+            // to avoid creating a new stake input, we first check the database.
+            info!(%deposit_txid, %deposit_idx, "checking if deposit data already exists");
+            if let Ok(Some(stake_data)) = db.get_stake_data(pov_idx, deposit_idx).await {
+                info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message from db");
+                let stakechain_preimg_hash = stake_data.hash;
+                let funding_outpoint = stake_data.operator_funds;
 
+                p2p_handle
+                    .send_deposit_setup(
+                        deposit_idx,
+                        scope,
+                        stakechain_preimg_hash,
+                        funding_outpoint,
+                        operator_pk,
+                        wots_pks,
+                    )
+                    .await;
+
+                return Ok(());
+            }
+
+            info!(%deposit_txid, %deposit_idx, "constructing deposit setup message");
             let StakeChainInputs {
                 stake_inputs,
                 pre_stake_outpoint,
@@ -1074,7 +1098,6 @@ async fn execute_duty(
             let withdrawal_fulfillment_pk =
                 std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
 
-            debug!("constructed WOTS key for withdrawal fulfillment txid");
             let stake_data = StakeTxData {
                 operator_funds: funding_utxo,
                 hash: stakechain_preimg_hash,
@@ -1084,8 +1107,9 @@ async fn execute_duty(
             };
 
             info!(%deposit_txid, %deposit_idx, "adding stake data to the database");
-            db.add_stake_data(cfg.operator_table.pov_idx(), deposit_idx, stake_data)
-                .await?;
+            debug!(%deposit_txid, %deposit_idx, ?stake_data, "adding stake data to the database");
+
+            db.add_stake_data(pov_idx, deposit_idx, stake_data).await?;
 
             info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
             p2p_handle
@@ -1105,7 +1129,10 @@ async fn execute_duty(
             stake_index,
             stake_tx,
         }) => handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx).await,
-        _ => Ok(()),
+        ignored_duty => {
+            warn!(?ignored_duty, "ignoring duty");
+            Ok(())
+        }
     }
 }
 
