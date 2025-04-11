@@ -278,6 +278,7 @@ provers/sp1/proofs/
 
 # data files
 .data/
+data/
 
 # binary dumps
 *.bin
