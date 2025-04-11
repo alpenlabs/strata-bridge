@@ -132,8 +132,6 @@ impl BtcZmqSM {
         match self.unburied_blocks.front() {
             Some(tip) => {
                 if block.header.prev_blockhash == tip.block_hash() {
-                    trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
-                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                     self.unburied_blocks.push_front(block)
                 } else {
                     // This implies that we missed a block.
@@ -142,7 +140,8 @@ impl BtcZmqSM {
                     // stream processing would cause this to fire during a
                     // reorg. Race conditions MUST NOT cause this to fire. This MUST
                     // be fixed.
-                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "detected possible reorg");
+                    trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
+                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                 }
             }
             // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup
@@ -251,7 +250,7 @@ impl BtcZmqSM {
             }
         }
 
-        info!(?diff, "processed block");
+        debug!(?diff, "processed block");
         diff
     }
 
