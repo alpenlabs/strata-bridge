@@ -1,6 +1,7 @@
 //! Constants used in the stake chain.
 
 use bitcoin::Amount;
+use strata_bridge_primitives::constants::NUM_ASSERT_DATA_TX;
 
 /// The [`Amount`] needed to cover for dust outputs in each `k`th
 /// [`StakeTx`](crate::transactions::StakeTx).
@@ -21,10 +22,10 @@ use bitcoin::Amount;
 /// ```
 /// # use bitcoin::Amount;
 /// # use strata_bridge_stake_chain::transactions::constants::OPERATOR_FUNDS;
-/// assert_eq!(OPERATOR_FUNDS, Amount::from_sat(33_000));
+/// assert_eq!(OPERATOR_FUNDS, Amount::from_sat(27_720));
 /// ```
 pub const OPERATOR_FUNDS: Amount =
-    Amount::from_sat((330 * 2 * 47) + (330 * 2) + 330 + 330 + 330 + 330);
+    Amount::from_sat((330 * 2 * NUM_ASSERT_DATA_TX as u64) + (330 * 2) + 330 + 330 + 330 + 330);
 
 /// SegWit minimal non-dust value.
 pub const DUST_AMOUNT: Amount = Amount::from_sat(330);
