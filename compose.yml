@@ -1,5 +1,4 @@
-services:
-  secret-service-1:
+x-base-secret-service: &base-secret-service
     image: secret-service:latest
     build:
       context: .
@@ -7,51 +6,51 @@ services:
     environment:
       - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
       - RUST_LOG=info
+
+x-base-bridge-node: &base-bridge-node
+  image: strata-bridge:latest
+  build:
+    context: .
+    dockerfile: ./docker/alpen-bridge/Dockerfile
+  environment:
+    - MODE=operator
+    - RUST_LOG=info,btc_notify=debug,alpen_bridge=debug
+    - RUST_BACKTRACE=full
+    - SP1_PROVER=$SP1_PROVER
+    - NETWORK_RPC_URL=$NETWORK_RPC_URL
+    - NETWORK_PRIVATE_KEY=$NETWORK_PRIVATE_KEY
+  depends_on:
+    - bitcoind
+
+services:
+  secret-service-1:
+    <<: *base-secret-service
     volumes:
       - ./docker/vol/secret-service-1:/app
     networks:
       bridge:
         ipv4_address: 172.28.1.5
   bridge-1:
-    image: alpen-bridge:latest
-    build:
-      context: .
-      dockerfile: ./docker/alpen-bridge/Dockerfile
-    environment:
-      - MODE=operator
-      - RUST_LOG=info,btc_notify=debug,alpen_bridge=debug
-      - RUST_BACKTRACE=full
+    <<: *base-bridge-node
     ports:
       - 15678:5678
       - 15679:5679
-
     volumes:
       - ./docker/vol/alpen-bridge-1:/app
       - ./migrations:/app/migrations
     networks:
       bridge:
         ipv4_address: 172.28.0.5
+
   secret-service-2:
-    image: secret-service:latest
-    build:
-      context: .
-      dockerfile: ./docker/secret-service/Dockerfile
-    environment:
-      - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
-      - RUST_LOG=info
+    <<: *base-secret-service
     volumes:
       - ./docker/vol/secret-service-2:/app
     networks:
       bridge:
         ipv4_address: 172.28.1.6
   bridge-2:
-    image: alpen-bridge:latest
-    build:
-      context: .
-      dockerfile: ./docker/alpen-bridge/Dockerfile
-    environment:
-      - MODE=operator
-      - RUST_LOG=info,btc_notify=debug,alpen_bridge=debug
+    <<: *base-bridge-node
     ports:
       - 25678:5678
       - 25679:5679
@@ -61,27 +60,16 @@ services:
     networks:
       bridge:
         ipv4_address: 172.28.0.6
+
   secret-service-3:
-    image: secret-service:latest
-    build:
-      context: .
-      dockerfile: ./docker/secret-service/Dockerfile
-    environment:
-      - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
-      - RUST_LOG=info
+    <<: *base-secret-service
     volumes:
       - ./docker/vol/secret-service-3:/app
     networks:
       bridge:
         ipv4_address: 172.28.1.7
   bridge-3:
-    image: alpen-bridge:latest
-    build:
-      context: .
-      dockerfile: ./docker/alpen-bridge/Dockerfile
-    environment:
-      - MODE=operator
-      - RUST_LOG=info,btc_notify=debug,alpen_bridge=debug
+    <<: *base-bridge-node
     ports:
       - 35678:5678
       - 35679:5679
@@ -91,6 +79,7 @@ services:
     networks:
       bridge:
         ipv4_address: 172.28.0.7
+
   bitcoind:
     image: bitcoin/bitcoin:28.1
     volumes:
