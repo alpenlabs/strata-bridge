@@ -125,9 +125,7 @@ impl BtcZmqSM {
     /// One of the three primary state transition functions of the [`BtcZmqSM`], updating internal
     /// state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
-        let block_height = block
-            .bip34_block_height()
-            .expect("must have a valid block height");
+        let block_height = block.bip34_block_height().unwrap_or(0);
         info!(block_hash=%block.block_hash(), %block_height, "started processing a block");
         trace!(?block, "started processing a block");
 
