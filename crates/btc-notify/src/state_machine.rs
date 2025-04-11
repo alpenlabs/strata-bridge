@@ -130,8 +130,8 @@ impl BtcZmqSM {
         match self.unburied_blocks.front() {
             Some(tip) => {
                 if block.header.prev_blockhash == tip.block_hash() {
-                    trace!(?block, prev_block=?tip, "block's previous block hash matches the tip");
-                    info!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash matches the tip");
+                    trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
+                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                     self.unburied_blocks.push_front(block)
                 } else {
                     // This implies that we missed a block.
@@ -150,11 +150,7 @@ impl BtcZmqSM {
             // using the RPC interface, or accepting the blocks newer than the
             // bury depth as an argument to the constructor.
             None => {
-                trace!(
-                    ?block,
-                    "block's previous block hash does not match the tip, possible reorg detected"
-                );
-                warn!(block_hash=%block.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
+                trace!(?block, "no tip found, adding block to unburied blocks");
                 self.unburied_blocks.push_front(block);
             }
         }
@@ -254,6 +250,7 @@ impl BtcZmqSM {
             }
         }
 
+        info!(?diff, "processed block");
         diff
     }
 

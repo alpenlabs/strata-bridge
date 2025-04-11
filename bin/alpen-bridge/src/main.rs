@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Duration};
 
 use args::OperationMode;
 use clap::Parser;
@@ -18,6 +18,11 @@ mod rpc_server;
 #[tokio::main]
 async fn main() {
     logging::init(LoggerConfig::with_base_name("strata-bridge"));
+
+    // Sleep for 10 seconds to ensure the Bitcoin node is ready
+    // and wallets are funded.
+    info!("sleeping for 10 seconds");
+    tokio::time::sleep(Duration::from_secs(10)).await;
 
     let cli = args::Cli::parse();
     info!(mode = %cli.mode, "starting bridge node");

@@ -214,6 +214,7 @@ mod e2e_tests {
 
     use corepc_node::serde_json::json;
     use serial_test::serial;
+    use strata_common::logging::{self, LoggerConfig};
 
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
@@ -245,6 +246,37 @@ mod e2e_tests {
         Ok((client, bitcoind))
     }
 
+    fn setup_two_clients(
+    ) -> Result<(BtcZmqClient, BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
+        let mut bitcoin_conf = corepc_node::Conf::default();
+        bitcoin_conf.enable_zmq = true;
+        // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
+        bitcoin_conf.args.extend(vec![
+            "-zmqpubhashblock=tcp://127.0.0.1:23882",
+            "-zmqpubhashtx=tcp://127.0.0.1:23883",
+            "-zmqpubrawblock=tcp://127.0.0.1:23884",
+            "-zmqpubrawtx=tcp://127.0.0.1:23885",
+            "-zmqpubsequence=tcp://127.0.0.1:23886",
+            "-debug=zmq",
+        ]);
+        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+
+        let cfg = BtcZmqConfig::default()
+            .with_bury_depth(DEFAULT_BURY_DEPTH)
+            .with_hashblock_connection_string("tcp://127.0.0.1:23882")
+            .with_hashtx_connection_string("tcp://127.0.0.1:23883")
+            .with_rawblock_connection_string("tcp://127.0.0.1:23884")
+            .with_rawtx_connection_string("tcp://127.0.0.1:23885")
+            .with_sequence_connection_string("tcp://127.0.0.1:23886");
+
+        info!("connecting to bitcoind with client 1");
+        let client_1 = BtcZmqClient::connect(&cfg)?;
+        info!("connecting to bitcoind with client 2");
+        let client_2 = BtcZmqClient::connect(&cfg)?;
+
+        Ok((client_1, client_2, bitcoind))
+    }
+
     // This is disabled because it is merely a testing helper function to ensure tests complete in
     // a timely manner, so we don't want lack of full coverage in this function to distract from
     // overall coverage.
@@ -266,6 +298,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -293,8 +327,46 @@ mod e2e_tests {
 
     #[tokio::test]
     #[serial]
+    async fn multiple_subscribers_receive_same_events() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
+        info!("setting up two clients");
+        let (client_1, client_2, bitcoind) = setup_two_clients()?;
+        info!("subscribing to blocks");
+
+        let mut block_sub_1 = client_1.subscribe_blocks().await;
+        let mut block_sub_2 = client_2.subscribe_blocks().await;
+
+        info!("mining block");
+        let newly_mined = bitcoind
+            .client
+            .generate_to_address(1, &bitcoind.client.new_address()?)?
+            .into_model()?;
+
+        info!("waiting for block in client 1");
+        let blk_1 = block_sub_1.next().await.map(|b| b.block_hash());
+        info!("got block in client 1");
+        info!("waiting for block in client 2");
+        let blk_2 = block_sub_2.next().await.map(|b| b.block_hash());
+        info!("got block in client 2");
+
+        assert_eq!(newly_mined.0.first(), blk_1.as_ref());
+        assert_eq!(newly_mined.0.first(), blk_2.as_ref());
+
+        // Explicitly drop the clients here to prevent rustc from "optimizing" the code and dropping
+        // them earlier, aborting the producer thread
+        drop(client_1);
+        drop(client_2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    #[serial]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>>
     {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -330,6 +402,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -381,6 +455,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -435,6 +511,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -557,6 +635,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -620,6 +700,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn dropped_tx_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 
@@ -689,6 +771,8 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn dropped_block_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
+        logging::init(LoggerConfig::new("btc-notify".to_string()));
+
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup()?;
 

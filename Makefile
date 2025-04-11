@@ -228,7 +228,7 @@ run:
 		--msks-file .secrets/msks.bin 2>&1 | tee run.log.$(TIMESTAMP)
 
 .PHONY: migrate
-migrate:
+migrate: ## Run migrations
 	export DATABASE_URL="sqlite://./operator.db" && \
 	rm -f operator.db && \
 	touch operator.db && \
@@ -236,20 +236,20 @@ migrate:
 
 
 .PHONY: bridge-in
-bridge-in:
+bridge-in: ## Run bridge-in
 	RUST_LOG=info \
 	cargo r \
 		--bin dev-cli \
 		-- \
 		bridge-in \
 		--btc-url http://localhost:18443/wallet/default \
-		--btc-user rpcuser \
-		--btc-pass rpcpassword \
+		--btc-user user \
+		--btc-pass password \
 		--recovery-address bcrt1qsddjnk0u256809tepf8hf6fj90j0qfrgm5t7s8 \
 		--strata-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
 .PHONY: bridge-out
-bridge-out:
+bridge-out: ## Run bridge-out
 	RUST_LOG=info \
 	cargo r \
 		--bin dev-cli \
