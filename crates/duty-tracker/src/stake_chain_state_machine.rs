@@ -126,6 +126,9 @@ impl StakeChainSM {
             let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
             if !new_entry {
                 warn!(%operator, "stake input already exists for this operator");
+
+                // remove the added item
+                chain_input.stake_inputs.pop();
             }
 
             // also try to create a new stake tx and update the txid table
