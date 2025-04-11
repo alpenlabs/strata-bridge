@@ -18,6 +18,8 @@ pub(crate) const BTC_TO_WEI: u128 = ETH_TO_WEI;
 
 pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
 
+pub(crate) const MAGIC_BYTES: &[u8] = b"bridge-tag";
+
 //change to appropriate value
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
     "2c76e1aa002ea6524dc0a2b3bd49433ba83dec05afab0bb9474ad59a324e7218";
