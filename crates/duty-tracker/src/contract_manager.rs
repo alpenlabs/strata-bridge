@@ -52,7 +52,7 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     contract_persister::ContractPersister,
@@ -263,7 +263,7 @@ impl ContractManager {
                     Some(event) = p2p_handle.next() => match event {
                         Ok(Event::ReceivedMessage(msg)) => {
                             if let Err(e) = ctx.process_p2p_message(msg.clone()).await {
-                                error!("failed to process p2p msg {:?}: {}", msg, e);
+                                error!(%e, "failed to process p2p msg");
                                 break;
                             }
                         },
@@ -1072,9 +1072,11 @@ async fn execute_duty(
                 }
             };
 
-            info!(%deposit_txid, %deposit_idx, "constructing wots public keys");
+            info!(%deposit_txid, %deposit_idx, "constructing wots public keys for withdrawal fulfillment");
             let withdrawal_fulfillment_pk =
                 std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
+
+            debug!("constructed WOTS key for withdrawal fulfillment txid");
             let stake_data = StakeTxData {
                 operator_funds: funding_utxo,
                 hash: stakechain_preimg_hash,
@@ -1147,10 +1149,16 @@ async fn finalize_claim_funding_tx(
             .expect("an input here")
             .push(signature.to_vec());
     }
+
+    info!(
+        txid = %tx.compute_txid(),
+        "submitting claim funding tx to the tx driver"
+    );
     tx_driver
         .drive(tx, 0)
         .await
         .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+
     Ok(())
 }
 
