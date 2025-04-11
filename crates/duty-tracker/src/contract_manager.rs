@@ -553,9 +553,7 @@ impl ContractManagerCtx {
                 .init(sm.cfg(), sm.state())
                 .await?;
 
-            self.state
-                .active_contracts
-                .insert(sm.deposit_request_txid(), sm);
+            self.state.active_contracts.insert(sm.deposit_txid(), sm);
         }
 
         Ok(duties)
