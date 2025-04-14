@@ -26,10 +26,7 @@ use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::{
-    build_context::BuildContext,
-    operator_table::OperatorTable,
-};
+use strata_bridge_primitives::{build_context::BuildContext, operator_table::OperatorTable};
 use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
 };
