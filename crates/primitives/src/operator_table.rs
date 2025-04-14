@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bitcoin::Network;
+use musig2::KeyAggContext;
 use serde::{Deserialize, Serialize};
 use strata_p2p_types::P2POperatorPubKey;
 use strata_primitives::bridge::PublickeyTable;
@@ -97,6 +98,10 @@ impl OperatorTable {
         self.idx_key.len()
     }
 
+    pub fn btc_keys(&self) -> BTreeSet<secp256k1::PublicKey> {
+        self.btc_key.keys().cloned().collect()
+    }
+
     pub fn p2p_keys(&self) -> BTreeSet<P2POperatorPubKey> {
         self.op_key.keys().cloned().collect()
     }
@@ -107,6 +112,12 @@ impl OperatorTable {
 
     pub fn public_key_table(&self) -> PublickeyTable {
         PublickeyTable(self.idx_key.iter().map(|(k, v)| (*k, v.1)).collect())
+    }
+
+    pub fn aggregated_btc_key(&self) -> secp256k1::PublicKey {
+        let pks: Vec<secp256k1::PublicKey> = self.btc_keys().into_iter().collect();
+
+        KeyAggContext::new(pks).unwrap().aggregated_pubkey()
     }
 
     pub fn tx_build_context(&self, network: Network) -> TxBuildContext {
