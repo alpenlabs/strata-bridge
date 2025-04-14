@@ -1,7 +1,10 @@
 # run via `make gen-s2-tls` not directly!
 
-S2_TLS_DIR=docker/vol/secret-service-2/tls
-BRIDGE_TLS_DIR=docker/vol/alpen-bridge-2/tls
+BRIDGE_BASE_DIR=${1:-docker/vol/alpen-bridge}
+S2_BASE_DIR=${2:-docker/vol/secret-service}
+
+S2_TLS_DIR=${S2_BASE_DIR}/tls
+BRIDGE_TLS_DIR=${BRIDGE_BASE_DIR}/tls
 IP=172.28.1.6
 
 rm -rf $S2_TLS_DIR $BRIDGE_TLS_DIR
