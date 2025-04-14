@@ -23,7 +23,7 @@ pub struct StakeChainSM {
     params: StakeChainParams,
     operator_table: OperatorTable,
     stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
-    stake_txids: BTreeMap<P2POperatorPubKey, Vec<Txid>>,
+    stake_txids: BTreeMap<P2POperatorPubKey, IndexSet<Txid>>,
 }
 
 impl StakeChainSM {
@@ -63,7 +63,7 @@ impl StakeChainSM {
                 chain
                     .iter()
                     .map(|stake_tx| stake_tx.compute_txid())
-                    .collect::<Vec<_>>()
+                    .collect::<IndexSet<_>>()
             })
             .zip(p2p_keys.iter())
             .map(|(stake_txids, p2p_key)| (p2p_key.clone(), stake_txids))
@@ -126,19 +126,22 @@ impl StakeChainSM {
             let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
             if !new_entry {
                 warn!(%operator, "stake input already exists for this operator");
-
-                // remove the added item
-                chain_input.stake_inputs.pop();
             }
 
             // also try to create a new stake tx and update the txid table
             if let Some(stake_tx) = self.stake_tx(&operator, setup.index as usize)? {
                 let stake_txid = stake_tx.compute_txid();
 
-                self.stake_txids
+                // only update if this is a new entry
+                let new_entry = self
+                    .stake_txids
                     .entry(operator.clone())
                     .or_default()
-                    .push(stake_txid);
+                    .insert(stake_txid);
+
+                if !new_entry {
+                    warn!(%operator, "stake txid already exists for this operator");
+                }
 
                 Ok(Some(stake_txid))
             } else {
@@ -201,13 +204,9 @@ impl StakeChainSM {
                     .get(op)
                     .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
 
-                let prev_stake_txid =
-                    stake_txids
-                        .get(nth - 1)
-                        .ok_or(StakeChainErr::IncompleteStakeChainInput(
-                            op.clone(),
-                            nth - 1,
-                        ))?;
+                let prev_stake_txid = stake_txids.iter().nth(nth - 1).ok_or(
+                    StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
+                )?;
                 let prev_input = stake_chain_inputs.stake_inputs.iter().nth(nth - 1).ok_or(
                     StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
                 )?;
