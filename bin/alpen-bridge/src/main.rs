@@ -1,8 +1,9 @@
-use std::{fs, path::Path, thread::sleep, time::Duration};
+use std::{fs, path::Path, thread::sleep};
 
 use args::OperationMode;
 use clap::Parser;
 use config::Config;
+use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
 use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
@@ -15,13 +16,13 @@ mod mode;
 mod params;
 mod rpc_server;
 
-const STARTUP_DELAY: Duration = Duration::from_secs(10);
+mod constants;
 
 fn main() {
     logging::init(LoggerConfig::with_base_name("bridge-node"));
 
     info!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
-    sleep(STARTUP_DELAY);
+    sleep(constants::STARTUP_DELAY);
 
     let cli = args::Cli::parse();
     info!(mode = %cli.mode, "starting bridge node");
@@ -32,8 +33,12 @@ fn main() {
     match cli.mode {
         OperationMode::Operator => {
             let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(4)
-                .thread_stack_size(1024 * 1024 * 1024)
+                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
+                .thread_stack_size(
+                    config
+                        .thread_stack_size
+                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
+                )
                 .enable_all()
                 .build()
                 .expect("must be able to create runtime");
@@ -48,8 +53,12 @@ fn main() {
         }
         OperationMode::Verifier => {
             let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(4)
-                .thread_stack_size(2 * 1024 * 1024)
+                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
+                .thread_stack_size(
+                    config
+                        .thread_stack_size
+                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
+                )
                 .enable_all()
                 .build()
                 .expect("must be able to create runtime");
