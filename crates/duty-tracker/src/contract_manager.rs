@@ -524,7 +524,9 @@ impl ContractManagerCtx {
                         height,
                     )) {
                         Ok(Some(duty)) => duties.push(duty),
-                        Ok(None) => trace!("this is fine"),
+                        Ok(None) => {
+                            trace!(txid=%tx.compute_txid(), "no duty emitted when processing this transaction...this is fine 🔥")
+                        }
                         Err(e) => {
                             error!(%e, "failed to process pegout graph confirmation");
                             return Err(e)?;
