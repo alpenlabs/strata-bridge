@@ -90,9 +90,21 @@ clean:
 clean-docker: build-base build-rt clean build-compose ## Builds the base image, runtime image and all images in the compose.yml
 	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE ========\033[0m\n"
 
+.PHONY: gen-s2-tls-1
+gen-s2-tls-1:
+	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-1 docker/vol/secret-service-1
+
+.PHONY: gen-s2-tls-2
+gen-s2-tls-2:
+	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-2 docker/vol/secret-service-2
+
+.PHONY: gen-s2-tls-3
+gen-s2-tls-3:
+	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-3 docker/vol/secret-service-3
+
 .PHONY: gen-s2-tls
-gen-s2-tls: ## (Re)generates the TLS CAs, certs and keys for S2 and the bridge to connect
-	./docker/gen_s2_tls.sh
+gen-s2-tls: gen-s2-tls-1 gen-s2-tls-2 gen-s2-tls-3 ## (Re)generates the TLS CAs, certs and keys for S2's and the bridge nodes to connect
+	@echo "\n\033[36m======== TLS FILES GENERATION COMPLETE ========\033[0m\n"
 
 ##@ Code Quality
 
