@@ -422,12 +422,20 @@ impl ContractManagerCtx {
         // advances the cursor does not advance the cursor on the newly created contracts.
         let mut new_contracts = Vec::new();
 
+        let pov_key = self.cfg.operator_table.pov_op_key().clone();
+        // TODO(proofofkeags): prune the active contract set and still preserve the ability
+        // to recover this value.
+        //
+        // Since new contracts are added after all the transactions are processed, we can
+        // assume that the stake/deposit index is the same as the number of active contracts
+        // throughout the processing of this block.
+        let stake_index = self.state.active_contracts.len() as u32;
+
         for tx in block.txdata {
             let assignment_duties = self.process_assignments(&tx).await?;
             duties.extend(assignment_duties.into_iter());
 
             let txid = tx.compute_txid();
-            let stake_index = self.state.active_contracts.len() as u32;
             if let Some(deposit_info) = deposit_request_info(
                 &tx,
                 &self.cfg.sidesystem_params,
@@ -461,16 +469,11 @@ impl ContractManagerCtx {
                     continue;
                 }
 
-                // TODO(proofofkeags): prune the active contract set and still preserve the ability
-                // to recover this value.
-                let deposit_idx = self.state.active_contracts.len() as u32;
-
-                let pov_key = self.cfg.operator_table.pov_op_key();
                 let stake_chain_inputs = self
                     .state
                     .stake_chains
                     .state()
-                    .get(pov_key)
+                    .get(&pov_key)
                     .expect("this operator's p2p key must exist in the operator table")
                     .clone();
                 let (sm, duty) = ContractSM::new(
@@ -481,7 +484,7 @@ impl ContractManagerCtx {
                     self.cfg.stake_chain_params,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    deposit_idx,
+                    stake_index,
                     deposit_request_txid,
                     deposit_tx,
                     stake_chain_inputs,
@@ -544,6 +547,9 @@ impl ContractManagerCtx {
             .commit_all(self.state.active_contracts.iter())
             .await?;
 
+        // Now that we've processed all the events related to the old contracts and dispatched the
+        // corresponding events to them, we can add the new contracts which will receive relevant
+        // events from subsequent blocks.
         for sm in new_contracts {
             self.state_handles
                 .contract_persister
