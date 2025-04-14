@@ -1,12 +1,8 @@
-use bitcoin::{Amount, Network};
+use bitcoin::Network;
 use secp256k1::XOnlyPublicKey;
 use strata_primitives::bridge::PublickeyTable;
 
-use crate::{
-    errors::BridgeTxBuilderResult,
-    scripts::general::get_aggregated_pubkey,
-    types::{OperatorIdx, TxSigningData},
-};
+use crate::{scripts::general::get_aggregated_pubkey, types::OperatorIdx};
 
 /// Provides methods that allows access to components required to build a transaction in the context
 /// of a bitcoin MuSig2 address.
@@ -85,19 +81,4 @@ impl BuildContext for TxBuildContext {
     fn network(&self) -> Network {
         self.network
     }
-}
-
-/// Defines a method that any bridge transaction must implement in order to create a
-/// structure that can be signed.
-///
-/// This is implemented by any struct that contains bridge-specific information to create
-/// transactions.
-pub trait TxKind {
-    /// Create the [`TxSigningData`] required to create the final signed transaction.
-    fn construct_signing_data<C: BuildContext>(
-        &self,
-        build_context: &C,
-        deposit_amt: Amount,
-        tag: Option<&[u8]>,
-    ) -> BridgeTxBuilderResult<TxSigningData>;
 }

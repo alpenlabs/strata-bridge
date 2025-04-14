@@ -38,7 +38,7 @@ use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
 use strata_bridge_primitives::{
-    build_context::{BuildContext, TxBuildContext, TxKind},
+    build_context::{BuildContext, TxBuildContext},
     constants::*,
     deposit::DepositInfo,
     duties::{BridgeDuty, BridgeDutyStatus, DepositStatus, WithdrawalStatus},
@@ -191,8 +191,8 @@ where
                 let data = deposit_info
                     .construct_signing_data(
                         &self.build_context,
-                        pegout_graph_params.deposit_amount,
-                        Some(MAGIC_BYTES),
+                        &pegout_graph_params,
+                        &self.rollup_params,
                     )
                     .unwrap(); // FIXME: Handle
                 let deposit_txid = data.psbt.unsigned_tx.compute_txid();
@@ -258,8 +258,8 @@ where
         // 1. aggregate_tx_graph
         let deposit_tx = deposit_info.construct_signing_data(
             &self.build_context,
-            pegout_graph_params.deposit_amount,
-            Some(MAGIC_BYTES),
+            &pegout_graph_params,
+            &self.rollup_params,
         );
 
         if let Err(cause) = deposit_tx {

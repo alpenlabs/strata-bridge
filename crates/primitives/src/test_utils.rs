@@ -23,13 +23,6 @@ use crate::{
     types::OperatorIdx,
 };
 
-/// Test-only refund delay in blocks.
-///
-/// # Notes
-///
-/// `1_008` blocks is `24 * 6 * 7` (one week).
-const REFUND_DELAY: u16 = 1_008;
-
 /// Generate `count` (public key, private key) pairs as two separate [`Vec`].
 pub(crate) fn generate_keypairs(count: usize) -> (Vec<PublicKey>, Vec<SecretKey>) {
     let mut secret_keys: Vec<SecretKey> = Vec::with_capacity(count);
@@ -71,10 +64,11 @@ pub(crate) fn generate_xonly_pubkey() -> XOnlyPublicKey {
 pub(crate) fn create_drt_taproot_output(
     pubkeys: PublickeyTable,
     recovery_xonly_pubkey: XOnlyPublicKey,
+    refund_delay: u16,
 ) -> (BitcoinAddress, TapNodeHash) {
     let aggregated_pubkey = get_aggregated_pubkey(pubkeys.0.into_values());
     let n_of_n_spend_script = n_of_n_script(&aggregated_pubkey);
-    let takeback_script = drt_take_back(recovery_xonly_pubkey, REFUND_DELAY);
+    let takeback_script = drt_take_back(recovery_xonly_pubkey, refund_delay);
     let takeback_script_hash = TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
     let network = Network::Regtest;

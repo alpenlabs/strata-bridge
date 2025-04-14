@@ -27,7 +27,7 @@ use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
-    build_context::{BuildContext, TxKind},
+    build_context::BuildContext,
     operator_table::OperatorTable,
 };
 use strata_bridge_stake_chain::{
@@ -440,8 +440,8 @@ impl ContractManagerCtx {
                 let deposit_request_txid = txid;
                 let deposit_tx = match deposit_info.construct_signing_data(
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
-                    self.cfg.pegout_graph_params.deposit_amount,
-                    Some(self.cfg.pegout_graph_params.tag.as_bytes()),
+                    &self.cfg.pegout_graph_params,
+                    &self.cfg.sidesystem_params,
                 ) {
                     Ok(data) => data.psbt.unsigned_tx,
                     Err(err) => {
@@ -674,7 +674,7 @@ impl ContractManagerCtx {
                     .op_key_to_idx(&msg.key)
                     .expect("sender must be in the operator table");
 
-                info!(%index, %deposit_txid, %operator_pk, %sender_id, "receiving deposit setup message");
+                info!(%sender_id, %index, %deposit_txid, %operator_pk, "received deposit setup message");
 
                 if let Some(contract) = self.state.active_contracts.get_mut(&deposit_txid) {
                     let setup = DepositSetup {
