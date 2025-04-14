@@ -23,7 +23,7 @@ pub struct StakeChainSM {
     params: StakeChainParams,
     operator_table: OperatorTable,
     stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
-    stake_txids: BTreeMap<P2POperatorPubKey, Vec<Txid>>,
+    stake_txids: BTreeMap<P2POperatorPubKey, IndexSet<Txid>>,
 }
 
 impl StakeChainSM {
@@ -45,18 +45,9 @@ impl StakeChainSM {
         params: StakeChainParams,
         stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<Self, StakeChainErr> {
-        let missing_p2p_keys = operator_table
-            .p2p_keys()
-            .iter()
-            .filter(|p2p_key| !stake_chains.contains_key(p2p_key))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if !missing_p2p_keys.is_empty() {
-            return Err(StakeChainErr::IncompleteState(missing_p2p_keys));
-        }
         let p2p_keys = operator_table.p2p_keys();
 
+        info!("reconstructing stake txids");
         let stake_txids = p2p_keys
             .iter()
             .filter_map(|p2p_key| stake_chains.get(p2p_key))
@@ -72,7 +63,7 @@ impl StakeChainSM {
                 chain
                     .iter()
                     .map(|stake_tx| stake_tx.compute_txid())
-                    .collect::<Vec<_>>()
+                    .collect::<IndexSet<_>>()
             })
             .zip(p2p_keys.iter())
             .map(|(stake_txids, p2p_key)| (p2p_key.clone(), stake_txids))
@@ -141,10 +132,16 @@ impl StakeChainSM {
             if let Some(stake_tx) = self.stake_tx(&operator, setup.index as usize)? {
                 let stake_txid = stake_tx.compute_txid();
 
-                self.stake_txids
+                // only update if this is a new entry
+                let new_entry = self
+                    .stake_txids
                     .entry(operator.clone())
                     .or_default()
-                    .push(stake_txid);
+                    .insert(stake_txid);
+
+                if !new_entry {
+                    warn!(%operator, "stake txid already exists for this operator");
+                }
 
                 Ok(Some(stake_txid))
             } else {
@@ -169,8 +166,8 @@ impl StakeChainSM {
         op: &P2POperatorPubKey,
         nth: usize,
     ) -> Result<Option<StakeTx>, StakeChainErr> {
-        match (self.stake_chains.get(op), self.stake_txids.get(op)) {
-            (Some(stake_chain_inputs), Some(stake_txids)) => {
+        match self.stake_chains.get(op) {
+            Some(stake_chain_inputs) => {
                 let pre_stake = stake_chain_inputs.pre_stake_outpoint;
 
                 let context = self.operator_table.tx_build_context(self.network);
@@ -202,13 +199,14 @@ impl StakeChainSM {
                     return Ok(Some(first_stake));
                 }
 
-                let prev_stake_txid =
-                    stake_txids
-                        .get(nth - 1)
-                        .ok_or(StakeChainErr::IncompleteStakeChainInput(
-                            op.clone(),
-                            nth - 1,
-                        ))?;
+                let stake_txids = self
+                    .stake_txids
+                    .get(op)
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
+
+                let prev_stake_txid = stake_txids.iter().nth(nth - 1).ok_or(
+                    StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
+                )?;
                 let prev_input = stake_chain_inputs.stake_inputs.iter().nth(nth - 1).ok_or(
                     StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
                 )?;

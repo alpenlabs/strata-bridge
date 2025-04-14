@@ -23,6 +23,12 @@ pub(crate) struct Config {
     /// The directory to store all the data in.
     pub datadir: PathBuf,
 
+    /// The number of threads to use for the runtime.
+    pub num_threads: Option<u8>,
+
+    /// The per-thread stack size to use (in bytes) for the runtime.
+    pub thread_stack_size: Option<usize>,
+
     /// The RPC server addr for the bridge node.
     pub rpc_addr: String,
 
@@ -122,6 +128,8 @@ mod tests {
         let config = r#"
             finality_depth = 6
             datadir = ".data"
+            num_threads = 4
+            thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             rpc_addr = "localhost:5678"
             is_faulty = false
             nag_interval = { secs = 60, nanos = 0 }

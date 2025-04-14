@@ -26,8 +26,8 @@ tracing.workspace = true
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 strata-bridge-proof-protocol.workspace = true
+strata-bridge-common.workspace = true
 
-strata-common.workspace = true
 strata-btcio.workspace = true
 
 borsh.workspace = true

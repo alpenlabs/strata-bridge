@@ -1,12 +1,13 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, thread::sleep};
 
 use args::OperationMode;
 use clap::Parser;
 use config::Config;
+use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
 use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::{logging, logging::LoggerConfig};
 use tracing::{debug, info};
 
 mod args;
@@ -15,9 +16,13 @@ mod mode;
 mod params;
 mod rpc_server;
 
-#[tokio::main]
-async fn main() {
-    logging::init(LoggerConfig::with_base_name("strata-bridge"));
+mod constants;
+
+fn main() {
+    logging::init(LoggerConfig::with_base_name("bridge-node"));
+
+    info!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
+    sleep(constants::STARTUP_DELAY);
 
     let cli = args::Cli::parse();
     info!(mode = %cli.mode, "starting bridge node");
@@ -27,18 +32,43 @@ async fn main() {
 
     match cli.mode {
         OperationMode::Operator => {
-            operator::bootstrap(params, config)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("operator loop crashed: {:?}", e);
-                });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
+                .thread_stack_size(
+                    config
+                        .thread_stack_size
+                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
+                )
+                .enable_all()
+                .build()
+                .expect("must be able to create runtime");
+
+            runtime.block_on(async move {
+                operator::bootstrap(params, config)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("operator loop crashed: {:?}", e);
+                    });
+            });
         }
         OperationMode::Verifier => {
-            verifier::bootstrap(params, config)
-                .await
-                .unwrap_or_else(|e| {
-                    panic!("verifier loop crashed: {:?}", e);
-                });
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
+                .thread_stack_size(
+                    config
+                        .thread_stack_size
+                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
+                )
+                .enable_all()
+                .build()
+                .expect("must be able to create runtime");
+            runtime.block_on(async move {
+                verifier::bootstrap(params, config)
+                    .await
+                    .unwrap_or_else(|e| {
+                        panic!("verifier loop crashed: {:?}", e);
+                    });
+            });
         }
     }
 }

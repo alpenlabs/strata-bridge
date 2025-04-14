@@ -68,19 +68,6 @@ clean-cargo: ## cargo clean
 clean-docker-data: ## Remove docker data files inside /docker/.data
 	rm -rf $(DOCKER_DIR)/$(DOCKER_DATADIR) 2>/dev/null
 
-.PHONY: clean
-clean: clean-docker-data clean-cargo ## clean functional tests directory, cargo clean, clean docker data
-	@echo "\n\033[36m======== CLEAN_COMPLETE ========\033[0m\n"
-
-.PHONY: docker-up
-docker-up: ## docker compose up
-	cd $(DOCKER_DIR) && docker compose up -d
-
-.PHONY: docker-down
-docker-down: ## docker compose down
-	cd $(DOCKER_DIR) && docker compose down && \
-	rm -rf $(DOCKER_DIR)/$(DOCKER_DATADIR) 2>/dev/null
-
 ##@ Docker
 
 .PHONY: build-base
@@ -93,11 +80,31 @@ build-rt: ## Builds the runtime image used as the final container
 
 .PHONY: build-compose
 build-compose: ## Builds all images in the compose.yml
-	docker compose build
+	docker compose down && docker compose up --build
+
+.PHONY: clean
+clean:
+	rm -rf docker/vol/*/data
+
+.PHONY: clean-docker ## cleans data and rebuilds all containers
+clean-docker: build-base build-rt clean build-compose ## Builds the base image, runtime image and all images in the compose.yml
+	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE ========\033[0m\n"
+
+.PHONY: gen-s2-tls-1
+gen-s2-tls-1:
+	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-1 docker/vol/secret-service-1
+
+.PHONY: gen-s2-tls-2
+gen-s2-tls-2:
+	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-2 docker/vol/secret-service-2
+
+.PHONY: gen-s2-tls-3
+gen-s2-tls-3:
+	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-3 docker/vol/secret-service-3
 
 .PHONY: gen-s2-tls
-gen-s2-tls: ## (Re)generates the TLS CAs, certs and keys for S2 and the bridge to connect
-	./docker/gen_s2_tls.sh
+gen-s2-tls: gen-s2-tls-1 gen-s2-tls-2 gen-s2-tls-3 ## (Re)generates the TLS CAs, certs and keys for S2's and the bridge nodes to connect
+	@echo "\n\033[36m======== TLS FILES GENERATION COMPLETE ========\033[0m\n"
 
 ##@ Code Quality
 
@@ -228,7 +235,7 @@ run:
 		--msks-file .secrets/msks.bin 2>&1 | tee run.log.$(TIMESTAMP)
 
 .PHONY: migrate
-migrate:
+migrate: ## Run migrations
 	export DATABASE_URL="sqlite://./operator.db" && \
 	rm -f operator.db && \
 	touch operator.db && \
@@ -236,20 +243,20 @@ migrate:
 
 
 .PHONY: bridge-in
-bridge-in:
+bridge-in: ## Run bridge-in
 	RUST_LOG=info \
 	cargo r \
 		--bin dev-cli \
 		-- \
 		bridge-in \
 		--btc-url http://localhost:18443/wallet/default \
-		--btc-user rpcuser \
-		--btc-pass rpcpassword \
+		--btc-user user \
+		--btc-pass password \
 		--recovery-address bcrt1qsddjnk0u256809tepf8hf6fj90j0qfrgm5t7s8 \
 		--strata-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
 .PHONY: bridge-out
-bridge-out:
+bridge-out: ## Run bridge-out
 	RUST_LOG=info \
 	cargo r \
 		--bin dev-cli \

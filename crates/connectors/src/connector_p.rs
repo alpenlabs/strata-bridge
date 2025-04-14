@@ -195,9 +195,9 @@ mod tests {
         TxOut,
     };
     use corepc_node::{serde_json::json, Conf, Node};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::generate_keypair;
     use strata_btcio::rpc::types::SignRawTransactionWithWallet;
-    use strata_common::logging::{self, LoggerConfig};
     use tracing::info;
 
     use super::*;

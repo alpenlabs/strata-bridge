@@ -1,7 +1,11 @@
 # run via `make gen-s2-tls` not directly!
 
-S2_TLS_DIR=docker/vol/secret-service/tls
-BRIDGE_TLS_DIR=docker/vol/alpen-bridge/tls
+BRIDGE_BASE_DIR=${1:-docker/vol/alpen-bridge}
+S2_BASE_DIR=${2:-docker/vol/secret-service}
+
+S2_TLS_DIR=${S2_BASE_DIR}/tls
+BRIDGE_TLS_DIR=${BRIDGE_BASE_DIR}/tls
+IP=172.28.1.6
 
 rm -rf $S2_TLS_DIR $BRIDGE_TLS_DIR
 mkdir -p $S2_TLS_DIR $BRIDGE_TLS_DIR
@@ -36,6 +40,7 @@ subjectAltName = @alt_names
 
 [alt_names]
 DNS.1 = secret-service
+IP.1 = $IP
 EOF
 
 # Generate key pair for secret-service with domain name support

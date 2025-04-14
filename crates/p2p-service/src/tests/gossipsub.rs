@@ -1,4 +1,4 @@
-use strata_common::logging::{self, LoggerConfig};
+use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_p2p_types::{Scope, SessionId, StakeChainId};
 
 use super::common::{

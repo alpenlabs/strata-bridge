@@ -33,7 +33,7 @@ strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 strata-primitives.workspace = true
 
-strata-common.workspace = true
+strata-bridge-common.workspace = true
 
 anyhow.workspace = true
 async-trait.workspace = true

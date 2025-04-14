@@ -279,6 +279,10 @@ provers/sp1/proofs/
 # data files
 .data/
 
+# ephemeral docker volume data
+**/vol/**/data
+**/vol/**/migrations
+
 # binary dumps
 *.bin
 *.borsh
@@ -292,5 +296,3 @@ certs
 
 # certificates and private keys in der format
 *.der
-
-tls/

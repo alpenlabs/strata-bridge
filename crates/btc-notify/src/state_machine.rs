@@ -125,13 +125,13 @@ impl BtcZmqSM {
     /// One of the three primary state transition functions of the [`BtcZmqSM`], updating internal
     /// state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
-        trace!(?block, "started processing a Block");
-        info!(block_hash=%block.block_hash(), "started processing a Block");
+        let block_height = block.bip34_block_height().unwrap_or(0);
+        info!(block_hash=%block.block_hash(), %block_height, "started processing a block");
+        trace!(?block, "started processing a block");
+
         match self.unburied_blocks.front() {
             Some(tip) => {
                 if block.header.prev_blockhash == tip.block_hash() {
-                    trace!(?block, prev_block=?tip, "block's previous block hash matches the tip");
-                    info!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash matches the tip");
                     self.unburied_blocks.push_front(block)
                 } else {
                     // This implies that we missed a block.
@@ -140,8 +140,8 @@ impl BtcZmqSM {
                     // stream processing would cause this to fire during a
                     // reorg. Race conditions MUST NOT cause this to fire. This MUST
                     // be fixed.
-                    error!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "invariant violated: blocks received out of order");
-                    panic!("invariant violated: blocks received out of order");
+                    trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
+                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                 }
             }
             // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup
@@ -150,11 +150,7 @@ impl BtcZmqSM {
             // using the RPC interface, or accepting the blocks newer than the
             // bury depth as an argument to the constructor.
             None => {
-                trace!(
-                    ?block,
-                    "block's previous block hash does not match the tip, possible reorg detected"
-                );
-                warn!(block_hash=%block.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
+                trace!(?block, "no tip found, adding block to unburied blocks");
                 self.unburied_blocks.push_front(block);
             }
         }
@@ -254,6 +250,7 @@ impl BtcZmqSM {
             }
         }
 
+        debug!(?diff, "processed block");
         diff
     }
 

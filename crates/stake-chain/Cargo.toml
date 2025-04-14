@@ -23,7 +23,7 @@ serde.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-strata-common.workspace = true
+strata-bridge-common.workspace = true
 
 corepc-node.workspace = true
 secp256k1.workspace = true

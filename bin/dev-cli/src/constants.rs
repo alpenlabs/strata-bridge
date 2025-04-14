@@ -3,7 +3,7 @@ use std::sync::LazyLock;
 use alloy::consensus::constants::ETH_TO_WEI;
 use bitcoin::{secp256k1::XOnlyPublicKey, Amount, Network};
 
-pub(crate) const AMOUNT: Amount = Amount::from_sat(1_000_100_000);
+pub(crate) const AMOUNT: Amount = Amount::from_sat(100_100_000);
 
 // extra amount pays for DT
 pub(crate) const NETWORK: Network = Network::Regtest;
@@ -12,15 +12,17 @@ pub(crate) const ROLLUP_ADDRESS: &str = "0x5400000000000000000000000000000000000
 
 pub(crate) const ETH_RPC_URL: &str = "http://localhost:8545";
 
-pub(crate) const BRIDGE_OUT_AMOUNT: Amount = Amount::from_int_btc(10);
+pub(crate) const BRIDGE_OUT_AMOUNT: Amount = Amount::from_int_btc(1);
 
 pub(crate) const BTC_TO_WEI: u128 = ETH_TO_WEI;
 
 pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
 
+pub(crate) const MAGIC_BYTES: &[u8] = b"bridge-tag";
+
 //change to appropriate value
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
-    "c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164";
+    "68b5503d2b18d0ff78cb06c0ec79613eebd297a6e2f8f4ed8f435641bc087d34";
 
 //change to appropriate value
 pub(crate) const LOCKTIME: i64 = 1008;

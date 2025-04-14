@@ -3,7 +3,6 @@ use std::str::FromStr;
 use alloy::primitives::Address as EvmAddress;
 use bitcoin::{
     address::Address,
-    hashes::Hash,
     hex::DisplayHex,
     key::Keypair,
     secp256k1::{Secp256k1, XOnlyPublicKey},
@@ -14,7 +13,7 @@ use miniscript::Miniscript;
 use strata_bridge_primitives::constants::UNSPENDABLE_INTERNAL_KEY;
 use tracing::info;
 
-use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, NETWORK};
+use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, MAGIC_BYTES, NETWORK};
 
 pub(crate) fn get_aggregated_pubkey() -> XOnlyPublicKey {
     *AGGREGATED_PUBKEY
@@ -57,11 +56,10 @@ pub(crate) fn build_timelock_miniscript(recovery_xonly_pubkey: XOnlyPublicKey) -
 
 pub(crate) fn build_op_return_script(
     evm_address: &EvmAddress,
-    script_hash: &TapNodeHash,
+    take_back_key: &XOnlyPublicKey,
 ) -> Vec<u8> {
-    let magic_bytes = b"alpenstrata".to_vec();
-    let mut data = magic_bytes;
-    data.extend(script_hash.to_raw_hash().as_byte_array());
+    let mut data = MAGIC_BYTES.to_vec();
+    data.extend(take_back_key.serialize());
     data.extend(evm_address.as_slice());
 
     data
