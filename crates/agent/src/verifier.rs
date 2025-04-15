@@ -167,14 +167,14 @@ where
                         info!(action = "verifying groth16 assertions");
                         let complete_disprove_scripts = api_generate_full_tapscripts(
                             *public_keys.groth16,
-                            &PARTIAL_VERIFIER_SCRIPTS[..],
+                            &PARTIAL_VERIFIER_SCRIPTS,
                         );
 
                         if let Some((tapleaf_index, witness_script)) = validate_assertions(
                             &bridge_vk::GROTH16_VERIFICATION_KEY,
                             signatures.groth16.deref().clone(),
                             *public_keys.groth16,
-                            &complete_disprove_scripts.clone().try_into().unwrap(),
+                            &complete_disprove_scripts,
                         ) {
                             let disprove_script = complete_disprove_scripts[tapleaf_index].clone();
                             Some(ConnectorA3Leaf::DisproveProof {

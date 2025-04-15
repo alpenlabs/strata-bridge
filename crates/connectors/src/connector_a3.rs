@@ -34,7 +34,7 @@ pub enum ConnectorA3Leaf {
     /// The leaf used to disprove the proof committed in the AssertData transactions.
     DisproveProof {
         /// The locking script corresponding to the faulty proof execution.
-        disprove_script: Script,
+        disprove_script: ScriptBuf,
         /// The witness script used in the disprove that shows a faulty execution i.e., an
         /// execution segment where the f(z_k) != z_{k+1}.
         witness_script: Option<Script>,
@@ -92,13 +92,15 @@ impl ConnectorA3Leaf {
         n_of_n_agg_pubkey: XOnlyPublicKey,
         wots_public_keys: wots::PublicKeys,
         payout_timelock: u32,
-    ) -> Script {
+    ) -> ScriptBuf {
         let wots::PublicKeys {
             withdrawal_fulfillment,
             groth16: Groth16PublicKeys(([public_inputs_hash_public_key], _, _)),
         } = wots_public_keys;
         match self {
-            ConnectorA3Leaf::Payout(_) => n_of_n_with_timelock(&n_of_n_agg_pubkey, payout_timelock),
+            ConnectorA3Leaf::Payout(_) => {
+                n_of_n_with_timelock(&n_of_n_agg_pubkey, payout_timelock).compile()
+            }
 
             ConnectorA3Leaf::DisprovePublicInputsCommitment { deposit_txid, .. } => {
                 script! {
@@ -191,6 +193,7 @@ impl ConnectorA3Leaf {
                     // which is cause for a disprove so invert the result.
                     OP_NOT
                 }
+                .compile()
             }
             ConnectorA3Leaf::DisproveProof {
                 disprove_script, ..
@@ -283,13 +286,11 @@ impl ConnectorA3 {
     ) -> (ScriptBuf, ControlBlock) {
         let (_, taproot_spend_info) = self.generate_taproot_address(deposit_txid);
 
-        let script = tapleaf
-            .generate_locking_script(
-                self.n_of_n_agg_pubkey,
-                self.wots_public_keys,
-                self.payout_timelock,
-            )
-            .compile();
+        let script = tapleaf.generate_locking_script(
+            self.n_of_n_agg_pubkey,
+            self.wots_public_keys,
+            self.payout_timelock,
+        );
         let control_block = taproot_spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
@@ -298,12 +299,8 @@ impl ConnectorA3 {
     }
 
     /// Generates the disprove scripts for this connector.
-    pub fn generate_disprove_scripts(&self) -> [Script; NUM_TAPS] {
-        let partial_disprove_scripts = &PARTIAL_VERIFIER_SCRIPTS[..];
-
-        api_generate_full_tapscripts(*self.wots_public_keys.groth16, partial_disprove_scripts)
-            .try_into()
-            .expect("number of tapleaves must match")
+    pub fn generate_disprove_scripts(&self) -> [ScriptBuf; NUM_TAPS] {
+        api_generate_full_tapscripts(*self.wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS)
     }
 
     fn generate_taproot_address(&self, deposit_txid: Txid) -> (Address, TaprootSpendInfo) {
@@ -320,7 +317,6 @@ impl ConnectorA3 {
                 self.wots_public_keys,
                 self.payout_timelock,
             )
-            .compile()
         })
         .into_iter();
 
@@ -336,7 +332,6 @@ impl ConnectorA3 {
                     self.wots_public_keys,
                     self.payout_timelock,
                 )
-                .compile()
             });
 
         let scripts = scripts
@@ -490,11 +485,7 @@ mod tests {
             payout_timelock,
         );
         let witness_script = invalid_disprove_leaf.generate_witness_script();
-        let witness_script = taproot_witness_signatures(witness_script);
-        let full_script = script! {
-            { witness_script }
-            { locking_script }
-        };
+        let full_script = witness_script.push_script(locking_script);
 
         execute_script(full_script)
     }
