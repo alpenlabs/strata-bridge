@@ -208,7 +208,6 @@ mod tests {
             ConnectorCpfp::new(pubkey, network),
         );
 
-        let connector_k = ConnectorK::new(network, wots_public_key);
         let withdrawal_fulfillment_txid = generate_txid();
 
         let signature = Wots256Signature::new(

@@ -67,7 +67,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_bridge_tx_graph::{
-    peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
+    peg_out_graph::{PegOutGraph, PegOutGraphInput},
     transactions::prelude::*,
 };
 use strata_primitives::{
@@ -1639,15 +1639,8 @@ where
             ..
         } = peg_out_graph;
         // 3. publish stake -> claim
-        self.broadcast_claim(
-            &connectors,
-            own_index,
-            deposit_txid,
-            claim_tx,
-            deposit_id,
-            &mut status,
-        )
-        .await;
+        self.broadcast_claim(own_index, deposit_txid, claim_tx, deposit_id, &mut status)
+            .await;
 
         let AssertChain {
             pre_assert,
@@ -1954,7 +1947,6 @@ where
 
     async fn broadcast_claim(
         &self,
-        connectors: &PegOutGraphConnectors,
         own_index: u32,
         deposit_txid: Txid,
         claim_tx: ClaimTx,
