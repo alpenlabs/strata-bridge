@@ -1,4 +1,4 @@
-# Strata Bridge Proof of Concept
+# Strata Bridge
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache-blue.svg)](https://opensource.org/licenses/apache-2-0)
@@ -6,11 +6,10 @@
 [![build](https://github.com/alpenlabs/strata-bridge/actions/workflows/build.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
 [![lint](https://github.com/alpenlabs/strata-bridge/actions/workflows/lint.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
 
-A research implementation of Strata Bridge by your friends at [Alpen Labs](https://www.alpenlabs.io/).
+A reference implementation of Strata Bridge by your friends at [Alpen Labs](https://www.alpenlabs.io/).
 
 > [!IMPORTANT]
-> The majority of this code was written in a two-week period in a hackathon spirit.
-> This software was written as a research proof of concept, and is _not_ meant to be used in a production environment!
+> This software is a work-in-progress and as such, is _not_ meant to be used in a production environment!
 
 ## Transaction Graph
 
@@ -43,21 +42,10 @@ The following is the system diagram for this repository:
 ### Running
 
 Run the Strata stack (`strata-client`, `strata-reth`, `bitcoind`) as per the instructions
-in the [`strata`](https://github.com/alpenlabs/strata/tree/bitvm2) repository. Then run:
+in the [`strata`](https://github.com/alpenlabs/strata/tree/bitvm2) repository.
 
-```bash
-make migrate
-PROFILE=release make run
-```
-
-In order to perform deposits and withdrawals, you can run:
-
-```bash
-make bridge-in
-make bridge-out
-```
-
-The above `Makefile` recipes have defaults for `strata-client` and `bitcoind`.
+Then, see the instructions in [`docker/README.md`](./docker/README.md) to run the bridge nodes
+and their corresponding secret-service nodes.
 
 ## Contributing
 
