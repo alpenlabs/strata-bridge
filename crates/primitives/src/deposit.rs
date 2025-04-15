@@ -147,12 +147,19 @@ impl DepositInfo {
         })
     }
 
-    fn compute_spend_infos(
+    /// Computes the spend info for the Deposit Request Transaction (DRT).
+    ///
+    /// This also performs the following validations:
+    ///
+    /// 1. The script pubkey in the DRT matches the one provided in the [`DepositInfo`].
+    /// 1. The x-only public key in the DRT matches the one provided in the [`DepositInfo`].
+    /// 1. The script pubkey in the DRT is a valid taproot script.
+    pub fn compute_spend_infos(
         &self,
         build_context: &impl BuildContext,
         refund_delay: u16,
     ) -> BridgeTxBuilderResult<TaprootWitness> {
-        // The Deposit Request (DT) spends the n-of-n multisig leaf
+        // The Deposit Transaction (DT) spends the n-of-n multisig leaf
         let spend_script = n_of_n_script(&build_context.aggregated_pubkey()).compile();
 
         // Compute the merkle root using the x-only public key in the OP_RETURN
