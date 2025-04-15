@@ -9,7 +9,6 @@ use bitvm::{
     signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
 };
-use secp256k1::XOnlyPublicKey;
 use strata_bridge_primitives::{scripts::prelude::*, wots};
 
 /// Connector between the Kickoff and Claim transactions.

@@ -677,7 +677,6 @@ mod tests {
         } = graph;
 
         let PegOutGraphConnectors {
-            kickoff,
             claim_out_0,
             claim_out_1,
             n_of_n: claim_out_2,
@@ -1417,7 +1416,6 @@ mod tests {
         } = graph;
 
         let PegOutGraphConnectors {
-            kickoff,
             claim_out_0,
             claim_out_1,
             n_of_n,
@@ -1852,11 +1850,7 @@ mod tests {
             ..
         } = graph;
 
-        let PegOutGraphConnectors {
-            kickoff,
-            connector_cpfp,
-            ..
-        } = connectors;
+        let PegOutGraphConnectors { connector_cpfp, .. } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
 
