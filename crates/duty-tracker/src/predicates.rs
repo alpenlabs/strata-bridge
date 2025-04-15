@@ -5,21 +5,18 @@ use std::sync::Arc;
 
 use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{
-    consensus, key::constants::SCHNORR_PUBLIC_KEY_SIZE, opcodes::all::OP_RETURN,
-    secp256k1::SECP256K1, taproot::TaprootBuilder, Address, Network, OutPoint, Script, Transaction,
-    Txid, XOnlyPublicKey,
+    consensus, key::constants::SCHNORR_PUBLIC_KEY_SIZE, opcodes::all::OP_RETURN, Network, OutPoint,
+    Script, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::{
-    constants::UNSPENDABLE_INTERNAL_KEY,
-    deposit::DepositInfo,
-    scripts::prelude::{n_of_n_script, n_of_n_with_timelock},
-    types::OperatorIdx,
+    build_context::BuildContext, deposit::DepositInfo, types::OperatorIdx,
 };
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
+use tracing::error;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -50,8 +47,7 @@ pub(crate) fn deposit_request_info(
     tx: &Transaction,
     sidesystem_params: &RollupParams,
     pegout_graph_params: &PegOutGraphParams,
-    bridge_aggregated_pk: XOnlyPublicKey,
-    network: Network,
+    build_context: &impl BuildContext,
     stake_index: u32,
 ) -> Option<DepositInfo> {
     let deposit_request_output = tx.output.first()?;
@@ -76,37 +72,26 @@ pub(crate) fn deposit_request_info(
             Some((recovery_x_only_pk, el_addr))
         })?;
 
-    // Regenerate the P2TR address from the OP_RETURN data.
-    let taproot_builder = TaprootBuilder::new()
-        .add_leaf(1, n_of_n_script(&bridge_aggregated_pk).compile())
-        .expect("failed to add bridge multisig script to tree")
-        .add_leaf(
-            1,
-            n_of_n_with_timelock(&recovery_x_only_pk, pegout_graph_params.refund_delay as u32)
-                .compile(),
-        )
-        .expect("failed to add timelock script");
-
-    let taproot_info = taproot_builder
-        .finalize(SECP256K1, *UNSPENDABLE_INTERNAL_KEY)
-        .unwrap();
-    let merkle_root = taproot_info.merkle_root();
-
-    let p2tr_address = Address::p2tr(SECP256K1, *UNSPENDABLE_INTERNAL_KEY, merkle_root, network);
-
-    // The DRT must have the first output address the bridge aggregated P2TR address.
-    if p2tr_address.script_pubkey() != deposit_request_output.script_pubkey {
-        return None;
-    }
-
-    Some(DepositInfo::new(
+    let deposit_info = DepositInfo::new(
         OutPoint::new(tx.compute_txid(), 0),
         stake_index,
         el_addr.to_vec(),
         deposit_request_output.value,
         recovery_x_only_pk,
         deposit_request_output.script_pubkey.clone(),
-    ))
+    );
+
+    // Regenerate the P2TR address from the OP_RETURN data, for now the spend info does all the
+    // necessary validations.
+    deposit_info
+        .compute_spend_infos(build_context, pegout_graph_params.refund_delay)
+        .map_err(|e| {
+            error!("failed to compute spend info: {:?}", e);
+            None::<DepositInfo>
+        })
+        .ok()?;
+
+    Some(deposit_info)
 }
 
 pub(crate) fn is_challenge(claim_txid: Txid) -> TxPredicate {

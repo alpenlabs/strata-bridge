@@ -415,8 +415,6 @@ impl ContractManagerCtx {
         block: Block,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let height = block.bip34_block_height().unwrap_or(0);
-        let bridge_aggregated_pk = self.cfg.operator_table.aggregated_btc_key();
-        let network = self.cfg.network;
         // TODO(proofofkeags): persist entire block worth of states at once. Ensure all the state
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
@@ -442,8 +440,7 @@ impl ContractManagerCtx {
                 &tx,
                 &self.cfg.sidesystem_params,
                 &self.cfg.pegout_graph_params,
-                bridge_aggregated_pk.x_only_public_key().0,
-                network,
+                &self.cfg.operator_table.tx_build_context(self.cfg.network),
                 stake_index,
             ) {
                 let deposit_request_txid = txid;
