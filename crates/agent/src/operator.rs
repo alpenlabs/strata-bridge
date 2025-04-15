@@ -1742,18 +1742,14 @@ where
                     .unwrap()
                     .unwrap(); // FIXME: Handle me
 
-                let complete_disprove_scripts = api_generate_full_tapscripts(
-                    *public_keys.groth16,
-                    &PARTIAL_VERIFIER_SCRIPTS[..],
-                );
+                let complete_disprove_scripts =
+                    api_generate_full_tapscripts(*public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
 
                 if let Some((tapleaf_index, _witness_script)) = validate_assertions(
                     &bridge_vk::GROTH16_VERIFICATION_KEY,
                     assert_data_signatures.groth16.deref().clone(),
                     *public_keys.groth16,
-                    &complete_disprove_scripts
-                        .try_into()
-                        .expect("number of disprove scripts must match"),
+                    &complete_disprove_scripts,
                 ) {
                     error!(event = "assertions verification failed", %tapleaf_index, %own_index);
                 } else {
