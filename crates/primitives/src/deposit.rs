@@ -147,8 +147,10 @@ impl DepositInfo {
         })
     }
 
-    /// 1. The taproot address computed from the x-only public key in the DRT and the bridge multisig address is the same as the output address in the DRT.
-    /// 1. The control block computed from the DRT commits to the multisig script that the Deposit Transaction (DT) spends.
+    /// 1. The taproot address computed from the x-only public key in the DRT and the bridge
+    ///    multisig address is the same as the output address in the DRT.
+    /// 1. The control block computed from the DRT commits to the multisig script that the Deposit
+    ///    Transaction (DT) spends.
     pub fn compute_spend_infos(
         &self,
         build_context: &impl BuildContext,
