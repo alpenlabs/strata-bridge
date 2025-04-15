@@ -16,7 +16,7 @@ use strata_bridge_primitives::{
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
-use tracing::error;
+use tracing::warn;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -86,7 +86,7 @@ pub(crate) fn deposit_request_info(
     deposit_info
         .compute_spend_infos(build_context, pegout_graph_params.refund_delay)
         .map_err(|e| {
-            error!("failed to compute spend info: {:?}", e);
+            warn!("failed to compute spend info: {:?}", e);
             None::<DepositInfo>
         })
         .ok()?;
