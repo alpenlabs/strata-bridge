@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitcoin.workspace = true
+bitvm.workspace = true
 musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true
