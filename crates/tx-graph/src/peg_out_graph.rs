@@ -701,14 +701,7 @@ mod tests {
             ..
         } = graph;
 
-        let PegOutGraphConnectors {
-            claim_out_0,
-            claim_out_1,
-            n_of_n: claim_out_2,
-            hashlock_payout,
-            connector_cpfp,
-            ..
-        } = connectors;
+        let PegOutGraphConnectors { connector_cpfp, .. } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
 
@@ -788,10 +781,6 @@ mod tests {
             n_of_n_sig_c1,
             n_of_n_sig_c2,
             n_of_n_sig_p,
-            claim_out_0,
-            claim_out_1,
-            claim_out_2,
-            hashlock_payout,
         );
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
