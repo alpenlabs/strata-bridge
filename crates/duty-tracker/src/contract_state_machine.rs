@@ -542,7 +542,7 @@ pub enum FulfillerDuty {
     /// Instructs us to send our initial StakeChainExchange message.
     InitStakeChain,
 
-    /// Originates when strata state on L1 is published.
+    /// Originates when strata state on L1 is published and there has been an assignment.
     AdvanceStakeChain {
         /// Index of the stake transaction to advance to.
         stake_index: u32,
