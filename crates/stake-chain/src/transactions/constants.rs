@@ -10,7 +10,8 @@ use strata_bridge_primitives::constants::NUM_ASSERT_DATA_TX;
 ///
 /// For each single [`StakeTx`](crate::transactions::StakeTx), the number of dust outputs is:
 ///
-/// - 47 pairs of dust outputs for the "Assert-data" transactions: `330 * 2 * 47 = 31_020` sats.
+/// - [`NUM_ASSERT_DATA_TX`] pairs of dust outputs for the "Assert-data" transactions: `330 * 2 * 39
+///   = 25_740` sats.
 /// - 1 pair of dust outputs for the "Claim" transaction: `330 * 2 = 660` sats.
 /// - 1 dust output for the "Burn Payouts" transaction: `330` sats.
 /// - 1 dust output for the CPFP in the "Pre-Assert" transaction: `330` sats.
