@@ -264,9 +264,6 @@ pub enum ContractState {
         /// The descriptor of the recipient.
         recipient: Descriptor,
 
-        /// The transaction ID of the stake transaction that was just confirmed.
-        stake_txid: Txid,
-
         /// The deadline by which the operator must fulfill the withdrawal before it is reassigned.
         deadline: BitcoinBlockHeight,
 
@@ -578,7 +575,22 @@ pub enum FulfillerDuty {
     },
 
     /// Originates after reaching timelock expiry for Claim transaction
-    PublishPayoutOptimistic,
+    PublishPayoutOptimistic {
+        /// The transaction ID of the deposit transaction that is being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the claim transaction whose output(s) the payout optimistic
+        /// transaction
+        /// spends.
+        claim_txid: Txid,
+
+        /// The transaction ID of the stake transaction whose output is spent by the claim
+        /// transaction.
+        stake_txid: Txid,
+
+        /// The index of the associated stake transaction.
+        stake_index: u32,
+    },
 
     /// Originates once challenge transaction is issued
     PublishAssertChain,
@@ -1357,9 +1369,9 @@ impl ContractSM {
         }
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
 
-        let duty = match current {
+        let duty = match &current {
             ContractState::Requested { abort_deadline, .. } => {
-                if self.state.block_height >= abort_deadline {
+                if self.state.block_height >= *abort_deadline {
                     Some(OperatorDuty::Abort)
                 } else {
                     None
@@ -1374,14 +1386,26 @@ impl ContractSM {
             ContractState::Claimed {
                 fulfiller,
                 claim_height,
+                active_graph,
                 ..
             } => {
+                let pov_idx = self.cfg.operator_table.pov_idx();
                 if self.state.block_height
                     >= claim_height + self.cfg.connector_params.payout_optimistic_timelock as u64
-                    && fulfiller == self.cfg.operator_table.pov_idx()
+                    && *fulfiller == pov_idx
                 {
+                    let deposit_txid = self.cfg().deposit_tx.compute_txid();
+                    let stake_index = self.cfg().deposit_idx;
+                    let claim_txid = active_graph.claim_txid;
+                    let stake_txid = active_graph.stake_txid;
+
                     Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishPayoutOptimistic,
+                        FulfillerDuty::PublishPayoutOptimistic {
+                            deposit_txid,
+                            claim_txid,
+                            stake_txid,
+                            stake_index,
+                        },
                     ))
                 } else {
                     None
@@ -1395,7 +1419,7 @@ impl ContractSM {
             } => {
                 if self.state.block_height
                     >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
-                    && fulfiller == self.cfg.operator_table.pov_idx()
+                    && *fulfiller == self.cfg.operator_table.pov_idx()
                 {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
                 } else {
@@ -1527,7 +1551,6 @@ impl ContractSM {
                     claim_txids,
                     fulfiller,
                     recipient: recipient.clone(),
-                    stake_txid,
                     deadline,
                     active_graph,
                 };
@@ -1573,13 +1596,13 @@ impl ContractSM {
                 fulfiller,
                 active_graph,
                 recipient,
-                stake_txid,
                 ..
             } => {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
                 // operator.
                 let cfg = self.cfg();
                 let deposit_txid = self.cfg.deposit_tx.compute_txid();
+                let stake_txid = active_graph.stake_txid;
 
                 if !is_fulfillment_tx(
                     cfg.network,

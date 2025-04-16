@@ -16,7 +16,7 @@ use operator_wallet::FundingUtxo;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::{
-    ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorStake,
+    ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,
 };
 use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{build_context::BuildContext, constants::SEGWIT_MIN_AMOUNT};
@@ -25,9 +25,15 @@ use strata_bridge_stake_chain::{
     stake_chain::StakeChainInputs,
     transactions::stake::StakeTxData,
 };
-use strata_bridge_tx_graph::transactions::{
-    claim::{ClaimData, ClaimTx},
-    prelude::{WithdrawalFulfillment, WithdrawalMetadata},
+use strata_bridge_tx_graph::{
+    errors::TxGraphError,
+    transactions::{
+        claim::{ClaimData, ClaimTx},
+        prelude::{
+            CovenantTx, PayoutOptimisticData, PayoutOptimisticTx, WithdrawalFulfillment,
+            WithdrawalMetadata,
+        },
+    },
 };
 use strata_p2p_types::{Scope, Wots128PublicKey, Wots256PublicKey, WotsPublicKeys};
 use tracing::{debug, error, info};
@@ -531,6 +537,154 @@ pub(super) async fn handle_publish_claim(
     let signed_claim_tx = claim_tx.finalize(wots_signature);
 
     output_handles.tx_driver.drive(signed_claim_tx).await?;
+
+    Ok(())
+}
+
+pub(super) async fn handle_publish_payout_optimistic(
+    cfg: &ExecutionConfig,
+    output_handles: Arc<OutputHandles>,
+    deposit_txid: Txid,
+    claim_txid: Txid,
+    stake_txid: Txid,
+    stake_index: u32,
+) -> Result<(), ContractManagerErr> {
+    const DUST_OUTPUTS_IN_STAKE_TX: u64 = 2;
+    const DUST_OUTPUTS_IN_CLAIM_TX: u64 = 3;
+
+    let input_amount = OPERATOR_FUNDS
+        .checked_sub(SEGWIT_MIN_AMOUNT * (DUST_OUTPUTS_IN_CLAIM_TX + DUST_OUTPUTS_IN_STAKE_TX))
+        .unwrap_or_default();
+    let operator_key = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?;
+    let network = cfg.network;
+
+    let payout_optimistic_data = PayoutOptimisticData {
+        claim_txid,
+        deposit_txid,
+        stake_outpoint: OutPoint::new(stake_txid, STAKE_VOUT),
+        input_amount,
+        deposit_amount: cfg.pegout_graph_params.deposit_amount,
+        operator_key,
+        network,
+    };
+
+    let n_of_n_agg_pubkey = cfg
+        .operator_table
+        .tx_build_context(cfg.network)
+        .aggregated_pubkey();
+
+    let connector_c0 = ConnectorC0::new(
+        n_of_n_agg_pubkey,
+        network,
+        cfg.connector_params.pre_assert_timelock,
+    );
+
+    let connector_c1 = ConnectorC1::new(
+        n_of_n_agg_pubkey,
+        network,
+        cfg.connector_params.payout_optimistic_timelock,
+    );
+
+    let connector_n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
+
+    let OutPoint {
+        txid: prestake_txid,
+        vout: prestake_vout,
+    } = output_handles
+        .db
+        .get_pre_stake(cfg.operator_table.pov_idx())
+        .await?
+        .ok_or(StakeChainErr::StakeSetupDataNotFound(
+            cfg.operator_table.pov_op_key().clone(),
+        ))?;
+
+    let stake_hash = output_handles
+        .s2_client
+        .stake_chain_preimages()
+        .get_preimg(prestake_txid, prestake_vout, stake_index)
+        .await?;
+    let stake_hash = sha256::Hash::hash(&stake_hash);
+
+    let connector_p = ConnectorP::new(n_of_n_agg_pubkey, stake_hash, network);
+
+    let connector_cpfp = ConnectorCpfp::new(operator_key, network);
+
+    let payout_optimistic_tx = PayoutOptimisticTx::new(
+        payout_optimistic_data,
+        connector_c0,
+        connector_c1,
+        connector_n_of_n,
+        connector_p,
+        connector_cpfp,
+    );
+    let payout_optimistic_txid = payout_optimistic_tx.compute_txid();
+
+    let pov_idx = cfg.operator_table.pov_idx();
+
+    const DEPOSIT_INPUT_INDEX: u32 = 0;
+    const C0_INPUT_INDEX: u32 = 1;
+    const C1_INPUT_INDEX: u32 = 2;
+    const N_OF_N_INPUT_INDEX: u32 = 3;
+    const HASHLOCK_INPUT_INDEX: u32 = 4;
+
+    let deposit_sig = output_handles
+        .db
+        .get_signature(pov_idx, payout_optimistic_txid, DEPOSIT_INPUT_INDEX)
+        .await?
+        .ok_or(TxGraphError::MissingNOfNSignature(
+            pov_idx,
+            payout_optimistic_txid,
+            DEPOSIT_INPUT_INDEX,
+        ))?;
+    let c0_sig = output_handles
+        .db
+        .get_signature(pov_idx, payout_optimistic_txid, C0_INPUT_INDEX)
+        .await?
+        .ok_or(TxGraphError::MissingNOfNSignature(
+            pov_idx,
+            payout_optimistic_txid,
+            C0_INPUT_INDEX,
+        ))?;
+    let c1_sig = output_handles
+        .db
+        .get_signature(pov_idx, payout_optimistic_txid, C1_INPUT_INDEX)
+        .await?
+        .ok_or(TxGraphError::MissingNOfNSignature(
+            pov_idx,
+            payout_optimistic_txid,
+            C1_INPUT_INDEX,
+        ))?;
+    let n_of_n_sig = output_handles
+        .db
+        .get_signature(pov_idx, payout_optimistic_txid, N_OF_N_INPUT_INDEX)
+        .await?
+        .ok_or(TxGraphError::MissingNOfNSignature(
+            pov_idx,
+            payout_optimistic_txid,
+            N_OF_N_INPUT_INDEX,
+        ))?;
+    let hashlock_sig = output_handles
+        .db
+        .get_signature(pov_idx, payout_optimistic_txid, HASHLOCK_INPUT_INDEX)
+        .await?
+        .ok_or(TxGraphError::MissingNOfNSignature(
+            pov_idx,
+            payout_optimistic_txid,
+            HASHLOCK_INPUT_INDEX,
+        ))?;
+
+    let signed_payout_optimistic_tx =
+        payout_optimistic_tx.finalize(deposit_sig, c0_sig, c1_sig, n_of_n_sig, hashlock_sig);
+
+    info!(txid = %payout_optimistic_txid, "submitting payout optimistic tx to the tx driver");
+    output_handles
+        .tx_driver
+        .drive(signed_payout_optimistic_tx)
+        .await?;
 
     Ok(())
 }
