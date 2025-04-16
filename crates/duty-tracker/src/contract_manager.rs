@@ -1299,6 +1299,22 @@ async fn execute_duty(
                 )
                 .await
             }
+            FulfillerDuty::PublishPayoutOptimistic {
+                deposit_txid,
+                claim_txid,
+                stake_txid,
+                stake_index,
+            } => {
+                handle_publish_payout_optimistic(
+                    &cfg,
+                    output_handles.clone(),
+                    deposit_txid,
+                    claim_txid,
+                    stake_txid,
+                    stake_index,
+                )
+                .await
+            }
             ignored_fulfiller_duty => {
                 warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
                 Ok(())
