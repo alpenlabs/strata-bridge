@@ -92,6 +92,8 @@ pub(crate) fn process_bridge_proof(
     let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
     let WithdrawalInfo {
         operator_idx,
+        deposit_idx,
+        deposit_txid,
         withdrawal_address: destination,
         withdrawal_amount: amount,
         ..
@@ -110,8 +112,9 @@ pub(crate) fn process_bridge_proof(
     // deposit index.
     let entry = chainstate
         .deposits_table()
-        .get_deposit(input.deposit_idx)
-        .ok_or(ChainStateError::DepositNotFound(input.deposit_idx))?;
+        .get_deposit(deposit_idx)
+        .ok_or(ChainStateError::DepositNotFound(deposit_idx))?;
+
 
     let dispatched_state = match entry.deposit_state() {
         DepositState::Dispatched(dispatched_state) => dispatched_state,
