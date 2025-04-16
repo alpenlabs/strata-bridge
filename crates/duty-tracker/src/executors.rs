@@ -15,13 +15,20 @@ use futures::future::{join3, join_all};
 use operator_wallet::FundingUtxo;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_connectors::prelude::ConnectorStake;
-use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::build_context::BuildContext;
-use strata_bridge_stake_chain::{
-    prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
+use strata_bridge_connectors::prelude::{
+    ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorStake,
 };
-use strata_bridge_tx_graph::transactions::prelude::{WithdrawalFulfillment, WithdrawalMetadata};
+use strata_bridge_db::public::PublicDb;
+use strata_bridge_primitives::{build_context::BuildContext, constants::SEGWIT_MIN_AMOUNT};
+use strata_bridge_stake_chain::{
+    prelude::{StakeTx, OPERATOR_FUNDS, STAKE_VOUT},
+    stake_chain::StakeChainInputs,
+    transactions::stake::StakeTxData,
+};
+use strata_bridge_tx_graph::transactions::{
+    claim::{ClaimData, ClaimTx},
+    prelude::{WithdrawalFulfillment, WithdrawalMetadata},
+};
 use strata_p2p_types::{Scope, Wots128PublicKey, Wots256PublicKey, WotsPublicKeys};
 use tracing::{debug, error, info};
 
@@ -436,6 +443,94 @@ pub(super) async fn handle_withdrawal_fulfillment(
             error!(%err, "could not sign withdrawal fulfillment with general wallet")
         }
     }
+
+    Ok(())
+}
+
+/// Constructs, finalizes and broadcasts the claim transaction.
+pub(super) async fn handle_publish_claim(
+    cfg: &ExecutionConfig,
+    output_handles: Arc<OutputHandles>,
+    stake_txid: Txid,
+    deposit_txid: Txid,
+    withdrawal_fulfillment_txid: Txid,
+) -> Result<(), ContractManagerErr> {
+    let pov_idx = cfg.operator_table.pov_idx();
+
+    // the input to the claim transaction is the input to the stake transaction minus the two dust
+    // outputs in the stake transaction.
+    let input_amount = OPERATOR_FUNDS
+        .checked_sub(SEGWIT_MIN_AMOUNT * 2)
+        .unwrap_or_default();
+
+    let claim_data = ClaimData {
+        stake_outpoint: OutPoint::new(stake_txid, STAKE_VOUT),
+        deposit_txid,
+        input_amount,
+    };
+
+    let wots_client = output_handles.s2_client.wots_signer();
+
+    let OutPoint {
+        txid: prestake_txid,
+        vout: prestake_vout,
+    } = output_handles.db.get_pre_stake(pov_idx).await?.ok_or(
+        StakeChainErr::StakeSetupDataNotFound(cfg.operator_table.pov_op_key().clone()),
+    )?;
+
+    let withdrawal_fulfillment_pk = wots_client
+        .get_256_public_key(prestake_txid, prestake_vout, WITHDRAWAL_FULFILLMENT_PK_IDX)
+        .await?;
+    let withdrawal_fulfillment_pk =
+        Wots256PublicKey::from_flattened_bytes(&withdrawal_fulfillment_pk).into();
+
+    let network = cfg.network;
+    let n_of_n_agg_pubkey = cfg
+        .operator_table
+        .tx_build_context(network)
+        .aggregated_pubkey();
+
+    let cpfp_key = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?;
+
+    let connector_k = ConnectorK::new(network, withdrawal_fulfillment_pk);
+    let connector_c0 = ConnectorC0::new(
+        n_of_n_agg_pubkey,
+        network,
+        cfg.connector_params.pre_assert_timelock,
+    );
+    let connector_c1 = ConnectorC1::new(
+        n_of_n_agg_pubkey,
+        network,
+        cfg.connector_params.payout_optimistic_timelock,
+    );
+    let connector_n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
+    let connector_cpfp = ConnectorCpfp::new(cpfp_key, network);
+
+    let claim_tx = ClaimTx::new(
+        claim_data,
+        connector_k,
+        connector_c0,
+        connector_c1,
+        connector_n_of_n,
+        connector_cpfp,
+    );
+
+    let wots_signature = wots_client
+        .get_256_signature(
+            prestake_txid,
+            prestake_vout,
+            WITHDRAWAL_FULFILLMENT_PK_IDX,
+            &withdrawal_fulfillment_txid.to_byte_array(),
+        )
+        .await?;
+
+    let signed_claim_tx = claim_tx.finalize(wots_signature);
+
+    output_handles.tx_driver.drive(signed_claim_tx).await?;
 
     Ok(())
 }
