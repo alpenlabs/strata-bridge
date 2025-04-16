@@ -2,7 +2,8 @@
 
 use std::future::Future;
 
-use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoin::{TapNodeHash, Txid, XOnlyPublicKey};
+use bitvm::signatures::wots_api::{wots256, wots_hash};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, SecretKey},
@@ -293,7 +294,7 @@ pub trait WotsSigner<O: Origin>: Send {
         vout: u32,
         index: u32,
         msg: &[u8; 16],
-    ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
+    ) -> impl Future<Output = O::Container<wots_hash::Signature>> + Send;
 
     fn get_256_signature(
         &self,
@@ -301,7 +302,7 @@ pub trait WotsSigner<O: Origin>: Send {
         vout: u32,
         index: u32,
         msg: &[u8; 32],
-    ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
+    ) -> impl Future<Output = O::Container<wots256::Signature>> + Send;
 }
 
 /// The Stake Chain preimages are used to generate deterministic preimages for the Stake Chain
