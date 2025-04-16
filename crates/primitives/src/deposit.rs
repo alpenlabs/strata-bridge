@@ -147,12 +147,19 @@ impl DepositInfo {
         })
     }
 
-    fn compute_spend_infos(
+    /// Computes the witness data for spending the Deposit Request Transaction (DRT) and in the
+    /// process, also validates the following:
+    ///
+    /// 1. The taproot address computed from the x-only public key in the DRT and the bridge
+    ///    multisig address is the same as the output address in the DRT.
+    /// 1. The control block computed from the DRT commits to the multisig script that the Deposit
+    ///    Transaction (DT) spends.
+    pub fn compute_spend_infos(
         &self,
         build_context: &impl BuildContext,
         refund_delay: u16,
     ) -> BridgeTxBuilderResult<TaprootWitness> {
-        // The Deposit Request (DT) spends the n-of-n multisig leaf
+        // The Deposit Transaction (DT) spends the n-of-n multisig leaf
         let spend_script = n_of_n_script(&build_context.aggregated_pubkey()).compile();
 
         // Compute the merkle root using the x-only public key in the OP_RETURN

@@ -10,10 +10,13 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use btc_notify::client::TxPredicate;
-use strata_bridge_primitives::{deposit::DepositInfo, types::OperatorIdx};
+use strata_bridge_primitives::{
+    build_context::BuildContext, deposit::DepositInfo, types::OperatorIdx,
+};
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
+use tracing::warn;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -44,13 +47,13 @@ pub(crate) fn deposit_request_info(
     tx: &Transaction,
     sidesystem_params: &RollupParams,
     pegout_graph_params: &PegOutGraphParams,
+    build_context: &impl BuildContext,
     stake_index: u32,
 ) -> Option<DepositInfo> {
     let deposit_request_output = tx.output.first()?;
     if deposit_request_output.value <= pegout_graph_params.deposit_amount {
         return None;
     }
-    // TODO(proofofkeags): validate that the script_pubkey pays to the right operator set
 
     let ee_address_size = sidesystem_params.address_length as usize;
     let tag = pegout_graph_params.tag.as_bytes();
@@ -69,14 +72,26 @@ pub(crate) fn deposit_request_info(
             Some((recovery_x_only_pk, el_addr))
         })?;
 
-    Some(DepositInfo::new(
+    let deposit_info = DepositInfo::new(
         OutPoint::new(tx.compute_txid(), 0),
         stake_index,
         el_addr.to_vec(),
         deposit_request_output.value,
         recovery_x_only_pk,
         deposit_request_output.script_pubkey.clone(),
-    ))
+    );
+
+    // Regenerate the P2TR address from the OP_RETURN data, for now the spend info does all the
+    // necessary validations.
+    deposit_info
+        .compute_spend_infos(build_context, pegout_graph_params.refund_delay)
+        .map_err(|e| {
+            warn!(err=%e, txid=%tx.compute_txid(), "failed to compute spend info, malformed DRT");
+            None::<DepositInfo>
+        })
+        .ok()?;
+
+    Some(deposit_info)
 }
 
 pub(crate) fn is_challenge(claim_txid: Txid) -> TxPredicate {

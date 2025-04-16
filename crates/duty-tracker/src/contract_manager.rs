@@ -440,6 +440,7 @@ impl ContractManagerCtx {
                 &tx,
                 &self.cfg.sidesystem_params,
                 &self.cfg.pegout_graph_params,
+                &self.cfg.operator_table.tx_build_context(self.cfg.network),
                 stake_index,
             ) {
                 let deposit_request_txid = txid;
