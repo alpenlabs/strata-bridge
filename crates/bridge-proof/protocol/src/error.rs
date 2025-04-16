@@ -70,6 +70,16 @@ pub(crate) enum ChainStateError {
     /// Indicates that the deposit state is invalid or unexpected for the operation in question.
     #[error("Deposit state is expected to be Dispatched")]
     InvalidDepositState,
+
+    /// The deposit TxId recorded in the chainstate does not match the txid referenced in the
+    /// WithdrawalFulfillmentTx.
+    #[error(
+        "Mismatched deposit txid: chainstate has {chainstate_txid}, but fulfillment has {fulfillment_txid}"
+    )]
+    MismatchedDepositTxid {
+        chainstate_txid: bitcoin::Txid,
+        fulfillment_txid: bitcoin::Txid,
+    },
 }
 
 /// Identifies the type of a transaction relevant to the bridge proof process.

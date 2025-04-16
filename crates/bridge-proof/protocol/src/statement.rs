@@ -115,6 +115,13 @@ pub(crate) fn process_bridge_proof(
         .get_deposit(deposit_idx)
         .ok_or(ChainStateError::DepositNotFound(deposit_idx))?;
 
+    let deposit_txid_in_chainstate = entry.output().outpoint().txid;
+    if deposit_txid_in_chainstate != deposit_txid {
+        Err(ChainStateError::MismatchedDepositTxid {
+            chainstate_txid: deposit_txid_in_chainstate,
+            fulfillment_txid: deposit_txid,
+        })?;
+    }
 
     let dispatched_state = match entry.deposit_state() {
         DepositState::Dispatched(dispatched_state) => dispatched_state,
@@ -187,7 +194,7 @@ pub(crate) fn process_bridge_proof(
 
     // 8. Construct the proof output.
     let output = BridgeProofPublicOutput {
-        deposit_txid: entry.output().outpoint().txid.into(),
+        deposit_txid: deposit_txid.into(),
         withdrawal_fulfillment_txid,
     };
 
