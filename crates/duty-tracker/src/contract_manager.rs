@@ -31,8 +31,7 @@ use musig2::{
 use operator_wallet::{FundingUtxo, OperatorWallet};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_connectors::prelude::ConnectorStake;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
     build_context::BuildContext, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
@@ -57,7 +56,7 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, trace, warn};
 
 use crate::{
     contract_persister::ContractPersister,
@@ -66,6 +65,9 @@ use crate::{
         TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
+    executors::{
+        handle_advance_stake_chain, handle_publish_deposit_setup, handle_withdrawal_fulfillment,
+    },
     predicates::{deposit_request_info, parse_strata_checkpoint},
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
     stake_chain_persister::StakeChainPersister,
@@ -395,22 +397,22 @@ struct ExecutionState {
     stake_chains: StakeChainSM,
 }
 
-/// The proxy for the state being tracked by the [`ContractManager`].
+/// pub(super) The proxy for the state being tracked by the [`ContractManager`].
 #[derive(Debug)]
-struct StateHandles {
-    contract_persister: ContractPersister,
-    stake_chain_persister: StakeChainPersister,
+pub(super) struct StateHandles {
+    pub(super) contract_persister: ContractPersister,
+    pub(super) stake_chain_persister: StakeChainPersister,
 }
 
-/// The parameters that all duty executions depend upon.
+/// pub(super) The parameters that all duty executions depend upon.
 #[derive(Debug, Clone)]
-struct ExecutionConfig {
-    network: Network,
-    connector_params: ConnectorParams,
-    pegout_graph_params: PegOutGraphParams,
-    stake_chain_params: StakeChainParams,
-    sidesystem_params: RollupParams,
-    operator_table: OperatorTable,
+pub(super) struct ExecutionConfig {
+    pub(super) network: Network,
+    pub(super) connector_params: ConnectorParams,
+    pub(super) pegout_graph_params: PegOutGraphParams,
+    pub(super) stake_chain_params: StakeChainParams,
+    pub(super) sidesystem_params: RollupParams,
+    pub(super) operator_table: OperatorTable,
 }
 
 struct ContractManagerCtx {
@@ -1265,89 +1267,31 @@ async fn execute_duty(
             )
             .await
         }
-
-        OperatorDuty::PublishRootNonce {
-            deposit_request_txid,
-            witness,
-        } => {
-            handle_publish_root_nonce(
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
-                OutPoint::new(deposit_request_txid, 0),
-                witness,
-            )
-            .await
-        }
-
-        OperatorDuty::PublishGraphNonces {
-            claim_txid,
-            pog_prevouts: pog_inputs,
-            pog_witnesses,
-        } => {
-            handle_publish_graph_nonces(
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
-                claim_txid,
-                pog_inputs,
-                pog_witnesses,
-            )
-            .await
-        }
-
-        OperatorDuty::PublishGraphSignatures {
-            claim_txid,
-            pubnonces,
-            pog_prevouts: pog_outpoints,
-            pog_sighashes,
-        } => {
-            handle_publish_graph_sigs(
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
-                claim_txid,
-                pubnonces,
-                pog_outpoints,
-                pog_sighashes,
-            )
-            .await
-        }
-
-        OperatorDuty::PublishRootSignature {
-            nonces,
-            deposit_request_txid,
-            sighash,
-        } => {
-            handle_publish_root_signature(
-                cfg,
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
-                nonces,
-                OutPoint::new(deposit_request_txid, 0),
-                sighash,
-            )
-            .await
-        }
-
-        OperatorDuty::PublishDeposit {
-            deposit_tx,
-
-            partial_sigs,
-        } => {
-            handle_publish_deposit(
-                &output_handles.s2_session_manager,
-                &output_handles.tx_driver,
-                deposit_tx,
-                partial_sigs
-                    .into_iter()
-                    .map(|(k, v)| (cfg.operator_table.op_key_to_btc_key(&k).unwrap(), v))
-                    .collect(),
-            )
-            .await
-        }
-
-        OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
-            stake_index,
-            stake_tx,
-        }) => handle_advance_stake_chain(cfg, output_handles.clone(), stake_index, stake_tx).await,
+        OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
+            FulfillerDuty::AdvanceStakeChain {
+                stake_index,
+                stake_tx,
+            } => {
+                handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx)
+                    .await
+            }
+            FulfillerDuty::PublishFulfillment {
+                withdrawal_metadata,
+                user_descriptor,
+            } => {
+                handle_withdrawal_fulfillment(
+                    cfg,
+                    output_handles,
+                    withdrawal_metadata,
+                    user_descriptor,
+                )
+                .await
+            }
+            ignored_fulfiller_duty => {
+                warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
+                Ok(())
+            }
+        },
         ignored_duty => {
             warn!(?ignored_duty, "ignoring duty");
             Ok(())
