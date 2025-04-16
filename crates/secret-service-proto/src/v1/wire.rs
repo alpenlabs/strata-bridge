@@ -7,6 +7,7 @@ use bitcoin::{
     taproot::{ControlBlock, TaprootError},
     ScriptBuf, TapNodeHash,
 };
+use bitvm::signatures::wots_api::{wots256, wots_hash};
 use musig2::errors::{RoundContributionError, RoundFinalizeError};
 use rkyv::{
     with::{Identity, Map, MapKV},
@@ -181,11 +182,11 @@ pub enum ServerMessage {
 
     /// Response for
     /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
-    WotsGet128Signature { sig: [u8; 20 * 36] },
+    WotsGet128Signature { sig: wots_hash::Signature },
 
     /// Response for
     /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
-    WotsGet256Signature { sig: [u8; 20 * 68] },
+    WotsGet256Signature { sig: wots256::Signature },
 
     /// Response for
     /// [`StakeChainPreimages::get_preimg`](super::traits::StakeChainPreimages::get_preimg).
