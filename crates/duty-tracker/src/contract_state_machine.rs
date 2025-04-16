@@ -349,7 +349,7 @@ pub enum OperatorDuty {
 /// This is a duty that has to be carried out if we are the assigned operator.
 #[derive(Debug)]
 pub enum FulfillerDuty {
-    /// Originates when strata state on L1 is published.
+    /// Originates when strata state on L1 is published and there has been an assignment.
     AdvanceStakeChain {
         /// Index of the stake transaction to advance to.
         stake_index: u32,
