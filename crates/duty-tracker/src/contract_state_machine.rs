@@ -267,6 +267,9 @@ pub enum ContractState {
         /// The descriptor of the recipient.
         recipient: Descriptor,
 
+        /// The transaction ID of the stake transaction that was just confirmed.
+        stake_txid: Txid,
+
         /// The deadline by which the operator must fulfill the withdrawal before it is reassigned.
         deadline: BitcoinBlockHeight,
 
@@ -570,7 +573,18 @@ pub enum FulfillerDuty {
     },
 
     /// Originates when Fulfillment confirms (is buried?)
-    PublishClaim,
+    PublishClaim {
+        /// The transaction ID of the withdrawal fulfillment transaction that is committed in the
+        /// claim transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The transaction ID of the stake transaction whose output is spent by the claim
+        /// transaction.
+        stake_txid: Txid,
+
+        /// The transaction ID of the deposit transaction that is being claimed.
+        deposit_txid: Txid,
+    },
 
     /// Originates after reaching timelock expiry for Claim transaction
     PublishPayoutOptimistic,
@@ -1535,6 +1549,7 @@ impl ContractSM {
                     claim_txids,
                     fulfiller,
                     recipient: recipient.clone(),
+                    stake_txid,
                     deadline,
                     active_graph,
                     assignment_txid,
@@ -1581,11 +1596,14 @@ impl ContractSM {
                 fulfiller,
                 active_graph,
                 recipient,
+                stake_txid,
                 ..
             } => {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
                 // operator.
                 let cfg = self.cfg();
+                let deposit_txid = self.cfg.deposit_tx.compute_txid();
+
                 if !is_fulfillment_tx(
                     cfg.network,
                     &cfg.peg_out_graph_params,
@@ -1598,12 +1616,16 @@ impl ContractSM {
                     return Err(TransitionErr(format!(
                         "invalid fulfillment transaction ({}) delivered to CSM ({})",
                         tx.compute_txid(),
-                        self.cfg.deposit_tx.compute_txid()
+                        deposit_txid,
                     )));
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
-                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim {
+                        withdrawal_fulfillment_txid: tx.compute_txid(),
+                        stake_txid,
+                        deposit_txid,
+                    }))
                 } else {
                     None
                 };

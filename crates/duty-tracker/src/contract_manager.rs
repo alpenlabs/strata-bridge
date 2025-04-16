@@ -65,9 +65,7 @@ use crate::{
         TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
-    executors::{
-        handle_advance_stake_chain, handle_publish_deposit_setup, handle_withdrawal_fulfillment,
-    },
+    executors::*,
     predicates::{deposit_request_info, parse_strata_checkpoint},
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
     stake_chain_persister::StakeChainPersister,
@@ -1284,6 +1282,20 @@ async fn execute_duty(
                     output_handles,
                     withdrawal_metadata,
                     user_descriptor,
+                )
+                .await
+            }
+            FulfillerDuty::PublishClaim {
+                withdrawal_fulfillment_txid,
+                stake_txid,
+                deposit_txid,
+            } => {
+                handle_publish_claim(
+                    &cfg,
+                    output_handles.clone(),
+                    stake_txid,
+                    deposit_txid,
+                    withdrawal_fulfillment_txid,
                 )
                 .await
             }
