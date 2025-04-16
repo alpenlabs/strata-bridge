@@ -147,6 +147,9 @@ impl DepositInfo {
         })
     }
 
+    /// Computes the witness data for spending the Deposit Request Transaction (DRT) and in the
+    /// process, also validates the following:
+    ///
     /// 1. The taproot address computed from the x-only public key in the DRT and the bridge
     ///    multisig address is the same as the output address in the DRT.
     /// 1. The control block computed from the DRT commits to the multisig script that the Deposit

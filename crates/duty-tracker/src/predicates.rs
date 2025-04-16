@@ -86,7 +86,7 @@ pub(crate) fn deposit_request_info(
     deposit_info
         .compute_spend_infos(build_context, pegout_graph_params.refund_delay)
         .map_err(|e| {
-            warn!("failed to compute spend info: {:?}", e);
+            warn!(err=%e, txid=%tx.compute_txid(), "failed to compute spend info, malformed DRT");
             None::<DepositInfo>
         })
         .ok()?;
