@@ -26,6 +26,10 @@ use strata_p2p_types::{Scope, Wots128PublicKey, Wots256PublicKey, WotsPublicKeys
 use tracing::{debug, error, info};
 
 use crate::{
+    constants::{
+        FIELD_ELEMENTS_PK_OFFSET, HASH_ELEMENTS_PK_OFFSET, PUBLIC_INPUTS_PK_OFFSET,
+        WITHDRAWAL_FULFILLMENT_PK_IDX,
+    },
     contract_manager::{ExecutionConfig, OutputHandles},
     errors::{ContractManagerErr, StakeChainErr},
     tx_driver::TxDriver,
@@ -51,22 +55,24 @@ pub(super) async fn handle_publish_deposit_setup(
     let wots_client = output_handles.s2_client.wots_signer();
     /// VOUT is static because irrelevant so we're just gonna use 0
     const VOUT: u32 = 0;
-    // withdrawal_fulfillment uses index 0
     let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
         &wots_client
-            .get_256_public_key(deposit_txid, VOUT, 0)
+            .get_256_public_key(deposit_txid, VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
             .await?,
     );
     const NUM_FQS: usize = NUM_U256;
     const NUM_PUB_INPUTS: usize = NUM_PUBS;
     const NUM_HASHES: usize = NUM_HASH;
-    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] =
-        std::array::from_fn(|i| wots_client.get_256_public_key(deposit_txid, VOUT, i as u32));
-    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+
+    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(deposit_txid, VOUT, (i + PUBLIC_INPUTS_PK_OFFSET) as u32)
     });
-    let hashes_ftrs: [_; NUM_HASHES] =
-        std::array::from_fn(|i| wots_client.get_128_public_key(deposit_txid, VOUT, i as u32));
+    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(deposit_txid, VOUT, (i + FIELD_ELEMENTS_PK_OFFSET) as u32)
+    });
+    let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
+        wots_client.get_128_public_key(deposit_txid, VOUT, (i + HASH_ELEMENTS_PK_OFFSET) as u32)
+    });
 
     let (public_inputs, fqs, hashes) = join3(
         join_all(public_inputs_ftrs),
