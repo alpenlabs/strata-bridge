@@ -27,8 +27,8 @@ pub struct ClaimTx {
 
     output_amount: Amount,
 
-    prevouts: Vec<TxOut>,
-    witnesses: Vec<TaprootWitness>,
+    prevouts: [TxOut; 1],
+    witnesses: [TaprootWitness; 1],
 }
 
 impl ClaimTx {
@@ -76,7 +76,7 @@ impl ClaimTx {
         psbt.inputs[0].witness_utxo = Some(prevout.clone());
 
         let (input_script, control_block) = connector_k.generate_spend_info();
-        let witnesses = vec![TaprootWitness::Script {
+        let witnesses = [TaprootWitness::Script {
             script_buf: input_script,
             control_block,
         }];
@@ -84,7 +84,7 @@ impl ClaimTx {
         Self {
             psbt,
             output_amount: c0_amt,
-            prevouts: vec![prevout],
+            prevouts: [prevout],
             witnesses,
         }
     }
@@ -146,7 +146,7 @@ impl ClaimTx {
     }
 }
 
-impl CovenantTx for ClaimTx {
+impl CovenantTx<1> for ClaimTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -159,7 +159,7 @@ impl CovenantTx for ClaimTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 1] {
         &self.witnesses
     }
 

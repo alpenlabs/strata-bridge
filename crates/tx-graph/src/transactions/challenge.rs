@@ -1,10 +1,8 @@
 //! Module to construct the Challenge Transaction.
 
-use std::marker::PhantomData;
-
 use bitcoin::{
     key::TapTweak, psbt::ExtractTxError, sighash::Prevouts, taproot, Address, Amount, Network,
-    OutPoint, Psbt, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+    OutPoint, Psbt, Transaction, TxOut, Txid,
 };
 use secp256k1::XOnlyPublicKey;
 use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
@@ -13,10 +11,7 @@ use strata_bridge_primitives::scripts::{
     taproot::TaprootWitness,
 };
 
-use super::{
-    errors::{TxError, TxResult},
-    prelude::CovenantTx,
-};
+use super::prelude::CovenantTx;
 
 /// Data needed to construct a [`ChallengeTx`].
 #[derive(Debug, Clone)]
@@ -37,16 +32,14 @@ pub struct Funded;
 
 /// The transaction used to challenge an operator's claim.
 #[derive(Debug, Clone)]
-pub struct ChallengeTx<Status = Unfunded> {
+pub struct ChallengeTx {
     psbt: Psbt,
 
-    prevouts: Vec<TxOut>,
-    witnesses: Vec<TaprootWitness>,
-
-    status: PhantomData<Status>,
+    prevouts: [TxOut; 1],
+    witnesses: [TaprootWitness; 1],
 }
 
-impl ChallengeTx<Unfunded> {
+impl ChallengeTx {
     /// Constructs a new Challenge transaction.
     pub fn new(input: ChallengeTxInput, challenge_connector: ConnectorC1) -> Self {
         let tx_ins = create_tx_ins([input.claim_outpoint]);
@@ -63,10 +56,10 @@ impl ChallengeTx<Unfunded> {
         let tapleaf = ConnectorC1Path::Challenge(());
         let tweak = challenge_connector.generate_merkle_root();
 
-        let witnesses = vec![TaprootWitness::Tweaked { tweak }];
+        let witnesses = [TaprootWitness::Tweaked { tweak }];
 
         let script_pubkey = challenge_connector.generate_locking_script();
-        let prevouts = vec![TxOut {
+        let prevouts = [TxOut {
             value: script_pubkey.minimal_non_dust(),
             script_pubkey,
         }];
@@ -79,63 +72,7 @@ impl ChallengeTx<Unfunded> {
 
             prevouts,
             witnesses,
-
-            status: PhantomData,
         }
-    }
-
-    /// Funds the Challenge transaction.
-    ///
-    /// Note that the witnesses are not updated in this method as the funding input needs to be
-    /// finalized separately.
-    pub fn add_funding_input(
-        mut self,
-        previous_output: OutPoint,
-        prevout: TxOut,
-    ) -> TxResult<ChallengeTx<Funded>> {
-        let tx_in = TxIn {
-            previous_output,
-            sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
-            witness: Witness::new(),
-            script_sig: ScriptBuf::new(),
-        };
-
-        self.psbt.unsigned_tx.input.push(tx_in);
-        self.prevouts.push(prevout.clone());
-
-        self.psbt = Psbt::from_unsigned_tx(self.psbt.unsigned_tx).expect("tx must be unsigned");
-
-        self.prevouts
-            .iter()
-            .zip(self.psbt.inputs.iter_mut())
-            .for_each(|(prevout, input)| {
-                input.witness_utxo = Some(prevout.clone());
-            });
-
-        let input_amount = self.input_amount();
-        let output_amount = self
-            .psbt
-            .unsigned_tx
-            .output
-            .iter()
-            .map(|output| output.value)
-            .sum();
-
-        if input_amount < output_amount {
-            return Err(TxError::InsufficientInputAmount(
-                input_amount,
-                output_amount,
-            ));
-        }
-
-        Ok(ChallengeTx::<Funded> {
-            psbt: self.psbt,
-
-            prevouts: self.prevouts,
-            witnesses: self.witnesses,
-
-            status: PhantomData,
-        })
     }
 
     /// Finalizes the presigned input in the Challenge transaction.
@@ -167,23 +104,7 @@ impl ChallengeTx<Unfunded> {
     }
 }
 
-impl ChallengeTx<Funded> {
-    /// Finalizes the presigned input in the Challenge transaction.
-    pub fn finalize(
-        mut self,
-        connector_c1: ConnectorC1,
-        challenge_leaf: ConnectorC1Path<taproot::Signature>,
-    ) -> TxResult<Transaction> {
-        connector_c1.finalize_input(
-            &mut self.psbt.inputs[challenge_leaf.get_input_index() as usize],
-            challenge_leaf,
-        );
-
-        Ok(self.psbt.extract_tx()?)
-    }
-}
-
-impl CovenantTx for ChallengeTx {
+impl CovenantTx<1> for ChallengeTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -196,7 +117,7 @@ impl CovenantTx for ChallengeTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 1] {
         &self.witnesses
     }
 
@@ -225,98 +146,17 @@ mod tests {
 
     use alpen_bridge_params::prelude::PegOutGraphParams;
     use bitcoin::{consensus, sighash::SighashCache, Network};
-    use corepc_node::{serde_json::json, Client, Conf, Node};
+    use corepc_node::{Client, Conf, Node};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
         scripts::taproot::create_message_hash,
     };
     use strata_bridge_test_utils::{
-        bitcoin_rpc::fund_and_sign_raw_tx,
-        musig2::generate_agg_signature,
-        prelude::{generate_keypair, generate_txid, get_funding_utxo_exact},
-        tx::FEES,
+        bitcoin_rpc::fund_and_sign_raw_tx, musig2::generate_agg_signature,
+        prelude::generate_keypair,
     };
-    use strata_btcio::rpc::types::SignRawTransactionWithWallet;
 
     use super::*;
-
-    #[test]
-    fn test_challenge_tx() {
-        let mut conf = Conf::default();
-        conf.args.push("-txindex=1");
-
-        let bitcoind =
-            Node::from_downloaded_with_conf(&conf).expect("must be able to start bitcoind");
-        let btc_client = &bitcoind.client;
-        let PrepareChallengeTxResult {
-            operator_address,
-            challenge_connector,
-            input_amount,
-            challenge_tx,
-            signed_challenge_leaf,
-        } = prepare_challenge_tx(btc_client);
-
-        let insufficient_outpoint = OutPoint {
-            txid: generate_txid(),
-            vout: 0,
-        };
-        let insufficient_prevout = TxOut {
-            value: Amount::from_sat(100),
-            script_pubkey: operator_address.script_pubkey().clone(),
-        };
-
-        let pegout_graph_params = PegOutGraphParams::default();
-        assert!(challenge_tx
-            .clone()
-            .add_funding_input(insufficient_outpoint, insufficient_prevout.clone())
-            .is_err_and(|err| {
-                match err {
-                    TxError::InsufficientInputAmount(input, output) => {
-                        assert_eq!(input, input_amount + insufficient_prevout.value);
-                        assert_eq!(output, pegout_graph_params.challenge_cost);
-
-                        true
-                    }
-                    _ => panic!("unexpected error: {:?}", err),
-                }
-            }));
-
-        let required_amount: Amount = challenge_tx
-            .psbt()
-            .unsigned_tx
-            .output
-            .iter()
-            .map(|output| output.value)
-            .sum();
-        let (funding_input, funding_outpoint) =
-            get_funding_utxo_exact(btc_client, required_amount + FEES);
-
-        let funded_challenge_tx = challenge_tx
-            .add_funding_input(funding_outpoint, funding_input)
-            .expect("must be able to fund the challenge");
-
-        let signed_challenge_tx = funded_challenge_tx
-            .finalize(challenge_connector, signed_challenge_leaf)
-            .expect("must be able to finalize tx");
-
-        let signed_challenge_tx_result = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(consensus::encode::serialize_hex(
-                    &signed_challenge_tx
-                )
-                .to_string())],
-            )
-            .expect("must be able to sign tx");
-
-        let signed_challenge_tx: Transaction =
-            consensus::encode::deserialize_hex(&signed_challenge_tx_result.hex)
-                .expect("must be able to deserialize tx");
-
-        btc_client
-            .send_raw_transaction(&signed_challenge_tx)
-            .expect("must be able to send tx");
-    }
 
     #[test]
     fn test_challenge_tx_psbt() {
@@ -326,33 +166,17 @@ mod tests {
         let bitcoind =
             Node::from_downloaded_with_conf(&conf).expect("must be able to start bitcoind");
         let btc_client = &bitcoind.client;
-        let PrepareChallengeTxResult {
-            challenge_connector,
-            challenge_tx,
-            signed_challenge_leaf,
-            ..
-        } = prepare_challenge_tx(btc_client);
-
-        let finalized_challenge_tx =
-            challenge_tx.finalize_presigned(challenge_connector, signed_challenge_leaf);
+        let partially_signed_challenge_tx = prepare_partially_signed_challenge_tx(btc_client);
 
         let signed_challenge_tx =
-            fund_and_sign_raw_tx(btc_client, &finalized_challenge_tx, None, Some(true));
+            fund_and_sign_raw_tx(btc_client, &partially_signed_challenge_tx, None, Some(true));
 
         btc_client
             .send_raw_transaction(&signed_challenge_tx)
             .expect("must be able to send tx");
     }
 
-    struct PrepareChallengeTxResult {
-        operator_address: Address,
-        challenge_connector: ConnectorC1,
-        input_amount: Amount,
-        challenge_tx: ChallengeTx,
-        signed_challenge_leaf: ConnectorC1Path<taproot::Signature>,
-    }
-
-    fn prepare_challenge_tx(btc_client: &Client) -> PrepareChallengeTxResult {
+    fn prepare_partially_signed_challenge_tx(btc_client: &Client) -> Transaction {
         let network = btc_client
             .get_blockchain_info()
             .expect("must get blockchain info")
@@ -430,12 +254,6 @@ mod tests {
         };
         let signed_challenge_leaf = challenge_leaf.add_witness_data(n_of_n_sig);
 
-        PrepareChallengeTxResult {
-            operator_address,
-            challenge_connector,
-            input_amount,
-            challenge_tx,
-            signed_challenge_leaf,
-        }
+        challenge_tx.finalize_presigned(challenge_connector, signed_challenge_leaf)
     }
 }

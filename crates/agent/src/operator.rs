@@ -1323,12 +1323,12 @@ where
         None
     }
 
-    pub async fn generate_nonces(
+    pub async fn generate_nonces<const NUM_COVENANT_INPUTS: usize>(
         &self,
         operator_idx: OperatorIdx,
         key_agg_ctx: &KeyAggContext,
         input_index: u32,
-        tx: &impl CovenantTx,
+        tx: &impl CovenantTx<NUM_COVENANT_INPUTS>,
     ) -> PubNonce {
         let txid = tx.compute_txid();
 
@@ -1383,7 +1383,10 @@ where
     ///
     /// Make sure that `prevouts`, `agg_nonces` and `witnesses` have the same length.
     #[expect(clippy::too_many_arguments)]
-    async fn sign_partial<Tx: CovenantTx + fmt::Debug>(
+    async fn sign_partial<
+        const NUM_COVENANT_INPUTS: usize,
+        Tx: CovenantTx<NUM_COVENANT_INPUTS> + fmt::Debug,
+    >(
         &self,
         key_agg_ctx: &KeyAggContext,
         sighash_type: TapSighashType,
@@ -1475,11 +1478,11 @@ where
         partial_sigs
     }
 
-    async fn compute_agg_sig(
+    async fn compute_agg_sig<const NUM_COVENANT_INPUTS: usize>(
         &self,
         key_agg_ctx: &KeyAggContext,
         inputs_to_sign: usize,
-        covenant_tx: impl CovenantTx,
+        covenant_tx: impl CovenantTx<NUM_COVENANT_INPUTS>,
         agg_nonces: &[AggNonce],
     ) {
         let txid = covenant_tx.compute_txid();

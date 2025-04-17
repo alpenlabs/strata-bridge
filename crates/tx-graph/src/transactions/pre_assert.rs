@@ -27,13 +27,13 @@ pub(super) const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1; // +1 for cpfp
 pub struct PreAssertTx {
     psbt: Psbt,
 
-    prevouts: Vec<TxOut>,
+    prevouts: [TxOut; 1],
 
     // The ordering of these is pretty complicated.
     // This field is so that we don't have to recompute this order in other places.
     tx_outs: [TxOut; PRE_ASSERT_OUTS],
 
-    witnesses: Vec<TaprootWitness>,
+    witnesses: [TaprootWitness; 1],
 }
 
 impl PreAssertTx {
@@ -146,7 +146,7 @@ impl PreAssertTx {
         let mut psbt =
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");
 
-        let prevouts = vec![TxOut {
+        let prevouts = [TxOut {
             value: data.input_amount,
             script_pubkey: connector_c0.generate_locking_script(),
         }];
@@ -156,7 +156,7 @@ impl PreAssertTx {
         }
 
         let (script_buf, control_block) = connector_c0.generate_spend_info();
-        let witness = vec![TaprootWitness::Script {
+        let witness = [TaprootWitness::Script {
             script_buf,
             control_block,
         }];
@@ -208,7 +208,7 @@ impl PreAssertTx {
     }
 }
 
-impl CovenantTx for PreAssertTx {
+impl CovenantTx<1> for PreAssertTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -221,7 +221,7 @@ impl CovenantTx for PreAssertTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 1] {
         &self.witnesses
     }
 

@@ -584,14 +584,14 @@ mod tests {
         transactions::stake::StakeTxData,
     };
     use strata_bridge_test_utils::{
+        bitcoin_rpc::fund_and_sign_raw_tx,
         musig2::generate_agg_signature,
         prelude::{
-            find_funding_utxo, generate_keypair, generate_txid, get_funding_utxo_exact,
-            sign_cpfp_child, wait_for_blocks,
+            find_funding_utxo, generate_keypair, generate_txid, sign_cpfp_child, wait_for_blocks,
         },
-        tx::{get_mock_deposit, FEES},
+        tx::get_mock_deposit,
     };
-    use strata_btcio::rpc::types::{GetTxOut, SignRawTransactionWithWallet};
+    use strata_btcio::rpc::types::GetTxOut;
     use tracing::{info, warn};
 
     use super::*;
@@ -1506,27 +1506,11 @@ mod tests {
             sighash_type: challenge_leaf.get_sighash_type(),
         };
         let signed_challenge_leaf = challenge_leaf.add_witness_data(signature);
+        let partially_signed_challenge_tx =
+            challenge_tx.finalize_presigned(connectors.claim_out_1, signed_challenge_leaf);
 
-        let (funding_input, funding_utxo) =
-            get_funding_utxo_exact(btc_client, CHALLENGE_COST + FEES);
-
-        let funded_challenge_tx = challenge_tx
-            .add_funding_input(funding_utxo, funding_input)
-            .expect("must be able to add funding input to challenge tx");
-        let partially_signed_challenge_tx = funded_challenge_tx
-            .finalize(claim_out_1, signed_challenge_leaf)
-            .expect("must be able to finalize challenge tx");
-
-        let raw_partially_signed_challenge_tx =
-            consensus::encode::serialize_hex(&partially_signed_challenge_tx);
-        let result = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(raw_partially_signed_challenge_tx)],
-            )
-            .expect("must be able to sign tx");
-        let signed_challenge_tx = consensus::encode::deserialize_hex::<Transaction>(&result.hex)
-            .expect("must be able to deserialize signed tx");
+        let signed_challenge_tx =
+            fund_and_sign_raw_tx(btc_client, &partially_signed_challenge_tx, None, Some(true));
 
         info!(
             vsize = signed_challenge_tx.vsize(),

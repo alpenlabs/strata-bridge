@@ -49,9 +49,9 @@ pub struct PayoutData {
 pub struct PayoutTx {
     psbt: Psbt,
 
-    prevouts: Vec<TxOut>,
+    prevouts: [TxOut; 4],
 
-    witnesses: Vec<TaprootWitness>,
+    witnesses: [TaprootWitness; 4],
 }
 
 impl PayoutTx {
@@ -98,7 +98,7 @@ impl PayoutTx {
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
         let n_of_n_addr = connector_n_of_n.create_taproot_address();
-        let prevouts = vec![
+        let prevouts = [
             TxOut {
                 value: data.deposit_amount,
                 script_pubkey: n_of_n_addr.script_pubkey(),
@@ -138,7 +138,7 @@ impl PayoutTx {
 
         let (connector_a3_script, connector_a3_control_block) =
             connector_a3.generate_spend_info(ConnectorA3Leaf::Payout(None), data.deposit_txid);
-        let witnesses = vec![
+        let witnesses = [
             TaprootWitness::Key,
             TaprootWitness::Script {
                 script_buf: connector_a3_script,
@@ -199,7 +199,7 @@ impl PayoutTx {
     }
 }
 
-impl CovenantTx for PayoutTx {
+impl CovenantTx<4> for PayoutTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -212,7 +212,7 @@ impl CovenantTx for PayoutTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 4] {
         &self.witnesses
     }
 
