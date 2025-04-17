@@ -1,12 +1,9 @@
-use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
 use bitvm::signatures::wots_api::wots256;
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::scripts::prelude::*;
 
-use super::{
-    errors::{TxError, TxResult},
-    prelude::CovenantTx,
-};
+use super::errors::{TxError, TxResult};
 
 /// Data needed to construct a [`ClaimTx`].
 #[derive(Debug, Clone)]
@@ -26,9 +23,6 @@ pub struct ClaimTx {
     psbt: Psbt,
 
     output_amount: Amount,
-
-    prevouts: [TxOut; 1],
-    witnesses: [TaprootWitness; 1],
 }
 
 impl ClaimTx {
@@ -75,18 +69,35 @@ impl ClaimTx {
 
         psbt.inputs[0].witness_utxo = Some(prevout.clone());
 
-        let (input_script, control_block) = connector_k.generate_spend_info();
-        let witnesses = [TaprootWitness::Script {
-            script_buf: input_script,
-            control_block,
-        }];
-
         Self {
             psbt,
             output_amount: c0_amt,
-            prevouts: [prevout],
-            witnesses,
         }
+    }
+
+    pub fn psbt(&self) -> &Psbt {
+        &self.psbt
+    }
+
+    pub fn psbt_mut(&mut self) -> &mut Psbt {
+        &mut self.psbt
+    }
+
+    pub fn compute_txid(&self) -> Txid {
+        self.psbt.unsigned_tx.compute_txid()
+    }
+
+    pub fn input_amount(&self) -> Amount {
+        self.psbt
+            .inputs
+            .iter()
+            .map(|out| {
+                out.witness_utxo
+                    .as_ref()
+                    .expect("psbt must have witness")
+                    .value
+            })
+            .sum()
     }
 
     pub fn output_amount(&self) -> Amount {
@@ -143,41 +154,6 @@ impl ClaimTx {
         let wots256_signature = wots256_signature?;
 
         Ok(Some(wots256_signature))
-    }
-}
-
-impl CovenantTx<1> for ClaimTx {
-    fn psbt(&self) -> &Psbt {
-        &self.psbt
-    }
-
-    fn psbt_mut(&mut self) -> &mut Psbt {
-        &mut self.psbt
-    }
-
-    fn prevouts(&self) -> Prevouts<'_, TxOut> {
-        Prevouts::All(&self.prevouts)
-    }
-
-    fn witnesses(&self) -> &[TaprootWitness; 1] {
-        &self.witnesses
-    }
-
-    fn input_amount(&self) -> Amount {
-        self.psbt
-            .inputs
-            .iter()
-            .map(|out| {
-                out.witness_utxo
-                    .as_ref()
-                    .expect("psbt must have witness")
-                    .value
-            })
-            .sum()
-    }
-
-    fn compute_txid(&self) -> Txid {
-        self.psbt.unsigned_tx.compute_txid()
     }
 }
 

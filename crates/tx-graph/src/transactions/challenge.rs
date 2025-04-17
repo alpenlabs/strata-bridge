@@ -66,6 +66,7 @@ impl ChallengeTx {
 
         let input_index = tapleaf.get_input_index() as usize;
         psbt.inputs[input_index].witness_utxo = Some(prevouts[0].clone());
+        psbt.inputs[input_index].sighash_type = Some(tapleaf.get_sighash_type().into());
 
         Self {
             psbt,
@@ -114,7 +115,8 @@ impl CovenantTx<1> for ChallengeTx {
     }
 
     fn prevouts(&self) -> Prevouts<'_, TxOut> {
-        Prevouts::All(&self.prevouts)
+        // challenge is funded at the
+        Prevouts::One(0, self.prevouts[0].clone())
     }
 
     fn witnesses(&self) -> &[TaprootWitness; 1] {
