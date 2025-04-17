@@ -39,6 +39,7 @@ impl Musig2Client {
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     async fn new_session(
         &self,
+        session_id: Musig2SessionId,
         pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
@@ -49,6 +50,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
             witness: witness.into(),
             input_txid: input_txid.to_byte_array(),
             input_vout,
+            session_id,
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
@@ -56,7 +58,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
         };
 
         Ok(match maybe_session_id {
-            Ok(session_id) => Ok(Musig2FirstRound {
+            Ok(()) => Ok(Musig2FirstRound {
                 session_id,
                 connection: self.conn.clone(),
                 config: self.config.clone(),

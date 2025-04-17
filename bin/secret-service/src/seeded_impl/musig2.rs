@@ -14,7 +14,7 @@ use musig2::{
     FirstRound, KeyAggContext, LiftedSignature, SecNonceSpices, SecondRound,
 };
 use secret_service_proto::v1::traits::{
-    Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
+    Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
     SignerIdxOutOfBounds,
 };
 use sha2::Sha256;
@@ -54,6 +54,7 @@ impl Ms2Signer {
 impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
     async fn new_session(
         &self,
+        _session_id: Musig2SessionId,
         ordered_pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,

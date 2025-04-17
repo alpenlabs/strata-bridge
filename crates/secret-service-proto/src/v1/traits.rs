@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use bitcoin::{TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, SecretKey},
@@ -102,7 +102,7 @@ pub trait P2PSigner<O: Origin>: Send {
 }
 
 /// Uniquely identifies an in-memory MuSig2 session on the signing server.
-pub type Musig2SessionId = usize;
+pub type Musig2SessionId = OutPoint;
 
 /// Error returned when trying to access a signer that is out of bounds.
 #[derive(Debug, Archive, Serialize, Deserialize, Clone)]
@@ -129,6 +129,7 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
     /// `pubkeys` MUST include our own pubkey. The order of pubkeys will be untouched.
     fn new_session(
         &self,
+        session_id: Musig2SessionId,
         ordered_pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,

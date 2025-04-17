@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitcoin.workspace = true
+hashbrown = "0.15.2"
 musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true

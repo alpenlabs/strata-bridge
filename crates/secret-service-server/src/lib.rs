@@ -18,21 +18,16 @@ use quinn::{
     ConnectionError, Endpoint, Incoming, ReadExactError, RecvStream, SendStream, ServerConfig,
     WriteError,
 };
-use rkyv::{
-    deserialize,
-    option::ArchivedOption,
-    rancor::{self, Error},
-    util::AlignedVec,
-};
+use rkyv::{rancor::Error, util::AlignedVec};
 use secret_service_proto::{
     v1::{
         traits::{
             Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, P2PSigner,
             SecretService, Server, StakeChainPreimages, WalletSigner, WotsSigner,
         },
-        wire::{ArchivedClientMessage, ServerMessage},
+        wire::{ClientMessage, ServerMessage},
     },
-    wire::{ArchivedVersionedClientMessage, LengthUint, VersionedServerMessage, WireMessage},
+    wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
@@ -189,85 +184,79 @@ where
     buf.resize(len_to_read as usize, 0);
     rx.read_exact(&mut buf).await?;
 
-    let msg = rkyv::access::<ArchivedVersionedClientMessage, Error>(&buf).unwrap();
+    let msg = rkyv::from_bytes::<VersionedClientMessage, Error>(&buf).unwrap();
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
-        ArchivedVersionedClientMessage::V1(req) => match req {
-            ArchivedClientMessage::GeneralWalletSign { digest, tweak } => {
-                let tweak = match tweak {
-                    ArchivedOption::None => None,
-                    ArchivedOption::Some(t) => {
-                        Some(TapNodeHash::from_slice(t).expect("guaranteed correct length"))
-                    }
-                };
-                let sig = service.general_wallet_signer().sign(digest, tweak).await;
+        VersionedClientMessage::V1(msg) => match msg {
+            ClientMessage::GeneralWalletSign { digest, tweak } => {
+                let tweak =
+                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
+                let sig = service.general_wallet_signer().sign(&digest, tweak).await;
                 ServerMessage::GeneralWalletSign {
                     sig: sig.serialize(),
                 }
             }
 
-            ArchivedClientMessage::GeneralWalletSignNoTweak { digest } => {
-                let sig = service.general_wallet_signer().sign_no_tweak(digest).await;
+            ClientMessage::GeneralWalletSignNoTweak { digest } => {
+                let sig = service.general_wallet_signer().sign_no_tweak(&digest).await;
                 ServerMessage::GeneralWalletSign {
                     sig: sig.serialize(),
                 }
             }
 
-            ArchivedClientMessage::GeneralWalletPubkey => {
+            ClientMessage::GeneralWalletPubkey => {
                 let pubkey = service.general_wallet_signer().pubkey().await;
                 ServerMessage::GeneralWalletPubkey {
                     pubkey: pubkey.serialize(),
                 }
             }
 
-            ArchivedClientMessage::StakechainWalletSign { digest, tweak } => {
-                let tweak = match tweak {
-                    ArchivedOption::None => None,
-                    ArchivedOption::Some(t) => {
-                        Some(TapNodeHash::from_slice(t).expect("guaranteed correct length"))
-                    }
-                };
-                let sig = service.stakechain_wallet_signer().sign(digest, tweak).await;
-                ServerMessage::StakechainWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ArchivedClientMessage::StakechainWalletSignNoTweak { digest } => {
+            ClientMessage::StakechainWalletSign { digest, tweak } => {
+                let tweak =
+                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
                 let sig = service
                     .stakechain_wallet_signer()
-                    .sign_no_tweak(digest)
+                    .sign(&digest, tweak)
                     .await;
                 ServerMessage::StakechainWalletSign {
                     sig: sig.serialize(),
                 }
             }
 
-            ArchivedClientMessage::StakechainWalletPubkey => {
+            ClientMessage::StakechainWalletSignNoTweak { digest } => {
+                let sig = service
+                    .stakechain_wallet_signer()
+                    .sign_no_tweak(&digest)
+                    .await;
+                ServerMessage::StakechainWalletSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ClientMessage::StakechainWalletPubkey => {
                 let pubkey = service.stakechain_wallet_signer().pubkey().await;
                 ServerMessage::StakechainWalletPubkey {
                     pubkey: pubkey.serialize(),
                 }
             }
 
-            ArchivedClientMessage::P2PSecretKey => {
+            ClientMessage::P2PSecretKey => {
                 let key = service.p2p_signer().secret_key().await;
                 ServerMessage::P2PSecretKey {
                     key: key.secret_bytes(),
                 }
             }
 
-            ArchivedClientMessage::Musig2NewSession {
+            ClientMessage::Musig2NewSession {
                 pubkeys,
                 witness,
                 input_txid,
                 input_vout,
+                session_id,
             } => 'block: {
                 let signer = service.musig2_signer();
-                let Ok(ser_witness) = deserialize::<_, rancor::Error>(witness) else {
-                    break 'block ServerMessage::InvalidClientMessage;
-                };
-                let Ok(witness) = TaprootWitness::try_from(ser_witness)
+
+                let Ok(witness) = TaprootWitness::try_from(witness)
                     .map_err(|_| ServerMessage::InvalidClientMessage)
                 else {
                     break 'block ServerMessage::InvalidClientMessage;
@@ -282,50 +271,39 @@ where
 
                 let first_round = match signer
                     .new_session(
+                        session_id,
                         pubkeys,
                         witness,
-                        Txid::from_byte_array(*input_txid),
+                        Txid::from_byte_array(input_txid),
                         input_vout.into(),
                     )
                     .await
                 {
-                    Ok(fr) => fr,
-                    Err(e) => break 'block ServerMessage::Musig2NewSession(Err(e)),
+                    Ok(r1) => r1,
+                    Err(e) => break 'block ServerMessage::Musig2NewSession(Err(e).into()),
                 };
                 let mut sm = musig2_sm.lock().await;
-
-                let Ok(session_id) = sm.new_session(first_round) else {
-                    break 'block ServerMessage::OpaqueServerError;
-                };
-
-                ServerMessage::Musig2NewSession(Ok(session_id))
+                sm.new_session(session_id, first_round);
+                ServerMessage::Musig2NewSession(Ok(()))
             }
 
-            ArchivedClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {
+            ClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {
                 pubkey: service.musig2_signer().pubkey().await.serialize(),
             },
 
-            ArchivedClientMessage::Musig2FirstRoundOurNonce { session_id } => {
-                let r = musig2_sm
-                    .lock()
-                    .await
-                    .first_round(session_id.to_native() as usize);
-                match r {
-                    Ok(Some(first_round)) => {
+            ClientMessage::Musig2FirstRoundOurNonce { session_id } => {
+                match musig2_sm.lock().await.first_round(&session_id) {
+                    Some(first_round) => {
                         let our_nonce = first_round.lock().await.our_nonce().await.serialize();
                         ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
                     }
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2FirstRoundHoldouts { session_id } => {
-                let r = musig2_sm
-                    .lock()
-                    .await
-                    .first_round(session_id.to_native() as usize);
-                match r {
-                    Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundHoldouts {
+            ClientMessage::Musig2FirstRoundHoldouts { session_id } => {
+                match musig2_sm.lock().await.first_round(&session_id) {
+                    Some(first_round) => ServerMessage::Musig2FirstRoundHoldouts {
                         pubkeys: first_round
                             .lock()
                             .await
@@ -335,57 +313,51 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2FirstRoundIsComplete { session_id } => {
-                let r = musig2_sm
-                    .lock()
-                    .await
-                    .first_round(session_id.to_native() as usize);
-                match r {
-                    Ok(Some(first_round)) => ServerMessage::Musig2FirstRoundIsComplete {
-                        complete: first_round.lock().await.is_complete().await,
+            ClientMessage::Musig2FirstRoundIsComplete { session_id } => {
+                match musig2_sm.lock().await.first_round(&session_id) {
+                    Some(r1) => ServerMessage::Musig2FirstRoundIsComplete {
+                        complete: r1.lock().await.is_complete().await,
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2FirstRoundReceivePubNonce {
+            ClientMessage::Musig2FirstRoundReceivePubNonce {
                 session_id,
                 pubkey,
                 pubnonce,
             } => {
-                let session_id = session_id.to_native() as usize;
+                let session_id = &session_id;
                 let r = musig2_sm.lock().await.first_round(session_id);
-                let pubkey = XOnlyPublicKey::from_slice(pubkey);
-                let pubnonce = PubNonce::from_bytes(pubnonce);
+                let pubkey = XOnlyPublicKey::from_slice(&pubkey);
+                let pubnonce = PubNonce::from_bytes(&pubnonce);
                 match (r, pubkey, pubnonce) {
-                    (Ok(Some(first_round)), Ok(pubkey), Ok(pubnonce)) => {
-                        let mut fr = first_round.lock().await;
-                        let r = fr.receive_pub_nonce(pubkey, pubnonce).await;
+                    (Some(first_round), Ok(pubkey), Ok(pubnonce)) => {
+                        let mut r1 = first_round.lock().await;
+                        let r = r1.receive_pub_nonce(pubkey, pubnonce).await;
                         ServerMessage::Musig2FirstRoundReceivePubNonce(r.err())
                     }
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2FirstRoundFinalize { session_id, digest } => {
-                let session_id = session_id.to_native() as usize;
+            ClientMessage::Musig2FirstRoundFinalize { session_id, digest } => {
                 let mut sm = musig2_sm.lock().await;
                 let r = sm
-                    .transition_first_to_second_round(session_id, *digest)
+                    .transition_first_to_second_round(session_id, digest)
                     .await;
 
                 if let Err(e) = r {
-                    use terrors::E3::*;
+                    use terrors::E2::*;
                     match e.narrow::<RoundFinalizeError, _>() {
                         Ok(e) => ServerMessage::Musig2FirstRoundFinalize(Some(e)),
                         Err(e) => match e.as_enum() {
                             A(_not_in_first_round) => ServerMessage::InvalidClientMessage,
-                            B(_out_of_range) => ServerMessage::InvalidClientMessage,
-                            C(_other_refs_active) => ServerMessage::OpaqueServerError,
+                            B(_other_refs_active) => ServerMessage::OpaqueServerError,
                         },
                     }
                 } else {
@@ -393,28 +365,18 @@ where
                 }
             }
 
-            ArchivedClientMessage::Musig2SecondRoundAggNonce { session_id } => {
-                let sr = musig2_sm
-                    .lock()
-                    .await
-                    .second_round(session_id.to_native() as usize);
-
-                match sr {
-                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundAggNonce {
-                        nonce: sr.lock().await.agg_nonce().await.serialize(),
+            ClientMessage::Musig2SecondRoundAggNonce { session_id } => {
+                match musig2_sm.lock().await.second_round(&session_id) {
+                    Some(r2) => ServerMessage::Musig2SecondRoundAggNonce {
+                        nonce: r2.lock().await.agg_nonce().await.serialize(),
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
-            ArchivedClientMessage::Musig2SecondRoundHoldouts { session_id } => {
-                let sr = musig2_sm
-                    .lock()
-                    .await
-                    .second_round(session_id.to_native() as usize);
-
-                match sr {
-                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundHoldouts {
-                        pubkeys: sr
+            ClientMessage::Musig2SecondRoundHoldouts { session_id } => {
+                match musig2_sm.lock().await.second_round(&session_id) {
+                    Some(r2) => ServerMessage::Musig2SecondRoundHoldouts {
+                        pubkeys: r2
                             .lock()
                             .await
                             .holdouts()
@@ -427,58 +389,48 @@ where
                 }
             }
 
-            ArchivedClientMessage::Musig2SecondRoundOurSignature { session_id } => {
-                let sr = musig2_sm
-                    .lock()
-                    .await
-                    .second_round(session_id.to_native() as usize);
-
-                match sr {
-                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundOurSignature {
-                        sig: sr.lock().await.our_signature().await.serialize(),
+            ClientMessage::Musig2SecondRoundOurSignature { session_id } => {
+                match musig2_sm.lock().await.second_round(&session_id) {
+                    Some(r2) => ServerMessage::Musig2SecondRoundOurSignature {
+                        sig: r2.lock().await.our_signature().await.serialize(),
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2SecondRoundIsComplete { session_id } => {
-                let sr = musig2_sm
-                    .lock()
-                    .await
-                    .second_round(session_id.to_native() as usize);
-
-                match sr {
-                    Ok(Some(sr)) => ServerMessage::Musig2SecondRoundIsComplete {
-                        complete: sr.lock().await.is_complete().await,
+            ClientMessage::Musig2SecondRoundIsComplete { session_id } => {
+                match musig2_sm.lock().await.second_round(&session_id) {
+                    Some(r2) => ServerMessage::Musig2SecondRoundIsComplete {
+                        complete: r2.lock().await.is_complete().await,
                     },
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2SecondRoundReceiveSignature {
+            ClientMessage::Musig2SecondRoundReceiveSignature {
                 session_id,
                 pubkey,
                 signature,
             } => {
-                let session_id = session_id.to_native() as usize;
-                let sr = musig2_sm.lock().await.second_round(session_id);
-                let pubkey = XOnlyPublicKey::from_slice(pubkey);
-                let signature = PartialSignature::from_slice(signature);
-                match (sr, pubkey, signature) {
-                    (Ok(Some(sr)), Ok(pubkey), Ok(signature)) => {
-                        let mut sr = sr.lock().await;
-                        let r = sr.receive_signature(pubkey, signature).await;
+                let session_id = &session_id;
+                let r2 = musig2_sm.lock().await.second_round(session_id);
+                let pubkey = XOnlyPublicKey::from_slice(&pubkey);
+                let signature = PartialSignature::from_slice(&signature);
+                match (r2, pubkey, signature) {
+                    (Some(r2), Ok(pubkey), Ok(signature)) => {
+                        let mut r2 = r2.lock().await;
+                        let r = r2.receive_signature(pubkey, signature).await;
                         ServerMessage::Musig2SecondRoundReceiveSignature(r.err())
                     }
                     _ => ServerMessage::InvalidClientMessage,
                 }
             }
 
-            ArchivedClientMessage::Musig2SecondRoundFinalize { session_id } => {
+            ClientMessage::Musig2SecondRoundFinalize { session_id } => {
                 let r = musig2_sm
                     .lock()
                     .await
-                    .finalize_second_round(session_id.to_native() as usize)
+                    .finalize_second_round(session_id)
                     .await;
                 match r.map_err(|e| e.narrow::<RoundFinalizeError, _>()) {
                     Ok(sig) => ServerMessage::Musig2SecondRoundFinalize(Ok(sig.serialize()).into()),
@@ -487,12 +439,12 @@ where
                 }
             }
 
-            ArchivedClientMessage::WotsGet128SecretKey {
+            ClientMessage::WotsGet128SecretKey {
                 index,
                 prestake_vout,
                 prestake_txid,
             } => {
-                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
                     .get_128_secret_key(prestake_txid, prestake_vout.into(), index.into())
@@ -500,12 +452,12 @@ where
                 ServerMessage::WotsGet128SecretKey { key }
             }
 
-            ArchivedClientMessage::WotsGet256SecretKey {
+            ClientMessage::WotsGet256SecretKey {
                 index,
                 prestake_vout,
                 prestake_txid,
             } => {
-                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
                     .get_256_secret_key(prestake_txid, prestake_vout.into(), index.into())
@@ -513,12 +465,12 @@ where
                 ServerMessage::WotsGet256SecretKey { key }
             }
 
-            ArchivedClientMessage::WotsGet128PublicKey {
+            ClientMessage::WotsGet128PublicKey {
                 prestake_txid,
                 prestake_vout,
                 index,
             } => {
-                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
                     .get_128_public_key(prestake_txid, prestake_vout.into(), index.into())
@@ -526,12 +478,12 @@ where
                 ServerMessage::WotsGet128PublicKey { key }
             }
 
-            ArchivedClientMessage::WotsGet256PublicKey {
+            ClientMessage::WotsGet256PublicKey {
                 prestake_txid,
                 prestake_vout,
                 index,
             } => {
-                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
                     .get_256_public_key(prestake_txid, prestake_vout.into(), index.into())
@@ -539,35 +491,35 @@ where
                 ServerMessage::WotsGet256PublicKey { key }
             }
 
-            ArchivedClientMessage::WotsGet128Signature {
+            ClientMessage::WotsGet128Signature {
                 prestake_txid,
                 prestake_vout,
                 index,
                 msg,
             } => {
-                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_128_signature(prestake_txid, prestake_vout.into(), index.into(), msg)
+                    .get_128_signature(prestake_txid, prestake_vout.into(), index.into(), &msg)
                     .await;
                 ServerMessage::WotsGet128Signature { sig }
             }
 
-            ArchivedClientMessage::WotsGet256Signature {
+            ClientMessage::WotsGet256Signature {
                 prestake_txid,
                 prestake_vout,
                 index,
                 msg,
             } => {
-                let prestake_txid = Txid::from_slice(prestake_txid).expect("correct length");
+                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_256_signature(prestake_txid, prestake_vout.into(), index.into(), msg)
+                    .get_256_signature(prestake_txid, prestake_vout.into(), index.into(), &msg)
                     .await;
                 ServerMessage::WotsGet256Signature { sig }
             }
 
-            ArchivedClientMessage::StakeChainGetPreimage {
+            ClientMessage::StakeChainGetPreimage {
                 prestake_txid,
                 prestake_vout,
                 stake_index,
@@ -575,7 +527,7 @@ where
                 let preimg = service
                     .stake_chain_preimages()
                     .get_preimg(
-                        Txid::from_slice(prestake_txid).expect("correct length"),
+                        Txid::from_slice(&prestake_txid).expect("correct length"),
                         prestake_vout.into(),
                         stake_index.into(),
                     )
