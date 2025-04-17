@@ -2,7 +2,7 @@
 
 use std::future::Future;
 
-use bitcoin::{TapNodeHash, Txid, XOnlyPublicKey};
+use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::wots_api::{wots256, wots_hash};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
