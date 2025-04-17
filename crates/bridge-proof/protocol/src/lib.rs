@@ -60,7 +60,6 @@ pub struct BridgeProofInput {
 /// Subset of [`BridgeProofInput`] that is [borsh]-serializable
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub(crate) struct BridgeProofInputBorsh {
-    deposit_idx: u32,
     strata_checkpoint_tx: (L1TxWithProofBundle, usize),
     withdrawal_fulfillment_tx: (L1TxWithProofBundle, usize),
     op_signature: Buf64,
@@ -69,7 +68,6 @@ pub(crate) struct BridgeProofInputBorsh {
 impl From<BridgeProofInput> for BridgeProofInputBorsh {
     fn from(input: BridgeProofInput) -> Self {
         Self {
-            deposit_idx: input.deposit_idx,
             strata_checkpoint_tx: input.strata_checkpoint_tx,
             withdrawal_fulfillment_tx: input.withdrawal_fulfillment_tx,
             op_signature: input.op_signature,
