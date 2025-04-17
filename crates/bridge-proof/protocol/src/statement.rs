@@ -118,8 +118,8 @@ pub(crate) fn process_bridge_proof(
     let deposit_txid_in_chainstate = entry.output().outpoint().txid;
     if deposit_txid_in_chainstate != deposit_txid {
         Err(ChainStateError::MismatchedDepositTxid {
-            chainstate_txid: deposit_txid_in_chainstate,
-            fulfillment_txid: deposit_txid,
+            deposit_txid_in_chainstate,
+            deposit_txid_in_fulfillment: deposit_txid,
         })?;
     }
 

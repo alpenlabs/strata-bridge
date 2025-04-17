@@ -74,11 +74,11 @@ pub(crate) enum ChainStateError {
     /// The deposit TxId recorded in the chainstate does not match the txid referenced in the
     /// WithdrawalFulfillmentTx.
     #[error(
-        "Mismatched deposit txid: chainstate has {chainstate_txid}, but fulfillment has {fulfillment_txid}"
+        "Mismatched deposit txid: chainstate has {deposit_txid_in_chainstate}, but fulfillment has {deposit_txid_in_fulfillment}"
     )]
     MismatchedDepositTxid {
-        chainstate_txid: bitcoin::Txid,
-        fulfillment_txid: bitcoin::Txid,
+        deposit_txid_in_chainstate: bitcoin::Txid,
+        deposit_txid_in_fulfillment: bitcoin::Txid,
     },
 }
 
