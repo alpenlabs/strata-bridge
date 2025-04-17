@@ -678,7 +678,7 @@ pub(super) async fn handle_publish_payout_optimistic(
         ))?;
 
     let signed_payout_optimistic_tx =
-        payout_optimistic_tx.finalize(deposit_sig, c0_sig, c1_sig, n_of_n_sig, hashlock_sig);
+        payout_optimistic_tx.finalize([deposit_sig, c0_sig, c1_sig, n_of_n_sig, hashlock_sig]);
 
     info!(txid = %payout_optimistic_txid, "submitting payout optimistic tx to the tx driver");
     output_handles
