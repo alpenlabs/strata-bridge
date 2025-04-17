@@ -1,6 +1,6 @@
 //! Primitives for Bridge metadata.
 
-use bitcoin::XOnlyPublicKey;
+use bitcoin::{Amount, XOnlyPublicKey};
 
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
@@ -19,7 +19,7 @@ pub struct AuxiliaryData<'tag> {
 pub enum DepositMetadata {
     DepositRequestTx {
         /// 32-bit X-only public key.
-        // TODO: make this a BOSD Descriptor.
+        // TODO: (@Rajil1213) make this a BOSD Descriptor.
         takeback_pubkey: XOnlyPublicKey,
 
         /// Execution Environment address.
@@ -35,6 +35,23 @@ pub enum DepositMetadata {
 
         /// Execution Environment address.
         ee_address: Vec<u8>,
+
+        /// The take back key which is the public key of the depositer included in the Deposit
+        /// Request Metadata.
+        ///
+        /// This information is required to reconstruct the prevout script pubkey on the output in
+        /// the Deposit Request Transaction being spent.
+        //  TODO: (@Rajil1213) make this a BOSD Descriptor.
+        takeback_pubkey: XOnlyPublicKey,
+
+        /// The input amount for the Deposit Transaction.
+        ///
+        /// This is the amount in the output of the Deposit Request Transaction that is being
+        /// spent. This is encoded as an 8-byte big-endian encoded unsigned 64-bit integer.
+        ///
+        /// This information is required to reconstruct the prevout script pubkey on the output in
+        /// the Deposit Request Transaction being spent.
+        input_amount: Amount,
     },
 }
 
@@ -57,9 +74,13 @@ impl<'tag> AuxiliaryData<'tag> {
             DepositMetadata::DepositTx {
                 stake_index,
                 ee_address,
+                takeback_pubkey,
+                input_amount,
             } => {
                 bytes.extend_from_slice(&stake_index.to_be_bytes());
                 bytes.extend_from_slice(ee_address);
+                bytes.extend_from_slice(&takeback_pubkey.serialize());
+                bytes.extend_from_slice(&input_amount.to_sat().to_be_bytes());
             }
         }
 

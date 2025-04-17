@@ -246,6 +246,8 @@ impl DepositInfo {
             metadata: DepositMetadata::DepositTx {
                 stake_index: self.stake_index(),
                 ee_address: self.ee_address.to_vec(),
+                takeback_pubkey: self.x_only_public_key,
+                input_amount: self.total_amount,
             },
         };
         let metadata_script = metadata_script(metadata);
@@ -275,7 +277,8 @@ impl DepositInfo {
 mod tests {
     use std::fs;
 
-    use bitcoin::Network;
+    use bitcoin::{hex::DisplayHex, script::Instruction, Network};
+    use strata_primitives::{operator::OperatorPubkeys, params::OperatorConfig};
 
     use super::*;
     use crate::{
@@ -485,5 +488,100 @@ mod tests {
             )),
             "should handle the case where the supplied merkle proof is wrong"
         );
+    }
+
+    #[test]
+    fn test_deosit_tx_metadata() {
+        let network = Network::Regtest;
+
+        let (operator_pubkeys, _) = generate_keypairs(5);
+        let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
+
+        let mut sidesystem_params = test_sidesystem_params();
+        sidesystem_params.operator_config = OperatorConfig::Static(
+            operator_pubkeys
+                .0
+                .values()
+                .map(|wallet_pk| {
+                    let wallet_pk = wallet_pk.x_only_public_key().0;
+                    OperatorPubkeys::new([2u8; 32].into(), wallet_pk.serialize().into())
+                })
+                .collect(),
+        );
+
+        let tx_build_context = TxBuildContext::new(network, operator_pubkeys, 0);
+
+        let recovery_xonly_pubkey = generate_xonly_pubkey();
+        let pegout_graph_params = PegOutGraphParams::default();
+        let refund_delay = pegout_graph_params.refund_delay;
+
+        let n_of_n_script = n_of_n_script(&tx_build_context.aggregated_pubkey()).compile();
+        let take_back_script = drt_take_back(recovery_xonly_pubkey, refund_delay);
+
+        let spend_path = SpendPath::ScriptSpend {
+            scripts: &[n_of_n_script, take_back_script],
+        };
+
+        let (deposit_request_addr, _) = create_taproot_addr(&network, spend_path)
+            .expect("must be able to generate taproot address for drt");
+
+        let stake_index = 1;
+        let ee_address = [0u8; 20];
+        let total_amount = Amount::from_int_btc(11);
+        let deposit_info = DepositInfo::new(
+            OutPoint::null(),
+            stake_index,
+            ee_address.to_vec(),
+            total_amount,
+            recovery_xonly_pubkey,
+            deposit_request_addr.script_pubkey(),
+        );
+
+        let signing_data = deposit_info
+            .construct_signing_data(&tx_build_context, &pegout_graph_params, &sidesystem_params)
+            .expect("must be able to construct signing data");
+        let deposit_tx = signing_data.psbt.unsigned_tx;
+
+        let tag = pegout_graph_params.tag;
+        assert!(deposit_tx.output.get(1).is_some_and(|output| {
+            let script_pubkey = output.script_pubkey.clone();
+            assert!(
+                script_pubkey.is_op_return(),
+                "second output must be an OP_RETURN"
+            );
+
+            let mut instructions = script_pubkey.instructions();
+            instructions.next(); // consume the OP_RETURN instruction
+
+            let expected_metadata = [
+                tag.as_bytes(),
+                &stake_index.to_be_bytes(),
+                &ee_address,
+                &recovery_xonly_pubkey.serialize(),
+                &total_amount.to_sat().to_be_bytes(),
+            ];
+
+            assert!(instructions.next().is_some_and(|data| {
+                let mut data = if let Ok(Instruction::PushBytes(data)) = data {
+                    data.as_bytes()
+                } else {
+                    panic!("must be a push bytes instruction");
+                };
+
+                for metadata in expected_metadata {
+                    assert!(
+                        data.starts_with(metadata),
+                        "must have {} next",
+                        metadata.to_lower_hex_string()
+                    );
+
+                    data = &data[metadata.len()..];
+                }
+
+                true
+            }));
+
+            true
+        }));
     }
 }
