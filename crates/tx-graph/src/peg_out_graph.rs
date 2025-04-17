@@ -727,18 +727,22 @@ mod tests {
         let prevouts = payout_optimistic.prevouts();
         let witnesses = payout_optimistic.witnesses();
 
-        let mut signatures = witnesses.iter().enumerate().map(|(i, witness)| {
-            let message = create_message_hash(
-                &mut sighash_cache,
-                prevouts.clone(),
-                witness,
-                TapSighashType::Default,
-                i,
-            )
-            .expect("must be able to create a message hash");
+        let signatures = witnesses
+            .iter()
+            .enumerate()
+            .map(|(i, witness)| {
+                let message = create_message_hash(
+                    &mut sighash_cache,
+                    prevouts.clone(),
+                    witness,
+                    TapSighashType::Default,
+                    i,
+                )
+                .expect("must be able to create a message hash");
 
-            generate_agg_signature(&message, &n_of_n_keypair, witness)
-        });
+                generate_agg_signature(&message, &n_of_n_keypair, witness)
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(
             signatures.len(),
@@ -746,28 +750,10 @@ mod tests {
             "must have signatures for all inputs"
         );
 
-        let deposit_signature = signatures.next().expect("must have deposit signature");
-        let n_of_n_sig_c0 = signatures
-            .next()
-            .expect("must have n-of-n signature for c0");
-        let n_of_n_sig_c1 = signatures
-            .next()
-            .expect("must have n-of-n signature for c1");
-        let n_of_n_sig_c2 = signatures
-            .next()
-            .expect("must have n-of-n signature for c2");
-        let n_of_n_sig_p = signatures.next().expect("must have n-of-n signature for p");
-
         let payout_input_amount = payout_optimistic.input_amount();
         let payout_cpfp_vout = payout_optimistic.cpfp_vout();
 
-        let signed_payout_tx = payout_optimistic.finalize(
-            deposit_signature,
-            n_of_n_sig_c0,
-            n_of_n_sig_c1,
-            n_of_n_sig_c2,
-            n_of_n_sig_p,
-        );
+        let signed_payout_tx = payout_optimistic.finalize(signatures.try_into().unwrap());
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
