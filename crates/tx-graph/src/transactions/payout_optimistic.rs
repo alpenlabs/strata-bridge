@@ -194,24 +194,17 @@ impl PayoutOptimisticTx {
     /// Finalizes the payout optimistic transaction.
     ///
     /// Note that the `deposit_signature` is also an n-of-n signature.
-    pub fn finalize(
-        mut self,
-        deposit_signature: schnorr::Signature,
-        n_of_n_sig_c0: schnorr::Signature,
-        n_of_n_sig_c1: schnorr::Signature,
-        n_of_n_sig_c2: schnorr::Signature,
-        n_of_n_sig_p: schnorr::Signature,
-    ) -> Transaction {
-        finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
+    pub fn finalize(mut self, signatures: [schnorr::Signature; 5]) -> Transaction {
+        finalize_input(&mut self.psbt.inputs[0], [signatures[0].serialize()]);
 
-        let c0_path = ConnectorC0Path::PayoutOptimistic(()).add_witness_data(n_of_n_sig_c0);
+        let c0_path = ConnectorC0Path::PayoutOptimistic(()).add_witness_data(signatures[1]);
         let c0_input_index = c0_path.get_input_index() as usize;
         self.connector_c0
             .finalize_input(&mut self.psbt.inputs[c0_input_index], c0_path);
 
         let c1_path = ConnectorC1Path::PayoutOptimistic(());
         let c1_path = c1_path.add_witness_data(taproot::Signature {
-            signature: n_of_n_sig_c1,
+            signature: signatures[2],
             sighash_type: c1_path.get_sighash_type(),
         });
         let c1_input_index = c1_path.get_input_index() as usize;
@@ -219,13 +212,13 @@ impl PayoutOptimisticTx {
             .finalize_input(&mut self.psbt.inputs[c1_input_index], c1_path);
 
         let n_of_n_sig_c2 = taproot::Signature {
-            signature: n_of_n_sig_c2,
+            signature: signatures[3],
             sighash_type: TapSighashType::Default,
         };
         self.connector_n_of_n
             .finalize_input(&mut self.psbt.inputs[3], n_of_n_sig_c2);
 
-        let p_witness = StakeSpendPath::PayoutOptimistic(n_of_n_sig_p);
+        let p_witness = StakeSpendPath::PayoutOptimistic(signatures[4]);
         let p_input_index = p_witness.get_input_index() as usize;
         self.connector_p
             .finalize(&mut self.psbt.inputs[p_input_index], p_witness);

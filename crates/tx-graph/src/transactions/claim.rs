@@ -24,9 +24,6 @@ pub struct ClaimTx {
 
     output_amount: Amount,
 
-    prevouts: Vec<TxOut>,
-    witnesses: Vec<TaprootWitness>,
-
     connector_k: ConnectorK,
 }
 
@@ -78,8 +75,6 @@ impl ClaimTx {
         Self {
             psbt,
             output_amount: c0_amt,
-            prevouts: vec![prevout],
-            witnesses,
             connector_k,
         }
     }
