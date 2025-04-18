@@ -109,6 +109,14 @@ pub struct Musig2FirstRound {
     config: Arc<Config>,
 }
 
+impl Musig2FirstRound {
+    /// Exports internal session id from the session struct. This leaks the internals and should be
+    /// used with caution.
+    pub fn dangerous_export_session_id(&self) -> Musig2SessionId {
+        self.session_id
+    }
+}
+
 impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
     async fn our_nonce(&self) -> <Client as Origin>::Container<PubNonce> {
         let msg = ClientMessage::Musig2FirstRoundOurNonce {

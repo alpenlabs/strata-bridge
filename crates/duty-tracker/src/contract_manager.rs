@@ -3,6 +3,7 @@
 //! protocol rules.
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
+    iter,
     sync::Arc,
     time::Duration,
 };
@@ -11,6 +12,7 @@ use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChai
 use bdk_wallet::miniscript::ToPublicKey;
 use bitcoin::{
     hashes::{sha256, sha256d, Hash as _},
+    p2p,
     sighash::{Prevouts, SighashCache},
     Block, FeeRate, Network, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
@@ -20,9 +22,12 @@ use futures::{
     future::{join3, join_all},
     StreamExt,
 };
-use musig2::{PartialSignature, PubNonce};
+use musig2::{secp256k1::Message, PartialSignature, PubNonce};
 use operator_wallet::{FundingUtxo, OperatorWallet};
-use secret_service_client::{musig2::Musig2Client, SecretServiceClient};
+use secret_service_client::{
+    musig2::{Musig2Client, Musig2FirstRound},
+    SecretServiceClient,
+};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb};
@@ -40,6 +45,7 @@ use strata_bridge_stake_chain::{
 };
 use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphInput},
+    pog_musig_functor::PogMusigF,
     transactions::prelude::CovenantTx,
 };
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
@@ -63,10 +69,11 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         convert_g16_keys, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
-        OperatorDuty, PegOutGraphInputF,
+        OperatorDuty,
     },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
+    s2_session_manager::MusigSessionManager,
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
     tx_driver::TxDriver,
@@ -177,10 +184,13 @@ impl ContractManager {
                 .unwrap_or(current);
 
             let msg_handler = MessageHandler::new(p2p_handle.clone());
+            let resource_mgrs = ResourceManagers {
+                s2_client: s2_client.clone(),
+            };
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
-                s2_client,
+                s2_client: MusigSessionManager::new(s2_client),
                 tx_driver,
                 db,
             });
@@ -204,6 +214,7 @@ impl ContractManager {
                 cfg: cfg.clone(),
                 state,
                 state_handles,
+                resource_mgrs,
             };
 
             while cursor < current {
@@ -304,15 +315,12 @@ impl ContractManager {
 
                                 if let Some(csm) = ctx.state.active_contracts.get(&session_id_as_txid) {
                                     if let ContractState::Requested{
-                                        s2_graph_sessions,
                                         ..
                                     } = &csm.state().state {
                                         let pog = ctx.gen_pog(session_id_as_txid, operator_pk.clone()).expect("pog generation must succeed");
                                         duties.push(OperatorDuty::PublishGraphNonces {
-                                            deposit_txid:session_id_as_txid,
-                                            operator_p2p_key: operator_pk,
-                                            pog,
-                                            s2_musig2_session_ids: s2_graph_sessions.clone(),
+                                            claim_txid: todo!(),
+                                            pog_inputs: todo!(),
                                         });
                                     } else {
                                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -322,13 +330,11 @@ impl ContractManager {
                                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid) {
 
                                     if let ContractState::Requested{
-                                        s2_root_session,
                                         ..
                                     } = csm.state().state {
                                         duties.push(OperatorDuty::PublishRootNonce {
                                             deposit_request_txid: session_id_as_txid,
                                             takeback_key: *csm.cfg().deposit_info.x_only_public_key(),
-                                            s2_musig2_session_id: s2_root_session,
                                         });
                                     } else {
                                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -343,7 +349,7 @@ impl ContractManager {
 
                                 if let Some(csm) = ctx.state.active_contracts.get(&session_id_as_txid) {
                                     let pog = ctx.gen_pog(session_id_as_txid, operator_pk.clone()).expect("pog generation must succeed");
-                                    let ContractState::Requested { graph_nonces, s2_graph_sessions, .. } = &csm.state().state else {
+                                    let ContractState::Requested { graph_nonces, .. } = &csm.state().state else {
                                         continue;
                                     };
                                     duties.push(OperatorDuty::PublishGraphSignatures {
@@ -351,13 +357,12 @@ impl ContractManager {
                                         operator_p2p_key: operator_pk,
                                         pubnonces: graph_nonces.clone(),
                                         pog,
-                                        s2_musig2_session_ids: s2_graph_sessions.clone(),
                                     });
                                 } else if let Some(csm) = ctx.state.active_contracts
                                     .values()
                                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid) {
-                                    let (root_session, nonces) = match &csm.state().state {
-                                        ContractState::Requested { s2_root_session, root_nonces, .. } => (*s2_root_session, root_nonces.clone()),
+                                    let nonces = match &csm.state().state {
+                                        ContractState::Requested { root_nonces, .. } => root_nonces.clone(),
                                         invalid_state => {
                                             warn!(?invalid_state, "cannot send nonces if the contract is not in the requested state");
                                             continue;
@@ -367,7 +372,6 @@ impl ContractManager {
                                     duties.push(OperatorDuty::PublishRootSignature {
                                         nonces,
                                         deposit_info: csm.cfg().deposit_info.clone(),
-                                        s2_musig2_session_id: root_session,
                                     });
                                 } else {
                                     // otherwise ignore this message.
@@ -397,11 +401,15 @@ impl Drop for ContractManager {
     }
 }
 
+struct ResourceManagers {
+    s2_client: SecretServiceClient,
+}
+
 /// The handles required by the duty tracker to execute duties.
 struct OutputHandles {
     wallet: RwLock<OperatorWallet>,
     msg_handler: MessageHandler,
-    s2_client: SecretServiceClient,
+    s2_client: MusigSessionManager,
     tx_driver: TxDriver,
     db: SqliteDb,
 }
@@ -435,6 +443,7 @@ struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
     state: ExecutionState,
+    resource_mgrs: ResourceManagers,
 }
 
 impl ContractManagerCtx {
@@ -500,8 +509,6 @@ impl ContractManagerCtx {
                     deposit_request_txid,
                     deposit_tx,
                     deposit_info,
-                    todo!(), // TODO @Zk2u
-                    todo!(), // TODO @Zk2u
                 );
                 self.state_handles
                     .contract_persister
@@ -1060,8 +1067,8 @@ async fn execute_duty(
             deposit_txid,
             stake_chain_inputs,
         } => {
-            let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
-            let wots_client = s2_client.wots_signer();
+            let operator_pk = s2_client.s2_client.general_wallet_signer().pubkey().await?;
+            let wots_client = s2_client.s2_client.wots_signer();
             /// VOUT is static because irrelevant so we're just gonna use 0
             const VOUT: u32 = 0;
             // withdrawal_fulfillment uses index 0
@@ -1113,6 +1120,7 @@ async fn execute_duty(
             } = stake_chain_inputs;
 
             let stakechain_preimg = s2_client
+                .s2_client
                 .stake_chain_preimages()
                 .get_preimg(
                     pre_stake_outpoint.txid,
@@ -1160,6 +1168,7 @@ async fn execute_duty(
                             .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
                             .expect("failed to construct sighash");
                         let signature = s2_client
+                            .s2_client
                             .general_wallet_signer()
                             .sign(&sighash.to_byte_array(), None)
                             .await?;
@@ -1213,6 +1222,7 @@ async fn execute_duty(
             let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
 
             let stakechain_preimg = output_handles
+                .s2_client
                 .s2_client
                 .stake_chain_preimages()
                 .get_preimg(
@@ -1276,6 +1286,7 @@ async fn execute_duty(
                                 .expect("failed to construct sighash");
                             let signature = output_handles
                                 .s2_client
+                                .s2_client
                                 .general_wallet_signer()
                                 .sign(&sighash.to_byte_array(), None)
                                 .await?;
@@ -1332,389 +1343,35 @@ async fn execute_duty(
                 .await;
             Ok(())
         }
+
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
-            s2_musig2_session_id,
             ..
         } => {
-            const VOUT: u32 = 0;
-
-            if let Some(our_nonce) = output_handles
-                .db
-                .collected_pubnonces(deposit_request_txid, VOUT)
-                .await?
-                .get(&cfg.operator_table.pov_idx())
-            {
-                output_handles
-                    .msg_handler
-                    .send_musig2_nonces(
-                        SessionId::from_bytes(deposit_request_txid.as_raw_hash().to_byte_array()),
-                        vec![our_nonce.clone()],
-                    )
-                    .await;
-                return Ok(());
-            }
-
-            let r1 = output_handles
-                .s2_client
-                .musig2_signer()
-                .dangerous_first_round(s2_musig2_session_id);
-            let our_nonce = r1.our_nonce().await?;
-
-            output_handles
-                .db
-                .add_pubnonce(
-                    deposit_request_txid,
-                    VOUT,
-                    cfg.operator_table.pov_idx(),
-                    our_nonce.clone(),
-                )
-                .await?;
-
-            output_handles
-                .msg_handler
-                .send_musig2_nonces(
-                    SessionId::from_bytes(deposit_request_txid.as_raw_hash().to_byte_array()),
-                    vec![our_nonce],
-                )
-                .await;
-
-            Ok(())
+            todo!()
         }
 
         OperatorDuty::PublishGraphNonces {
-            deposit_txid,
-            pog,
-            s2_musig2_session_ids,
+            claim_txid,
+            pog_inputs,
             ..
         } => {
-            let sighashes = pog.sighashes();
-
-            // note that this will change as slash stake txs changes length
-            let mut nonces = Vec::with_capacity(10);
-
-            async fn get_or_create_nonce(
-                outpoint: OutPoint,
-                output_handles: &OutputHandles,
-                cfg: &ExecutionConfig,
-                ms2_session_id: usize,
-            ) -> Result<PubNonce, ContractManagerErr> {
-                if let Some(pubnonce) = output_handles
-                    .db
-                    .collected_pubnonces(outpoint.txid, outpoint.vout)
-                    .await?
-                    .get(&cfg.operator_table.pov_idx())
-                {
-                    Ok(pubnonce.clone())
-                } else {
-                    let r1 = output_handles
-                        .s2_client
-                        .musig2_signer()
-                        .dangerous_first_round(ms2_session_id);
-                    let our_nonce = r1.our_nonce().await?;
-                    output_handles
-                        .db
-                        .add_pubnonce(
-                            outpoint.txid,
-                            outpoint.vout,
-                            cfg.operator_table.pov_idx(),
-                            our_nonce.clone(),
-                        )
-                        .await?;
-                    Ok(our_nonce)
-                }
-            }
-
-            let outpoint = OutPoint::new(pog.challenge_tx.compute_txid(), 0);
-            let our_nonce = get_or_create_nonce(
-                outpoint,
-                &output_handles,
-                &cfg,
-                s2_musig2_session_ids.challenge,
+            handle_publish_graph_nonces(
+                &output_handles.s2_client,
+                &output_handles.msg_handler,
+                claim_txid,
+                pog_inputs,
             )
-            .await?;
-            nonces.push(our_nonce);
-
-            let outpoint = OutPoint::new(pog.assert_chain.pre_assert.compute_txid(), 0);
-            let our_nonce = get_or_create_nonce(
-                outpoint,
-                &output_handles,
-                &cfg,
-                s2_musig2_session_ids.pre_assert,
-            )
-            .await?;
-            nonces.push(our_nonce);
-
-            let post_assert_txid = pog.assert_chain.post_assert.compute_txid();
-            for input_idx in 0..sighashes.post_assert.len() {
-                let outpoint = OutPoint::new(post_assert_txid, input_idx as u32);
-                let our_nonce = get_or_create_nonce(
-                    outpoint,
-                    &output_handles,
-                    &cfg,
-                    s2_musig2_session_ids.post_assert[input_idx],
-                )
-                .await?;
-                nonces.push(our_nonce);
-            }
-
-            let payout_optimistic_txid = pog.payout_optimistic.compute_txid();
-            for input_idx in 0..sighashes.payout_optimistic.len() {
-                let outpoint = OutPoint::new(payout_optimistic_txid, input_idx as u32);
-                let our_nonce = get_or_create_nonce(
-                    outpoint,
-                    &output_handles,
-                    &cfg,
-                    s2_musig2_session_ids.payout_optimistic[input_idx],
-                )
-                .await?;
-                nonces.push(our_nonce);
-            }
-
-            let payout_txid = pog.payout_tx.compute_txid();
-            for input_idx in 0..sighashes.payout.len() {
-                let outpoint = OutPoint::new(payout_txid, input_idx as u32);
-                let our_nonce = get_or_create_nonce(
-                    outpoint,
-                    &output_handles,
-                    &cfg,
-                    s2_musig2_session_ids.payout[input_idx],
-                )
-                .await?;
-                nonces.push(our_nonce);
-            }
-
-            let disprove_txid = pog.disprove_tx.compute_txid();
-            let outpoint = OutPoint::new(disprove_txid, 0);
-            let our_nonce = get_or_create_nonce(
-                outpoint,
-                &output_handles,
-                &cfg,
-                s2_musig2_session_ids.disprove,
-            )
-            .await?;
-            nonces.push(our_nonce);
-
-            for slash_stake_idx in 0..sighashes.slash_stake.len() {
-                let slash_stake_txid = pog.slash_stake_txs[slash_stake_idx].compute_txid();
-                for input_idx in 0..sighashes.payout.len() {
-                    let outpoint = OutPoint::new(slash_stake_txid, input_idx as u32);
-                    let our_nonce = get_or_create_nonce(
-                        outpoint,
-                        &output_handles,
-                        &cfg,
-                        s2_musig2_session_ids.slash_stake[slash_stake_idx][input_idx],
-                    )
-                    .await?;
-                    nonces.push(our_nonce);
-                }
-            }
-
-            let session_id = SessionId::from_bytes(deposit_txid.to_byte_array());
-            output_handles
-                .msg_handler
-                .send_musig2_nonces(session_id, nonces)
-                .await;
-
-            Ok(())
+            .await
         }
 
-        OperatorDuty::PublishGraphSignatures {
-            deposit_txid,
-            pubnonces,
-            pog,
-            s2_musig2_session_ids,
-            ..
-        } => {
-            let sighashes = pog.sighashes();
+        OperatorDuty::PublishGraphSignatures { .. } => handle_publish_graph_sigs().await,
 
-            let mut nonce_idx = 0;
-
-            let mut partial_sigs = Vec::new();
-
-            async fn gen_partial_sig(
-                outpoint: OutPoint,
-                pubnonces: &BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
-                output_handles: &OutputHandles,
-                cfg: &ExecutionConfig,
-                nonce_idx: usize,
-                sighash: [u8; 32],
-                ms2_session_id: usize,
-            ) -> Result<PartialSignature, ContractManagerErr> {
-                let mut r1 = output_handles
-                    .s2_client
-                    .musig2_signer()
-                    .dangerous_first_round(ms2_session_id);
-                if let Some(our_sig) = output_handles
-                    .db
-                    .collected_signatures_per_msg(outpoint.txid, outpoint.vout)
-                    .await?
-                    .and_then(|(_, sig_map)| sig_map.get(&cfg.operator_table.pov_idx()).cloned())
-                {
-                    Ok(our_sig)
-                } else {
-                    for (operator, nonces) in pubnonces {
-                        r1.receive_pub_nonce(
-                            cfg.operator_table
-                                .op_key_to_btc_key(operator)
-                                .unwrap()
-                                .to_x_only_pubkey(),
-                            nonces[nonce_idx].clone(),
-                        )
-                        .await?
-                        .unwrap();
-                    }
-                    assert!(r1.is_complete().await?);
-                    let r2 = r1.finalize(sighash).await?.unwrap();
-                    let our_sig = r2.our_signature().await?;
-                    output_handles
-                        .db
-                        .add_partial_signature(
-                            outpoint.txid,
-                            outpoint.vout,
-                            cfg.operator_table.pov_idx(),
-                            our_sig,
-                        )
-                        .await?;
-                    Ok(our_sig)
-                }
-            }
-
-            // FIXME: @Zk2u this has to be wrong because we can't know the challenge txid up front.
-            let outpoint = OutPoint::new(pog.claim_tx.compute_txid(), 1);
-            let our_sig = gen_partial_sig(
-                outpoint,
-                &pubnonces,
-                &output_handles,
-                &cfg,
-                nonce_idx,
-                *sighashes.challenge.as_ref(),
-                s2_musig2_session_ids.challenge,
-            )
-            .await?;
-            partial_sigs.push(our_sig);
-            nonce_idx += 1;
-
-            let outpoint = OutPoint::new(pog.assert_chain.pre_assert.compute_txid(), 0);
-            let our_sig = gen_partial_sig(
-                outpoint,
-                &pubnonces,
-                &output_handles,
-                &cfg,
-                nonce_idx,
-                *sighashes.pre_assert.as_ref(),
-                s2_musig2_session_ids.pre_assert,
-            )
-            .await?;
-            partial_sigs.push(our_sig);
-            nonce_idx += 1;
-
-            for input_idx in 0..sighashes.post_assert.len() {
-                let outpoint = OutPoint::new(
-                    pog.assert_chain.post_assert.compute_txid(),
-                    input_idx as u32,
-                );
-                let our_sig = gen_partial_sig(
-                    outpoint,
-                    &pubnonces,
-                    &output_handles,
-                    &cfg,
-                    nonce_idx,
-                    *sighashes.post_assert[input_idx].as_ref(),
-                    s2_musig2_session_ids.post_assert[input_idx],
-                )
-                .await?;
-                partial_sigs.push(our_sig);
-                nonce_idx += 1;
-            }
-
-            let payout_optimistic_txid = pog.payout_optimistic.compute_txid();
-            for input_idx in 0..sighashes.payout_optimistic.len() {
-                let outpoint = OutPoint::new(payout_optimistic_txid, input_idx as u32);
-                let our_sig = gen_partial_sig(
-                    outpoint,
-                    &pubnonces,
-                    &output_handles,
-                    &cfg,
-                    nonce_idx,
-                    *sighashes.payout_optimistic[input_idx].as_ref(),
-                    s2_musig2_session_ids.payout_optimistic[input_idx],
-                )
-                .await?;
-                partial_sigs.push(our_sig);
-                nonce_idx += 1;
-            }
-
-            let payout_txid = pog.payout_tx.compute_txid();
-            for input_idx in 0..sighashes.payout.len() {
-                let outpoint = OutPoint::new(payout_txid, input_idx as u32);
-                let our_sig = gen_partial_sig(
-                    outpoint,
-                    &pubnonces,
-                    &output_handles,
-                    &cfg,
-                    nonce_idx,
-                    *sighashes.payout[input_idx].as_ref(),
-                    s2_musig2_session_ids.payout[input_idx],
-                )
-                .await?;
-                partial_sigs.push(our_sig);
-                nonce_idx += 1;
-            }
-
-            let outpoint = OutPoint::new(pog.disprove_tx.compute_txid(), 0);
-            let our_sig = gen_partial_sig(
-                outpoint,
-                &pubnonces,
-                &output_handles,
-                &cfg,
-                nonce_idx,
-                *sighashes.disprove.as_ref(),
-                s2_musig2_session_ids.disprove,
-            )
-            .await?;
-            partial_sigs.push(our_sig);
-            nonce_idx += 1;
-
-            for slash_stake_idx in 0..sighashes.slash_stake.len() {
-                let slash_stake_txid = pog.slash_stake_txs[slash_stake_idx].compute_txid();
-                for input_idx in 0..sighashes.payout.len() {
-                    let outpoint = OutPoint::new(slash_stake_txid, input_idx as u32);
-                    let our_sig = gen_partial_sig(
-                        outpoint,
-                        &pubnonces,
-                        &output_handles,
-                        &cfg,
-                        nonce_idx,
-                        *sighashes.slash_stake[slash_stake_idx][input_idx].as_ref(),
-                        s2_musig2_session_ids.slash_stake[slash_stake_idx][input_idx],
-                    )
-                    .await?;
-                    partial_sigs.push(our_sig);
-                    nonce_idx += 1;
-                }
-            }
-
-            output_handles
-                .msg_handler
-                .send_musig2_signatures(
-                    SessionId::from_bytes(deposit_txid.to_byte_array()),
-                    partial_sigs,
-                )
-                .await;
-
-            Ok(())
-        }
         OperatorDuty::PublishRootSignature {
             nonces,
             deposit_info,
-            s2_musig2_session_id,
         } => {
             let our_pubkey = cfg.operator_table.pov_op_key();
-            let mut r1 = output_handles
-                .s2_client
-                .musig2_signer()
-                .dangerous_first_round(s2_musig2_session_id);
             for (p2p_key, nonce) in nonces
                 .into_iter()
                 .filter(|(p2p_pk, _)| p2p_pk != our_pubkey)
@@ -1726,10 +1383,15 @@ async fn execute_duty(
                     .to_x_only_pubkey();
                 // FIXME: This is unwrapped to be consistent with the other call site but we
                 // shouldn't be doing this.
-                r1.receive_pub_nonce(musig2_pubkey, nonce).await?.unwrap()
+                output_handles
+                    .s2_client
+                    .put_nonce(
+                        *deposit_info.deposit_request_outpoint(),
+                        musig2_pubkey,
+                        nonce,
+                    )
+                    .await?
             }
-
-            assert!(r1.is_complete().await?);
 
             let maybe_tx_signing_data = deposit_info
                 .construct_signing_data(
@@ -1783,12 +1445,13 @@ async fn execute_duty(
                 .await;
             Ok(())
         }
+
         OperatorDuty::PublishDeposit {
             deposit_tx,
             partial_sigs,
-            s2_musig2_session_id,
         } => {
             let mut r2 = output_handles
+                .s2_client
                 .s2_client
                 .musig2_signer()
                 .dangerous_second_round(s2_musig2_session_id);
@@ -1840,6 +1503,7 @@ async fn handle_advance_stake_chain(
     let messages = stake_tx.sighashes();
     let funds_signature = output_handles
         .s2_client
+        .s2_client
         .general_wallet_signer()
         .sign(messages[0].as_ref(), None)
         .await?;
@@ -1849,13 +1513,14 @@ async fn handle_advance_stake_chain(
         // stake-chain wallet
         let stake_signature = output_handles
             .s2_client
+            .s2_client
             .general_wallet_signer()
             .sign(messages[1].as_ref(), None)
             .await?;
 
         stake_tx.finalize_initial(funds_signature, stake_signature)
     } else {
-        let pre_image_client = output_handles.s2_client.stake_chain_preimages();
+        let pre_image_client = output_handles.s2_client.s2_client.stake_chain_preimages();
         let OutPoint {
             txid: pre_stake_txid,
             vout: pre_stake_vout,
@@ -1868,6 +1533,7 @@ async fn handle_advance_stake_chain(
             .tx_build_context(cfg.network)
             .aggregated_pubkey();
         let operator_pubkey = output_handles
+            .s2_client
             .s2_client
             .general_wallet_signer()
             .pubkey()
@@ -1894,6 +1560,7 @@ async fn handle_advance_stake_chain(
         // address).
         let stake_signature = output_handles
             .s2_client
+            .s2_client
             .stakechain_wallet_signer()
             .sign_no_tweak(messages[1].as_ref())
             .await?;
@@ -1917,163 +1584,33 @@ async fn handle_advance_stake_chain(
     Ok(())
 }
 
-fn preallocate_graph_sessions(
-    s2: &Musig2Client,
-    pubkeys: Vec<XOnlyPublicKey>,
-    graph: &PegOutGraph,
-) -> PegOutGraphInputF<usize> {
-    // Challenge
-    let witness_info = graph
-        .challenge_tx
-        .witnesses()
-        .first()
-        .expect("challenge tx must have witness value at index 0")
-        .clone();
+async fn handle_publish_graph_nonces(
+    musig: &MusigSessionManager,
+    message_handler: &MessageHandler,
+    claim_txid: Txid,
+    pog: PogMusigF<OutPoint>,
+) -> Result<(), ContractManagerErr> {
+    let nonces = pog
+        .map(|x| musig.get_nonce(x))
+        .join_all()
+        .await
+        .map(|x| x.expect("no s2 errors")); // TODO(proofofkeags): find a more principled way to
+                                            // handle these errors
 
-    let prevout = graph
-        .challenge_tx
-        .psbt()
-        .unsigned_tx
-        .input
-        .first()
-        .expect("challenge tx must have an input value at index 0")
-        .previous_output;
+    message_handler
+        .send_musig2_nonces(
+            SessionId::from_bytes(claim_txid.to_byte_array()),
+            nonces.pack(),
+        )
+        .await;
 
-    let challenge_fut = s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout);
+    Ok(())
+}
 
-    // Pre-Assert
-    let witness_info = graph
-        .assert_chain
-        .pre_assert
-        .witnesses()
-        .first()
-        .expect("pre-assert tx must have witness value at index 0")
-        .clone();
-    let prevout = graph
-        .assert_chain
-        .pre_assert
-        .psbt()
-        .unsigned_tx
-        .input
-        .first()
-        .expect("pre-assert tx must have an input value at index 0")
-        .previous_output;
-
-    let pre_assert_fut = s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout);
-
-    // Post-Assert
-    let mut post_assert_futs = Vec::new();
-    for i in 0..NUM_ASSERT_DATA_TX {
-        let witness_info = graph
-            .assert_chain
-            .post_assert
-            .witnesses()
-            .get(i)
-            .expect(&format!(
-                "post-assert tx must have witness value at index {i}"
-            ))
-            .clone();
-        let prevout = graph
-            .assert_chain
-            .pre_assert
-            .psbt()
-            .unsigned_tx
-            .input
-            .get(i)
-            .expect(&format!(
-                "post-assert tx must have an input value at index {i}"
-            ))
-            .previous_output;
-
-        post_assert_futs.push(s2.new_session(
-            pubkeys.clone(),
-            witness_info,
-            prevout.txid,
-            prevout.vout,
-        ));
-    }
-
-    // Payout-Optimistic
-    let mut payout_optimistic_futs = Vec::new();
-    for i in 0..5 {
-        let witness_info = graph
-            .payout_optimistic
-            .witnesses()
-            .get(i)
-            .expect(&format!(
-                "payout-optimistic tx must have witness value at index {i}"
-            ))
-            .clone();
-        let prevout = graph
-            .payout_optimistic
-            .psbt()
-            .unsigned_tx
-            .input
-            .get(i)
-            .expect(&format!(
-                "payout-optimistic tx must have an input value at index {i}"
-            ))
-            .previous_output;
-
-        payout_optimistic_futs.push(s2.new_session(
-            pubkeys.clone(),
-            witness_info,
-            prevout.txid,
-            prevout.vout,
-        ));
-    }
-
-    // Payout-Defended
-    let mut payout_futs = Vec::new();
-    for i in 0..4 {
-        let witness_info = graph
-            .payout_tx
-            .witnesses()
-            .get(i)
-            .expect(&format!(
-                "payout-optimistic tx must have witness value at index {i}"
-            ))
-            .clone();
-        let prevout = graph
-            .payout_tx
-            .psbt()
-            .unsigned_tx
-            .input
-            .get(i)
-            .expect(&format!(
-                "payout-optimistic tx must have an input value at index {i}"
-            ))
-            .previous_output;
-
-        payout_futs.push(s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout));
-    }
-
-    // Disprove
-    let witness_info = graph
-        .disprove_tx
-        .witnesses()
-        .first()
-        .expect("pre-assert tx must have witness value at index 0")
-        .clone();
-    let prevout = graph
-        .disprove_tx
-        .psbt()
-        .unsigned_tx
-        .input
-        .first()
-        .expect("pre-assert tx must have an input value at index 0")
-        .previous_output;
-
-    let disprove_fut = s2.new_session(pubkeys.clone(), witness_info, prevout.txid, prevout.vout);
-
-    // Slash-Stake
-    PegOutGraphInputF {
-        challenge: todo!(),
-        pre_assert: todo!(),
-        post_assert: todo!(),
-        payout_optimistic: todo!(),
-        payout: todo!(),
-        disprove: todo!(),
-        slash_stake: todo!(),
-    }
+async fn handle_publish_graph_sigs(
+    musig: &MusigSessionManager,
+    message_handler: &MessageHandler,
+    claim_txid: Txid,
+    pog_sighashes: PogMusigF<(OutPoint, Message)>,
+) -> Result<(), ContractManagerErr> {
 }

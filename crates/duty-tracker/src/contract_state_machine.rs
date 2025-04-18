@@ -1,7 +1,7 @@
 //! This module defines the core state machine for the Bridge Deposit Contract. All of the states,
 //! events and transition rules are encoded in this structure. When the ContractSM accepts an event
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
-use std::{collections::BTreeMap, fmt::Display};
+use std::{collections::BTreeMap, fmt::Display, future::Future};
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
@@ -13,6 +13,7 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+use futures::future::join_all;
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
     constants::NUM_ASSERT_DATA_TX,
@@ -27,10 +28,8 @@ use strata_bridge_stake_chain::{
     transactions::stake::StakeTxData,
 };
 use strata_bridge_tx_graph::{
-    peg_out_graph::{
-        deserialize_assert_vector, serialize_assert_vector, PegOutGraph, PegOutGraphInput,
-        PegOutGraphSummary,
-    },
+    peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
+    pog_musig_functor::PogMusigF,
     transactions::prelude::WithdrawalMetadata,
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
@@ -167,18 +166,11 @@ pub enum ContractState {
         /// lifecycle.
         peg_out_graphs: BTreeMap<P2POperatorPubKey, PegOutGraphSummary>,
 
-        /// These are the s2 session id's associated with all of the inputs that need to be signed
-        /// in the peg-out graph.
-        s2_graph_sessions: PegOutGraphInputF<usize>,
-
         /// This is a collection of nonces for the peg-out graph on a per-operator basis.
         graph_nonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
 
         /// This is the collection of signatures for the peg-out graph on a per-operator basis.
         graph_sigs: BTreeMap<P2POperatorPubKey, Vec<PartialSignature>>,
-
-        /// This is the s2 session id associated with the deposit transaction input.
-        s2_root_session: usize,
 
         /// This is a collection of the nonces for the final musig2 signature needed to sweep the
         /// deposit request transaction to the deposit transaction.
@@ -337,34 +329,22 @@ pub enum OperatorDuty {
 
     /// Instructs us to publish our graph nonces for this contract.
     PublishGraphNonces {
-        /// Transaction ID of the DT
-        deposit_txid: Txid,
+        /// Claim TXID of the Graph being signed
+        claim_txid: Txid,
 
-        /// The p2p key of the operator for whom to publish the graph nonces.
-        operator_p2p_key: P2POperatorPubKey,
-
-        pog: PegOutGraph,
-
-        /// The s2 session id's for all of the graph signature sessions.
-        s2_musig2_session_ids: PegOutGraphInputF<usize>,
+        pog_inputs: PogMusigF<OutPoint>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures {
         /// Transaction ID of the DT
-        deposit_txid: Txid,
-
-        /// The p2p key of the operator for whom to publish the graph signatures
-        operator_p2p_key: P2POperatorPubKey,
+        claim_txid: Txid,
 
         /// Nonces collected from each operator's musig2 sessions.
         /// Order of Vecs is determined by implementation.
-        pubnonces: BTreeMap<P2POperatorPubKey, Vec<PubNonce>>,
+        pubnonces: BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>,
 
         pog: PegOutGraph,
-
-        /// The s2 session id's for all of the graph signature sessions.
-        s2_musig2_session_ids: PegOutGraphInputF<usize>,
     },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
@@ -375,9 +355,6 @@ pub enum OperatorDuty {
         /// The schnorr key that locks the funds in the DRT for the user to take back after a
         /// parameterized refund delay.
         takeback_key: XOnlyPublicKey,
-
-        /// The s2 session id associated to the root signature session.
-        s2_musig2_session_id: usize,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
@@ -387,10 +364,6 @@ pub enum OperatorDuty {
 
         /// The data required to construct the deposit transaction.
         deposit_info: DepositInfo,
-
-        /// Session id that we need to pass back to S2 to get a valid partial signature for the
-        /// root signature.
-        s2_musig2_session_id: usize,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -400,9 +373,6 @@ pub enum OperatorDuty {
 
         /// Partial signatures from peers.
         partial_sigs: BTreeMap<P2POperatorPubKey, PartialSignature>,
-
-        /// Session id that we need to pass back to S2 to aggregate all the root signatures.
-        s2_musig2_session_id: usize,
     },
 
     /// Injection function for a FulfillerDuty.
@@ -539,8 +509,6 @@ impl ContractSM {
         deposit_request_txid: Txid,
         deposit_tx: Transaction,
         deposit_info: DepositInfo,
-        s2_graph_sessions: PegOutGraphInputF<usize>,
-        s2_root_session: usize,
     ) -> (Self, OperatorDuty) {
         let deposit_txid = deposit_tx.compute_txid();
         let cfg = ContractCfg {
@@ -559,10 +527,8 @@ impl ContractSM {
             stake_txs: BTreeMap::new(),
             wots_keys: BTreeMap::new(),
             peg_out_graphs: BTreeMap::new(),
-            s2_graph_sessions,
             graph_nonces: BTreeMap::new(),
             graph_sigs: BTreeMap::new(),
-            s2_root_session,
             root_nonces: BTreeMap::new(),
             root_sigs: BTreeMap::new(),
         };
@@ -758,7 +724,6 @@ impl ContractSM {
                 stake_txs,
                 wots_keys,
                 peg_out_graphs,
-                s2_graph_sessions,
                 ..
             } => {
                 let wots_key_record = PublicKeys {
@@ -801,10 +766,8 @@ impl ContractSM {
                     // implemented.
                     if stake_txs.len() == self.cfg.operator_table.cardinality() {
                         Some(OperatorDuty::PublishGraphNonces {
-                            deposit_txid,
-                            operator_p2p_key: signer,
-                            pog,
-                            s2_musig2_session_ids: s2_graph_sessions.clone(),
+                            claim_txid: pog_summary.claim_txid,
+                            pog_inputs: todo!(),
                         })
                     } else {
                         None
@@ -821,11 +784,7 @@ impl ContractSM {
         nonces: Vec<PubNonce>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
-            ContractState::Requested {
-                graph_nonces,
-                s2_graph_sessions,
-                ..
-            } => {
+            ContractState::Requested { graph_nonces, .. } => {
                 graph_nonces.insert(signer.clone(), nonces);
                 Ok(
                     if graph_nonces.len() == self.cfg.operator_table.cardinality() {
@@ -834,7 +793,6 @@ impl ContractSM {
                             deposit_txid: self.deposit_txid(),
                             operator_p2p_key: signer,
                             pog: todo!(),
-                            s2_musig2_session_ids: s2_graph_sessions.clone(),
                         })
                     } else {
                         None
@@ -853,11 +811,7 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_request_txid = self.deposit_request_txid();
         match &mut self.state.state {
-            ContractState::Requested {
-                graph_sigs,
-                s2_root_session,
-                ..
-            } => {
+            ContractState::Requested { graph_sigs, .. } => {
                 graph_sigs.insert(signer, sig);
                 Ok(
                     if graph_sigs.len() == self.cfg.operator_table.cardinality() {
@@ -866,7 +820,6 @@ impl ContractSM {
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid,
                             takeback_key: *self.cfg.deposit_info.x_only_public_key(),
-                            s2_musig2_session_id: *s2_root_session,
                         })
                     } else {
                         None
@@ -883,11 +836,7 @@ impl ContractSM {
         nonce: PubNonce,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
-            ContractState::Requested {
-                root_nonces,
-                s2_root_session,
-                ..
-            } => {
+            ContractState::Requested { root_nonces, .. } => {
                 root_nonces.insert(signer, nonce);
                 Ok(
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
@@ -896,7 +845,6 @@ impl ContractSM {
                         Some(OperatorDuty::PublishRootSignature {
                             nonces: root_nonces.clone(),
                             deposit_info: self.cfg.deposit_info.clone(),
-                            s2_musig2_session_id: *s2_root_session,
                         })
                     } else {
                         None
@@ -915,11 +863,7 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_tx = self.cfg().deposit_tx.clone();
         match &mut self.state.state {
-            ContractState::Requested {
-                root_sigs,
-                s2_root_session,
-                ..
-            } => {
+            ContractState::Requested { root_sigs, .. } => {
                 root_sigs.insert(signer, sig);
                 Ok(
                     if root_sigs.len() == self.cfg.operator_table.cardinality() {
@@ -928,7 +872,6 @@ impl ContractSM {
                         Some(OperatorDuty::PublishDeposit {
                             partial_sigs: root_sigs.clone(),
                             deposit_tx,
-                            s2_musig2_session_id: *s2_root_session,
                         })
                     } else {
                         None
@@ -1385,32 +1328,4 @@ pub(crate) fn convert_g16_keys(
     let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
 
     Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
-}
-
-/// Functor like data structure for holding an arbitrary data structure that is matched with each of
-/// the inputs of the peg-out graph.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PegOutGraphInputF<T> {
-    /// Data associated with the challenge transaction input.
-    pub challenge: T,
-
-    /// Data associated with the pre-assert transaction input.
-    pub pre_assert: T,
-
-    /// Data associated with the post-assert transaction inputs.
-    #[serde(serialize_with = "serialize_assert_vector")]
-    #[serde(deserialize_with = "deserialize_assert_vector")]
-    pub post_assert: [T; NUM_ASSERT_DATA_TX],
-
-    /// Data associated with the payout optimistic transaction inputs.
-    pub payout_optimistic: [T; 5],
-
-    /// Data associated with the payout transaction inputs.
-    pub payout: [T; 4],
-
-    /// Data associated with the disprove transaction input.
-    pub disprove: T,
-
-    /// Data for each of the slash stake transaction input pairs.
-    pub slash_stake: Vec<[T; 2]>,
 }

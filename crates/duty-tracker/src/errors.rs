@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::{
     contract_persister::ContractPersistErr, contract_state_machine::TransitionErr,
-    tx_driver::DriveErr,
+    s2_session_manager::MusigSessionErr, tx_driver::DriveErr,
 };
 
 /// Unified error type for everything that can happen in the ContractManager.
@@ -61,6 +61,9 @@ pub enum ContractManagerErr {
     /// Error from the tx driver while submitting/tracking transaction on chain.
     #[error("failed to submit or track transaction: {0:?}")]
     TxDriverErr(#[from] DriveErr),
+
+    #[error("musig session manager error: {0}")]
+    MusigSessionErr(#[from] MusigSessionErr),
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.

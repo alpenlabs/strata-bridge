@@ -9,4 +9,5 @@
 
 pub mod errors;
 pub mod peg_out_graph;
+pub mod pog_musig_functor;
 pub mod transactions;
