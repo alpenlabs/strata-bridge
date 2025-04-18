@@ -30,13 +30,16 @@ pub struct DisproveData {
 }
 
 /// The transaction used to disprove an operator's claim and slash their stake.
+///
+/// Note that this transaction does not contain the second witness as the disprove script is
+/// only known at disprove time.
 #[derive(Debug, Clone)]
 pub struct DisproveTx {
     psbt: Psbt,
 
-    prevouts: Vec<TxOut>,
+    prevouts: [TxOut; 2],
 
-    witnesses: Vec<TaprootWitness>,
+    witnesses: [TaprootWitness; 1],
 }
 
 impl DisproveTx {
@@ -75,7 +78,7 @@ impl DisproveTx {
 
         let connector_a3_script = connector_a3.generate_locking_script(data.deposit_txid);
 
-        let prevouts = vec![
+        let prevouts = [
             TxOut {
                 value: stake_chain_params.stake_amount,
                 script_pubkey: connector_stake.generate_address().script_pubkey(),
@@ -86,12 +89,9 @@ impl DisproveTx {
             },
         ];
 
-        let witnesses = vec![
-            TaprootWitness::Tweaked {
-                tweak: connector_stake.generate_merkle_root(),
-            },
-            // witnesses for disprove are only known at disprove time
-        ];
+        let witnesses = [TaprootWitness::Tweaked {
+            tweak: connector_stake.generate_merkle_root(),
+        }];
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
@@ -162,7 +162,7 @@ impl DisproveTx {
     }
 }
 
-impl CovenantTx for DisproveTx {
+impl CovenantTx<1> for DisproveTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -175,7 +175,7 @@ impl CovenantTx for DisproveTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 1] {
         &self.witnesses
     }
 
