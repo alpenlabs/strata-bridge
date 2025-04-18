@@ -349,7 +349,7 @@ pub enum OperatorDuty {
 /// This is a duty that has to be carried out if we are the assigned operator.
 #[derive(Debug)]
 pub enum FulfillerDuty {
-    /// Originates when strata state on L1 is published.
+    /// Originates when strata state on L1 is published and there has been an assignment.
     AdvanceStakeChain {
         /// Index of the stake transaction to advance to.
         stake_index: u32,
@@ -368,10 +368,36 @@ pub enum FulfillerDuty {
     },
 
     /// Originates when Fulfillment confirms (is buried?)
-    PublishClaim,
+    PublishClaim {
+        /// The transaction ID of the withdrawal fulfillment transaction that is committed in the
+        /// claim transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The transaction ID of the stake transaction whose output is spent by the claim
+        /// transaction.
+        stake_txid: Txid,
+
+        /// The transaction ID of the deposit transaction that is being claimed.
+        deposit_txid: Txid,
+    },
 
     /// Originates after reaching timelock expiry for Claim transaction
-    PublishPayoutOptimistic,
+    PublishPayoutOptimistic {
+        /// The transaction ID of the deposit transaction that is being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the claim transaction whose output(s) the payout optimistic
+        /// transaction
+        /// spends.
+        claim_txid: Txid,
+
+        /// The transaction ID of the stake transaction whose output is spent by the claim
+        /// transaction.
+        stake_txid: Txid,
+
+        /// The index of the associated stake transaction.
+        stake_index: u32,
+    },
 
     /// Originates once challenge transaction is issued
     PublishAssertChain,
@@ -912,9 +938,9 @@ impl ContractSM {
         }
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
 
-        let duty = match current {
+        let duty = match &current {
             ContractState::Requested { abort_deadline, .. } => {
-                if self.state.block_height >= abort_deadline {
+                if self.state.block_height >= *abort_deadline {
                     Some(OperatorDuty::Abort)
                 } else {
                     None
@@ -929,14 +955,26 @@ impl ContractSM {
             ContractState::Claimed {
                 fulfiller,
                 claim_height,
+                active_graph,
                 ..
             } => {
+                let pov_idx = self.cfg.operator_table.pov_idx();
                 if self.state.block_height
                     >= claim_height + self.cfg.connector_params.payout_optimistic_timelock as u64
-                    && fulfiller == self.cfg.operator_table.pov_idx()
+                    && *fulfiller == pov_idx
                 {
+                    let deposit_txid = self.cfg().deposit_tx.compute_txid();
+                    let stake_index = self.cfg().deposit_idx;
+                    let claim_txid = active_graph.claim_txid;
+                    let stake_txid = active_graph.stake_txid;
+
                     Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishPayoutOptimistic,
+                        FulfillerDuty::PublishPayoutOptimistic {
+                            deposit_txid,
+                            claim_txid,
+                            stake_txid,
+                            stake_index,
+                        },
                     ))
                 } else {
                     None
@@ -950,7 +988,7 @@ impl ContractSM {
             } => {
                 if self.state.block_height
                     >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
-                    && fulfiller == self.cfg.operator_table.pov_idx()
+                    && *fulfiller == self.cfg.operator_table.pov_idx()
                 {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
                 } else {
@@ -1055,7 +1093,8 @@ impl ContractSM {
                 deadline,
                 active_graph,
             } => {
-                if tx.compute_txid() != active_graph.stake_txid {
+                let stake_txid = tx.compute_txid();
+                if stake_txid != active_graph.stake_txid {
                     return Err(TransitionErr(format!(
                         "stake chain advancement txid ({}) doesn't match the stake txid of the active graph ({})", tx.compute_txid(), active_graph.stake_txid,
                     )));
@@ -1114,6 +1153,9 @@ impl ContractSM {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
                 // operator.
                 let cfg = self.cfg();
+                let deposit_txid = self.cfg.deposit_tx.compute_txid();
+                let stake_txid = active_graph.stake_txid;
+
                 if !is_fulfillment_tx(
                     cfg.network,
                     &cfg.peg_out_graph_params,
@@ -1126,12 +1168,16 @@ impl ContractSM {
                     return Err(TransitionErr(format!(
                         "invalid fulfillment transaction ({}) delivered to CSM ({})",
                         tx.compute_txid(),
-                        self.cfg.deposit_tx.compute_txid()
+                        deposit_txid,
                     )));
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
-                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim))
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim {
+                        withdrawal_fulfillment_txid: tx.compute_txid(),
+                        stake_txid,
+                        deposit_txid,
+                    }))
                 } else {
                     None
                 };

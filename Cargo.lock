@@ -9074,6 +9074,7 @@ name = "secret-service-client"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "bitvm",
  "musig2",
  "quinn",
  "rkyv",
@@ -9088,6 +9089,7 @@ name = "secret-service-proto"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "bitvm",
  "musig2",
  "quinn",
  "rkyv",

@@ -30,6 +30,14 @@ impl Wots256PublicKey {
     }
 }
 
+impl From<strata_p2p_types::Wots256PublicKey> for Wots256PublicKey {
+    fn from(value: strata_p2p_types::Wots256PublicKey) -> Self {
+        let pk = std::array::from_fn(|i| value[i]);
+
+        Self(pk)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct WotsHashPublicKey(pub wots_hash::PublicKey);
 

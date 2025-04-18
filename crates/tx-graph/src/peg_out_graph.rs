@@ -473,11 +473,7 @@ impl PegOutGraphConnectors {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
 
-        let kickoff = ConnectorK::new(
-            n_of_n_agg_pubkey,
-            network,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let kickoff = ConnectorK::new(network, wots_public_keys.withdrawal_fulfillment);
 
         let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network, params.pre_assert_timelock);
 
@@ -680,15 +676,7 @@ mod tests {
             ..
         } = graph;
 
-        let PegOutGraphConnectors {
-            kickoff,
-            claim_out_0,
-            claim_out_1,
-            n_of_n: claim_out_2,
-            hashlock_payout,
-            connector_cpfp,
-            ..
-        } = connectors;
+        let PegOutGraphConnectors { connector_cpfp, .. } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
 
@@ -700,7 +688,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
+        let signed_claim_tx = claim_tx.finalize(*claim_sig);
         info!(
             vsize = signed_claim_tx.vsize(),
             action = "broadcasting claim tx",
@@ -739,18 +727,22 @@ mod tests {
         let prevouts = payout_optimistic.prevouts();
         let witnesses = payout_optimistic.witnesses();
 
-        let mut signatures = witnesses.iter().enumerate().map(|(i, witness)| {
-            let message = create_message_hash(
-                &mut sighash_cache,
-                prevouts.clone(),
-                witness,
-                TapSighashType::Default,
-                i,
-            )
-            .expect("must be able to create a message hash");
+        let signatures = witnesses
+            .iter()
+            .enumerate()
+            .map(|(i, witness)| {
+                let message = create_message_hash(
+                    &mut sighash_cache,
+                    prevouts.clone(),
+                    witness,
+                    TapSighashType::Default,
+                    i,
+                )
+                .expect("must be able to create a message hash");
 
-            generate_agg_signature(&message, &n_of_n_keypair, witness)
-        });
+                generate_agg_signature(&message, &n_of_n_keypair, witness)
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(
             signatures.len(),
@@ -758,32 +750,10 @@ mod tests {
             "must have signatures for all inputs"
         );
 
-        let deposit_signature = signatures.next().expect("must have deposit signature");
-        let n_of_n_sig_c0 = signatures
-            .next()
-            .expect("must have n-of-n signature for c0");
-        let n_of_n_sig_c1 = signatures
-            .next()
-            .expect("must have n-of-n signature for c1");
-        let n_of_n_sig_c2 = signatures
-            .next()
-            .expect("must have n-of-n signature for c2");
-        let n_of_n_sig_p = signatures.next().expect("must have n-of-n signature for p");
-
         let payout_input_amount = payout_optimistic.input_amount();
         let payout_cpfp_vout = payout_optimistic.cpfp_vout();
 
-        let signed_payout_tx = payout_optimistic.finalize(
-            deposit_signature,
-            n_of_n_sig_c0,
-            n_of_n_sig_c1,
-            n_of_n_sig_c2,
-            n_of_n_sig_p,
-            claim_out_0,
-            claim_out_1,
-            claim_out_2,
-            hashlock_payout,
-        );
+        let signed_payout_tx = payout_optimistic.finalize(signatures.try_into().unwrap());
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
@@ -1421,7 +1391,6 @@ mod tests {
         } = graph;
 
         let PegOutGraphConnectors {
-            kickoff,
             claim_out_0,
             claim_out_1,
             n_of_n,
@@ -1443,7 +1412,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
+        let signed_claim_tx = claim_tx.finalize(*claim_sig);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(
@@ -1856,11 +1825,7 @@ mod tests {
             ..
         } = graph;
 
-        let PegOutGraphConnectors {
-            kickoff,
-            connector_cpfp,
-            ..
-        } = connectors;
+        let PegOutGraphConnectors { connector_cpfp, .. } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
 
@@ -1872,7 +1837,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_ongoing_claim_tx = ongoing_claim_tx.finalize(*claim_sig, kickoff);
+        let signed_ongoing_claim_tx = ongoing_claim_tx.finalize(*claim_sig);
         info!(
             action = "broadcasting claim tx",
             vsize = signed_ongoing_claim_tx.vsize(),
