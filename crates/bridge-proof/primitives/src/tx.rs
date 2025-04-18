@@ -135,11 +135,11 @@ mod tests {
         let tx: BitcoinTx = generator.generate();
 
         let serialized_tx = borsh::to_vec(&tx).expect("should be able to serialize BitcoinTx");
-        let deseralized_tx: BitcoinTx =
+        let deserialized_tx: BitcoinTx =
             borsh::from_slice(&serialized_tx).expect("should be able to deserialize BitcoinTx");
 
         assert_eq!(
-            tx, deseralized_tx,
+            tx, deserialized_tx,
             "original and deserialized tx must be the same"
         );
     }
