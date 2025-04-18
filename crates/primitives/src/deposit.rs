@@ -246,6 +246,8 @@ impl DepositInfo {
             metadata: DepositMetadata::DepositTx {
                 stake_index: self.stake_index(),
                 ee_address: self.ee_address.to_vec(),
+                takeback_pubkey: self.x_only_public_key,
+                input_amount: self.total_amount,
             },
         };
         let metadata_script = metadata_script(metadata);
@@ -275,7 +277,9 @@ impl DepositInfo {
 mod tests {
     use std::fs;
 
-    use bitcoin::Network;
+    use bitcoin::{script::Instruction, Network};
+    use secp256k1::PublicKey;
+    use strata_primitives::{operator::OperatorPubkeys, params::OperatorConfig};
 
     use super::*;
     use crate::{
@@ -287,12 +291,33 @@ mod tests {
         },
     };
 
-    fn test_sidesystem_params() -> RollupParams {
+    /// Loads the sidesystem params from the test file.
+    ///
+    /// If pubkeys are supplied, it updates the operator config in the params with the provided
+    /// pubkeys as `wallet_pk`.
+    fn test_sidesystem_params<Pks>(pubkeys: Option<Pks>) -> RollupParams
+    where
+        Pks: IntoIterator<Item = PublicKey>,
+    {
         let test_rollup_params = fs::read_to_string("../../test-data/rollup_params.json")
             .expect("could not read test rollup params");
 
-        serde_json::from_str::<RollupParams>(&test_rollup_params)
-            .expect("rollup-params in test-data must have valid structure")
+        let mut params = serde_json::from_str::<RollupParams>(&test_rollup_params)
+            .expect("rollup-params in test-data must have valid structure");
+
+        if let Some(pubkeys) = pubkeys {
+            params.operator_config = OperatorConfig::Static(
+                pubkeys
+                    .into_iter()
+                    .map(|wallet_pk| {
+                        let wallet_pk = wallet_pk.x_only_public_key().0;
+                        OperatorPubkeys::new([2u8; 32].into(), wallet_pk.serialize().into())
+                    })
+                    .collect(),
+            );
+        }
+
+        params
     }
 
     #[test]
@@ -421,7 +446,7 @@ mod tests {
         let result = deposit_info.construct_signing_data(
             &tx_builder,
             &PegOutGraphParams::default(),
-            &test_sidesystem_params(),
+            &test_sidesystem_params::<Vec<_>>(None),
         );
         assert!(
             result.is_ok(),
@@ -447,7 +472,7 @@ mod tests {
         let result = deposit_info.construct_signing_data(
             &tx_builder,
             &PegOutGraphParams::default(),
-            &test_sidesystem_params(),
+            &test_sidesystem_params::<Vec<_>>(None),
         );
         assert!(
             result.is_err_and(|e| matches!(
@@ -474,7 +499,7 @@ mod tests {
         let result = deposit_info.construct_signing_data(
             &tx_builder,
             &PegOutGraphParams::default(),
-            &test_sidesystem_params(),
+            &test_sidesystem_params::<Vec<_>>(None),
         );
         assert!(
             result.is_err_and(|e| matches!(
@@ -484,6 +509,80 @@ mod tests {
                 )
             )),
             "should handle the case where the supplied merkle proof is wrong"
+        );
+    }
+
+    #[test]
+    fn test_deposit_tx_metadata() {
+        let network = Network::Regtest;
+
+        let (operator_pubkeys, _) = generate_keypairs(5);
+        let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
+        let sidesystem_params = test_sidesystem_params(Some(operator_pubkeys.0.values().copied()));
+
+        let tx_build_context = TxBuildContext::new(network, operator_pubkeys, 0);
+
+        let recovery_xonly_pubkey = generate_xonly_pubkey();
+        let pegout_graph_params = PegOutGraphParams::default();
+
+        let n_of_n_script = n_of_n_script(&tx_build_context.aggregated_pubkey()).compile();
+        let take_back_script =
+            drt_take_back(recovery_xonly_pubkey, pegout_graph_params.refund_delay);
+
+        let spend_path = SpendPath::ScriptSpend {
+            scripts: &[n_of_n_script, take_back_script],
+        };
+
+        let (deposit_request_addr, _) = create_taproot_addr(&network, spend_path)
+            .expect("must be able to generate taproot address for drt");
+
+        let stake_index = 1;
+        let ee_address = [0u8; 20];
+        let total_amount = Amount::from_int_btc(11);
+        let deposit_info = DepositInfo::new(
+            OutPoint::null(),
+            stake_index,
+            ee_address.to_vec(),
+            total_amount,
+            recovery_xonly_pubkey,
+            deposit_request_addr.script_pubkey(),
+        );
+
+        let signing_data = deposit_info
+            .construct_signing_data(&tx_build_context, &pegout_graph_params, &sidesystem_params)
+            .expect("must be able to construct signing data");
+        let deposit_tx = signing_data.psbt.unsigned_tx;
+
+        let expected_metadata = [
+            pegout_graph_params.tag.as_bytes(),
+            &stake_index.to_be_bytes(),
+            &ee_address,
+            &recovery_xonly_pubkey.serialize(),
+            &total_amount.to_sat().to_be_bytes(),
+        ]
+        .concat();
+
+        let Some(op_return_out) = deposit_tx.output.get(1) else {
+            panic!("must have a second output");
+        };
+        let script_pubkey = &op_return_out.script_pubkey;
+
+        assert!(
+            script_pubkey.is_op_return(),
+            "second output must be an OP_RETURN"
+        );
+
+        let mut instructions = script_pubkey.instructions();
+        instructions.next(); // consume the OP_RETURN instruction
+
+        let Some(Ok(Instruction::PushBytes(data))) = instructions.next() else {
+            panic!("the second output must have some PushBytes instruction and data");
+        };
+
+        assert_eq!(
+            data.as_bytes(),
+            expected_metadata,
+            "the metadata in the second output must be equal to the expected metadata"
         );
     }
 }
