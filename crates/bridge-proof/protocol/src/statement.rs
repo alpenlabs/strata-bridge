@@ -89,7 +89,7 @@ pub(crate) fn process_bridge_proof(
     )?;
 
     // 3a. Extract withdrawal fulfillment info.
-    let (withdrawal_fulfillment_tx, withdrawal_fullfillment_idx) = &input.withdrawal_fulfillment_tx;
+    let (withdrawal_fulfillment_tx, withdrawal_fulfillment_idx) = &input.withdrawal_fulfillment_tx;
     let WithdrawalInfo {
         operator_idx,
         deposit_idx,
@@ -104,7 +104,7 @@ pub(crate) fn process_bridge_proof(
     verify_tx_inclusion(
         withdrawal_fulfillment_tx,
         BridgeRelatedTx::WithdrawalFulfillment,
-        headers[*withdrawal_fullfillment_idx],
+        headers[*withdrawal_fulfillment_idx],
         false,
     )?;
 
@@ -140,7 +140,7 @@ pub(crate) fn process_bridge_proof(
 
     // 3e. Ensure that the withdrawal was fulfilled before the deadline
     let withdrawal_fulfillment_height =
-        header_vs.last_verified_block.height() as usize + withdrawal_fullfillment_idx;
+        header_vs.last_verified_block.height() as usize + withdrawal_fulfillment_idx;
     if withdrawal_fulfillment_height > dispatched_state.exec_deadline() as usize {
         return Err(BridgeProofError::DeadlineExceeded);
     }
@@ -165,7 +165,7 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 6. Ensure that the transactions are in order
-    if strata_checkpoint_idx > withdrawal_fullfillment_idx {
+    if strata_checkpoint_idx > withdrawal_fulfillment_idx {
         return Err(BridgeProofError::InvalidTxOrder(
             BridgeRelatedTx::StrataCheckpoint,
             BridgeRelatedTx::WithdrawalFulfillment,
@@ -180,7 +180,7 @@ pub(crate) fn process_bridge_proof(
     }
 
     // 8. Verify sufficient headers after claim transaction
-    let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fullfillment_idx;
+    let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fulfillment_idx;
     if headers_after_withdrawal_fulfillment_tx
         < REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX
     {
