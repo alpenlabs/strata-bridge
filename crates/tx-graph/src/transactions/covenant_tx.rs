@@ -29,7 +29,7 @@ pub trait CovenantTx<const NUM_COVENANT_INPUTS: usize> {
     ///
     /// # Panics
     ///
-    /// If the number of inputs in the transaction is less than [`NUM_COVENANT_INPUTS`].
+    /// If the number of inputs in the transaction is less than `NUM_COVENANT_INPUTS`.
     fn sighashes(&self) -> [Message; NUM_COVENANT_INPUTS] {
         let tx = &self.psbt().unsigned_tx;
         let mut sighash_cache = SighashCache::new(tx);
