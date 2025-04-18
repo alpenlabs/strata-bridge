@@ -91,7 +91,7 @@ pub fn fund_and_sign_raw_tx(
 
     let mut funded_tx: Transaction = consensus::encode::deserialize(&funded_tx.hex).unwrap();
 
-    // make sure that the the order of inputs and outputs remains the same after funding.
+    // make sure that the order of inputs and outputs remains the same after funding.
     let funding_inputs = funded_tx
         .input
         .iter()

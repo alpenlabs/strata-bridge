@@ -26,7 +26,7 @@ pub struct PreStakeTx {
 impl PreStakeTx {
     /// Creates a new [`PreStakeTx`] transaction from inputs and outputs.
     ///
-    /// The caller should be responsible for ensuring that the first output should cover for the the
+    /// The caller should be responsible for ensuring that the first output should cover for the
     /// stake amount.
     ///
     /// The `previous_utxo` is the [`TxOut`] from the previous transaction that funds the stake
