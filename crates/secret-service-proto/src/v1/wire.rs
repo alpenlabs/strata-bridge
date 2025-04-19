@@ -58,7 +58,7 @@ pub enum ServerMessage {
     },
 
     /// Response for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
-    Musig2NewSession(Result<(), SignerIdxOutOfBounds>),
+    Musig2NewSession(Result<(), Musig2NewSessionError>),
 
     /// Response for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
     Musig2Pubkey {
@@ -502,6 +502,13 @@ pub enum ClientMessage {
         /// Stake index that this Stake Chain preimage is derived from.
         stake_index: u32,
     },
+}
+
+/// Error enum around the musig2 new session errors
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub enum Musig2NewSessionError {
+    SignerIdxOutOfBounds(SignerIdxOutOfBounds),
+    SessionAlreadyPresent,
 }
 
 /// Serializable version of [`TaprootWitness`].

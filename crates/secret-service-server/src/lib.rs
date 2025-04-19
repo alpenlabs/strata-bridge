@@ -11,7 +11,7 @@ use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
 use bitcoin::{hashes::Hash, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
-use musig2_session_mgr::Musig2SessionManager;
+use musig2_session_mgr::{Musig2SessionManager, SessionAlreadyPresent};
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
@@ -25,7 +25,7 @@ use secret_service_proto::{
             Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, P2PSigner,
             SecretService, Server, StakeChainPreimages, WalletSigner, WotsSigner,
         },
-        wire::{ClientMessage, ServerMessage},
+        wire::{ClientMessage, Musig2NewSessionError, ServerMessage},
     },
     wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
 };
@@ -275,15 +275,23 @@ where
                         pubkeys,
                         witness,
                         Txid::from_byte_array(input_txid),
-                        input_vout.into(),
+                        input_vout,
                     )
                     .await
                 {
                     Ok(r1) => r1,
-                    Err(e) => break 'block ServerMessage::Musig2NewSession(Err(e).into()),
+                    Err(e) => {
+                        break 'block ServerMessage::Musig2NewSession(Err(
+                            Musig2NewSessionError::SignerIdxOutOfBounds(e),
+                        ))
+                    }
                 };
                 let mut sm = musig2_sm.lock().await;
-                sm.new_session(session_id, first_round);
+                if let Err(SessionAlreadyPresent) = sm.new_session(session_id, first_round) {
+                    break 'block ServerMessage::Musig2NewSession(Err(
+                        Musig2NewSessionError::SessionAlreadyPresent,
+                    ));
+                }
                 ServerMessage::Musig2NewSession(Ok(()))
             }
 
@@ -447,7 +455,7 @@ where
                 let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_secret_key(prestake_txid, prestake_vout.into(), index.into())
+                    .get_128_secret_key(prestake_txid, prestake_vout, index)
                     .await;
                 ServerMessage::WotsGet128SecretKey { key }
             }
@@ -460,7 +468,7 @@ where
                 let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_secret_key(prestake_txid, prestake_vout.into(), index.into())
+                    .get_256_secret_key(prestake_txid, prestake_vout, index)
                     .await;
                 ServerMessage::WotsGet256SecretKey { key }
             }
@@ -473,7 +481,7 @@ where
                 let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_public_key(prestake_txid, prestake_vout.into(), index.into())
+                    .get_128_public_key(prestake_txid, prestake_vout, index)
                     .await;
                 ServerMessage::WotsGet128PublicKey { key }
             }
@@ -486,7 +494,7 @@ where
                 let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_public_key(prestake_txid, prestake_vout.into(), index.into())
+                    .get_256_public_key(prestake_txid, prestake_vout, index)
                     .await;
                 ServerMessage::WotsGet256PublicKey { key }
             }
@@ -500,7 +508,7 @@ where
                 let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_128_signature(prestake_txid, prestake_vout.into(), index.into(), &msg)
+                    .get_128_signature(prestake_txid, prestake_vout, index, &msg)
                     .await;
                 ServerMessage::WotsGet128Signature { sig }
             }
@@ -514,7 +522,7 @@ where
                 let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_256_signature(prestake_txid, prestake_vout.into(), index.into(), &msg)
+                    .get_256_signature(prestake_txid, prestake_vout, index, &msg)
                     .await;
                 ServerMessage::WotsGet256Signature { sig }
             }
@@ -528,8 +536,8 @@ where
                     .stake_chain_preimages()
                     .get_preimg(
                         Txid::from_slice(&prestake_txid).expect("correct length"),
-                        prestake_vout.into(),
-                        stake_index.into(),
+                        prestake_vout,
+                        stake_index,
                     )
                     .await;
                 ServerMessage::StakeChainGetPreimage { preimg }

@@ -12,7 +12,7 @@ use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
-use super::wire::ServerMessage;
+use super::wire::{Musig2NewSessionError, ServerMessage};
 
 // FIXME: possible when https://github.com/rust-lang/rust/issues/63063 is stabliized
 // pub type AsyncResult<T, E = ()> = impl Future<Output = Result<T, E>>;
@@ -134,7 +134,7 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
-    ) -> impl Future<Output = O::Container<Result<FirstRound, SignerIdxOutOfBounds>>> + Send;
+    ) -> impl Future<Output = O::Container<Result<FirstRound, O::Musig2NewSessionErr>>> + Send;
 
     /// Retrieves the public key associated with this MuSig2 signer.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
@@ -323,6 +323,7 @@ pub trait StakeChainPreimages<O: Origin>: Send {
 pub trait Origin {
     /// Container type for responses from secret service traits.
     type Container<T>;
+    type Musig2NewSessionErr;
 }
 
 /// Enforcer for other traits to ensure implementations only work for the server & provides
@@ -332,6 +333,7 @@ pub struct Server;
 impl Origin for Server {
     // for the server, this is just a transparent wrapper
     type Container<T> = T;
+    type Musig2NewSessionErr = SignerIdxOutOfBounds;
 }
 
 /// Enforcer for other traits to ensure implementations only work for the client and provides
@@ -341,6 +343,7 @@ pub struct Client;
 impl Origin for Client {
     // For the client, the server wrap responses in a result that may have a client error.
     type Container<T> = Result<T, ClientError>;
+    type Musig2NewSessionErr = Musig2NewSessionError;
 }
 
 /// Various errors a client may encounter when interacting with the Secret Service.

@@ -56,15 +56,23 @@ pub struct NotInCorrectRound {
 #[derive(Debug)]
 pub struct OtherReferencesActive;
 
+/// There's a session already active for a given outpoint.
+#[derive(Debug)]
+pub struct SessionAlreadyPresent;
+
 impl<R1, R2> Musig2SessionManager<R1, R2>
 where
     R2: Musig2SignerSecondRound<Server>,
     R1: Musig2SignerFirstRound<Server, R2>,
 {
     /// Requests a new session ID from the session manager for a given first round.
-    pub fn new_session(&mut self, op: OutPoint, r1: R1) {
+    pub fn new_session(&mut self, op: OutPoint, r1: R1) -> Result<(), SessionAlreadyPresent> {
+        if self.rounds.contains_key(&op) {
+            return Err(SessionAlreadyPresent);
+        }
         self.rounds
             .insert(op, Slot::FirstRound(Arc::new(r1.into())));
+        Ok(())
     }
 
     /// Attempts to transition a MuSig2 session from the first round by

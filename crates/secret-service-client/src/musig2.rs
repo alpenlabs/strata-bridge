@@ -11,9 +11,9 @@ use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{
         Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
-        Musig2SignerSecondRound, Origin, SignerIdxOutOfBounds,
+        Musig2SignerSecondRound, Origin,
     },
-    wire::{ClientMessage, ServerMessage},
+    wire::{ClientMessage, Musig2NewSessionError, ServerMessage},
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
@@ -44,7 +44,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
-    ) -> Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError> {
+    ) -> Result<Result<Musig2FirstRound, Musig2NewSessionError>, ClientError> {
         let msg = ClientMessage::Musig2NewSession {
             pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
             witness: witness.into(),
