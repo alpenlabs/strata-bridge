@@ -9,7 +9,10 @@ use musig2::errors::{RoundContributionError, RoundFinalizeError};
 use rkyv::{with::Map, Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
-use super::traits::{Musig2SessionId, SignerIdxOutOfBounds};
+use super::{
+    rkyv_wrappers,
+    traits::{Musig2SessionId, SignerIdxOutOfBounds},
+};
 
 /// Various messages the server can send to the client.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -55,7 +58,7 @@ pub enum ServerMessage {
     },
 
     /// Response for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
-    Musig2NewSession(Result<Musig2SessionId, SignerIdxOutOfBounds>),
+    Musig2NewSession(Result<(), Musig2NewSessionError>),
 
     /// Response for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
     Musig2Pubkey {
@@ -88,7 +91,7 @@ pub enum ServerMessage {
     /// [`Musig2SignerFirstRound::receive_pub_nonce`](super::traits::Musig2SignerFirstRound::receive_pub_nonce).
     Musig2FirstRoundReceivePubNonce(
         /// Error indicating whether the server was unable to process the request.
-        #[rkyv(with = Map<super::rkyv_wrappers::RoundContributionError>)]
+        #[rkyv(with = Map<rkyv_wrappers::RoundContributionError>)]
         Option<RoundContributionError>,
     ),
 
@@ -96,7 +99,7 @@ pub enum ServerMessage {
     /// [`Musig2SignerFirstRound::finalize`](super::traits::Musig2SignerFirstRound::finalize).
     Musig2FirstRoundFinalize(
         /// Error indicating whether the server was unable to process the request.
-        #[rkyv(with = Map<super::rkyv_wrappers::RoundFinalizeError>)]
+        #[rkyv(with = Map<rkyv_wrappers::RoundFinalizeError>)]
         Option<RoundFinalizeError>,
     ),
 
@@ -133,7 +136,7 @@ pub enum ServerMessage {
     /// [`Musig2SignerSecondRound::receive_signature`](super::traits::Musig2SignerSecondRound::receive_signature).
     Musig2SecondRoundReceiveSignature(
         /// The error that occurred during the signature reception.
-        #[rkyv(with = Map<super::rkyv_wrappers::RoundContributionError>)]
+        #[rkyv(with = Map<rkyv_wrappers::RoundContributionError>)]
         Option<RoundContributionError>,
     ),
 
@@ -194,7 +197,7 @@ pub enum Musig2SessionResult {
     Ok([u8; 64]),
 
     /// The error that occurred during a MuSig2 session.
-    Err(#[rkyv(with = super::rkyv_wrappers::RoundFinalizeError)] RoundFinalizeError),
+    Err(#[rkyv(with = rkyv_wrappers::RoundFinalizeError)] RoundFinalizeError),
 }
 
 impl From<Result<[u8; 64], RoundFinalizeError>> for Musig2SessionResult {
@@ -259,6 +262,10 @@ pub enum ClientMessage {
 
     /// Request for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
     Musig2NewSession {
+        /// Session that this server is requesting for.
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
+
         /// Public keys for the signing session. May or may not include our own
         /// public key. If not present, it should be added. May or may not be sorted.
         pubkeys: Vec<[u8; 32]>,
@@ -280,28 +287,32 @@ pub enum ClientMessage {
     /// [`Musig2SignerFirstRound::our_nonce`](super::traits::Musig2SignerFirstRound::our_nonce).
     Musig2FirstRoundOurNonce {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerFirstRound::holdouts`](super::traits::Musig2SignerFirstRound::holdouts)
     Musig2FirstRoundHoldouts {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerFirstRound::is_complete`](super::traits::Musig2SignerFirstRound::is_complete).
     Musig2FirstRoundIsComplete {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerFirstRound::receive_pub_nonce`](super::traits::Musig2SignerFirstRound::receive_pub_nonce).
     Musig2FirstRoundReceivePubNonce {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
 
         /// The serialized [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of the signer whose public
         /// nonce this is.
@@ -315,7 +326,8 @@ pub enum ClientMessage {
     /// [`Musig2SignerFirstRound::finalize`](super::traits::Musig2SignerFirstRound::finalize).
     Musig2FirstRoundFinalize {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
 
         /// Digest of message the client is signing.
         digest: [u8; 32],
@@ -325,35 +337,40 @@ pub enum ClientMessage {
     /// [`Musig2SignerSecondRound::agg_nonce`](super::traits::Musig2SignerSecondRound::agg_nonce).
     Musig2SecondRoundAggNonce {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerSecondRound::holdouts`](super::traits::Musig2SignerSecondRound::holdouts).
     Musig2SecondRoundHoldouts {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerSecondRound::our_signature`](super::traits::Musig2SignerSecondRound::our_signature).
     Musig2SecondRoundOurSignature {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerSecondRound::is_complete`](super::traits::Musig2SignerSecondRound::is_complete).
     Musig2SecondRoundIsComplete {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
     /// [`Musig2SignerSecondRound::receive_signature`](super::traits::Musig2SignerSecondRound::receive_signature).
     Musig2SecondRoundReceiveSignature {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
 
         /// The serialized [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of the signer whose public
         /// nonce this is.
@@ -367,7 +384,8 @@ pub enum ClientMessage {
     /// [`Musig2SignerSecondRound::finalize`](super::traits::Musig2SignerSecondRound::finalize).
     Musig2SecondRoundFinalize {
         /// Session that this server is requesting for.
-        session_id: usize,
+        #[rkyv(with = rkyv_wrappers::OutPoint)]
+        session_id: Musig2SessionId,
     },
 
     /// Request for
@@ -484,6 +502,13 @@ pub enum ClientMessage {
         /// Stake index that this Stake Chain preimage is derived from.
         stake_index: u32,
     },
+}
+
+/// Error enum around the musig2 new session errors
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub enum Musig2NewSessionError {
+    SignerIdxOutOfBounds(SignerIdxOutOfBounds),
+    SessionAlreadyPresent,
 }
 
 /// Serializable version of [`TaprootWitness`].

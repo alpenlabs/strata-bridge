@@ -176,8 +176,9 @@ async fn e2e() {
     let remote_public_key = ms2_signer.pubkey().await.expect("good response");
     pubkeys.push(remote_public_key);
     pubkeys.sort();
+    let session_id = Musig2SessionId::null();
     let mut remote_first_round = ms2_signer
-        .new_session(pubkeys.clone(), witness.clone(), txid, 0)
+        .new_session(session_id, pubkeys.clone(), witness.clone(), txid, 0)
         .await
         .expect("good response")
         .expect("valid keys");
