@@ -1,6 +1,6 @@
 //! Primitives for Bridge metadata.
 
-use bitcoin::{Amount, XOnlyPublicKey};
+use bitcoin::{Amount, TapNodeHash, XOnlyPublicKey};
 
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
@@ -36,13 +36,12 @@ pub enum DepositMetadata {
         /// Execution Environment address.
         ee_address: Vec<u8>,
 
-        /// The take back key which is the public key of the depositer included in the Deposit
-        /// Request Metadata.
+        /// The hash of the takeback script that can be used by the depositer to retrieve their
+        /// funds if the deposit is not completed after a certain time.
         ///
         /// This information is required to reconstruct the prevout script pubkey on the output in
         /// the Deposit Request Transaction being spent.
-        //  TODO: (@Rajil1213) make this a BOSD Descriptor.
-        takeback_pubkey: XOnlyPublicKey,
+        takeback_hash: TapNodeHash,
 
         /// The input amount for the Deposit Transaction.
         ///
@@ -74,12 +73,12 @@ impl<'tag> AuxiliaryData<'tag> {
             DepositMetadata::DepositTx {
                 stake_index,
                 ee_address,
-                takeback_pubkey,
+                takeback_hash,
                 input_amount,
             } => {
                 bytes.extend_from_slice(&stake_index.to_be_bytes());
                 bytes.extend_from_slice(ee_address);
-                bytes.extend_from_slice(&takeback_pubkey.serialize());
+                bytes.extend_from_slice(takeback_hash.as_ref());
                 bytes.extend_from_slice(&input_amount.to_sat().to_be_bytes());
             }
         }
