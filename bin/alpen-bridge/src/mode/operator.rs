@@ -464,6 +464,12 @@ async fn handle_stakechain_genesis(
     my_index: OperatorIdx,
     bitcoin_rpc_client: Arc<BitcoinClient>,
 ) {
+    let general_key = s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await
+        .expect("must be able to get the pubkey from general wallet");
+
     if let Some(pre_stake) = db
         .get_pre_stake(my_index)
         .await
@@ -472,7 +478,7 @@ async fn handle_stakechain_genesis(
         let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
         info!(%stake_chain_id, "broadcasting pre-stake information");
         message_handler
-            .send_stake_chain_exchange(stake_chain_id, pre_stake.txid, pre_stake.vout)
+            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake.txid, pre_stake.vout)
             .await;
     } else {
         // This means that we don't have a pre-stake tx in the database.
@@ -562,7 +568,7 @@ async fn handle_stakechain_genesis(
         let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
         info!(%stake_chain_id, "broadcasting pre-stake information");
         message_handler
-            .send_stake_chain_exchange(stake_chain_id, pre_stake_txid, 0)
+            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake_txid, 0)
             .await;
     }
 }

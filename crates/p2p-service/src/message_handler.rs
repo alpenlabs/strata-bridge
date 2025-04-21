@@ -82,11 +82,13 @@ impl MessageHandler {
     pub async fn send_stake_chain_exchange(
         &self,
         stake_chain_id: StakeChainId,
+        operator_pk: XOnlyPublicKey,
         pre_stake_txid: Txid,
         pre_stake_vout: u32,
     ) {
         let msg = UnsignedPublishMessage::StakeChainExchange {
             stake_chain_id,
+            operator_pk,
             pre_stake_txid,
             pre_stake_vout,
         };
