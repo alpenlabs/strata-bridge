@@ -6,12 +6,13 @@ use bitcoin::{
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake, StakeSpendPath};
 use strata_bridge_primitives::{
-    constants::{SEGWIT_MIN_AMOUNT, UNSPENDABLE_INTERNAL_KEY},
+    constants::SEGWIT_MIN_AMOUNT,
     scripts::{
         prelude::{create_tx, create_tx_ins},
         taproot::{create_taproot_addr, SpendPath, TaprootWitness},
     },
 };
+use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use super::prelude::CovenantTx;
 
@@ -59,7 +60,7 @@ impl SlashStakeTx {
         let (burn_address, _) = create_taproot_addr(
             &data.network,
             SpendPath::KeySpend {
-                internal_key: *UNSPENDABLE_INTERNAL_KEY,
+                internal_key: *UNSPENDABLE_PUBLIC_KEY,
             },
         )
         .expect("must be able to create taproot address");

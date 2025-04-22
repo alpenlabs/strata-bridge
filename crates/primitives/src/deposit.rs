@@ -11,11 +11,10 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{constants::UNSPENDABLE_PUBLIC_KEY, params::RollupParams};
 
 use crate::{
     build_context::BuildContext,
-    constants::UNSPENDABLE_INTERNAL_KEY,
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
     scripts::{
         general::{create_tx, create_tx_ins, create_tx_outs},
@@ -185,11 +184,11 @@ impl DepositInfo {
             ));
         }
 
-        let (output_key, parity) = UNSPENDABLE_INTERNAL_KEY.tap_tweak(SECP256K1, merkle_root);
+        let (output_key, parity) = UNSPENDABLE_PUBLIC_KEY.tap_tweak(SECP256K1, merkle_root);
 
         let control_block = ControlBlock {
             leaf_version: taproot::LeafVersion::TapScript,
-            internal_key: *UNSPENDABLE_INTERNAL_KEY,
+            internal_key: *UNSPENDABLE_PUBLIC_KEY,
             merkle_branch: vec![takeback_script_hash].try_into().map_err(|_| {
                 BridgeTxBuilderError::DepositTransaction(
                     DepositTransactionError::InvalidTapLeafHash,

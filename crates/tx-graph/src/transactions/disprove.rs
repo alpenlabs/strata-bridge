@@ -5,7 +5,8 @@ use bitcoin::{
     Amount, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
 };
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::{constants::*, scripts::prelude::*};
+use strata_bridge_primitives::scripts::prelude::*;
+use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use super::covenant_tx::CovenantTx;
 
@@ -63,7 +64,7 @@ impl DisproveTx {
         let (burn_address, _) = create_taproot_addr(
             &data.network,
             SpendPath::KeySpend {
-                internal_key: *UNSPENDABLE_INTERNAL_KEY,
+                internal_key: *UNSPENDABLE_PUBLIC_KEY,
             },
         )
         .expect("should be able to create taproot address");

@@ -10,7 +10,7 @@ use bitcoin::{
     ScriptBuf, TapNodeHash,
 };
 use miniscript::Miniscript;
-use strata_bridge_primitives::constants::UNSPENDABLE_INTERNAL_KEY;
+use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 use tracing::info;
 
 use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, MAGIC_BYTES, NETWORK};
@@ -34,11 +34,11 @@ pub(crate) fn generate_taproot_address(
         TapNodeHash::from_script(&timelock_script, bitcoin::taproot::LeafVersion::TapScript);
 
     let taproot_info = taproot_builder
-        .finalize(secp, *UNSPENDABLE_INTERNAL_KEY)
+        .finalize(secp, *UNSPENDABLE_PUBLIC_KEY)
         .unwrap();
     let merkle_root = taproot_info.merkle_root();
 
-    let tr_address = Address::p2tr(secp, *UNSPENDABLE_INTERNAL_KEY, merkle_root, NETWORK);
+    let tr_address = Address::p2tr(secp, *UNSPENDABLE_PUBLIC_KEY, merkle_root, NETWORK);
     (script_hash, tr_address)
 }
 
