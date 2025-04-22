@@ -727,11 +727,6 @@ impl ContractSM {
                     self.cfg.stake_chain_params,
                     Vec::new(),
                 )
-                .map_err(|_| {
-                    TransitionErr(
-                        "peg out graph generation failure during deposit setup".to_string(),
-                    )
-                })?
                 .0
                 .summarize();
 

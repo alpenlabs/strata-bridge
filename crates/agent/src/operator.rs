@@ -336,8 +336,7 @@ where
             CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
-        )
-        .expect("must be able to generate tx graph");
+        );
 
         info!(action = "registering txids on the watcher", %deposit_txid, %own_index);
         self.register_graph(&peg_out_graph, own_index, deposit_txid)
@@ -591,8 +590,7 @@ where
                         CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
-                    )
-                    .expect("should be able to generate tx graph");
+                    );
 
                     let AssertChain {
                         pre_assert,
@@ -981,8 +979,7 @@ where
                         CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
-                    )
-                    .expect("should be able to generate tx graph");
+                    );
 
                     self.register_graph(&peg_out_graph, sender_id, deposit_txid)
                         .await
@@ -1642,8 +1639,7 @@ where
             CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
-        )
-        .expect("should be able to generate tx graph");
+        );
 
         // self.register_graph(&peg_out_graph, own_index, deposit_txid)
         //     .await

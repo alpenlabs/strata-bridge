@@ -20,13 +20,10 @@ use strata_bridge_primitives::{
 };
 use tracing::debug;
 
-use crate::{
-    errors::TxGraphResult,
-    transactions::{
-        payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
-        prelude::*,
-        slash_stake::{SlashStakeData, SlashStakeTx},
-    },
+use crate::transactions::{
+    payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
+    prelude::*,
+    slash_stake::{SlashStakeData, SlashStakeTx},
 };
 
 /// The input data required to generate a peg-out graph.
@@ -237,7 +234,7 @@ impl PegOutGraph {
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
-    ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
+    ) -> (Self, PegOutGraphConnectors)
     where
         Context: BuildContext,
     {
@@ -377,7 +374,7 @@ impl PegOutGraph {
             })
             .collect();
 
-        Ok((
+        (
             Self {
                 claim_tx,
                 payout_optimistic,
@@ -387,7 +384,7 @@ impl PegOutGraph {
                 slash_stake_txs,
             },
             connectors,
-        ))
+        )
     }
 
     pub fn summarize(&self) -> PegOutGraphSummary {
@@ -674,8 +671,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids,
-        )
-        .expect("must be able to generate peg-out graph");
+        );
 
         let PegOutGraph {
             claim_tx,
@@ -1382,8 +1378,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        )
-        .expect("must be able to generate peg-out graph");
+        );
         let PegOutGraph {
             claim_tx,
             assert_chain,
@@ -1774,8 +1769,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        )
-        .expect("must be able to generate peg-out graph");
+        );
 
         let PegOutGraph {
             claim_tx: ongoing_claim_tx,
@@ -1920,8 +1914,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids.to_vec(),
-        )
-        .expect("must be able to create graph");
+        );
 
         assert_eq!(
             new_graph.slash_stake_txs.len(),
