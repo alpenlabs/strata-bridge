@@ -329,6 +329,25 @@ impl ContractManager {
                             error!("{}", e);
                         }
                     },
+                    ouroborus_msg = ouroborus_receiver.recv() => match ouroborus_msg {
+                        Ok(msg) => {
+                            match ctx.process_unsigned_gossip_msg(msg, pov_key.clone(), pov_idx).await {
+                                Ok(ouroborus_duties) => {
+                                    info!("queueing duties generated via ouroborus");
+                                    duties.extend(ouroborus_duties);
+                                },
+                                Err(e) => {
+                                    error!(%e, "failed to process ouroborus message");
+                                    break;
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!(%e, "failed to receive ouroborus message");
+                            break;
+                        },
+                    },
+
                     _ = interval.tick() => {
                         let nags = ctx.nag();
                         for nag in nags {
