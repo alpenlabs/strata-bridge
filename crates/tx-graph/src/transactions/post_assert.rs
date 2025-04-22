@@ -1,4 +1,7 @@
-use bitcoin::{sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{
+    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+    Txid,
+};
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -33,9 +36,9 @@ pub struct PostAssertTx {
 
     output_amount: Amount,
 
-    prevouts: Vec<TxOut>,
+    prevouts: [TxOut; NUM_ASSERT_DATA_TX],
 
-    witnesses: Vec<TaprootWitness>,
+    witnesses: [TaprootWitness; NUM_ASSERT_DATA_TX],
 }
 
 impl PostAssertTx {
@@ -81,20 +84,24 @@ impl PostAssertTx {
 
         let assert_data_output_script = connector_a2.create_taproot_address().script_pubkey();
 
-        let prevouts = (0..NUM_ASSERT_DATA_TX)
-            .map(|_| TxOut {
+        let prevouts: [TxOut; NUM_ASSERT_DATA_TX] = vec![
+            TxOut {
                 script_pubkey: assert_data_output_script.clone(),
                 value: assert_data_output_script.minimal_non_dust(),
-            })
-            .collect::<Vec<TxOut>>();
-
-        trace!(event = "created prevouts", count = prevouts.len());
+            };
+            NUM_ASSERT_DATA_TX
+        ]
+        .try_into()
+        .expect("vec must have exactly NUM_ASSERT_DATA_TX elements");
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
-        let witnesses = vec![TaprootWitness::Key; NUM_ASSERT_DATA_TX];
+        let witnesses = vec![TaprootWitness::Key; NUM_ASSERT_DATA_TX]
+            .try_into()
+            .expect("vec must have exactly NUM_ASSERT_DATA_TX elements");
 
         Self {
             psbt,
@@ -129,7 +136,7 @@ impl PostAssertTx {
     }
 }
 
-impl CovenantTx for PostAssertTx {
+impl CovenantTx<NUM_ASSERT_DATA_TX> for PostAssertTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -142,7 +149,7 @@ impl CovenantTx for PostAssertTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; NUM_ASSERT_DATA_TX] {
         &self.witnesses
     }
 

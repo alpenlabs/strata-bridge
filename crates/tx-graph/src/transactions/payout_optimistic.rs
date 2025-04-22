@@ -47,9 +47,9 @@ pub struct PayoutOptimisticData {
 pub struct PayoutOptimisticTx {
     psbt: Psbt,
 
-    prevouts: Vec<TxOut>,
+    prevouts: [TxOut; 5],
 
-    witnesses: Vec<TaprootWitness>,
+    witnesses: [TaprootWitness; 5],
 }
 
 impl PayoutOptimisticTx {
@@ -100,7 +100,7 @@ impl PayoutOptimisticTx {
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
         let n_of_n_addr = connector_n_of_n.create_taproot_address();
-        let prevouts = vec![
+        let prevouts = [
             TxOut {
                 value: data.deposit_amount,
                 script_pubkey: n_of_n_addr.script_pubkey(),
@@ -139,12 +139,13 @@ impl PayoutOptimisticTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
         let (payout_script, control_block) = connector_c1.generate_spend_info();
         let connector_c0_tweak = connector_c0.generate_merkle_root();
         let connector_p_tweak = connector_p.generate_merkle_root();
-        let witnesses = vec![
+        let witnesses = [
             TaprootWitness::Key,
             TaprootWitness::Tweaked {
                 tweak: connector_c0_tweak,
@@ -218,7 +219,7 @@ impl PayoutOptimisticTx {
     }
 }
 
-impl CovenantTx for PayoutOptimisticTx {
+impl CovenantTx<5> for PayoutOptimisticTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -231,7 +232,7 @@ impl CovenantTx for PayoutOptimisticTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 5] {
         &self.witnesses
     }
 

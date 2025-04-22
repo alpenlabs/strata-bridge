@@ -584,14 +584,14 @@ mod tests {
         transactions::stake::StakeTxData,
     };
     use strata_bridge_test_utils::{
+        bitcoin_rpc::fund_and_sign_raw_tx,
         musig2::generate_agg_signature,
         prelude::{
-            find_funding_utxo, generate_keypair, generate_txid, get_funding_utxo_exact,
-            sign_cpfp_child, wait_for_blocks,
+            find_funding_utxo, generate_keypair, generate_txid, sign_cpfp_child, wait_for_blocks,
         },
-        tx::{get_mock_deposit, FEES},
+        tx::get_mock_deposit,
     };
-    use strata_btcio::rpc::types::{GetTxOut, SignRawTransactionWithWallet};
+    use strata_btcio::rpc::types::GetTxOut;
     use tracing::{info, warn};
 
     use super::*;
@@ -734,23 +734,12 @@ mod tests {
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine blocks");
 
-        let mut sighash_cache = SighashCache::new(&payout_optimistic.psbt().unsigned_tx);
-
-        let prevouts = payout_optimistic.prevouts();
         let witnesses = payout_optimistic.witnesses();
 
-        let mut signatures = witnesses.iter().enumerate().map(|(i, witness)| {
-            let message = create_message_hash(
-                &mut sighash_cache,
-                prevouts.clone(),
-                witness,
-                TapSighashType::Default,
-                i,
-            )
-            .expect("must be able to create a message hash");
-
-            generate_agg_signature(&message, &n_of_n_keypair, witness)
-        });
+        let mut signatures = witnesses
+            .iter()
+            .zip(payout_optimistic.sighashes())
+            .map(|(witness, sighash)| generate_agg_signature(&sighash, &n_of_n_keypair, witness));
 
         assert_eq!(
             signatures.len(),
@@ -895,23 +884,12 @@ mod tests {
         )
         .await;
 
-        let mut sighash_cache = SighashCache::new(&payout_tx.psbt().unsigned_tx);
-
-        let prevouts = payout_tx.prevouts();
         let witnesses = payout_tx.witnesses();
 
-        let mut signatures = witnesses.iter().enumerate().map(|(i, witness)| {
-            let message = create_message_hash(
-                &mut sighash_cache,
-                prevouts.clone(),
-                witness,
-                TapSighashType::Default,
-                i,
-            )
-            .expect("must be able to create a message hash");
-
-            generate_agg_signature(&message, &n_of_n_keypair, witness)
-        });
+        let mut signatures = witnesses
+            .iter()
+            .zip(payout_tx.sighashes())
+            .map(|(witness, sighash)| generate_agg_signature(&sighash, &n_of_n_keypair, witness));
 
         let deposit_signature = signatures.next().expect("must have deposit signature");
         let n_of_n_sig_a3 = signatures
@@ -1097,31 +1075,22 @@ mod tests {
         };
 
         info!("finalizing disprove transaction");
-        let mut sighash_cache = SighashCache::new(&disprove_tx.psbt().unsigned_tx);
-        let prevouts = disprove_tx.prevouts();
-        let input_index = 0;
+        const INPUT_INDEX: usize = 0;
 
-        let witness_type = &disprove_tx.witnesses()[input_index];
+        let witness_type = &disprove_tx.witnesses()[INPUT_INDEX];
         assert!(
             matches!(witness_type, TaprootWitness::Tweaked { .. }),
             "witness on the first input must be tweaked"
         );
 
-        let sighash_type = disprove_tx.psbt().inputs[input_index]
+        let sighash_type = disprove_tx.psbt().inputs[INPUT_INDEX]
             .sighash_type
             .expect("sighash type must be set on the first index of the disprove tx")
             .taproot_hash_ty()
             .unwrap();
         assert_eq!(sighash_type, TapSighashType::Single);
 
-        let disprove_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            witness_type,
-            sighash_type,
-            input_index,
-        )
-        .unwrap();
+        let disprove_msg = disprove_tx.sighashes()[INPUT_INDEX];
         let disprove_sig = generate_agg_signature(&disprove_msg, &n_of_n_keypair, witness_type);
         let disprove_sig = taproot::Signature {
             signature: disprove_sig,
@@ -1488,45 +1457,21 @@ mod tests {
 
         let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1);
 
-        let unsigned_challenge_tx = challenge_tx.psbt().unsigned_tx.clone();
-        let mut sighash_cache = SighashCache::new(&unsigned_challenge_tx);
         let input_index = challenge_leaf.get_input_index() as usize;
         let challenge_witness = &challenge_tx.witnesses()[input_index];
-        let msg_hash = create_message_hash(
-            &mut sighash_cache,
-            challenge_tx.prevouts(),
-            challenge_witness,
-            challenge_leaf.get_sighash_type(),
-            input_index,
-        )
-        .expect("should be able to create message hash");
+        let msg_hash = challenge_tx.sighashes()[input_index];
+
         let signature = generate_agg_signature(&msg_hash, keypair, challenge_witness);
         let signature = taproot::Signature {
             signature,
             sighash_type: challenge_leaf.get_sighash_type(),
         };
         let signed_challenge_leaf = challenge_leaf.add_witness_data(signature);
+        let partially_signed_challenge_tx =
+            challenge_tx.finalize_presigned(connectors.claim_out_1, signed_challenge_leaf);
 
-        let (funding_input, funding_utxo) =
-            get_funding_utxo_exact(btc_client, CHALLENGE_COST + FEES);
-
-        let funded_challenge_tx = challenge_tx
-            .add_funding_input(funding_utxo, funding_input)
-            .expect("must be able to add funding input to challenge tx");
-        let partially_signed_challenge_tx = funded_challenge_tx
-            .finalize(claim_out_1, signed_challenge_leaf)
-            .expect("must be able to finalize challenge tx");
-
-        let raw_partially_signed_challenge_tx =
-            consensus::encode::serialize_hex(&partially_signed_challenge_tx);
-        let result = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(raw_partially_signed_challenge_tx)],
-            )
-            .expect("must be able to sign tx");
-        let signed_challenge_tx = consensus::encode::deserialize_hex::<Transaction>(&result.hex)
-            .expect("must be able to deserialize signed tx");
+        let signed_challenge_tx =
+            fund_and_sign_raw_tx(btc_client, &partially_signed_challenge_tx, None, Some(true));
 
         info!(
             vsize = signed_challenge_tx.vsize(),
@@ -1546,19 +1491,10 @@ mod tests {
             post_assert,
         } = assert_chain;
 
-        let mut sighash_cache = SighashCache::new(&pre_assert.psbt().unsigned_tx);
-        let prevouts = pre_assert.prevouts();
         let witnesses = pre_assert.witnesses();
         let pre_assert_input_amount = pre_assert.input_amount();
         let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
-        let tx_hash = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            &witnesses[0],
-            TapSighashType::Default,
-            0,
-        )
-        .expect("must be able create a message hash for tx");
+        let tx_hash = pre_assert.sighashes()[0];
         let n_of_n_sig = generate_agg_signature(&tx_hash, keypair, &witnesses[0]);
         let signed_pre_assert = pre_assert.finalize(claim_out_0, n_of_n_sig);
         assert_eq!(
@@ -1622,7 +1558,6 @@ mod tests {
             "number of assert data transactions must match"
         );
 
-        let num_signed_assert_data_txs = signed_assert_data_txs.len();
         let mut total_assert_vsize = 0;
         let mut total_assert_with_child_vsize = 0;
 
@@ -1678,23 +1613,11 @@ mod tests {
 
         info!(%total_assert_vsize, %total_assert_with_child_vsize, "submitted all assert data txs");
 
-        let mut sighash_cache = SighashCache::new(&post_assert.psbt().unsigned_tx);
-
-        let prevouts = post_assert.prevouts();
         let witnesses = post_assert.witnesses();
-        let post_assert_sigs = (0..num_signed_assert_data_txs)
-            .map(|i| {
-                let message = create_message_hash(
-                    &mut sighash_cache,
-                    prevouts.clone(),
-                    &witnesses[i],
-                    TapSighashType::Default,
-                    i,
-                )
-                .expect("must be able to create a message hash");
-
-                generate_agg_signature(&message, keypair, &witnesses[i])
-            })
+        let post_assert_sigs = witnesses
+            .iter()
+            .zip(post_assert.sighashes())
+            .map(|(witness, sighash)| generate_agg_signature(&sighash, keypair, witness))
             .collect::<Vec<_>>();
 
         let post_assert_input_amount = post_assert.input_amount();

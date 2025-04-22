@@ -36,9 +36,9 @@ pub struct SlashStakeData {
 pub struct SlashStakeTx {
     psbt: Psbt,
 
-    prevouts: Vec<TxOut>,
+    prevouts: [TxOut; 2],
 
-    witnesses: Vec<TaprootWitness>,
+    witnesses: [TaprootWitness; 2],
 }
 
 impl SlashStakeTx {
@@ -81,7 +81,7 @@ impl SlashStakeTx {
 
         let claim_out_script = claim_out_conn.create_taproot_address().script_pubkey();
         let claim_out_amount = claim_out_script.minimal_non_dust();
-        let prevouts = vec![
+        let prevouts = [
             TxOut {
                 value: claim_out_amount,
                 script_pubkey: claim_out_script,
@@ -93,7 +93,7 @@ impl SlashStakeTx {
         ];
 
         let tweak = stake_conn.generate_merkle_root();
-        let witnesses = vec![TaprootWitness::Key, TaprootWitness::Tweaked { tweak }];
+        let witnesses = [TaprootWitness::Key, TaprootWitness::Tweaked { tweak }];
 
         psbt.inputs
             .iter_mut()
@@ -141,7 +141,7 @@ impl SlashStakeTx {
     }
 }
 
-impl CovenantTx for SlashStakeTx {
+impl CovenantTx<2> for SlashStakeTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
@@ -154,7 +154,7 @@ impl CovenantTx for SlashStakeTx {
         Prevouts::All(&self.prevouts)
     }
 
-    fn witnesses(&self) -> &[TaprootWitness] {
+    fn witnesses(&self) -> &[TaprootWitness; 2] {
         &self.witnesses
     }
 
