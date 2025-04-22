@@ -33,7 +33,7 @@ use crate::{
 ///
 /// This data is shared between various operators and verifiers and is used to construct the peg out
 /// graph deterministically.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
     /// The [`OutPoint`] of the stake transaction
     pub stake_outpoint: OutPoint,
@@ -47,7 +47,7 @@ pub struct PegOutGraphInput {
 
     /// The WOTS public keys used to verify commitments to the withdrawal fulfillment txid and the
     /// Groth16 proof.
-    pub wots_public_keys: wots::PublicKeys,
+    pub wots_public_keys: strata_p2p_types::WotsPublicKeys,
 
     /// The public key of the operator.
     ///
@@ -468,10 +468,13 @@ impl PegOutGraphConnectors {
         operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
-        wots_public_keys: wots::PublicKeys,
+        wots_public_keys: strata_p2p_types::WotsPublicKeys,
     ) -> Self {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
+        let wots_public_keys: wots::PublicKeys = wots_public_keys.try_into().expect(
+            "wots keys from strata-p2p must be compatible with those in the bridge primitives",
+        );
 
         let kickoff = ConnectorK::new(
             n_of_n_agg_pubkey,
@@ -1337,7 +1340,7 @@ mod tests {
                     vout: WITHDRAWAL_FULFILLMENT_VOUT,
                 },
                 stake_hash,
-                wots_public_keys,
+                wots_public_keys: wots_public_keys.into(),
                 operator_pubkey,
             },
             stake_preimage,
@@ -1896,7 +1899,7 @@ mod tests {
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: new_hash,
-            wots_public_keys,
+            wots_public_keys: wots_public_keys.into(),
             operator_pubkey,
         };
 

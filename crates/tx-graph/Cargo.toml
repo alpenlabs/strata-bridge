@@ -15,6 +15,8 @@ alpen-bridge-params.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
 
+strata-p2p-types.workspace = true
+
 bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-bosd.workspace = true
 bitcoin-script = { workspace = true }

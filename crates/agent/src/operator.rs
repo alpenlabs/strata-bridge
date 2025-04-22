@@ -322,7 +322,7 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            wots_public_keys,
+            wots_public_keys: wots_public_keys.into(),
             operator_pubkey: self.agent.public_key().x_only_public_key().0,
         };
         let graph_params = PegOutGraphParams::default();
@@ -1631,7 +1631,7 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            wots_public_keys,
+            wots_public_keys: wots_public_keys.into(),
         };
 
         let (peg_out_graph, connectors) = PegOutGraph::generate(
