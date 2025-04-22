@@ -12,12 +12,10 @@ use bitcoin::{
     Network, OutPoint, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
-use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, OperatorIdx},
-    wots::{Groth16PublicKeys, PublicKeys, Wots256PublicKey},
 };
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -677,38 +675,6 @@ impl ContractSM {
         }
     }
 
-    fn convert_g16_keys(
-        g16_keys: strata_p2p_types::Groth16PublicKeys,
-    ) -> Result<strata_bridge_primitives::wots::Groth16PublicKeys, TransitionErr> {
-        // TODO(proofofkeags): figure out why the hell try_into is so fucked so we can get
-        // rid of the rats nest of code below.
-        if g16_keys.public_inputs.len() != NUM_PUBS {
-            return Err(TransitionErr(format!(
-                "Could not convert groth 16 keys: invalid length of public inputs ({})",
-                g16_keys.public_inputs.len()
-            )));
-        }
-        let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
-
-        if g16_keys.fqs.len() != NUM_U256 {
-            return Err(TransitionErr(format!(
-                "Could not convert groth 16 keys: invalid length of fqs ({})",
-                g16_keys.fqs.len()
-            )));
-        }
-        let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
-
-        if g16_keys.hashes.len() != NUM_HASH {
-            return Err(TransitionErr(format!(
-                "Could not convert groth 16 keys: invalid length of hashes ({})",
-                g16_keys.hashes.len()
-            )));
-        }
-        let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
-
-        Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
-    }
-
     /// Updates the current state of the machine with the new data i.e., the new stake transaction,
     /// the new wots keys and all the resulting transaction IDs in the transaction graph that
     /// need to be monitored on chain.
@@ -742,12 +708,6 @@ impl ContractSM {
                 peg_out_graphs,
                 ..
             } => {
-                let wots_key_record = PublicKeys {
-                    withdrawal_fulfillment: Wots256PublicKey(
-                        new_wots_keys.withdrawal_fulfillment.0,
-                    ),
-                    groth16: Self::convert_g16_keys(new_wots_keys.groth16.clone())?,
-                };
                 let pog_input = PegOutGraphInput {
                     stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
                     withdrawal_fulfillment_outpoint: OutPoint::new(
@@ -755,7 +715,7 @@ impl ContractSM {
                         WITHDRAWAL_FULFILLMENT_VOUT,
                     ),
                     stake_hash: new_stake_hash,
-                    wots_public_keys: wots_key_record,
+                    wots_public_keys: new_wots_keys.clone(),
                     operator_pubkey,
                 };
                 let pog_summary = PegOutGraph::generate(
@@ -767,11 +727,6 @@ impl ContractSM {
                     self.cfg.stake_chain_params,
                     Vec::new(),
                 )
-                .map_err(|_| {
-                    TransitionErr(
-                        "peg out graph generation failure during deposit setup".to_string(),
-                    )
-                })?
                 .0
                 .summarize();
 

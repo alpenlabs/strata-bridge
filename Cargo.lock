@@ -10496,6 +10496,7 @@ dependencies = [
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",
  "strata-btcio",
+ "strata-p2p-types",
  "thiserror 2.0.12",
  "tokio",
  "tracing",

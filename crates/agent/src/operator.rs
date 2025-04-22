@@ -322,7 +322,7 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            wots_public_keys,
+            wots_public_keys: wots_public_keys.into(),
             operator_pubkey: self.agent.public_key().x_only_public_key().0,
         };
         let graph_params = PegOutGraphParams::default();
@@ -336,8 +336,7 @@ where
             CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
-        )
-        .expect("must be able to generate tx graph");
+        );
 
         info!(action = "registering txids on the watcher", %deposit_txid, %own_index);
         self.register_graph(&peg_out_graph, own_index, deposit_txid)
@@ -591,8 +590,7 @@ where
                         CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
-                    )
-                    .expect("should be able to generate tx graph");
+                    );
 
                     let AssertChain {
                         pre_assert,
@@ -981,8 +979,7 @@ where
                         CONNECTOR_PARAMS,
                         StakeChainParams::default(),
                         vec![],
-                    )
-                    .expect("should be able to generate tx graph");
+                    );
 
                     self.register_graph(&peg_out_graph, sender_id, deposit_txid)
                         .await
@@ -1631,7 +1628,7 @@ where
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: stake_data.hash,
-            wots_public_keys,
+            wots_public_keys: wots_public_keys.into(),
         };
 
         let (peg_out_graph, connectors) = PegOutGraph::generate(
@@ -1642,8 +1639,7 @@ where
             CONNECTOR_PARAMS,
             StakeChainParams::default(),
             vec![],
-        )
-        .expect("should be able to generate tx graph");
+        );
 
         // self.register_graph(&peg_out_graph, own_index, deposit_txid)
         //     .await

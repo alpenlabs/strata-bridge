@@ -20,20 +20,17 @@ use strata_bridge_primitives::{
 };
 use tracing::debug;
 
-use crate::{
-    errors::TxGraphResult,
-    transactions::{
-        payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
-        prelude::*,
-        slash_stake::{SlashStakeData, SlashStakeTx},
-    },
+use crate::transactions::{
+    payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
+    prelude::*,
+    slash_stake::{SlashStakeData, SlashStakeTx},
 };
 
 /// The input data required to generate a peg-out graph.
 ///
 /// This data is shared between various operators and verifiers and is used to construct the peg out
 /// graph deterministically.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
     /// The [`OutPoint`] of the stake transaction
     pub stake_outpoint: OutPoint,
@@ -47,7 +44,7 @@ pub struct PegOutGraphInput {
 
     /// The WOTS public keys used to verify commitments to the withdrawal fulfillment txid and the
     /// Groth16 proof.
-    pub wots_public_keys: wots::PublicKeys,
+    pub wots_public_keys: strata_p2p_types::WotsPublicKeys,
 
     /// The public key of the operator.
     ///
@@ -237,7 +234,7 @@ impl PegOutGraph {
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
-    ) -> TxGraphResult<(Self, PegOutGraphConnectors)>
+    ) -> (Self, PegOutGraphConnectors)
     where
         Context: BuildContext,
     {
@@ -377,7 +374,7 @@ impl PegOutGraph {
             })
             .collect();
 
-        Ok((
+        (
             Self {
                 claim_tx,
                 payout_optimistic,
@@ -387,7 +384,7 @@ impl PegOutGraph {
                 slash_stake_txs,
             },
             connectors,
-        ))
+        )
     }
 
     pub fn summarize(&self) -> PegOutGraphSummary {
@@ -468,10 +465,13 @@ impl PegOutGraphConnectors {
         operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
-        wots_public_keys: wots::PublicKeys,
+        wots_public_keys: strata_p2p_types::WotsPublicKeys,
     ) -> Self {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
+        let wots_public_keys: wots::PublicKeys = wots_public_keys.try_into().expect(
+            "wots keys from strata-p2p must be compatible with those in the bridge primitives",
+        );
 
         let kickoff = ConnectorK::new(
             n_of_n_agg_pubkey,
@@ -671,8 +671,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids,
-        )
-        .expect("must be able to generate peg-out graph");
+        );
 
         let PegOutGraph {
             claim_tx,
@@ -1337,7 +1336,7 @@ mod tests {
                     vout: WITHDRAWAL_FULFILLMENT_VOUT,
                 },
                 stake_hash,
-                wots_public_keys,
+                wots_public_keys: wots_public_keys.into(),
                 operator_pubkey,
             },
             stake_preimage,
@@ -1379,8 +1378,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        )
-        .expect("must be able to generate peg-out graph");
+        );
         let PegOutGraph {
             claim_tx,
             assert_chain,
@@ -1771,8 +1769,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        )
-        .expect("must be able to generate peg-out graph");
+        );
 
         let PegOutGraph {
             claim_tx: ongoing_claim_tx,
@@ -1896,7 +1893,7 @@ mod tests {
                 vout: WITHDRAWAL_FULFILLMENT_VOUT,
             },
             stake_hash: new_hash,
-            wots_public_keys,
+            wots_public_keys: wots_public_keys.into(),
             operator_pubkey,
         };
 
@@ -1917,8 +1914,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids.to_vec(),
-        )
-        .expect("must be able to create graph");
+        );
 
         assert_eq!(
             new_graph.slash_stake_txs.len(),
