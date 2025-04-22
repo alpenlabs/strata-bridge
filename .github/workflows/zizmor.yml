@@ -12,12 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@8d9ed9ac5c53483de85588cdf95a591a75ab9f55 # v5
 
       - name: Run zizmor 🌈
         run: |
@@ -28,4 +28,4 @@ jobs:
           # but this flag should not be abused.
           pip install uvenv --break-system-packages
           uv tool install zizmor
-          zizmor .
+          zizmor --persona=regular --config=zizmor.yml .
