@@ -274,6 +274,7 @@ impl ContractManager {
 
                                     let exchange = UnsignedPublishMessage::StakeChainExchange {
                                         stake_chain_id,
+                                        operator_pk: inputs.operator_pubkey,
                                         pre_stake_txid: inputs.pre_stake_outpoint.txid,
                                         pre_stake_vout: inputs.pre_stake_outpoint.vout
                                     };
@@ -653,6 +654,7 @@ impl ContractManagerCtx {
                 self.state.stake_chains.process_exchange(
                     msg.key,
                     stake_chain_id,
+                    operator_pk,
                     OutPoint::new(pre_stake_txid, pre_stake_vout),
                 )?;
 

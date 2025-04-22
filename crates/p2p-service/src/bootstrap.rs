@@ -18,6 +18,7 @@ pub async fn bootstrap(
         idle_connection_timeout: config
             .idle_connection_timeout
             .unwrap_or(Duration::from_secs(DEFAULT_IDLE_CONNECTION_TIMEOUT)),
+        max_retries: None,
         listening_addr: config.listening_addr.clone(),
         allowlist: config.allowlist.clone(),
         connect_to: config.connect_to.clone(),

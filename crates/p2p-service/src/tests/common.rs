@@ -42,6 +42,7 @@ impl Operator {
         let config = P2PConfig {
             keypair: keypair.clone(),
             idle_connection_timeout: Duration::from_secs(30),
+            max_retries: Some(5),
             listening_addr: local_addr,
             allowlist,
             connect_to,
@@ -211,6 +212,8 @@ impl Setup {
 pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChainId) -> Command {
     let kind = UnsignedPublishMessage::StakeChainExchange {
         stake_chain_id,
+        // some random point
+        operator_pk: XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap(),
         pre_stake_txid: Txid::all_zeros(),
         pre_stake_vout: 0,
     };
