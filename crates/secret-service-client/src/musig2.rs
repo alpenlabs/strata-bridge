@@ -11,9 +11,9 @@ use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{
         Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
-        Musig2SignerSecondRound, Origin, SignerIdxOutOfBounds,
+        Musig2SignerSecondRound, Origin,
     },
-    wire::{ClientMessage, ServerMessage},
+    wire::{ClientMessage, Musig2NewSessionError, ServerMessage},
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
@@ -39,16 +39,18 @@ impl Musig2Client {
 impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
     async fn new_session(
         &self,
+        session_id: Musig2SessionId,
         pubkeys: Vec<XOnlyPublicKey>,
         witness: TaprootWitness,
         input_txid: Txid,
         input_vout: u32,
-    ) -> Result<Result<Musig2FirstRound, SignerIdxOutOfBounds>, ClientError> {
+    ) -> Result<Result<Musig2FirstRound, Musig2NewSessionError>, ClientError> {
         let msg = ClientMessage::Musig2NewSession {
             pubkeys: pubkeys.into_iter().map(|pk| pk.serialize()).collect(),
             witness: witness.into(),
             input_txid: input_txid.to_byte_array(),
             input_vout,
+            session_id,
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::Musig2NewSession(maybe_session_id) = res else {
@@ -56,7 +58,7 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
         };
 
         Ok(match maybe_session_id {
-            Ok(session_id) => Ok(Musig2FirstRound {
+            Ok(()) => Ok(Musig2FirstRound {
                 session_id,
                 connection: self.conn.clone(),
                 config: self.config.clone(),

@@ -9099,6 +9099,7 @@ name = "secret-service-server"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "hashbrown 0.15.2",
  "musig2",
  "quinn",
  "rkyv",
