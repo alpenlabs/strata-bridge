@@ -391,7 +391,7 @@ mod tests {
         let deposit_request_outpoint = OutPoint::null();
         let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let refund_delay = 1008;
+        let refund_delay = 1_008;
         let (drt_output_address, _take_back_leaf_hash) =
             create_drt_taproot_output(operator_pubkeys.clone(), recovery_xonly_pk, refund_delay);
         let self_index = 0;
