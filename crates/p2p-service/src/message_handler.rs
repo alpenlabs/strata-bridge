@@ -8,20 +8,31 @@ use strata_p2p::{
     swarm::handle::P2PHandle,
 };
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::GetMessageRequest;
-use tracing::{info, trace};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
+use tokio::sync::broadcast;
+use tracing::{error, info, trace};
 
 /// Message handler for the P2P client.
 #[derive(Debug, Clone)]
 pub struct MessageHandler {
     /// The P2P handle that is used to listen for events and call commands.
     pub handle: P2PHandle,
+
+    /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
+    /// itself rather than the network.
+    ouroborus_sender: broadcast::Sender<UnsignedGossipsubMsg>,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
-    pub fn new(handle: P2PHandle) -> Self {
-        Self { handle }
+    pub fn new(
+        handle: P2PHandle,
+        ouroborus_sender: broadcast::Sender<UnsignedGossipsubMsg>,
+    ) -> Self {
+        Self {
+            handle,
+            ouroborus_sender,
+        }
     }
 
     /// Connects to a peer, whitelists peer, and adds peer to the gossip network.
@@ -36,13 +47,19 @@ impl MessageHandler {
         info!(%peer_id, %peer_addr, "connected to peer");
     }
 
-    /// Dispatches an unsigned gossip message by signing it and sending it over the network.
+    /// Dispatches an unsigned gossip message by signing it and sending it over the network as well
+    /// as to the node itself.
     ///
     /// Internal use only.
     async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
         trace!(%description, ?msg, "sending message");
-        let signed_msg = self.handle.sign_message(msg);
-        self.handle.send_command(signed_msg).await;
+        let signed_msg = self.handle.sign_message(msg.clone());
+        self.handle.send_command(signed_msg.clone()).await;
+
+        if let Err(e) = self.ouroborus_sender.send(msg.into()) {
+            error!(%description, %e, "failed to send message via ouroborus");
+        };
+
         info!(%description, "sent message");
     }
 

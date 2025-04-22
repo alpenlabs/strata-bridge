@@ -46,7 +46,7 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsu
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
-    sync::RwLock,
+    sync::{broadcast, RwLock},
     task::{self, JoinHandle},
     time,
 };
@@ -174,7 +174,14 @@ impl ContractManager {
                 .map(|(_, sm)| sm.state().block_height)
                 .unwrap_or(current);
 
-            let msg_handler = MessageHandler::new(p2p_handle.clone());
+            // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
+            // configurable. When this capacity is reached, messages will be dropped (although the
+            // documentation on broadcast::channel says that the actual capacity may be higher).
+            // This will only happen if this node as well as other event sources generate far too
+            // many events.
+            const OUROBORUS_CAP: usize = 100;
+            let (ouroborus_sender, mut ouroborus_receiver) = broadcast::channel(OUROBORUS_CAP);
+            let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroborus_sender);
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
@@ -239,6 +246,8 @@ impl ContractManager {
             let mut block_sub = zmq_client.subscribe_blocks().await;
             let mut interval = time::interval(nag_interval);
             let pov_key = ctx.cfg.operator_table.pov_op_key().clone();
+            let pov_idx = ctx.cfg.operator_table.pov_idx();
+
             loop {
                 let mut duties = vec![];
                 tokio::select! {
@@ -349,6 +358,25 @@ impl ContractManager {
                             error!("{}", e);
                         }
                     },
+                    ouroborus_msg = ouroborus_receiver.recv() => match ouroborus_msg {
+                        Ok(msg) => {
+                            match ctx.process_unsigned_gossip_msg(msg, pov_key.clone(), pov_idx).await {
+                                Ok(ouroborus_duties) => {
+                                    info!("queueing duties generated via ouroborus");
+                                    duties.extend(ouroborus_duties);
+                                },
+                                Err(e) => {
+                                    error!(%e, "failed to process ouroborus message");
+                                    break;
+                                }
+                            }
+                        },
+                        Err(e) => {
+                            error!(%e, "failed to receive ouroborus message");
+                            break;
+                        },
+                    },
+
                     _ = interval.tick() => {
                         let nags = ctx.nag();
                         for nag in nags {
@@ -661,7 +689,29 @@ impl ContractManagerCtx {
         };
         info!(sender=%sender_id, %message_signature, %msg_kind, "received p2p message");
 
-        match msg.unsigned.clone() {
+        match self
+            .process_unsigned_gossip_msg(msg.unsigned, msg.key, sender_id)
+            .await
+        {
+            Ok(p2p_duties) => duties.extend(p2p_duties),
+            Err(e) => {
+                error!(%e, "failed to process p2p message");
+                return Err(e)?;
+            }
+        }
+
+        Ok(duties)
+    }
+
+    async fn process_unsigned_gossip_msg(
+        &mut self,
+        msg: UnsignedGossipsubMsg,
+        key: P2POperatorPubKey,
+        sender_id: u32,
+    ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
+        let mut duties = Vec::new();
+
+        match msg {
             UnsignedGossipsubMsg::StakeChainExchange {
                 operator_pk,
                 pre_stake_txid,
@@ -669,7 +719,7 @@ impl ContractManagerCtx {
                 stake_chain_id: _,
             } => {
                 self.state.stake_chains.process_exchange(
-                    msg.key,
+                    key,
                     operator_pk,
                     OutPoint::new(pre_stake_txid, pre_stake_vout),
                 )?;
@@ -705,9 +755,7 @@ impl ContractManagerCtx {
                     };
 
                     info!(%deposit_txid, %sender_id, %index, "processing stake chain setup");
-                    self.state
-                        .stake_chains
-                        .process_setup(msg.key.clone(), &setup)?;
+                    self.state.stake_chains.process_setup(key.clone(), &setup)?;
 
                     info!(%deposit_txid, %sender_id, %index, "committing stake chain setup to disk");
                     self.state_handles
@@ -722,16 +770,16 @@ impl ContractManagerCtx {
                     let stake_tx = self
                         .state
                         .stake_chains
-                        .stake_tx(&msg.key, deposit_idx as usize)?
-                        .ok_or(StakeChainErr::StakeTxNotFound(msg.key.clone(), deposit_idx))?;
+                        .stake_tx(&key, deposit_idx as usize)?
+                        .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
                     if let Some(duty) =
                         contract.process_contract_event(ContractEvent::DepositSetup {
-                            operator_p2p_key: msg.key.clone(),
+                            operator_p2p_key: key.clone(),
                             operator_btc_key: self
                                 .cfg
                                 .operator_table
-                                .op_key_to_btc_key(&msg.key)
+                                .op_key_to_btc_key(&key)
                                 .unwrap()
                                 .x_only_public_key()
                                 .0,
@@ -758,8 +806,8 @@ impl ContractManagerCtx {
             } => {
                 let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.state.active_contracts.get_mut(&txid) {
-                    if let Some(duty) = contract
-                        .process_contract_event(ContractEvent::GraphNonces(msg.key, nonces))?
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::GraphNonces(key, nonces))?
                     {
                         duties.push(duty);
                     }
@@ -776,7 +824,7 @@ impl ContractManagerCtx {
                     }
                     let nonce = nonces.pop().unwrap();
                     if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::RootNonce(msg.key, nonce))?
+                        contract.process_contract_event(ContractEvent::RootNonce(key, nonce))?
                     {
                         duties.push(duty);
                     }
@@ -786,12 +834,12 @@ impl ContractManagerCtx {
             }
             UnsignedGossipsubMsg::Musig2SignaturesExchange {
                 session_id,
-                mut signatures,
+                ref signatures,
             } => {
                 let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
                 if let Some(contract) = self.state.active_contracts.get_mut(&txid) {
                     if let Some(duty) = contract
-                        .process_contract_event(ContractEvent::GraphSigs(msg.key, signatures))?
+                        .process_contract_event(ContractEvent::GraphSigs(key, signatures.clone()))?
                     {
                         duties.push(duty);
                     }
@@ -804,13 +852,15 @@ impl ContractManagerCtx {
                     if signatures.len() != 1 {
                         // TODO(proofofkeags): is this an error? For now we just ignore the message
                         // entirely.
-                        return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
-                            msg.unsigned,
-                        )));
+                        return Err(ContractManagerErr::InvalidP2PMessage(Box::new(msg)));
                     }
-                    let sig = signatures.pop().unwrap();
+
+                    let sig = signatures
+                        .first()
+                        .expect("must exist due to the length check above");
+
                     if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::RootSig(msg.key, sig))?
+                        contract.process_contract_event(ContractEvent::RootSig(key, *sig))?
                     {
                         duties.push(duty);
                     }
@@ -977,7 +1027,7 @@ async fn execute_duty(
 ) -> Result<(), ContractManagerErr> {
     let OutputHandles {
         wallet,
-        msg_handler: p2p_handle,
+        msg_handler,
         s2_client,
         tx_driver,
         db,
@@ -1047,7 +1097,7 @@ async fn execute_duty(
                 let stakechain_preimg_hash = stake_data.hash;
                 let funding_outpoint = stake_data.operator_funds;
 
-                p2p_handle
+                msg_handler
                     .send_deposit_setup(
                         deposit_idx,
                         scope,
@@ -1149,7 +1199,7 @@ async fn execute_duty(
             db.add_stake_data(pov_idx, deposit_idx, stake_data).await?;
 
             info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
-            p2p_handle
+            msg_handler
                 .send_deposit_setup(
                     deposit_idx,
                     scope,
