@@ -233,7 +233,6 @@ impl ContractManager {
                 cfg: cfg.clone(),
                 state,
                 state_handles,
-                resource_mgrs,
             };
 
             while cursor < current {
@@ -360,10 +359,6 @@ impl Drop for ContractManager {
     }
 }
 
-struct ResourceManagers {
-    s2_client: SecretServiceClient,
-}
-
 /// The handles required by the duty tracker to execute duties.
 struct OutputHandles {
     wallet: RwLock<OperatorWallet>,
@@ -403,7 +398,6 @@ struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
     state: ExecutionState,
-    resource_mgrs: ResourceManagers,
 }
 
 impl ContractManagerCtx {
