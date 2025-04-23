@@ -179,9 +179,6 @@ impl ContractManager {
                 .unwrap_or(current);
 
             let msg_handler = MessageHandler::new(p2p_handle.clone());
-            let resource_mgrs = ResourceManagers {
-                s2_client: s2_client.clone(),
-            };
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
@@ -220,7 +217,6 @@ impl ContractManager {
                 cfg: cfg.clone(),
                 state,
                 state_handles,
-                resource_mgrs,
             };
 
             while cursor < current {
@@ -327,10 +323,6 @@ impl Drop for ContractManager {
     }
 }
 
-struct ResourceManagers {
-    s2_client: SecretServiceClient,
-}
-
 /// The handles required by the duty tracker to execute duties.
 struct OutputHandles {
     wallet: RwLock<OperatorWallet>,
@@ -370,7 +362,6 @@ struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
     state: ExecutionState,
-    resource_mgrs: ResourceManagers,
 }
 
 impl ContractManagerCtx {
