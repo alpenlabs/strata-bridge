@@ -227,7 +227,6 @@ impl ContractManager {
                 cfg: cfg.clone(),
                 state,
                 state_handles,
-                resource_mgrs: todo!(),
             };
 
             while cursor < current {
@@ -264,7 +263,7 @@ impl ContractManager {
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
             let mut interval = time::interval(nag_interval);
-            let pov_key = ctx.cfg.operator_table.pov_op_key();
+            let pov_key = ctx.cfg.operator_table.pov_op_key().clone();
             let pov_idx = ctx.cfg.operator_table.pov_idx();
             loop {
                 let mut duties = vec![];
@@ -354,10 +353,6 @@ impl Drop for ContractManager {
     }
 }
 
-struct ResourceManagers {
-    s2_client: SecretServiceClient,
-}
-
 /// The handles required by the duty tracker to execute duties.
 struct OutputHandles {
     wallet: RwLock<OperatorWallet>,
@@ -397,7 +392,6 @@ struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
     state: ExecutionState,
-    resource_mgrs: ResourceManagers,
 }
 
 impl ContractManagerCtx {
