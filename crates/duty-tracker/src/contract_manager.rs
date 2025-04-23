@@ -233,6 +233,7 @@ impl ContractManager {
                 cfg: cfg.clone(),
                 state,
                 state_handles,
+                resource_mgrs,
             };
 
             while cursor < current {
@@ -359,6 +360,10 @@ impl Drop for ContractManager {
     }
 }
 
+struct ResourceManagers {
+    s2_client: SecretServiceClient,
+}
+
 /// The handles required by the duty tracker to execute duties.
 struct OutputHandles {
     wallet: RwLock<OperatorWallet>,
@@ -398,6 +403,7 @@ struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
     state: ExecutionState,
+    resource_mgrs: ResourceManagers,
 }
 
 impl ContractManagerCtx {
@@ -894,14 +900,14 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get(deposit_txid))
                 {
                     if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
-                        let pog = csm.cfg().build_graph(
-                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
-                        );
-                        let pog_inputs = pog.musig_inputs().map(|x| x.previous_output);
+                        let pog_inputs = csm
+                            .cfg()
+                            .build_graph(peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone())
+                            .musig_inputs()
+                            .map(|x| x.previous_output);
                         Some(OperatorDuty::PublishGraphNonces {
                             claim_txid: session_id_as_txid,
                             pog_prevouts: pog_inputs,
-                            pog_witnesses: pog.musig_witnesses(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -914,16 +920,9 @@ impl ContractManagerCtx {
                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
                 {
                     if let ContractState::Requested { .. } = csm.state().state {
-                        let deposit_info = csm.cfg().deposit_info.clone();
-                        let witness = deposit_info
-                            .compute_spend_infos(
-                                &csm.cfg().operator_table.tx_build_context(csm.cfg().network),
-                                csm.cfg().peg_out_graph_params.refund_delay,
-                            )
-                            .expect("must be able to compute taproot witness for DT");
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid: session_id_as_txid,
-                            witness,
+                            takeback_key: *csm.cfg().deposit_info.x_only_public_key(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -963,7 +962,7 @@ impl ContractManagerCtx {
                                     graph_nonces.get(&session_id_as_txid).unwrap().clone(),
                                 )
                                 .unwrap(),
-                            pog_prevouts: pog.musig_inputs().map(|x| x.previous_output),
+                            pog_prevouts: Box::new(pog.musig_inputs().map(|x| x.previous_output)),
                             pog_sighashes: pog.sighashes(),
                         })
                     } else {
@@ -977,46 +976,9 @@ impl ContractManagerCtx {
                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
                 {
                     if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
-                        let deposit_info = csm.cfg().deposit_info.clone();
-                        let tx_signing_data = deposit_info
-                            .construct_signing_data(
-                                &csm.cfg().operator_table.tx_build_context(csm.cfg().network),
-                                &csm.cfg().peg_out_graph_params,
-                                &self.cfg.sidesystem_params,
-                            )
-                            .expect(
-                                "this should've already been checked when contract is instantiated",
-                            );
-
-                        let deposit_psbt = &tx_signing_data.psbt;
-                        let mut sighash_cache =
-                            SighashCache::new(&tx_signing_data.psbt.unsigned_tx);
-                        let prevouts = deposit_psbt
-                            .inputs
-                            .iter()
-                            .map(|input| input.witness_utxo.clone().expect("must have been set"))
-                            .collect::<Vec<_>>();
-
-                        let witness_type = &tx_signing_data.spend_path;
-                        let sighash_type = TapSighashType::All;
-                        let input_index = 0;
-
-                        let msg = create_message_hash(
-                            &mut sighash_cache,
-                            Prevouts::All(&prevouts),
-                            witness_type,
-                            sighash_type,
-                            input_index,
-                        )
-                        .expect("must be able to construct the message hash for DT");
                         Some(OperatorDuty::PublishRootSignature {
-                            deposit_request_txid: session_id_as_txid,
-                            nonces: csm
-                                .cfg()
-                                .operator_table
-                                .convert_map_op_to_btc(root_nonces.clone())
-                                .expect("received nonces from non-existent operator"),
-                            sighash: msg,
+                            nonces: root_nonces.clone(),
+                            deposit_info: csm.cfg().deposit_info.clone(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1252,7 +1214,6 @@ async fn execute_duty(
                 &output_handles.msg_handler,
                 claim_txid,
                 pog_inputs,
-                pog_witnesses,
             )
             .await
         }
@@ -1268,7 +1229,7 @@ async fn execute_duty(
                 &output_handles.msg_handler,
                 claim_txid,
                 pubnonces,
-                pog_outpoints,
+                *pog_outpoints,
                 pog_sighashes,
             )
             .await
