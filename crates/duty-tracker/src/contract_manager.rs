@@ -271,7 +271,7 @@ impl ContractManager {
                         Ok(msg) => {
                             match ctx.process_unsigned_gossip_msg(msg, pov_key.clone(), pov_idx).await {
                                 Ok(ouroborus_duties) => {
-                                    info!("queueing duties generated via ouroborus");
+                                    info!(num_duties=ouroborus_duties.len(), "queueing duties generated via ouroborus");
                                     duties.extend(ouroborus_duties);
                                 },
                                 Err(e) => {
