@@ -1,4 +1,4 @@
-//! Constants used throughoutt the duty tracker.
+//! Constants used throughout the duty tracker.
 
 // FIXME: (@Rajil1213) find a better way to do this instead of baking non-obvious values.
 
