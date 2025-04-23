@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bitcoin::{hashes::Hash, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     AggNonce, LiftedSignature, PubNonce,
@@ -33,6 +33,26 @@ impl Musig2Client {
     /// Creates a new MuSig2 client with an existing QUIC connection and configuration.
     pub fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
+    }
+
+    /// Reconstructs a MuSig2 first round from a session ID. This is dangerous because it bypasses
+    /// the normal session creation process and so could be invalid.
+    pub fn dangerous_first_round(&self, session_id: OutPoint) -> Musig2FirstRound {
+        Musig2FirstRound {
+            session_id,
+            connection: self.conn.clone(),
+            config: self.config.clone(),
+        }
+    }
+
+    /// Reconstructs a MuSig2 second round from a session ID. This is dangerous because it bypasses
+    /// the normal session creation process and so could be invalid.
+    pub fn dangerous_second_round(&self, session_id: OutPoint) -> Musig2SecondRound {
+        Musig2SecondRound {
+            session_id,
+            connection: self.conn.clone(),
+            config: self.config.clone(),
+        }
     }
 }
 
@@ -89,6 +109,14 @@ pub struct Musig2FirstRound {
 
     /// The configuration for the client.
     config: Arc<Config>,
+}
+
+impl Musig2FirstRound {
+    /// Exports internal session id from the session struct. This leaks the internals and should be
+    /// used with caution.
+    pub fn dangerous_export_session_id(&self) -> Musig2SessionId {
+        self.session_id
+    }
 }
 
 impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
