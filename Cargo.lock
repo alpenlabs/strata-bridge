@@ -10485,6 +10485,7 @@ dependencies = [
  "bitcoin-script",
  "bitvm",
  "corepc-node",
+ "futures",
  "rkyv",
  "secp256k1",
  "serde",
