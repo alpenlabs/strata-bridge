@@ -173,7 +173,7 @@ pub enum ContractState {
         /// This is a collection of nonces for all graphs and for all operators.
         graph_nonces: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
 
-        /// This is a colleciton of all partial signatures for all graphs and for all operators.
+        /// This is a collection of all partial signatures for all graphs and for all operators.
         graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
 
         /// This is a collection of nonces for the deposit tx for all operators.

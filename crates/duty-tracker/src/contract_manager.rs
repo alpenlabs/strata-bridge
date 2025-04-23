@@ -1584,7 +1584,7 @@ async fn execute_duty(
                 sighash_type,
                 input_index,
             )
-            .expect("must be able to consturct the message hash for DT");
+            .expect("must be able to construct the message hash for DT");
 
             let partial = output_handles
                 .s2_client
