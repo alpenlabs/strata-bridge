@@ -892,14 +892,14 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get(deposit_txid))
                 {
                     if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
-                        let pog_inputs = csm
-                            .cfg()
-                            .build_graph(peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone())
-                            .musig_inputs()
-                            .map(|x| x.previous_output);
+                        let pog = csm.cfg().build_graph(
+                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
+                        );
+                        let pog_inputs = pog.musig_inputs().map(|x| x.previous_output);
                         Some(OperatorDuty::PublishGraphNonces {
                             claim_txid: session_id_as_txid,
                             pog_prevouts: pog_inputs,
+                            pog_witnesses: pog.musig_witnesses(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -914,7 +914,7 @@ impl ContractManagerCtx {
                     if let ContractState::Requested { .. } = csm.state().state {
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid: session_id_as_txid,
-                            takeback_key: *csm.cfg().deposit_info.x_only_public_key(),
+                            deposit_info: csm.cfg().deposit_info.clone(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -954,7 +954,7 @@ impl ContractManagerCtx {
                                     graph_nonces.get(&session_id_as_txid).unwrap().clone(),
                                 )
                                 .unwrap(),
-                            pog_prevouts: Box::new(pog.musig_inputs().map(|x| x.previous_output)),
+                            pog_prevouts: pog.musig_inputs().map(|x| x.previous_output),
                             pog_sighashes: pog.sighashes(),
                         })
                     } else {
@@ -1206,6 +1206,7 @@ async fn execute_duty(
                 &output_handles.msg_handler,
                 claim_txid,
                 pog_inputs,
+                pog_witnesses,
             )
             .await
         }
@@ -1221,7 +1222,7 @@ async fn execute_duty(
                 &output_handles.msg_handler,
                 claim_txid,
                 pubnonces,
-                *pog_outpoints,
+                pog_outpoints,
                 pog_sighashes,
             )
             .await
