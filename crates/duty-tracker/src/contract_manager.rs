@@ -932,7 +932,16 @@ impl ContractManagerCtx {
                     })
                 }));
 
-                // We can simultaneously nag for the nonces as well.
+                if !commands.is_empty() {
+                    all_commands.extend(commands.into_iter());
+                    continue;
+                }
+
+                // If all the deposit setup data are present, we continue nagging for graph nonces.
+                // We can also do this simultaneously with the nags for deposit setup messages.
+                // However, this can be a bit wasteful during race conditions where we query for
+                // both deposit setup and nonces even although one or both of them may be en-route
+                // or being processed.
                 let have = graph_nonces
                     .keys()
                     .cloned()
