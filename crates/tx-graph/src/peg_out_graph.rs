@@ -1,17 +1,10 @@
 //! This module constructs the peg-out graph which is a series of transactions that allow for the
 //! withdrawal of funds from the bridge address given a valid claim.
 
-use core::fmt;
-use std::{marker::PhantomData, mem::MaybeUninit};
-
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
-use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
-use secp256k1::XOnlyPublicKey;
-use serde::{
-    de::{SeqAccess, Visitor},
-    ser::SerializeTuple,
-    Deserialize, Deserializer, Serialize, Serializer,
-};
+use bitcoin::{hashes::sha256, relative, OutPoint, TxIn, Txid};
+use secp256k1::{Message, XOnlyPublicKey};
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
@@ -20,10 +13,13 @@ use strata_bridge_primitives::{
 };
 use tracing::debug;
 
-use crate::transactions::{
-    payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
-    prelude::*,
-    slash_stake::{SlashStakeData, SlashStakeTx},
+use crate::{
+    pog_musig_functor::PogMusigF,
+    transactions::{
+        payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
+        prelude::*,
+        slash_stake::{SlashStakeData, SlashStakeTx},
+    },
 };
 
 /// The input data required to generate a peg-out graph.
@@ -52,7 +48,6 @@ pub struct PegOutGraphInput {
     // TODO: Make this a [`descriptor`](bitcoin_bosd::Descriptor).
     pub operator_pubkey: XOnlyPublicKey,
 }
-
 /// The minimum necessary information to recognize all of the relevant transactions in a given
 /// [`PegOutGraph`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,94 +79,6 @@ pub struct PegOutGraphSummary {
     pub slash_stake_txids: Vec<Txid>,
 }
 
-/// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
-/// length arrays of larger than 32.
-fn serialize_assert_vector<T: Serialize, S: Serializer>(
-    data: &[T; NUM_ASSERT_DATA_TX],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let mut seq = serializer.serialize_tuple(NUM_ASSERT_DATA_TX)?;
-    for e in data {
-        seq.serialize_element(e)?;
-    }
-    seq.end()
-}
-
-/// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
-/// length arrays of larger than 32.
-fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-) -> Result<[T; NUM_ASSERT_DATA_TX], D::Error> {
-    // THE AUTHORS OF SERDE CAN BURN IN HELL. Seriously whoever thought of serde's design is fucking
-    // retarded.
-    struct AssertVisitor<const N: usize, T> {
-        marker: PhantomData<T>,
-    }
-
-    impl<'de, const N: usize, T> Visitor<'de> for AssertVisitor<N, T>
-    where
-        T: Deserialize<'de>,
-    {
-        type Value = [T; N];
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a sequence")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut values = [const { MaybeUninit::<T>::uninit() }; N];
-            let mut num_successfully_deserialized = 0;
-
-            let cleanup = |mut vs: [MaybeUninit<T>; N], n: usize| {
-                for written in &mut vs[..n] {
-                    unsafe {
-                        written.assume_init_drop();
-                    }
-                }
-            };
-
-            while let Some(res) = seq.next_element().transpose() {
-                match res {
-                    Ok(value) => {
-                        if num_successfully_deserialized >= NUM_ASSERT_DATA_TX {
-                            cleanup(values, num_successfully_deserialized);
-                            return Err(serde::de::Error::invalid_length(
-                                num_successfully_deserialized + 1,
-                                &self,
-                            ));
-                        }
-
-                        values[num_successfully_deserialized].write(value);
-                        num_successfully_deserialized += 1;
-                    }
-                    Err(e) => {
-                        cleanup(values, num_successfully_deserialized);
-                        return Err(e);
-                    }
-                }
-            }
-
-            if num_successfully_deserialized < NUM_ASSERT_DATA_TX {
-                cleanup(values, num_successfully_deserialized);
-                Err(serde::de::Error::invalid_length(
-                    num_successfully_deserialized,
-                    &self,
-                ))
-            } else {
-                Ok(unsafe { MaybeUninit::array_assume_init(values) })
-            }
-        }
-    }
-
-    let visitor = AssertVisitor::<NUM_ASSERT_DATA_TX, T> {
-        marker: PhantomData,
-    };
-    deserializer.deserialize_seq(visitor)
-}
-
 /// A container for the transactions in the peg-out graph.
 ///
 /// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxiliary data required to
@@ -180,6 +87,9 @@ fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 pub struct PegOutGraph {
     /// The claim transaction that commits to a valid withdrawal fulfillment txid.
     pub claim_tx: ClaimTx,
+
+    /// The transaction used to challenge an operator's claim.
+    pub challenge_tx: ChallengeTx,
 
     /// The transaction used to reimburse operators when no challenge occurs.
     pub payout_optimistic: PayoutOptimisticTx,
@@ -226,18 +136,15 @@ impl PegOutGraph {
     ///   claims.In general, the number of these transactions should be `min(deposit_index,
     ///   slash_stake_count)` (assuming that the deposit index is zero-indexed). As an optimization,
     ///   only claim txids corresponding to unclaimed deposits need to be specified.
-    pub fn generate<Context>(
+    pub fn generate(
         input: PegOutGraphInput,
-        context: &Context,
+        context: &impl BuildContext,
         deposit_txid: Txid,
         graph_params: PegOutGraphParams,
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
-    ) -> (Self, PegOutGraphConnectors)
-    where
-        Context: BuildContext,
-    {
+    ) -> (Self, PegOutGraphConnectors) {
         let connectors = PegOutGraphConnectors::new(
             context,
             deposit_txid,
@@ -264,6 +171,14 @@ impl PegOutGraph {
         );
         let claim_txid = claim_tx.compute_txid();
         debug!(event = "created claim tx", %claim_txid);
+
+        let challenge_input = ChallengeTxInput {
+            claim_outpoint: OutPoint::new(claim_txid, 1),
+            challenge_amt: graph_params.challenge_cost,
+            operator_pubkey: input.operator_pubkey,
+            network: context.network(),
+        };
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
 
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
@@ -377,6 +292,7 @@ impl PegOutGraph {
         (
             Self {
                 claim_tx,
+                challenge_tx,
                 payout_optimistic,
                 assert_chain,
                 payout_tx,
@@ -402,6 +318,86 @@ impl PegOutGraph {
                 .slash_stake_txs
                 .iter()
                 .map(|tx| tx.compute_txid())
+                .collect(),
+        }
+    }
+
+    /// Generates the sighash message
+    pub fn sighashes(&self) -> PegOutGraphSighashes {
+        let challenge = self.challenge_tx.sighashes()[0];
+
+        let AssertChain {
+            pre_assert,
+            post_assert,
+            ..
+        } = &self.assert_chain;
+
+        let pre_assert = pre_assert.sighashes()[0];
+
+        let post_assert = post_assert.sighashes();
+
+        let payout_optimistic = self.payout_optimistic.sighashes();
+
+        let payout = self.payout_tx.sighashes();
+
+        let disprove = self.disprove_tx.sighashes()[0];
+
+        let slash_stake = self
+            .slash_stake_txs
+            .iter()
+            .map(|slash_stake| slash_stake.sighashes())
+            .collect();
+
+        PegOutGraphSighashes {
+            challenge,
+            pre_assert,
+            post_assert,
+            payout_optimistic,
+            payout,
+            disprove,
+            slash_stake,
+        }
+    }
+
+    pub fn musig_inputs(&self) -> PogMusigF<&TxIn> {
+        PogMusigF {
+            challenge: self.challenge_tx.psbt().unsigned_tx.input.first().unwrap(),
+            pre_assert: self
+                .assert_chain
+                .pre_assert
+                .psbt()
+                .unsigned_tx
+                .input
+                .first()
+                .unwrap(),
+            post_assert: std::array::from_fn(|i| {
+                self.assert_chain
+                    .post_assert
+                    .psbt()
+                    .unsigned_tx
+                    .input
+                    .get(i)
+                    .unwrap()
+            }),
+            payout_optimistic: std::array::from_fn(|i| {
+                self.payout_optimistic
+                    .psbt()
+                    .unsigned_tx
+                    .input
+                    .get(i)
+                    .unwrap()
+            }),
+            payout: std::array::from_fn(|i| {
+                self.payout_tx.psbt().unsigned_tx.input.get(i).unwrap()
+            }),
+            disprove: self.disprove_tx.psbt().unsigned_tx.input.first().unwrap(),
+            slash_stake: self
+                .slash_stake_txs
+                .iter()
+                .map(|tx| {
+                    let inputs = &tx.psbt().unsigned_tx.input;
+                    [inputs.first().unwrap(), inputs.get(1).unwrap()]
+                })
                 .collect(),
         }
     }
@@ -545,6 +541,8 @@ impl PegOutGraphConnectors {
         }
     }
 }
+
+type PegOutGraphSighashes = PogMusigF<Message>;
 
 #[cfg(test)]
 mod tests {

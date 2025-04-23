@@ -7,12 +7,12 @@ use bitcoind_async_client::error::ClientError;
 use strata_bridge_db::errors::DbError;
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_p2p_types::P2POperatorPubKey;
-use strata_p2p_wire::p2p::v1::UnsignedGossipsubMsg;
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
 use thiserror::Error;
 
 use crate::{
     contract_persister::ContractPersistErr, contract_state_machine::TransitionErr,
-    tx_driver::DriveErr,
+    s2_session_manager::MusigSessionErr, tx_driver::DriveErr,
 };
 
 /// Unified error type for everything that can happen in the ContractManager.
@@ -38,6 +38,10 @@ pub enum ContractManagerErr {
     #[error("invalid p2p message: {0:?}")]
     InvalidP2PMessage(Box<UnsignedGossipsubMsg>),
 
+    /// Errors related to receiving P2P message requests that are invalid.
+    #[error("invalid p2p request: {0:?}")]
+    InvalidP2PRequest(Box<GetMessageRequest>),
+
     /// Errors related to calling Bitcoin Core's RPC interface.
     #[error("bitcoin core rpc call failed with: {0}")]
     BitcoinCoreRPCErr(#[from] ClientError),
@@ -61,6 +65,10 @@ pub enum ContractManagerErr {
     /// Error from the tx driver while submitting/tracking transaction on chain.
     #[error("failed to submit or track transaction: {0:?}")]
     TxDriverErr(#[from] DriveErr),
+
+    /// Errors originating from Musig signing issues.
+    #[error("musig session manager error: {0}")]
+    MusigSessionErr(#[from] MusigSessionErr),
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.

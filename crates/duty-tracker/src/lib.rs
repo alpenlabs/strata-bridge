@@ -7,6 +7,7 @@ pub mod contract_persister;
 pub mod contract_state_machine;
 pub mod errors;
 pub mod predicates;
+pub mod s2_session_manager;
 pub mod stake_chain_persister;
 pub mod stake_chain_state_machine;
 pub mod tx_driver;
