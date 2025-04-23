@@ -367,7 +367,6 @@ impl ContractState {
 
 /// This is the superset of all possible operator duties.
 #[derive(Debug)]
-#[expect(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,

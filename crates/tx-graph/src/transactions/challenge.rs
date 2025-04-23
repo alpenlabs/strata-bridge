@@ -72,6 +72,7 @@ impl ChallengeTx {
         }];
 
         let input_index = tapleaf.get_input_index() as usize;
+        let sighash_type = tapleaf.get_sighash_type();
         psbt.inputs[input_index].witness_utxo = Some(prevouts[0].clone());
         psbt.inputs[input_index].sighash_type = Some(tapleaf.get_sighash_type().into());
 
