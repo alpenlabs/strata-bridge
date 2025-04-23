@@ -16,7 +16,8 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 strata-bridge-common.workspace = true
-strata-bridge-primitives.workspace = true
+
+strata-primitives.workspace = true
 
 alloy = { version = "0.3.6", features = ["full", "node-bindings"] }
 alloy-signer = "0.3.6"

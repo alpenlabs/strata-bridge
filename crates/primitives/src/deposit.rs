@@ -11,11 +11,10 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{constants::UNSPENDABLE_PUBLIC_KEY, params::RollupParams};
 
 use crate::{
     build_context::BuildContext,
-    constants::UNSPENDABLE_INTERNAL_KEY,
     errors::{BridgeTxBuilderError, BridgeTxBuilderResult, DepositTransactionError},
     scripts::{
         general::{create_tx, create_tx_ins, create_tx_outs},
@@ -133,6 +132,7 @@ impl DepositInfo {
             *deposit_amount,
             tag.as_bytes(),
             sidesystem_params.address_length as usize,
+            pegout_graph_params.refund_delay,
         )?;
 
         let mut psbt = Psbt::from_unsigned_tx(unsigned_tx)?;
@@ -184,11 +184,11 @@ impl DepositInfo {
             ));
         }
 
-        let (output_key, parity) = UNSPENDABLE_INTERNAL_KEY.tap_tweak(SECP256K1, merkle_root);
+        let (output_key, parity) = UNSPENDABLE_PUBLIC_KEY.tap_tweak(SECP256K1, merkle_root);
 
         let control_block = ControlBlock {
             leaf_version: taproot::LeafVersion::TapScript,
-            internal_key: *UNSPENDABLE_INTERNAL_KEY,
+            internal_key: *UNSPENDABLE_PUBLIC_KEY,
             merkle_branch: vec![takeback_script_hash].try_into().map_err(|_| {
                 BridgeTxBuilderError::DepositTransaction(
                     DepositTransactionError::InvalidTapLeafHash,
@@ -224,6 +224,7 @@ impl DepositInfo {
         deposit_amt: Amount,
         tag: &[u8],
         ee_address_size: usize,
+        refund_delay: u16,
     ) -> BridgeTxBuilderResult<Transaction> {
         // First, create the inputs
         let outpoint = self.deposit_request_outpoint();
@@ -241,12 +242,16 @@ impl DepositInfo {
             .into());
         }
 
+        let takeback_script = drt_take_back(*self.x_only_public_key(), refund_delay);
+        let takeback_script_hash =
+            TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
+
         let metadata = AuxiliaryData {
             tag,
             metadata: DepositMetadata::DepositTx {
                 stake_index: self.stake_index(),
                 ee_address: self.ee_address.to_vec(),
-                takeback_pubkey: self.x_only_public_key,
+                takeback_hash: takeback_script_hash,
                 input_amount: self.total_amount,
             },
         };
@@ -386,9 +391,9 @@ mod tests {
         let deposit_request_outpoint = OutPoint::null();
         let recovery_xonly_pk = generate_xonly_pubkey();
 
-        let refuned_delay = 1008;
+        let refund_delay = 1_008;
         let (drt_output_address, _take_back_leaf_hash) =
-            create_drt_taproot_output(operator_pubkeys.clone(), recovery_xonly_pk, refuned_delay);
+            create_drt_taproot_output(operator_pubkeys.clone(), recovery_xonly_pk, refund_delay);
         let self_index = 0;
 
         let tx_builder = TxBuildContext::new(Network::Regtest, operator_pubkeys, self_index);
@@ -405,7 +410,8 @@ mod tests {
 
         let tag = b"alpen";
         let deposit_amt = Amount::from_int_btc(1);
-        let result = deposit_info.create_unsigned_tx(&tx_builder, deposit_amt, tag, 20);
+        let result =
+            deposit_info.create_unsigned_tx(&tx_builder, deposit_amt, tag, 20, refund_delay);
         assert!(
             result.is_ok(),
             "should build the prevout for DT from the deposit info, error: {:?}",
@@ -528,6 +534,8 @@ mod tests {
         let n_of_n_script = n_of_n_script(&tx_build_context.aggregated_pubkey()).compile();
         let take_back_script =
             drt_take_back(recovery_xonly_pubkey, pegout_graph_params.refund_delay);
+        let take_back_script_hash =
+            TapNodeHash::from_script(&take_back_script, LeafVersion::TapScript);
 
         let spend_path = SpendPath::ScriptSpend {
             scripts: &[n_of_n_script, take_back_script],
@@ -557,7 +565,7 @@ mod tests {
             pegout_graph_params.tag.as_bytes(),
             &stake_index.to_be_bytes(),
             &ee_address,
-            &recovery_xonly_pubkey.serialize(),
+            take_back_script_hash.as_ref(),
             &total_amount.to_sat().to_be_bytes(),
         ]
         .concat();

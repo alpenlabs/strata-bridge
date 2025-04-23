@@ -3302,7 +3302,7 @@ dependencies = [
  "miniscript",
  "serde_json",
  "strata-bridge-common",
- "strata-bridge-primitives",
+ "strata-primitives",
  "tokio",
  "tracing",
 ]
@@ -10497,6 +10497,7 @@ dependencies = [
  "strata-bridge-test-utils",
  "strata-btcio",
  "strata-p2p-types",
+ "strata-primitives",
  "thiserror 2.0.12",
  "tokio",
  "tracing",

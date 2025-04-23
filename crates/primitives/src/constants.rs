@@ -41,14 +41,8 @@
 //! | Hash          | 10                 |  33         | 1            | 330   |
 //! | Hash          | 11                 |  3          | 1            | 33    |
 
-use std::sync::LazyLock;
-
-use bitcoin::{
-    hashes::{sha256, Hash},
-    Amount,
-};
+use bitcoin::Amount;
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-use secp256k1::XOnlyPublicKey;
 
 /// The maximum number of field elements that are bitcommitted per UTXO.
 pub const NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1: usize = 5;
@@ -128,20 +122,3 @@ pub const SEGWIT_MIN_AMOUNT: Amount = Amount::from_sat(330);
 /// |---------------|----------------------------------------|----------------|------------|
 /// | Total         |                                        | 41             | 27060      |
 pub const FUNDING_AMOUNT: Amount = Amount::from_sat(2 * 39 * 330 + 330 + 3 * 330);
-
-const UNSPENDABLE_PUBLIC_KEY_INPUT: &[u8] = b"Strata Bridge Unspendable";
-
-/// A verifiably unspendable public key, produced by hashing a fixed string to a curve group
-/// generator.
-///
-/// This is related to the technique used in [BIP-341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs).
-///
-/// Note that this is _not_ necessarily a uniformly-sampled curve point!
-///
-/// But this is fine; we only need a generator with no efficiently-computable discrete logarithm
-/// relation against the standard generator.
-pub static UNSPENDABLE_INTERNAL_KEY: LazyLock<XOnlyPublicKey> =
-    LazyLock::new(|| -> XOnlyPublicKey {
-        XOnlyPublicKey::from_slice(sha256::Hash::hash(UNSPENDABLE_PUBLIC_KEY_INPUT).as_byte_array())
-            .expect("valid xonly public key")
-    });

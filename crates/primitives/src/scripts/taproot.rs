@@ -17,11 +17,9 @@ use bitcoin::{
 use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 use serde::{Deserialize, Serialize};
+use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
-use crate::{
-    constants::UNSPENDABLE_INTERNAL_KEY,
-    errors::{BridgeTxBuilderError, BridgeTxBuilderResult},
-};
+use crate::errors::{BridgeTxBuilderError, BridgeTxBuilderResult};
 
 /// Different spending paths for a taproot.
 ///
@@ -34,7 +32,7 @@ pub enum SpendPath<'path> {
         internal_key: UntweakedPublicKey,
     },
     /// Script path spend that only allows spending via scripts in the taproot tree, with the
-    /// internal key being the [`static@UNSPENDABLE_INTERNAL_KEY`].
+    /// internal key being the [`static@UNSPENDABLE_PUBLIC_KEY`].
     ScriptSpend {
         /// The scripts that live in the leaves of the taproot tree.
         scripts: &'path [ScriptBuf],
@@ -65,7 +63,7 @@ pub fn create_taproot_addr<'creator>(
                 return Err(BridgeTxBuilderError::EmptyTapscript);
             }
 
-            build_taptree(*UNSPENDABLE_INTERNAL_KEY, *network, scripts)
+            build_taptree(*UNSPENDABLE_PUBLIC_KEY, *network, scripts)
         }
         SpendPath::Both {
             internal_key,
