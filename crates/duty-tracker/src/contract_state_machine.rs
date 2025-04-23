@@ -19,6 +19,7 @@ use musig2::{
 use strata_bridge_primitives::{
     deposit::DepositInfo,
     operator_table::OperatorTable,
+    scripts::taproot::TaprootWitness,
     types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_stake_chain::{
@@ -367,6 +368,7 @@ impl ContractState {
 
 /// This is the superset of all possible operator duties.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
@@ -390,6 +392,10 @@ pub enum OperatorDuty {
 
         /// The set of outpoints that need to be signed.
         pog_prevouts: PogMusigF<OutPoint>,
+
+        /// The set of taproot witnesses required to reconstruct the taproot control blocks for the
+        /// outpoints.
+        pog_witnesses: PogMusigF<TaprootWitness>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -402,7 +408,7 @@ pub enum OperatorDuty {
         pubnonces: BTreeMap<secp256k1::PublicKey, PogMusigF<PubNonce>>,
 
         /// The set of outpoints that need to be signed.
-        pog_prevouts: Box<PogMusigF<OutPoint>>,
+        pog_prevouts: PogMusigF<OutPoint>,
 
         /// The set of sighashes that need to be signed.
         pog_sighashes: PogMusigF<Message>,
@@ -413,9 +419,8 @@ pub enum OperatorDuty {
         /// Transaction ID of the DRT
         deposit_request_txid: Txid,
 
-        /// The schnorr key that locks the funds in the DRT for the user to take back after a
-        /// parameterized refund delay.
-        takeback_key: XOnlyPublicKey,
+        /// The information required to reconstruct the taproot control block from the DRT
+        deposit_info: DepositInfo,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
@@ -852,6 +857,7 @@ impl ContractSM {
                         Some(OperatorDuty::PublishGraphNonces {
                             claim_txid,
                             pog_prevouts: pog.musig_inputs().map(|txin| txin.previous_output),
+                            pog_witnesses: pog.musig_witnesses(),
                         })
                     } else {
                         None
@@ -904,7 +910,7 @@ impl ContractSM {
                                 .operator_table
                                 .convert_map_op_to_btc(session_nonces.clone())
                                 .map_err(|e| TransitionErr(format!("could not convert nonce map keys: {} not in operator table", e)))?,
-                            pog_prevouts: Box::new(graph.musig_inputs().map(|x| x.previous_output)),
+                            pog_prevouts: graph.musig_inputs().map(|x| x.previous_output),
                             pog_sighashes: graph.sighashes(),
                         })
                     } else {
@@ -945,7 +951,7 @@ impl ContractSM {
                     // issue deposit signature
                     Some(OperatorDuty::PublishRootNonce {
                         deposit_request_txid,
-                        takeback_key: *self.cfg.deposit_info.x_only_public_key(),
+                        deposit_info: self.cfg.deposit_info.clone(),
                     })
                 } else {
                     None

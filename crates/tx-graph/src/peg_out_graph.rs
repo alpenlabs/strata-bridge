@@ -9,6 +9,7 @@ use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     constants::*,
+    scripts::taproot::TaprootWitness,
     wots::{self, Groth16PublicKeys},
 };
 use tracing::debug;
@@ -398,6 +399,22 @@ impl PegOutGraph {
                     let inputs = &tx.psbt().unsigned_tx.input;
                     [inputs.first().unwrap(), inputs.get(1).unwrap()]
                 })
+                .collect(),
+        }
+    }
+
+    pub fn musig_witnesses(&self) -> PogMusigF<TaprootWitness> {
+        PogMusigF {
+            challenge: self.challenge_tx.witnesses()[0].clone(),
+            pre_assert: self.assert_chain.pre_assert.witnesses()[0].clone(),
+            post_assert: self.assert_chain.post_assert.witnesses().clone(),
+            payout_optimistic: self.payout_optimistic.witnesses().clone(),
+            payout: self.payout_tx.witnesses().clone(),
+            disprove: self.disprove_tx.witnesses()[0].clone(),
+            slash_stake: self
+                .slash_stake_txs
+                .iter()
+                .map(|ss| ss.witnesses().clone())
                 .collect(),
         }
     }

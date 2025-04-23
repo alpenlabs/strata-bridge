@@ -34,8 +34,9 @@ use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
-    build_context::BuildContext, operator_table::OperatorTable,
-    scripts::taproot::create_message_hash,
+    build_context::BuildContext,
+    operator_table::OperatorTable,
+    scripts::taproot::{create_message_hash, TaprootWitness},
 };
 use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
@@ -181,21 +182,6 @@ impl ContractManager {
                 .map(|sm| sm.state().block_height)
                 .unwrap_or(current);
 
-            // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
-            // configurable. When this capacity is reached, messages will be dropped (although the
-            // documentation on broadcast::channel says that the actual capacity may be higher).
-            // This will only happen if this node as well as other event sources generate far too
-            // many events.
-            const OUROBOROS_CAP: usize = 100;
-            let (ouroboros_sender, mut ouroboros_receiver) = broadcast::channel(OUROBOROS_CAP);
-            let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
-            let output_handles = Arc::new(OutputHandles {
-                wallet: RwLock::new(wallet),
-                msg_handler,
-                s2_client: MusigSessionManager::new(s2_client),
-                tx_driver,
-                db,
-            });
             let cfg = ExecutionConfig {
                 network,
                 connector_params,
@@ -204,6 +190,24 @@ impl ContractManager {
                 sidesystem_params,
                 operator_table,
             };
+
+            // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
+            // configurable. When this capacity is reached, messages will be dropped (although the
+            // documentation on broadcast::channel says that the actual capacity may be higher).
+            // This will only happen if this node as well as other event sources generate far too
+            // many events.
+            const OUROBOROS_CAP: usize = 100;
+            let (ouroboros_sender, mut ouroboros_receiver) = broadcast::channel(OUROBOROS_CAP);
+            let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
+
+            let output_handles = Arc::new(OutputHandles {
+                wallet: RwLock::new(wallet),
+                msg_handler,
+                s2_client: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
+                tx_driver,
+                db,
+            });
+
             let state_handles = StateHandles {
                 contract_persister,
                 stake_chain_persister,
@@ -885,14 +889,14 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get(deposit_txid))
                 {
                     if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
-                        let pog_inputs = csm
-                            .cfg()
-                            .build_graph(peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone())
-                            .musig_inputs()
-                            .map(|x| x.previous_output);
+                        let pog = csm.cfg().build_graph(
+                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
+                        );
+                        let pog_inputs = pog.musig_inputs().map(|x| x.previous_output);
                         Some(OperatorDuty::PublishGraphNonces {
                             claim_txid: session_id_as_txid,
                             pog_prevouts: pog_inputs,
+                            pog_witnesses: pog.musig_witnesses(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -907,7 +911,7 @@ impl ContractManagerCtx {
                     if let ContractState::Requested { .. } = csm.state().state {
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid: session_id_as_txid,
-                            takeback_key: *csm.cfg().deposit_info.x_only_public_key(),
+                            deposit_info: csm.cfg().deposit_info.clone(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -947,7 +951,7 @@ impl ContractManagerCtx {
                                     graph_nonces.get(&session_id_as_txid).unwrap().clone(),
                                 )
                                 .unwrap(),
-                            pog_prevouts: Box::new(pog.musig_inputs().map(|x| x.previous_output)),
+                            pog_prevouts: pog.musig_inputs().map(|x| x.previous_output),
                             pog_sighashes: pog.sighashes(),
                         })
                     } else {
@@ -1464,11 +1468,19 @@ async fn execute_duty(
 
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
-            ..
+            deposit_info,
         } => {
             let nonce = output_handles
                 .s2_client
-                .get_nonce(OutPoint::new(deposit_request_txid, 0))
+                .get_nonce(
+                    OutPoint::new(deposit_request_txid, 0),
+                    deposit_info
+                        .compute_spend_infos(
+                            &cfg.operator_table.tx_build_context(cfg.network),
+                            cfg.pegout_graph_params.refund_delay,
+                        )
+                        .expect("could not compute taproot witness during PublishRootNonce"),
+                )
                 .await?;
 
             output_handles
@@ -1485,13 +1497,14 @@ async fn execute_duty(
         OperatorDuty::PublishGraphNonces {
             claim_txid,
             pog_prevouts: pog_inputs,
-            ..
+            pog_witnesses,
         } => {
             handle_publish_graph_nonces(
                 &output_handles.s2_client,
                 &output_handles.msg_handler,
                 claim_txid,
                 pog_inputs,
+                pog_witnesses,
             )
             .await
         }
@@ -1507,7 +1520,7 @@ async fn execute_duty(
                 &output_handles.msg_handler,
                 claim_txid,
                 pubnonces,
-                *pog_outpoints,
+                pog_outpoints,
                 pog_sighashes,
             )
             .await
@@ -1775,10 +1788,12 @@ async fn handle_publish_graph_nonces(
     musig: &MusigSessionManager,
     message_handler: &MessageHandler,
     claim_txid: Txid,
-    pog: PogMusigF<OutPoint>,
+    pog_outpoints: PogMusigF<OutPoint>,
+    pog_witnesses: PogMusigF<TaprootWitness>,
 ) -> Result<(), ContractManagerErr> {
-    let nonces = pog
-        .map(|x| musig.get_nonce(x))
+    let nonces = pog_outpoints
+        .zip(pog_witnesses)
+        .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
         .join_all()
         .await
         .map(|x| x.expect("no s2 errors")); // TODO(proofofkeags): find a more principled way to
