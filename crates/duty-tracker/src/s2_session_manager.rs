@@ -31,7 +31,10 @@ pub struct MusigSessionManager {
     /// The underlying S2 client.
     pub s2_client: SecretServiceClient,
 
+    /// Index for all of the active first round sessions.
     first_round_map: Arc<Mutex<BTreeMap<OutPoint, Musig2FirstRound>>>,
+
+    /// Index for all of the active second round sessions.
     second_round_map: Arc<Mutex<BTreeMap<OutPoint, Musig2SecondRound>>>,
 }
 impl MusigSessionManager {
@@ -90,7 +93,8 @@ impl MusigSessionManager {
         Ok(first_round.receive_pub_nonce(sender, nonce).await??)
     }
 
-    /// Given an [`OutPoint`] and the sighash for what is being signed, retrieves our MuSig2 [`PartialSignature`].
+    /// Given an [`OutPoint`] and the sighash for what is being signed, retrieves our MuSig2
+    /// [`PartialSignature`].
     pub async fn get_partial(
         &self,
         outpoint: OutPoint,
