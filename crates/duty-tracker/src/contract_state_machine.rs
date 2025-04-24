@@ -9,7 +9,8 @@ use bitcoin::{
         serde::{Deserialize, Serialize},
         sha256,
     },
-    Network, OutPoint, Transaction, Txid, XOnlyPublicKey,
+    sighash::{Prevouts, SighashCache},
+    Network, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
 use musig2::{
@@ -17,9 +18,10 @@ use musig2::{
     PartialSignature, PubNonce,
 };
 use strata_bridge_primitives::{
+    build_context::TxBuildContext,
     deposit::DepositInfo,
     operator_table::OperatorTable,
-    scripts::taproot::TaprootWitness,
+    scripts::taproot::{create_message_hash, TaprootWitness},
     types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_stake_chain::{
@@ -33,6 +35,7 @@ use strata_bridge_tx_graph::{
     transactions::prelude::WithdrawalMetadata,
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
+use strata_primitives::params::RollupParams;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 
@@ -419,17 +422,20 @@ pub enum OperatorDuty {
         /// Transaction ID of the DRT
         deposit_request_txid: Txid,
 
-        /// The information required to reconstruct the taproot control block from the DRT
-        deposit_info: DepositInfo,
+        /// The taproot witness required to reconstruct the taproot control block for the outpoint.
+        witness: TaprootWitness,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
     PublishRootSignature {
-        /// The nonces received from peers.
-        nonces: BTreeMap<P2POperatorPubKey, PubNonce>,
+        /// Transaction ID of the DRT
+        deposit_request_txid: Txid,
 
-        /// The data required to construct the deposit transaction.
-        deposit_info: DepositInfo,
+        /// The nonces received from peers.
+        nonces: BTreeMap<secp256k1::PublicKey, PubNonce>,
+
+        /// The sighash that needs to be signed.
+        sighash: Message,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -530,6 +536,9 @@ pub struct ContractCfg {
     /// Consensus critical parameters associated with the transactions in the peg out graph.
     pub peg_out_graph_params: PegOutGraphParams,
 
+    /// Consensus critical parameters associated with the sidesystem this contract is tied to.
+    pub sidesystem_params: RollupParams,
+
     /// Consensus critical parameters associated with the stake chain.
     pub stake_chain_params: StakeChainParams,
 
@@ -556,6 +565,11 @@ impl ContractCfg {
             Vec::new(),
         )
         .0
+    }
+
+    /// Builds a TxBuildContext from the ContractCfg.
+    pub fn tx_build_context(&self) -> TxBuildContext {
+        self.operator_table.tx_build_context(self.network)
     }
 }
 
@@ -586,6 +600,7 @@ impl ContractSM {
         operator_table: OperatorTable,
         connector_params: ConnectorParams,
         peg_out_graph_params: PegOutGraphParams,
+        sidesystem_params: RollupParams,
         stake_chain_params: StakeChainParams,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
@@ -601,6 +616,7 @@ impl ContractSM {
             operator_table,
             connector_params,
             peg_out_graph_params,
+            sidesystem_params,
             stake_chain_params,
             deposit_idx,
             deposit_tx,
@@ -949,9 +965,16 @@ impl ContractSM {
                 Ok(if partials.len() == self.cfg.operator_table.cardinality() {
                     // we have all the sigs now
                     // issue deposit signature
+                    let deposit_info = self.cfg.deposit_info.clone();
+                    let witness = deposit_info
+                        .compute_spend_infos(
+                            &self.cfg().tx_build_context(),
+                            self.cfg().peg_out_graph_params.refund_delay,
+                        )
+                        .expect("must be able to compute taproot witness for DT");
                     Some(OperatorDuty::PublishRootNonce {
                         deposit_request_txid,
-                        deposit_info: self.cfg.deposit_info.clone(),
+                        witness,
                     })
                 } else {
                     None
@@ -976,9 +999,39 @@ impl ContractSM {
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
+                        let deposit_info = self.cfg.deposit_info.clone();
+                        let tx_signing_data = deposit_info
+                            .construct_signing_data(
+                                &self.cfg.tx_build_context(),
+                                &self.cfg.peg_out_graph_params,
+                                &self.cfg.sidesystem_params,
+                            )
+                            .expect("should be able to reconstruct the DRT");
+
+                        let txouts = tx_signing_data
+                            .psbt
+                            .inputs
+                            .into_iter()
+                            .map(|i| i.witness_utxo.expect("witness_utxo must be set"))
+                            .collect::<Vec<_>>();
+
+                        let sighash = create_message_hash(
+                            &mut SighashCache::new(&tx_signing_data.psbt.unsigned_tx),
+                            Prevouts::All(&txouts),
+                            &tx_signing_data.spend_path,
+                            TapSighashType::All,
+                            0,
+                        )
+                        .map_err(|e| TransitionErr(e.to_string()))?;
+
                         Some(OperatorDuty::PublishRootSignature {
-                            nonces: root_nonces.clone(),
-                            deposit_info: self.cfg.deposit_info.clone(),
+                            nonces: self
+                                .cfg
+                                .operator_table
+                                .convert_map_op_to_btc(root_nonces.clone())
+                                .expect("received nonces from nonexistent operator"),
+                            deposit_request_txid: self.deposit_request_txid(),
+                            sighash,
                         })
                     } else {
                         None
