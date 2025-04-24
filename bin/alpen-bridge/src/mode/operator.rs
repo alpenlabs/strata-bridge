@@ -119,8 +119,8 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .position(|k| k == &my_btc_pk)
         .expect("should be able to find my index") as u32;
 
-    // P2P message handler.
-    let (p2p_handle, p2p_task) = init_p2p_handler(&config, &params, p2p_sk).await?;
+    // Initialize the P2P handle.
+    let (p2p_handle, p2p_task) = init_p2p_handle(&config, &params, p2p_sk).await?;
     info!(?p2p_handle, "initialized the P2P handle");
     let p2p_handle_rpc = p2p_handle.clone();
 
@@ -209,10 +209,10 @@ fn read_cert(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
     }
 }
 
-/// Initialize the P2P message handler.
+/// Initialize the P2P handle.
 ///
 /// Needs a secret key and configuration.
-async fn init_p2p_handler(
+async fn init_p2p_handle(
     config: &Config,
     params: &Params,
     sk: SecretKey,
@@ -328,7 +328,7 @@ fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
     db_path
 }
 
-/// Initializes the duty tracker by creating a new [`ContractManager`].
+/// Initializes the duty tracker by creating a new [`ContractManager`] task.
 #[expect(clippy::too_many_arguments)]
 async fn init_duty_tracker(
     params: &Params,
