@@ -179,9 +179,9 @@ impl ContractManager {
             // documentation on broadcast::channel says that the actual capacity may be higher).
             // This will only happen if this node as well as other event sources generate far too
             // many events.
-            const OUROBORUS_CAP: usize = 100;
-            let (ouroborus_sender, mut ouroborus_receiver) = broadcast::channel(OUROBORUS_CAP);
-            let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroborus_sender);
+            const OUROBOROS_CAP: usize = 100;
+            let (ouroboros_sender, mut ouroboros_receiver) = broadcast::channel(OUROBOROS_CAP);
+            let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
@@ -267,21 +267,21 @@ impl ContractManager {
                             }
                         }
                     },
-                    ouroborus_msg = ouroborus_receiver.recv() => match ouroborus_msg {
+                    ouroboros_msg = ouroboros_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
                             match ctx.process_unsigned_gossip_msg(msg, pov_key.clone(), pov_idx).await {
-                                Ok(ouroborus_duties) => {
-                                    info!(num_duties=ouroborus_duties.len(), "queueing duties generated via ouroborus");
-                                    duties.extend(ouroborus_duties);
+                                Ok(ouroboros_duties) => {
+                                    info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
+                                    duties.extend(ouroboros_duties);
                                 },
                                 Err(e) => {
-                                    error!(%e, "failed to process ouroborus message");
+                                    error!(%e, "failed to process ouroboros message");
                                     break;
                                 }
                             }
                         },
                         Err(e) => {
-                            error!(%e, "failed to receive ouroborus message");
+                            error!(%e, "failed to receive ouroboros message");
                             break;
                         },
                     },

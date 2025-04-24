@@ -20,18 +20,18 @@ pub struct MessageHandler {
 
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
-    ouroborus_sender: broadcast::Sender<UnsignedGossipsubMsg>,
+    ouroboros_sender: broadcast::Sender<UnsignedGossipsubMsg>,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
     pub fn new(
         handle: P2PHandle,
-        ouroborus_sender: broadcast::Sender<UnsignedGossipsubMsg>,
+        ouroboros_sender: broadcast::Sender<UnsignedGossipsubMsg>,
     ) -> Self {
         Self {
             handle,
-            ouroborus_sender,
+            ouroboros_sender,
         }
     }
 
@@ -56,8 +56,8 @@ impl MessageHandler {
         let signed_msg = self.handle.sign_message(msg.clone());
         self.handle.send_command(signed_msg.clone()).await;
 
-        if let Err(e) = self.ouroborus_sender.send(msg.into()) {
-            error!(%description, %e, "failed to send message via ouroborus");
+        if let Err(e) = self.ouroboros_sender.send(msg.into()) {
+            error!(%description, %e, "failed to send message via ouroboros");
         };
 
         info!(%description, "sent message");

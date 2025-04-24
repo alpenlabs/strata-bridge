@@ -464,10 +464,10 @@ async fn handle_stakechain_genesis(
     my_index: OperatorIdx,
     bitcoin_rpc_client: Arc<BitcoinClient>,
 ) {
-    // the ouroborus sender is part of the message handler interface but is unused for when sending
+    // the ouroboros sender is part of the message handler interface but is unused for when sending
     // stakechain genesis information.
-    let (ouroborus_sender, _ouroborus_receiver) = broadcast::channel(1);
-    let message_handler = MessageHandler::new(p2p_handle, ouroborus_sender);
+    let (ouroboros_sender, _ouroboros_receiver) = broadcast::channel(1);
+    let message_handler = MessageHandler::new(p2p_handle, ouroboros_sender);
 
     let general_key = s2_client
         .general_wallet_signer()
