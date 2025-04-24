@@ -6,6 +6,10 @@ use strata_bridge_primitives::constants::NUM_ASSERT_DATA_TX;
 
 use crate::transactions::assert_chain::{deserialize_assert_vector, serialize_assert_vector};
 
+const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
+const NUM_PAYOUT_INPUTS: usize = 4;
+const NUM_SLASH_STAKE_INPUTS: usize = 2;
+
 /// Functor like data structure for holding an arbitrary data structure that is matched with each of
 /// the inputs of the peg-out graph.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,16 +26,16 @@ pub struct PogMusigF<T> {
     pub post_assert: [T; NUM_ASSERT_DATA_TX],
 
     /// Data associated with the payout optimistic transaction inputs.
-    pub payout_optimistic: [T; 5],
+    pub payout_optimistic: [T; NUM_PAYOUT_OPTIMISTIC_INPUTS],
 
     /// Data associated with the payout transaction inputs.
-    pub payout: [T; 4],
+    pub payout: [T; NUM_PAYOUT_INPUTS],
 
     /// Data associated with the disprove transaction input.
     pub disprove: T,
 
     /// Data for each of the slash stake transaction input pairs.
-    pub slash_stake: Vec<[T; 2]>,
+    pub slash_stake: Vec<[T; NUM_SLASH_STAKE_INPUTS]>,
 }
 
 impl<T> PogMusigF<T> {
@@ -67,13 +71,20 @@ impl<T> PogMusigF<T> {
             return None;
         };
 
-        let Ok(payout_optimistic): Result<[T; 5], _> =
-            cursor.by_ref().take(5).collect::<Vec<T>>().try_into()
+        let Ok(payout_optimistic): Result<[T; NUM_PAYOUT_OPTIMISTIC_INPUTS], _> = cursor
+            .by_ref()
+            .take(NUM_PAYOUT_OPTIMISTIC_INPUTS)
+            .collect::<Vec<T>>()
+            .try_into()
         else {
             return None;
         };
 
-        let Ok(payout): Result<[T; 4], _> = cursor.by_ref().take(5).collect::<Vec<T>>().try_into()
+        let Ok(payout): Result<[T; NUM_PAYOUT_INPUTS], _> = cursor
+            .by_ref()
+            .take(NUM_PAYOUT_INPUTS)
+            .collect::<Vec<T>>()
+            .try_into()
         else {
             return None;
         };
@@ -113,7 +124,7 @@ impl<T> PogMusigF<T> {
                 .slash_stake
                 .iter()
                 .map(|x| x.each_ref())
-                .collect::<Vec<[&T; 2]>>(),
+                .collect::<Vec<[&T; NUM_SLASH_STAKE_INPUTS]>>(),
         }
     }
 
@@ -129,7 +140,7 @@ impl<T> PogMusigF<T> {
                 .slash_stake
                 .into_iter()
                 .map(|[a, b]| [f(a), f(b)])
-                .collect::<Vec<[U; 2]>>(),
+                .collect::<Vec<[U; NUM_SLASH_STAKE_INPUTS]>>(),
         }
     }
 
@@ -219,7 +230,7 @@ impl<T> PogMusigF<T> {
                 .into_iter()
                 .zip(a.slash_stake)
                 .map(|([f0, f1], [a0, a1])| [f0(a0), f1(a1)])
-                .collect::<Vec<[B; 2]>>(),
+                .collect::<Vec<[B; NUM_SLASH_STAKE_INPUTS]>>(),
         }
     }
 
@@ -279,8 +290,8 @@ impl<T> PogMusigF<T> {
             slash_stake: graph
                 .slash_stake
                 .into_iter()
-                .map(|[ra, rb]| Ok::<[T; 2], E>([ra?, rb?]))
-                .collect::<Result<Vec<[T; 2]>, E>>()?,
+                .map(|[ra, rb]| Ok::<[T; NUM_SLASH_STAKE_INPUTS], E>([ra?, rb?]))
+                .collect::<Result<Vec<[T; NUM_SLASH_STAKE_INPUTS]>, E>>()?,
         })
     }
 }
