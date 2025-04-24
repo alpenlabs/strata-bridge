@@ -13,10 +13,15 @@ use tokio::sync::broadcast;
 use tracing::{error, info, trace};
 
 /// Message handler for the P2P client.
+///
+/// This exposes an interface that allows publishing messages but not reading messages from the p2p
+/// network.
+// TODO: (@Rajil1213) rename this to `Outbox` and create a newtype for `P2PHandle` that exposes the
+// interface to read messages off of the p2p network (aka the `Inbox`).
 #[derive(Debug, Clone)]
 pub struct MessageHandler {
     /// The P2P handle that is used to listen for events and call commands.
-    pub handle: P2PHandle,
+    handle: P2PHandle,
 
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
