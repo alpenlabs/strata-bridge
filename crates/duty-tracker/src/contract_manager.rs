@@ -674,6 +674,7 @@ impl ContractManagerCtx {
                 operator_pk,
                 pre_stake_txid,
                 pre_stake_vout,
+                stake_chain_id: _,
             } => {
                 self.state.stake_chains.process_exchange(
                     key,
@@ -768,6 +769,7 @@ impl ContractManagerCtx {
                 mut nonces,
             } => {
                 let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+
                 if let Some(contract) = self
                     .state
                     .claim_txids
@@ -1102,6 +1104,7 @@ impl ContractManagerCtx {
                         .keys()
                         .cloned()
                         .collect::<BTreeSet<P2POperatorPubKey>>();
+
                     commands.extend(want.difference(&have).map(|key| {
                         let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
                         let operator_id = self.cfg.operator_table.op_key_to_idx(key);
@@ -1112,6 +1115,11 @@ impl ContractManagerCtx {
                             operator_pk: key.clone(),
                         })
                     }));
+                }
+
+                if !commands.is_empty() {
+                    all_commands.extend(commands.into_iter());
+                    continue;
                 }
 
                 // If this is not empty then we can't nag for the next steps in the process.
