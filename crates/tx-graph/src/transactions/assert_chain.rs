@@ -123,8 +123,8 @@ pub fn serialize_assert_vector<T: Serialize, S: Serializer>(
 pub fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
     deserializer: D,
 ) -> Result<[T; NUM_ASSERT_DATA_TX], D::Error> {
-    // THE AUTHORS OF SERDE CAN BURN IN HELL. Seriously whoever thought of serde's design is fucking
-    // retarded.
+    // The api design of serde completely lacks any sort of taste so we're forced to specify all of
+    // this bullshit.
     struct AssertVisitor<const N: usize, T> {
         marker: PhantomData<T>,
     }
