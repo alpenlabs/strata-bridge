@@ -1204,311 +1204,18 @@ async fn execute_duty(
             deposit_txid,
             stake_chain_inputs,
         } => {
-            let pov_idx = cfg.operator_table.pov_idx();
-            let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
-            let operator_pk = s2_client.s2_client.general_wallet_signer().pubkey().await?;
-
-            let wots_client = s2_client.s2_client.wots_signer();
-            /// VOUT is static because irrelevant so we're just gonna use 0
-            const VOUT: u32 = 0;
-            // withdrawal_fulfillment uses index 0
-            let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-                &wots_client
-                    .get_256_public_key(deposit_txid, VOUT, 0)
-                    .await?,
-            );
-            const NUM_FQS: usize = NUM_U256;
-            const NUM_PUB_INPUTS: usize = NUM_PUBS;
-            const NUM_HASHES: usize = NUM_HASH;
-            let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
-                wots_client.get_256_public_key(deposit_txid, VOUT, i as u32)
-            });
-            let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-                wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
-            });
-            let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
-                wots_client.get_128_public_key(deposit_txid, VOUT, i as u32)
-            });
-
-            let (public_inputs, fqs, hashes) = join3(
-                join_all(public_inputs_ftrs),
-                join_all(fqs_ftrs),
-                join_all(hashes_ftrs),
+            handle_publish_deposit_setup(
+                &cfg,
+                &s2_client.s2_client,
+                db,
+                wallet,
+                msg_handler,
+                tx_driver,
+                deposit_txid,
+                deposit_idx,
+                stake_chain_inputs,
             )
-            .await;
-
-            info!(%deposit_txid, %deposit_idx, "constructing wots keys");
-            let public_inputs = public_inputs
-                .into_iter()
-                .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-                .collect::<Result<_, _>>()?;
-            let fqs = fqs
-                .into_iter()
-                .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-                .collect::<Result<_, _>>()?;
-            let hashes = hashes
-                .into_iter()
-                .map(|result| result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes)))
-                .collect::<Result<_, _>>()?;
-
-            let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
-
-            // this duty is generated when this operator not only when a deposit request is observed
-            // but also when nagged by other operators.
-            // to avoid creating a new stake input, we first check the database.
-            info!(%deposit_txid, %deposit_idx, "checking if deposit data already exists");
-            if let Ok(Some(stake_data)) = db.get_stake_data(pov_idx, deposit_idx).await {
-                info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message from db");
-                let stakechain_preimg_hash = stake_data.hash;
-                let funding_outpoint = stake_data.operator_funds;
-
-                msg_handler
-                    .send_deposit_setup(
-                        deposit_idx,
-                        scope,
-                        stakechain_preimg_hash,
-                        funding_outpoint,
-                        operator_pk,
-                        wots_pks,
-                    )
-                    .await;
-
-                return Ok(());
-            }
-
-            info!(%deposit_txid, %deposit_idx, "constructing deposit setup message");
-            let StakeChainInputs {
-                stake_inputs,
-                pre_stake_outpoint,
-                ..
-            } = stake_chain_inputs;
-
-            info!(%deposit_txid, %deposit_idx, "querying for preimage");
-            let stakechain_preimg = s2_client
-                .s2_client
-                .stake_chain_preimages()
-                .get_preimg(
-                    pre_stake_outpoint.txid,
-                    pre_stake_outpoint.vout,
-                    deposit_idx,
-                )
-                .await?;
-
-            let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
-
-            // check if there's a funding outpoint already for this stake index
-            // otherwise, find a new unspent one from operator wallet and filter out all the
-            // outpoints already in the db
-
-            info!(%deposit_txid, %deposit_idx, "fetching funding outpoint for the stake transaction");
-            let ignore = stake_inputs
-                .iter()
-                .map(|input| input.operator_funds.to_owned())
-                .collect::<HashSet<OutPoint>>();
-
-            let mut wallet = wallet.write().await;
-            info!("syncing wallet before fetching funding utxos for the stake");
-
-            match wallet.sync().await {
-                Ok(()) => info!("synced wallet successfully"),
-                Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
-            }
-
-            info!(?ignore, "claiming funding utxos");
-            let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
-
-            let funding_utxo = match funding_op {
-                FundingUtxo::Available(outpoint) => outpoint,
-                FundingUtxo::ShouldRefill { op, left } => {
-                    info!("refilling stakechain funding utxos, have {left} left");
-
-                    let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-                    finalize_claim_funding_tx(
-                        &s2_client.s2_client,
-                        tx_driver,
-                        wallet.general_wallet(),
-                        psbt,
-                    )
-                    .await?;
-
-                    op
-                }
-                FundingUtxo::Empty => {
-                    // The first time we run the node, it may be the case that the wallet starts off
-                    // empty.
-                    //
-                    // For every case afterwards, we should receive a `ShouldRefill` message before
-                    // the wallet is actually empty.
-                    let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-                    finalize_claim_funding_tx(
-                        &s2_client.s2_client,
-                        tx_driver,
-                        wallet.general_wallet(),
-                        psbt,
-                    )
-                    .await?;
-
-                    let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
-
-                    match funding_utxo {
-                        FundingUtxo::Available(outpoint) => outpoint,
-                        _ => panic!("aaaaa no funding utxos available even after refill"),
-                    }
-                }
-            };
-
-            info!(%deposit_txid, %deposit_idx, "constructing wots public keys for withdrawal fulfillment");
-            let withdrawal_fulfillment_pk =
-                std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
-
-            let stake_data = StakeTxData {
-                operator_funds: funding_utxo,
-                hash: stakechain_preimg_hash,
-                withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
-                    withdrawal_fulfillment_pk,
-                ),
-            };
-
-            info!(%deposit_txid, %deposit_idx, "adding stake data to the database");
-            debug!(%deposit_txid, %deposit_idx, ?stake_data, "adding stake data to the database");
-
-            db.add_stake_data(pov_idx, deposit_idx, stake_data).await?;
-
-            info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
-            msg_handler
-                .send_deposit_setup(
-                    deposit_idx,
-                    scope,
-                    stakechain_preimg_hash,
-                    funding_utxo,
-                    operator_pk,
-                    wots_pks.clone(),
-                )
-                .await;
-
-            let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
-
-            let stakechain_preimg = output_handles
-                .s2_client
-                .s2_client
-                .stake_chain_preimages()
-                .get_preimg(
-                    stake_chain_inputs.pre_stake_outpoint.txid,
-                    stake_chain_inputs.pre_stake_outpoint.vout,
-                    deposit_idx,
-                )
-                .await?;
-
-            let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
-
-            // check if there's a funding outpoint already for this stake index
-            // otherwise, find a new unspent one from operator wallet and filter out all the
-            // outpoints already in the db
-
-            let maybe_stake_data = output_handles
-                .db
-                .get_stake_data(cfg.operator_table.pov_idx(), deposit_idx)
-                .await?;
-
-            let funding_utxo = if let Some(sd) = maybe_stake_data {
-                sd.operator_funds
-            } else {
-                let mut wallet = output_handles.wallet.write().await;
-                let ignore = output_handles
-                    .db
-                    .get_all_stake_data(cfg.operator_table.pov_idx())
-                    .await?
-                    .into_iter()
-                    .map(|data| data.operator_funds)
-                    .collect::<HashSet<_>>();
-                let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
-                match funding_op {
-                    FundingUtxo::Available(outpoint) => outpoint,
-                    FundingUtxo::ShouldRefill { op, left } => {
-                        info!("refilling stakechain funding utxos, have {left} left");
-                        let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-                        let mut tx = psbt.unsigned_tx;
-                        let txins_as_outs = tx
-                            .input
-                            .iter()
-                            .map(|txin| {
-                                wallet
-                                    .general_wallet()
-                                    .get_utxo(txin.previous_output)
-                                    .expect("always have this output because the wallet selected it in the first place")
-                                    .txout
-                            })
-                            .collect::<Vec<_>>();
-                        let mut sighasher = SighashCache::new(&mut tx);
-
-                        let sighash_type = TapSighashType::All;
-                        let prevouts = Prevouts::All(&txins_as_outs);
-                        for input_index in 0..txins_as_outs.len() {
-                            let sighash = sighasher
-                                .taproot_key_spend_signature_hash(
-                                    input_index,
-                                    &prevouts,
-                                    sighash_type,
-                                )
-                                .expect("failed to construct sighash");
-                            let signature = output_handles
-                                .s2_client
-                                .s2_client
-                                .general_wallet_signer()
-                                .sign(&sighash.to_byte_array(), None)
-                                .await?;
-
-                            let signature = bitcoin::taproot::Signature {
-                                signature,
-                                sighash_type,
-                            };
-                            sighasher
-                                .witness_mut(input_index)
-                                .expect("an input here")
-                                .push(signature.to_vec());
-                        }
-
-                        // FIXME: Use something other than 0.
-                        output_handles
-                            .tx_driver
-                            .drive(tx, 0)
-                            .await
-                            .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
-
-                        op
-                    }
-                    FundingUtxo::Empty => {
-                        panic!("aaaaaa there's no funding utxos for a new stake")
-                    }
-                }
-            };
-
-            let withdrawal_fulfillment_pk = wots_pks.withdrawal_fulfillment.0;
-            // std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
-            let stake_data = StakeTxData {
-                operator_funds: funding_utxo,
-                hash: stakechain_preimg_hash,
-                withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
-                    withdrawal_fulfillment_pk,
-                ),
-            };
-            output_handles
-                .db
-                .add_stake_data(cfg.operator_table.pov_idx(), deposit_idx, stake_data)
-                .await?;
-
-            output_handles
-                .msg_handler
-                .send_deposit_setup(
-                    deposit_idx,
-                    scope,
-                    stakechain_preimg_hash,
-                    funding_utxo,
-                    operator_pk,
-                    wots_pks,
-                )
-                .await;
-            Ok(())
+            .await
         }
 
         OperatorDuty::PublishRootNonce {
@@ -1884,5 +1591,292 @@ async fn handle_publish_deposit(
         .await
         .expect("deposit tx should get confirmed");
 
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_publish_deposit_setup(
+    cfg: &ExecutionConfig,
+    s2_client: &SecretServiceClient,
+    db: &SqliteDb,
+    wallet: &RwLock<OperatorWallet>,
+    p2p_handle: &MessageHandler,
+    tx_driver: &TxDriver,
+    deposit_txid: Txid,
+    deposit_idx: u32,
+    stake_chain_inputs: StakeChainInputs,
+) -> Result<(), ContractManagerErr> {
+    let pov_idx = cfg.operator_table.pov_idx();
+    let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
+    let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
+
+    let wots_client = s2_client.wots_signer();
+    /// VOUT is static because irrelevant so we're just gonna use 0
+    const VOUT: u32 = 0;
+    // withdrawal_fulfillment uses index 0
+    let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
+        &wots_client
+            .get_256_public_key(deposit_txid, VOUT, 0)
+            .await?,
+    );
+    const NUM_FQS: usize = NUM_U256;
+    const NUM_PUB_INPUTS: usize = NUM_PUBS;
+    const NUM_HASHES: usize = NUM_HASH;
+    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] =
+        std::array::from_fn(|i| wots_client.get_256_public_key(deposit_txid, VOUT, i as u32));
+    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+    });
+    let hashes_ftrs: [_; NUM_HASHES] =
+        std::array::from_fn(|i| wots_client.get_128_public_key(deposit_txid, VOUT, i as u32));
+
+    let (public_inputs, fqs, hashes) = join3(
+        join_all(public_inputs_ftrs),
+        join_all(fqs_ftrs),
+        join_all(hashes_ftrs),
+    )
+    .await;
+
+    info!(%deposit_txid, %deposit_idx, "constructing wots keys");
+    let public_inputs = public_inputs
+        .into_iter()
+        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
+        .collect::<Result<_, _>>()?;
+    let fqs = fqs
+        .into_iter()
+        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
+        .collect::<Result<_, _>>()?;
+    let hashes = hashes
+        .into_iter()
+        .map(|result| result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes)))
+        .collect::<Result<_, _>>()?;
+
+    let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
+
+    // this duty is generated when this operator not only when a deposit request is observed
+    // but also when nagged by other operators.
+    // to avoid creating a new stake input, we first check the database.
+    info!(%deposit_txid, %deposit_idx, "checking if deposit data already exists");
+    if let Ok(Some(stake_data)) = db.get_stake_data(pov_idx, deposit_idx).await {
+        info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message from db");
+        let stakechain_preimg_hash = stake_data.hash;
+        let funding_outpoint = stake_data.operator_funds;
+
+        p2p_handle
+            .send_deposit_setup(
+                deposit_idx,
+                scope,
+                stakechain_preimg_hash,
+                funding_outpoint,
+                operator_pk,
+                wots_pks,
+            )
+            .await;
+
+        return Ok(());
+    }
+
+    info!(%deposit_txid, %deposit_idx, "constructing deposit setup message");
+    let StakeChainInputs {
+        stake_inputs,
+        pre_stake_outpoint,
+        ..
+    } = stake_chain_inputs;
+
+    info!(%deposit_txid, %deposit_idx, "querying for preimage");
+    let stakechain_preimg = s2_client
+        .stake_chain_preimages()
+        .get_preimg(
+            pre_stake_outpoint.txid,
+            pre_stake_outpoint.vout,
+            deposit_idx,
+        )
+        .await?;
+
+    let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
+
+    // check if there's a funding outpoint already for this stake index
+    // otherwise, find a new unspent one from operator wallet and filter out all the
+    // outpoints already in the db
+
+    info!(%deposit_txid, %deposit_idx, "fetching funding outpoint for the stake transaction");
+    let ignore = stake_inputs
+        .iter()
+        .map(|input| input.operator_funds.to_owned())
+        .collect::<HashSet<OutPoint>>();
+
+    let mut wallet = wallet.write().await;
+    info!("syncing wallet before fetching funding utxos for the stake");
+
+    match wallet.sync().await {
+        Ok(()) => info!("synced wallet successfully"),
+        Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
+    }
+
+    info!(?ignore, "claiming funding utxos");
+    let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+
+    let funding_utxo = match funding_op {
+        FundingUtxo::Available(outpoint) => outpoint,
+        FundingUtxo::ShouldRefill { op, left } => {
+            info!("refilling stakechain funding utxos, have {left} left");
+
+            let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+            finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
+
+            op
+        }
+        FundingUtxo::Empty => {
+            // The first time we run the node, it may be the case that the wallet starts off
+            // empty.
+            //
+            // For every case afterwards, we should receive a `ShouldRefill` message before
+            // the wallet is actually empty.
+            let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+            finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
+
+            let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+
+            match funding_utxo {
+                FundingUtxo::Available(outpoint) => outpoint,
+                _ => panic!("aaaaa no funding utxos available even after refill"),
+            }
+        }
+    };
+
+    info!(%deposit_txid, %deposit_idx, "constructing wots public keys for withdrawal fulfillment");
+    let withdrawal_fulfillment_pk = std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
+
+    let stake_data = StakeTxData {
+        operator_funds: funding_utxo,
+        hash: stakechain_preimg_hash,
+        withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+            withdrawal_fulfillment_pk,
+        ),
+    };
+
+    info!(%deposit_txid, %deposit_idx, "adding stake data to the database");
+    debug!(%deposit_txid, %deposit_idx, ?stake_data, "adding stake data to the database");
+
+    db.add_stake_data(pov_idx, deposit_idx, stake_data).await?;
+
+    info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
+    p2p_handle
+        .send_deposit_setup(
+            deposit_idx,
+            scope,
+            stakechain_preimg_hash,
+            funding_utxo,
+            operator_pk,
+            wots_pks.clone(),
+        )
+        .await;
+
+    let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
+
+    let stakechain_preimg = s2_client
+        .stake_chain_preimages()
+        .get_preimg(
+            stake_chain_inputs.pre_stake_outpoint.txid,
+            stake_chain_inputs.pre_stake_outpoint.vout,
+            deposit_idx,
+        )
+        .await?;
+
+    let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
+
+    // check if there's a funding outpoint already for this stake index
+    // otherwise, find a new unspent one from operator wallet and filter out all the
+    // outpoints already in the db
+
+    let maybe_stake_data = db
+        .get_stake_data(cfg.operator_table.pov_idx(), deposit_idx)
+        .await?;
+
+    let funding_utxo = if let Some(sd) = maybe_stake_data {
+        sd.operator_funds
+    } else {
+        let ignore = db
+            .get_all_stake_data(cfg.operator_table.pov_idx())
+            .await?
+            .into_iter()
+            .map(|data| data.operator_funds)
+            .collect::<HashSet<_>>();
+        let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+        match funding_op {
+            FundingUtxo::Available(outpoint) => outpoint,
+            FundingUtxo::ShouldRefill { op, left } => {
+                info!("refilling stakechain funding utxos, have {left} left");
+                let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+                let mut tx = psbt.unsigned_tx;
+                let txins_as_outs = tx
+                            .input
+                            .iter()
+                            .map(|txin| {
+                                wallet
+                                    .general_wallet()
+                                    .get_utxo(txin.previous_output)
+                                    .expect("always have this output because the wallet selected it in the first place")
+                                    .txout
+                            })
+                            .collect::<Vec<_>>();
+                let mut sighasher = SighashCache::new(&mut tx);
+
+                let sighash_type = TapSighashType::All;
+                let prevouts = Prevouts::All(&txins_as_outs);
+                for input_index in 0..txins_as_outs.len() {
+                    let sighash = sighasher
+                        .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
+                        .expect("failed to construct sighash");
+                    let signature = s2_client
+                        .general_wallet_signer()
+                        .sign(&sighash.to_byte_array(), None)
+                        .await?;
+
+                    let signature = bitcoin::taproot::Signature {
+                        signature,
+                        sighash_type,
+                    };
+                    sighasher
+                        .witness_mut(input_index)
+                        .expect("an input here")
+                        .push(signature.to_vec());
+                }
+
+                // FIXME: Use something other than 0.
+                tx_driver
+                    .drive(tx, 0)
+                    .await
+                    .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+
+                op
+            }
+            FundingUtxo::Empty => {
+                panic!("aaaaaa there's no funding utxos for a new stake")
+            }
+        }
+    };
+
+    let withdrawal_fulfillment_pk = wots_pks.withdrawal_fulfillment.0;
+    let stake_data = StakeTxData {
+        operator_funds: funding_utxo,
+        hash: stakechain_preimg_hash,
+        withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+            withdrawal_fulfillment_pk,
+        ),
+    };
+    db.add_stake_data(cfg.operator_table.pov_idx(), deposit_idx, stake_data)
+        .await?;
+
+    p2p_handle
+        .send_deposit_setup(
+            deposit_idx,
+            scope,
+            stakechain_preimg_hash,
+            funding_utxo,
+            operator_pk,
+            wots_pks,
+        )
+        .await;
     Ok(())
 }
