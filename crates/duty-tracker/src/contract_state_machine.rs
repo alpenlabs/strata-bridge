@@ -164,9 +164,9 @@ pub enum ContractState {
         /// a per-operator basis.
         wots_keys: BTreeMap<P2POperatorPubKey, WotsPublicKeys>,
 
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -189,9 +189,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the deposit confirms, to the moment the
     /// strata state commitment that assigns this deposit confirms.
     Deposited {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -203,9 +203,9 @@ pub enum ContractState {
     /// to a valid withdrawal assignment is posted to bitcoin all the way to the corresponding
     /// stake transaction being confirmed.
     Assigned {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -229,9 +229,9 @@ pub enum ContractState {
     /// deposit confirms to the moment the fulfillment transaction confirms for the assigned
     /// operator.
     StakeTxReady {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -254,9 +254,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -274,9 +274,9 @@ pub enum ContractState {
     /// moment either the challenge transaction confirms, or the optimistic payout transaction
     /// confirms.
     Claimed {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -296,9 +296,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -315,9 +315,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the post-assert transaction confirms, to
     /// the moment either the disprove transaction confirms or the payout transaction confirms.
     Asserted {
-        /// These are the actual peg-out-graph summaries for each operator. This will be stored so
-        /// we can monitor the transactions relevant to advancing the contract through its
-        /// lifecycle.
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
@@ -344,14 +344,10 @@ pub enum ContractState {
 impl ContractState {
     /// Computes all of the [`PegOutGraphSummary`]s that this contract state is currently aware of.
     pub fn summaries(&self) -> Vec<PegOutGraphSummary> {
-        fn snd<A, B>(t: &(A, B)) -> &B {
-            &t.1
-        }
-
         fn get_summaries<T>(
             g: &BTreeMap<T, (PegOutGraphInput, PegOutGraphSummary)>,
         ) -> Vec<PegOutGraphSummary> {
-            g.values().map(snd).cloned().collect()
+            g.values().map(|(_, summary)| summary).cloned().collect()
         }
 
         match self {
