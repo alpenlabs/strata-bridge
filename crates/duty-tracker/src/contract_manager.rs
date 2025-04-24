@@ -166,12 +166,13 @@ impl ContractManager {
             // It's extremely unlikely that these will ever differ at all but it's possible for
             // them to differ by at most 1 in the scenario where we crash mid-batch when committing
             // contract state to disk.
+            //
+            // We take the minimum height that any state machine has observed since we want to
+            // re-feed chain events that they might have missed.
             let mut cursor = active_contracts
-                .iter()
-                .min_by(|(_, sm1), (_, sm2)| {
-                    sm1.state().block_height.cmp(&sm2.state().block_height)
-                })
-                .map(|(_, sm)| sm.state().block_height)
+                .values()
+                .min_by(|sm1, sm2| sm1.state().block_height.cmp(&sm2.state().block_height))
+                .map(|sm| sm.state().block_height)
                 .unwrap_or(current);
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
