@@ -2,7 +2,7 @@
 use std::collections::BTreeMap;
 
 use alpen_bridge_params::prelude::StakeChainParams;
-use bitcoin::{Network, OutPoint, Txid};
+use bitcoin::{secp256k1::XOnlyPublicKey, Network, OutPoint, Txid};
 use indexmap::IndexSet;
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::operator_table::OperatorTable;
@@ -11,7 +11,7 @@ use strata_bridge_stake_chain::{
     stake_chain::StakeChainInputs,
     StakeChain,
 };
-use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
+use strata_p2p_types::P2POperatorPubKey;
 use tracing::{info, warn};
 
 use crate::{contract_state_machine::DepositSetup, errors::StakeChainErr};
@@ -86,25 +86,18 @@ impl StakeChainSM {
     pub fn process_exchange(
         &mut self,
         operator: P2POperatorPubKey,
-        _id: StakeChainId,
+        operator_pubkey: XOnlyPublicKey,
         pre_stake_outpoint: OutPoint,
     ) -> Result<(), StakeChainErr> {
-        let operator_pubkey = match self.operator_table.op_key_to_btc_key(&operator) {
-            Some(operator_pk) => operator_pk.x_only_public_key().0,
-            None => {
-                return Err(StakeChainErr::OperatorP2PKeyNotFound(operator.clone()));
-            }
-        };
-
         let inputs = StakeChainInputs {
             operator_pubkey,
             stake_inputs: IndexSet::new(),
             pre_stake_outpoint,
         };
 
-        if let Some(a) = self.stake_chains.insert(operator.clone(), inputs) {
-            warn!(%operator, "tried to re-insert stake chain input that already exists");
-            self.stake_chains.insert(operator, a);
+        if let Some(old_prestake_outpoint) = self.stake_chains.insert(operator.clone(), inputs) {
+            warn!(%operator, "tried to re-insert stake chain input that already exists; leaving unchanged");
+            self.stake_chains.insert(operator, old_prestake_outpoint);
         }
 
         Ok(())
@@ -122,37 +115,42 @@ impl StakeChainSM {
         setup: &DepositSetup,
     ) -> Result<Option<Txid>, StakeChainErr> {
         info!(%operator, "processing deposit setup");
-        if let Some(chain_input) = self.stake_chains.get_mut(&operator) {
-            let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
-            if !new_entry {
-                warn!(%operator, "stake input already exists for this operator");
-            }
 
-            // also try to create a new stake tx and update the txid table
-            if let Some(stake_tx) = self.stake_tx(&operator, setup.index as usize)? {
-                let stake_txid = stake_tx.compute_txid();
-
-                // only update if this is a new entry
-                let new_entry = self
-                    .stake_txids
-                    .entry(operator.clone())
-                    .or_default()
-                    .insert(stake_txid);
-
-                if !new_entry {
-                    warn!(%operator, "stake txid already exists for this operator");
-                }
-
-                Ok(Some(stake_txid))
-            } else {
-                // if unable to create the stake tx, we ignore it but inform the caller.
-                // this can happen if the deposit setup msg is received out of order.
-                Ok(None)
-            }
-        } else {
+        let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
             warn!(%operator, "tried to process deposit setup for non-existent stake chain");
-            Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()))
+
+            return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
+        };
+
+        let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
+        if !new_entry {
+            warn!(%operator, "stake input already exists for this operator");
         }
+
+        // now try to create the stake transaction at the index
+        let Some(stake_tx) = self.stake_tx(&operator, setup.index as usize)? else {
+            warn!(%operator, "stake tx not found for this operator");
+
+            // if unable to create the stake tx, we ignore it but inform the caller.
+            // this can happen if the deposit setup msg is received out of order.
+            return Ok(None);
+        };
+
+        // add the new stake txid to the state
+        let stake_txid = stake_tx.compute_txid();
+
+        // only update if this is a new entry
+        let new_entry = self
+            .stake_txids
+            .entry(operator.clone())
+            .or_default()
+            .insert(stake_txid);
+
+        if !new_entry {
+            warn!(%operator, "stake txid already exists for this operator");
+        }
+
+        Ok(Some(stake_txid))
     }
 
     /// Returns the state that can be used to restore the StakeChainSM.

@@ -1905,7 +1905,7 @@ dependencies = [
  "bitflags 2.9.0",
  "cexpr",
  "clang-sys",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -7893,7 +7893,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "log",
  "multimap",
  "once_cell",
@@ -7913,7 +7913,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -10700,7 +10700,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#74d79cb471b1e98b099acc19b2ebbaebc95bedae"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#f90722f993462d35d5294d0f6a407085016b6bdf"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10719,7 +10719,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#74d79cb471b1e98b099acc19b2ebbaebc95bedae"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#f90722f993462d35d5294d0f6a407085016b6bdf"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10730,7 +10730,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#74d79cb471b1e98b099acc19b2ebbaebc95bedae"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#f90722f993462d35d5294d0f6a407085016b6bdf"
 dependencies = [
  "bitcoin",
  "libp2p 0.55.1",

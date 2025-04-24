@@ -52,7 +52,7 @@ use strata_btcio::rpc::{
 };
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
-use tokio::{spawn, task::JoinHandle, try_join};
+use tokio::{spawn, sync::broadcast, task::JoinHandle, try_join};
 use tracing::{debug, info};
 
 use crate::{
@@ -119,16 +119,16 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .position(|k| k == &my_btc_pk)
         .expect("should be able to find my index") as u32;
 
-    // P2P message handler.
-    let (message_handler, p2p_task) = init_p2p_msg_handler(&config, &params, p2p_sk).await?;
-    info!(?message_handler, "initialized the P2P message handler");
-    let p2p_handle_rpc = message_handler.handle.clone();
+    // Initialize the P2P handle.
+    let (p2p_handle, p2p_task) = init_p2p_handle(&config, &params, p2p_sk).await?;
+    info!(?p2p_handle, "initialized the P2P handle");
+    let p2p_handle_rpc = p2p_handle.clone();
 
     // Handle the stakechain genesis.
     handle_stakechain_genesis(
         db_stakechain,
         s2_client.clone(),
-        message_handler.clone(),
+        p2p_handle.clone(),
         &mut operator_wallet,
         my_index,
         Arc::new(bitcoin_rpc_client.clone()),
@@ -146,7 +146,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         bitcoin_rpc_client.clone(),
         zmq_client,
         s2_client,
-        message_handler,
+        p2p_handle,
         operator_wallet,
         db,
     )
@@ -209,14 +209,14 @@ fn read_cert(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
     }
 }
 
-/// Initialize the P2P message handler.
+/// Initialize the P2P handle.
 ///
 /// Needs a secret key and configuration.
-async fn init_p2p_msg_handler(
+async fn init_p2p_handle(
     config: &Config,
     params: &Params,
     sk: SecretKey,
-) -> anyhow::Result<(MessageHandler, JoinHandle<()>)> {
+) -> anyhow::Result<(P2PHandle, JoinHandle<()>)> {
     let my_key = LibP2pSecpPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
         .expect("infallible");
     let other_operators: Vec<LibP2pSecpPublicKey> = params
@@ -254,7 +254,7 @@ async fn init_p2p_msg_handler(
         num_threads,
     );
     let (p2p_handle, _cancel, listen_task) = p2p_bootstrap(&config).await?;
-    Ok((MessageHandler::new(p2p_handle), listen_task))
+    Ok((p2p_handle, listen_task))
 }
 
 async fn init_database_handle(config: &Config) -> SqliteDb {
@@ -328,7 +328,7 @@ fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
     db_path
 }
 
-/// Initializes the duty tracker by creating a new [`ContractManager`].
+/// Initializes the duty tracker by creating a new [`ContractManager`] task.
 #[expect(clippy::too_many_arguments)]
 async fn init_duty_tracker(
     params: &Params,
@@ -336,7 +336,7 @@ async fn init_duty_tracker(
     rpc_client: BitcoinClient,
     zmq_client: BtcZmqClient,
     s2_client: SecretServiceClient,
-    message_handler: MessageHandler,
+    p2p_handle: P2PHandle,
     operator_wallet: OperatorWallet,
     db: SqliteDb,
 ) -> anyhow::Result<JoinHandle<()>> {
@@ -367,10 +367,10 @@ async fn init_duty_tracker(
     let operator_table =
         OperatorTable::new(operator_table_entries, my_idx as u32).expect("my index exists");
     let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
-    info!("initializing the p2p handle");
-    let p2p_handle = message_handler.handle.clone();
+
     info!("initializing the contract persister");
     let contract_persister = ContractPersister::new(db.pool().clone()).await?;
+
     info!("initializing the stake chain persister");
     let stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
 
@@ -459,11 +459,22 @@ async fn init_operator_wallet(
 async fn handle_stakechain_genesis(
     db: SqliteDb,
     s2_client: SecretServiceClient,
-    message_handler: MessageHandler,
+    p2p_handle: P2PHandle,
     operator_wallet: &mut OperatorWallet,
     my_index: OperatorIdx,
     bitcoin_rpc_client: Arc<BitcoinClient>,
 ) {
+    // the ouroboros sender is part of the message handler interface but is unused for when sending
+    // stakechain genesis information.
+    let (ouroboros_sender, _ouroboros_receiver) = broadcast::channel(1);
+    let message_handler = MessageHandler::new(p2p_handle, ouroboros_sender);
+
+    let general_key = s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await
+        .expect("must be able to get the pubkey from general wallet");
+
     if let Some(pre_stake) = db
         .get_pre_stake(my_index)
         .await
@@ -471,8 +482,9 @@ async fn handle_stakechain_genesis(
     {
         let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
         info!(%stake_chain_id, "broadcasting pre-stake information");
+
         message_handler
-            .send_stake_chain_exchange(stake_chain_id, pre_stake.txid, pre_stake.vout)
+            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake.txid, pre_stake.vout)
             .await;
     } else {
         // This means that we don't have a pre-stake tx in the database.
@@ -562,7 +574,7 @@ async fn handle_stakechain_genesis(
         let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
         info!(%stake_chain_id, "broadcasting pre-stake information");
         message_handler
-            .send_stake_chain_exchange(stake_chain_id, pre_stake_txid, 0)
+            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake_txid, 0)
             .await;
     }
 }

@@ -8,20 +8,36 @@ use strata_p2p::{
     swarm::handle::P2PHandle,
 };
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::GetMessageRequest;
-use tracing::{info, trace};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
+use tokio::sync::broadcast;
+use tracing::{error, info, trace};
 
 /// Message handler for the P2P client.
+///
+/// This exposes an interface that allows publishing messages but not reading messages from the p2p
+/// network.
+// TODO: (@Rajil1213) rename this to `Outbox` and create a newtype for `P2PHandle` that exposes the
+// interface to read messages off of the p2p network (aka the `Inbox`).
 #[derive(Debug, Clone)]
 pub struct MessageHandler {
     /// The P2P handle that is used to listen for events and call commands.
-    pub handle: P2PHandle,
+    handle: P2PHandle,
+
+    /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
+    /// itself rather than the network.
+    ouroboros_sender: broadcast::Sender<UnsignedGossipsubMsg>,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
-    pub fn new(handle: P2PHandle) -> Self {
-        Self { handle }
+    pub fn new(
+        handle: P2PHandle,
+        ouroboros_sender: broadcast::Sender<UnsignedGossipsubMsg>,
+    ) -> Self {
+        Self {
+            handle,
+            ouroboros_sender,
+        }
     }
 
     /// Connects to a peer, whitelists peer, and adds peer to the gossip network.
@@ -36,13 +52,19 @@ impl MessageHandler {
         info!(%peer_id, %peer_addr, "connected to peer");
     }
 
-    /// Dispatches an unsigned gossip message by signing it and sending it over the network.
+    /// Dispatches an unsigned gossip message by signing it and sending it over the network as well
+    /// as to the node itself.
     ///
     /// Internal use only.
     async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
         trace!(%description, ?msg, "sending message");
-        let signed_msg = self.handle.sign_message(msg);
-        self.handle.send_command(signed_msg).await;
+        let signed_msg = self.handle.sign_message(msg.clone());
+        self.handle.send_command(signed_msg.clone()).await;
+
+        if let Err(e) = self.ouroboros_sender.send(msg.into()) {
+            error!(%description, %e, "failed to send message via ouroboros");
+        };
+
         info!(%description, "sent message");
     }
 
@@ -82,11 +104,13 @@ impl MessageHandler {
     pub async fn send_stake_chain_exchange(
         &self,
         stake_chain_id: StakeChainId,
+        operator_pk: XOnlyPublicKey,
         pre_stake_txid: Txid,
         pre_stake_vout: u32,
     ) {
         let msg = UnsignedPublishMessage::StakeChainExchange {
             stake_chain_id,
+            operator_pk,
             pre_stake_txid,
             pre_stake_vout,
         };
