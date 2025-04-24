@@ -7,6 +7,7 @@ use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
 };
+use strata_primitives::params::RollupParams;
 use thiserror::Error;
 
 use crate::contract_state_machine::{ContractCfg, ContractSM, MachineState};
@@ -127,6 +128,7 @@ impl ContractPersister {
         deposit_txid: Txid,
         network: Network,
         peg_out_graph_params: PegOutGraphParams,
+        sidesystem_params: RollupParams,
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
@@ -173,6 +175,7 @@ impl ContractPersister {
                 network,
                 connector_params,
                 peg_out_graph_params,
+                sidesystem_params,
                 stake_chain_params,
                 deposit_info,
             },
@@ -187,6 +190,7 @@ impl ContractPersister {
         network: Network,
         connector_params: ConnectorParams,
         peg_out_graph_params: PegOutGraphParams,
+        sidesystem_params: RollupParams,
         stake_chain_params: StakeChainParams,
     ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let rows = sqlx::query(
@@ -230,6 +234,7 @@ impl ContractPersister {
                         operator_table,
                         connector_params,
                         peg_out_graph_params: peg_out_graph_params.clone(),
+                        sidesystem_params: sidesystem_params.clone(),
                         stake_chain_params,
                         // later
                         deposit_idx,

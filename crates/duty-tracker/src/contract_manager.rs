@@ -3,6 +3,7 @@
 //! protocol rules.
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
+    fmt::Debug,
     sync::Arc,
     time::Duration,
     vec,
@@ -114,6 +115,7 @@ impl ContractManager {
                     network,
                     connector_params,
                     pegout_graph_params.clone(),
+                    sidesystem_params.clone(),
                     stake_chain_params,
                 )
                 .await
@@ -470,6 +472,7 @@ impl ContractManagerCtx {
                     self.cfg.operator_table.clone(),
                     self.cfg.connector_params,
                     self.cfg.pegout_graph_params.clone(),
+                    self.cfg.sidesystem_params.clone(),
                     self.cfg.stake_chain_params,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
@@ -907,9 +910,16 @@ impl ContractManagerCtx {
                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
                 {
                     if let ContractState::Requested { .. } = csm.state().state {
+                        let deposit_info = csm.cfg().deposit_info.clone();
+                        let witness = deposit_info
+                            .compute_spend_infos(
+                                &csm.cfg().operator_table.tx_build_context(csm.cfg().network),
+                                csm.cfg().peg_out_graph_params.refund_delay,
+                            )
+                            .expect("must be able to compute taproot witness for DT");
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid: session_id_as_txid,
-                            deposit_info: csm.cfg().deposit_info.clone(),
+                            witness,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -963,9 +973,46 @@ impl ContractManagerCtx {
                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
                 {
                     if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
+                        let deposit_info = csm.cfg().deposit_info.clone();
+                        let tx_signing_data = deposit_info
+                            .construct_signing_data(
+                                &csm.cfg().operator_table.tx_build_context(csm.cfg().network),
+                                &csm.cfg().peg_out_graph_params,
+                                &self.cfg.sidesystem_params,
+                            )
+                            .expect(
+                                "this should've already been checked when contract is instantiated",
+                            );
+
+                        let deposit_psbt = &tx_signing_data.psbt;
+                        let mut sighash_cache =
+                            SighashCache::new(&tx_signing_data.psbt.unsigned_tx);
+                        let prevouts = deposit_psbt
+                            .inputs
+                            .iter()
+                            .map(|input| input.witness_utxo.clone().expect("must have been set"))
+                            .collect::<Vec<_>>();
+
+                        let witness_type = &tx_signing_data.spend_path;
+                        let sighash_type = TapSighashType::All;
+                        let input_index = 0;
+
+                        let msg = create_message_hash(
+                            &mut sighash_cache,
+                            Prevouts::All(&prevouts),
+                            witness_type,
+                            sighash_type,
+                            input_index,
+                        )
+                        .expect("must be able to construct the message hash for DT");
                         Some(OperatorDuty::PublishRootSignature {
-                            nonces: root_nonces.clone(),
-                            deposit_info: csm.cfg().deposit_info.clone(),
+                            deposit_request_txid: session_id_as_txid,
+                            nonces: csm
+                                .cfg()
+                                .operator_table
+                                .convert_map_op_to_btc(root_nonces.clone())
+                                .expect("received nonces from non-existent operator"),
+                            sighash: msg,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1466,30 +1513,16 @@ async fn execute_duty(
 
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
-            deposit_info,
+            witness,
         } => {
-            let nonce = output_handles
-                .s2_client
-                .get_nonce(
-                    OutPoint::new(deposit_request_txid, 0),
-                    deposit_info
-                        .compute_spend_infos(
-                            &cfg.operator_table.tx_build_context(cfg.network),
-                            cfg.pegout_graph_params.refund_delay,
-                        )
-                        .expect("could not compute taproot witness during PublishRootNonce"),
-                )
-                .await?;
-
-            output_handles
-                .msg_handler
-                .send_musig2_nonces(
-                    SessionId::from_bytes(deposit_request_txid.to_byte_array()),
-                    vec![nonce],
-                )
-                .await;
-
-            Ok(())
+            handle_publish_root_nonce(
+                &output_handles.s2_client,
+                &output_handles.msg_handler,
+                deposit_request_txid,
+                OutPoint::new(deposit_request_txid, 0),
+                witness,
+            )
+            .await
         }
 
         OperatorDuty::PublishGraphNonces {
@@ -1526,83 +1559,18 @@ async fn execute_duty(
 
         OperatorDuty::PublishRootSignature {
             nonces,
-            deposit_info,
+            deposit_request_txid,
+            sighash,
         } => {
-            let our_pubkey = cfg.operator_table.pov_op_key();
-            for (p2p_key, nonce) in nonces
-                .into_iter()
-                .filter(|(p2p_pk, _)| p2p_pk != our_pubkey)
-            {
-                let musig2_pubkey = cfg
-                    .operator_table
-                    .op_key_to_btc_key(&p2p_key)
-                    .expect("we should have a musig2 pubkey for this operator")
-                    .to_x_only_pubkey();
-                // FIXME: This is unwrapped to be consistent with the other call site but we
-                // shouldn't be doing this.
-                output_handles
-                    .s2_client
-                    .put_nonce(
-                        *deposit_info.deposit_request_outpoint(),
-                        musig2_pubkey,
-                        nonce,
-                    )
-                    .await?
-            }
-
-            let maybe_tx_signing_data = deposit_info
-                .construct_signing_data(
-                    &cfg.operator_table.tx_build_context(cfg.network),
-                    &cfg.pegout_graph_params,
-                    &cfg.sidesystem_params,
-                )
-                .expect("this should've already been checked when contract is instantiated");
-
-            let deposit_psbt = &maybe_tx_signing_data.psbt;
-            let mut sighash_cache = SighashCache::new(&maybe_tx_signing_data.psbt.unsigned_tx);
-            let prevouts = deposit_psbt
-                .inputs
-                .iter()
-                .map(|input| {
-                    input
-                        .witness_utxo
-                        .as_ref()
-                        .expect("must have been set")
-                        .clone()
-                })
-                .collect::<Vec<_>>();
-            let witness_type = &maybe_tx_signing_data.spend_path;
-            let sighash_type = TapSighashType::All;
-            let input_index = 0;
-
-            let msg = create_message_hash(
-                &mut sighash_cache,
-                Prevouts::All(&prevouts),
-                witness_type,
-                sighash_type,
-                input_index,
+            handle_publish_root_signature(
+                &cfg,
+                &output_handles.s2_client,
+                &output_handles.msg_handler,
+                nonces,
+                OutPoint::new(deposit_request_txid, 0),
+                sighash,
             )
-            .expect("must be able to construct the message hash for DT");
-
-            let partial = output_handles
-                .s2_client
-                .get_partial(*deposit_info.deposit_request_outpoint(), msg)
-                .await?;
-
-            output_handles
-                .msg_handler
-                .send_musig2_signatures(
-                    SessionId::from_bytes(
-                        deposit_info
-                            .deposit_request_outpoint()
-                            .txid
-                            .as_raw_hash()
-                            .to_byte_array(),
-                    ),
-                    vec![partial],
-                )
-                .await;
-            Ok(())
+            .await
         }
 
         OperatorDuty::PublishDeposit {
@@ -1842,6 +1810,51 @@ async fn handle_publish_graph_sigs(
         )
         .await;
 
+    Ok(())
+}
+
+async fn handle_publish_root_nonce(
+    s2_client: &MusigSessionManager,
+    msg_handler: &MessageHandler,
+    deposit_request_txid: Txid,
+    prevout: OutPoint,
+    witness: TaprootWitness,
+) -> Result<(), ContractManagerErr> {
+    let nonce = s2_client.get_nonce(prevout, witness).await?;
+
+    msg_handler
+        .send_musig2_nonces(
+            SessionId::from_bytes(deposit_request_txid.to_byte_array()),
+            vec![nonce],
+        )
+        .await;
+
+    Ok(())
+}
+
+async fn handle_publish_root_signature(
+    cfg: &ExecutionConfig,
+    s2_client: &MusigSessionManager,
+    msg_handler: &MessageHandler,
+    nonces: BTreeMap<secp256k1::PublicKey, PubNonce>,
+    prevout: OutPoint,
+    sighash: Message,
+) -> Result<(), ContractManagerErr> {
+    let our_pubkey = cfg.operator_table.pov_btc_key();
+    for (musig2_pubkey, nonce) in nonces.into_iter().filter(|(pk, _)| *pk != our_pubkey) {
+        s2_client
+            .put_nonce(prevout, musig2_pubkey.to_x_only_pubkey(), nonce)
+            .await?
+    }
+
+    let partial = s2_client.get_partial(prevout, sighash).await?;
+
+    msg_handler
+        .send_musig2_signatures(
+            SessionId::from_bytes(prevout.txid.as_raw_hash().to_byte_array()),
+            vec![partial],
+        )
+        .await;
     Ok(())
 }
 
