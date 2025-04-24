@@ -134,7 +134,7 @@ impl PegOutGraph {
     /// * `prev_claim_txids` - The transaction IDs of the previous claim transactions that can be
     ///   used to slash the operator's stake in case of a faulty advancement of the stake chain
     ///   i.e., if the operator advances the stake chain without fully executing the previous
-    ///   claims.In general, the number of these transactions should be `min(deposit_index,
+    ///   claims. In general, the number of these transactions should be `min(deposit_index,
     ///   slash_stake_count)` (assuming that the deposit index is zero-indexed). As an optimization,
     ///   only claim txids corresponding to unclaimed deposits need to be specified.
     pub fn generate(
@@ -323,7 +323,7 @@ impl PegOutGraph {
         }
     }
 
-    /// Generates the sighash message
+    /// Generates the sighash messages.
     pub fn sighashes(&self) -> PegOutGraphSighashes {
         let challenge = self.challenge_tx.sighashes()[0];
 

@@ -35,7 +35,7 @@ pub struct MusigSessionManager {
     second_round_map: Arc<Mutex<BTreeMap<OutPoint, Musig2SecondRound>>>,
 }
 impl MusigSessionManager {
-    /// Makes a new MusigSessionManager from a SecretServiceClient.
+    /// Creates a new [`MusigSessionManager`] from a [`SecretServiceClient`].
     pub fn new(operator_table: OperatorTable, s2_client: SecretServiceClient) -> Self {
         MusigSessionManager {
             operator_table,
@@ -45,7 +45,7 @@ impl MusigSessionManager {
         }
     }
 
-    /// Given an OutPoint, get back a PubNonce for that session
+    /// Given an [`OutPoint`] and a [`TaprootWitness]`, retrieves a `[PubNonce]` for that session.
     pub async fn get_nonce(
         &self,
         outpoint: OutPoint,
@@ -78,7 +78,7 @@ impl MusigSessionManager {
         Ok(ours)
     }
 
-    /// Load a PubNonce into the signing session identified by OutPoint.
+    /// Loads a [`PubNonce`] into the signing session identified by an [`OutPoint`].
     pub async fn put_nonce(
         &self,
         outpoint: OutPoint,
@@ -90,7 +90,7 @@ impl MusigSessionManager {
         Ok(first_round.receive_pub_nonce(sender, nonce).await??)
     }
 
-    /// Given an OutPoint and the sighash for what is being signed get our PartialSignature.
+    /// Given an [`OutPoint`] and the sighash for what is being signed, retrieves our MuSig2 [`PartialSignature`].
     pub async fn get_partial(
         &self,
         outpoint: OutPoint,
@@ -119,7 +119,7 @@ impl MusigSessionManager {
         }
     }
 
-    /// Load a PartialSignature into the signing session identified by OutPoint.
+    /// Loads a [`PartialSignature`] into the signing session identified by [`OutPoint`].
     pub async fn put_partial(
         &self,
         outpoint: OutPoint,
@@ -131,7 +131,7 @@ impl MusigSessionManager {
         Ok(second_round.receive_signature(sender, partial).await??)
     }
 
-    /// Finalize the musig signing process and extract the final LiftedSignature
+    /// Finalizes the MuSig2 signing process and extract the final [`LiftedSignature`].
     pub async fn get_signature(
         &self,
         outpoint: OutPoint,
@@ -148,7 +148,9 @@ impl MusigSessionManager {
         }
     }
 
-    /// Delete all session state associated with the given OutPoint.
+    /// Deletes all session state associated with the given [`OutPoint`].
+    ///
+    /// This clears any MuSig2 first round and second round sessions.
     pub async fn drop_session(&self, outpoint: OutPoint) {
         self.first_round_map.lock().await.remove(&outpoint);
         self.second_round_map.lock().await.remove(&outpoint);
