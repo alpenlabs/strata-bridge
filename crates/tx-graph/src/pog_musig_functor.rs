@@ -57,13 +57,13 @@ impl<T> PogMusigF<T> {
 
     pub fn unpack(graph_vec: Vec<T>) -> Option<PogMusigF<T>> {
         let mut cursor = graph_vec.into_iter();
+        let cursor = cursor.by_ref();
 
         let challenge = cursor.next()?;
 
         let pre_assert = cursor.next()?;
 
         let Ok(post_assert): Result<[T; NUM_ASSERT_DATA_TX], _> = cursor
-            .by_ref()
             .take(NUM_ASSERT_DATA_TX)
             .collect::<Vec<T>>()
             .try_into()
@@ -72,7 +72,6 @@ impl<T> PogMusigF<T> {
         };
 
         let Ok(payout_optimistic): Result<[T; NUM_PAYOUT_OPTIMISTIC_INPUTS], _> = cursor
-            .by_ref()
             .take(NUM_PAYOUT_OPTIMISTIC_INPUTS)
             .collect::<Vec<T>>()
             .try_into()
@@ -81,7 +80,6 @@ impl<T> PogMusigF<T> {
         };
 
         let Ok(payout): Result<[T; NUM_PAYOUT_INPUTS], _> = cursor
-            .by_ref()
             .take(NUM_PAYOUT_INPUTS)
             .collect::<Vec<T>>()
             .try_into()
