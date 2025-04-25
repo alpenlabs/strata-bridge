@@ -350,6 +350,8 @@ impl ContractManager {
                     });
                 });
             }
+
+            unreachable!("event loop must never end");
         })
     }
 }
