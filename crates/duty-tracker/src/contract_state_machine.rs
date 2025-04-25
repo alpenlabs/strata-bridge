@@ -386,7 +386,7 @@ pub enum OperatorDuty {
 
     /// Instructs us to publish our graph nonces for this contract.
     PublishGraphNonces {
-        /// Claim TXID of the Graph being signed
+        /// Claim Transaction ID of the Graph being signed.
         claim_txid: Txid,
 
         /// The set of outpoints that need to be signed.
@@ -399,7 +399,7 @@ pub enum OperatorDuty {
 
     /// Instructs us to send out signatures for the peg out graph.
     PublishGraphSignatures {
-        /// Transaction ID of the DT
+        /// Transaction ID of the DT.
         claim_txid: Txid,
 
         /// Nonces collected from each operator's musig2 sessions.
@@ -545,11 +545,11 @@ pub struct ContractCfg {
     /// The predetermined deposit transaction that the rest of the graph is built from.
     pub deposit_tx: Transaction,
 
-    /// Information about the deposit
+    /// Information about the deposit transaction.
     pub deposit_info: DepositInfo,
 }
 impl ContractCfg {
-    /// Builds a PegOutGraph from a PegOutGraphInput.
+    /// Builds a [`PegOutGraph`] from a [`PegOutGraphInput`].
     pub fn build_graph(&self, graph_input: PegOutGraphInput) -> PegOutGraph {
         PegOutGraph::generate(
             graph_input,
