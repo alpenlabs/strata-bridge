@@ -916,9 +916,12 @@ impl ContractManagerCtx {
                     .values()
                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
                 {
+                    let deposit_request_txid = session_id_as_txid;
+                    info!(%deposit_request_txid, "received nag for root nonces");
+
                     if let ContractState::Requested { .. } = csm.state().state {
                         Some(OperatorDuty::PublishRootNonce {
-                            deposit_request_txid: session_id_as_txid,
+                            deposit_request_txid,
                             deposit_info: csm.cfg().deposit_info.clone(),
                         })
                     } else {
@@ -950,8 +953,11 @@ impl ContractManagerCtx {
                         let pog = csm.cfg().build_graph(
                             peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
                         );
+                        let claim_txid = session_id_as_txid;
+                        info!(%claim_txid, "received nag for graph signatures");
+
                         Some(OperatorDuty::PublishGraphSignatures {
-                            claim_txid: session_id_as_txid,
+                            claim_txid,
                             pubnonces: csm
                                 .cfg()
                                 .operator_table
@@ -972,6 +978,9 @@ impl ContractManagerCtx {
                     .values()
                     .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
                 {
+                    let deposit_request_txid = session_id_as_txid;
+                    info!(%deposit_request_txid, "received nag for root signatures");
+
                     if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
                         Some(OperatorDuty::PublishRootSignature {
                             nonces: root_nonces.clone(),
@@ -1433,6 +1442,8 @@ async fn handle_publish_graph_nonces(
     pog_outpoints: PogMusigF<OutPoint>,
     pog_witnesses: PogMusigF<TaprootWitness>,
 ) -> Result<(), ContractManagerErr> {
+    info!(%claim_txid, "executing duty to publish graph nonces");
+
     let nonces = pog_outpoints
         .zip(pog_witnesses)
         .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
@@ -1459,6 +1470,8 @@ async fn handle_publish_graph_sigs(
     pog_outpoints: PogMusigF<OutPoint>,
     pog_sighashes: PogMusigF<Message>,
 ) -> Result<(), ContractManagerErr> {
+    info!(%claim_txid, "executing duty to publish graph signatures");
+
     // Add all nonces to the musig session manager context.
     for (pk, graph_nonces) in pubnonces {
         PogMusigF::<()>::transpose_result::<MusigSessionErr>(
@@ -1540,6 +1553,8 @@ async fn handle_publish_deposit(
     deposit_tx: Transaction,
     partials: BTreeMap<secp256k1::PublicKey, PartialSignature>,
 ) -> Result<(), ContractManagerErr> {
+    info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
+
     let prevout = deposit_tx.input.first().unwrap().previous_output;
     for (pk, partial) in partials {
         musig
