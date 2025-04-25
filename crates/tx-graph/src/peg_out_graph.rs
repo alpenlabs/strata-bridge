@@ -324,7 +324,7 @@ impl PegOutGraph {
     }
 
     /// Generates the sighash messages.
-    pub fn sighashes(&self) -> PegOutGraphSighashes {
+    pub fn sighashes(&self) -> PogMusigF<Message> {
         let challenge = self.challenge_tx.sighashes()[0];
 
         let AssertChain {
@@ -349,7 +349,7 @@ impl PegOutGraph {
             .map(|slash_stake| slash_stake.sighashes())
             .collect();
 
-        PegOutGraphSighashes {
+        PogMusigF {
             challenge,
             pre_assert,
             post_assert,
@@ -558,8 +558,6 @@ impl PegOutGraphConnectors {
         }
     }
 }
-
-type PegOutGraphSighashes = PogMusigF<Message>;
 
 #[cfg(test)]
 mod tests {
