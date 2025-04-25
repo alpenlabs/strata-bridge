@@ -888,6 +888,7 @@ impl ContractManagerCtx {
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                 let session_id_as_txid =
                     Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+                info!(%session_id_as_txid, "received nag for graph nonces");
 
                 if let Some(csm) = self
                     .state
