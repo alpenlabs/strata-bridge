@@ -909,8 +909,7 @@ impl ContractSM {
                     if session_nonces.len() == self.cfg.operator_table.cardinality() {
                         let Some((input, _)) = peg_out_graphs.get(&claim_txid) else {
                             return Err(TransitionErr(format!(
-                                "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
-                                claim_txid
+                                "could not process graph nonces. claim_txid {claim_txid} not found in peg out graph map"
                             )));
                         };
                         let graph = self.cfg.build_graph(input.clone());
@@ -921,7 +920,7 @@ impl ContractSM {
                                 .cfg
                                 .operator_table
                                 .convert_map_op_to_btc(session_nonces.clone())
-                                .map_err(|e| TransitionErr(format!("could not convert nonce map keys: {} not in operator table", e)))?,
+                                .map_err(|e| TransitionErr(format!("could not convert nonce map keys: {e} not in operator table")))?,
                             pog_prevouts: graph.musig_inputs().map(|x| x.previous_output),
                             pog_sighashes: graph.sighashes(),
                         })
@@ -954,8 +953,7 @@ impl ContractSM {
                 if let Some(exists) = partials.insert(signer.clone(), unpacked) {
                     partials.insert(signer.clone(), exists);
                     return Err(TransitionErr(format!(
-                        "already received partials for graph {} from {}",
-                        claim_txid, signer,
+                        "already received partials for graph {claim_txid} from {signer}"
                     )));
                 }
                 Ok(if partials.len() == self.cfg.operator_table.cardinality() {
