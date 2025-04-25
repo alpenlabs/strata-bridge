@@ -38,6 +38,7 @@ use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_primitives::params::RollupParams;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
+use tracing::warn;
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 
@@ -898,13 +899,16 @@ impl ContractSM {
                 let unpacked = PogMusigF::unpack(nonces).ok_or(TransitionErr(
                     "could not unpack nonce vector into PogMusigF".to_string(),
                 ))?;
-                let Some(session_nonces) = graph_nonces.get_mut(&claim_txid) else {
-                    return Err(TransitionErr(format!(
-                        "could not process graph nonces. claim_txid ({}) not found in nonce map",
-                        claim_txid
-                    )));
-                };
-                session_nonces.insert(signer, unpacked);
+
+                // create an entry for this claim txid if not already present
+                let session_nonces = graph_nonces.entry(claim_txid).or_default();
+
+                if let Some(exists) = session_nonces.insert(signer.clone(), unpacked) {
+                    warn!(%claim_txid, %signer, "already received partials for graph, restoring");
+
+                    session_nonces.insert(signer.clone(), exists);
+                }
+
                 Ok(
                     if session_nonces.len() == self.cfg.operator_table.cardinality() {
                         let Some((input, _)) = peg_out_graphs.get(&claim_txid) else {
@@ -949,13 +953,18 @@ impl ContractSM {
         let deposit_request_txid = self.deposit_request_txid();
         match &mut self.state.state {
             ContractState::Requested { graph_partials, .. } => {
-                let partials = graph_partials.get_mut(&claim_txid).ok_or(TransitionErr(format!("could not process graph signatures. claim_txid ({}) not found in partials map.", claim_txid)))?;
+                // create an entry for this claim txid if not already present
+                let partials = graph_partials.entry(claim_txid).or_default();
+
                 if let Some(exists) = partials.insert(signer.clone(), unpacked) {
+                    warn!(%claim_txid, %signer, "already received partials for graph, restoring...");
+
                     partials.insert(signer.clone(), exists);
                     return Err(TransitionErr(format!(
                         "already received partials for graph {claim_txid} from {signer}"
                     )));
                 }
+
                 Ok(if partials.len() == self.cfg.operator_table.cardinality() {
                     // we have all the sigs now
                     // issue deposit signature
