@@ -833,6 +833,9 @@ impl ContractSM {
                 stake_txs,
                 wots_keys,
                 peg_out_graphs,
+                claim_txids,
+                graph_nonces,
+                graph_partials,
                 ..
             } => {
                 let pog_input = PegOutGraphInput {
@@ -845,16 +848,11 @@ impl ContractSM {
                     wots_public_keys: new_wots_keys.clone(),
                     operator_pubkey,
                 };
-                let pog = PegOutGraph::generate(
-                    pog_input.clone(),
-                    &self.cfg.operator_table.tx_build_context(self.cfg.network),
-                    self.cfg.deposit_tx.compute_txid(),
-                    self.cfg.peg_out_graph_params.clone(),
-                    self.cfg.connector_params,
-                    self.cfg.stake_chain_params,
-                    Vec::new(),
-                )
-                .0;
+
+                let owner = self.cfg.operator_table.op_key_to_idx(&signer);
+                debug!(?owner, "generating peg out graph for operator");
+
+                let pog = self.cfg.build_graph(pog_input.clone());
 
                 let pog_summary = pog.summarize();
                 let claim_txid = pog_summary.claim_txid;
@@ -862,20 +860,15 @@ impl ContractSM {
                 stake_txs.insert(signer.clone(), new_stake_tx);
                 wots_keys.insert(signer.clone(), new_wots_keys);
                 peg_out_graphs.insert(claim_txid, (pog_input, pog_summary));
+                claim_txids.insert(signer.clone(), claim_txid);
+                graph_nonces.insert(claim_txid, BTreeMap::new());
+                graph_partials.insert(claim_txid, BTreeMap::new());
 
-                Ok(
-                    // FIXME: (@Rajil1213) update this condition when multi stake chain is
-                    // implemented.
-                    if stake_txs.len() == self.cfg.operator_table.cardinality() {
-                        Some(OperatorDuty::PublishGraphNonces {
-                            claim_txid,
-                            pog_prevouts: pog.musig_inputs().map(|txin| txin.previous_output),
-                            pog_witnesses: pog.musig_witnesses(),
-                        })
-                    } else {
-                        None
-                    },
-                )
+                Ok(Some(OperatorDuty::PublishGraphNonces {
+                    claim_txid,
+                    pog_prevouts: pog.musig_inputs().map(|txin| txin.previous_output),
+                    pog_witnesses: pog.musig_witnesses(),
+                }))
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_deposit_setup ({:?})",
