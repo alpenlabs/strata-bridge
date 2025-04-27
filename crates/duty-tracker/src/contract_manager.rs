@@ -270,8 +270,7 @@ impl ContractManager {
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
             let mut interval = time::interval(nag_interval);
-            let pov_key = ctx.cfg.operator_table.pov_op_key().clone();
-            let pov_idx = ctx.cfg.operator_table.pov_idx();
+
             loop {
                 let mut duties = vec![];
                 tokio::select! {
@@ -293,7 +292,7 @@ impl ContractManager {
                     },
                     ouroboros_msg = ouroboros_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
-                            match ctx.process_unsigned_gossip_msg(msg, pov_key.clone(), pov_idx).await {
+                            match ctx.process_p2p_message(msg).await {
                                 Ok(ouroboros_duties) => {
                                     info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
                                     duties.extend(ouroboros_duties);
