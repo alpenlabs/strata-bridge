@@ -1,6 +1,8 @@
 //! This module constructs the peg-out graph which is a series of transactions that allow for the
 //! withdrawal of funds from the bridge address given a valid claim.
 
+use std::time::Instant;
+
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
 use bitcoin::{hashes::sha256, relative, OutPoint, TxIn, Txid};
 use secp256k1::{Message, XOnlyPublicKey};
@@ -12,7 +14,7 @@ use strata_bridge_primitives::{
     scripts::taproot::TaprootWitness,
     wots::{self, Groth16PublicKeys},
 };
-use tracing::debug;
+use tracing::{debug, info};
 
 use crate::{
     pog_musig_functor::PogMusigF,
@@ -146,6 +148,9 @@ impl PegOutGraph {
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
     ) -> (Self, PegOutGraphConnectors) {
+        let total_start_time = Instant::now();
+
+        let start_time = Instant::now();
         let connectors = PegOutGraphConnectors::new(
             context,
             deposit_txid,
@@ -171,7 +176,9 @@ impl PegOutGraph {
             connectors.connector_cpfp,
         );
         let claim_txid = claim_tx.compute_txid();
-        debug!(event = "created claim tx", %claim_txid);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created claim tx", %claim_txid, ?time_taken);
+        let start_time = Instant::now();
 
         let challenge_input = ChallengeTxInput {
             claim_outpoint: OutPoint::new(claim_txid, 1),
@@ -180,7 +187,10 @@ impl PegOutGraph {
             network: context.network(),
         };
         let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created challenge tx", ?time_taken);
 
+        let start_time = Instant::now();
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
             deposit_txid,
@@ -202,7 +212,10 @@ impl PegOutGraph {
             connectors.hashlock_payout,
             connectors.connector_cpfp,
         );
+        let time_taken = start_time.elapsed();
+        debug!(event = "created payout optimistic tx", ?time_taken);
 
+        let start_time = Instant::now();
         let assert_chain_data = AssertChainData {
             pre_assert_data: PreAssertData {
                 claim_txid,
@@ -220,12 +233,14 @@ impl PegOutGraph {
             connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
         );
+        let time_taken = start_time.elapsed();
 
         let post_assert_txid = assert_chain.post_assert.compute_txid();
         let post_assert_out_amt = assert_chain.post_assert.output_amount();
 
-        debug!(event = "created assert chain", %post_assert_txid);
+        debug!(event = "created assert chain", %post_assert_txid, ?time_taken);
 
+        let start_time = Instant::now();
         let payout_data = PayoutData {
             post_assert_txid,
             deposit_txid,
@@ -251,8 +266,10 @@ impl PegOutGraph {
             connectors.connector_cpfp,
         );
         let payout_txid = payout_tx.compute_txid();
-        debug!(event = "created payout tx", %payout_txid);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created payout tx", %payout_txid, ?time_taken);
 
+        let start_time = Instant::now();
         let disprove_data = DisproveData {
             post_assert_txid,
             deposit_txid,
@@ -268,8 +285,10 @@ impl PegOutGraph {
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
-        debug!(event = "created disprove tx", %disprove_txid);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created disprove tx", %disprove_txid, ?time_taken);
 
+        let start_time = Instant::now();
         let slash_stake_txs = prev_claim_txids
             .iter()
             .map(|claim_txid| SlashStakeData {
@@ -289,6 +308,12 @@ impl PegOutGraph {
                 )
             })
             .collect();
+
+        let time_taken = start_time.elapsed();
+        info!(?time_taken, "created slash stake txs");
+
+        let time_taken = total_start_time.elapsed();
+        info!(?time_taken, "generated peg out graph");
 
         (
             Self {
