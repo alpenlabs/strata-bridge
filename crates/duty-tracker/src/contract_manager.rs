@@ -1057,6 +1057,8 @@ impl ContractManagerCtx {
     /// Generates a list of all of the commands needed to acquire P2P messages needed to move a
     /// deposit from the requested to deposited states.
     fn nag(&self) -> Vec<Command> {
+        let pov_idx = self.cfg.operator_table.pov_idx();
+
         // Get the operator set as a whole.
         let want = self.cfg.operator_table.p2p_keys();
 
@@ -1072,15 +1074,21 @@ impl ContractManagerCtx {
                     .collect::<BTreeSet<P2POperatorPubKey>>(),
             )
             .cloned()
-            .map(|operator_pk| {
-                let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
+            .filter_map(|operator_pk| {
                 let operator_id = self.cfg.operator_table.op_key_to_idx(&operator_pk);
+                if operator_id.is_some_and(|idx| idx == pov_idx) {
+                    return None;
+                }
+
+                let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
 
                 info!(?operator_id, "queuing nag for stake chain exchange");
-                Command::RequestMessage(GetMessageRequest::StakeChainExchange {
-                    stake_chain_id,
-                    operator_pk,
-                })
+                Some(Command::RequestMessage(
+                    GetMessageRequest::StakeChainExchange {
+                        stake_chain_id,
+                        operator_pk,
+                    },
+                ))
             }),
         );
 
@@ -1105,15 +1113,19 @@ impl ContractManagerCtx {
                     .collect::<BTreeSet<P2POperatorPubKey>>();
 
                 // Take the difference and add it to the list of things to nag.
-                commands.extend(want.difference(&have).map(|key| {
-                    let scope = Scope::from_bytes(*txid.as_ref());
+                commands.extend(want.difference(&have).filter_map(|key| {
                     let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                    if operator_id.is_some_and(|idx| idx == pov_idx) {
+                        return None;
+                    }
+
+                    let scope = Scope::from_bytes(*txid.as_ref());
 
                     info!(?operator_id, %txid, "queuing nag for deposit setup");
-                    Command::RequestMessage(GetMessageRequest::DepositSetup {
+                    Some(Command::RequestMessage(GetMessageRequest::DepositSetup {
                         scope,
                         operator_pk: key.clone(),
-                    })
+                    }))
                 }));
 
                 if !commands.is_empty() {
@@ -1121,31 +1133,35 @@ impl ContractManagerCtx {
                     continue;
                 }
 
-                // We can simultaneously nag for the nonces as well.
+                // If all the deposit setup data are present, we continue nagging for graph nonces.
+                // We can also do this simultaneously with the nags for deposit setup messages.
+                // However, this can be a bit wasteful during race conditions where we query for
+                // both deposit setup and nonces even although one or both of them may be en-route
+                // or being processed.
                 for (claim_txid, nonces) in graph_nonces {
                     let have = nonces
                         .keys()
                         .cloned()
                         .collect::<BTreeSet<P2POperatorPubKey>>();
 
-                    commands.extend(want.difference(&have).map(|key| {
-                        let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
+                    commands.extend(want.difference(&have).filter_map(|key| {
                         let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                        if operator_id.is_some_and(|idx| idx == pov_idx) {
+                            return None;
+                        }
 
-                        info!(?operator_id, %txid, "queuing nag for graph nonces");
-                        Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
-                            session_id,
-                            operator_pk: key.clone(),
-                        })
+                        let session_id = SessionId::from_bytes(*claim_txid.as_ref());
+
+                        info!(?operator_id, %claim_txid, "queuing nag for graph nonces");
+                        Some(Command::RequestMessage(
+                            GetMessageRequest::Musig2NoncesExchange {
+                                session_id,
+                                operator_pk: key.clone(),
+                            },
+                        ))
                     }));
                 }
 
-                if !commands.is_empty() {
-                    all_commands.extend(commands.into_iter());
-                    continue;
-                }
-
-                // If this is not empty then we can't nag for the next steps in the process.
                 if !commands.is_empty() {
                     all_commands.extend(commands.into_iter());
                     continue;
@@ -1157,15 +1173,21 @@ impl ContractManagerCtx {
                         .keys()
                         .cloned()
                         .collect::<BTreeSet<P2POperatorPubKey>>();
-                    commands.extend(want.difference(&have).map(|key| {
-                        let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
+                    commands.extend(want.difference(&have).filter_map(|key| {
                         let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                        if operator_id.is_some_and(|idx| idx == pov_idx) {
+                            return None;
+                        }
 
-                        info!(?operator_id, %txid, "queuing nag for graph signatures");
-                        Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
-                            session_id,
-                            operator_pk: key.clone(),
-                        })
+                        let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
+
+                        info!(?operator_id, %claim_txid, "queuing nag for graph signatures");
+                        Some(Command::RequestMessage(
+                            GetMessageRequest::Musig2SignaturesExchange {
+                                session_id,
+                                operator_pk: key.clone(),
+                            },
+                        ))
                     }));
                 }
 
@@ -1180,15 +1202,21 @@ impl ContractManagerCtx {
                     .keys()
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
-                commands.extend(want.difference(&have).map(|key| {
-                    let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
+                commands.extend(want.difference(&have).filter_map(|key| {
                     let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                    if operator_id.is_some_and(|id| id == pov_idx) {
+                        return None;
+                    }
+
+                    let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
                     info!(?operator_id, %txid, "queuing nag for root nonces");
-                    Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
-                        session_id,
-                        operator_pk: key.clone(),
-                    })
+                    Some(Command::RequestMessage(
+                        GetMessageRequest::Musig2NoncesExchange {
+                            session_id,
+                            operator_pk: key.clone(),
+                        },
+                    ))
                 }));
 
                 if !commands.is_empty() {
@@ -1201,15 +1229,21 @@ impl ContractManagerCtx {
                     .keys()
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
-                commands.extend(want.difference(&have).map(|key| {
-                    let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
+                commands.extend(want.difference(&have).filter_map(|key| {
                     let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                    if operator_id.is_some_and(|idx| idx == pov_idx) {
+                        return None;
+                    }
+
+                    let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
                     info!(?operator_id, %txid, "queuing nag for root signatures");
-                    Command::RequestMessage(GetMessageRequest::Musig2SignaturesExchange {
-                        session_id,
-                        operator_pk: key.clone(),
-                    })
+                    Some(Command::RequestMessage(
+                        GetMessageRequest::Musig2SignaturesExchange {
+                            session_id,
+                            operator_pk: key.clone(),
+                        },
+                    ))
                 }));
             }
         }
