@@ -367,7 +367,7 @@ impl ContractState {
 }
 
 /// This is the superset of all possible operator duties.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
@@ -452,7 +452,7 @@ pub enum OperatorDuty {
 }
 
 /// This is a duty that has to be carried out if we are the assigned operator.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum FulfillerDuty {
     /// Instructs us to send our initial StakeChainExchange message.
     InitStakeChain,
@@ -489,7 +489,7 @@ pub enum FulfillerDuty {
 }
 
 /// This is a duty that must be carried out as a Verifier.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum VerifierDuty {
     /// Originates when *other* operator Claim transaction is issued
     VerifyClaim,
