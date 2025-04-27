@@ -22,6 +22,7 @@ use secret_service_proto::v1::{
 use strata_bridge_primitives::{operator_table::OperatorTable, scripts::taproot::TaprootWitness};
 use thiserror::Error;
 use tokio::sync::Mutex;
+use tracing::{debug, error};
 
 /// System for managing session state for musig sessions.
 #[derive(Debug, Clone)]
@@ -54,6 +55,7 @@ impl MusigSessionManager {
         outpoint: OutPoint,
         taproot_witness: TaprootWitness,
     ) -> Result<PubNonce, MusigSessionErr> {
+        debug!(%outpoint, "getting first round nonce");
         let first_round = self
             .s2_client
             .musig2_signer()
@@ -88,8 +90,17 @@ impl MusigSessionManager {
         sender: XOnlyPublicKey,
         nonce: PubNonce,
     ) -> Result<(), MusigSessionErr> {
+        debug!(%outpoint, "loading first round nonce");
+
         let mut guard = self.first_round_map.lock().await;
-        let first_round = guard.get_mut(&outpoint).ok_or(MusigSessionErr::NotFound)?;
+
+        let first_round = guard
+            .get_mut(&outpoint)
+            .ok_or(MusigSessionErr::NotFound(outpoint))
+            .inspect_err(|e| {
+                error!(%outpoint, %sender, %e, "first round missing");
+            })?;
+
         Ok(first_round.receive_pub_nonce(sender, nonce).await??)
     }
 
@@ -100,6 +111,8 @@ impl MusigSessionManager {
         outpoint: OutPoint,
         sighash: Message,
     ) -> Result<PartialSignature, MusigSessionErr> {
+        debug!(%outpoint, "getting second round partial signature");
+
         if let Some(second_round) = self.second_round_map.lock().await.get_mut(&outpoint) {
             Ok(second_round.our_signature().await?)
         } else {
@@ -107,10 +120,12 @@ impl MusigSessionManager {
             if let Some(first_round) = first_guard.remove(&outpoint) {
                 if first_round.holdouts().await?.is_empty() {
                     let second_round = first_round.finalize(*sighash.as_ref()).await??;
-                    drop(first_guard);
                     let ours = second_round.our_signature().await?;
+                    drop(first_guard);
+
                     let mut second_guard = self.second_round_map.lock().await;
                     second_guard.insert(outpoint, second_round);
+
                     Ok(ours)
                 } else {
                     first_guard.insert(outpoint, first_round);
@@ -118,7 +133,8 @@ impl MusigSessionManager {
                     Err(MusigSessionErr::Premature)
                 }
             } else {
-                Err(MusigSessionErr::NotFound)
+                error!(%outpoint, "failed to get to second round, outpoint missing in first round");
+                Err(MusigSessionErr::NotFound(outpoint))
             }
         }
     }
@@ -130,8 +146,15 @@ impl MusigSessionManager {
         sender: XOnlyPublicKey,
         partial: PartialSignature,
     ) -> Result<(), MusigSessionErr> {
+        debug!(%outpoint, "loading second round partial signature");
+
         let mut guard = self.second_round_map.lock().await;
-        let second_round = guard.get_mut(&outpoint).ok_or(MusigSessionErr::NotFound)?;
+        let second_round = guard
+            .get_mut(&outpoint)
+            .ok_or(MusigSessionErr::NotFound(outpoint))
+            .inspect_err(|e| {
+                error!(%outpoint, %e, "second round missing");
+            })?;
         Ok(second_round.receive_signature(sender, partial).await??)
     }
 
@@ -140,8 +163,15 @@ impl MusigSessionManager {
         &self,
         outpoint: OutPoint,
     ) -> Result<LiftedSignature, MusigSessionErr> {
+        debug!(%outpoint, "getting aggregated signature");
+
         let mut guard = self.second_round_map.lock().await;
-        let second_round = guard.remove(&outpoint).ok_or(MusigSessionErr::NotFound)?;
+        let second_round = guard
+            .remove(&outpoint)
+            .ok_or(MusigSessionErr::NotFound(outpoint))
+            .inspect_err(|e| {
+                error!(%outpoint, %e, "second round missing");
+            })?;
         if second_round.holdouts().await?.is_empty() {
             let sig = second_round.finalize().await??;
             Ok(sig)
@@ -185,6 +215,6 @@ pub enum MusigSessionErr {
     Premature,
 
     /// Outpoint doesn't have an active session
-    #[error("outpoint does not have a valid and active session")]
-    NotFound,
+    #[error("outpoint {0} does not have a valid and active session")]
+    NotFound(OutPoint),
 }
