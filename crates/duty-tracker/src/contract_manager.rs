@@ -887,8 +887,7 @@ impl ContractManagerCtx {
                 }
             }
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
-                let session_id_as_txid =
-                    Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+                let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
                 if let Some(csm) = self
                     .state
@@ -931,7 +930,7 @@ impl ContractManagerCtx {
                             )
                             .expect("must be able to compute taproot witness for DT");
                         Some(OperatorDuty::PublishRootNonce {
-                            deposit_request_txid: session_id_as_txid,
+                            deposit_request_txid,
                             witness,
                         })
                     } else {
@@ -945,8 +944,7 @@ impl ContractManagerCtx {
                 }
             }
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
-                let session_id_as_txid =
-                    Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+                let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
                 if let Some(csm) = self
                     .state
