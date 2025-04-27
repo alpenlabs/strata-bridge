@@ -251,8 +251,10 @@ impl ContractManager {
                             let cfg = cfg.clone();
                             let output_handles = output_handles.clone();
                             tokio::task::spawn(async move {
-                                if let Err(e) = execute_duty(cfg, output_handles, duty).await {
-                                    error!(%e, "failed to execute duty");
+                                if let Err(e) =
+                                    execute_duty(cfg, output_handles, duty.clone()).await
+                                {
+                                    error!(%e, ?duty, "failed to execute duty");
                                 }
                             });
                         });
@@ -338,13 +340,13 @@ impl ContractManager {
                 }
 
                 duties.into_iter().for_each(|duty| {
-                    info!(?duty, "starting duty execution from new blocks");
+                    debug!(?duty, "starting duty execution from new blocks");
 
                     let cfg = cfg.clone();
                     let output_handles = output_handles.clone();
                     tokio::task::spawn(async move {
-                        if let Err(e) = execute_duty(cfg, output_handles, duty).await {
-                            error!(%e, "failed to execute duty");
+                        if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
+                            error!(%e, ?duty, "failed to execute duty");
                         }
                     });
                 });
@@ -774,11 +776,12 @@ impl ContractManagerCtx {
                     .state
                     .claim_txids
                     .get(&txid)
-                    .and_then(|txid| self.state.active_contracts.get_mut(txid))
+                    .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
-                    if let Some(duty) = contract
-                        .process_contract_event(ContractEvent::GraphNonces(key, txid, nonces))?
-                    {
+                    let claim_txid = txid;
+                    if let Some(duty) = contract.process_contract_event(
+                        ContractEvent::GraphNonces(key, claim_txid, nonces),
+                    )? {
                         duties.push(duty);
                     }
                 } else if let Some((_, contract)) = self
@@ -1504,6 +1507,8 @@ async fn handle_publish_graph_nonces(
         .map(|x| x.expect("no s2 errors")); // TODO(proofofkeags): find a more principled way to
                                             // handle these errors
 
+    info!(%claim_txid, "publishing graph nonces");
+
     message_handler
         .send_musig2_nonces(
             SessionId::from_bytes(claim_txid.to_byte_array()),
@@ -1526,6 +1531,8 @@ async fn handle_publish_graph_sigs(
 
     // Add all nonces to the musig session manager context.
     for (pk, graph_nonces) in pubnonces {
+        info!(%pk, "loading nonces");
+
         PogMusigF::<()>::transpose_result::<MusigSessionErr>(
             pog_outpoints
                 .clone()
@@ -1536,13 +1543,25 @@ async fn handle_publish_graph_sigs(
         )?;
     }
 
+    info!(%claim_txid, "getting all partials");
+
     let partials = PogMusigF::transpose_result(
         pog_outpoints
             .zip(pog_sighashes)
             .map(|(op, sighash)| musig.get_partial(op, sighash))
             .join_all()
             .await,
-    )?;
+    )
+    .inspect_err(|e| {
+        error!(
+            %claim_txid,
+            ?e,
+            "failed to get partials for graph signatures"
+        );
+    })?;
+
+    info!(%claim_txid, "publishing graph signatures");
+    debug!(%claim_txid, ?partials, "received all partials");
 
     message_handler
         .send_musig2_signatures(
@@ -1561,8 +1580,11 @@ async fn handle_publish_root_nonce(
     prevout: OutPoint,
     witness: TaprootWitness,
 ) -> Result<(), ContractManagerErr> {
+    info!(%deposit_request_txid, "executing duty to publish root nonce");
+
     let nonce = s2_client.get_nonce(prevout, witness).await?;
 
+    info!(%deposit_request_txid, "publishing root nonce");
     msg_handler
         .send_musig2_nonces(
             SessionId::from_bytes(deposit_request_txid.to_byte_array()),
@@ -1581,6 +1603,8 @@ async fn handle_publish_root_signature(
     prevout: OutPoint,
     sighash: Message,
 ) -> Result<(), ContractManagerErr> {
+    info!(deposit_request_txid=%prevout.txid, "executing duty to publish root signature");
+
     let our_pubkey = cfg.operator_table.pov_btc_key();
     for (musig2_pubkey, nonce) in nonces.into_iter().filter(|(pk, _)| *pk != our_pubkey) {
         s2_client
@@ -1590,6 +1614,7 @@ async fn handle_publish_root_signature(
 
     let partial = s2_client.get_partial(prevout, sighash).await?;
 
+    info!(%prevout.txid, "publishing root signature");
     msg_handler
         .send_musig2_signatures(
             SessionId::from_bytes(prevout.txid.as_raw_hash().to_byte_array()),
@@ -1622,6 +1647,7 @@ async fn handle_publish_deposit(
         .push(sig.serialize());
     let tx = sighasher.into_transaction();
 
+    info!(txid = %tx.compute_txid(), "broadcasting deposit tx");
     tx_driver
         .drive(tx, 0)
         .await
@@ -1642,6 +1668,8 @@ async fn handle_publish_deposit_setup(
     deposit_idx: u32,
     stake_chain_inputs: StakeChainInputs,
 ) -> Result<(), ContractManagerErr> {
+    info!(%deposit_txid, "executing duty to publish deposit setup");
+
     let pov_idx = cfg.operator_table.pov_idx();
     let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
     let operator_pk = s2_client.general_wallet_signer().pubkey().await?;

@@ -38,7 +38,7 @@ use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_primitives::params::RollupParams;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
-use tracing::warn;
+use tracing::{debug, info, warn};
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 
@@ -893,38 +893,53 @@ impl ContractSM {
                     "could not unpack nonce vector into PogMusigF".to_string(),
                 ))?;
 
-                // create an entry for this claim txid if not already present
-                let session_nonces = graph_nonces.entry(claim_txid).or_default();
+                // session nonces must be present for this claim_txid at this point
+                let Some(session_nonces) = graph_nonces.get_mut(&claim_txid) else {
+                    return Err(TransitionErr(format!(
+                        "could not process graph nonces. claim_txid ({}) not found in nonce map",
+                        claim_txid
+                    )));
+                };
 
-                if let Some(exists) = session_nonces.insert(signer.clone(), unpacked) {
-                    warn!(%claim_txid, %signer, "already received partials for graph, restoring");
+                if let Some(old_value) = session_nonces.insert(signer.clone(), unpacked) {
+                    warn!(%claim_txid, %signer, "already received nonces for graph, restoring...");
 
-                    session_nonces.insert(signer.clone(), exists);
+                    session_nonces.insert(signer.clone(), old_value);
                 }
 
-                Ok(
-                    if session_nonces.len() == self.cfg.operator_table.cardinality() {
-                        let Some((input, _)) = peg_out_graphs.get(&claim_txid) else {
-                            return Err(TransitionErr(format!(
-                                "could not process graph nonces. claim_txid {claim_txid} not found in peg out graph map"
-                            )));
-                        };
-                        let graph = self.cfg.build_graph(input.clone());
+                let received_nonces = session_nonces.len();
+                let required_nonces = self.cfg.operator_table.cardinality();
 
-                        Some(OperatorDuty::PublishGraphSignatures {
-                            claim_txid,
-                            pubnonces: self
-                                .cfg
-                                .operator_table
-                                .convert_map_op_to_btc(session_nonces.clone())
-                                .map_err(|e| TransitionErr(format!("could not convert nonce map keys: {e} not in operator table")))?,
-                            pog_prevouts: graph.musig_inputs().map(|x| x.previous_output),
-                            pog_sighashes: graph.sighashes(),
-                        })
-                    } else {
-                        None
-                    },
-                )
+                Ok(if received_nonces == required_nonces {
+                    info!(%claim_txid, %signer, "received all nonces for graph");
+
+                    let Some((input, _)) = peg_out_graphs.get(&claim_txid) else {
+                        return Err(TransitionErr(format!(
+                                "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
+                                claim_txid
+                            )));
+                    };
+                    let graph = self.cfg.build_graph(input.clone());
+
+                    Some(OperatorDuty::PublishGraphSignatures {
+                        claim_txid,
+                        pubnonces: self
+                            .cfg
+                            .operator_table
+                            .convert_map_op_to_btc(session_nonces.clone())
+                            .map_err(|e| {
+                                TransitionErr(format!(
+                                    "could not convert nonce map keys: {} not in operator table",
+                                    e
+                                ))
+                            })?,
+                        pog_prevouts: graph.musig_inputs().map(|x| x.previous_output),
+                        pog_sighashes: graph.sighashes(),
+                    })
+                } else {
+                    info!(%claim_txid, %received_nonces, %required_nonces, "waiting for more nonces for graph");
+                    None
+                })
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_graph_nonces ({:?})",
@@ -946,21 +961,31 @@ impl ContractSM {
         let deposit_request_txid = self.deposit_request_txid();
         match &mut self.state.state {
             ContractState::Requested { graph_partials, .. } => {
-                // create an entry for this claim txid if not already present
-                let partials = graph_partials.entry(claim_txid).or_default();
+                // session partials must be present for this claim_txid at this point
+                let Some(session_partials) = graph_partials.get_mut(&claim_txid) else {
+                    return Err(TransitionErr(format!(
+                        "could not process graph partials. claim_txid ({}) not found in partials map",
+                        claim_txid
+                    )));
+                };
 
-                if let Some(exists) = partials.insert(signer.clone(), unpacked) {
+                if let Some(exists) = session_partials.insert(signer.clone(), unpacked) {
                     warn!(%claim_txid, %signer, "already received partials for graph, restoring...");
 
-                    partials.insert(signer.clone(), exists);
-                    return Err(TransitionErr(format!(
-                        "already received partials for graph {claim_txid} from {signer}"
-                    )));
+                    session_partials.insert(signer.clone(), exists);
                 }
 
-                Ok(if partials.len() == self.cfg.operator_table.cardinality() {
-                    // we have all the sigs now
-                    // issue deposit signature
+                if &signer == self.cfg.operator_table.pov_op_key() {
+                    info!(%claim_txid, %signer, "not proceeding to publish root nonce after receiving partial for somebody else's graph");
+                    return Ok(None);
+                }
+
+                let received_partials = session_partials.len();
+                let required_partials = self.cfg.operator_table.cardinality();
+
+                Ok(if received_partials == required_partials {
+                    info!(%claim_txid, "received all partials for graph");
+
                     let deposit_info = self.cfg.deposit_info.clone();
                     let witness = deposit_info
                         .compute_spend_infos(
@@ -968,11 +993,13 @@ impl ContractSM {
                             self.cfg().peg_out_graph_params.refund_delay,
                         )
                         .expect("must be able to compute taproot witness for DT");
+
                     Some(OperatorDuty::PublishRootNonce {
                         deposit_request_txid,
                         witness,
                     })
                 } else {
+                    info!(%claim_txid, %received_partials, %required_partials, "waiting for more partials for graph");
                     None
                 })
             }
