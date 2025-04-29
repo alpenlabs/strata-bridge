@@ -1,1 +1,1 @@
-pub use super::{bitcoin::*, musig2::*, wots::*};
+pub use super::{bitcoin::*, deposit::*, musig2::*, wots::*};

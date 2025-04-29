@@ -14,6 +14,8 @@ rust.unused_must_use = "deny"
 strata-bridge-primitives.workspace = true
 strata-btcio.workspace = true
 
+strata-primitives.workspace = true
+
 arbitrary.workspace = true
 bitcoin.workspace = true
 bitvm.workspace = true
@@ -23,5 +25,6 @@ musig2.workspace = true
 rand_core = { version = "0.9.1", default-features = false, features = [
   "os_rng",
 ] }
+secp256k1.workspace = true
 serde.workspace = true
 serde_json.workspace = true

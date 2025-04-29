@@ -8,6 +8,7 @@ use crate::{
 
 #[derive(Clone, Debug)]
 #[expect(clippy::large_enum_variant)]
+#[deprecated = "this will be removed along with the `strata-bridge-agent` crate"]
 pub enum VerifierDuty {
     VerifyClaim {
         operator_id: OperatorIdx,

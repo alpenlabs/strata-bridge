@@ -31,6 +31,7 @@ use strata_bridge_primitives::{build_context::BuildContext, operator_table::Oper
 use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
 };
+use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{
     self,
@@ -473,7 +474,7 @@ impl ContractManagerCtx {
             duties.extend(assignment_duties.into_iter());
 
             let txid = tx.compute_txid();
-            if let Some(deposit_info) = deposit_request_info(
+            if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
                 &self.cfg.sidesystem_params,
                 &self.cfg.pegout_graph_params,
@@ -481,15 +482,16 @@ impl ContractManagerCtx {
                 stake_index,
             ) {
                 let deposit_request_txid = txid;
-                let deposit_tx = match deposit_info.construct_psbt(
+                let deposit_tx = match DepositTx::new(
+                    &deposit_request_data,
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
                     &self.cfg.pegout_graph_params,
                     &self.cfg.sidesystem_params,
                 ) {
-                    Ok(psbt) => psbt.unsigned_tx,
+                    Ok(tx) => tx.psbt().unsigned_tx.clone(),
                     Err(err) => {
                         error!(
-                            ?deposit_info,
+                            ?deposit_request_data,
                             %err,
                             "invalid metadata supplied in deposit request"
                         );

@@ -7,6 +7,7 @@ pub mod challenge;
 pub mod claim;
 pub mod covenant_tx;
 pub mod cpfp;
+pub mod deposit;
 pub mod disprove;
 pub mod errors;
 pub mod payout;
