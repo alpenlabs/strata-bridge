@@ -59,8 +59,11 @@ pub fn generate_signature() -> Signature {
     Signature::from_slice(&sig).expect("should be able to generate arbitrary signature")
 }
 
+/// Generates a random keypair that is guaranteed to be of even parity.
 pub fn generate_keypair() -> Keypair {
     let sk = SecretKey::new(&mut OsRng);
+    let sk: EvenSecretKey = sk.into();
+
     Keypair::from_secret_key(SECP256K1, &sk)
 }
 
