@@ -903,7 +903,7 @@ impl ContractManagerCtx {
                         let pog = csm.cfg().build_graph(
                             peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
                         );
-                        let pog_inputs = pog.musig_inputs().map(|x| x.previous_output);
+                        let pog_inputs = pog.musig_inpoints();
                         Some(OperatorDuty::PublishGraphNonces {
                             claim_txid,
                             pog_prevouts: pog_inputs,
@@ -977,7 +977,7 @@ impl ContractManagerCtx {
                                     graph_nonces.get(&claim_txid).unwrap().clone(),
                                 )
                                 .unwrap(),
-                            pog_prevouts: pog.musig_inputs().map(|x| x.previous_output),
+                            pog_prevouts: pog.musig_inpoints(),
                             pog_sighashes: pog.sighashes(),
                         })
                     } else {

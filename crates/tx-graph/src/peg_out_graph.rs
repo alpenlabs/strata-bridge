@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
-use bitcoin::{hashes::sha256, relative, OutPoint, TxIn, Txid};
+use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
 use secp256k1::{Message, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -385,44 +385,26 @@ impl PegOutGraph {
         }
     }
 
-    pub fn musig_inputs(&self) -> PogMusigF<&TxIn> {
+    pub fn musig_inpoints(&self) -> PogMusigF<OutPoint> {
+        let post_assert_txid = self.assert_chain.post_assert.compute_txid();
+        let payout_optimistic_txid = self.payout_optimistic.compute_txid();
+        let payout_txid = self.payout_tx.compute_txid();
+
         PogMusigF {
-            challenge: self.challenge_tx.psbt().unsigned_tx.input.first().unwrap(),
-            pre_assert: self
-                .assert_chain
-                .pre_assert
-                .psbt()
-                .unsigned_tx
-                .input
-                .first()
-                .unwrap(),
-            post_assert: std::array::from_fn(|i| {
-                self.assert_chain
-                    .post_assert
-                    .psbt()
-                    .unsigned_tx
-                    .input
-                    .get(i)
-                    .unwrap()
-            }),
+            challenge: OutPoint::new(self.challenge_tx.compute_txid(), 0),
+            pre_assert: OutPoint::new(self.assert_chain.pre_assert.compute_txid(), 0),
+            post_assert: std::array::from_fn(|i| OutPoint::new(post_assert_txid, i as u32)),
             payout_optimistic: std::array::from_fn(|i| {
-                self.payout_optimistic
-                    .psbt()
-                    .unsigned_tx
-                    .input
-                    .get(i)
-                    .unwrap()
+                OutPoint::new(payout_optimistic_txid, i as u32)
             }),
-            payout: std::array::from_fn(|i| {
-                self.payout_tx.psbt().unsigned_tx.input.get(i).unwrap()
-            }),
-            disprove: self.disprove_tx.psbt().unsigned_tx.input.first().unwrap(),
+            payout: std::array::from_fn(|i| OutPoint::new(payout_txid, i as u32)),
+            disprove: OutPoint::new(self.disprove_tx.compute_txid(), 0),
             slash_stake: self
                 .slash_stake_txs
                 .iter()
                 .map(|tx| {
-                    let inputs = &tx.psbt().unsigned_tx.input;
-                    [inputs.first().unwrap(), inputs.get(1).unwrap()]
+                    let txid = tx.compute_txid();
+                    [OutPoint::new(txid, 0), OutPoint::new(txid, 1)]
                 })
                 .collect(),
         }

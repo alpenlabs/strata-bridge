@@ -866,7 +866,7 @@ impl ContractSM {
 
                 Ok(Some(OperatorDuty::PublishGraphNonces {
                     claim_txid,
-                    pog_prevouts: pog.musig_inputs().map(|txin| txin.previous_output),
+                    pog_prevouts: pog.musig_inpoints(),
                     pog_witnesses: pog.musig_witnesses(),
                 }))
             }
@@ -933,7 +933,7 @@ impl ContractSM {
                                     e
                                 ))
                             })?,
-                        pog_prevouts: graph.musig_inputs().map(|x| x.previous_output),
+                        pog_prevouts: graph.musig_inpoints(),
                         pog_sighashes: graph.sighashes(),
                     })
                 } else {
