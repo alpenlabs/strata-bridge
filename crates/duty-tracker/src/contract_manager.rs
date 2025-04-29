@@ -699,8 +699,7 @@ impl ContractManagerCtx {
                 operator_pk,
                 wots_pks,
             } => {
-                let deposit_txid =
-                    Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
+                let deposit_txid = Txid::from_byte_array(*scope.as_ref());
 
                 info!(%sender_id, %index, %deposit_txid, %operator_pk, "received deposit setup message");
 
@@ -769,7 +768,7 @@ impl ContractManagerCtx {
                 session_id,
                 mut nonces,
             } => {
-                let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+                let txid = Txid::from_byte_array(*session_id.as_ref());
 
                 if let Some(contract) = self
                     .state
@@ -808,7 +807,8 @@ impl ContractManagerCtx {
                 session_id,
                 ref signatures,
             } => {
-                let txid = Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(session_id.as_ref()));
+                let txid = Txid::from_byte_array(*session_id.as_ref());
+
                 if let Some(contract) = self
                     .state
                     .claim_txids
