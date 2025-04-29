@@ -37,6 +37,7 @@ use strata_bridge_connectors::{
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
+#[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     constants::*,
@@ -251,6 +252,7 @@ where
         }
     }
 
+    #[expect(deprecated)]
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
         let pegout_graph_params = PegOutGraphParams::default();

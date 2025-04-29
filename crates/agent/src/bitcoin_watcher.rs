@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use bitcoin::{Transaction, Txid};
 use strata_bridge_db::{public::PublicDb, tracker::BitcoinBlockTrackerDb};
+#[expect(deprecated)]
 use strata_bridge_primitives::{
     constants::NUM_ASSERT_DATA_TX, duties::VerifierDuty, types::OperatorIdx,
 };
@@ -44,6 +45,7 @@ where
         }
     }
 
+    #[expect(deprecated)]
     pub async fn start(&self, notifier: broadcast::Sender<VerifierDuty>) {
         info!(action = "starting bitcoin watcher", %self.genesis_height);
 
@@ -130,10 +132,12 @@ where
         }
     }
 
+    #[expect(deprecated)]
     pub async fn handle_claim(&self) -> VerifierDuty {
         unimplemented!("challenge not supported yet");
     }
 
+    #[expect(deprecated)]
     pub async fn handle_assertion(
         &self,
         post_assert_tx: Transaction,
