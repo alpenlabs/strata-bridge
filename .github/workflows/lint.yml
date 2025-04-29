@@ -48,7 +48,7 @@ jobs:
       - name: Run db migrations
         run: make migrate
 
-      - run: cargo clippy --workspace --lib --examples --tests --benches --all-features --all-targets
+      - run: cargo clippy --workspace --lib --locked --examples --tests --benches --all-features --all-targets
         env:
           RUSTFLAGS: -D warnings
           DATABASE_URL: sqlite://./operator.db
