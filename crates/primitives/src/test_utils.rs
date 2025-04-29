@@ -16,7 +16,7 @@ use strata_primitives::bridge::PublickeyTable;
 use crate::{
     bitcoin::BitcoinAddress,
     scripts::{
-        general::{drt_take_back, get_aggregated_pubkey, n_of_n_script},
+        general::{drt_take_back, get_aggregated_pubkey},
         prelude::{create_taproot_addr, SpendPath},
     },
     secp::EvenSecretKey,
@@ -67,13 +67,13 @@ pub(crate) fn create_drt_taproot_output(
     refund_delay: u16,
 ) -> (BitcoinAddress, TapNodeHash) {
     let aggregated_pubkey = get_aggregated_pubkey(pubkeys.0.into_values());
-    let n_of_n_spend_script = n_of_n_script(&aggregated_pubkey);
     let takeback_script = drt_take_back(recovery_xonly_pubkey, refund_delay);
     let takeback_script_hash = TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
     let network = Network::Regtest;
-    let spend_path = SpendPath::ScriptSpend {
-        scripts: &[n_of_n_spend_script.compile(), takeback_script],
+    let spend_path = SpendPath::Both {
+        internal_key: aggregated_pubkey,
+        scripts: &[takeback_script],
     };
     let (address, _spend_info) = create_taproot_addr(&network, spend_path).unwrap();
     let address_str = address.to_string();

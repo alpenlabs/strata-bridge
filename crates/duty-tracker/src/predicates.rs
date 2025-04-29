@@ -84,9 +84,9 @@ pub(crate) fn deposit_request_info(
     // Regenerate the P2TR address from the OP_RETURN data, for now the spend info does all the
     // necessary validations.
     deposit_info
-        .compute_spend_infos(build_context, pegout_graph_params.refund_delay)
+        .validate(build_context, pegout_graph_params.refund_delay)
         .map_err(|e| {
-            warn!(err=%e, txid=%tx.compute_txid(), "failed to compute spend info, malformed DRT");
+            warn!(err=%e, txid=%tx.compute_txid(), "DRT failed validation");
             None::<DepositInfo>
         })
         .ok()?;

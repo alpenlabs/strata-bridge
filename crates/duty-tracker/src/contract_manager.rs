@@ -481,12 +481,12 @@ impl ContractManagerCtx {
                 stake_index,
             ) {
                 let deposit_request_txid = txid;
-                let deposit_tx = match deposit_info.construct_signing_data(
+                let deposit_tx = match deposit_info.construct_psbt(
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
                     &self.cfg.pegout_graph_params,
                     &self.cfg.sidesystem_params,
                 ) {
-                    Ok(data) => data.psbt.unsigned_tx,
+                    Ok(psbt) => psbt.unsigned_tx,
                     Err(err) => {
                         error!(
                             ?deposit_info,
