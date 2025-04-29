@@ -3,6 +3,8 @@
 //! Contains types, traits and implementations related to creating various transactions used in the
 //! bridge-in dataflow.
 
+#![expect(deprecated)]
+
 use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{
     taproot::LeafVersion, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,

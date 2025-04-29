@@ -1,3 +1,5 @@
+#![expect(deprecated)]
+
 use bitcoin::{Transaction, Txid};
 use serde::{Deserialize, Serialize};
 
