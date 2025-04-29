@@ -14,6 +14,7 @@ use bitcoin::{
 };
 use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
+use secp256k1::PublicKey;
 use strata_bridge_primitives::secp::EvenSecretKey;
 use strata_btcio::rpc::{
     types::{ListUnspent, SignRawTransactionWithWallet},
@@ -58,17 +59,40 @@ pub fn generate_signature() -> Signature {
     Signature::from_slice(&sig).expect("should be able to generate arbitrary signature")
 }
 
-/// Generates a [`Keypair`] that is always guaranteed to have an even X-only public key.
+/// Generates a random keypair that is guaranteed to be of even parity.
 pub fn generate_keypair() -> Keypair {
-    let mut rng = thread_rng();
-    let sk = SecretKey::new(&mut rng);
+    let sk = SecretKey::new(&mut OsRng);
     let sk: EvenSecretKey = sk.into();
+
     Keypair::from_secret_key(SECP256K1, &sk)
 }
 
+/// Generate `count` (public key, private key) pairs as two separate [`Vec`].
+pub fn generate_keypairs(count: usize) -> (Vec<PublicKey>, Vec<SecretKey>) {
+    let mut secret_keys: Vec<SecretKey> = Vec::with_capacity(count);
+    let mut pubkeys: Vec<PublicKey> = Vec::with_capacity(count);
+
+    let mut pubkeys_set: HashSet<PublicKey> = HashSet::new();
+
+    while pubkeys_set.len() != count {
+        let sk = SecretKey::new(&mut OsRng);
+        let keypair = Keypair::from_secret_key(SECP256K1, &sk);
+        let pubkey = PublicKey::from_keypair(&keypair);
+
+        if pubkeys_set.insert(pubkey) {
+            secret_keys.push(sk);
+            pubkeys.push(pubkey);
+        }
+    }
+
+    (pubkeys, secret_keys)
+}
+
 pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
-    let keypair = Keypair::new(SECP256K1, &mut OsRng);
-    XOnlyPublicKey::from_keypair(&keypair).0
+    let mut rng = thread_rng();
+    let sk = SecretKey::new(&mut rng);
+    let even_sk: EvenSecretKey = sk.into();
+    even_sk.x_only_public_key(SECP256K1).0
 }
 
 pub fn generate_tx(num_inputs: usize, num_outputs: usize) -> Transaction {

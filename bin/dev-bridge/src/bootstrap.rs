@@ -15,6 +15,7 @@ use strata_bridge_agent::{
     verifier::Verifier,
 };
 use strata_bridge_db::persistent::sqlite::SqliteDb;
+#[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::{BridgeDuty, BridgeDutyStatus, VerifierDuty},
@@ -40,6 +41,7 @@ use crate::{
     xpriv::get_keypairs_and_load_xpriv,
 };
 
+#[expect(deprecated)]
 pub(crate) async fn bootstrap(args: Cli) {
     // instantiate RPC client for Strata and Bitcoin
     let strata_rpc_client = WsClientBuilder::default()

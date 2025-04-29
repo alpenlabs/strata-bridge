@@ -10,9 +10,8 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use btc_notify::client::TxPredicate;
-use strata_bridge_primitives::{
-    build_context::BuildContext, deposit::DepositInfo, types::OperatorIdx,
-};
+use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
+use strata_bridge_tx_graph::transactions::deposit::DepositRequestData;
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
@@ -49,7 +48,7 @@ pub(crate) fn deposit_request_info(
     pegout_graph_params: &PegOutGraphParams,
     build_context: &impl BuildContext,
     stake_index: u32,
-) -> Option<DepositInfo> {
+) -> Option<DepositRequestData> {
     let deposit_request_output = tx.output.first()?;
     if deposit_request_output.value <= pegout_graph_params.deposit_amount {
         return None;
@@ -72,7 +71,7 @@ pub(crate) fn deposit_request_info(
             Some((recovery_x_only_pk, el_addr))
         })?;
 
-    let deposit_info = DepositInfo::new(
+    let deposit_request_data = DepositRequestData::new(
         OutPoint::new(tx.compute_txid(), 0),
         stake_index,
         el_addr.to_vec(),
@@ -83,15 +82,15 @@ pub(crate) fn deposit_request_info(
 
     // Regenerate the P2TR address from the OP_RETURN data, for now the spend info does all the
     // necessary validations.
-    deposit_info
-        .compute_spend_infos(build_context, pegout_graph_params.refund_delay)
+    deposit_request_data
+        .validate(build_context, pegout_graph_params.refund_delay)
         .map_err(|e| {
-            warn!(err=%e, txid=%tx.compute_txid(), "failed to compute spend info, malformed DRT");
-            None::<DepositInfo>
+            warn!(err=%e, txid=%tx.compute_txid(), "DRT failed validation");
+            None::<DepositRequestData>
         })
         .ok()?;
 
-    Some(deposit_info)
+    Some(deposit_request_data)
 }
 
 pub(crate) fn is_challenge(claim_txid: Txid) -> TxPredicate {

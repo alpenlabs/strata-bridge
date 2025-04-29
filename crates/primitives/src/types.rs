@@ -1,11 +1,8 @@
 use std::collections::BTreeMap;
 
-use bitcoin::Psbt;
 use musig2::{errors::KeyAggError, KeyAggContext};
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
-
-use crate::scripts::taproot::TaprootWitness;
 
 pub type OperatorIdx = u32;
 pub type BitcoinBlockHeight = u64;
@@ -36,20 +33,4 @@ impl TryFrom<PublickeyTable> for KeyAggContext {
     fn try_from(value: PublickeyTable) -> Result<Self, Self::Error> {
         KeyAggContext::new(Into::<Vec<PublicKey>>::into(value))
     }
-}
-
-/// All the information necessary to produce a valid signature for a transaction in the bridge.
-#[derive(Debug, Clone)]
-pub struct TxSigningData {
-    /// The unsigned [`Transaction`](bitcoin::Transaction) (with the `script_sig` and `witness`
-    /// fields empty).
-    pub psbt: Psbt,
-
-    /// The spend path for the unsigned taproot input in the transaction
-    /// respectively.
-    ///
-    /// If a script-path path is being used, the witness stack needs the script being spent and the
-    /// control block in addition to the signature.
-    /// See [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs).
-    pub spend_path: TaprootWitness,
 }

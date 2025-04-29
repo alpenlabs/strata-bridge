@@ -22,6 +22,3 @@ pub mod secp;
 pub mod types;
 pub mod withdrawal;
 pub mod wots;
-
-#[cfg(test)]
-mod test_utils;

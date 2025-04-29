@@ -37,6 +37,7 @@ use strata_bridge_connectors::{
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
+#[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     constants::*,
@@ -46,7 +47,7 @@ use strata_bridge_primitives::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::{create_message_hash, finalize_input, TaprootWitness},
     },
-    types::{OperatorIdx, TxSigningData},
+    types::OperatorIdx,
     withdrawal::WithdrawalInfo,
     wots::{Assertions, PublicKeys as WotsPublicKeys, Signatures as WotsSignatures},
 };
@@ -188,14 +189,14 @@ where
                 let txid = deposit_info.deposit_request_outpoint().txid;
                 info!(event = "received deposit duty", %own_index, drt_txid = %txid);
 
-                let data = deposit_info
-                    .construct_signing_data(
+                let psbt = deposit_info
+                    .construct_psbt(
                         &self.build_context,
                         &pegout_graph_params,
                         &self.rollup_params,
                     )
                     .unwrap(); // FIXME: Handle
-                let deposit_txid = data.psbt.unsigned_tx.compute_txid();
+                let deposit_txid = psbt.unsigned_tx.compute_txid();
 
                 info!(action = "updating deposit table", %deposit_txid);
                 self.public_db.add_deposit_txid(deposit_txid).await.unwrap(); // FIXME: Handle me
@@ -251,26 +252,27 @@ where
         }
     }
 
+    #[expect(deprecated)]
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
         let pegout_graph_params = PegOutGraphParams::default();
 
         // 1. aggregate_tx_graph
-        let deposit_tx = deposit_info.construct_signing_data(
+        let mut deposit_psbt = match deposit_info.construct_psbt(
             &self.build_context,
             &pegout_graph_params,
             &self.rollup_params,
-        );
+        ) {
+            Ok(deposit_psbt) => deposit_psbt,
+            Err(cause) => {
+                let deposit_txid = deposit_info.deposit_request_outpoint().txid;
+                warn!(msg = "could not process deposit", %cause, %deposit_txid, %own_index);
 
-        if let Err(cause) = deposit_tx {
-            let deposit_txid = deposit_info.deposit_request_outpoint().txid;
-            warn!(msg = "could not process deposit", %cause, %deposit_txid, %own_index);
+                return;
+            }
+        };
 
-            return;
-        }
-
-        let mut deposit_tx = deposit_tx.unwrap();
-        let deposit_txid = deposit_tx.psbt.unsigned_tx.compute_txid();
+        let deposit_txid = deposit_psbt.unsigned_tx.compute_txid();
 
         info!(action = "retrieving stake chain information", %deposit_txid, %own_index);
         let deposit_id = self
@@ -360,13 +362,13 @@ where
         // 4. Collect nonces and signatures for deposit tx.
         info!(action = "aggregating nonces for deposit sweeping", %deposit_txid, %own_index);
         let agg_nonce = self
-            .aggregate_nonces(deposit_tx.clone())
+            .aggregate_nonces(&deposit_psbt)
             .await
             .expect("nonce aggregation must complete");
 
         info!(action = "aggregating signatures for deposit sweeping", %deposit_txid, %own_index);
         let signed_deposit_tx = self
-            .aggregate_signatures(agg_nonce, &mut deposit_tx)
+            .aggregate_signatures(agg_nonce, &mut deposit_psbt)
             .await
             .expect("should be able to construct fully signed deposit tx");
 
@@ -1099,8 +1101,8 @@ where
         }
     }
 
-    pub async fn aggregate_nonces(&mut self, tx_signing_data: TxSigningData) -> Option<AggNonce> {
-        let tx = tx_signing_data.psbt.unsigned_tx.clone();
+    pub async fn aggregate_nonces(&mut self, deposit_psbt: &bitcoin::Psbt) -> Option<AggNonce> {
+        let tx = deposit_psbt.unsigned_tx.clone();
         let txid = tx.compute_txid();
 
         let own_index = self.build_context.own_index();
@@ -1178,15 +1180,14 @@ where
     pub async fn aggregate_signatures(
         &mut self,
         agg_nonce: AggNonce,
-        tx_signing_data: &mut TxSigningData,
+        deposit_psbt: &mut bitcoin::Psbt,
     ) -> Option<Transaction> {
         let own_index = self.build_context.own_index();
 
-        let tx = &tx_signing_data.psbt.unsigned_tx;
+        let tx = &deposit_psbt.unsigned_tx;
         let txid = tx.compute_txid();
 
-        let prevouts = tx_signing_data
-            .psbt
+        let prevouts = deposit_psbt
             .inputs
             .iter()
             .map(|i| {
@@ -1213,7 +1214,7 @@ where
         let message = create_message_hash(
             &mut sighash_cache,
             prevouts,
-            &tx_signing_data.spend_path,
+            &TaprootWitness::Key,
             TapSighashType::Default,
             0,
         )
@@ -1278,37 +1279,23 @@ where
 
                     info!(event = "signature aggregation complete for deposit sweeping", deposit_txid=%txid, operator_idx=%own_index);
 
-                    if let TaprootWitness::Script {
-                        script_buf,
-                        control_block,
-                    } = tx_signing_data.spend_path.clone()
-                    {
-                        let witnesses = [
-                            agg_signature.as_ref().to_vec(),
-                            script_buf.to_bytes(),
-                            control_block.serialize(),
-                        ];
-                        finalize_input(
-                            tx_signing_data
-                                .psbt
-                                .inputs
-                                .first_mut()
-                                .expect("the first input must exist"),
-                            witnesses,
-                        );
+                    let witnesses = [agg_signature.as_ref().to_vec()];
+                    finalize_input(
+                        deposit_psbt
+                            .inputs
+                            .first_mut()
+                            .expect("the first input must exist"),
+                        witnesses,
+                    );
 
-                        let signed_tx = tx_signing_data
-                            .psbt
-                            .clone()
-                            .extract_tx()
-                            .expect("should be able to extract fully signed tx");
-                        debug!(event = "created signed tx", ?signed_tx);
-                        info!(event = "deposit transaction fully signed and ready for broadcasting", deposit_txid=%txid, operator_idx=%own_index);
+                    let signed_tx = deposit_psbt
+                        .clone()
+                        .extract_tx()
+                        .expect("should be able to extract fully signed tx");
+                    debug!(event = "created signed tx", ?signed_tx);
+                    info!(event = "deposit transaction fully signed and ready for broadcasting", deposit_txid=%txid, operator_idx=%own_index);
 
-                        return Some(signed_tx);
-                    } else {
-                        unreachable!("deposit request should have a script spend path");
-                    };
+                    return Some(signed_tx);
                 }
             } else {
                 // ignore nonces in this function

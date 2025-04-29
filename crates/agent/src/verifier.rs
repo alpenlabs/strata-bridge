@@ -12,6 +12,7 @@ use strata_bridge_connectors::{
     },
 };
 use strata_bridge_db::public::PublicDb;
+#[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
@@ -54,6 +55,7 @@ where
         }
     }
 
+    #[expect(deprecated)]
     pub async fn start(&mut self, duty_receiver: &mut broadcast::Receiver<VerifierDuty>) {
         info!(action = "starting verifier");
 
@@ -75,6 +77,7 @@ where
         }
     }
 
+    #[expect(deprecated)]
     pub async fn process_duty(&mut self, duty: VerifierDuty) {
         match duty {
             VerifierDuty::VerifyClaim {
