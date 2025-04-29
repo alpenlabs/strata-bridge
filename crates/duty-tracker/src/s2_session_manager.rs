@@ -114,20 +114,32 @@ impl MusigSessionManager {
         debug!(%outpoint, "getting second round partial signature");
 
         if let Some(second_round) = self.second_round_map.lock().await.get_mut(&outpoint) {
+            debug!(%outpoint, "getting our partial signature");
+
             Ok(second_round.our_signature().await?)
         } else {
             let mut first_guard = self.first_round_map.lock().await;
             if let Some(first_round) = first_guard.remove(&outpoint) {
-                if first_round.holdouts().await?.is_empty() {
+                let holdouts = first_round.holdouts().await?;
+                debug!(%outpoint, ?holdouts, "fetched first round holdouts");
+
+                if holdouts.is_empty() {
+                    debug!(%outpoint, "finalizing first round");
                     let second_round = first_round.finalize(*sighash.as_ref()).await??;
+
+                    debug!(%outpoint, "getting our signature");
                     let ours = second_round.our_signature().await?;
                     drop(first_guard);
 
                     let mut second_guard = self.second_round_map.lock().await;
+
+                    debug!(%outpoint, "updating second round session with our signature");
                     second_guard.insert(outpoint, second_round);
 
                     Ok(ours)
                 } else {
+                    error!(?holdouts, "cannot proceed to second round with holdouts");
+
                     first_guard.insert(outpoint, first_round);
                     drop(first_guard);
                     Err(MusigSessionErr::Premature)
