@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use bitcoin::{PublicKey, Transaction, Txid};
 use strata_bridge_primitives::duties::{
-    BridgeDuties, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
+    BridgeDuties, BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
     WithdrawalStatus,
 };
 use tokio::sync::RwLock;
@@ -21,6 +21,9 @@ pub struct DutyTrackerInMemory {
 
     /// Status of each duty.
     duty_status: Arc<RwLock<HashMap<Txid, BridgeDutyStatus>>>,
+
+    /// Bridge duties.
+    duties: Arc<RwLock<HashMap<PublicKey, BridgeDuty>>>,
 }
 
 #[async_trait]
@@ -54,16 +57,31 @@ impl DutyTrackerDb for DutyTrackerInMemory {
     }
 
     async fn get_all_duties(&self) -> DbResult<BridgeDuties> {
-        // TODO: this is not possible with the current schema now.
-        //       Check the `BridgeDuty` struct for more information.
-        unimplemented!("@rajil")
+        let duties = self.duties.read().await;
+        let duties_vec: Vec<BridgeDuty> = duties.values().cloned().collect();
+        let len = duties_vec.len() as u64;
+
+        Ok(BridgeDuties {
+            duties: duties_vec,
+            start_index: 0,
+            stop_index: len,
+        })
     }
 
     async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<BridgeDuties> {
-        // TODO: this is not possible with the current schema now.
-        //       Check the `BridgeDuty` struct for more information.
-        let _ = operator_pk;
-        unimplemented!("@rajil")
+        let duties = self.duties.read().await;
+        let duties_vec: Vec<BridgeDuty> = duties
+            .keys()
+            .filter(|pk| *pk == &operator_pk)
+            .map(|pk| duties[pk].clone())
+            .collect();
+        let len = duties_vec.len() as u64;
+
+        Ok(BridgeDuties {
+            duties: duties_vec,
+            start_index: 0,
+            stop_index: len,
+        })
     }
 
     async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {
