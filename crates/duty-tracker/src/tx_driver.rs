@@ -16,6 +16,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use tracing::{error, info};
 
 /// Error type for the TxDriver.
 #[derive(Debug, Error)]
@@ -59,11 +60,14 @@ impl TxDriver {
                         active_tx_subs.push(tx_sub);
                         active_jobs.insert(txid, job);
                         match rpc_client.send_raw_transaction(&rawtx_rpc_client).await {
-                            Ok(_txid) => { /* NOOP, we good fam */ }
-                            Err(_err) => {
+                            Ok(txid) => {
+                                info!(%txid, "broadcasted transaction successfully");
+                            },
+                            Err(err) => {
                                 // TODO(proofofkeags): in this case we may have not hit the mempool
                                 // purge rate and then we have to probably CPFP using anchor from
                                 // the getgo and try again via submit package.
+                                error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
                             }
                         }
                     }
