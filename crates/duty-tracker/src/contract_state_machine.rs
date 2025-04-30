@@ -549,6 +549,7 @@ pub struct ContractCfg {
     /// Information about the deposit transaction.
     pub deposit_info: DepositInfo,
 }
+
 impl ContractCfg {
     /// Builds a [`PegOutGraph`] from a [`PegOutGraphInput`].
     pub fn build_graph(&self, graph_input: PegOutGraphInput) -> PegOutGraph {
@@ -580,11 +581,17 @@ pub struct MachineState {
     pub state: ContractState,
 }
 
-#[derive(Debug)]
 /// This is the core state machine for a given deposit contract.
+#[derive(Debug)]
 pub struct ContractSM {
     cfg: ContractCfg,
     state: MachineState,
+
+    /// The peg out graphs associated with each operator for the given deposit.
+    ///
+    /// This is used for caching the peg out graphs for the contract.
+    /// The graphs are indexed by the transaction ID of the corresponding stake transaction.
+    pog: BTreeMap<Txid, PegOutGraph>,
 }
 
 impl ContractSM {
@@ -636,7 +643,11 @@ impl ContractSM {
             state,
         };
         (
-            ContractSM { cfg, state },
+            ContractSM {
+                cfg,
+                state,
+                pog: BTreeMap::new(),
+            },
             OperatorDuty::PublishDepositSetup {
                 deposit_txid,
                 deposit_idx,
@@ -647,7 +658,11 @@ impl ContractSM {
 
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]
     pub fn restore(cfg: ContractCfg, state: MachineState) -> Self {
-        ContractSM { cfg, state }
+        ContractSM {
+            cfg,
+            state,
+            pog: BTreeMap::new(),
+        }
     }
 
     /// Filter that specifies which transactions should be delivered to this state machine.
@@ -683,6 +698,23 @@ impl ContractSM {
                 || is_challenge(g.claim_txid)(tx)
                 || is_disprove(g.post_assert_txid)(tx)
         })
+    }
+
+    /// Retrieves the [`PegOutGraph`] associated with this contract state machine.
+    ///
+    /// If the peg out graph is already cached, it will be returned. Otherwise, it will be built and
+    /// cached.
+    pub fn retrieve_graph(&mut self, input: PegOutGraphInput) -> PegOutGraph {
+        let stake_txid = input.stake_outpoint.txid;
+        if let Some(pog) = self.pog.get(&stake_txid) {
+            debug!(reimbursement_key=%input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
+            return pog.clone();
+        }
+
+        debug!(reimbursement_key=%input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
+        let pog = self.cfg.build_graph(input.clone());
+        self.pog.insert(stake_txid, pog.clone());
+        pog
     }
 
     /// Processes the unified event type for the ContractSM.
@@ -828,6 +860,7 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
         // SUBTLE WAY.
+
         match &mut self.state.state {
             ContractState::Requested {
                 stake_txs,
@@ -849,10 +882,24 @@ impl ContractSM {
                     operator_pubkey,
                 };
 
+                // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
+                // `&mut self` and the borrow checker does not allow us to reborrow it mutably
+                // inside the current mutable context even though the fields being mutated are
+                // different.
+                let stake_txid = pog_input.stake_outpoint.txid;
+                let pog = if let Some(pog) = self.pog.get(&stake_txid) {
+                    debug!(reimbursement_key=%operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
+                    pog.clone()
+                } else {
+                    debug!(reimbursement_key=%operator_pubkey, %stake_txid, "generating and caching peg out graph");
+                    let pog = self.cfg.build_graph(pog_input.clone());
+                    self.pog.insert(stake_txid, pog.clone());
+
+                    pog
+                };
+
                 let owner = self.cfg.operator_table.op_key_to_idx(&signer);
                 debug!(?owner, "generating peg out graph for operator");
-
-                let pog = self.cfg.build_graph(pog_input.clone());
 
                 let pog_summary = pog.summarize();
                 let claim_txid = pog_summary.claim_txid;
@@ -915,17 +962,34 @@ impl ContractSM {
                 Ok(if have_all_nonces {
                     info!(%claim_txid, %signer, "received all nonces for all graphs");
 
-                    let Some((input, _)) = peg_out_graphs.get(&claim_txid) else {
+                    let Some((pog_input, _)) = peg_out_graphs.get(&claim_txid) else {
                         return Err(TransitionErr(format!(
                                 "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
                                 claim_txid
                             )));
                     };
-                    let graph = self.cfg.build_graph(input.clone());
+                    let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
+
+                    // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
+                    // `&mut self` and the borrow checker does not allow us to reborrow it mutably
+                    // inside the current mutable context even though the fields being mutated are
+                    // different.
+                    let stake_txid = pog_input.stake_outpoint.txid;
+                    let pog = if let Some(pog) = self.pog.get(&stake_txid) {
+                        debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
+                        pog.clone()
+                    } else {
+                        debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
+                        let pog = self.cfg.build_graph(pog_input.clone());
+                        self.pog.insert(stake_txid, pog.clone());
+
+                        pog
+                    };
+
                     let pubnonces = self
                         .cfg
                         .operator_table
-                        .convert_map_op_to_btc(graph_nonces.get(&claim_txid).unwrap().clone())
+                        .convert_map_op_to_btc(graph_nonces)
                         .map_err(|e| {
                             TransitionErr(format!(
                                 "could not convert nonce map keys: {} not in operator table",
@@ -936,8 +1000,8 @@ impl ContractSM {
                     Some(OperatorDuty::PublishGraphSignatures {
                         claim_txid,
                         pubnonces,
-                        pog_prevouts: graph.musig_inpoints(),
-                        pog_sighashes: graph.sighashes(),
+                        pog_prevouts: pog.musig_inpoints(),
+                        pog_sighashes: pog.sighashes(),
                     })
                 } else {
                     let received_nonces = graph_nonces
