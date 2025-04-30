@@ -41,6 +41,7 @@ use strata_bridge_connectors::{
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
+use strata_bridge_primitives::duties::{ChallengeStep, ClaimStatus};
 #[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
@@ -2276,7 +2277,14 @@ where
         let claim_txid = peg_out_graph.claim_tx.compute_txid();
         info!(action = "registering claim", %claim_txid, %deposit_txid, %operator_idx);
         self.public_db
-            .register_claim_txid(claim_txid, operator_idx, deposit_txid)
+            .register_claim_txid(
+                claim_txid,
+                operator_idx,
+                deposit_txid,
+                ClaimStatus::InProgress {
+                    challenge_step: ChallengeStep::Claim,
+                },
+            )
             .await?;
 
         let pre_assert_txid = peg_out_graph.assert_chain.pre_assert.compute_txid();

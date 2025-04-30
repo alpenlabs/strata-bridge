@@ -71,7 +71,7 @@ where
             for tx in block.txdata {
                 let txid = tx.compute_txid();
 
-                if let Some((operator_idx, deposit_txid)) = self
+                if let Some((operator_idx, deposit_txid, _status)) = self
                     .public_db
                     .get_operator_and_deposit_for_claim(&txid)
                     .await

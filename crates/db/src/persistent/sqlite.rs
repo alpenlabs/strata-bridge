@@ -483,19 +483,23 @@ impl PublicDb for SqliteDb {
         claim_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
+        status: ClaimStatus,
     ) -> DbResult<()> {
         execute_with_retries(self.config(), || async {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
             let claim_txid = DbTxid::from(claim_txid);
             let deposit_txid = DbTxid::from(deposit_txid);
+            let status_json =
+                serde_json::to_string(&status).map_err(StorageError::SerializeJson)?;
             sqlx::query!(
-                "INSERT OR REPLACE INTO claim_txid_to_operator_index_and_deposit_txid
-                    (claim_txid, operator_id, deposit_txid)
-                    VALUES ($1, $2, $3)",
+                "INSERT OR REPLACE INTO claims
+                    (claim_txid, operator_id, deposit_txid, status)
+                    VALUES ($1, $2, $3, $4)",
                 claim_txid,
                 operator_idx,
                 deposit_txid,
+                status_json,
             )
             .execute(&mut *tx)
             .await
@@ -511,23 +515,27 @@ impl PublicDb for SqliteDb {
     async fn get_operator_and_deposit_for_claim(
         &self,
         claim_txid: &Txid,
-    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
+    ) -> DbResult<Option<(OperatorIdx, Txid, ClaimStatus)>> {
         execute_with_retries(self.config(), || async {
             let claim_txid = DbTxid::from(*claim_txid);
-            Ok(sqlx::query_as!(
-                models::ClaimToOperatorAndDeposit,
+            Ok(sqlx::query!(
                 r#"SELECT
                     operator_id,
                     deposit_txid AS "deposit_txid!: DbTxid",
-                    claim_txid AS "claim_txid!: DbTxid"
-                    FROM claim_txid_to_operator_index_and_deposit_txid
+                    status
+                    FROM claims
                     WHERE claim_txid = $1"#,
                 claim_txid,
             )
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|row| (*row.operator_id, *row.deposit_txid)))
+            .map(|row| -> Result<_, StorageError> {
+                let status =
+                    serde_json::from_str(&row.status).map_err(StorageError::SerializeJson)?;
+                Ok((row.operator_id as u32, *row.deposit_txid, status))
+            })
+            .transpose()?)
         })
         .await
     }
@@ -1347,12 +1355,39 @@ impl DutyTrackerDb for SqliteDb {
     }
 
     async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        execute_with_retries(self.config(), || async move {
+            Ok(sqlx::query!(r#"SELECT claim_txid, status FROM claims"#)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(StorageError::from)?
+                .into_iter()
+                .filter_map(|row| {
+                    row.claim_txid.and_then(|txid| {
+                        Txid::from_str(&txid)
+                            .map_err(|e| StorageError::MismatchedTypes(e.to_string()))
+                            .ok()
+                    })
+                })
+                .collect())
+        })
+        .await
     }
 
     async fn get_claim_by_txid(&self, txid: Txid) -> DbResult<Option<ClaimStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        execute_with_retries(self.config(), || async move {
+            let txid = DbTxid::from(txid);
+
+            Ok(sqlx::query!(
+                r#"SELECT claim_txid, status FROM claims WHERE claim_txid = $1"#,
+                txid
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|row| serde_json::from_str(&row.status).map_err(StorageError::SerializeJson))
+            .transpose()?)
+        })
+        .await
     }
 
     async fn get_all_deposits(&self) -> DbResult<Vec<Txid>> {
@@ -1582,13 +1617,18 @@ mod tests {
                 .is_ok_and(|v| v.is_none()),
             "claim txid must not exist initially"
         );
-        db.register_claim_txid(claim_txid, operator_id, deposit_txid)
-            .await
-            .expect("must be able to register claim txid");
+        db.register_claim_txid(
+            claim_txid,
+            operator_id,
+            deposit_txid,
+            ClaimStatus::Cancelled,
+        )
+        .await
+        .expect("must be able to register claim txid");
         assert!(
             db.get_operator_and_deposit_for_claim(&claim_txid)
                 .await
-                .is_ok_and(|v| v == Some((operator_id, deposit_txid))),
+                .is_ok_and(|v| v == Some((operator_id, deposit_txid, ClaimStatus::Cancelled))),
             "claim txid must exist after registering"
         );
 

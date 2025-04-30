@@ -130,9 +130,11 @@ pub(super) struct ClaimToOperatorAndDeposit {
     pub(super) claim_txid: DbTxid,
 
     /// The hex-serialized deposit txid.
+    #[expect(dead_code)]
     pub(super) deposit_txid: DbTxid,
 
     /// The ID of the operator stored as `INTEGER`.
+    #[expect(dead_code)]
     pub(super) operator_id: DbOperatorId,
 }
 

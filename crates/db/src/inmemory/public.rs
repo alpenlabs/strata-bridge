@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
-use strata_bridge_primitives::{constants::NUM_ASSERT_DATA_TX, types::OperatorIdx, wots};
+use strata_bridge_primitives::{
+    constants::NUM_ASSERT_DATA_TX, duties::ClaimStatus, types::OperatorIdx, wots,
+};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use tokio::sync::RwLock;
 use tracing::trace;
@@ -37,15 +39,19 @@ pub struct PublicDbInMemory {
     // operator_id -> stake_id -> stake_data
     stake_data: Arc<RwLock<HashMap<OperatorIdx, HashMap<u32, StakeTxData>>>>,
 
-    // reverse mapping
-    claim_txid_to_operator_index_and_deposit_txid: Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
+    // claim_txid -> (operator_idx, deposit_txid, status)
+    #[expect(clippy::type_complexity)]
+    claim_txid_table: Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid, ClaimStatus)>>>,
 
+    // pre_assert_txid -> (operator_idx, deposit_txid)
     pre_assert_txid_to_operator_index_and_deposit_txid:
         Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 
+    // assert_data_txid -> (operator_idx, deposit_txid)
     assert_data_txid_to_operator_index_and_deposit_txid:
         Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 
+    // post_assert_txid -> (operator_idx, deposit_txid)
     post_assert_txid_to_operator_index_and_deposit_txid:
         Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 }
@@ -267,11 +273,12 @@ impl PublicDb for PublicDbInMemory {
         claim_txid: Txid,
         operator_idx: OperatorIdx,
         deposit_txid: Txid,
+        status: ClaimStatus,
     ) -> DbResult<()> {
-        self.claim_txid_to_operator_index_and_deposit_txid
+        self.claim_txid_table
             .write()
             .await
-            .insert(claim_txid, (operator_idx, deposit_txid));
+            .insert(claim_txid, (operator_idx, deposit_txid, status));
 
         Ok(())
     }
@@ -279,13 +286,8 @@ impl PublicDb for PublicDbInMemory {
     async fn get_operator_and_deposit_for_claim(
         &self,
         claim_txid: &Txid,
-    ) -> DbResult<Option<(OperatorIdx, Txid)>> {
-        Ok(self
-            .claim_txid_to_operator_index_and_deposit_txid
-            .read()
-            .await
-            .get(claim_txid)
-            .copied())
+    ) -> DbResult<Option<(OperatorIdx, Txid, ClaimStatus)>> {
+        Ok(self.claim_txid_table.read().await.get(claim_txid).copied())
     }
 
     async fn register_post_assert_txid(

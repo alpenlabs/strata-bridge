@@ -2,9 +2,12 @@ use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
 use bitcoin::{PublicKey, Transaction, Txid};
-use strata_bridge_primitives::duties::{
-    BridgeDuties, BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
-    WithdrawalStatus,
+use strata_bridge_primitives::{
+    duties::{
+        BridgeDuties, BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus,
+        DepositStatus, WithdrawalStatus,
+    },
+    types::OperatorIdx,
 };
 use tokio::sync::RwLock;
 
@@ -24,6 +27,10 @@ pub struct DutyTrackerInMemory {
 
     /// Bridge duties.
     duties: Arc<RwLock<HashMap<PublicKey, BridgeDuty>>>,
+
+    /// Claims.
+    #[expect(clippy::type_complexity)]
+    claims: Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid, ClaimStatus)>>>,
 }
 
 #[async_trait]
@@ -85,12 +92,16 @@ impl DutyTrackerDb for DutyTrackerInMemory {
     }
 
     async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(self.claims.read().await.keys().cloned().collect())
     }
 
     async fn get_claim_by_txid(&self, txid: Txid) -> DbResult<Option<ClaimStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        Ok(self
+            .claims
+            .read()
+            .await
+            .get(&txid)
+            .map(|(_, _, status)| *status))
     }
 
     async fn get_all_deposits(&self) -> DbResult<Vec<Txid>> {
