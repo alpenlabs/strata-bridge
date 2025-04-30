@@ -12,7 +12,7 @@ use std::{
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bdk_wallet::{miniscript::ToPublicKey, Wallet};
 use bitcoin::{
-    hashes::{sha256, sha256d, Hash as _},
+    hashes::{sha256, Hash},
     hex::DisplayHex,
     sighash::{Prevouts, SighashCache},
     Block, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, Txid,
@@ -318,14 +318,19 @@ impl ContractManager {
                                 },
                                 Err(e) => {
                                     error!("failed to process p2p msg {:?}: {}", msg, e);
-                                    break;
+                                    // in case an error occurs, we will just nag again
+                                    // so no need to break out of the event loop
                                 }
                             }
                         },
                         Ok(Event::ReceivedRequest(req)) => {
-                            if let Err(e) = ctx.process_p2p_request(req.clone()).await {
-                                error!("failed to process p2p request {:?}: {}", req, e);
-                                break;
+                            match ctx.process_p2p_request(req.clone()).await {
+                                Ok(p2p_requests) => duties.extend(p2p_requests.into_iter()),
+                                Err(e) => {
+                                    error!("failed to process p2p request {:?}: {}", req, e);
+                                    // in case an error occurs, the requester will just nag again
+                                    // so no need to break out of the event loop
+                                },
                             }
                         },
                         Err(e) => {
