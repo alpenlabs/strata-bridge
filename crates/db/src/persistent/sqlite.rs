@@ -1275,17 +1275,75 @@ impl DutyTrackerDb for SqliteDb {
         .await
     }
 
-        // TODO: this is not possible with the current schema now.
-        //       Check the `BridgeDuty` struct for more information.
-        unimplemented!("@rajil")
     async fn get_all_duties(&self) -> DbResult<BridgeDuties> {
+        execute_with_retries(self.config(), || async move {
+            let rows = sqlx::query!(
+                r#"SELECT
+                    duty_id,
+                    operator_pk,
+                    duty_type,
+                    duty_data
+                    FROM bridge_duties
+                    ORDER BY duty_id DESC"#
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StorageError::from)?;
+
+            let duties: Vec<BridgeDuty> = rows
+                .into_iter()
+                .map(|row| {
+                    let duty_data: BridgeDuty = serde_json::from_slice(&row.duty_data)
+                        .map_err(|e| StorageError::MismatchedTypes(e.to_string()))?;
+                    Ok(duty_data)
+                })
+                .collect::<Result<Vec<BridgeDuty>, StorageError>>()?;
+
+            let len = duties.len() as u64;
+            Ok(BridgeDuties {
+                duties,
+                start_index: 0,
+                stop_index: len,
+            })
+        })
+        .await
     }
 
-        // TODO: this is not possible with the current schema now.
-        //       Check the `BridgeDuty` struct for more information.
-        let _ = operator_pk;
-        unimplemented!("@rajil")
     async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<BridgeDuties> {
+        execute_with_retries(self.config(), || async move {
+            let operator_pk_hex = operator_pk.to_string();
+            let rows = sqlx::query!(
+                r#"SELECT
+                    duty_id,
+                    operator_pk,
+                    duty_type,
+                    duty_data
+                    FROM bridge_duties
+                    WHERE operator_pk = $1
+                    ORDER BY duty_id DESC"#,
+                operator_pk_hex
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StorageError::from)?;
+
+            let duties: Vec<BridgeDuty> = rows
+                .into_iter()
+                .map(|row| {
+                    let duty_data: BridgeDuty = serde_json::from_slice(&row.duty_data)
+                        .map_err(|e| StorageError::MismatchedTypes(e.to_string()))?;
+                    Ok(duty_data)
+                })
+                .collect::<Result<Vec<BridgeDuty>, StorageError>>()?;
+
+            let len = duties.len() as u64;
+            Ok(BridgeDuties {
+                duties,
+                start_index: 0,
+                stop_index: len,
+            })
+        })
+        .await
     }
 
     async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {
