@@ -15,8 +15,8 @@ use strata_bridge_primitives::{
     bitcoin::BitcoinAddress,
     constants::NUM_ASSERT_DATA_TX,
     duties::{
-        BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
-        WithdrawalStatus,
+        BridgeDuties, BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus,
+        DepositStatus, WithdrawalStatus,
     },
     types::OperatorIdx,
     wots,
@@ -1275,17 +1275,17 @@ impl DutyTrackerDb for SqliteDb {
         .await
     }
 
-    async fn get_all_duties(&self) -> DbResult<Vec<BridgeDuty>> {
         // TODO: this is not possible with the current schema now.
         //       Check the `BridgeDuty` struct for more information.
         unimplemented!("@rajil")
+    async fn get_all_duties(&self) -> DbResult<BridgeDuties> {
     }
 
-    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<Vec<BridgeDuty>> {
         // TODO: this is not possible with the current schema now.
         //       Check the `BridgeDuty` struct for more information.
         let _ = operator_pk;
         unimplemented!("@rajil")
+    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<BridgeDuties> {
     }
 
     async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {

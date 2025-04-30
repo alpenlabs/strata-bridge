@@ -3,7 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use async_trait::async_trait;
 use bitcoin::{PublicKey, Transaction, Txid};
 use strata_bridge_primitives::duties::{
-    BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
+    BridgeDuties, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
     WithdrawalStatus,
 };
 use tokio::sync::RwLock;
@@ -53,13 +53,13 @@ impl DutyTrackerDb for DutyTrackerInMemory {
         Ok(())
     }
 
-    async fn get_all_duties(&self) -> DbResult<Vec<BridgeDuty>> {
+    async fn get_all_duties(&self) -> DbResult<BridgeDuties> {
         // TODO: this is not possible with the current schema now.
         //       Check the `BridgeDuty` struct for more information.
         unimplemented!("@rajil")
     }
 
-    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<Vec<BridgeDuty>> {
+    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<BridgeDuties> {
         // TODO: this is not possible with the current schema now.
         //       Check the `BridgeDuty` struct for more information.
         let _ = operator_pk;

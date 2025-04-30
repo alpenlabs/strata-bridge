@@ -9,7 +9,7 @@ use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, tracker::DutyTrackerDb};
 use strata_bridge_primitives::duties::{
-    BridgeDuty, ClaimStatus, DepositRequestStatus, WithdrawalStatus,
+    BridgeDuties, ClaimStatus, DepositRequestStatus, WithdrawalStatus,
 };
 use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
@@ -169,7 +169,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         }
     }
 
-    async fn get_bridge_duties(&self) -> RpcResult<Vec<BridgeDuty>> {
+    async fn get_bridge_duties(&self) -> RpcResult<BridgeDuties> {
         Ok(self.db.get_all_duties().await.map_err(|_| {
             ErrorObjectOwned::owned::<_>(
                 -666,
@@ -182,7 +182,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     async fn get_bridge_duties_by_operator_pk(
         &self,
         operator_pk: PublicKey,
-    ) -> RpcResult<Vec<BridgeDuty>> {
+    ) -> RpcResult<BridgeDuties> {
         Ok(self
             .db
             .get_duties_by_operator_pk(operator_pk)

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use bitcoin::{PublicKey, Transaction, Txid};
 use strata_bridge_primitives::duties::{
-    BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
+    BridgeDuties, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
     WithdrawalStatus,
 };
 
@@ -17,9 +17,9 @@ pub trait DutyTrackerDb {
 
     async fn update_duty_status(&self, duty_id: Txid, status: BridgeDutyStatus) -> DbResult<()>;
 
-    async fn get_all_duties(&self) -> DbResult<Vec<BridgeDuty>>;
+    async fn get_all_duties(&self) -> DbResult<BridgeDuties>;
 
-    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<Vec<BridgeDuty>>;
+    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<BridgeDuties>;
 
     async fn get_all_claims(&self) -> DbResult<Vec<Txid>>;
 
