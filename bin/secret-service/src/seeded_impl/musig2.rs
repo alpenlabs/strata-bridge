@@ -155,7 +155,7 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
 
     async fn receive_pub_nonces(
         &mut self,
-        nonces: HashMap<XOnlyPublicKey, PubNonce>,
+        nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)>,
     ) -> <Server as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
     {
         let mut errs = HashMap::new();
@@ -224,7 +224,7 @@ impl Musig2SignerSecondRound<Server> for ServerSecondRound {
 
     async fn receive_signatures(
         &mut self,
-        sigs: HashMap<XOnlyPublicKey, PartialSignature>,
+        sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)>,
     ) -> <Server as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
     {
         let mut errs = HashMap::new();

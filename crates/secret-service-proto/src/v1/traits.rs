@@ -170,7 +170,7 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
     /// already have a different nonce on-file for that signer.
     fn receive_pub_nonces(
         &mut self,
-        nonces: HashMap<XOnlyPublicKey, PubNonce>,
+        nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)> + Send,
     ) -> impl Future<
         Output = O::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>,
     > + Send;
@@ -221,7 +221,7 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
     /// on-file for that signer.
     fn receive_signatures(
         &mut self,
-        sigs: HashMap<XOnlyPublicKey, PartialSignature>,
+        sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)> + Send,
     ) -> impl Future<
         Output = O::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>,
     > + Send;

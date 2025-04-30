@@ -227,7 +227,7 @@ async fn e2e() {
     }
     // send this signer's public nonce to secret service
     remote_first_round
-        .receive_pub_nonces(pub_nonces_to_send)
+        .receive_pub_nonces(pub_nonces_to_send.into_iter())
         .await
         .expect("good response")
         .expect("good nonce");
@@ -295,7 +295,7 @@ async fn e2e() {
     }
     // send secret service this signer's partial sig
     remote_second_round
-        .receive_signatures(partial_sigs_to_send)
+        .receive_signatures(partial_sigs_to_send.into_iter())
         .await
         .expect("good response")
         .expect("good sig");

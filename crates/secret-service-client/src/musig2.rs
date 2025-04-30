@@ -159,13 +159,12 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
 
     async fn receive_pub_nonces(
         &mut self,
-        nonces: HashMap<XOnlyPublicKey, PubNonce>,
+        nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)> + Send,
     ) -> <Client as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
     {
         let msg = ClientMessage::Musig2FirstRoundReceivePubNonce {
             session_id: self.session_id,
             nonces: nonces
-                .iter()
                 .map(|(pk, nonce)| (pk.serialize(), nonce.serialize()))
                 .collect(),
         };
@@ -275,13 +274,12 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
 
     async fn receive_signatures(
         &mut self,
-        sigs: HashMap<XOnlyPublicKey, PartialSignature>,
+        sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)> + Send,
     ) -> <Client as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
     {
         let msg = ClientMessage::Musig2SecondRoundReceiveSignature {
             session_id: self.session_id,
             sigs: sigs
-                .into_iter()
                 .map(|(pk, sig)| (pk.serialize(), sig.serialize()))
                 .collect(),
         };

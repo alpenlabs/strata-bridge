@@ -359,7 +359,7 @@ where
                     Err(e) => return Ok(e),
                 };
 
-                let result = r1.lock().await.receive_pub_nonces(nonces).await;
+                let result = r1.lock().await.receive_pub_nonces(nonces.into_iter()).await;
                 ServerMessage::Musig2FirstRoundReceivePubNonce(match result {
                     Ok(()) => HashMap::new(),
                     Err(e) => e
@@ -457,7 +457,7 @@ where
                     Err(e) => return Ok(e),
                 };
 
-                let result = r2.lock().await.receive_signatures(sigs).await;
+                let result = r2.lock().await.receive_signatures(sigs.into_iter()).await;
                 ServerMessage::Musig2SecondRoundReceiveSignature(match result {
                     Ok(()) => HashMap::new(),
                     Err(e) => e
