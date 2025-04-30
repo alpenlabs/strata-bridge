@@ -56,6 +56,10 @@ impl MusigSessionManager {
         taproot_witness: TaprootWitness,
     ) -> Result<PubNonce, MusigSessionErr> {
         debug!(%outpoint, "getting first round nonce");
+        if let Some(first_round) = self.first_round_map.lock().await.get(&outpoint) {
+            return Ok(first_round.our_nonce().await?);
+        }
+
         let mut unordered_keys = self
             .operator_table
             .btc_keys()
@@ -118,13 +122,12 @@ impl MusigSessionManager {
     ) -> Result<PartialSignature, MusigSessionErr> {
         debug!(%outpoint, "getting second round partial signature");
 
-        let mut second_round_map = self.second_round_map.lock().await;
-        if let Some(second_round) = second_round_map.get_mut(&outpoint) {
+        let second_round_map = self.second_round_map.lock().await;
+        if let Some(second_round) = second_round_map.get(&outpoint) {
             debug!(%outpoint, "getting our partial signature");
 
             return Ok(second_round.our_signature().await?);
         }
-
         drop(second_round_map);
 
         let mut first_round_map = self.first_round_map.lock().await;
