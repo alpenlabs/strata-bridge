@@ -11,7 +11,7 @@ use bitcoin::{
 use bitvm::{
     bigint::U256,
     chunk::api::{api_generate_full_tapscripts, NUM_TAPS},
-    hash::sha256_u4_stack::sha256_script,
+    hash::blake3::blake3_compute_script,
     pseudo::NMUL,
     signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
@@ -163,7 +163,7 @@ impl ConnectorA3Leaf {
 
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
-                    { sha256_script(2 * 32)}
+                    { blake3_compute_script(2 * 32)}
 
                     // convert the hash from nibble representation to bytes
                     { U256::transform_limbsize(4, 8) }

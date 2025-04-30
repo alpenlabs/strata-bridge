@@ -1676,6 +1676,7 @@ version = "4.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d56dda97ba9915e7484a607e7517783d7422591c815e8dbfdbb716d77198760"
 dependencies = [
+ "blake3",
  "cfg-if",
  "getrandom",
  "lazy_static",
