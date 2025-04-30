@@ -22,7 +22,7 @@ use secret_service_proto::v1::{
 use strata_bridge_primitives::{operator_table::OperatorTable, scripts::taproot::TaprootWitness};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{debug, error, trace};
+use tracing::{debug, error, trace, warn};
 
 /// System for managing session state for musig sessions.
 #[derive(Debug, Clone)]
@@ -148,7 +148,7 @@ impl MusigSessionManager {
                 Err(MusigSessionErr::Premature)
             }
         } else {
-            error!(%outpoint, "failed to get to second round, outpoint missing in first round");
+            warn!(%outpoint, "failed to get to second round, outpoint missing in first round");
             Err(MusigSessionErr::NotFound(outpoint))
         }
     }
