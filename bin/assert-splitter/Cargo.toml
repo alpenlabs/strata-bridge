@@ -9,7 +9,7 @@ ark-ff.workspace = true
 bitcoin.workspace = true
 bitcoin-script.workspace = true
 bitvm.workspace = true
-blake3 = "=1.5.1"
+blake3 = "1.6.1"
 secp256k1.workspace = true
 
 [dev-dependencies]

@@ -16,7 +16,6 @@ pub(crate) async fn create_withdrawal_transaction(
 ) -> Result<()> {
     // Send the transaction and listen for the transaction to be included.
     let provider = ProviderBuilder::new()
-        .with_recommended_fillers()
         .wallet(wallet.clone())
         .on_http(eth_rpc_url.parse()?);
 
