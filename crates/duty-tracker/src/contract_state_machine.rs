@@ -907,11 +907,13 @@ impl ContractSM {
                     session_nonces.insert(signer.clone(), old_value);
                 }
 
-                let received_nonces = session_nonces.len();
                 let required_nonces = self.cfg.operator_table.cardinality();
+                let have_all_nonces = graph_nonces
+                    .values()
+                    .all(|session_nonces| session_nonces.len() == required_nonces);
 
-                Ok(if received_nonces == required_nonces {
-                    info!(%claim_txid, %signer, "received all nonces for graph");
+                Ok(if have_all_nonces {
+                    info!(%claim_txid, %signer, "received all nonces for all graphs");
 
                     let Some((input, _)) = peg_out_graphs.get(&claim_txid) else {
                         return Err(TransitionErr(format!(
@@ -920,24 +922,30 @@ impl ContractSM {
                             )));
                     };
                     let graph = self.cfg.build_graph(input.clone());
+                    let pubnonces = self
+                        .cfg
+                        .operator_table
+                        .convert_map_op_to_btc(graph_nonces.get(&claim_txid).unwrap().clone())
+                        .map_err(|e| {
+                            TransitionErr(format!(
+                                "could not convert nonce map keys: {} not in operator table",
+                                e
+                            ))
+                        })?;
 
                     Some(OperatorDuty::PublishGraphSignatures {
                         claim_txid,
-                        pubnonces: self
-                            .cfg
-                            .operator_table
-                            .convert_map_op_to_btc(session_nonces.clone())
-                            .map_err(|e| {
-                                TransitionErr(format!(
-                                    "could not convert nonce map keys: {} not in operator table",
-                                    e
-                                ))
-                            })?,
+                        pubnonces,
                         pog_prevouts: graph.musig_inpoints(),
                         pog_sighashes: graph.sighashes(),
                     })
                 } else {
-                    info!(%claim_txid, %received_nonces, %required_nonces, "waiting for more nonces for graph");
+                    let received_nonces = graph_nonces
+                        .iter()
+                        .map(|(claim, nonces)| (claim, nonces.len()))
+                        .collect::<Vec<_>>();
+                    info!(%claim_txid, ?received_nonces, %required_nonces, "waiting for more nonces for some graphs");
+
                     None
                 })
             }
@@ -975,16 +983,13 @@ impl ContractSM {
                     session_partials.insert(signer.clone(), exists);
                 }
 
-                if &signer == self.cfg.operator_table.pov_op_key() {
-                    info!(%claim_txid, %signer, "not proceeding to publish root nonce after receiving partial for somebody else's graph");
-                    return Ok(None);
-                }
-
-                let received_partials = session_partials.len();
                 let required_partials = self.cfg.operator_table.cardinality();
+                let have_all_partials = graph_partials
+                    .values()
+                    .all(|session_partials| session_partials.len() == required_partials);
 
-                Ok(if received_partials == required_partials {
-                    info!(%claim_txid, "received all partials for graph");
+                Ok(if have_all_partials {
+                    info!(%claim_txid, "received all partials for all graphs");
 
                     let deposit_info = self.cfg.deposit_info.clone();
                     let witness = deposit_info
@@ -999,7 +1004,13 @@ impl ContractSM {
                         witness,
                     })
                 } else {
-                    info!(%claim_txid, %received_partials, %required_partials, "waiting for more partials for graph");
+                    let received_partials = graph_partials
+                        .iter()
+                        .map(|(claim, partials)| (claim, partials.len()))
+                        .collect::<Vec<_>>();
+
+                    info!(%claim_txid, ?received_partials, %required_partials, "waiting for more partials for graph");
+
                     None
                 })
             }
