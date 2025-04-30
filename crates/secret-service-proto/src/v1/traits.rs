@@ -247,58 +247,58 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
 ///
 /// This signer returns deterministic keys so the caller can assemble a transaction.
 pub trait WotsSigner<O: Origin>: Send {
-    /// Returns a deterministic WOTS secret key for a given prestake transaction ID, prestake vout,
+    /// Returns a deterministic WOTS secret key for a given transaction ID, vout,
     /// and WOTS index. The secret key can be obtained via [`Self::get_128_secret_key`] with the
     /// same arguments.
     fn get_128_secret_key(
         &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
+        txid: Txid,
+        vout: u32,
         index: u32,
     ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
 
-    /// Returns a deterministic WOTS secret key for a given prestake transaction ID, prestake vout,
+    /// Returns a deterministic WOTS secret key for a given transaction ID, vout,
     /// and WOTS index. The public key can be obtained via [`Self::get_256_public_key`] with the
     /// same arguments.
     fn get_256_secret_key(
         &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
+        txid: Txid,
+        vout: u32,
         index: u32,
     ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
 
-    /// Returns a deterministic WOTS public key for a given prestake transaction ID, prestake vout,
+    /// Returns a deterministic WOTS public key for a given transaction ID, vout,
     /// and WOTS index. The secret key can be obtained via [`Self::get_128_secret_key`] with the
     /// same arguments.
     fn get_128_public_key(
         &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
+        txid: Txid,
+        vout: u32,
         index: u32,
     ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
 
-    /// Returns a deterministic public key for a given prestake transaction ID, prestake vout,
+    /// Returns a deterministic public key for a given transaction ID, vout,
     /// and WOTS index. The secret key can be obtained via [`Self::get_256_secret_key`] with the
     /// same parameters.
     fn get_256_public_key(
         &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
+        txid: Txid,
+        vout: u32,
         index: u32,
     ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;
 
     fn get_128_signature(
         &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
+        txid: Txid,
+        vout: u32,
         index: u32,
         msg: &[u8; 16],
     ) -> impl Future<Output = O::Container<[u8; 20 * 36]>> + Send;
 
     fn get_256_signature(
         &self,
-        prestake_txid: Txid,
-        prestake_vout: u32,
+        txid: Txid,
+        vout: u32,
         index: u32,
         msg: &[u8; 32],
     ) -> impl Future<Output = O::Container<[u8; 20 * 68]>> + Send;

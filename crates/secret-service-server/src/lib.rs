@@ -447,82 +447,66 @@ where
                 }
             }
 
-            ClientMessage::WotsGet128SecretKey {
-                index,
-                prestake_vout,
-                prestake_txid,
-            } => {
-                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
+            ClientMessage::WotsGet128SecretKey { index, vout, txid } => {
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_secret_key(prestake_txid, prestake_vout, index)
+                    .get_128_secret_key(txid, vout, index)
                     .await;
                 ServerMessage::WotsGet128SecretKey { key }
             }
 
-            ClientMessage::WotsGet256SecretKey {
-                index,
-                prestake_vout,
-                prestake_txid,
-            } => {
-                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
+            ClientMessage::WotsGet256SecretKey { index, vout, txid } => {
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_secret_key(prestake_txid, prestake_vout, index)
+                    .get_256_secret_key(txid, vout, index)
                     .await;
                 ServerMessage::WotsGet256SecretKey { key }
             }
 
-            ClientMessage::WotsGet128PublicKey {
-                prestake_txid,
-                prestake_vout,
-                index,
-            } => {
-                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
+            ClientMessage::WotsGet128PublicKey { txid, vout, index } => {
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_public_key(prestake_txid, prestake_vout, index)
+                    .get_128_public_key(txid, vout, index)
                     .await;
                 ServerMessage::WotsGet128PublicKey { key }
             }
 
-            ClientMessage::WotsGet256PublicKey {
-                prestake_txid,
-                prestake_vout,
-                index,
-            } => {
-                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
+            ClientMessage::WotsGet256PublicKey { txid, vout, index } => {
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_public_key(prestake_txid, prestake_vout, index)
+                    .get_256_public_key(txid, vout, index)
                     .await;
                 ServerMessage::WotsGet256PublicKey { key }
             }
 
             ClientMessage::WotsGet128Signature {
-                prestake_txid,
-                prestake_vout,
+                txid,
+                vout,
                 index,
                 msg,
             } => {
-                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_128_signature(prestake_txid, prestake_vout, index, &msg)
+                    .get_128_signature(txid, vout, index, &msg)
                     .await;
                 ServerMessage::WotsGet128Signature { sig }
             }
 
             ClientMessage::WotsGet256Signature {
-                prestake_txid,
-                prestake_vout,
+                txid,
+                vout,
                 index,
                 msg,
             } => {
-                let prestake_txid = Txid::from_slice(&prestake_txid).expect("correct length");
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_256_signature(prestake_txid, prestake_vout, index, &msg)
+                    .get_256_signature(txid, vout, index, &msg)
                     .await;
                 ServerMessage::WotsGet256Signature { sig }
             }

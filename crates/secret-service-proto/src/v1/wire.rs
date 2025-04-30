@@ -392,12 +392,12 @@ pub enum ClientMessage {
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
     WotsGet128SecretKey {
         /// [`Txid`](bitcoin::Txid) that this WOTS secret key is derived from.
-        prestake_txid: [u8; 32],
+        txid: [u8; 32],
 
         /// Transaction's vout that this WOTS secret key is derived from.
-        prestake_vout: u32,
+        vout: u32,
 
-        /// Transaction's index that this WOTS secret key is derived from.
+        /// WOTS index that this WOTS secret key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -408,12 +408,12 @@ pub enum ClientMessage {
     /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
     WotsGet256SecretKey {
         /// [`Txid`](bitcoin::Txid) that this WOTS secret key is derived from.
-        prestake_txid: [u8; 32],
+        txid: [u8; 32],
 
         /// Transaction's vout that this WOTS secret key is derived from.
-        prestake_vout: u32,
+        vout: u32,
 
-        /// Transaction's index that this WOTS secret key is derived from.
+        /// WOTS index that this WOTS secret key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -424,12 +424,12 @@ pub enum ClientMessage {
     /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
     WotsGet128PublicKey {
         /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
-        prestake_txid: [u8; 32],
+        txid: [u8; 32],
 
         /// Transaction's vout that this WOTS public key is derived from.
-        prestake_vout: u32,
+        vout: u32,
 
-        /// Transaction's index that this WOTS public key is derived from.
+        /// WOTS index that this WOTS public key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -440,12 +440,12 @@ pub enum ClientMessage {
     /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
     WotsGet256PublicKey {
         /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
-        prestake_txid: [u8; 32],
+        txid: [u8; 32],
 
         /// Transaction's vout that this WOTS public key is derived from.
-        prestake_vout: u32,
+        vout: u32,
 
-        /// Transaction's index that this WOTS public key is derived from.
+        /// WOTS index that this WOTS public key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -456,12 +456,12 @@ pub enum ClientMessage {
     /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
     WotsGet128Signature {
         /// [`Txid`](bitcoin::Txid) that this WOTS signature is derived from.
-        prestake_txid: [u8; 32],
+        txid: [u8; 32],
 
         /// Transaction's vout that this WOTS signature is derived from.
-        prestake_vout: u32,
+        vout: u32,
 
-        /// Transaction's index that this WOTS signature is derived from.
+        /// WOTS index that this WOTS signature is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
         /// hence to resolve the ambiguity, the index is needed.
@@ -475,12 +475,12 @@ pub enum ClientMessage {
     /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
     WotsGet256Signature {
         /// [`Txid`](bitcoin::Txid) that this WOTS signature is derived from.
-        prestake_txid: [u8; 32],
+        txid: [u8; 32],
 
         /// Transaction's vout that this WOTS signature is derived from.
-        prestake_vout: u32,
+        vout: u32,
 
-        /// Transaction's index that this WOTS signature is derived from.
+        /// WOTS index that this WOTS signature is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
         /// hence to resolve the ambiguity, the index is needed.
