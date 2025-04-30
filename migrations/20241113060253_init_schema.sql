@@ -28,7 +28,15 @@ CREATE TABLE IF NOT EXISTS signatures (
 -- Table for deposits with a primary key on deposit_txid mapping to an index that increments monotonically.
 CREATE TABLE IF NOT EXISTS deposits (
     deposit_txid TEXT PRIMARY KEY,  -- Store as hex string
-    deposit_id INTEGER UNIQUE NOT NULL
+    deposit_id INTEGER UNIQUE NOT NULL,
+    status TEXT NOT NULL
+);
+
+-- Table for deposit requests with a primary key on deposit_request_txid mapping to an index that increments monotonically.
+CREATE TABLE IF NOT EXISTS deposit_requests (
+    deposit_request_txid TEXT PRIMARY KEY,  -- Store as hex string
+    deposit_request_id INTEGER UNIQUE NOT NULL,
+    status TEXT NOT NULL
 );
 
 -- Table for stake transaction IDs.

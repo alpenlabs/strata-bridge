@@ -264,9 +264,10 @@ impl PublicDb for SqliteDb {
 
             let deposit_txid = DbTxid::from(deposit_txid);
             sqlx::query!(
-                "INSERT OR IGNORE INTO deposits (deposit_txid, deposit_id) VALUES ($1, $2)",
+                "INSERT OR IGNORE INTO deposits (deposit_txid, deposit_id, status) VALUES ($1, $2, $3)",
                 deposit_txid,
-                new_index
+                new_index,
+                "{}"  // Default empty JSON status
             )
             .execute(&mut *tx)
             .await
@@ -1391,24 +1392,65 @@ impl DutyTrackerDb for SqliteDb {
     }
 
     async fn get_all_deposits(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(sqlx::query!(r#"SELECT deposit_txid FROM deposits"#)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .into_iter()
+            .filter_map(|row| row.deposit_txid.and_then(|txid| Txid::from_str(&txid).ok()))
+            .collect())
     }
 
     async fn get_deposit_by_txid(&self, txid: Txid) -> DbResult<Option<DepositStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        execute_with_retries(self.config(), || async move {
+            let txid = DbTxid::from(txid);
+
+            Ok(sqlx::query!(
+                r#"SELECT deposit_txid, status FROM deposits WHERE deposit_txid = $1"#,
+                txid
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|row| serde_json::from_str(&row.status).map_err(StorageError::SerializeJson))
+            .transpose()?)
+        })
+        .await
     }
 
     async fn get_all_deposit_requests(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(
+            sqlx::query!(r#"SELECT deposit_request_txid FROM deposit_requests"#)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(StorageError::from)?
+                .into_iter()
+                .filter_map(|row| {
+                    row.deposit_request_txid
+                        .and_then(|txid| Txid::from_str(&txid).ok())
+                })
+                .collect(),
+        )
     }
 
     async fn get_deposit_request_by_txid(
         &self,
         txid: Txid,
     ) -> DbResult<Option<DepositRequestStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        execute_with_retries(self.config(), || async move {
+            let txid = DbTxid::from(txid);
+
+            Ok(sqlx::query!(
+                r#"SELECT deposit_request_txid, status FROM deposit_requests WHERE deposit_request_txid = $1"#,
+                txid
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|row| serde_json::from_str(&row.status).map_err(StorageError::SerializeJson))
+            .transpose()?)
+        })
+        .await
     }
 
     async fn get_all_withdrawals(&self) -> DbResult<Vec<Txid>> {

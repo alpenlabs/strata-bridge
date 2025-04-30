@@ -31,6 +31,12 @@ pub struct DutyTrackerInMemory {
     /// Claims.
     #[expect(clippy::type_complexity)]
     claims: Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid, ClaimStatus)>>>,
+
+    /// Deposits.
+    deposits: Arc<RwLock<HashMap<Txid, (u32, DepositStatus)>>>,
+
+    /// Deposit requests.
+    deposit_requests: Arc<RwLock<HashMap<Txid, (u32, DepositRequestStatus)>>>,
 }
 
 #[async_trait]
@@ -105,24 +111,32 @@ impl DutyTrackerDb for DutyTrackerInMemory {
     }
 
     async fn get_all_deposits(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(self.deposits.read().await.keys().cloned().collect())
     }
 
     async fn get_deposit_by_txid(&self, txid: Txid) -> DbResult<Option<DepositStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        Ok(self
+            .deposits
+            .read()
+            .await
+            .get(&txid)
+            .map(|(_, status)| status.clone()))
     }
 
     async fn get_all_deposit_requests(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(self.deposit_requests.read().await.keys().cloned().collect())
     }
 
     async fn get_deposit_request_by_txid(
         &self,
         txid: Txid,
     ) -> DbResult<Option<DepositRequestStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        Ok(self
+            .deposit_requests
+            .read()
+            .await
+            .get(&txid)
+            .map(|(_, status)| status.clone()))
     }
 
     async fn get_all_withdrawals(&self) -> DbResult<Vec<Txid>> {
