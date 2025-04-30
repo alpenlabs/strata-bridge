@@ -37,6 +37,9 @@ pub struct DutyTrackerInMemory {
 
     /// Deposit requests.
     deposit_requests: Arc<RwLock<HashMap<Txid, (u32, DepositRequestStatus)>>>,
+
+    /// Withdrawal requests.
+    withdrawal_requests: Arc<RwLock<HashMap<Txid, (u32, WithdrawalStatus)>>>,
 }
 
 #[async_trait]
@@ -140,12 +143,22 @@ impl DutyTrackerDb for DutyTrackerInMemory {
     }
 
     async fn get_all_withdrawals(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(self
+            .withdrawal_requests
+            .read()
+            .await
+            .keys()
+            .cloned()
+            .collect())
     }
 
     async fn get_withdrawal_by_txid(&self, txid: Txid) -> DbResult<Option<WithdrawalStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        Ok(self
+            .withdrawal_requests
+            .read()
+            .await
+            .get(&txid)
+            .map(|(_, status)| status.clone()))
     }
 }
 

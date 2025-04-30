@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS deposit_requests (
     status TEXT NOT NULL
 );
 
+-- Table for withdrawal requests with a primary key on withdrawal_request_txid mapping to an index that increments monotonically.
+CREATE TABLE IF NOT EXISTS withdrawal_requests (
+    withdrawal_request_txid TEXT PRIMARY KEY,  -- Store as hex string
+    withdrawal_request_id INTEGER UNIQUE NOT NULL,
+    status TEXT NOT NULL
+);
+
 -- Table for stake transaction IDs.
 CREATE TABLE IF NOT EXISTS operator_stake_txids (
     stake_id INTEGER NOT NULL,           -- Index that increments monotonically

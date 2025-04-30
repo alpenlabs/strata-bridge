@@ -1454,12 +1454,35 @@ impl DutyTrackerDb for SqliteDb {
     }
 
     async fn get_all_withdrawals(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
+        Ok(
+            sqlx::query!(r#"SELECT withdrawal_request_txid FROM withdrawal_requests"#)
+                .fetch_all(&self.pool)
+                .await
+                .map_err(StorageError::from)?
+                .into_iter()
+                .filter_map(|row| {
+                    row.withdrawal_request_txid
+                        .and_then(|txid| Txid::from_str(&txid).ok())
+                })
+                .collect(),
+        )
     }
 
     async fn get_withdrawal_by_txid(&self, txid: Txid) -> DbResult<Option<WithdrawalStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
+        execute_with_retries(self.config(), || async move {
+            let txid = DbTxid::from(txid);
+
+            Ok(sqlx::query!(
+                r#"SELECT withdrawal_request_txid, status FROM withdrawal_requests WHERE withdrawal_request_txid = $1"#,
+                txid
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|row| serde_json::from_str(&row.status).map_err(StorageError::SerializeJson))
+            .transpose()?)
+        })
+        .await
     }
 }
 
