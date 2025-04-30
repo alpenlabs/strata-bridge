@@ -36,8 +36,8 @@ impl WotsSigner<Client> for WotsClient {
     ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
         let msg = ClientMessage::WotsGet128SecretKey {
             index,
-            prestake_vout: vout,
-            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128SecretKey { key } = res else {
@@ -54,8 +54,8 @@ impl WotsSigner<Client> for WotsClient {
     ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
         let msg = ClientMessage::WotsGet256SecretKey {
             index,
-            prestake_vout: vout,
-            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256SecretKey { key } = res else {
@@ -72,8 +72,8 @@ impl WotsSigner<Client> for WotsClient {
     ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
         let msg = ClientMessage::WotsGet128PublicKey {
             index,
-            prestake_vout: vout,
-            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128PublicKey { key } = res else {
@@ -90,8 +90,8 @@ impl WotsSigner<Client> for WotsClient {
     ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
         let msg = ClientMessage::WotsGet256PublicKey {
             index,
-            prestake_vout: vout,
-            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256PublicKey { key } = res else {
@@ -109,8 +109,8 @@ impl WotsSigner<Client> for WotsClient {
     ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
         let wire_msg = ClientMessage::WotsGet128Signature {
             index,
-            prestake_vout: vout,
-            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
             msg: *msg,
         };
         let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
@@ -129,8 +129,8 @@ impl WotsSigner<Client> for WotsClient {
     ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
         let wire_msg = ClientMessage::WotsGet256Signature {
             index,
-            prestake_vout: vout,
-            prestake_txid: txid.as_raw_hash().to_byte_array(),
+            vout,
+            txid: txid.as_raw_hash().to_byte_array(),
             msg: *msg,
         };
         let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
