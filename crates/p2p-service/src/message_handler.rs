@@ -65,14 +65,14 @@ impl MessageHandler {
         info!(%description, "sent message");
     }
 
-    /// Requests information to an operator by signing it and sending it over the network.
+    /// Requests information from an operator by signing it and sending it over the network.
     ///
     /// Internal use only.
     async fn request(&self, req: GetMessageRequest, description: &str) {
         trace!(%description, ?req, "sending request");
         let command = Command::RequestMessage(req);
         self.handle.send_command(command).await;
-        info!(%description, "sent message");
+        info!(%description, "sent request");
     }
 
     /// Sends a deposit setup message to the network.
