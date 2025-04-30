@@ -331,7 +331,7 @@ impl WithdrawalStatus {
 }
 
 /// Represents a valid reimbursement status
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum ClaimStatus {
     /// Claim exists, challenge step is "Claim", no payout.
@@ -357,7 +357,7 @@ pub enum ClaimStatus {
 }
 
 /// Challenge step states for claims
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeStep {
     /// Challenge step is "Claim".
