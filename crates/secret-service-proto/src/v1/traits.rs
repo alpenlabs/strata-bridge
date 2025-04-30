@@ -1,6 +1,6 @@
 //! The traits that make up the secret service's interfaces
 
-use std::future::Future;
+use std::{collections::HashMap, future::Future};
 
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{
@@ -163,16 +163,17 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
     /// Returns `true` once all public nonces have been received from every signer.
     fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
 
-    /// Adds a [`PubNonce`] to the internal state, registering it to a specific signer at a given
-    /// index.
+    /// Adds one or more [`PubNonce`]s to the internal state, registering each to a specific signers
+    /// at a given index.
     ///
-    /// Returns an error if the signer index is out of range, or if the client already have a
-    /// different nonce on-file for that signer.
-    fn receive_pub_nonce(
+    /// Returns an error if the XOnlyPublicKey isn't included in this session, or if the client
+    /// already have a different nonce on-file for that signer.
+    fn receive_pub_nonces(
         &mut self,
-        pubkey: XOnlyPublicKey,
-        pubnonce: PubNonce,
-    ) -> impl Future<Output = O::Container<Result<(), RoundContributionError>>> + Send;
+        nonces: HashMap<XOnlyPublicKey, PubNonce>,
+    ) -> impl Future<
+        Output = O::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>,
+    > + Send;
 
     /// Finishes the first round once all nonces are received, combining nonces
     /// into an aggregated nonce, and creating a partial signature using `seckey`
@@ -214,15 +215,16 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
     /// Returns true once the server have all partial signatures from the group.
     fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
 
-    /// Adds a [`PartialSignature`] to the internal state, registering it to a specific signer.
-    /// Returns an error if the signature is not valid, or if the given public key isn't part of
-    /// the set of signers, or if the server already have a different partial signature on-file for
-    /// that signer.
-    fn receive_signature(
+    /// Adds one or more [`PartialSignature`]s to the internal state, registering each to a specific
+    /// signer. Returns an error if the signature is not valid, if the given public key isn't
+    /// part of the set of signers, or if the server already has a different partial signature
+    /// on-file for that signer.
+    fn receive_signatures(
         &mut self,
-        pubkey: XOnlyPublicKey,
-        signature: PartialSignature,
-    ) -> impl Future<Output = O::Container<Result<(), RoundContributionError>>> + Send;
+        sigs: HashMap<XOnlyPublicKey, PartialSignature>,
+    ) -> impl Future<
+        Output = O::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>,
+    > + Send;
 
     /// Finishes the second round once all partial signatures are received,
     /// combining signatures into an aggregated signature on the `message`

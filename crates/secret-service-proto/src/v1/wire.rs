@@ -1,12 +1,17 @@
 //! V1 wire protocol
 
+use std::collections::HashMap;
+
 use bitcoin::{
     hashes::Hash,
     taproot::{ControlBlock, TaprootError},
     ScriptBuf, TapNodeHash,
 };
 use musig2::errors::{RoundContributionError, RoundFinalizeError};
-use rkyv::{with::Map, Archive, Deserialize, Serialize};
+use rkyv::{
+    with::{Identity, Map, MapKV},
+    Archive, Deserialize, Serialize,
+};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
 use super::{
@@ -90,9 +95,10 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2SignerFirstRound::receive_pub_nonce`](super::traits::Musig2SignerFirstRound::receive_pub_nonce).
     Musig2FirstRoundReceivePubNonce(
-        /// Error indicating whether the server was unable to process the request.
-        #[rkyv(with = Map<rkyv_wrappers::RoundContributionError>)]
-        Option<RoundContributionError>,
+        /// Errors indicating whether the server was unable to process the request, indexed by the
+        /// pubnonce's signer's xonly pubkey. If empty, should be returned as a Ok(())
+        #[rkyv(with = MapKV<Identity, rkyv_wrappers::RoundContributionError>)]
+        HashMap<[u8; 32], RoundContributionError>,
     ),
 
     /// Response for
@@ -135,9 +141,10 @@ pub enum ServerMessage {
     /// Response for
     /// [`Musig2SignerSecondRound::receive_signature`](super::traits::Musig2SignerSecondRound::receive_signature).
     Musig2SecondRoundReceiveSignature(
-        /// The error that occurred during the signature reception.
-        #[rkyv(with = Map<rkyv_wrappers::RoundContributionError>)]
-        Option<RoundContributionError>,
+        /// Any errors that occurred during signature reception, keyed by the partial signature's
+        /// signer's xonly pubkey If empty, should be returned as a Ok(())
+        #[rkyv(with = MapKV<Identity, rkyv_wrappers::RoundContributionError>)]
+        HashMap<[u8; 32], RoundContributionError>,
     ),
 
     /// Response for
@@ -314,12 +321,8 @@ pub enum ClientMessage {
         #[rkyv(with = rkyv_wrappers::OutPoint)]
         session_id: Musig2SessionId,
 
-        /// The serialized [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of the signer whose public
-        /// nonce this is.
-        pubkey: [u8; 32],
-
-        /// Serialized public nonce
-        pubnonce: [u8; 66],
+        /// Public nonces keyed by the signer's xonly public key
+        nonces: HashMap<[u8; 32], [u8; 66]>,
     },
 
     /// Request for
@@ -371,13 +374,8 @@ pub enum ClientMessage {
         /// Session that this server is requesting for.
         #[rkyv(with = rkyv_wrappers::OutPoint)]
         session_id: Musig2SessionId,
-
-        /// The serialized [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of the signer whose public
-        /// nonce this is.
-        pubkey: [u8; 32],
-
-        /// That signer's MuSig2 partial signature.
-        signature: [u8; 32],
+        /// Partial signatures, keyed by the signer's xonly public key
+        sigs: HashMap<[u8; 32], [u8; 32]>,
     },
 
     /// Request for

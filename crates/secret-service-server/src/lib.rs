@@ -7,7 +7,7 @@
 
 pub mod musig2_session_mgr;
 
-use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, io, marker::Sync, net::SocketAddr, sync::Arc};
 
 use bitcoin::{hashes::Hash, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
@@ -334,23 +334,39 @@ where
                 }
             }
 
-            ClientMessage::Musig2FirstRoundReceivePubNonce {
-                session_id,
-                pubkey,
-                pubnonce,
-            } => {
+            ClientMessage::Musig2FirstRoundReceivePubNonce { session_id, nonces } => {
                 let session_id = &session_id;
-                let r = musig2_sm.lock().await.first_round(session_id);
-                let pubkey = XOnlyPublicKey::from_slice(&pubkey);
-                let pubnonce = PubNonce::from_bytes(&pubnonce);
-                match (r, pubkey, pubnonce) {
-                    (Some(first_round), Ok(pubkey), Ok(pubnonce)) => {
-                        let mut r1 = first_round.lock().await;
-                        let r = r1.receive_pub_nonce(pubkey, pubnonce).await;
-                        ServerMessage::Musig2FirstRoundReceivePubNonce(r.err())
-                    }
-                    _ => ServerMessage::InvalidClientMessage,
-                }
+                let r1 = match musig2_sm.lock().await.first_round(session_id) {
+                    Some(r1) => r1,
+                    None => return Ok(ServerMessage::InvalidClientMessage),
+                };
+                let nonces = match nonces
+                    .iter()
+                    .map(|(pk, nonce)| {
+                        let pk = match XOnlyPublicKey::from_slice(pk) {
+                            Ok(pk) => pk,
+                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                        };
+                        let pubnonce = match PubNonce::from_bytes(nonce) {
+                            Ok(nonce) => nonce,
+                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                        };
+                        Ok((pk, pubnonce))
+                    })
+                    .collect::<Result<HashMap<XOnlyPublicKey, PubNonce>, ServerMessage>>()
+                {
+                    Ok(nonces) => nonces,
+                    Err(e) => return Ok(e),
+                };
+
+                let result = r1.lock().await.receive_pub_nonces(nonces).await;
+                ServerMessage::Musig2FirstRoundReceivePubNonce(match result {
+                    Ok(()) => HashMap::new(),
+                    Err(e) => e
+                        .into_iter()
+                        .map(|(pk, err)| (pk.serialize(), err))
+                        .collect(),
+                })
             }
 
             ClientMessage::Musig2FirstRoundFinalize { session_id, digest } => {
@@ -415,23 +431,40 @@ where
                 }
             }
 
-            ClientMessage::Musig2SecondRoundReceiveSignature {
-                session_id,
-                pubkey,
-                signature,
-            } => {
+            ClientMessage::Musig2SecondRoundReceiveSignature { session_id, sigs } => {
                 let session_id = &session_id;
-                let r2 = musig2_sm.lock().await.second_round(session_id);
-                let pubkey = XOnlyPublicKey::from_slice(&pubkey);
-                let signature = PartialSignature::from_slice(&signature);
-                match (r2, pubkey, signature) {
-                    (Some(r2), Ok(pubkey), Ok(signature)) => {
-                        let mut r2 = r2.lock().await;
-                        let r = r2.receive_signature(pubkey, signature).await;
-                        ServerMessage::Musig2SecondRoundReceiveSignature(r.err())
-                    }
-                    _ => ServerMessage::InvalidClientMessage,
-                }
+                let r2 = match musig2_sm.lock().await.second_round(session_id) {
+                    Some(r2) => r2,
+                    None => return Ok(ServerMessage::InvalidClientMessage),
+                };
+
+                let sigs = match sigs
+                    .iter()
+                    .map(|(pk, sig)| {
+                        let pk = match XOnlyPublicKey::from_slice(pk) {
+                            Ok(pk) => pk,
+                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                        };
+                        let partial_sig = match PartialSignature::from_slice(sig) {
+                            Ok(partial_sig) => partial_sig,
+                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                        };
+                        Ok((pk, partial_sig))
+                    })
+                    .collect::<Result<HashMap<XOnlyPublicKey, PartialSignature>, ServerMessage>>()
+                {
+                    Ok(nonces) => nonces,
+                    Err(e) => return Ok(e),
+                };
+
+                let result = r2.lock().await.receive_signatures(sigs).await;
+                ServerMessage::Musig2SecondRoundReceiveSignature(match result {
+                    Ok(()) => HashMap::new(),
+                    Err(e) => e
+                        .into_iter()
+                        .map(|(pk, err)| (pk.serialize(), err))
+                        .collect(),
+                })
             }
 
             ClientMessage::Musig2SecondRoundFinalize { session_id } => {

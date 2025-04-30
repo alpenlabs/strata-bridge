@@ -1,5 +1,7 @@
 //! In-memory persistence for MuSig2's secret data.
 
+use std::collections::HashMap;
+
 use bitcoin::{
     bip32::Xpriv,
     hashes::Hash,
@@ -11,7 +13,8 @@ use make_buf::make_buf;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{SecretKey, SECP256K1},
-    FirstRound, KeyAggContext, LiftedSignature, SecNonceSpices, SecondRound,
+    FirstRound, KeyAggContext, LiftedSignature, PartialSignature, PubNonce, SecNonceSpices,
+    SecondRound,
 };
 use secret_service_proto::v1::traits::{
     Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
@@ -150,17 +153,29 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
         self.first_round.is_complete()
     }
 
-    async fn receive_pub_nonce(
+    async fn receive_pub_nonces(
         &mut self,
-        pubkey: XOnlyPublicKey,
-        pubnonce: musig2::PubNonce,
-    ) -> <Server as Origin>::Container<Result<(), RoundContributionError>> {
-        let signer_idx = self
-            .ordered_public_keys
-            .iter()
-            .position(|x| x == &pubkey)
-            .ok_or(RoundContributionError::out_of_range(0, 0))?;
-        self.first_round.receive_nonce(signer_idx, pubnonce)
+        nonces: HashMap<XOnlyPublicKey, PubNonce>,
+    ) -> <Server as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
+    {
+        let mut errs = HashMap::new();
+        for (pubkey, nonce) in nonces {
+            let signer_idx = match self.ordered_public_keys.iter().position(|x| x == &pubkey) {
+                Some(idx) => idx,
+                None => {
+                    errs.insert(pubkey, RoundContributionError::out_of_range(0, 0));
+                    continue;
+                }
+            };
+            if let Err(e) = self.first_round.receive_nonce(signer_idx, nonce) {
+                errs.insert(pubkey, e.clone());
+            }
+        }
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs)
+        }
     }
 
     async fn finalize(
@@ -207,17 +222,29 @@ impl Musig2SignerSecondRound<Server> for ServerSecondRound {
         self.second_round.is_complete()
     }
 
-    async fn receive_signature(
+    async fn receive_signatures(
         &mut self,
-        pubkey: XOnlyPublicKey,
-        signature: musig2::PartialSignature,
-    ) -> <Server as Origin>::Container<Result<(), RoundContributionError>> {
-        let signer_idx = self
-            .ordered_public_keys
-            .iter()
-            .position(|x| x == &pubkey)
-            .ok_or(RoundContributionError::out_of_range(0, 0))?;
-        self.second_round.receive_signature(signer_idx, signature)
+        sigs: HashMap<XOnlyPublicKey, PartialSignature>,
+    ) -> <Server as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
+    {
+        let mut errs = HashMap::new();
+        for (pubkey, sig) in sigs {
+            let signer_idx = match self.ordered_public_keys.iter().position(|x| x == &pubkey) {
+                Some(idx) => idx,
+                None => {
+                    errs.insert(pubkey, RoundContributionError::out_of_range(0, 0));
+                    continue;
+                }
+            };
+            if let Err(e) = self.second_round.receive_signature(signer_idx, sig) {
+                errs.insert(pubkey, e.clone());
+            }
+        }
+        if errs.is_empty() {
+            Ok(())
+        } else {
+            Err(errs)
+        }
     }
 
     async fn finalize(

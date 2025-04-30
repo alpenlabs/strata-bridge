@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     ops::Deref,
     sync::Arc,
@@ -217,15 +218,22 @@ async fn e2e() {
     let remote_pub_nonce = remote_first_round.our_nonce().await.expect("good response");
     let remote_signer_index = pubkeys.binary_search(&remote_public_key).unwrap();
     let total_local_signers = local_first_rounds.len();
+
+    let mut pub_nonces_to_send = HashMap::with_capacity(local_first_rounds.len());
+
+    for (i, local_fr) in local_first_rounds.iter().enumerate() {
+        let our_pub_nonce = local_fr.borrow().our_public_nonce();
+        pub_nonces_to_send.insert(local_signers[i].x_only_public_key().0, our_pub_nonce);
+    }
+    // send this signer's public nonce to secret service
+    remote_first_round
+        .receive_pub_nonces(pub_nonces_to_send)
+        .await
+        .expect("good response")
+        .expect("good nonce");
+
     for i in 0..total_local_signers {
         let local_fr = &local_first_rounds[i];
-        let our_pub_nonce = local_fr.borrow().our_public_nonce();
-        // send this signer's public nonce to secret service
-        remote_first_round
-            .receive_pub_nonce(local_signers[i].x_only_public_key().0, our_pub_nonce)
-            .await
-            .expect("good response")
-            .expect("good nonce");
         // send secret service's pub nonce to this local signer
         local_fr
             .borrow_mut()
@@ -278,15 +286,22 @@ async fn e2e() {
         })
         .collect::<Vec<RefCell<_>>>();
     println!("pubkeys: {pubkeys:?}");
+
+    let mut partial_sigs_to_send = HashMap::with_capacity(local_second_rounds.len());
+
+    for (i, local_sr) in local_second_rounds.iter().enumerate() {
+        let our_sig = local_sr.borrow().our_signature();
+        partial_sigs_to_send.insert(local_signers[i].x_only_public_key().0, our_sig);
+    }
+    // send secret service this signer's partial sig
+    remote_second_round
+        .receive_signatures(partial_sigs_to_send)
+        .await
+        .expect("good response")
+        .expect("good sig");
+
     for i in 0..total_local_signers {
         let sr = &local_second_rounds[i];
-        let our_sig = sr.borrow().our_signature();
-        // send secret service this signer's partial sig
-        remote_second_round
-            .receive_signature(local_signers[i].x_only_public_key().0, our_sig)
-            .await
-            .expect("good response")
-            .expect("good sig");
         // give secret service's partial sig to this signer
         sr.borrow_mut()
             .receive_signature(remote_signer_index, remote_partial_sig)
