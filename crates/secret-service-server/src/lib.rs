@@ -456,15 +456,11 @@ where
                 ServerMessage::WotsGet128SecretKey { key }
             }
 
-            ClientMessage::WotsGet256SecretKey {
-                index,
-                vout: prestake_vout,
-                txid,
-            } => {
+            ClientMessage::WotsGet256SecretKey { index, vout, txid } => {
                 let txid = Txid::from_slice(&txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_secret_key(txid, prestake_vout, index)
+                    .get_256_secret_key(txid, vout, index)
                     .await;
                 ServerMessage::WotsGet256SecretKey { key }
             }
@@ -479,10 +475,10 @@ where
             }
 
             ClientMessage::WotsGet256PublicKey { txid, vout, index } => {
-                let prestake_txid = Txid::from_slice(&txid).expect("correct length");
+                let txid = Txid::from_slice(&txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_public_key(prestake_txid, vout, index)
+                    .get_256_public_key(txid, vout, index)
                     .await;
                 ServerMessage::WotsGet256PublicKey { key }
             }

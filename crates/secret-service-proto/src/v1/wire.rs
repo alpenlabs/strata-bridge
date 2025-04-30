@@ -397,7 +397,7 @@ pub enum ClientMessage {
         /// Transaction's vout that this WOTS secret key is derived from.
         vout: u32,
 
-        /// Transaction's index that this WOTS secret key is derived from.
+        /// WOTS index that this WOTS secret key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -413,7 +413,7 @@ pub enum ClientMessage {
         /// Transaction's vout that this WOTS secret key is derived from.
         vout: u32,
 
-        /// Transaction's index that this WOTS secret key is derived from.
+        /// WOTS index that this WOTS secret key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -429,7 +429,7 @@ pub enum ClientMessage {
         /// Transaction's vout that this WOTS public key is derived from.
         vout: u32,
 
-        /// Transaction's index that this WOTS public key is derived from.
+        /// WOTS index that this WOTS public key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -445,7 +445,7 @@ pub enum ClientMessage {
         /// Transaction's vout that this WOTS public key is derived from.
         vout: u32,
 
-        /// Transaction's index that this WOTS public key is derived from.
+        /// WOTS index that this WOTS public key is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
         /// hence to resolve the ambiguity, the index is needed.
@@ -461,7 +461,7 @@ pub enum ClientMessage {
         /// Transaction's vout that this WOTS signature is derived from.
         vout: u32,
 
-        /// Transaction's index that this WOTS signature is derived from.
+        /// WOTS index that this WOTS signature is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
         /// hence to resolve the ambiguity, the index is needed.
@@ -480,7 +480,7 @@ pub enum ClientMessage {
         /// Transaction's vout that this WOTS signature is derived from.
         vout: u32,
 
-        /// Transaction's index that this WOTS signature is derived from.
+        /// WOTS index that this WOTS signature is derived from.
         ///
         /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
         /// hence to resolve the ambiguity, the index is needed.
