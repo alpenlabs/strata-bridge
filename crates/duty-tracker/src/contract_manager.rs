@@ -1541,13 +1541,49 @@ async fn handle_publish_graph_nonces(
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph nonces");
 
-    let nonces = pog_outpoints
-        .zip(pog_witnesses)
-        .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
-        .join_all()
-        .await
-        .map(|x| x.expect("no s2 errors")); // TODO(proofofkeags): find a more principled way to
-                                            // handle these errors
+    let nonces: PogMusigF<PubNonce> = match PogMusigF::transpose_result(
+        pog_outpoints
+            .clone()
+            .zip(pog_witnesses)
+            .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
+            .join_all()
+            .await,
+    ) {
+        Ok(res) => res,
+        Err(err) => {
+            match err {
+                MusigSessionErr::SecretServiceClientErr(client_error) => {
+                    warn!(%client_error, "error getting nonces for graph from s2")
+                }
+                MusigSessionErr::SecretServiceNewSessionErr(musig2_new_session_error) => {
+                    // TODO: (@Rajil1213) handle this properly when we known what causes this
+                    error!(
+                        ?musig2_new_session_error,
+                        "error getting nonces for graph from s2"
+                    )
+                }
+                MusigSessionErr::SecretServiceRoundContributionErr(round_contribution_error) => {
+                    // TODO: (@Rajil1213) handle this properly when we known what causes this
+                    error!(%round_contribution_error, "error getting nonces for graph from s2")
+                }
+                MusigSessionErr::SecretServiceRoundFinalizeErr(round_finalize_error) => {
+                    // TODO: (@Rajil1213) handle this properly when we known what causes this
+                    error!(%round_finalize_error, "error getting nonces for graph from s2")
+                }
+                MusigSessionErr::Premature => {
+                    unreachable!("this should never happen unless the stf is wrong")
+                }
+                MusigSessionErr::NotFound(out_point) => {
+                    // this can happen either because the session has already been finalized
+                    // or if the contract is unknown to us
+                    // both of which are okay but we do log it here.
+                    warn!(%out_point, "session outpoint not found");
+                }
+            }
+
+            return Ok(());
+        }
+    };
 
     info!(%claim_txid, "publishing graph nonces");
 
