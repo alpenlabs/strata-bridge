@@ -1657,6 +1657,7 @@ mod tests {
         info!(
             txid = signed_post_assert.compute_txid().to_string(),
             final_output_amount = %post_assert_output_amount,
+            vsize = %signed_post_assert.vsize(),
             "broadcasting post-assert tx"
         );
         let result = btc_client

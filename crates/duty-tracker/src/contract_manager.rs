@@ -296,6 +296,8 @@ impl ContractManager {
                             match ctx.process_p2p_message(msg).await {
                                 Ok(ouroboros_duties) => {
                                     info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
+                                    debug!(?ouroboros_duties, "queuing duties generated via ouroboros");
+
                                     duties.extend(ouroboros_duties);
                                 },
                                 Err(e) => {
@@ -1594,7 +1596,7 @@ async fn handle_publish_graph_sigs(
     })?;
 
     info!(%claim_txid, "publishing graph signatures");
-    debug!(%claim_txid, ?partials, "received all partials");
+    debug!(%claim_txid, ?partials, "received all partials from s2");
 
     message_handler
         .send_musig2_signatures(
@@ -1636,24 +1638,44 @@ async fn handle_publish_root_signature(
     prevout: OutPoint,
     sighash: Message,
 ) -> Result<(), ContractManagerErr> {
-    info!(deposit_request_txid=%prevout.txid, "executing duty to publish root signature");
+    let deposit_request_txid = prevout.txid;
+    info!(%deposit_request_txid, "executing duty to publish root signature");
 
     let our_pubkey = cfg.operator_table.pov_btc_key();
     for (musig2_pubkey, nonce) in nonces.into_iter().filter(|(pk, _)| *pk != our_pubkey) {
+        info!(%musig2_pubkey, %deposit_request_txid, "loading nonce");
         s2_client
             .put_nonce(prevout, musig2_pubkey.to_x_only_pubkey(), nonce)
-            .await?
+            .await
+            .inspect_err(|e| {
+                error!(
+                    %deposit_request_txid,
+                    ?e,
+                    "failed to load nonce for root"
+                );
+            })?
     }
 
-    let partial = s2_client.get_partial(prevout, sighash).await?;
+    info!("getting partial");
+    let partial = s2_client
+        .get_partial(prevout, sighash)
+        .await
+        .inspect_err(|e| {
+            error!(
+                %deposit_request_txid,
+                ?e,
+                "failed to get partial root sig"
+            );
+        })?;
 
-    info!(%prevout.txid, "publishing root signature");
+    info!(%deposit_request_txid, "publishing root signature");
     msg_handler
         .send_musig2_signatures(
             SessionId::from_bytes(prevout.txid.as_raw_hash().to_byte_array()),
             vec![partial],
         )
         .await;
+
     Ok(())
 }
 
