@@ -330,7 +330,8 @@ impl ContractManager {
                             }
                         },
                         Err(e) => {
-                            error!("{}", e);
+                            error!(%e, "error while polling for p2p messages");
+                            // this could be a transient issue, so no need to break immediately
                         }
                     },
                     _ = interval.tick() => {
@@ -858,13 +859,15 @@ impl ContractManagerCtx {
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         Ok(match req {
             GetMessageRequest::StakeChainExchange { .. } => {
+                info!("received request for stake chain exchange");
                 // TODO(proofofkeags): actually choose the correct stake chain
                 // inputs based off the stake chain id we receive.
                 Some(OperatorDuty::FulfillerDuty(FulfillerDuty::InitStakeChain))
             }
             GetMessageRequest::DepositSetup { scope, .. } => {
-                let deposit_txid =
-                    Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(scope.as_ref()));
+                let deposit_txid = Txid::from_byte_array(*scope.as_ref());
+
+                info!(%deposit_txid, "received request for deposit setup");
                 let stake_chain_inputs = self
                     .state
                     .stake_chains
@@ -896,13 +899,15 @@ impl ContractManagerCtx {
                     .state
                     .claim_txids
                     .get(&session_id_as_txid)
-                    .and_then(|deposit_txid| self.state.active_contracts.get(deposit_txid))
+                    .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
                     let claim_txid = session_id_as_txid;
-                    info!(%claim_txid, "received nag for graph nonces");
+                    info!(%claim_txid, "received request for graph nonces");
 
                     if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
-                        let pog = csm.cfg().build_graph(
+                        info!(%claim_txid, "received nag for graph nonces");
+
+                        let pog = csm.retrieve_graph(
                             peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
                         );
                         let pog_inputs = pog.musig_inpoints();
@@ -953,31 +958,28 @@ impl ContractManagerCtx {
                     .state
                     .claim_txids
                     .get(&session_id_as_txid)
-                    .and_then(|deposit_txid| self.state.active_contracts.get(deposit_txid))
+                    .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
-                    let claim_txid = session_id_as_txid;
-                    info!(%claim_txid, "received nag for graph signatures");
-
                     if let ContractState::Requested {
                         peg_out_graphs,
                         graph_nonces,
                         ..
                     } = &csm.state().state
                     {
-                        let pog = csm.cfg().build_graph(
-                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
-                        );
                         let claim_txid = session_id_as_txid;
                         info!(%claim_txid, "received nag for graph signatures");
+
+                        let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
+                        let pog = csm.retrieve_graph(
+                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
+                        );
 
                         Some(OperatorDuty::PublishGraphSignatures {
                             claim_txid,
                             pubnonces: csm
                                 .cfg()
                                 .operator_table
-                                .convert_map_op_to_btc(
-                                    graph_nonces.get(&claim_txid).unwrap().clone(),
-                                )
+                                .convert_map_op_to_btc(graph_nonces)
                                 .unwrap(),
                             pog_prevouts: pog.musig_inpoints(),
                             pog_sighashes: pog.sighashes(),
