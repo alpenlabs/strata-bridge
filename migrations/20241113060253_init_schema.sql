@@ -166,6 +166,14 @@ CREATE TABLE IF NOT EXISTS duty_tracker (
     status TEXT NOT NULL                  -- Status of the duty as JSON
 );
 
+-- Table to store bridge duties
+CREATE TABLE IF NOT EXISTS bridge_duties (
+    duty_id TEXT PRIMARY KEY,             -- Unique identifier for each duty as an encoded txid
+    operator_pk TEXT,                     -- Operator's public key that the duty is for
+    duty_type TEXT NOT NULL,              -- Type of duty (SignDeposit or FulfillWithdrawal)
+    duty_data BLOB NOT NULL              -- Serialized duty data (DepositInfo or WithdrawalInfo)
+);
+
 -- Table to store relevant transactions observed on bitcoin
 CREATE TABLE IF NOT EXISTS bitcoin_tx_index (
     txid TEXT PRIMARY KEY,                -- Unique identifier for each tx as an encoded txid
