@@ -22,7 +22,7 @@ use secret_service_proto::v1::{
 use strata_bridge_primitives::{operator_table::OperatorTable, scripts::taproot::TaprootWitness};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{debug, error};
+use tracing::{debug, error, trace};
 
 /// System for managing session state for musig sessions.
 #[derive(Debug, Clone)]
@@ -113,41 +113,43 @@ impl MusigSessionManager {
     ) -> Result<PartialSignature, MusigSessionErr> {
         debug!(%outpoint, "getting second round partial signature");
 
-        if let Some(second_round) = self.second_round_map.lock().await.get_mut(&outpoint) {
+        let mut second_round_map = self.second_round_map.lock().await;
+        if let Some(second_round) = second_round_map.get_mut(&outpoint) {
             debug!(%outpoint, "getting our partial signature");
 
-            Ok(second_round.our_signature().await?)
-        } else {
-            let mut first_guard = self.first_round_map.lock().await;
-            if let Some(first_round) = first_guard.remove(&outpoint) {
-                let holdouts = first_round.holdouts().await?;
-                debug!(%outpoint, ?holdouts, "fetched first round holdouts");
+            return Ok(second_round.our_signature().await?);
+        }
 
-                if holdouts.is_empty() {
-                    debug!(%outpoint, "finalizing first round");
-                    let second_round = first_round.finalize(*sighash.as_ref()).await??;
+        drop(second_round_map);
 
-                    debug!(%outpoint, "getting our signature");
-                    let ours = second_round.our_signature().await?;
-                    drop(first_guard);
+        let mut first_round_map = self.first_round_map.lock().await;
+        if let Some(first_round) = first_round_map.remove(&outpoint) {
+            let holdouts = first_round.holdouts().await?;
+            debug!(%outpoint, ?holdouts, "fetched first round holdouts");
 
-                    let mut second_guard = self.second_round_map.lock().await;
+            if holdouts.is_empty() {
+                trace!(%outpoint, "finalizing first round");
+                let second_round = first_round.finalize(*sighash.as_ref()).await??;
 
-                    debug!(%outpoint, "updating second round session with our signature");
-                    second_guard.insert(outpoint, second_round);
+                debug!(%outpoint, "getting our partial signature");
+                let ours = second_round.our_signature().await?;
 
-                    Ok(ours)
-                } else {
-                    error!(?holdouts, "cannot proceed to second round with holdouts");
+                trace!(%outpoint, "acquiring lock on second round map");
+                let mut second_round_map = self.second_round_map.lock().await;
 
-                    first_guard.insert(outpoint, first_round);
-                    drop(first_guard);
-                    Err(MusigSessionErr::Premature)
-                }
+                trace!(%outpoint, "updating second round session with our signature");
+                second_round_map.insert(outpoint, second_round);
+
+                Ok(ours)
             } else {
-                error!(%outpoint, "failed to get to second round, outpoint missing in first round");
-                Err(MusigSessionErr::NotFound(outpoint))
+                error!(?holdouts, "cannot proceed to second round with holdouts");
+
+                first_round_map.insert(outpoint, first_round);
+                Err(MusigSessionErr::Premature)
             }
+        } else {
+            error!(%outpoint, "failed to get to second round, outpoint missing in first round");
+            Err(MusigSessionErr::NotFound(outpoint))
         }
     }
 
