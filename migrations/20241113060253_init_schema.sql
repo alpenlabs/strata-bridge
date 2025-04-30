@@ -66,10 +66,11 @@ CREATE TABLE IF NOT EXISTS last_published_stake_index (
 );
 
 -- Table for claim_txid_to_operator_index_and_deposit_txid
-CREATE TABLE IF NOT EXISTS claim_txid_to_operator_index_and_deposit_txid (
+CREATE TABLE IF NOT EXISTS claims (
     claim_txid TEXT PRIMARY KEY,           -- Store as hex string
     operator_id INTEGER NOT NULL,
-    deposit_txid TEXT NOT NULL             -- Store as hex string
+    deposit_txid TEXT NOT NULL,            -- Store as hex string
+    status TEXT NOT NULL                   -- Store as JSON
 );
 
 -- Table for post_assert_txid_to_operator_index_and_deposit_txid
