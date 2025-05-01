@@ -402,7 +402,7 @@ impl ConnectorA3 {
 
 #[cfg(test)]
 mod tests {
-    use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn, sha256_hash};
+    use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
     use strata_bridge_primitives::{
         scripts::parse_witness::parse_wots256_signatures, wots::Wots256PublicKey,
     };
