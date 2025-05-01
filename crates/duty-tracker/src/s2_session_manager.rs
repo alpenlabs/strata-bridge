@@ -63,27 +63,16 @@ impl MusigSessionManager {
         taproot_witness: TaprootWitness,
     ) -> Result<PubNonce, MusigSessionErr> {
         debug!(%outpoint, "getting first round nonce");
-        let mut state = self.state.lock().await;
-
-        if let Some(first_round) = state.first_round_map.get(&outpoint) {
-            return Ok(first_round.our_nonce().await?);
-        }
-
-        let mut unordered_keys = self
-            .operator_table
-            .btc_keys()
-            .into_iter()
-            .map(|x| x.to_x_only_pubkey())
-            .collect::<Vec<_>>();
-        unordered_keys.sort();
-        let ordered_keys = unordered_keys;
-
         let first_round = self
             .s2_client
             .musig2_signer()
             .new_session(
                 outpoint,
-                ordered_keys,
+                self.operator_table
+                    .btc_keys()
+                    .into_iter()
+                    .map(|x| x.to_x_only_pubkey())
+                    .collect(),
                 taproot_witness,
                 outpoint.txid,
                 outpoint.vout,
