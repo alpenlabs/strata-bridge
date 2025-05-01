@@ -275,6 +275,8 @@ impl ContractManager {
             loop {
                 let mut duties = vec![];
                 tokio::select! {
+                    biased; // follow the same order as specified below
+
                     Some(block) = block_sub.next() => {
                         let blockhash = block.block_hash();
                         let block_height = block.bip34_block_height().expect("must have valid height");
