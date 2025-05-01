@@ -98,8 +98,10 @@ impl OperatorTable {
         self.idx_key.len()
     }
 
-    pub fn btc_keys(&self) -> BTreeSet<secp256k1::PublicKey> {
-        self.btc_key.keys().cloned().collect()
+    /// Returns the musig2 public keys for the operators in the table in their canonical order
+    /// i.e., the order of their indices.
+    pub fn btc_keys(&self) -> impl IntoIterator<Item = secp256k1::PublicKey> + use<'_> {
+        self.idx_key.values().map(|(_, btc_key)| *btc_key)
     }
 
     pub fn p2p_keys(&self) -> BTreeSet<P2POperatorPubKey> {
