@@ -948,11 +948,12 @@ impl ContractSM {
                     )));
                 };
 
-                if let Some(old_value) = session_nonces.insert(signer.clone(), unpacked) {
-                    warn!(%claim_txid, %signer, "already received nonces for graph, restoring...");
-
-                    session_nonces.insert(signer.clone(), old_value);
+                if session_nonces.contains_key(&signer) {
+                    warn!(%claim_txid, %signer, "already received nonces for graph");
+                    return Ok(None);
                 }
+
+                session_nonces.insert(signer.clone(), unpacked);
 
                 let required_nonces = self.cfg.operator_table.cardinality();
                 let have_all_nonces = graph_nonces
@@ -1041,11 +1042,12 @@ impl ContractSM {
                     )));
                 };
 
-                if let Some(exists) = session_partials.insert(signer.clone(), unpacked) {
-                    warn!(%claim_txid, %signer, "already received partials for graph, restoring...");
-
-                    session_partials.insert(signer.clone(), exists);
+                if session_partials.contains_key(&signer) {
+                    warn!(%claim_txid, %signer, "already received signatures for graph");
+                    return Ok(None);
                 }
+
+                session_partials.insert(signer, unpacked);
 
                 let required_partials = self.cfg.operator_table.cardinality();
                 let have_all_partials = graph_partials
@@ -1092,7 +1094,13 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &mut self.state.state {
             ContractState::Requested { root_nonces, .. } => {
+                if root_nonces.contains_key(&signer) {
+                    warn!(%signer, "already received nonce for root");
+                    return Ok(None);
+                }
+
                 root_nonces.insert(signer, nonce);
+
                 Ok(
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
@@ -1152,7 +1160,13 @@ impl ContractSM {
         let deposit_tx = self.cfg().deposit_tx.clone();
         match &mut self.state.state {
             ContractState::Requested { root_partials, .. } => {
+                if root_partials.contains_key(&signer) {
+                    warn!(%signer, "already received signature for root");
+                    return Ok(None);
+                }
+
                 root_partials.insert(signer, sig);
+
                 Ok(
                     if root_partials.len() == self.cfg.operator_table.cardinality() {
                         // we have all the deposit sigs now
