@@ -17,7 +17,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot, Block, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, Txid,
 };
-use bitcoind_async_client::{traits::Reader, Client as BitcoinClient};
+use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
 use futures::{
@@ -43,7 +43,6 @@ use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
 };
 use strata_bridge_tx_graph::pog_musig_functor::PogMusigF;
-use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{
     P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
