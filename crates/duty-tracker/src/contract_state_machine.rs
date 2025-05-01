@@ -38,7 +38,7 @@ use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_primitives::params::RollupParams;
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 
@@ -342,6 +342,69 @@ pub enum ContractState {
     /// confirm.
     Resolved {},
 }
+
+impl Display for ContractState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let display_str = match self {
+            ContractState::Requested {
+                deposit_request_txid,
+                ..
+            } => format!("Requested ({})", deposit_request_txid),
+            ContractState::Deposited { .. } => "Deposited".to_string(),
+            ContractState::Assigned {
+                fulfiller,
+                recipient,
+                deadline,
+                ..
+            } => format!(
+                "Assigned to {} with recipient: {} and deadline {}",
+                fulfiller, recipient, deadline
+            ),
+            ContractState::StakeTxReady {
+                active_graph,
+                fulfiller,
+                ..
+            } => format!(
+                "StakeTxReady ({}) for operator {}",
+                active_graph.1.stake_txid, fulfiller
+            ),
+            ContractState::Fulfilled { fulfiller, .. } => {
+                format!("Fulfilled by operator {}", fulfiller)
+            }
+            ContractState::Claimed {
+                claim_height,
+                fulfiller,
+                active_graph,
+                ..
+            } => format!(
+                "Claimed by operator {} at height {} ({})",
+                fulfiller, claim_height, active_graph.1.claim_txid
+            ),
+            ContractState::Challenged {
+                fulfiller,
+                active_graph,
+                ..
+            } => format!(
+                "Challenged operator {}'s claim ({})",
+                fulfiller, active_graph.1.claim_txid
+            ),
+            ContractState::Asserted {
+                post_assert_height,
+                fulfiller,
+                active_graph,
+                ..
+            } => format!(
+                "Asserted by operator {} at height {} ({})",
+                fulfiller, post_assert_height, active_graph.1.post_assert_txid
+            ),
+            ContractState::Disproved {} => "Disproved".to_string(),
+            ContractState::Resolved {} => "Resolved".to_string(),
+        };
+
+        write!(f, "ContractState: {}", display_str)
+    }
+}
+
 impl ContractState {
     /// Computes all of the [`PegOutGraphSummary`]s that this contract state is currently aware of.
     pub fn summaries(&self) -> Vec<PegOutGraphSummary> {
@@ -769,11 +832,16 @@ impl ContractSM {
         &mut self,
         tx: Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        if tx.compute_txid() != self.cfg.deposit_tx.compute_txid() {
+        let deposit_txid = tx.compute_txid();
+        info!(%deposit_txid, "processing deposit confirmation");
+
+        let expected_txid = self.cfg.deposit_tx.compute_txid();
+        if tx.compute_txid() != expected_txid {
+            error!(txid=%deposit_txid, %expected_txid, "deposit confirmation delivered to the wrong CSM");
+
             return Err(TransitionErr(format!(
                 "deposit confirmation for ({}) delivered to wrong CSM ({})",
-                tx.compute_txid(),
-                self.cfg.deposit_tx.compute_txid()
+                deposit_txid, expected_txid,
             )));
         }
 
@@ -784,16 +852,18 @@ impl ContractSM {
             ..
         } = current
         {
+            info!(%deposit_txid, "updating contract state to deposited");
             self.state.state = ContractState::Deposited {
                 peg_out_graphs,
                 claim_txids,
             }
         } else {
             self.state.state = current;
+            error!(txid=%deposit_txid, state=%self.state.state, "deposit confirmation delivered to CSM not in Requested state");
+
             return Err(TransitionErr(format!(
-                "deposit confirmation ({}) delivered to CSM not in Requested state ({:?})",
-                tx.compute_txid(),
-                self.state.state
+                "deposit confirmation ({}) delivered to CSM not in Requested state ({})",
+                deposit_txid, self.state.state
             )));
         }
 
