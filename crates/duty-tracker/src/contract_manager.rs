@@ -204,7 +204,7 @@ impl ContractManager {
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
-                s2_client: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
+                s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
                 tx_driver,
                 db,
             });
@@ -375,7 +375,7 @@ impl Drop for ContractManager {
 struct OutputHandles {
     wallet: RwLock<OperatorWallet>,
     msg_handler: MessageHandler,
-    s2_client: MusigSessionManager,
+    s2_session_manager: MusigSessionManager,
     tx_driver: TxDriver,
     db: SqliteDb,
 }
@@ -1268,14 +1268,20 @@ async fn execute_duty(
     let OutputHandles {
         wallet,
         msg_handler,
-        s2_client,
+        s2_session_manager,
         tx_driver,
         db,
     } = &*output_handles;
 
     match duty {
         OperatorDuty::PublishStakeChainExchange => {
-            handle_publish_stake_chain_exchange(&cfg, &s2_client.s2_client, db, msg_handler).await
+            handle_publish_stake_chain_exchange(
+                &cfg,
+                &s2_session_manager.s2_client,
+                db,
+                msg_handler,
+            )
+            .await
         }
 
         OperatorDuty::PublishDepositSetup {
@@ -1285,7 +1291,7 @@ async fn execute_duty(
         } => {
             handle_publish_deposit_setup(
                 &cfg,
-                &s2_client.s2_client,
+                &s2_session_manager.s2_client,
                 db,
                 wallet,
                 msg_handler,
@@ -1302,7 +1308,7 @@ async fn execute_duty(
             witness,
         } => {
             handle_publish_root_nonce(
-                &output_handles.s2_client,
+                &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 OutPoint::new(deposit_request_txid, 0),
                 witness,
@@ -1316,7 +1322,7 @@ async fn execute_duty(
             pog_witnesses,
         } => {
             handle_publish_graph_nonces(
-                &output_handles.s2_client,
+                &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 claim_txid,
                 pog_inputs,
@@ -1332,7 +1338,7 @@ async fn execute_duty(
             pog_sighashes,
         } => {
             handle_publish_graph_sigs(
-                &output_handles.s2_client,
+                &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 claim_txid,
                 pubnonces,
@@ -1349,7 +1355,7 @@ async fn execute_duty(
         } => {
             handle_publish_root_signature(
                 &cfg,
-                &output_handles.s2_client,
+                &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 nonces,
                 OutPoint::new(deposit_request_txid, 0),
@@ -1365,7 +1371,7 @@ async fn execute_duty(
             witness,
         } => {
             handle_publish_deposit(
-                &output_handles.s2_client,
+                &output_handles.s2_session_manager,
                 &output_handles.tx_driver,
                 deposit_tx,
                 witness,
@@ -1491,7 +1497,7 @@ async fn handle_advance_stake_chain(
 
     let messages = stake_tx.sighashes();
     let funds_signature = output_handles
-        .s2_client
+        .s2_session_manager
         .s2_client
         .general_wallet_signer()
         .sign(messages[0].as_ref(), None)
@@ -1501,7 +1507,7 @@ async fn handle_advance_stake_chain(
         // the first stake transaction spends the pre-stake which is locked by the key in the
         // stake-chain wallet
         let stake_signature = output_handles
-            .s2_client
+            .s2_session_manager
             .s2_client
             .general_wallet_signer()
             .sign(messages[1].as_ref(), None)
@@ -1509,7 +1515,10 @@ async fn handle_advance_stake_chain(
 
         stake_tx.finalize_initial(funds_signature, stake_signature)
     } else {
-        let pre_image_client = output_handles.s2_client.s2_client.stake_chain_preimages();
+        let pre_image_client = output_handles
+            .s2_session_manager
+            .s2_client
+            .stake_chain_preimages();
         let OutPoint {
             txid: pre_stake_txid,
             vout: pre_stake_vout,
@@ -1522,7 +1531,7 @@ async fn handle_advance_stake_chain(
             .tx_build_context(cfg.network)
             .aggregated_pubkey();
         let operator_pubkey = output_handles
-            .s2_client
+            .s2_session_manager
             .s2_client
             .general_wallet_signer()
             .pubkey()
@@ -1548,7 +1557,7 @@ async fn handle_advance_stake_chain(
         // so instead of sharing ones, we can just reuse this key (which is part of a taproot
         // address).
         let stake_signature = output_handles
-            .s2_client
+            .s2_session_manager
             .s2_client
             .stakechain_wallet_signer()
             .sign_no_tweak(messages[1].as_ref())
