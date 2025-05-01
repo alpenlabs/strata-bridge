@@ -15,7 +15,7 @@ use bitcoin::{
     hashes::{sha256, Hash},
     hex::DisplayHex,
     sighash::{Prevouts, SighashCache},
-    Block, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, Txid,
+    taproot, Block, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, Txid,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::BtcZmqClient;
@@ -1739,11 +1739,14 @@ async fn handle_publish_deposit(
     }
 
     let sig = musig.get_signature(prevout).await?;
+    let schnorr_sig = schnorr::Signature::from_slice(&sig.serialize())
+        .expect("must be a valid schnorr signature");
+    let taproot_sig = taproot::Signature {
+        signature: schnorr_sig,
+        sighash_type: TapSighashType::All,
+    };
+
     let mut sighasher = SighashCache::new(deposit_tx);
-    sighasher
-        .witness_mut(0)
-        .expect("deposit tx has a first input")
-        .push(sig.serialize());
 
     let deposit_tx_witness = sighasher.witness_mut(0).expect("must have first input");
     deposit_tx_witness.push(taproot_sig.to_vec());
