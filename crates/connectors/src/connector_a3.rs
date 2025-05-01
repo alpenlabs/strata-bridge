@@ -11,7 +11,7 @@ use bitcoin::{
 use bitvm::{
     bigint::U256,
     chunk::api::{api_generate_full_tapscripts, NUM_TAPS},
-    hash::sha256_u4_stack::sha256_script,
+    hash::blake3::blake3_compute_script,
     pseudo::NMUL,
     signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
@@ -130,40 +130,61 @@ impl ConnectorA3Leaf {
                     // Stack : [a,b,...,1,2,cd,...,34] Alt-stack : []
                     for _ in 0..64 { OP_FROMALTSTACK }
 
+
+                    // Send the public hash to alt stack, since blake3 requires only msg to be hashed on stack
+                    // Stack : [a,b,...,1,2] Alt-stack : [34,...,cd]
+                    for _ in 0..32{
+                        { 64 }
+                        OP_ROLL
+                        OP_TOALTSTACK
+                    }
+
                     // include the deposit txid in the script to couple proofs with deposits.
                     // this is part of the commitment to the public inputs (along with the
                     // withdrawal_fulfillment txid.
-                    // Stack : [ef,...,56,a,b,...,1,2,cd,...,34] Alt-stack : []
+                    // Stack : [ef,...,56,a,b,...,1,2] Alt-stack : [34,...,cd]
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
-                    // since sha256_stack requires input in nibble form.
-                    // convert 32 bytes (256 bits) deposit txid to nibbles
-                    // Stack : [e,f,...,5,6,a,b,...,1,2,cd,...,34] Alt-stack : []
+                    // convert 32 bytes (256 bits) deposit txid to nibbles for further manipulation
+                    // Stack : [e,f,...,5,6,a,b,...,1,2] Alt-stack : [34,...,cd]
                     { U256::transform_limbsize(8, 4) }
 
 
-                    // The stack version of sha256 requires that the most significant nibble be on the top of the stack
-                    // the 128 nibbles to be hashed is reversed first
-                    // Stack : [2,1,...,b,a,6,5,...,f,e,cd,...,34] Alt-stack : []
+                    // the 128 nibbles to be hashed is reversed first to ensure deposit txid is first to be hashed
+                    // Stack : [2,1,...,b,a,6,5,...,f,e] Alt-stack : [34,...,cd]
                     for i in (1..=127).rev(){
                         { i } OP_ROLL
                         OP_TOALTSTACK
                     }
-                    for _ in 1..=127{ OP_FROMALTSTACK }
+                    OP_TOALTSTACK
 
-                    // The above message is in little-endian which needs to be converted to big-endian.
-                    // This is done by swapping the adjacent nibbles of each byte
-                    // Stack : [1,2,...,a,b,5,6,...,e,f,cd,...,34] Alt-stack : []
-                    for _ in (0..128).step_by(2) {
-                        OP_SWAP
-                        OP_TOALTSTACK
+                    // The entire 64 byte input needs to be converted to little-endian 32-bit words for blake3
+                    for _ in 0..16{
+                        //reverse each word (8 nibbles)
+                        for _ in 0..8{
+                            OP_FROMALTSTACK
+                        }
+                        for i in (1..=7).rev(){
+                            { i }
+                            OP_ROLL
+                            OP_TOALTSTACK
+                        }
+                        for _ in 1..=7{ OP_FROMALTSTACK }
+                    }
+
+                    // Blake3 expects input in limb of size 29. The input, currently in nibbles is transformed to limb of 29 bits.
+                    { U256::transform_limbsize(4, 29) }
+                    for _ in 0..9{
                         OP_TOALTSTACK
                     }
-                    for _ in 0..128 { OP_FROMALTSTACK }
+                    { U256::transform_limbsize(4, 29) }
+                    for _ in 0..9{
+                        OP_FROMALTSTACK
+                    }
 
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
-                    { sha256_script(2 * 32)}
+                    { blake3_compute_script(2 * 32) }
 
                     // convert the hash from nibble representation to bytes
                     { U256::transform_limbsize(4, 8) }
@@ -177,6 +198,10 @@ impl ConnectorA3Leaf {
 
                     // convert the hash to a bn254 field element
                     hash_to_bn254_fq
+
+                    //bring the public hash from alt stack
+                    for _ in 0..32{ OP_FROMALTSTACK }
+
 
                     // verify that the computed hash and the committed inputs hash don't match
                     for i in (1..32).rev() {
@@ -359,7 +384,7 @@ impl ConnectorA3 {
 
 #[cfg(test)]
 mod tests {
-    use sp1_verifier::hash_public_inputs;
+    use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
     use strata_bridge_primitives::{
         scripts::parse_witness::parse_wots256_signatures, wots::Wots256PublicKey,
     };
@@ -379,7 +404,8 @@ mod tests {
         };
 
         let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
-        let committed_public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
+        let committed_public_inputs_hash =
+            hash_public_inputs_with_fn(&serialized_public_inputs, blake3_hash);
 
         let msk: &str = "test-disprove-public-inputs-hash";
 
@@ -405,7 +431,8 @@ mod tests {
             withdrawal_fulfillment_txid: generate_txid().into(),
             deposit_txid: deposit_txid.into(),
         };
-        let faulty_inputs_hash = hash_public_inputs(&borsh::to_vec(&faulty_public_inputs).unwrap());
+        let faulty_inputs_hash =
+            hash_public_inputs_with_fn(&borsh::to_vec(&faulty_public_inputs).unwrap(), blake3_hash);
 
         let valid_disprove_leaf = get_disprove_leaf(
             msk,
@@ -429,7 +456,8 @@ mod tests {
             deposit_txid: generate_txid().into(),
             withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
-        let faulty_inputs_hash = hash_public_inputs(&borsh::to_vec(&faulty_public_inputs).unwrap());
+        let faulty_inputs_hash =
+            hash_public_inputs_with_fn(&borsh::to_vec(&faulty_public_inputs).unwrap(), blake3_hash);
 
         let valid_disprove_leaf = get_disprove_leaf(
             msk,
