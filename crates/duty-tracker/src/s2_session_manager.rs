@@ -24,6 +24,15 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 use tracing::{debug, error, trace, warn};
 
+#[derive(Debug, Clone)]
+struct MusigSessionManagerState {
+    /// Index for all of the active first round sessions.
+    first_round_map: BTreeMap<OutPoint, Musig2FirstRound>,
+
+    /// Index for all of the active second round sessions.
+    second_round_map: BTreeMap<OutPoint, Musig2SecondRound>,
+}
+
 /// System for managing session state for musig sessions.
 #[derive(Debug, Clone)]
 pub struct MusigSessionManager {
@@ -32,11 +41,7 @@ pub struct MusigSessionManager {
     /// The underlying S2 client.
     pub s2_client: SecretServiceClient,
 
-    /// Index for all of the active first round sessions.
-    first_round_map: Arc<Mutex<BTreeMap<OutPoint, Musig2FirstRound>>>,
-
-    /// Index for all of the active second round sessions.
-    second_round_map: Arc<Mutex<BTreeMap<OutPoint, Musig2SecondRound>>>,
+    state: Arc<Mutex<MusigSessionManagerState>>,
 }
 impl MusigSessionManager {
     /// Creates a new [`MusigSessionManager`] from a [`SecretServiceClient`].
@@ -44,8 +49,10 @@ impl MusigSessionManager {
         MusigSessionManager {
             operator_table,
             s2_client,
-            first_round_map: Arc::new(Mutex::new(BTreeMap::new())),
-            second_round_map: Arc::new(Mutex::new(BTreeMap::new())),
+            state: Arc::new(Mutex::new(MusigSessionManagerState {
+                first_round_map: BTreeMap::new(),
+                second_round_map: BTreeMap::new(),
+            })),
         }
     }
 
@@ -56,7 +63,9 @@ impl MusigSessionManager {
         taproot_witness: TaprootWitness,
     ) -> Result<PubNonce, MusigSessionErr> {
         debug!(%outpoint, "getting first round nonce");
-        if let Some(first_round) = self.first_round_map.lock().await.get(&outpoint) {
+        let mut state = self.state.lock().await;
+
+        if let Some(first_round) = state.first_round_map.get(&outpoint) {
             return Ok(first_round.our_nonce().await?);
         }
 
@@ -84,10 +93,7 @@ impl MusigSessionManager {
 
         let ours = first_round.our_nonce().await?;
 
-        self.first_round_map
-            .lock()
-            .await
-            .insert(outpoint, first_round);
+        state.first_round_map.insert(outpoint, first_round);
 
         Ok(ours)
     }
@@ -101,9 +107,10 @@ impl MusigSessionManager {
     ) -> Result<(), MusigSessionErr> {
         debug!(%outpoint, "loading first round nonce");
 
-        let mut guard = self.first_round_map.lock().await;
+        let mut state = self.state.lock().await;
 
-        let first_round = guard
+        let first_round = state
+            .first_round_map
             .get_mut(&outpoint)
             .ok_or(MusigSessionErr::NotFound(outpoint))
             .inspect_err(|e| {
@@ -122,16 +129,15 @@ impl MusigSessionManager {
     ) -> Result<PartialSignature, MusigSessionErr> {
         debug!(%outpoint, "getting second round partial signature");
 
-        let second_round_map = self.second_round_map.lock().await;
-        if let Some(second_round) = second_round_map.get(&outpoint) {
+        let mut state = self.state.lock().await;
+
+        if let Some(second_round) = state.second_round_map.get(&outpoint) {
             debug!(%outpoint, "getting our partial signature");
 
             return Ok(second_round.our_signature().await?);
         }
-        drop(second_round_map);
 
-        let mut first_round_map = self.first_round_map.lock().await;
-        if let Some(first_round) = first_round_map.remove(&outpoint) {
+        if let Some(first_round) = state.first_round_map.remove(&outpoint) {
             let holdouts = first_round.holdouts().await?;
             debug!(%outpoint, ?holdouts, "fetched first round holdouts");
 
@@ -142,17 +148,14 @@ impl MusigSessionManager {
                 debug!(%outpoint, "getting our partial signature");
                 let ours = second_round.our_signature().await?;
 
-                trace!(%outpoint, "acquiring lock on second round map");
-                let mut second_round_map = self.second_round_map.lock().await;
-
                 trace!(%outpoint, "updating second round session with our signature");
-                second_round_map.insert(outpoint, second_round);
+                state.second_round_map.insert(outpoint, second_round);
 
                 Ok(ours)
             } else {
                 error!(?holdouts, "cannot proceed to second round with holdouts");
 
-                first_round_map.insert(outpoint, first_round);
+                state.first_round_map.insert(outpoint, first_round);
                 Err(MusigSessionErr::Premature)
             }
         } else {
@@ -170,8 +173,10 @@ impl MusigSessionManager {
     ) -> Result<(), MusigSessionErr> {
         debug!(%outpoint, "loading second round partial signature");
 
-        let mut guard = self.second_round_map.lock().await;
-        let second_round = guard
+        let mut state = self.state.lock().await;
+
+        let second_round = state
+            .second_round_map
             .get_mut(&outpoint)
             .ok_or(MusigSessionErr::NotFound(outpoint))
             .inspect_err(|e| {
@@ -187,8 +192,10 @@ impl MusigSessionManager {
     ) -> Result<LiftedSignature, MusigSessionErr> {
         debug!(%outpoint, "getting aggregated signature");
 
-        let mut guard = self.second_round_map.lock().await;
-        let second_round = guard
+        let mut state = self.state.lock().await;
+
+        let second_round = state
+            .second_round_map
             .remove(&outpoint)
             .ok_or(MusigSessionErr::NotFound(outpoint))
             .inspect_err(|e| {
@@ -198,8 +205,7 @@ impl MusigSessionManager {
             let sig = second_round.finalize().await??;
             Ok(sig)
         } else {
-            guard.insert(outpoint, second_round);
-            drop(guard);
+            state.second_round_map.insert(outpoint, second_round);
             Err(MusigSessionErr::Premature)
         }
     }
@@ -208,8 +214,9 @@ impl MusigSessionManager {
     ///
     /// This clears any MuSig2 first round and second round sessions.
     pub async fn drop_session(&self, outpoint: OutPoint) {
-        self.first_round_map.lock().await.remove(&outpoint);
-        self.second_round_map.lock().await.remove(&outpoint);
+        let mut state = self.state.lock().await;
+        state.first_round_map.remove(&outpoint);
+        state.second_round_map.remove(&outpoint);
     }
 }
 
