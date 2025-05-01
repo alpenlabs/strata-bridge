@@ -566,8 +566,6 @@ impl PegOutGraphConnectors {
     }
 }
 
-type PegOutGraphSighashes = PogMusigF<Message>;
-
 #[cfg(test)]
 mod tests {
     use std::{

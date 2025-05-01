@@ -683,7 +683,6 @@ impl ContractManagerCtx {
 
         match msg {
             UnsignedGossipsubMsg::StakeChainExchange {
-                stake_chain_id: _,
                 operator_pk,
                 pre_stake_txid,
                 pre_stake_vout,
@@ -1146,7 +1145,7 @@ impl ContractManagerCtx {
                 // If all the deposit setup data are present, we continue nagging for graph nonces.
                 // We can also do this simultaneously with the nags for deposit setup messages.
                 // However, this can be a bit wasteful during race conditions where we query for
-                // both deposit setup and nonces even although one or both of them may be en-route
+                // both deposit setup and nonces even though one or both of them may be en-route
                 // or being processed.
                 for (claim_txid, nonces) in graph_nonces {
                     let have = nonces
