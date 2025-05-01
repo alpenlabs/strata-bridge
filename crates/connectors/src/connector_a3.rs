@@ -131,7 +131,7 @@ impl ConnectorA3Leaf {
                     for _ in 0..64 { OP_FROMALTSTACK }
 
 
-                    // Send the public hash to alt stack, since blake3 requries only msg to be hashed on stack
+                    // Send the public hash to alt stack, since blake3 requires only msg to be hashed on stack
                     // Stack : [a,b,...,1,2] Alt-stack : [34,...,cd]
                     for _ in 0..32{
                         { 64 }
