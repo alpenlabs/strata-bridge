@@ -145,8 +145,7 @@ impl ConnectorA3Leaf {
                     // Stack : [ef,...,56,a,b,...,1,2] Alt-stack : [34,...,cd]
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
-                    // since sha256_stack requires input in nibble form.
-                    // convert 32 bytes (256 bits) deposit txid to nibbles
+                    // convert 32 bytes (256 bits) deposit txid to nibbles for further manipulation
                     // Stack : [e,f,...,5,6,a,b,...,1,2] Alt-stack : [34,...,cd]
                     { U256::transform_limbsize(8, 4) }
 
