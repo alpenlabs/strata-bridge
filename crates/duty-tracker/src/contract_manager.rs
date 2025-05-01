@@ -867,7 +867,7 @@ impl ContractManagerCtx {
                 info!("received request for stake chain exchange");
                 // TODO(proofofkeags): actually choose the correct stake chain
                 // inputs based off the stake chain id we receive.
-                Some(OperatorDuty::FulfillerDuty(FulfillerDuty::InitStakeChain))
+                Some(OperatorDuty::PublishStakeChainExchange)
             }
             GetMessageRequest::DepositSetup { scope, .. } => {
                 let deposit_txid = Txid::from_byte_array(*scope.as_ref());
@@ -1274,6 +1274,10 @@ async fn execute_duty(
     } = &*output_handles;
 
     match duty {
+        OperatorDuty::PublishStakeChainExchange => {
+            handle_publish_stake_chain_exchange(&cfg, &s2_client.s2_client, db, msg_handler).await
+        }
+
         OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
@@ -1382,6 +1386,41 @@ async fn execute_duty(
             Ok(())
         }
     }
+}
+
+async fn handle_publish_stake_chain_exchange(
+    cfg: &ExecutionConfig,
+    s2_client: &SecretServiceClient,
+    db: &SqliteDb,
+    msg_handler: &MessageHandler,
+) -> Result<(), ContractManagerErr> {
+    let pov_idx = cfg.operator_table.pov_idx();
+    let general_key = s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?
+        .to_x_only_pubkey();
+
+    if let Some(pre_stake) = db
+        .get_pre_stake(pov_idx)
+        .await
+        .expect("should be able to consult the database")
+    {
+        let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
+        info!(%stake_chain_id, "broadcasting pre-stake information");
+
+        msg_handler
+            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake.txid, pre_stake.vout)
+            .await;
+
+        return Ok(());
+    }
+
+    error!("pre-stake information does exist in the database");
+
+    Err(TransitionErr(
+        "pre-stake information missing in the database".to_string(),
+    ))?
 }
 
 async fn finalize_claim_funding_tx(

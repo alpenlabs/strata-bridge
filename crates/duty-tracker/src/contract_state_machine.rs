@@ -436,6 +436,9 @@ pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
 
+    /// Instructs us to publish our pre-stake data.
+    PublishStakeChainExchange,
+
     /// Instructs us to publish the setup data for this contract.
     PublishDepositSetup {
         /// Transaction ID of the DT
