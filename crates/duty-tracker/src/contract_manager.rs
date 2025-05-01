@@ -296,7 +296,7 @@ impl ContractManager {
                             match ctx.process_p2p_message(msg).await {
                                 Ok(ouroboros_duties) => {
                                     info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
-                                    debug!(?ouroboros_duties, "queuing duties generated via ouroboros");
+                                    debug!(?ouroboros_duties, "queueing duties generated via ouroboros");
 
                                     duties.extend(ouroboros_duties);
                                 },
@@ -1090,7 +1090,7 @@ impl ContractManagerCtx {
 
                 let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
 
-                info!(?operator_id, "queuing nag for stake chain exchange");
+                info!(?operator_id, "queueing nag for stake chain exchange");
                 Some(Command::RequestMessage(
                     GetMessageRequest::StakeChainExchange {
                         stake_chain_id,
@@ -1129,7 +1129,7 @@ impl ContractManagerCtx {
 
                     let scope = Scope::from_bytes(*txid.as_ref());
 
-                    info!(?operator_id, %txid, "queuing nag for deposit setup");
+                    info!(?operator_id, %txid, "queueing nag for deposit setup");
                     Some(Command::RequestMessage(GetMessageRequest::DepositSetup {
                         scope,
                         operator_pk: key.clone(),
@@ -1160,7 +1160,7 @@ impl ContractManagerCtx {
 
                         let session_id = SessionId::from_bytes(*claim_txid.as_ref());
 
-                        info!(?operator_id, %claim_txid, "queuing nag for graph nonces");
+                        info!(?operator_id, %claim_txid, "queueing nag for graph nonces");
                         Some(Command::RequestMessage(
                             GetMessageRequest::Musig2NoncesExchange {
                                 session_id,
@@ -1189,7 +1189,7 @@ impl ContractManagerCtx {
 
                         let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
 
-                        info!(?operator_id, %claim_txid, "queuing nag for graph signatures");
+                        info!(?operator_id, %claim_txid, "queueing nag for graph signatures");
                         Some(Command::RequestMessage(
                             GetMessageRequest::Musig2SignaturesExchange {
                                 session_id,
@@ -1218,7 +1218,7 @@ impl ContractManagerCtx {
 
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
-                    info!(?operator_id, %txid, "queuing nag for root nonces");
+                    info!(?operator_id, %txid, "queueing nag for root nonces");
                     Some(Command::RequestMessage(
                         GetMessageRequest::Musig2NoncesExchange {
                             session_id,
@@ -1245,7 +1245,7 @@ impl ContractManagerCtx {
 
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
-                    info!(?operator_id, %txid, "queuing nag for root signatures");
+                    info!(?operator_id, %txid, "queueing nag for root signatures");
                     Some(Command::RequestMessage(
                         GetMessageRequest::Musig2SignaturesExchange {
                             session_id,
@@ -1701,7 +1701,7 @@ async fn handle_publish_root_signature(
             })?
     }
 
-    info!("getting partial");
+    info!("getting partial root sig");
     let partial = s2_client
         .get_partial(prevout, sighash)
         .await
