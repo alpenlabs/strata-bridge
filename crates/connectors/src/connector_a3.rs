@@ -404,24 +404,6 @@ mod tests {
             withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
 
-        println!(
-            "withdrawal fullfillment txid: {}",
-            withdrawal_fulfillment_txid.to_byte_array()[..]
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<Vec<_>>()
-                .join("")
-        );
-
-        println!(
-            "deposit txid {}",
-            deposit_txid.to_byte_array()[..]
-                .iter()
-                .map(|b| format!("{:02x}", b))
-                .collect::<Vec<_>>()
-                .join("")
-        );
-
         let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
         let committed_public_inputs_hash =
             hash_public_inputs_with_fn(&serialized_public_inputs, blake3_hash);
@@ -534,24 +516,7 @@ mod tests {
         let witness_script = invalid_disprove_leaf.generate_witness_script();
         let full_script = witness_script.push_script(locking_script);
 
-        let res = execute_script(full_script);
-        for i in 0..res.final_stack.len() {
-            if res.final_stack.get(i).is_empty() {
-                println!("Pos : {} -- Value : {:?}", i, res.final_stack.get(i));
-            } else {
-                println!(
-                    "Pos : {} -- Value : {}",
-                    i,
-                    res.final_stack
-                        .get(i)
-                        .iter()
-                        .map(|b| format!("{:02X}", b))
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                );
-            }
-        }
-        res
+        execute_script(full_script)
     }
 
     fn get_disprove_leaf(
