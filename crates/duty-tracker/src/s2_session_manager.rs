@@ -43,6 +43,7 @@ pub struct MusigSessionManager {
 
     state: Arc<Mutex<MusigSessionManagerState>>,
 }
+
 impl MusigSessionManager {
     /// Creates a new [`MusigSessionManager`] from a [`SecretServiceClient`].
     pub fn new(operator_table: OperatorTable, s2_client: SecretServiceClient) -> Self {
@@ -82,7 +83,11 @@ impl MusigSessionManager {
 
         let ours = first_round.our_nonce().await?;
 
-        state.first_round_map.insert(outpoint, first_round);
+        self.state
+            .lock()
+            .await
+            .first_round_map
+            .insert(outpoint, first_round);
 
         Ok(ours)
     }
