@@ -166,8 +166,8 @@ serde_json = { version = "1.0", default-features = false, features = [
 ] }
 serde_with = "3.12.0"
 sha2 = "0.10"
-sp1-sdk = "4.0.0"
-sp1-verifier = "4.1.1"
+sp1-sdk = "4.2.0"
+sp1-verifier = "4.2.0"
 sqlx = { version = "0.8.2", features = [
   "sqlite",
   "runtime-tokio",

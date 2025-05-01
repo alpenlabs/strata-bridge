@@ -11,7 +11,7 @@ use bitcoin::{
 use bitvm::{
     bigint::U256,
     chunk::api::{api_generate_full_tapscripts, NUM_TAPS},
-    hash::blake3::blake3_compute_script,
+    hash::{blake3::blake3_compute_script, sha256_u4_stack::sha256_script},
     pseudo::NMUL,
     signatures::wots_api::{wots256, SignatureImpl},
     treepp::*,
@@ -161,9 +161,11 @@ impl ConnectorA3Leaf {
                     }
                     for _ in 0..128 { OP_FROMALTSTACK }
 
+                    //TODO: correct the ordering and limbsize for use in blake3
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
-                    { blake3_compute_script(2 * 32)}
+                    // { blake3_compute_script(2 * 32)}
+                    {sha256_script(2*32)}
 
                     // convert the hash from nibble representation to bytes
                     { U256::transform_limbsize(4, 8) }
@@ -359,7 +361,7 @@ impl ConnectorA3 {
 
 #[cfg(test)]
 mod tests {
-    use sp1_verifier::hash_public_inputs;
+    use sp1_verifier::{hash_public_inputs_with_fn, sha256_hash};
     use strata_bridge_primitives::{
         scripts::parse_witness::parse_wots256_signatures, wots::Wots256PublicKey,
     };
@@ -379,7 +381,8 @@ mod tests {
         };
 
         let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
-        let committed_public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
+        let committed_public_inputs_hash =
+            hash_public_inputs_with_fn(&serialized_public_inputs, sha256_hash);
 
         let msk: &str = "test-disprove-public-inputs-hash";
 
@@ -405,7 +408,8 @@ mod tests {
             withdrawal_fulfillment_txid: generate_txid().into(),
             deposit_txid: deposit_txid.into(),
         };
-        let faulty_inputs_hash = hash_public_inputs(&borsh::to_vec(&faulty_public_inputs).unwrap());
+        let faulty_inputs_hash =
+            hash_public_inputs_with_fn(&borsh::to_vec(&faulty_public_inputs).unwrap(), sha256_hash);
 
         let valid_disprove_leaf = get_disprove_leaf(
             msk,
@@ -429,7 +433,8 @@ mod tests {
             deposit_txid: generate_txid().into(),
             withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
-        let faulty_inputs_hash = hash_public_inputs(&borsh::to_vec(&faulty_public_inputs).unwrap());
+        let faulty_inputs_hash =
+            hash_public_inputs_with_fn(&borsh::to_vec(&faulty_public_inputs).unwrap(), sha256_hash);
 
         let valid_disprove_leaf = get_disprove_leaf(
             msk,
