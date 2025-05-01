@@ -1,17 +1,17 @@
 use std::{sync::Arc, time::Duration};
 
 use bitcoin::{Transaction, Txid};
+use bitcoind_async_client::traits::Reader;
 use strata_bridge_db::{public::PublicDb, tracker::BitcoinBlockTrackerDb};
 #[expect(deprecated)]
 use strata_bridge_primitives::{
     constants::NUM_ASSERT_DATA_TX, duties::VerifierDuty, types::OperatorIdx,
 };
-use strata_btcio::rpc::traits::ReaderRpc;
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone)]
-pub struct BitcoinWatcher<D: BitcoinBlockTrackerDb, P: PublicDb, R: ReaderRpc> {
+pub struct BitcoinWatcher<D: BitcoinBlockTrackerDb, P: PublicDb, R: Reader> {
     db: Arc<D>,
 
     public_db: Arc<P>,
@@ -27,7 +27,7 @@ impl<D, P, R> BitcoinWatcher<D, P, R>
 where
     D: BitcoinBlockTrackerDb + Send + Sync + 'static,
     P: PublicDb + Send + Sync + 'static,
-    R: ReaderRpc + Send + Sync + 'static,
+    R: Reader + Send + Sync + 'static,
 {
     pub fn new(
         db: Arc<D>,

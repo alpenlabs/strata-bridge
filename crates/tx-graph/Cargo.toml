@@ -32,8 +32,8 @@ strata-bridge-common.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-test-utils.workspace = true
-strata-btcio.workspace = true
 
+bitcoind-async-client.workspace = true
 corepc-node.workspace = true
 rkyv.workspace = true
 serde_json.workspace = true

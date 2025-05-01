@@ -922,6 +922,7 @@ dependencies = [
  "async-trait",
  "bdk_bitcoind_rpc",
  "bitcoin",
+ "bitcoind-async-client",
  "btc-notify",
  "chrono",
  "clap",
@@ -943,7 +944,6 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-rpc",
  "strata-bridge-stake-chain",
- "strata-btcio",
  "strata-p2p",
  "strata-p2p-types",
  "strata-primitives",
@@ -1905,7 +1905,7 @@ dependencies = [
  "bitflags 2.9.0",
  "cexpr",
  "clang-sys",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -2072,6 +2072,24 @@ dependencies = [
  "futures-util",
  "zmq",
  "zmq-sys",
+]
+
+[[package]]
+name = "bitcoind-async-client"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b3e703ed04df841307eb6b4a5a430800fafcc4290221909f46696924ac40a1d"
+dependencies = [
+ "base64 0.22.1",
+ "bitcoin",
+ "hex-conservative",
+ "reqwest 0.12.15",
+ "secp256k1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -3268,6 +3286,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bitcoin",
+ "bitcoind-async-client",
  "chrono",
  "clap",
  "jsonrpsee",
@@ -3280,7 +3299,6 @@ dependencies = [
  "strata-bridge-db",
  "strata-bridge-primitives",
  "strata-bridge-rpc",
- "strata-btcio",
  "strata-primitives",
  "strata-rpc-api",
  "tokio",
@@ -3424,6 +3442,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "bitcoin-bosd",
+ "bitcoind-async-client",
  "bitvm",
  "borsh",
  "btc-notify",
@@ -3443,7 +3462,6 @@ dependencies = [
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
- "strata-btcio",
  "strata-l1tx",
  "strata-p2p",
  "strata-p2p-types",
@@ -7893,7 +7911,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.5.0",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "log",
  "multimap",
  "once_cell",
@@ -7913,7 +7931,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.13.0",
  "proc-macro2",
  "quote",
  "syn 2.0.100",
@@ -7934,13 +7952,13 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bitcoin",
+ "bitcoind-async-client",
  "borsh",
  "hex",
  "serde",
  "serde_json",
  "sp1-core-machine",
  "strata-bridge-proof-primitives",
- "strata-btcio",
  "strata-l1tx",
  "strata-primitives",
  "strata-proofimpl-btc-blockspace",
@@ -10231,6 +10249,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "bitcoin-bosd",
+ "bitcoind-async-client",
  "bitvm",
  "borsh",
  "indexmap 2.8.0",
@@ -10250,7 +10269,6 @@ dependencies = [
  "strata-bridge-proof-snark",
  "strata-bridge-stake-chain",
  "strata-bridge-tx-graph",
- "strata-btcio",
  "strata-l1tx",
  "strata-primitives",
  "strata-rpc-api",
@@ -10278,6 +10296,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "bitcoin-script",
+ "bitcoind-async-client",
  "bitvm",
  "borsh",
  "corepc-node",
@@ -10288,7 +10307,6 @@ dependencies = [
  "strata-bridge-proof-protocol",
  "strata-bridge-proof-snark",
  "strata-bridge-test-utils",
- "strata-btcio",
  "tracing",
 ]
 
@@ -10463,6 +10481,7 @@ version = "0.1.0"
 dependencies = [
  "arbitrary",
  "bitcoin",
+ "bitcoind-async-client",
  "bitvm",
  "corepc-node",
  "hex",
@@ -10472,7 +10491,6 @@ dependencies = [
  "serde",
  "serde_json",
  "strata-bridge-primitives",
- "strata-btcio",
  "strata-primitives",
 ]
 
@@ -10484,6 +10502,7 @@ dependencies = [
  "bitcoin",
  "bitcoin-bosd",
  "bitcoin-script",
+ "bitcoind-async-client",
  "bitvm",
  "corepc-node",
  "rkyv",
@@ -10496,7 +10515,6 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",
- "strata-btcio",
  "strata-p2p-types",
  "strata-primitives",
  "thiserror 2.0.12",

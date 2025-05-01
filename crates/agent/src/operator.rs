@@ -20,6 +20,10 @@ use bitcoin::{
     Block, OutPoint, TapNodeHash, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitcoin_bosd::Descriptor;
+use bitcoind_async_client::{
+    error::ClientError,
+    traits::{Broadcaster, Reader, Signer},
+};
 use bitvm::{
     chunk::api::{api_generate_full_tapscripts, generate_assertions, validate_assertions},
     signatures::wots_api::HASH_LEN,
@@ -65,10 +69,6 @@ use strata_bridge_stake_chain::{
 use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphConnectors, PegOutGraphInput},
     transactions::prelude::*,
-};
-use strata_btcio::rpc::{
-    error::ClientError,
-    traits::{BroadcasterRpc, ReaderRpc, SignerRpc},
 };
 use strata_primitives::{
     buf::{Buf32, Buf64},

@@ -564,6 +564,7 @@ mod tests {
         taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
         Transaction, TxOut,
     };
+    use bitcoind_async_client::types::GetTxOut;
     use bitvm::signatures::wots_api::HASH_LEN;
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
@@ -591,7 +592,6 @@ mod tests {
         },
         tx::get_mock_deposit,
     };
-    use strata_btcio::rpc::types::GetTxOut;
     use tracing::{info, warn};
 
     use super::*;

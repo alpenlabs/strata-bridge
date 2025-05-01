@@ -12,12 +12,12 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 strata-bridge-primitives.workspace = true
-strata-btcio.workspace = true
 
 strata-primitives.workspace = true
 
 arbitrary.workspace = true
 bitcoin.workspace = true
+bitcoind-async-client.workspace = true
 bitvm.workspace = true
 corepc-node.workspace = true
 hex.workspace = true

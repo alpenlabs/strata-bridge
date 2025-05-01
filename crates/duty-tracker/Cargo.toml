@@ -24,7 +24,6 @@ strata-bridge-primitives.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 
-strata-btcio.workspace = true
 strata-l1tx.workspace = true
 strata-p2p.workspace = true
 strata-p2p-types.workspace = true
@@ -36,6 +35,7 @@ bdk_wallet.workspace = true
 bincode.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
+bitcoind-async-client.workspace = true
 bitvm.workspace = true
 borsh.workspace = true
 btc-notify.workspace = true

@@ -23,11 +23,10 @@ strata-bridge-rpc.workspace = true
 strata-primitives.workspace = true
 strata-rpc-api.workspace = true
 
-strata-btcio.workspace = true
-
 anyhow.workspace = true
 async-trait.workspace = true
 bitcoin.workspace = true
+bitcoind-async-client.workspace = true
 chrono.workspace = true
 clap.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
