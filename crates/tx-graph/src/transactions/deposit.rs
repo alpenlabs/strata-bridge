@@ -5,8 +5,8 @@
 
 use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{
-    sighash::Prevouts, taproot::LeafVersion, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, TxOut,
-    XOnlyPublicKey,
+    sighash::Prevouts, taproot::LeafVersion, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash,
+    TapSighashType, TxOut, XOnlyPublicKey,
 };
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{
@@ -142,7 +142,7 @@ impl DepositRequestData {
 
 /// The Deposit Transaction constructed off of the information in the Deposit Request Transaction
 /// (aka [`DepositRequestData`]).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositTx {
     psbt: Psbt,
     prevouts: [TxOut; 1],
@@ -224,9 +224,12 @@ impl DepositTx {
 
         for (i, input) in psbt.inputs.iter_mut().enumerate() {
             input.witness_utxo = Some(prevouts[i].clone());
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
-        let witnesses = [TaprootWitness::Key];
+        let witnesses = [TaprootWitness::Tweaked {
+            tweak: takeback_script_hash,
+        }];
 
         Ok(Self {
             psbt,

@@ -3257,7 +3257,6 @@ dependencies = [
  "miniscript",
  "serde_json",
  "strata-bridge-common",
- "strata-primitives",
  "tokio",
  "tracing",
 ]

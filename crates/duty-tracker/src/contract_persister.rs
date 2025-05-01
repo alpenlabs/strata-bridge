@@ -7,6 +7,7 @@ use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
 };
+use strata_bridge_tx_graph::transactions::prelude::CovenantTx;
 use strata_primitives::params::RollupParams;
 use thiserror::Error;
 
@@ -19,11 +20,13 @@ pub enum ContractPersistErr {
     #[error("Unexpected error: {0}")]
     Unexpected(String),
 }
+
 impl From<Box<ErrorKind>> for ContractPersistErr {
     fn from(e: Box<ErrorKind>) -> Self {
         ContractPersistErr::Unexpected(e.to_string())
     }
 }
+
 impl From<serde_json::Error> for ContractPersistErr {
     fn from(e: serde_json::Error) -> Self {
         ContractPersistErr::Unexpected(e.to_string())
@@ -47,7 +50,6 @@ impl ContractPersister {
                 deposit_txid CHAR(64) PRIMARY KEY,
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx VARBINARY NOT NULL,
-                deposit_info VARBINARY NOT NULL,
                 operator_table VARBINARY NOT NULL,
                 state VARBINARY NOT NULL
             )
@@ -72,9 +74,8 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                state,
-                deposit_info
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                state
+            ) VALUES (?, ?, ?, ?, ?)
             "#,
         )
         .bind(cfg.deposit_tx.compute_txid().to_string())
@@ -82,7 +83,6 @@ impl ContractPersister {
         .bind(bincode::serialize(&cfg.deposit_tx)?)
         .bind(bincode::serialize(&cfg.operator_table)?)
         .bind(bincode::serialize(&state)?)
-        .bind(bincode::serialize(&cfg.deposit_info)?)
         .execute(&self.pool)
         .await
         .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
@@ -138,8 +138,7 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                state,
-                deposit_info
+                state
             FROM contracts WHERE deposit_txid = ?
             "#,
         )
@@ -162,10 +161,6 @@ impl ContractPersister {
             row.try_get("state")
                 .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
         )?;
-        let deposit_info = bincode::deserialize(
-            row.try_get("deposit_info")
-                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-        )?;
 
         Ok((
             ContractCfg {
@@ -177,7 +172,6 @@ impl ContractPersister {
                 peg_out_graph_params,
                 sidesystem_params,
                 stake_chain_params,
-                deposit_info,
             },
             state,
         ))
@@ -199,8 +193,7 @@ impl ContractPersister {
                 deposit_idx,
                 deposit_tx,
                 operator_table,
-                state,
-                deposit_info
+                state
             FROM contracts
             "#,
         )
@@ -224,10 +217,6 @@ impl ContractPersister {
                     row.try_get("state")
                         .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
                 )?;
-                let deposit_info = bincode::deserialize(
-                    row.try_get("deposit_info")
-                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-                )?;
                 Ok((
                     ContractCfg {
                         network,
@@ -239,7 +228,6 @@ impl ContractPersister {
                         // later
                         deposit_idx,
                         deposit_tx,
-                        deposit_info,
                     },
                     state,
                 ))

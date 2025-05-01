@@ -44,14 +44,9 @@ fn handle_bridge_in(args: cli::BridgeInArgs) -> Result<()> {
     let strata_address = EvmAddress::from_str(&args.strata_address)?;
     let recovery_pubkey = deposit_request::get_recovery_pubkey();
 
-    let aggregated_pubkey = deposit_request::get_aggregated_pubkey();
-
-    let n_of_n_multisig_script =
-        deposit_request::build_n_of_n_multisig_miniscript(aggregated_pubkey);
     let timelock_script = deposit_request::build_timelock_miniscript(recovery_pubkey);
 
-    let (_script_hash, taproot_address) =
-        deposit_request::generate_taproot_address(&secp, n_of_n_multisig_script, timelock_script);
+    let taproot_address = deposit_request::generate_taproot_address(&secp, timelock_script);
 
     let psbt = psbt_wallet.create_psbt(
         &taproot_address,

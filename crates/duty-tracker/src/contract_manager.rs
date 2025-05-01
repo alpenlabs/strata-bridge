@@ -35,14 +35,15 @@ use strata_bridge_connectors::prelude::ConnectorStake;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{
-    build_context::BuildContext,
-    operator_table::OperatorTable,
-    scripts::taproot::{create_message_hash, TaprootWitness},
+    build_context::BuildContext, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
 };
 use strata_bridge_stake_chain::{
     prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
 };
-use strata_bridge_tx_graph::pog_musig_functor::PogMusigF;
+use strata_bridge_tx_graph::{
+    pog_musig_functor::PogMusigF,
+    transactions::{deposit::DepositTx, prelude::CovenantTx},
+};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{
     P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
@@ -62,6 +63,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
+        TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
     predicates::{deposit_request_info, parse_strata_checkpoint},
@@ -453,7 +455,7 @@ impl ContractManagerCtx {
                     &self.cfg.pegout_graph_params,
                     &self.cfg.sidesystem_params,
                 ) {
-                    Ok(tx) => tx.psbt().unsigned_tx.clone(),
+                    Ok(tx) => tx,
                     Err(err) => {
                         error!(
                             ?deposit_request_data,
@@ -493,7 +495,6 @@ impl ContractManagerCtx {
                     stake_index,
                     deposit_request_txid,
                     deposit_tx,
-                    deposit_info,
                     stake_chain_inputs,
                 );
 
@@ -935,13 +936,8 @@ impl ContractManagerCtx {
                     info!(%deposit_request_txid, "received nag for root nonces");
 
                     if let ContractState::Requested { .. } = csm.state().state {
-                        let deposit_info = csm.cfg().deposit_info.clone();
-                        let witness = deposit_info
-                            .compute_spend_infos(
-                                &csm.cfg().operator_table.tx_build_context(csm.cfg().network),
-                                csm.cfg().peg_out_graph_params.refund_delay,
-                            )
-                            .expect("must be able to compute taproot witness for DT");
+                        let witness = csm.cfg().deposit_tx.witnesses()[0].clone();
+
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid,
                             witness,
@@ -1006,38 +1002,8 @@ impl ContractManagerCtx {
                         let deposit_request_txid = session_id_as_txid;
                         info!(%deposit_request_txid, "received nag for root nonces");
 
-                        let deposit_info = csm.cfg().deposit_info.clone();
-                        let tx_signing_data = deposit_info
-                            .construct_signing_data(
-                                &csm.cfg().operator_table.tx_build_context(csm.cfg().network),
-                                &csm.cfg().peg_out_graph_params,
-                                &self.cfg.sidesystem_params,
-                            )
-                            .expect(
-                                "this should've already been checked when contract is instantiated",
-                            );
-
-                        let deposit_psbt = &tx_signing_data.psbt;
-                        let mut sighash_cache =
-                            SighashCache::new(&tx_signing_data.psbt.unsigned_tx);
-                        let prevouts = deposit_psbt
-                            .inputs
-                            .iter()
-                            .map(|input| input.witness_utxo.clone().expect("must have been set"))
-                            .collect::<Vec<_>>();
-
-                        let witness_type = &tx_signing_data.spend_path;
-                        let sighash_type = TapSighashType::All;
-                        let input_index = 0;
-
-                        let msg = create_message_hash(
-                            &mut sighash_cache,
-                            Prevouts::All(&prevouts),
-                            witness_type,
-                            sighash_type,
-                            input_index,
-                        )
-                        .expect("must be able to construct the message hash for DT");
+                        let deposit_tx = &csm.cfg().deposit_tx;
+                        let sighash = deposit_tx.sighashes()[0];
 
                         Some(OperatorDuty::PublishRootSignature {
                             deposit_request_txid: session_id_as_txid,
@@ -1046,7 +1012,7 @@ impl ContractManagerCtx {
                                 .operator_table
                                 .convert_map_op_to_btc(root_nonces.clone())
                                 .expect("received nonces from non-existent operator"),
-                            sighash: msg,
+                            sighash,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1368,13 +1334,11 @@ async fn execute_duty(
             deposit_tx,
 
             partial_sigs,
-            witness,
         } => {
             handle_publish_deposit(
                 &output_handles.s2_session_manager,
                 &output_handles.tx_driver,
                 deposit_tx,
-                witness,
                 partial_sigs
                     .into_iter()
                     .map(|(k, v)| (cfg.operator_table.op_key_to_btc_key(&k).unwrap(), v))
@@ -1775,13 +1739,19 @@ async fn handle_publish_root_signature(
 async fn handle_publish_deposit(
     musig: &MusigSessionManager,
     tx_driver: &TxDriver,
-    deposit_tx: Transaction,
-    witness: TaprootWitness,
+    deposit_tx: DepositTx,
     partials: BTreeMap<secp256k1::PublicKey, PartialSignature>,
 ) -> Result<(), ContractManagerErr> {
     info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
 
-    let prevout = deposit_tx.input.first().unwrap().previous_output;
+    let prevout = deposit_tx
+        .psbt()
+        .unsigned_tx
+        .input
+        .first()
+        .unwrap()
+        .previous_output;
+
     for (pk, partial) in partials {
         musig
             .put_partial(prevout, pk.to_x_only_pubkey(), partial)
@@ -1796,7 +1766,7 @@ async fn handle_publish_deposit(
         sighash_type: TapSighashType::All,
     };
 
-    let mut sighasher = SighashCache::new(deposit_tx);
+    let mut sighasher = SighashCache::new(deposit_tx.psbt().unsigned_tx.clone());
 
     let deposit_tx_witness = sighasher.witness_mut(0).expect("must have first input");
     deposit_tx_witness.push(taproot_sig.to_vec());
@@ -1804,7 +1774,7 @@ async fn handle_publish_deposit(
     if let TaprootWitness::Script {
         script_buf,
         control_block,
-    } = witness
+    } = &deposit_tx.witnesses()[0]
     {
         deposit_tx_witness.push(script_buf.to_bytes());
         deposit_tx_witness.push(control_block.serialize());

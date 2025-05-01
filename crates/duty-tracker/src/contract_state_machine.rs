@@ -19,7 +19,6 @@ use musig2::{
 };
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
-    deposit::DepositInfo,
     operator_table::OperatorTable,
     scripts::taproot::{create_message_hash, TaprootWitness},
     types::{BitcoinBlockHeight, OperatorIdx},
@@ -32,7 +31,10 @@ use strata_bridge_stake_chain::{
 use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
     pog_musig_functor::PogMusigF,
-    transactions::prelude::WithdrawalMetadata,
+    transactions::{
+        deposit::DepositTx,
+        prelude::{CovenantTx, WithdrawalMetadata},
+    },
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_primitives::params::RollupParams;
@@ -504,13 +506,10 @@ pub enum OperatorDuty {
     /// Instructs us to submit the deposit transaction to the network.
     PublishDeposit {
         /// Deposit transaction to be signed and published.
-        deposit_tx: Transaction,
+        deposit_tx: DepositTx,
 
         /// Partial signatures from peers.
         partial_sigs: BTreeMap<P2POperatorPubKey, PartialSignature>,
-
-        /// The taproot witness required to reconstruct the taproot control block for the outpoint.
-        witness: TaprootWitness,
     },
 
     /// Injection function for a FulfillerDuty.
@@ -613,10 +612,7 @@ pub struct ContractCfg {
     pub deposit_idx: u32,
 
     /// The predetermined deposit transaction that the rest of the graph is built from.
-    pub deposit_tx: Transaction,
-
-    /// Information about the deposit transaction.
-    pub deposit_info: DepositInfo,
+    pub deposit_tx: DepositTx,
 }
 
 impl ContractCfg {
@@ -679,8 +675,7 @@ impl ContractSM {
         abort_deadline: BitcoinBlockHeight,
         deposit_idx: u32,
         deposit_request_txid: Txid,
-        deposit_tx: Transaction,
-        deposit_info: DepositInfo,
+        deposit_tx: DepositTx,
         stake_chain_inputs: StakeChainInputs,
     ) -> (Self, OperatorDuty) {
         let deposit_txid = deposit_tx.compute_txid();
@@ -693,7 +688,6 @@ impl ContractSM {
             stake_chain_params,
             deposit_idx,
             deposit_tx,
-            deposit_info,
         };
 
         let state = ContractState::Requested {
@@ -1136,13 +1130,7 @@ impl ContractSM {
                 Ok(if have_all_partials {
                     info!(%claim_txid, "received all partials for all graphs");
 
-                    let deposit_info = self.cfg.deposit_info.clone();
-                    let witness = deposit_info
-                        .compute_spend_infos(
-                            &self.cfg().tx_build_context(),
-                            self.cfg().peg_out_graph_params.refund_delay,
-                        )
-                        .expect("must be able to compute taproot witness for DT");
+                    let witness = self.cfg().deposit_tx.witnesses()[0].clone();
 
                     Some(OperatorDuty::PublishRootNonce {
                         deposit_request_txid,
@@ -1184,26 +1172,21 @@ impl ContractSM {
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
                         // we have all the sigs now
                         // issue deposit signature
-                        let deposit_info = self.cfg.deposit_info.clone();
-                        let tx_signing_data = deposit_info
-                            .construct_signing_data(
-                                &self.cfg.tx_build_context(),
-                                &self.cfg.peg_out_graph_params,
-                                &self.cfg.sidesystem_params,
-                            )
-                            .expect("should be able to reconstruct the DRT");
+                        let deposit_tx = &self.cfg.deposit_tx;
 
-                        let txouts = tx_signing_data
-                            .psbt
+                        let txouts = deposit_tx
+                            .psbt()
                             .inputs
-                            .into_iter()
-                            .map(|i| i.witness_utxo.expect("witness_utxo must be set"))
+                            .iter()
+                            .map(|i| i.witness_utxo.clone().expect("witness_utxo must be set"))
                             .collect::<Vec<_>>();
 
+                        let witness = &deposit_tx.witnesses()[0];
+
                         let sighash = create_message_hash(
-                            &mut SighashCache::new(&tx_signing_data.psbt.unsigned_tx),
+                            &mut SighashCache::new(&deposit_tx.psbt().unsigned_tx),
                             Prevouts::All(&txouts),
-                            &tx_signing_data.spend_path,
+                            witness,
                             TapSighashType::All,
                             0,
                         )
@@ -1249,20 +1232,10 @@ impl ContractSM {
                     if root_partials.len() == self.cfg.operator_table.cardinality() {
                         // we have all the deposit sigs now
                         // we can publish the deposit
-                        let tx_signing_data = self
-                            .cfg
-                            .deposit_info
-                            .construct_signing_data(
-                                &self.cfg.tx_build_context(),
-                                &self.cfg.peg_out_graph_params,
-                                &self.cfg.sidesystem_params,
-                            )
-                            .expect("deposit info must be valid");
 
                         Some(OperatorDuty::PublishDeposit {
                             partial_sigs: root_partials.clone(),
                             deposit_tx: self.cfg.deposit_tx.clone(),
-                            witness: tx_signing_data.spend_path,
                         })
                     } else {
                         None
@@ -1800,6 +1773,8 @@ impl ContractSM {
     pub fn deposit_request_txid(&self) -> Txid {
         self.cfg
             .deposit_tx
+            .psbt()
+            .unsigned_tx
             .input
             .first()
             .unwrap()
