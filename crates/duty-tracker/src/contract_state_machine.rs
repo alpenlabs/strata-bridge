@@ -442,6 +442,9 @@ pub enum OperatorDuty {
 
         /// Partial signatures from peers.
         partial_sigs: BTreeMap<P2POperatorPubKey, PartialSignature>,
+
+        /// The taproot witness required to reconstruct the taproot control block for the outpoint.
+        witness: TaprootWitness,
     },
 
     /// Injection function for a FulfillerDuty.
@@ -626,6 +629,7 @@ impl ContractSM {
             deposit_tx,
             deposit_info,
         };
+
         let state = ContractState::Requested {
             deposit_request_txid,
             abort_deadline,
@@ -642,18 +646,20 @@ impl ContractSM {
             block_height,
             state,
         };
-        (
-            ContractSM {
-                cfg,
-                state,
-                pog: BTreeMap::new(),
-            },
-            OperatorDuty::PublishDepositSetup {
-                deposit_txid,
-                deposit_idx,
-                stake_chain_inputs,
-            },
-        )
+
+        let contract_sm = ContractSM {
+            cfg,
+            state,
+            pog: BTreeMap::new(),
+        };
+
+        let duty = OperatorDuty::PublishDepositSetup {
+            deposit_txid,
+            deposit_idx,
+            stake_chain_inputs,
+        };
+
+        (contract_sm, duty)
     }
 
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]
@@ -1157,7 +1163,6 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         sig: PartialSignature,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        let deposit_tx = self.cfg().deposit_tx.clone();
         match &mut self.state.state {
             ContractState::Requested { root_partials, .. } => {
                 if root_partials.contains_key(&signer) {
@@ -1171,9 +1176,20 @@ impl ContractSM {
                     if root_partials.len() == self.cfg.operator_table.cardinality() {
                         // we have all the deposit sigs now
                         // we can publish the deposit
+                        let tx_signing_data = self
+                            .cfg
+                            .deposit_info
+                            .construct_signing_data(
+                                &self.cfg.tx_build_context(),
+                                &self.cfg.peg_out_graph_params,
+                                &self.cfg.sidesystem_params,
+                            )
+                            .expect("deposit info must be valid");
+
                         Some(OperatorDuty::PublishDeposit {
                             partial_sigs: root_partials.clone(),
-                            deposit_tx,
+                            deposit_tx: self.cfg.deposit_tx.clone(),
+                            witness: tx_signing_data.spend_path,
                         })
                     } else {
                         None
