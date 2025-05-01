@@ -4,6 +4,7 @@
 //! AssertData transactions and the Claim transaction by the operator.
 use bitcoin::{
     hashes::Hash,
+    opcodes::all::OP_TOALTSTACK,
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},
     Address, Network, ScriptBuf, TapSighashType, Txid,
@@ -131,9 +132,10 @@ impl ConnectorA3Leaf {
                     for _ in 0..64 { OP_FROMALTSTACK }
 
 
-                    //Send the public hash to alt stack
+                    // Send the public hash to alt stack, since blake3 requries only msg to be hashed on stack
+                    // Stack : [a,b,...,1,2] Alt-stack : [34,...,cd]
                     for _ in 0..32{
-                        {64}
+                        { 64 }
                         OP_ROLL
                         OP_TOALTSTACK
                     }
@@ -141,68 +143,50 @@ impl ConnectorA3Leaf {
                     // include the deposit txid in the script to couple proofs with deposits.
                     // this is part of the commitment to the public inputs (along with the
                     // withdrawal_fulfillment txid.
-                    // Stack : [ef,...,56,a,b,...,1,2,cd,...,34] Alt-stack : []
+                    // Stack : [ef,...,56,a,b,...,1,2] Alt-stack : [34,...,cd]
                     for &b in deposit_txid.to_byte_array().iter().rev() { { b } } // add_bincode_padding_bytes32
 
                     // since sha256_stack requires input in nibble form.
                     // convert 32 bytes (256 bits) deposit txid to nibbles
-                    // Stack : [e,f,...,5,6,a,b,...,1,2,cd,...,34] Alt-stack : []
+                    // Stack : [e,f,...,5,6,a,b,...,1,2] Alt-stack : [34,...,cd]
                     { U256::transform_limbsize(8, 4) }
 
 
-                    // the 128 nibbles to be hashed is reversed first to ensure deposit txid is on top
-                    // Stack : [2,1,...,b,a,6,5,...,f,e,cd,...,34] Alt-stack : []
+                    // the 128 nibbles to be hashed is reversed first to ensure deposit txid is first to be hashed
+                    // Stack : [2,1,...,b,a,6,5,...,f,e] Alt-stack : [34,...,cd]
                     for i in (1..=127).rev(){
                         { i } OP_ROLL
                         OP_TOALTSTACK
                     }
-                    for _ in 1..=127{ OP_FROMALTSTACK }
-
-                    // The above message is in little-endian (per byte) which needs to be converted to big-endian(per byte).
-                    // This is done by swapping the adjacent nibbles of each byte
-                    // Stack : [1,2,...,a,b,5,6,...,e,f,cd,...,34] Alt-stack : []
-                    for _ in (0..128).step_by(2) {
-                        OP_SWAP
-                        OP_TOALTSTACK
-                        OP_TOALTSTACK
-                    }
+                    OP_TOALTSTACK
 
                     // The entire 64 byte input needs to be converted to little-endian 32-bit words for blake3
                     for _ in 0..16{
+                        //reverse each word (8 nibbles)
                         for _ in 0..8{
                             OP_FROMALTSTACK
                         }
                         for i in (1..=7).rev(){
-                            {i}
+                            { i }
                             OP_ROLL
                             OP_TOALTSTACK
                         }
                         for _ in 1..=7{ OP_FROMALTSTACK }
-
-                        for _ in (0..8).step_by(2){
-                            OP_SWAP
-                            OP_TOALTSTACK
-                            OP_TOALTSTACK
-                        }
-                        for _ in 0..8 {OP_FROMALTSTACK}
                     }
 
                     // Blake3 expects input in limb of size 29. The input, currently in nibbles is transformed to limb of 29 bits.
-                    { U256::transform_limbsize(4, 29)}
-
+                    { U256::transform_limbsize(4, 29) }
                     for _ in 0..9{
                         OP_TOALTSTACK
                     }
-
-                    {U256::transform_limbsize(4, 29)}
-
+                    { U256::transform_limbsize(4, 29) }
                     for _ in 0..9{
                         OP_FROMALTSTACK
                     }
 
                     // hash the deposit txid and the withdrawal fulfillment txid to get the public
                     // inputs hash
-                    { blake3_compute_script(2 * 32)}
+                    { blake3_compute_script(2 * 32) }
 
                     // convert the hash from nibble representation to bytes
                     { U256::transform_limbsize(4, 8) }
@@ -218,7 +202,7 @@ impl ConnectorA3Leaf {
                     hash_to_bn254_fq
 
                     //bring the public hash from alt stack
-                    for _ in 0..32{OP_FROMALTSTACK}
+                    for _ in 0..32{ OP_FROMALTSTACK }
 
 
                     // verify that the computed hash and the committed inputs hash don't match
@@ -421,6 +405,24 @@ mod tests {
             withdrawal_fulfillment_txid: withdrawal_fulfillment_txid.into(),
         };
 
+        println!(
+            "withdrawal fullfillment txid: {}",
+            withdrawal_fulfillment_txid.to_byte_array()[..]
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join("")
+        );
+
+        println!(
+            "deposit txid {}",
+            deposit_txid.to_byte_array()[..]
+                .iter()
+                .map(|b| format!("{:02x}", b))
+                .collect::<Vec<_>>()
+                .join("")
+        );
+
         let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
         let committed_public_inputs_hash =
             hash_public_inputs_with_fn(&serialized_public_inputs, blake3_hash);
@@ -533,7 +535,24 @@ mod tests {
         let witness_script = invalid_disprove_leaf.generate_witness_script();
         let full_script = witness_script.push_script(locking_script);
 
-        execute_script(full_script)
+        let res = execute_script(full_script);
+        for i in 0..res.final_stack.len() {
+            if res.final_stack.get(i).is_empty() {
+                println!("Pos : {} -- Value : {:?}", i, res.final_stack.get(i));
+            } else {
+                println!(
+                    "Pos : {} -- Value : {}",
+                    i,
+                    res.final_stack
+                        .get(i)
+                        .iter()
+                        .map(|b| format!("{:02X}", b))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
+        res
     }
 
     fn get_disprove_leaf(
