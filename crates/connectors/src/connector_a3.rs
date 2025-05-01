@@ -4,7 +4,6 @@
 //! AssertData transactions and the Claim transaction by the operator.
 use bitcoin::{
     hashes::Hash,
-    opcodes::all::OP_TOALTSTACK,
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},
     Address, Network, ScriptBuf, TapSighashType, Txid,
