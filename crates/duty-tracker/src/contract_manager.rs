@@ -25,7 +25,7 @@ use futures::{
     StreamExt,
 };
 use musig2::{
-    secp256k1::{self, Message},
+    secp256k1::{self, schnorr, Message},
     PartialSignature, PubNonce,
 };
 use operator_wallet::{FundingUtxo, OperatorWallet};
@@ -1300,7 +1300,6 @@ async fn execute_duty(
             handle_publish_root_nonce(
                 &output_handles.s2_client,
                 &output_handles.msg_handler,
-                deposit_request_txid,
                 OutPoint::new(deposit_request_txid, 0),
                 witness,
             )
@@ -1357,12 +1356,15 @@ async fn execute_duty(
 
         OperatorDuty::PublishDeposit {
             deposit_tx,
+
             partial_sigs,
+            witness,
         } => {
             handle_publish_deposit(
                 &output_handles.s2_client,
                 &output_handles.tx_driver,
                 deposit_tx,
+                witness,
                 partial_sigs
                     .into_iter()
                     .map(|(k, v)| (cfg.operator_table.op_key_to_btc_key(&k).unwrap(), v))
@@ -1654,10 +1656,10 @@ async fn handle_publish_graph_sigs(
 async fn handle_publish_root_nonce(
     s2_client: &MusigSessionManager,
     msg_handler: &MessageHandler,
-    deposit_request_txid: Txid,
     prevout: OutPoint,
     witness: TaprootWitness,
 ) -> Result<(), ContractManagerErr> {
+    let deposit_request_txid = prevout.txid;
     info!(%deposit_request_txid, "executing duty to publish root nonce");
 
     let nonce = s2_client.get_nonce(prevout, witness).await?;
@@ -1726,6 +1728,7 @@ async fn handle_publish_deposit(
     musig: &MusigSessionManager,
     tx_driver: &TxDriver,
     deposit_tx: Transaction,
+    witness: TaprootWitness,
     partials: BTreeMap<secp256k1::PublicKey, PartialSignature>,
 ) -> Result<(), ContractManagerErr> {
     info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
@@ -1743,6 +1746,19 @@ async fn handle_publish_deposit(
         .witness_mut(0)
         .expect("deposit tx has a first input")
         .push(sig.serialize());
+
+    let deposit_tx_witness = sighasher.witness_mut(0).expect("must have first input");
+    deposit_tx_witness.push(taproot_sig.to_vec());
+
+    if let TaprootWitness::Script {
+        script_buf,
+        control_block,
+    } = witness
+    {
+        deposit_tx_witness.push(script_buf.to_bytes());
+        deposit_tx_witness.push(control_block.serialize());
+    }
+
     let tx = sighasher.into_transaction();
 
     info!(txid = %tx.compute_txid(), "broadcasting deposit tx");
