@@ -3,12 +3,12 @@
 use std::collections::BTreeMap;
 
 use bitcoin::Transaction;
+use bitcoind_async_client::{traits::Broadcaster, Client as BitcoinClient};
 use btc_notify::{
     client::{BtcZmqClient, TxEvent},
     subscription::Subscription,
 };
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
-use strata_btcio::rpc::{traits::BroadcasterRpc, BitcoinClient};
 use thiserror::Error;
 use tokio::{
     select,

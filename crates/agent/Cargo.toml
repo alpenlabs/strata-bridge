@@ -21,7 +21,6 @@ strata-bridge-proof-snark.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 
-strata-btcio.workspace = true
 strata-l1tx.workspace = true
 strata-primitives.workspace = true
 strata-rpc-api = { workspace = true, features = ["client"] }
@@ -32,6 +31,7 @@ ark-serialize.workspace = true
 bincode.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-bosd.workspace = true
+bitcoind-async-client.workspace = true
 bitvm = { workspace = true }
 borsh = { workspace = true }
 indexmap.workspace = true

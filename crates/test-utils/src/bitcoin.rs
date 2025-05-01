@@ -12,14 +12,14 @@ use bitcoin::{
     transaction::Version,
     Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
 };
+use bitcoind_async_client::{
+    types::{ListUnspent, SignRawTransactionWithWallet},
+    Client as BitcoinClient,
+};
 use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
 use secp256k1::PublicKey;
 use strata_bridge_primitives::secp::EvenSecretKey;
-use strata_btcio::rpc::{
-    types::{ListUnspent, SignRawTransactionWithWallet},
-    BitcoinClient,
-};
 
 pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
     // setting the ENV variable `BITCOIN_XPRIV_RETRIEVABLE` to retrieve the xpriv

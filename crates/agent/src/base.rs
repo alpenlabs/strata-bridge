@@ -7,6 +7,11 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     Address, Amount, Network, OutPoint, TapSighashType, Transaction, TxOut, Txid,
 };
+use bitcoind_async_client::{
+    error::ClientError,
+    traits::{Broadcaster, Reader, Wallet},
+    Client as BitcoinClient,
+};
 use jsonrpsee::ws_client::{WsClient, WsClientBuilder};
 use musig2::{KeyAggContext, SecNonce};
 use rand::{rngs::OsRng, RngCore};
@@ -17,11 +22,6 @@ use secp256k1::{
 use strata_bridge_primitives::{
     scripts::prelude::*,
     wots::{Wots256PublicKey, Wots256Signature},
-};
-use strata_btcio::rpc::{
-    error::ClientError,
-    traits::{BroadcasterRpc, ReaderRpc, WalletRpc},
-    BitcoinClient,
 };
 use tracing::trace;
 

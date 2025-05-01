@@ -14,6 +14,10 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache, TapSighashType},
     FeeRate, OutPoint, TxOut, XOnlyPublicKey,
 };
+use bitcoind_async_client::{
+    traits::{Broadcaster, Reader},
+    Client as BitcoinClient,
+};
 use btc_notify::client::BtcZmqClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
@@ -46,10 +50,6 @@ use strata_bridge_primitives::{
     constants::SEGWIT_MIN_AMOUNT, operator_table::OperatorTable, types::OperatorIdx,
 };
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
-use strata_btcio::rpc::{
-    traits::{BroadcasterRpc, ReaderRpc},
-    BitcoinClient,
-};
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
 use tokio::{spawn, sync::broadcast, task::JoinHandle, try_join};

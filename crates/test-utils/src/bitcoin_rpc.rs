@@ -3,10 +3,10 @@
 //!
 //! Based on <https://github.com/rust-bitcoin/rust-bitcoincore-rpc/tree/master>.
 use bitcoin::{consensus, Address, Amount, Transaction, Txid};
+use bitcoind_async_client::types::SignRawTransactionWithWallet;
 use corepc_node::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use strata_btcio::rpc::types::SignRawTransactionWithWallet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -3,6 +3,7 @@
 use std::{fs, sync::Arc};
 
 use bitcoin::{Address, Network, Txid};
+use bitcoind_async_client::{traits::Reader, Client};
 use jsonrpsee::ws_client::WsClientBuilder;
 use rand::{rngs::OsRng, Rng};
 use secp256k1::{Keypair, SECP256K1};
@@ -20,7 +21,6 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::{BridgeDuty, BridgeDutyStatus, VerifierDuty},
 };
-use strata_btcio::rpc::{traits::ReaderRpc, BitcoinClient};
 use strata_primitives::{bridge::PublickeyTable, params::RollupParams};
 use strata_rpc_api::StrataApiClient;
 use tokio::{
@@ -51,7 +51,7 @@ pub(crate) async fn bootstrap(args: Cli) {
         .expect("failed to connect to the strata RPC server");
 
     let bitcoin_rpc_client = Arc::new(
-        BitcoinClient::new(
+        Client::new(
             args.btc_url.to_string(),
             args.btc_user.to_string(),
             args.btc_pass.to_string(),

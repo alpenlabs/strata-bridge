@@ -282,10 +282,10 @@ mod tests {
     use std::{collections::HashSet, str::FromStr};
 
     use bitcoin::{consensus, Network};
+    use bitcoind_async_client::types::{ListUnspent, SignRawTransactionWithWallet};
     use corepc_node::{serde_json::json, Conf, Node};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::{find_funding_utxo, generate_keypair, sign_cpfp_child};
-    use strata_btcio::rpc::types::{ListUnspent, SignRawTransactionWithWallet};
 
     use super::*;
 
