@@ -102,11 +102,32 @@ pub enum ContractEvent {
         wots_keys: Box<WotsPublicKeys>,
     },
 
-    /// Signifies that we have a new set of nonces for the peg out graph from one of our peers.
-    GraphNonces(P2POperatorPubKey, Txid, Vec<PubNonce>),
+    /// Signifies that we have a new set of nonces for the peg out graph from one of our peers for
+    /// a graph with the given claim txid.
+    GraphNonces {
+        /// The peer identified by the public key that broadcasted the nonces.
+        signer: P2POperatorPubKey,
+        /// The Transaction ID of the claim transaction in the graph being signed.
+        claim_txid: Txid,
 
-    /// Signifies that we have a new set of signatures for the peg out graph from one of our peers.
-    GraphSigs(P2POperatorPubKey, Txid, Vec<PartialSignature>),
+        /// The set of pubnonces associated with each transaction input in the graph that needs to
+        /// be MuSig2 signed.
+        pubnonces: Vec<PubNonce>,
+    },
+
+    /// Signifies that we have a new set of signatures for the peg out graph from one of our peers
+    /// for a graph with the given claim txid.
+    GraphSigs {
+        /// The peer identified by the public key that broadcasted the signatures.
+        signer: P2POperatorPubKey,
+
+        /// The Transaction ID of the claim transaction in the graph being signed.
+        claim_txid: Txid,
+
+        /// The set of partial signatures associated with each transaction input in the graph that
+        /// needs to be MuSig2 signed.
+        signatures: Vec<PartialSignature>,
+    },
 
     /// Signifies that we have received a new deposit nonce from one of our peers.
     RootNonce(P2POperatorPubKey, PubNonce),
@@ -804,12 +825,16 @@ impl ContractSM {
                 stake_tx,
                 *wots_keys,
             ),
-            ContractEvent::GraphNonces(op, claim_txid, nonces) => {
-                self.process_graph_nonces(op, claim_txid, nonces)
-            }
-            ContractEvent::GraphSigs(op, claim_txid, sigs) => {
-                self.process_graph_signatures(op, claim_txid, sigs)
-            }
+            ContractEvent::GraphNonces {
+                signer,
+                claim_txid,
+                pubnonces,
+            } => self.process_graph_nonces(signer, claim_txid, pubnonces),
+            ContractEvent::GraphSigs {
+                signer,
+                claim_txid,
+                signatures,
+            } => self.process_graph_signatures(signer, claim_txid, signatures),
             ContractEvent::RootNonce(op, nonce) => self.process_root_nonce(op, nonce),
             ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
             ContractEvent::DepositConfirmation(tx) => self.process_deposit_confirmation(tx),

@@ -788,9 +788,13 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
                     let claim_txid = txid;
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::GraphNonces(key, claim_txid, nonces),
-                    )? {
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::GraphNonces {
+                            signer: key,
+                            claim_txid,
+                            pubnonces: nonces,
+                        })?
+                    {
                         duties.push(duty);
                     }
                 } else if let Some((_, contract)) = self
@@ -826,9 +830,13 @@ impl ContractManagerCtx {
                     .get(&txid)
                     .and_then(|txid| self.state.active_contracts.get_mut(txid))
                 {
-                    if let Some(duty) = contract.process_contract_event(
-                        ContractEvent::GraphSigs(key, txid, signatures.clone()),
-                    )? {
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::GraphSigs {
+                            signer: key,
+                            claim_txid: txid,
+                            signatures: signatures.clone(),
+                        })?
+                    {
                         duties.push(duty);
                     }
                 } else if let Some((_, contract)) = self
