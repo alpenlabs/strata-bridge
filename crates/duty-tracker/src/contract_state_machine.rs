@@ -180,9 +180,9 @@ pub enum ContractState {
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
 
-        /// This is a collection of the WOTS public keys needed to generate the peg-out-graphs on
+        /// This is a collection of the information needed to generate the peg-out-graphs on
         /// a per-operator basis.
-        wots_keys: BTreeMap<P2POperatorPubKey, WotsPublicKeys>,
+        peg_out_graph_inputs: BTreeMap<P2POperatorPubKey, PegOutGraphInput>,
 
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -710,7 +710,7 @@ impl ContractSM {
         let state = ContractState::Requested {
             deposit_request_txid,
             abort_deadline,
-            wots_keys: BTreeMap::new(),
+            peg_out_graph_inputs: BTreeMap::new(),
             peg_out_graphs: BTreeMap::new(),
             claim_txids: BTreeMap::new(),
             graph_nonces: BTreeMap::new(),
@@ -956,7 +956,7 @@ impl ContractSM {
 
         match &mut self.state.state {
             ContractState::Requested {
-                wots_keys,
+                peg_out_graph_inputs,
                 peg_out_graphs,
                 claim_txids,
                 graph_nonces,
@@ -996,7 +996,7 @@ impl ContractSM {
                 let pog_summary = pog.summarize();
                 let claim_txid = pog_summary.claim_txid;
 
-                wots_keys.insert(signer.clone(), new_wots_keys);
+                peg_out_graph_inputs.insert(signer.clone(), pog_input.clone());
                 peg_out_graphs.insert(claim_txid, (pog_input, pog_summary));
                 claim_txids.insert(signer.clone(), claim_txid);
                 graph_nonces.insert(claim_txid, BTreeMap::new());

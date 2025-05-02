@@ -1084,7 +1084,7 @@ impl ContractManagerCtx {
             let state = &contract.state().state;
             if let ContractState::Requested {
                 deposit_request_txid,
-                wots_keys,
+                peg_out_graph_inputs,
                 graph_nonces,
                 graph_partials,
                 root_nonces,
@@ -1095,7 +1095,7 @@ impl ContractManagerCtx {
                 let mut commands = Vec::new();
 
                 // Get all of the operator keys who have already given us their wots keys.
-                let have = wots_keys
+                let have = peg_out_graph_inputs
                     .keys()
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
