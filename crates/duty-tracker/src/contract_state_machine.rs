@@ -1003,6 +1003,8 @@ impl ContractSM {
         claim_txid: Txid,
         nonces: Vec<PubNonce>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        debug!(%claim_txid, %signer, "processing graph nonces");
+
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graphs,
@@ -1066,8 +1068,7 @@ impl ContractSM {
                         .convert_map_op_to_btc(graph_nonces)
                         .map_err(|e| {
                             TransitionErr(format!(
-                                "could not convert nonce map keys: {} not in operator table",
-                                e
+                                "could not convert nonce map keys: {e} not in operator table",
                             ))
                         })?;
 
@@ -1101,6 +1102,8 @@ impl ContractSM {
         claim_txid: Txid,
         sig: Vec<PartialSignature>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        debug!(%claim_txid, %signer, "processing graph signatures");
+
         let unpacked = PogMusigF::unpack(sig).ok_or(TransitionErr(
             "could not unpack sig vector into PogMusigF".to_string(),
         ))?;

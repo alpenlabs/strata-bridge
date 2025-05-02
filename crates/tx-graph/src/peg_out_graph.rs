@@ -385,6 +385,12 @@ impl PegOutGraph {
         }
     }
 
+    /// Generates a functor over all the inpoints in the peg-out graph that need to be
+    /// Musig2-signed.
+    ///
+    /// An inpoint has the same structure as an [`OutPoint`] except that the [`Txid`] is the txid of
+    /// the transaction itself (and not the prevout), and the `vout` is just the input index
+    /// (`vin`). In any pegout graph, every inpoint is guaranteed to be unique.
     pub fn musig_inpoints(&self) -> PogMusigF<OutPoint> {
         let post_assert_txid = self.assert_chain.post_assert.compute_txid();
         let payout_optimistic_txid = self.payout_optimistic.compute_txid();

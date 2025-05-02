@@ -321,7 +321,7 @@ impl ContractManager {
                                     duties.extend(msg_duties.into_iter());
                                 },
                                 Err(e) => {
-                                    error!("failed to process p2p msg {:?}: {}", msg, e);
+                                    error!(?msg, %e, "failed to process p2p msg");
                                     // in case an error occurs, we will just nag again
                                     // so no need to break out of the event loop
                                 }
@@ -331,7 +331,7 @@ impl ContractManager {
                             match ctx.process_p2p_request(req.clone()).await {
                                 Ok(p2p_requests) => duties.extend(p2p_requests.into_iter()),
                                 Err(e) => {
-                                    error!("failed to process p2p request {:?}: {}", req, e);
+                                    error!(?req, %e, "failed to process p2p request");
                                     // in case an error occurs, the requester will just nag again
                                     // so no need to break out of the event loop
                                 },
@@ -1030,6 +1030,12 @@ impl ContractManagerCtx {
 
     /// Generates a list of all of the commands needed to acquire P2P messages needed to move a
     /// deposit from the requested to deposited states.
+    ///
+    /// Note that the node does not nag itself as it will add to much noise to the p2p messages. The
+    /// ouroboros mechanism should ensure that any message sent to the network by the current node
+    /// will always be received by it as well. If the message is not sent to the network, the
+    /// other peers will nag the current node and so the message will be produced and consumed
+    /// in response to these nags.
     fn nag(&self) -> Vec<Command> {
         let pov_idx = self.cfg.operator_table.pov_idx();
 
