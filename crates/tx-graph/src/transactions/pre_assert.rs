@@ -22,19 +22,21 @@ pub struct PreAssertData {
 
 pub(super) const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1; // +1 for cpfp
 
+pub(crate) const NUM_PRE_ASSERT_INPUTS: usize = 1;
+
 /// A transaction in the Assert chain that contains output scripts used for bitcomitting to the
 /// assertion data.
 #[derive(Debug, Clone)]
 pub struct PreAssertTx {
     psbt: Psbt,
 
-    prevouts: [TxOut; 1],
+    prevouts: [TxOut; NUM_PRE_ASSERT_INPUTS],
 
     // The ordering of these is pretty complicated.
     // This field is so that we don't have to recompute this order in other places.
     tx_outs: [TxOut; PRE_ASSERT_OUTS],
 
-    witnesses: [TaprootWitness; 1],
+    witnesses: [TaprootWitness; NUM_PRE_ASSERT_INPUTS],
 }
 
 impl PreAssertTx {
@@ -210,7 +212,7 @@ impl PreAssertTx {
     }
 }
 
-impl CovenantTx<1> for PreAssertTx {
+impl CovenantTx<NUM_PRE_ASSERT_INPUTS> for PreAssertTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

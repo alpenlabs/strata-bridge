@@ -2,13 +2,13 @@ use std::future::Future;
 
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::constants::NUM_ASSERT_DATA_TX;
 
-use crate::transactions::assert_chain::{deserialize_assert_vector, serialize_assert_vector};
-
-const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
-const NUM_PAYOUT_INPUTS: usize = 4;
-const NUM_SLASH_STAKE_INPUTS: usize = 2;
+use crate::transactions::{
+    assert_chain::{deserialize_assert_vector, serialize_assert_vector},
+    payout::NUM_PAYOUT_INPUTS,
+    prelude::{NUM_PAYOUT_OPTIMISTIC_INPUTS, NUM_POST_ASSERT_INPUTS},
+    slash_stake::NUM_SLASH_STAKE_INPUTS,
+};
 
 /// Functor like data structure for holding an arbitrary data structure that is matched with each of
 /// the inputs of the peg-out graph.
@@ -23,7 +23,7 @@ pub struct PogMusigF<T> {
     /// Data associated with the post-assert transaction inputs.
     #[serde(serialize_with = "serialize_assert_vector")]
     #[serde(deserialize_with = "deserialize_assert_vector")]
-    pub post_assert: [T; NUM_ASSERT_DATA_TX],
+    pub post_assert: [T; NUM_POST_ASSERT_INPUTS],
 
     /// Data associated with the payout optimistic transaction inputs.
     pub payout_optimistic: [T; NUM_PAYOUT_OPTIMISTIC_INPUTS],
@@ -63,8 +63,8 @@ impl<T> PogMusigF<T> {
 
         let pre_assert = cursor.next()?;
 
-        let Ok(post_assert): Result<[T; NUM_ASSERT_DATA_TX], _> = cursor
-            .take(NUM_ASSERT_DATA_TX)
+        let Ok(post_assert): Result<[T; NUM_POST_ASSERT_INPUTS], _> = cursor
+            .take(NUM_POST_ASSERT_INPUTS)
             .collect::<Vec<T>>()
             .try_into()
         else {

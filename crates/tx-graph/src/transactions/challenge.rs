@@ -37,13 +37,15 @@ pub struct Unfunded;
 #[derive(Debug, Clone)]
 pub struct Funded;
 
+pub(crate) const NUM_CHALLENGE_INPUTS: usize = 1;
+
 /// The transaction used to challenge an operator's claim.
 #[derive(Debug, Clone)]
 pub struct ChallengeTx {
     psbt: Psbt,
 
-    prevouts: [TxOut; 1],
-    witnesses: [TaprootWitness; 1],
+    prevouts: [TxOut; NUM_CHALLENGE_INPUTS],
+    witnesses: [TaprootWitness; NUM_CHALLENGE_INPUTS],
 }
 
 impl ChallengeTx {
@@ -113,7 +115,7 @@ impl ChallengeTx {
     }
 }
 
-impl CovenantTx<1> for ChallengeTx {
+impl CovenantTx<NUM_CHALLENGE_INPUTS> for ChallengeTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

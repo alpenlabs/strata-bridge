@@ -30,6 +30,8 @@ pub struct DisproveData {
     pub network: Network,
 }
 
+pub(crate) const NUM_DISPROVE_INPUTS: usize = 1;
+
 /// The transaction used to disprove an operator's claim and slash their stake.
 ///
 /// Note that this transaction does not contain the second witness as the disprove script is
@@ -40,7 +42,7 @@ pub struct DisproveTx {
 
     prevouts: [TxOut; 2],
 
-    witnesses: [TaprootWitness; 1],
+    witnesses: [TaprootWitness; NUM_DISPROVE_INPUTS],
 }
 
 impl DisproveTx {
@@ -165,7 +167,7 @@ impl DisproveTx {
     }
 }
 
-impl CovenantTx<1> for DisproveTx {
+impl CovenantTx<NUM_DISPROVE_INPUTS> for DisproveTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

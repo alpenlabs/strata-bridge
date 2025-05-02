@@ -26,6 +26,8 @@ pub struct PostAssertTxData {
     pub deposit_txid: Txid,
 }
 
+pub(crate) const NUM_POST_ASSERT_INPUTS: usize = NUM_ASSERT_DATA_TX;
+
 /// A transaction in the Assert chain that combines the outputs of the assert data transactions.
 ///
 /// This is used for creating a single transaction that can then be connected to a payout or
@@ -36,9 +38,9 @@ pub struct PostAssertTx {
 
     output_amount: Amount,
 
-    prevouts: [TxOut; NUM_ASSERT_DATA_TX],
+    prevouts: [TxOut; NUM_POST_ASSERT_INPUTS],
 
-    witnesses: [TaprootWitness; NUM_ASSERT_DATA_TX],
+    witnesses: [TaprootWitness; NUM_POST_ASSERT_INPUTS],
 }
 
 impl PostAssertTx {
@@ -136,7 +138,7 @@ impl PostAssertTx {
     }
 }
 
-impl CovenantTx<NUM_ASSERT_DATA_TX> for PostAssertTx {
+impl CovenantTx<NUM_POST_ASSERT_INPUTS> for PostAssertTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

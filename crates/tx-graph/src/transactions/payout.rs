@@ -44,14 +44,16 @@ pub struct PayoutData {
     pub network: Network,
 }
 
+pub(crate) const NUM_PAYOUT_INPUTS: usize = 4;
+
 /// A transaction that reimburses a *functional* operator.
 #[derive(Debug, Clone)]
 pub struct PayoutTx {
     psbt: Psbt,
 
-    prevouts: [TxOut; 4],
+    prevouts: [TxOut; NUM_PAYOUT_INPUTS],
 
-    witnesses: [TaprootWitness; 4],
+    witnesses: [TaprootWitness; NUM_PAYOUT_INPUTS],
 }
 
 impl PayoutTx {
@@ -200,7 +202,7 @@ impl PayoutTx {
     }
 }
 
-impl CovenantTx<4> for PayoutTx {
+impl CovenantTx<NUM_PAYOUT_INPUTS> for PayoutTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

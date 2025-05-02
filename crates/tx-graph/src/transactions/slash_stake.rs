@@ -29,6 +29,8 @@ pub struct SlashStakeData {
     pub network: Network,
 }
 
+pub const NUM_SLASH_STAKE_INPUTS: usize = 2;
+
 /// The transaction used to slash an operator's stake.
 ///
 /// The purpose of this transaction is to penalize advancing the stake chain without having fully
@@ -37,9 +39,9 @@ pub struct SlashStakeData {
 pub struct SlashStakeTx {
     psbt: Psbt,
 
-    prevouts: [TxOut; 2],
+    prevouts: [TxOut; NUM_SLASH_STAKE_INPUTS],
 
-    witnesses: [TaprootWitness; 2],
+    witnesses: [TaprootWitness; NUM_SLASH_STAKE_INPUTS],
 }
 
 impl SlashStakeTx {
@@ -142,7 +144,7 @@ impl SlashStakeTx {
     }
 }
 
-impl CovenantTx<2> for SlashStakeTx {
+impl CovenantTx<NUM_SLASH_STAKE_INPUTS> for SlashStakeTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

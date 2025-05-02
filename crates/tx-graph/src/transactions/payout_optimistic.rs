@@ -42,14 +42,16 @@ pub struct PayoutOptimisticData {
     pub network: Network,
 }
 
+pub(crate) const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
+
 /// A transaction that reimburses a *functional* operator.
 #[derive(Debug, Clone)]
 pub struct PayoutOptimisticTx {
     psbt: Psbt,
 
-    prevouts: [TxOut; 5],
+    prevouts: [TxOut; NUM_PAYOUT_OPTIMISTIC_INPUTS],
 
-    witnesses: [TaprootWitness; 5],
+    witnesses: [TaprootWitness; NUM_PAYOUT_OPTIMISTIC_INPUTS],
 }
 
 impl PayoutOptimisticTx {
@@ -219,7 +221,7 @@ impl PayoutOptimisticTx {
     }
 }
 
-impl CovenantTx<5> for PayoutOptimisticTx {
+impl CovenantTx<NUM_PAYOUT_OPTIMISTIC_INPUTS> for PayoutOptimisticTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }
