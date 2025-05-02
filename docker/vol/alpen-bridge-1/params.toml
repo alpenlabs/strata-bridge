@@ -14,7 +14,7 @@ p2p = [
 ]
 
 [tx_graph]
-tag = "bridge-tag"
+tag = "strata"
 deposit_amount = 100_000_000
 operator_fee = 1_000_000
 challenge_cost = 10_000_000
@@ -34,24 +34,24 @@ payout_timelock = 1_008
 [sidesystem]
 deposit_amount = 100_000_000
 operator_config.static = [
-  { signing_pk = "0x0202020202020202020202020202020202020202020202020202020202020202", wallet_pk = "0xb49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d" },
-  { signing_pk = "0x0202020202020202020202020202020202020202020202020202020202020202", wallet_pk = "0x1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4" },
-  { signing_pk = "0x0202020202020202020202020202020202020202020202020202020202020202", wallet_pk = "0xa4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba" },
+  { signing_pk = "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000", wallet_pk = "0xb49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d" },
+  { signing_pk = "0x0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d", wallet_pk = "0x1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4" },
+  { signing_pk = "0x2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be", wallet_pk = "0xa4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba" },
 ]
-rollup_name = "alpen-bridge"
-block_time = 1_000
-da_tag = "alpen-bridge-da"
-checkpoint_tag = "alpen-bridge-checkpoint"
-cred_rule = "unchecked"
-horizon_l1_height = 1_000
-genesis_l1_height = 1_000
-evm_genesis_block_hash = "0x0000000000000000000000000000000000000000000000000000000000000000"
-evm_genesis_block_state_root = "0x0000000000000000000000000000000000000000000000000000000000000000"
-l1_reorg_safe_depth = 1_000
-target_l2_batch_size = 1_000
+rollup_name = "strata"
+block_time = 5_000
+da_tag = "strata-da"
+checkpoint_tag = "strata-ckpt"
+cred_rule.schnorr_key = "0x8f2f6c25be6a4de02b8ae1f785749ba77431075ee801e00cfb0af1ed188f8eda"
+horizon_l1_height = 50
+genesis_l1_height = 100
+evm_genesis_block_hash = "0x37ad61cff1367467a98cf7c54c4ac99e989f1fbb1bc1e646235e90c065c565ba"
+evm_genesis_block_state_root = "0x351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f"
+l1_reorg_safe_depth = 6
+target_l2_batch_size = 3
 address_length = 20
 rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000000000"
-dispatch_assignment_dur = 1000
-proof_publish_mode = "strict"
-max_deposits_in_block = 20
-network = "signet"
+dispatch_assignment_dur = 1000000
+proof_publish_mode.timeout = 30
+max_deposits_in_block = 16
+network = "regtest"
