@@ -3,7 +3,7 @@
 //! This transaction is used to prevent an operator from getting the bridge funds using historical
 //! claims even _after_ their stake has been slashed.
 
-use bitcoin::{Network, OutPoint, Psbt, Transaction, TxOut, Txid};
+use bitcoin::{Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_connectors::prelude::{ConnectorP, StakeSpendPath};
 use strata_bridge_primitives::{
@@ -57,6 +57,7 @@ impl BurnPayoutsTx {
         };
 
         psbt.inputs[0].witness_utxo = Some(prevout.clone());
+        psbt.inputs[0].sighash_type = Some(TapSighashType::Default.into());
 
         let (hashlock_script, control_block) = hashlock_connector.generate_spend_info();
 

@@ -14,7 +14,9 @@ x-base-bridge-node: &base-bridge-node
     dockerfile: ./docker/alpen-bridge/Dockerfile
   environment:
     - MODE=operator
-    - RUST_LOG=info,duty_tracker=debug,btc_notify=debug,alpen_bridge=debug
+    - RUST_LOG=info,duty_tracker=debug,alpen_bridge=debug,strata_bridge_tx_graph=debug,bitvm=error
+    - LOG_FILE=0
+    - LOG_LINE_NUM=0
     - RUST_BACKTRACE=full
     - SP1_PROVER=$SP1_PROVER
     - NETWORK_RPC_URL=$NETWORK_RPC_URL

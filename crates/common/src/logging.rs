@@ -57,13 +57,16 @@ pub fn init(config: LoggerConfig) {
     // TODO switch to using subscribers everywhere instead of layers
     //let mut loggers: Vec<Box<dyn tracing::Subscriber + 'static>> = Vec::new();
 
+    let log_file = std::env::var("LOG_FILE").is_ok_and(|v| v == "1");
+    let log_line_num = std::env::var("LOG_LINE_NUM").is_ok_and(|v| v == "1");
+
     // Stdout logging.
     let stdout_sub = tracing_subscriber::fmt::layer()
         .compact()
         .event_format(
             tracing_subscriber::fmt::format()
-                .with_file(true)
-                .with_line_number(true),
+                .with_file(log_file)
+                .with_line_number(log_line_num),
         )
         .with_filter(filt);
 

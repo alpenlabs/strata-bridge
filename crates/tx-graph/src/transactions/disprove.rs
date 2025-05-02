@@ -30,6 +30,8 @@ pub struct DisproveData {
     pub network: Network,
 }
 
+pub(crate) const NUM_DISPROVE_INPUTS: usize = 1;
+
 /// The transaction used to disprove an operator's claim and slash their stake.
 ///
 /// Note that this transaction does not contain the second witness as the disprove script is
@@ -40,7 +42,7 @@ pub struct DisproveTx {
 
     prevouts: [TxOut; 2],
 
-    witnesses: [TaprootWitness; 1],
+    witnesses: [TaprootWitness; NUM_DISPROVE_INPUTS],
 }
 
 impl DisproveTx {
@@ -96,8 +98,10 @@ impl DisproveTx {
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
             input.witness_utxo = Some(utxo);
+            input.sighash_type = Some(TapSighashType::Default.into());
         }
 
+        // update the sighash type on the first input.
         psbt.inputs[0].sighash_type = Some(PsbtSighashType::from(TapSighashType::Single));
 
         Self {
@@ -163,7 +167,7 @@ impl DisproveTx {
     }
 }
 
-impl CovenantTx<1> for DisproveTx {
+impl CovenantTx<NUM_DISPROVE_INPUTS> for DisproveTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

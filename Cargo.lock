@@ -3257,7 +3257,6 @@ dependencies = [
  "miniscript",
  "serde_json",
  "strata-bridge-common",
- "strata-primitives",
  "tokio",
  "tracing",
 ]
@@ -10484,6 +10483,7 @@ dependencies = [
  "bitcoind-async-client",
  "bitvm",
  "corepc-node",
+ "futures",
  "rkyv",
  "secp256k1",
  "serde",

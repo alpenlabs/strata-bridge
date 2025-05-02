@@ -8,7 +8,7 @@ use strata_p2p::{
     swarm::handle::P2PHandle,
 };
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg};
 use tokio::sync::broadcast;
 use tracing::{error, info, trace};
 
@@ -25,15 +25,12 @@ pub struct MessageHandler {
 
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
-    ouroboros_sender: broadcast::Sender<UnsignedGossipsubMsg>,
+    ouroboros_sender: broadcast::Sender<GossipsubMsg>,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
-    pub fn new(
-        handle: P2PHandle,
-        ouroboros_sender: broadcast::Sender<UnsignedGossipsubMsg>,
-    ) -> Self {
+    pub fn new(handle: P2PHandle, ouroboros_sender: broadcast::Sender<GossipsubMsg>) -> Self {
         Self {
             handle,
             ouroboros_sender,
@@ -61,21 +58,21 @@ impl MessageHandler {
         let signed_msg = self.handle.sign_message(msg.clone());
         self.handle.send_command(signed_msg.clone()).await;
 
-        if let Err(e) = self.ouroboros_sender.send(msg.into()) {
+        if let Err(e) = self.ouroboros_sender.send(signed_msg.into()) {
             error!(%description, %e, "failed to send message via ouroboros");
         };
 
         info!(%description, "sent message");
     }
 
-    /// Requests information to an operator by signing it and sending it over the network.
+    /// Requests information from an operator by signing it and sending it over the network.
     ///
     /// Internal use only.
     async fn request(&self, req: GetMessageRequest, description: &str) {
         trace!(%description, ?req, "sending request");
         let command = Command::RequestMessage(req);
         self.handle.send_command(command).await;
-        info!(%description, "sent message");
+        info!(%description, "sent request");
     }
 
     /// Sends a deposit setup message to the network.

@@ -16,9 +16,16 @@ use super::prelude::CovenantTx;
 /// Data needed to construct a [`ChallengeTx`].
 #[derive(Debug, Clone)]
 pub struct ChallengeTxInput {
+    /// The outpoint of the claim transaction that the challenge tx spends.
     pub claim_outpoint: OutPoint,
+
+    /// The output amount on the challenge transaction.
     pub challenge_amt: Amount,
+
+    /// The public key of the operator that locks the output of the challenge transaction.
     pub operator_pubkey: XOnlyPublicKey,
+
+    /// The network where the constructed challenge transaction is valid.
     pub network: Network,
 }
 
@@ -30,13 +37,15 @@ pub struct Unfunded;
 #[derive(Debug, Clone)]
 pub struct Funded;
 
+pub(crate) const NUM_CHALLENGE_INPUTS: usize = 1;
+
 /// The transaction used to challenge an operator's claim.
 #[derive(Debug, Clone)]
 pub struct ChallengeTx {
     psbt: Psbt,
 
-    prevouts: [TxOut; 1],
-    witnesses: [TaprootWitness; 1],
+    prevouts: [TxOut; NUM_CHALLENGE_INPUTS],
+    witnesses: [TaprootWitness; NUM_CHALLENGE_INPUTS],
 }
 
 impl ChallengeTx {
@@ -65,8 +74,9 @@ impl ChallengeTx {
         }];
 
         let input_index = tapleaf.get_input_index() as usize;
+        let sighash_type = tapleaf.get_sighash_type();
         psbt.inputs[input_index].witness_utxo = Some(prevouts[0].clone());
-        psbt.inputs[input_index].sighash_type = Some(tapleaf.get_sighash_type().into());
+        psbt.inputs[input_index].sighash_type = Some(sighash_type.into());
 
         Self {
             psbt,
@@ -105,7 +115,7 @@ impl ChallengeTx {
     }
 }
 
-impl CovenantTx<1> for ChallengeTx {
+impl CovenantTx<NUM_CHALLENGE_INPUTS> for ChallengeTx {
     fn psbt(&self) -> &Psbt {
         &self.psbt
     }

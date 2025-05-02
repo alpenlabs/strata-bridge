@@ -1,29 +1,28 @@
 //! This module constructs the peg-out graph which is a series of transactions that allow for the
 //! withdrawal of funds from the bridge address given a valid claim.
 
-use core::fmt;
-use std::{marker::PhantomData, mem::MaybeUninit};
+use std::time::Instant;
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
 use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
-use secp256k1::XOnlyPublicKey;
-use serde::{
-    de::{SeqAccess, Visitor},
-    ser::SerializeTuple,
-    Deserialize, Deserializer, Serialize, Serializer,
-};
+use secp256k1::{Message, XOnlyPublicKey};
+use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     constants::*,
+    scripts::taproot::TaprootWitness,
     wots::{self, Groth16PublicKeys},
 };
-use tracing::debug;
+use tracing::{debug, info};
 
-use crate::transactions::{
-    payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
-    prelude::*,
-    slash_stake::{SlashStakeData, SlashStakeTx},
+use crate::{
+    pog_musig_functor::PogMusigF,
+    transactions::{
+        payout_optimistic::{PayoutOptimisticData, PayoutOptimisticTx},
+        prelude::*,
+        slash_stake::{SlashStakeData, SlashStakeTx},
+    },
 };
 
 /// The input data required to generate a peg-out graph.
@@ -52,7 +51,6 @@ pub struct PegOutGraphInput {
     // TODO: Make this a [`descriptor`](bitcoin_bosd::Descriptor).
     pub operator_pubkey: XOnlyPublicKey,
 }
-
 /// The minimum necessary information to recognize all of the relevant transactions in a given
 /// [`PegOutGraph`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,94 +82,6 @@ pub struct PegOutGraphSummary {
     pub slash_stake_txids: Vec<Txid>,
 }
 
-/// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
-/// length arrays of larger than 32.
-fn serialize_assert_vector<T: Serialize, S: Serializer>(
-    data: &[T; NUM_ASSERT_DATA_TX],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    let mut seq = serializer.serialize_tuple(NUM_ASSERT_DATA_TX)?;
-    for e in data {
-        seq.serialize_element(e)?;
-    }
-    seq.end()
-}
-
-/// This is needed because the blanket implementation of serde's deserializers doesn't go past fixed
-/// length arrays of larger than 32.
-fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-) -> Result<[T; NUM_ASSERT_DATA_TX], D::Error> {
-    // THE AUTHORS OF SERDE CAN BURN IN HELL. Seriously whoever thought of serde's design is fucking
-    // retarded.
-    struct AssertVisitor<const N: usize, T> {
-        marker: PhantomData<T>,
-    }
-
-    impl<'de, const N: usize, T> Visitor<'de> for AssertVisitor<N, T>
-    where
-        T: Deserialize<'de>,
-    {
-        type Value = [T; N];
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a sequence")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut values = [const { MaybeUninit::<T>::uninit() }; N];
-            let mut num_successfully_deserialized = 0;
-
-            let cleanup = |mut vs: [MaybeUninit<T>; N], n: usize| {
-                for written in &mut vs[..n] {
-                    unsafe {
-                        written.assume_init_drop();
-                    }
-                }
-            };
-
-            while let Some(res) = seq.next_element().transpose() {
-                match res {
-                    Ok(value) => {
-                        if num_successfully_deserialized >= NUM_ASSERT_DATA_TX {
-                            cleanup(values, num_successfully_deserialized);
-                            return Err(serde::de::Error::invalid_length(
-                                num_successfully_deserialized + 1,
-                                &self,
-                            ));
-                        }
-
-                        values[num_successfully_deserialized].write(value);
-                        num_successfully_deserialized += 1;
-                    }
-                    Err(e) => {
-                        cleanup(values, num_successfully_deserialized);
-                        return Err(e);
-                    }
-                }
-            }
-
-            if num_successfully_deserialized < NUM_ASSERT_DATA_TX {
-                cleanup(values, num_successfully_deserialized);
-                Err(serde::de::Error::invalid_length(
-                    num_successfully_deserialized,
-                    &self,
-                ))
-            } else {
-                Ok(unsafe { MaybeUninit::array_assume_init(values) })
-            }
-        }
-    }
-
-    let visitor = AssertVisitor::<NUM_ASSERT_DATA_TX, T> {
-        marker: PhantomData,
-    };
-    deserializer.deserialize_seq(visitor)
-}
-
 /// A container for the transactions in the peg-out graph.
 ///
 /// Each transaction is a wrapper around [`bitcoin::Psbt`] and some auxiliary data required to
@@ -180,6 +90,9 @@ fn deserialize_assert_vector<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
 pub struct PegOutGraph {
     /// The claim transaction that commits to a valid withdrawal fulfillment txid.
     pub claim_tx: ClaimTx,
+
+    /// The transaction used to challenge an operator's claim.
+    pub challenge_tx: ChallengeTx,
 
     /// The transaction used to reimburse operators when no challenge occurs.
     pub payout_optimistic: PayoutOptimisticTx,
@@ -223,21 +136,21 @@ impl PegOutGraph {
     /// * `prev_claim_txids` - The transaction IDs of the previous claim transactions that can be
     ///   used to slash the operator's stake in case of a faulty advancement of the stake chain
     ///   i.e., if the operator advances the stake chain without fully executing the previous
-    ///   claims.In general, the number of these transactions should be `min(deposit_index,
+    ///   claims. In general, the number of these transactions should be `min(deposit_index,
     ///   slash_stake_count)` (assuming that the deposit index is zero-indexed). As an optimization,
     ///   only claim txids corresponding to unclaimed deposits need to be specified.
-    pub fn generate<Context>(
+    pub fn generate(
         input: PegOutGraphInput,
-        context: &Context,
+        context: &impl BuildContext,
         deposit_txid: Txid,
         graph_params: PegOutGraphParams,
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
-    ) -> (Self, PegOutGraphConnectors)
-    where
-        Context: BuildContext,
-    {
+    ) -> (Self, PegOutGraphConnectors) {
+        let total_start_time = Instant::now();
+
+        let start_time = Instant::now();
         let connectors = PegOutGraphConnectors::new(
             context,
             deposit_txid,
@@ -263,8 +176,21 @@ impl PegOutGraph {
             connectors.connector_cpfp,
         );
         let claim_txid = claim_tx.compute_txid();
-        debug!(event = "created claim tx", %claim_txid);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created claim tx", %claim_txid, ?time_taken);
+        let start_time = Instant::now();
 
+        let challenge_input = ChallengeTxInput {
+            claim_outpoint: OutPoint::new(claim_txid, 1),
+            challenge_amt: graph_params.challenge_cost,
+            operator_pubkey: input.operator_pubkey,
+            network: context.network(),
+        };
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created challenge tx", ?time_taken);
+
+        let start_time = Instant::now();
         let payout_optimistic_data = PayoutOptimisticData {
             claim_txid,
             deposit_txid,
@@ -286,7 +212,10 @@ impl PegOutGraph {
             connectors.hashlock_payout,
             connectors.connector_cpfp,
         );
+        let time_taken = start_time.elapsed();
+        debug!(event = "created payout optimistic tx", ?time_taken);
 
+        let start_time = Instant::now();
         let assert_chain_data = AssertChainData {
             pre_assert_data: PreAssertData {
                 claim_txid,
@@ -304,12 +233,14 @@ impl PegOutGraph {
             connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
         );
+        let time_taken = start_time.elapsed();
 
         let post_assert_txid = assert_chain.post_assert.compute_txid();
         let post_assert_out_amt = assert_chain.post_assert.output_amount();
 
-        debug!(event = "created assert chain", %post_assert_txid);
+        debug!(event = "created assert chain", %post_assert_txid, ?time_taken);
 
+        let start_time = Instant::now();
         let payout_data = PayoutData {
             post_assert_txid,
             deposit_txid,
@@ -335,8 +266,10 @@ impl PegOutGraph {
             connectors.connector_cpfp,
         );
         let payout_txid = payout_tx.compute_txid();
-        debug!(event = "created payout tx", %payout_txid);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created payout tx", %payout_txid, ?time_taken);
 
+        let start_time = Instant::now();
         let disprove_data = DisproveData {
             post_assert_txid,
             deposit_txid,
@@ -352,8 +285,10 @@ impl PegOutGraph {
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
-        debug!(event = "created disprove tx", %disprove_txid);
+        let time_taken = start_time.elapsed();
+        debug!(event = "created disprove tx", %disprove_txid, ?time_taken);
 
+        let start_time = Instant::now();
         let slash_stake_txs = prev_claim_txids
             .iter()
             .map(|claim_txid| SlashStakeData {
@@ -374,9 +309,16 @@ impl PegOutGraph {
             })
             .collect();
 
+        let time_taken = start_time.elapsed();
+        info!(?time_taken, "created slash stake txs");
+
+        let time_taken = total_start_time.elapsed();
+        info!(?time_taken, "generated peg out graph");
+
         (
             Self {
                 claim_tx,
+                challenge_tx,
                 payout_optimistic,
                 assert_chain,
                 payout_tx,
@@ -402,6 +344,90 @@ impl PegOutGraph {
                 .slash_stake_txs
                 .iter()
                 .map(|tx| tx.compute_txid())
+                .collect(),
+        }
+    }
+
+    /// Generates the sighash messages.
+    pub fn sighashes(&self) -> PogMusigF<Message> {
+        let challenge = self.challenge_tx.sighashes()[0];
+
+        let AssertChain {
+            pre_assert,
+            post_assert,
+            ..
+        } = &self.assert_chain;
+
+        let pre_assert = pre_assert.sighashes()[0];
+
+        let post_assert = post_assert.sighashes();
+
+        let payout_optimistic = self.payout_optimistic.sighashes();
+
+        let payout = self.payout_tx.sighashes();
+
+        let disprove = self.disprove_tx.sighashes()[0];
+
+        let slash_stake = self
+            .slash_stake_txs
+            .iter()
+            .map(|slash_stake| slash_stake.sighashes())
+            .collect();
+
+        PogMusigF {
+            challenge,
+            pre_assert,
+            post_assert,
+            payout_optimistic,
+            payout,
+            disprove,
+            slash_stake,
+        }
+    }
+
+    /// Generates a functor over all the inpoints in the peg-out graph that need to be
+    /// Musig2-signed.
+    ///
+    /// An inpoint has the same structure as an [`OutPoint`] except that the [`Txid`] is the txid of
+    /// the transaction itself (and not the prevout), and the `vout` is just the input index
+    /// (`vin`). In any pegout graph, every inpoint is guaranteed to be unique.
+    pub fn musig_inpoints(&self) -> PogMusigF<OutPoint> {
+        let post_assert_txid = self.assert_chain.post_assert.compute_txid();
+        let payout_optimistic_txid = self.payout_optimistic.compute_txid();
+        let payout_txid = self.payout_tx.compute_txid();
+
+        PogMusigF {
+            challenge: OutPoint::new(self.challenge_tx.compute_txid(), 0),
+            pre_assert: OutPoint::new(self.assert_chain.pre_assert.compute_txid(), 0),
+            post_assert: std::array::from_fn(|i| OutPoint::new(post_assert_txid, i as u32)),
+            payout_optimistic: std::array::from_fn(|i| {
+                OutPoint::new(payout_optimistic_txid, i as u32)
+            }),
+            payout: std::array::from_fn(|i| OutPoint::new(payout_txid, i as u32)),
+            disprove: OutPoint::new(self.disprove_tx.compute_txid(), 0),
+            slash_stake: self
+                .slash_stake_txs
+                .iter()
+                .map(|tx| {
+                    let txid = tx.compute_txid();
+                    [OutPoint::new(txid, 0), OutPoint::new(txid, 1)]
+                })
+                .collect(),
+        }
+    }
+
+    pub fn musig_witnesses(&self) -> PogMusigF<TaprootWitness> {
+        PogMusigF {
+            challenge: self.challenge_tx.witnesses()[0].clone(),
+            pre_assert: self.assert_chain.pre_assert.witnesses()[0].clone(),
+            post_assert: self.assert_chain.post_assert.witnesses().clone(),
+            payout_optimistic: self.payout_optimistic.witnesses().clone(),
+            payout: self.payout_tx.witnesses().clone(),
+            disprove: self.disprove_tx.witnesses()[0].clone(),
+            slash_stake: self
+                .slash_stake_txs
+                .iter()
+                .map(|ss| ss.witnesses().clone())
                 .collect(),
         }
     }
@@ -1635,6 +1661,7 @@ mod tests {
         info!(
             txid = signed_post_assert.compute_txid().to_string(),
             final_output_amount = %post_assert_output_amount,
+            vsize = %signed_post_assert.vsize(),
             "broadcasting post-assert tx"
         );
         let result = btc_client

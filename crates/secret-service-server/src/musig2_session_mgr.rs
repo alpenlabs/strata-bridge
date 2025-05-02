@@ -68,10 +68,16 @@ where
     /// Requests a new session ID from the session manager for a given first round.
     pub fn new_session(&mut self, op: OutPoint, r1: R1) -> Result<(), SessionAlreadyPresent> {
         if self.rounds.contains_key(&op) {
-            return Err(SessionAlreadyPresent);
+            // TODO: (@Rajil1213) this should be handled differently in the future so that we don't
+            // end up creating duplicate sessions/nonces.
+            tracing::warn!(%op, "session already present");
+
+            return Ok(());
         }
+
         self.rounds
             .insert(op, Slot::FirstRound(Arc::new(r1.into())));
+
         Ok(())
     }
 

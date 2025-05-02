@@ -7,10 +7,9 @@ use bitcoin::{
     key::Keypair,
     secp256k1::{Secp256k1, XOnlyPublicKey},
     taproot::TaprootBuilder,
-    ScriptBuf, TapNodeHash,
+    ScriptBuf,
 };
 use miniscript::Miniscript;
-use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 use tracing::info;
 
 use crate::constants::{AGGREGATED_PUBKEY, LOCKTIME, MAGIC_BYTES, NETWORK};
@@ -21,31 +20,17 @@ pub(crate) fn get_aggregated_pubkey() -> XOnlyPublicKey {
 
 pub(crate) fn generate_taproot_address(
     secp: &Secp256k1<bitcoin::secp256k1::All>,
-    n_of_n_multisig_script: ScriptBuf,
     timelock_script: ScriptBuf,
-) -> (TapNodeHash, Address) {
+) -> Address {
     let taproot_builder = TaprootBuilder::new()
-        .add_leaf(1, n_of_n_multisig_script.clone())
-        .expect("failed to add n-of-n multisig script to tree")
-        .add_leaf(1, timelock_script.clone())
+        .add_leaf(0, timelock_script.clone())
         .expect("failed to add timelock script");
 
-    let script_hash =
-        TapNodeHash::from_script(&timelock_script, bitcoin::taproot::LeafVersion::TapScript);
-
-    let taproot_info = taproot_builder
-        .finalize(secp, *UNSPENDABLE_PUBLIC_KEY)
-        .unwrap();
+    let agg_pubkey = get_aggregated_pubkey();
+    let taproot_info = taproot_builder.finalize(secp, agg_pubkey).unwrap();
     let merkle_root = taproot_info.merkle_root();
 
-    let tr_address = Address::p2tr(secp, *UNSPENDABLE_PUBLIC_KEY, merkle_root, NETWORK);
-    (script_hash, tr_address)
-}
-
-pub(crate) fn build_n_of_n_multisig_miniscript(aggregated_pubkey: XOnlyPublicKey) -> ScriptBuf {
-    let script = format!("pk({})", aggregated_pubkey);
-    let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
-    miniscript.encode()
+    Address::p2tr(secp, agg_pubkey, merkle_root, NETWORK)
 }
 
 pub(crate) fn build_timelock_miniscript(recovery_xonly_pubkey: XOnlyPublicKey) -> ScriptBuf {

@@ -7,6 +7,8 @@ use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
 };
+use strata_bridge_tx_graph::transactions::prelude::CovenantTx;
+use strata_primitives::params::RollupParams;
 use thiserror::Error;
 
 use crate::contract_state_machine::{ContractCfg, ContractSM, MachineState};
@@ -18,11 +20,13 @@ pub enum ContractPersistErr {
     #[error("Unexpected error: {0}")]
     Unexpected(String),
 }
+
 impl From<Box<ErrorKind>> for ContractPersistErr {
     fn from(e: Box<ErrorKind>) -> Self {
         ContractPersistErr::Unexpected(e.to_string())
     }
 }
+
 impl From<serde_json::Error> for ContractPersistErr {
     fn from(e: serde_json::Error) -> Self {
         ContractPersistErr::Unexpected(e.to_string())
@@ -124,6 +128,7 @@ impl ContractPersister {
         deposit_txid: Txid,
         network: Network,
         peg_out_graph_params: PegOutGraphParams,
+        sidesystem_params: RollupParams,
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
@@ -165,6 +170,7 @@ impl ContractPersister {
                 network,
                 connector_params,
                 peg_out_graph_params,
+                sidesystem_params,
                 stake_chain_params,
             },
             state,
@@ -178,6 +184,7 @@ impl ContractPersister {
         network: Network,
         connector_params: ConnectorParams,
         peg_out_graph_params: PegOutGraphParams,
+        sidesystem_params: RollupParams,
         stake_chain_params: StakeChainParams,
     ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let rows = sqlx::query(
@@ -216,6 +223,7 @@ impl ContractPersister {
                         operator_table,
                         connector_params,
                         peg_out_graph_params: peg_out_graph_params.clone(),
+                        sidesystem_params: sidesystem_params.clone(),
                         stake_chain_params,
                         // later
                         deposit_idx,
