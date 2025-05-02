@@ -43,6 +43,7 @@ futures.workspace = true
 indexmap.workspace = true
 musig2.workspace = true
 operator-wallet.workspace = true
+secp256k1.workspace = true
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
 serde.workspace = true

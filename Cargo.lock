@@ -3386,6 +3386,7 @@ dependencies = [
  "indexmap 2.8.0",
  "musig2",
  "operator-wallet",
+ "secp256k1",
  "secret-service-client",
  "secret-service-proto",
  "serde",
