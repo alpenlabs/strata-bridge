@@ -1415,8 +1415,8 @@ impl ContractSM {
                 {
                     let deposit_txid = self.cfg().deposit_tx.compute_txid();
                     let stake_index = self.cfg().deposit_idx;
-                    let claim_txid = active_graph.claim_txid;
-                    let stake_txid = active_graph.stake_txid;
+                    let claim_txid = active_graph.1.claim_txid;
+                    let stake_txid = active_graph.1.stake_txid;
 
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishPayoutOptimistic {
@@ -1625,7 +1625,7 @@ impl ContractSM {
                 // operator.
                 let cfg = self.cfg();
                 let deposit_txid = self.cfg.deposit_tx.compute_txid();
-                let stake_txid = active_graph.stake_txid;
+                let stake_txid = active_graph.1.stake_txid;
 
                 if !is_fulfillment_tx(
                     cfg.network,
