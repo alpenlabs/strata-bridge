@@ -3,7 +3,7 @@ use std::{ops::Deref, sync::Arc};
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{relative, taproot, OutPoint, TxOut};
 use bitvm::chunk::api::{api_generate_full_tapscripts, validate_assertions};
-use sp1_verifier::hash_public_inputs;
+use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
 use strata_bridge_connectors::{
     partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS,
     prelude::{
@@ -143,7 +143,8 @@ where
 
                     // NOTE: This is zkvm-specific logic
                     let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
-                    let public_inputs_hash = hash_public_inputs(&serialized_public_inputs);
+                    let public_inputs_hash =
+                        hash_public_inputs_with_fn(&serialized_public_inputs, blake3_hash);
 
                     let committed_public_inputs_hash = wots_to_byte_array(groth16.0[0]);
 
