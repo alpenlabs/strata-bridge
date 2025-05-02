@@ -60,6 +60,9 @@ pub(crate) struct Config {
 
     /// Nag interval for the contract manager in the duty tracker.
     pub nag_interval: Duration,
+
+    /// RPC interval snapshot refresh for the contract manager in the duty tracker.
+    pub rpc_interval: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +136,7 @@ mod tests {
             rpc_addr = "localhost:5678"
             is_faulty = false
             nag_interval = { secs = 60, nanos = 0 }
+            rpc_interval = { secs = 30, nanos = 0 }
 
             [secret_service_client]
             server_addr = "localhost:1234"

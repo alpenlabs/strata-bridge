@@ -1,5 +1,6 @@
 //! Defines the main loop for the bridge-client in operator mode.
 use std::{
+    collections::BTreeMap,
     env, fs, io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -12,7 +13,7 @@ use bitcoin::{
     hashes::Hash,
     secp256k1::SecretKey,
     sighash::{Prevouts, SighashCache, TapSighashType},
-    FeeRate, OutPoint, TxOut, XOnlyPublicKey,
+    FeeRate, OutPoint, TxOut, Txid, XOnlyPublicKey,
 };
 use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
@@ -21,7 +22,8 @@ use bitcoind_async_client::{
 use btc_notify::client::BtcZmqClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
-    stake_chain_persister::StakeChainPersister, tx_driver::TxDriver,
+    contract_state_machine::ContractSM, stake_chain_persister::StakeChainPersister,
+    tx_driver::TxDriver,
 };
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
@@ -52,8 +54,13 @@ use strata_bridge_primitives::{
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
-use tokio::{spawn, sync::broadcast, task::JoinHandle, try_join};
-use tracing::{debug, info};
+use tokio::{
+    spawn,
+    sync::{broadcast, watch},
+    task::JoinHandle,
+    try_join,
+};
+use tracing::{debug, info, trace};
 
 use crate::{
     config::{Config, P2PConfig, SecretServiceConfig},
@@ -140,7 +147,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let zmq_client = BtcZmqClient::connect(&config.btc_zmq)
         .await
         .expect("should be able to connect to zmq");
-    let contract_manager_task = init_duty_tracker(
+    let (contract_manager_task, state_snapshot_rx) = init_duty_tracker(
         &params,
         &config,
         bitcoin_rpc_client.clone(),
@@ -155,7 +162,14 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
 
     info!("starting the RPC server");
     let rpc_address = config.rpc_addr.clone();
-    let rpc_task = start_rpc_server(rpc_address, db_rpc, p2p_handle_rpc, params.clone()).await?;
+    let rpc_task = init_rpc_server(
+        rpc_address,
+        db_rpc,
+        p2p_handle_rpc,
+        state_snapshot_rx,
+        params.clone(),
+    )
+    .await?;
     info!("started the RPC server");
 
     // Wait for all tasks to run
@@ -339,9 +353,10 @@ async fn init_duty_tracker(
     p2p_handle: P2PHandle,
     operator_wallet: OperatorWallet,
     db: SqliteDb,
-) -> anyhow::Result<JoinHandle<()>> {
+) -> anyhow::Result<(JoinHandle<()>, watch::Receiver<BTreeMap<Txid, ContractSM>>)> {
     let network = params.network;
     let nag_interval = config.nag_interval;
+    let rpc_interval = config.rpc_interval;
     let connector_params = params.connectors;
     let pegout_graph_params = params.tx_graph.clone();
     let stake_chain_params = params.stake_chain;
@@ -377,6 +392,7 @@ async fn init_duty_tracker(
     Ok(ContractManager::new(
         network,
         nag_interval,
+        rpc_interval,
         connector_params,
         pegout_graph_params,
         stake_chain_params,
@@ -394,17 +410,29 @@ async fn init_duty_tracker(
     ))
 }
 
-async fn start_rpc_server(
+async fn init_rpc_server(
     rpc_address: String,
     db: SqliteDb,
     p2p_handle: P2PHandle,
+    state_snapshot_rx: watch::Receiver<BTreeMap<Txid, ContractSM>>,
     params: Params,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let rpc_client = BridgeRpc::new(db, p2p_handle, params);
+    let mut rpc_client = BridgeRpc::new(db, p2p_handle, state_snapshot_rx, params);
     let handle = spawn(async move {
         start_rpc(&rpc_client, rpc_address.as_str())
             .await
             .expect("failed to start RPC server");
+        let mut rx = rpc_client.get_state_snapshot_rx();
+        loop {
+            if rx.changed().await.is_ok() {
+                debug!("state snapshot changed");
+                let snapshot = rx.borrow();
+                trace!(?snapshot, "state snapshot");
+                rpc_client.update_state_snapshot(snapshot.clone());
+            } else {
+                trace!("state snapshot not changed");
+            }
+        }
     });
     Ok(handle)
 }

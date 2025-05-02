@@ -53,7 +53,7 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsu
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
-    sync::{broadcast, RwLock},
+    sync::{broadcast, watch, RwLock},
     task::{self, JoinHandle},
     time,
 };
@@ -88,6 +88,7 @@ impl ContractManager {
         // Static Config Parameters
         network: Network,
         nag_interval: Duration,
+        rpc_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
         stake_chain_params: StakeChainParams,
@@ -103,8 +104,13 @@ impl ContractManager {
         s2_client: SecretServiceClient,
         wallet: OperatorWallet,
         db: SqliteDb,
-    ) -> JoinHandle<()> {
-        task::spawn(async move {
+    ) -> (JoinHandle<()>, watch::Receiver<BTreeMap<Txid, ContractSM>>) {
+        // Create initial empty state
+        let initial_state = BTreeMap::new();
+        let (state_snapshot_tx, state_snapshot_rx) = watch::channel(initial_state);
+        let state_snapshot_tx_clone = state_snapshot_tx.clone();
+
+        let thread_handle = task::spawn(async move {
             let crash = |e: ContractManagerErr| {
                 error!(?e, "crashing");
                 panic!("{e}");
@@ -234,6 +240,7 @@ impl ContractManager {
                 cfg: cfg.clone(),
                 state,
                 state_handles,
+                state_snapshot_tx: state_snapshot_tx_clone,
             };
 
             while cursor < current {
@@ -271,7 +278,8 @@ impl ContractManager {
             }
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
-            let mut interval = time::interval(nag_interval);
+            let mut nag_interval = time::interval(nag_interval);
+            let mut rpc_interval = time::interval(rpc_interval);
 
             loop {
                 let mut duties = vec![];
@@ -342,10 +350,19 @@ impl ContractManager {
                             // this could be a transient issue, so no need to break immediately
                         }
                     },
-                    _ = interval.tick() => {
+                    _ = nag_interval.tick() => {
+                        // Process nag messages
                         let nags = ctx.nag();
                         for nag in nags {
                             p2p_handle.send_command(nag).await;
+                        }
+                    },
+
+                    _ = rpc_interval.tick() => {
+                        // Send state snapshot
+                        let snapshot = ctx.state.active_contracts.clone();
+                        if let Err(e) = ctx.state_snapshot_tx.send(snapshot) {
+                            error!(%e, "failed to send state snapshot");
                         }
                     }
                 }
@@ -364,9 +381,12 @@ impl ContractManager {
             }
 
             unreachable!("event loop must never end");
-        })
+        });
+
+        (thread_handle, state_snapshot_rx)
     }
 }
+
 impl Drop for ContractManager {
     fn drop(&mut self) {
         self.thread_handle.abort();
@@ -412,6 +432,7 @@ struct ContractManagerCtx {
     cfg: ExecutionConfig,
     state_handles: StateHandles,
     state: ExecutionState,
+    state_snapshot_tx: watch::Sender<BTreeMap<Txid, ContractSM>>,
 }
 
 impl ContractManagerCtx {

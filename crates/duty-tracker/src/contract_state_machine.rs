@@ -667,9 +667,8 @@ pub struct MachineState {
     pub state: ContractState,
 }
 
-#[derive(Debug, Clone)]
 /// This is the core state machine for a given deposit contract.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ContractSM {
     cfg: ContractCfg,
     state: MachineState,

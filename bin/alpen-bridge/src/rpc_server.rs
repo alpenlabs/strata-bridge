@@ -1,9 +1,12 @@
 //! Bootstraps an RPC server for the operator.
 
+use std::collections::BTreeMap;
+
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
+use duty_tracker::contract_state_machine::ContractSM;
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
@@ -16,7 +19,7 @@ use strata_bridge_rpc::{
     types::RpcOperatorStatus,
 };
 use strata_p2p::swarm::handle::P2PHandle;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, watch};
 use tracing::{info, warn};
 
 use crate::params::Params;
@@ -76,19 +79,49 @@ pub(crate) struct BridgeRpc {
     /// The same applies for the `Stream` implementation of [`P2PHandle`].
     p2p_handle: P2PHandle,
 
+    /// The current state of the contract manager.
+    current_state: BTreeMap<Txid, ContractSM>,
+
+    /// Channel to receive state snapshots.
+    state_snapshot_rx: watch::Receiver<BTreeMap<Txid, ContractSM>>,
+
     /// The consensus-critical parameters that dictate the behavior of the bridge node.
     params: Params,
 }
 
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
-    pub(crate) fn new(db: SqliteDb, p2p_handle: P2PHandle, params: Params) -> Self {
+    pub(crate) fn new(
+        db: SqliteDb,
+        p2p_handle: P2PHandle,
+        state_snapshot_rx: watch::Receiver<BTreeMap<Txid, ContractSM>>,
+        params: Params,
+    ) -> Self {
+        let current_state = state_snapshot_rx.borrow().clone();
         Self {
             start_time: Utc::now(),
             db,
             p2p_handle,
+            current_state,
+            state_snapshot_rx,
             params,
         }
+    }
+
+    /// Update the current state snapshot.
+    pub(crate) fn update_state_snapshot(&mut self, state: BTreeMap<Txid, ContractSM>) {
+        self.current_state = state;
+    }
+
+    /// Get the current state snapshot.
+    #[expect(dead_code)]
+    pub(crate) fn get_current_state(&self) -> &BTreeMap<Txid, ContractSM> {
+        &self.current_state
+    }
+
+    /// Get the state snapshot receiver.
+    pub(crate) fn get_state_snapshot_rx(&self) -> watch::Receiver<BTreeMap<Txid, ContractSM>> {
+        self.state_snapshot_rx.clone()
     }
 }
 
