@@ -180,10 +180,6 @@ pub enum ContractState {
         /// been converted to a deposit.
         abort_deadline: BitcoinBlockHeight,
 
-        /// This is a collection of the stake transaction data on a per-operator basis. This is
-        /// used to eventually construct the peg-out-graphs.
-        stake_txs: BTreeMap<P2POperatorPubKey, StakeTx>,
-
         /// This is a collection of the WOTS public keys needed to generate the peg-out-graphs on
         /// a per-operator basis.
         wots_keys: BTreeMap<P2POperatorPubKey, WotsPublicKeys>,
@@ -714,7 +710,6 @@ impl ContractSM {
         let state = ContractState::Requested {
             deposit_request_txid,
             abort_deadline,
-            stake_txs: BTreeMap::new(),
             wots_keys: BTreeMap::new(),
             peg_out_graphs: BTreeMap::new(),
             claim_txids: BTreeMap::new(),
@@ -961,7 +956,6 @@ impl ContractSM {
 
         match &mut self.state.state {
             ContractState::Requested {
-                stake_txs,
                 wots_keys,
                 peg_out_graphs,
                 claim_txids,
@@ -1002,7 +996,6 @@ impl ContractSM {
                 let pog_summary = pog.summarize();
                 let claim_txid = pog_summary.claim_txid;
 
-                stake_txs.insert(signer.clone(), new_stake_tx);
                 wots_keys.insert(signer.clone(), new_wots_keys);
                 peg_out_graphs.insert(claim_txid, (pog_input, pog_summary));
                 claim_txids.insert(signer.clone(), claim_txid);
