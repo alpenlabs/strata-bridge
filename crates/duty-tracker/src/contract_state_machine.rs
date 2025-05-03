@@ -1010,7 +1010,13 @@ impl ContractSM {
                         (
                             signer,
                             // TODO(proofofkeags): use async thread pool in future commit
-                            thread::spawn(move || thread_cfg.build_graph(input)),
+                            thread::Builder::new()
+                                .stack_size(8 * 1024 * 1024)
+                                .spawn(move || {
+                                    info!("building graph...");
+                                    thread_cfg.build_graph(input)
+                                })
+                                .expect("spawn succeeds"),
                         )
                     })
                     .collect::<BTreeMap<_, _>>();
