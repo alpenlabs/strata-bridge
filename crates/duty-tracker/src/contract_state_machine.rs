@@ -1,7 +1,7 @@
 //! This module defines the core state machine for the Bridge Deposit Contract. All of the states,
 //! events and transition rules are encoded in this structure. When the ContractSM accepts an event
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
-use std::{collections::BTreeMap, fmt::Display};
+use std::{collections::BTreeMap, fmt::Display, sync::Arc, thread};
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
@@ -805,7 +805,7 @@ impl ContractSM {
     pub fn process_contract_event(
         &mut self,
         ev: ContractEvent,
-    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+    ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         match ev {
             ContractEvent::DepositSetup {
                 operator_p2p_key,
@@ -824,24 +824,40 @@ impl ContractSM {
                 signer,
                 claim_txid,
                 pubnonces,
-            } => self.process_graph_nonces(signer, claim_txid, pubnonces),
+            } => self
+                .process_graph_nonces(signer, claim_txid, pubnonces)
+                .map(|x| x.into_iter().collect()),
             ContractEvent::GraphSigs {
                 signer,
                 claim_txid,
                 signatures,
-            } => self.process_graph_signatures(signer, claim_txid, signatures),
-            ContractEvent::RootNonce(op, nonce) => self.process_root_nonce(op, nonce),
-            ContractEvent::RootSig(op, sig) => self.process_root_signature(op, sig),
-            ContractEvent::DepositConfirmation(tx) => self.process_deposit_confirmation(tx),
-            ContractEvent::PegOutGraphConfirmation(tx, height) => {
-                self.process_peg_out_graph_tx_confirmation(height, &tx)
-            }
-            ContractEvent::Block(height) => self.notify_new_block(height),
-            ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
-            ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
-            ContractEvent::Assignment(deposit_entry, stake_tx) => {
-                self.process_assignment(&deposit_entry, stake_tx)
-            }
+            } => self
+                .process_graph_signatures(signer, claim_txid, signatures)
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::RootNonce(op, nonce) => self
+                .process_root_nonce(op, nonce)
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::RootSig(op, sig) => self
+                .process_root_signature(op, sig)
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::DepositConfirmation(tx) => self
+                .process_deposit_confirmation(tx)
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::PegOutGraphConfirmation(tx, height) => self
+                .process_peg_out_graph_tx_confirmation(height, &tx)
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::Block(height) => self
+                .notify_new_block(height)
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::ClaimFailure => self
+                .process_claim_verification_failure()
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::AssertionFailure => self
+                .process_assertion_verification_failure()
+                .map(|x| x.into_iter().collect()),
+            ContractEvent::Assignment(deposit_entry, stake_tx) => self
+                .process_assignment(&deposit_entry, stake_tx)
+                .map(|x| x.into_iter().collect()),
         }
     }
 
@@ -950,7 +966,7 @@ impl ContractSM {
         new_stake_hash: sha256::Hash,
         new_stake_tx: StakeTx,
         new_wots_keys: WotsPublicKeys,
-    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+    ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
         // SUBTLE WAY.
 
@@ -963,6 +979,12 @@ impl ContractSM {
                 graph_partials,
                 ..
             } => {
+                if peg_out_graph_inputs.contains_key(&signer) {
+                    let deposit_txid = self.cfg.deposit_tx.compute_txid();
+                    warn!("already received operator's ({signer}) deposit setup for contract {deposit_txid}");
+                    return Ok(vec![]);
+                }
+
                 let pog_input = PegOutGraphInput {
                     stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
                     withdrawal_fulfillment_outpoint: OutPoint::new(
@@ -973,40 +995,62 @@ impl ContractSM {
                     wots_public_keys: new_wots_keys.clone(),
                     operator_pubkey,
                 };
+                peg_out_graph_inputs.insert(signer, pog_input.clone());
 
-                // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
-                // `&mut self` and the borrow checker does not allow us to reborrow it mutably
-                // inside the current mutable context even though the fields being mutated are
-                // different.
-                let stake_txid = pog_input.stake_outpoint.txid;
-                let pog = if let Some(pog) = self.pog.get(&stake_txid) {
-                    debug!(reimbursement_key=%operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
-                    pog.clone()
-                } else {
-                    debug!(reimbursement_key=%operator_pubkey, %stake_txid, "generating and caching peg out graph");
-                    let pog = self.cfg.build_graph(pog_input.clone());
-                    self.pog.insert(stake_txid, pog.clone());
+                if peg_out_graph_inputs.len() != self.cfg.operator_table.cardinality() {
+                    return Ok(vec![]);
+                }
 
-                    pog
-                };
+                let shared_cfg = Arc::new(self.cfg.clone());
+                let jobs = peg_out_graph_inputs
+                    .iter()
+                    .map(|(signer, input)| {
+                        let thread_cfg = shared_cfg.clone();
+                        let input = input.clone();
+                        (
+                            signer,
+                            // TODO(proofofkeags): use async thread pool in future commit
+                            thread::spawn(move || thread_cfg.build_graph(input)),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>();
 
-                let owner = self.cfg.operator_table.op_key_to_idx(&signer);
-                debug!(?owner, "generating peg out graph for operator");
+                let graphs = jobs
+                    .into_iter()
+                    .map(|(signer, job)| {
+                        (
+                            signer,
+                            job.join().expect("peg out graph generation panic'ed"),
+                        )
+                    })
+                    .collect::<BTreeMap<_, _>>();
 
-                let pog_summary = pog.summarize();
-                let claim_txid = pog_summary.claim_txid;
+                let duties = graphs
+                    .values()
+                    .map(|graph| OperatorDuty::PublishGraphNonces {
+                        claim_txid: graph.claim_tx.compute_txid(),
+                        pog_prevouts: graph.musig_inpoints(),
+                        pog_witnesses: graph.musig_witnesses(),
+                    })
+                    .collect::<Vec<_>>();
 
-                peg_out_graph_inputs.insert(signer.clone(), pog_input.clone());
-                peg_out_graphs.insert(claim_txid, (pog_input, pog_summary));
-                claim_txids.insert(signer.clone(), claim_txid);
-                graph_nonces.insert(claim_txid, BTreeMap::new());
-                graph_partials.insert(claim_txid, BTreeMap::new());
+                for (signer, graph) in graphs {
+                    let pog_summary = graph.summarize();
+                    let claim_txid = pog_summary.claim_txid;
 
-                Ok(Some(OperatorDuty::PublishGraphNonces {
-                    claim_txid,
-                    pog_prevouts: pog.musig_inpoints(),
-                    pog_witnesses: pog.musig_witnesses(),
-                }))
+                    peg_out_graphs.insert(
+                        claim_txid,
+                        (
+                            peg_out_graph_inputs.get(signer).unwrap().clone(),
+                            pog_summary,
+                        ),
+                    );
+                    claim_txids.insert(signer.clone(), claim_txid);
+                    graph_nonces.insert(claim_txid, BTreeMap::new());
+                    graph_partials.insert(claim_txid, BTreeMap::new());
+                }
+
+                Ok(duties)
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_deposit_setup ({:?})",

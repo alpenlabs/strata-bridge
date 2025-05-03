@@ -57,7 +57,7 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_persister::ContractPersister,
@@ -512,8 +512,7 @@ impl ContractManagerCtx {
                 }
 
                 match contract.process_contract_event(ContractEvent::DepositConfirmation(tx)) {
-                    Ok(Some(duty)) => duties.push(duty),
-                    Ok(None) => trace!("this is fine"),
+                    Ok(new_duties) => duties.extend(new_duties),
                     Err(e) => error!(%e, "failed to process deposit confirmation"),
                 }
 
@@ -531,10 +530,7 @@ impl ContractManagerCtx {
                         tx.clone(),
                         height,
                     )) {
-                        Ok(Some(duty)) => duties.push(duty),
-                        Ok(None) => {
-                            trace!(txid=%tx.compute_txid(), "no duty emitted when processing this transaction...this is fine 🔥")
-                        }
+                        Ok(new_duties) => duties.extend(new_duties),
                         Err(e) => {
                             error!(%e, "failed to process pegout graph confirmation");
                             return Err(e)?;
@@ -547,9 +543,7 @@ impl ContractManagerCtx {
         // Now that we've handled all the transaction level events, we should inform all the
         // CSMs that a new block has arrived
         for (_, contract) in self.state.active_contracts.iter_mut() {
-            if let Some(duty) = contract.process_contract_event(ContractEvent::Block(height))? {
-                duties.push(duty);
-            }
+            duties.extend(contract.process_contract_event(ContractEvent::Block(height))?)
         }
 
         self.state_handles
@@ -613,7 +607,7 @@ impl ContractManagerCtx {
                     match sm
                         .process_contract_event(ContractEvent::Assignment(entry.clone(), stake_tx))
                     {
-                        Ok(Some(duty)) => {
+                        Ok(new_duties) if !new_duties.is_empty() => {
                             info!("committing stake chain state");
                             self.state_handles
                                 .stake_chain_persister
@@ -623,9 +617,9 @@ impl ContractManagerCtx {
                                 )
                                 .await?;
 
-                            duties.push(duty);
+                            duties.extend(new_duties);
                         }
-                        Ok(None) => {
+                        Ok(_) => {
                             info!(?entry, "no duty generated for assignment");
                         }
                         Err(e) => {
@@ -742,21 +736,19 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx as usize)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::DepositSetup {
-                            operator_p2p_key: key.clone(),
-                            operator_btc_key: self
-                                .cfg
-                                .operator_table
-                                .op_key_to_btc_key(&key)
-                                .unwrap()
-                                .x_only_public_key()
-                                .0,
-                            stake_hash: hash,
-                            stake_tx,
-                            wots_keys: Box::new(wots_pks),
-                        })?
-                    {
+                    for duty in contract.process_contract_event(ContractEvent::DepositSetup {
+                        operator_p2p_key: key.clone(),
+                        operator_btc_key: self
+                            .cfg
+                            .operator_table
+                            .op_key_to_btc_key(&key)
+                            .unwrap()
+                            .x_only_public_key()
+                            .0,
+                        stake_hash: hash,
+                        stake_tx,
+                        wots_keys: Box::new(wots_pks),
+                    })? {
                         // we need a way to feed the claim txids back into the manager's index so
                         // we skim it off of the publish graph nonces duty.
                         if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = &duty {
@@ -788,15 +780,11 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
                     let claim_txid = txid;
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::GraphNonces {
-                            signer: key,
-                            claim_txid,
-                            pubnonces: nonces,
-                        })?
-                    {
-                        duties.push(duty);
-                    }
+                    duties.extend(contract.process_contract_event(ContractEvent::GraphNonces {
+                        signer: key,
+                        claim_txid,
+                        pubnonces: nonces,
+                    })?);
                 } else if let Some((_, contract)) = self
                     .state
                     .active_contracts
@@ -809,11 +797,9 @@ impl ContractManagerCtx {
                         )));
                     }
                     let nonce = nonces.pop().unwrap();
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::RootNonce(key, nonce))?
-                    {
-                        duties.push(duty);
-                    }
+                    duties.extend(
+                        contract.process_contract_event(ContractEvent::RootNonce(key, nonce))?,
+                    );
                 }
 
                 Ok(duties)
@@ -830,15 +816,11 @@ impl ContractManagerCtx {
                     .get(&txid)
                     .and_then(|txid| self.state.active_contracts.get_mut(txid))
                 {
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::GraphSigs {
-                            signer: key,
-                            claim_txid: txid,
-                            signatures: signatures.clone(),
-                        })?
-                    {
-                        duties.push(duty);
-                    }
+                    duties.extend(contract.process_contract_event(ContractEvent::GraphSigs {
+                        signer: key,
+                        claim_txid: txid,
+                        signatures: signatures.clone(),
+                    })?);
                 } else if let Some((_, contract)) = self
                     .state
                     .active_contracts
@@ -855,11 +837,9 @@ impl ContractManagerCtx {
                         .first()
                         .expect("must exist due to the length check above");
 
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::RootSig(key, *sig))?
-                    {
-                        duties.push(duty);
-                    }
+                    duties.extend(
+                        contract.process_contract_event(ContractEvent::RootSig(key, *sig))?,
+                    );
                 }
 
                 Ok(duties)
