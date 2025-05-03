@@ -7,7 +7,13 @@
 
 pub mod musig2_session_mgr;
 
-use std::{collections::HashMap, io, marker::Sync, net::SocketAddr, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    io,
+    marker::Sync,
+    net::SocketAddr,
+    sync::Arc,
+};
 
 use bitcoin::{hashes::Hash, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
@@ -361,7 +367,7 @@ where
 
                 let result = r1.lock().await.receive_pub_nonces(nonces.into_iter()).await;
                 ServerMessage::Musig2FirstRoundReceivePubNonce(match result {
-                    Ok(()) => HashMap::new(),
+                    Ok(()) => BTreeMap::new(),
                     Err(e) => e
                         .into_iter()
                         .map(|(pk, err)| (pk.serialize(), err))
@@ -459,7 +465,7 @@ where
 
                 let result = r2.lock().await.receive_signatures(sigs.into_iter()).await;
                 ServerMessage::Musig2SecondRoundReceiveSignature(match result {
-                    Ok(()) => HashMap::new(),
+                    Ok(()) => BTreeMap::new(),
                     Err(e) => e
                         .into_iter()
                         .map(|(pk, err)| (pk.serialize(), err))

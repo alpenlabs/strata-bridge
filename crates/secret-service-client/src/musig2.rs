@@ -1,6 +1,6 @@
 //! MuSig2 signer client
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use musig2::{
@@ -160,7 +160,7 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
     async fn receive_pub_nonces(
         &mut self,
         nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)> + Send,
-    ) -> <Client as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
+    ) -> <Client as Origin>::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>
     {
         let msg = ClientMessage::Musig2FirstRoundReceivePubNonce {
             session_id: self.session_id,
@@ -275,7 +275,7 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
     async fn receive_signatures(
         &mut self,
         sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)> + Send,
-    ) -> <Client as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
+    ) -> <Client as Origin>::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>
     {
         let msg = ClientMessage::Musig2SecondRoundReceiveSignature {
             session_id: self.session_id,

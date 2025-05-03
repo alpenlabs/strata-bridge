@@ -1,6 +1,6 @@
 //! The traits that make up the secret service's interfaces
 
-use std::{collections::HashMap, future::Future};
+use std::{collections::BTreeMap, future::Future};
 
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{
@@ -172,7 +172,7 @@ pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
         &mut self,
         nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)> + Send,
     ) -> impl Future<
-        Output = O::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>,
+        Output = O::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>,
     > + Send;
 
     /// Finishes the first round once all nonces are received, combining nonces
@@ -223,7 +223,7 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
         &mut self,
         sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)> + Send,
     ) -> impl Future<
-        Output = O::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>,
+        Output = O::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>,
     > + Send;
 
     /// Finishes the second round once all partial signatures are received,

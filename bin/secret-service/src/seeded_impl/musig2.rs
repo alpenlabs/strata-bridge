@@ -1,6 +1,6 @@
 //! In-memory persistence for MuSig2's secret data.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use bitcoin::{
     bip32::Xpriv,
@@ -156,9 +156,9 @@ impl Musig2SignerFirstRound<Server, ServerSecondRound> for ServerFirstRound {
     async fn receive_pub_nonces(
         &mut self,
         nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)>,
-    ) -> <Server as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
+    ) -> <Server as Origin>::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>
     {
-        let mut errs = HashMap::new();
+        let mut errs = BTreeMap::new();
         for (pubkey, nonce) in nonces {
             let signer_idx = match self.ordered_public_keys.iter().position(|x| x == &pubkey) {
                 Some(idx) => idx,
@@ -225,9 +225,9 @@ impl Musig2SignerSecondRound<Server> for ServerSecondRound {
     async fn receive_signatures(
         &mut self,
         sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)>,
-    ) -> <Server as Origin>::Container<Result<(), HashMap<XOnlyPublicKey, RoundContributionError>>>
+    ) -> <Server as Origin>::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>
     {
-        let mut errs = HashMap::new();
+        let mut errs = BTreeMap::new();
         for (pubkey, sig) in sigs {
             let signer_idx = match self.ordered_public_keys.iter().position(|x| x == &pubkey) {
                 Some(idx) => idx,

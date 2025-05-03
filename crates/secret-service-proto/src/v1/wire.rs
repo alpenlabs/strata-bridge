@@ -1,6 +1,6 @@
 //! V1 wire protocol
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use bitcoin::{
     hashes::Hash,
@@ -98,7 +98,7 @@ pub enum ServerMessage {
         /// Errors indicating whether the server was unable to process the request, indexed by the
         /// pubnonce's signer's xonly pubkey. If empty, should be returned as a Ok(())
         #[rkyv(with = MapKV<Identity, rkyv_wrappers::RoundContributionError>)]
-        HashMap<[u8; 32], RoundContributionError>,
+        BTreeMap<[u8; 32], RoundContributionError>,
     ),
 
     /// Response for
@@ -144,7 +144,7 @@ pub enum ServerMessage {
         /// Any errors that occurred during signature reception, keyed by the partial signature's
         /// signer's xonly pubkey If empty, should be returned as a Ok(())
         #[rkyv(with = MapKV<Identity, rkyv_wrappers::RoundContributionError>)]
-        HashMap<[u8; 32], RoundContributionError>,
+        BTreeMap<[u8; 32], RoundContributionError>,
     ),
 
     /// Response for
@@ -322,7 +322,7 @@ pub enum ClientMessage {
         session_id: Musig2SessionId,
 
         /// Public nonces keyed by the signer's xonly public key
-        nonces: HashMap<[u8; 32], [u8; 66]>,
+        nonces: BTreeMap<[u8; 32], [u8; 66]>,
     },
 
     /// Request for
@@ -375,7 +375,7 @@ pub enum ClientMessage {
         #[rkyv(with = rkyv_wrappers::OutPoint)]
         session_id: Musig2SessionId,
         /// Partial signatures, keyed by the signer's xonly public key
-        sigs: HashMap<[u8; 32], [u8; 32]>,
+        sigs: BTreeMap<[u8; 32], [u8; 32]>,
     },
 
     /// Request for
