@@ -22,7 +22,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@a02741459ec5e501b9843ed30b535ca0a0376ae4 # nightly
+      - uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
         with:
           toolchain: nightly-2024-11-01
 
@@ -31,7 +31,7 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: taiki-e/install-action@1b0e852a3465a29cd0b17876f2de42a88d145e91 # cargo-hack
+      - uses: taiki-e/install-action@27d86b8f455f5faba378fdd55a1c18e1998b3633 # cargo-hack
 
       - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
