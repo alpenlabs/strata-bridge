@@ -11,13 +11,12 @@ use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
 use sqlx::query;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, tracker::DutyTrackerDb};
-use strata_bridge_primitives::duties::{
-    BridgeDuties, ClaimStatus, DepositRequestStatus, WithdrawalStatus,
-};
+use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
-    types::RpcOperatorStatus,
+    types::{
+        RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus, RpcWithdrawalInfo,
+    },
 };
 use strata_p2p::swarm::handle::P2PHandle;
 use tokio::sync::{oneshot, watch};
@@ -181,20 +180,20 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     async fn get_deposit_request_info(
         &self,
         deposit_request_outpoint: OutPoint,
-    ) -> RpcResult<DepositRequestStatus> {
+    ) -> RpcResult<RpcDepositStatus> {
         let deposit_request_txid = deposit_request_outpoint.txid;
         // Iterate over all contract states to find the matching deposit request
         for contract_sm in self.current_state.values() {
             if deposit_request_txid == contract_sm.deposit_request_txid() {
                 match contract_sm.get_state() {
                     ContractState::Requested { .. } => {
-                        return Ok(DepositRequestStatus::InProgress {
+                        return Ok(RpcDepositStatus::InProgress {
                             deposit_request_txid,
                         });
                     }
                     _ => {
                         let deposit_txid = contract_sm.deposit_txid();
-                        return Ok(DepositRequestStatus::Complete {
+                        return Ok(RpcDepositStatus::Complete {
                             deposit_request_txid,
                             deposit_txid,
                         });
@@ -244,7 +243,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
                 match state {
                     ContractState::Requested { .. } => {
-                        return Ok(DepositRequestStatus::InProgress {
+                        return Ok(RpcDepositStatus::InProgress {
                             deposit_request_txid,
                         });
                     }
@@ -263,7 +262,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                                 Some(self.db.config()),
                             )
                         })?;
-                        return Ok(DepositRequestStatus::Complete {
+                        return Ok(RpcDepositStatus::Complete {
                             deposit_request_txid,
                             deposit_txid,
                         });
@@ -279,85 +278,30 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         ))
     }
 
-    async fn get_bridge_duties(&self) -> RpcResult<BridgeDuties> {
-        Ok(self.db.get_all_duties().await.map_err(|_| {
-            ErrorObjectOwned::owned::<_>(
-                -666,
-                "Database error. Config dumped",
-                Some(self.db.config()),
-            )
-        })?)
+    async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
+        todo!()
     }
 
     async fn get_bridge_duties_by_operator_pk(
         &self,
-        operator_pk: PublicKey,
-    ) -> RpcResult<BridgeDuties> {
-        Ok(self
-            .db
-            .get_duties_by_operator_pk(operator_pk)
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?)
+        _operator_pk: PublicKey,
+    ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
+        todo!()
     }
 
     async fn get_withdrawal_info(
         &self,
-        withdrawal_outpoint: OutPoint,
-    ) -> RpcResult<WithdrawalStatus> {
-        let withdrawal_txid = withdrawal_outpoint.txid;
-        let status = self
-            .db
-            .get_withdrawal_by_txid(withdrawal_txid)
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
-        match status {
-            Some(status) => Ok(status),
-            None => Err(ErrorObjectOwned::owned::<_>(
-                -32001,
-                "Withdrawal outpoint not found",
-                Some(withdrawal_outpoint),
-            )),
-        }
+        _withdrawal_outpoint: OutPoint,
+    ) -> RpcResult<RpcWithdrawalInfo> {
+        todo!()
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        Ok(self.db.get_all_claims().await.map_err(|_| {
-            ErrorObjectOwned::owned::<_>(
-                -666,
-                "Database error. Config dumped",
-                Some(self.db.config()),
-            )
-        })?)
+        todo!()
     }
 
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<ClaimStatus> {
-        let result = self.db.get_claim_by_txid(claim_txid).await.map_err(|_| {
-            ErrorObjectOwned::owned::<_>(
-                -666,
-                "Database error. Config dumped",
-                Some(self.db.config()),
-            )
-        })?;
-        match result {
-            Some(status) => Ok(status),
-            None => Err(ErrorObjectOwned::owned::<_>(
-                -32001,
-                "Claim not found",
-                Some(claim_txid),
-            )),
-        }
+    async fn get_claim_info(&self, _claim_txid: Txid) -> RpcResult<RpcClaimInfo> {
+        todo!()
     }
 }
 

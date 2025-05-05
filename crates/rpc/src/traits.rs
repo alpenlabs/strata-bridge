@@ -2,11 +2,10 @@
 
 use bitcoin::{OutPoint, PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
-use strata_bridge_primitives::duties::{
-    BridgeDuties, ClaimStatus, DepositRequestStatus, WithdrawalStatus,
-};
 
-use crate::types::RpcOperatorStatus;
+use crate::types::{
+    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus, RpcWithdrawalInfo,
+};
 
 /// RPCs related to information about the client itself.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
@@ -34,25 +33,25 @@ pub trait StrataBridgeMonitoringApi {
     async fn get_deposit_request_info(
         &self,
         deposit_request_outpoint: OutPoint,
-    ) -> RpcResult<DepositRequestStatus>;
+    ) -> RpcResult<RpcDepositStatus>;
 
     /// Get bridge duties.
     #[method(name = "bridgeDuties")]
-    async fn get_bridge_duties(&self) -> RpcResult<BridgeDuties>;
+    async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
 
     /// Get bridge duties assigned to an operator by its [`PublicKey`].
     #[method(name = "bridgeDutiesByPk")]
     async fn get_bridge_duties_by_operator_pk(
         &self,
         operator_pk: PublicKey,
-    ) -> RpcResult<BridgeDuties>;
+    ) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
 
     /// Get withdrawal details using withdrawal outpoint.
     #[method(name = "withdrawalInfo")]
     async fn get_withdrawal_info(
         &self,
         withdrawal_outpoint: OutPoint,
-    ) -> RpcResult<WithdrawalStatus>;
+    ) -> RpcResult<RpcWithdrawalInfo>;
 
     /// Get all claim transaction IDs.
     #[method(name = "claims")]
@@ -60,5 +59,5 @@ pub trait StrataBridgeMonitoringApi {
 
     /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<ClaimStatus>;
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo>;
 }
