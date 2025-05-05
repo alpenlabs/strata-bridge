@@ -1009,7 +1009,14 @@ impl ContractSM {
                         let input = input.clone();
                         (
                             signer,
-                            // TODO(proofofkeags): use async thread pool in future commit
+                            // TODO(proofofkeags): use async thread pool in future commit.
+                            //
+                            // This is currently implemented as an OS thread for a couple of
+                            // reasons. First, we'd like to be able to test this without having to
+                            // invoke an async runtime. As of right now this is inside of a pure
+                            // function which means its testing requirements are a little bit more
+                            // relaxed. Secondly, the value of async is much less pronounced for
+                            // operations that are waiting on compute instead of IO.
                             thread::Builder::new()
                                 .stack_size(8 * 1024 * 1024)
                                 .spawn(move || {
