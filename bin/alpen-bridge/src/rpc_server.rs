@@ -6,7 +6,7 @@ use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
-use duty_tracker::contract_state_machine::ContractSM;
+use duty_tracker::contract_state_machine::{ContractSM, ContractState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
@@ -181,25 +181,32 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         &self,
         deposit_request_outpoint: OutPoint,
     ) -> RpcResult<DepositRequestStatus> {
-        let result = self
-            .db
-            .get_deposit_request_by_txid(deposit_request_outpoint.txid)
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
-        match result {
-            Some(deposit) => Ok(deposit),
-            None => Err(ErrorObjectOwned::owned::<_>(
-                -32001,
-                "Deposit request outpoint not found",
-                Some(deposit_request_outpoint),
-            )),
+        // If it is Requested, then we can just return the InProgress status.
+        // Otherwise, it is complete.
+        if let Some(contract_sm) = self.current_state.get(&deposit_request_outpoint.txid) {
+            match contract_sm.get_state() {
+                ContractState::Requested {
+                    deposit_request_txid,
+                    ..
+                } => {
+                    return Ok(DepositRequestStatus::InProgress {
+                        deposit_request_txid: *deposit_request_txid,
+                    })
+                }
+                _ => {
+                    return Ok(DepositRequestStatus::Complete {
+                        deposit_request_txid: deposit_request_outpoint.txid,
+                    })
+                }
+            }
         }
+        // TODO(@storopoli): Once we start purging contract states,
+        //                   we need to get the information from the database.
+        Err(ErrorObjectOwned::owned::<_>(
+            -32001,
+            "Deposit request outpoint not found",
+            Some(deposit_request_outpoint),
+        ))
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<BridgeDuties> {
