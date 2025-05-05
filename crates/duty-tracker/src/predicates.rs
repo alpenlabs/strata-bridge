@@ -14,8 +14,8 @@ use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
 use strata_bridge_tx_graph::transactions::deposit::DepositRequestData;
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
 use strata_primitives::params::RollupParams;
-use strata_state::batch::{Checkpoint, SignedCheckpoint};
-use tracing::warn;
+use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
+use tracing::{debug, warn};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -195,10 +195,18 @@ pub(crate) fn parse_strata_checkpoint(
             if inscription.is_empty() {
                 return None;
             }
-            if let Ok(signed_batch_checkpoint) =
+
+            let Ok(signed_checkpoint) =
                 borsh::from_slice::<SignedCheckpoint>(inscription[0].data())
-            {
-                return Some(signed_batch_checkpoint.into());
+            else {
+                return None;
+            };
+
+            let cred_rule = &rollup_params.cred_rule;
+            if verify_signed_checkpoint_sig(&signed_checkpoint, cred_rule) {
+                debug!(?cred_rule, epoch=%signed_checkpoint.checkpoint().batch_info().epoch, "found valid strata checkpoint");
+
+                return Some(signed_checkpoint.into());
             }
         }
     }
