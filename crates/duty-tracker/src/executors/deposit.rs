@@ -351,7 +351,10 @@ pub(crate) async fn handle_publish_graph_nonces(
                 }
                 MusigSessionErr::SecretServiceRoundContributionErr(round_contribution_error) => {
                     // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    error!(%round_contribution_error, "error getting nonces for graph from s2")
+                    error!(
+                        ?round_contribution_error,
+                        "error getting nonces for graph from s2"
+                    )
                 }
                 MusigSessionErr::SecretServiceRoundFinalizeErr(round_finalize_error) => {
                     // TODO: (@Rajil1213) handle this properly when we known what causes this
