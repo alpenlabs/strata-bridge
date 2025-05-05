@@ -32,7 +32,7 @@ use tokio::{
     task::{self, JoinHandle},
     time,
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_persister::ContractPersister,
@@ -416,7 +416,10 @@ impl ContractManagerCtx {
 
         for tx in block.txdata {
             let assignment_duties = self.process_assignments(&tx).await?;
-            duties.extend(assignment_duties.into_iter());
+            if !assignment_duties.is_empty() {
+                info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
+                duties.extend(assignment_duties.into_iter());
+            }
 
             let txid = tx.compute_txid();
             if let Some(deposit_request_data) = deposit_request_info(
@@ -556,55 +559,64 @@ impl ContractManagerCtx {
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
             let chain_state = checkpoint.sidecar().chainstate();
 
-            if let Ok(chain_state) = borsh::from_slice::<Chainstate>(chain_state) {
-                let deposits_table = chain_state.deposits_table().deposits();
+            match borsh::from_slice::<Chainstate>(chain_state) {
+                Ok(chain_state) => {
+                    let deposits_table =
+                        chain_state.deposits_table().deposits().collect::<Vec<_>>();
+                    debug!(?deposits_table, "extracted deposits table from chain state");
 
-                let assigned_deposit_entries = deposits_table
-                    .filter(|entry| matches!(entry.deposit_state(), DepositState::Dispatched(_)));
+                    let assigned_deposit_entries = deposits_table.into_iter().filter(|entry| {
+                        matches!(entry.deposit_state(), DepositState::Dispatched(_))
+                    });
 
-                for entry in assigned_deposit_entries {
-                    let deposit_txid = entry.output().outpoint().txid;
+                    for entry in assigned_deposit_entries {
+                        let deposit_txid = entry.output().outpoint().txid;
 
-                    let sm = self
-                        .state
-                        .active_contracts
-                        .get_mut(&deposit_txid)
-                        .expect("withdrawal info must be for an active contract");
+                        let sm = self
+                            .state
+                            .active_contracts
+                            .get_mut(&deposit_txid)
+                            .expect("withdrawal info must be for an active contract");
 
-                    let pov_op_p2p_key = self.cfg.operator_table.pov_op_key();
-                    let stake_index = entry.idx();
-                    let Ok(Some(stake_tx)) = self
-                        .state
-                        .stake_chains
-                        .stake_tx(pov_op_p2p_key, stake_index as usize)
-                    else {
-                        warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
-                        continue;
-                    };
+                        let pov_op_p2p_key = self.cfg.operator_table.pov_op_key();
+                        let stake_index = entry.idx();
+                        let Ok(Some(stake_tx)) = self
+                            .state
+                            .stake_chains
+                            .stake_tx(pov_op_p2p_key, stake_index as usize)
+                        else {
+                            warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
+                            continue;
+                        };
 
-                    match sm
-                        .process_contract_event(ContractEvent::Assignment(entry.clone(), stake_tx))
-                    {
-                        Ok(new_duties) if !new_duties.is_empty() => {
-                            info!("committing stake chain state");
-                            self.state_handles
-                                .stake_chain_persister
-                                .commit_stake_data(
-                                    &self.cfg.operator_table,
-                                    self.state.stake_chains.state().clone(),
-                                )
-                                .await?;
+                        match sm.process_contract_event(ContractEvent::Assignment(
+                            entry.clone(),
+                            stake_tx,
+                        )) {
+                            Ok(new_duties) if !new_duties.is_empty() => {
+                                info!("committing stake chain state");
+                                self.state_handles
+                                    .stake_chain_persister
+                                    .commit_stake_data(
+                                        &self.cfg.operator_table,
+                                        self.state.stake_chains.state().clone(),
+                                    )
+                                    .await?;
 
-                            duties.extend(new_duties);
-                        }
-                        Ok(_) => {
-                            info!(?entry, "no duty generated for assignment");
-                        }
-                        Err(e) => {
-                            error!(%e, "could not generate duty for assignment event");
-                            return Err(e)?;
+                                duties.extend(new_duties);
+                            }
+                            Ok(_) => {
+                                debug!(?entry, "no duty generated for assignment");
+                            }
+                            Err(e) => {
+                                error!(%e, "could not generate duty for assignment event");
+                                return Err(e)?;
+                            }
                         }
                     }
+                }
+                Err(e) => {
+                    warn!(%e, "failed to deserialize chainstate inscribed in checkpoint tx");
                 }
             }
         };
