@@ -746,6 +746,16 @@ impl ContractSM {
         (contract_sm, duty)
     }
 
+    /// Gets the configuration of the contract.
+    pub fn get_cfg(&self) -> &ContractCfg {
+        &self.cfg
+    }
+
+    /// Gets the state of the contract.
+    pub fn get_state(&self) -> &ContractState {
+        &self.state.state
+    }
+
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]
     pub fn restore(cfg: ContractCfg, state: MachineState) -> Self {
         ContractSM {
