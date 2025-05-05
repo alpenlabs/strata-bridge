@@ -2,6 +2,7 @@
 
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
+use strata_bridge_primitives::types::OperatorIdx;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,4 +121,23 @@ pub struct RpcClaimInfo {
 
     /// Status of the reimbursement.
     pub status: RpcReimbursementStatus,
+}
+
+/// Represents a valid bridge duty status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RpcBridgeDutyStatus {
+    /// Deposit duty
+    Deposit {
+        /// Transaction ID of the deposit request transaction (DRT).
+        deposit_request_txid: Txid,
+    },
+
+    /// Withdrawal duty
+    Withdrawal {
+        /// Transaction ID of the withdrawal request transaction (WRT).
+        withdrawal_request_txid: Txid,
+
+        /// Assigned operator index.
+        assigned_operator_idx: OperatorIdx,
+    },
 }
