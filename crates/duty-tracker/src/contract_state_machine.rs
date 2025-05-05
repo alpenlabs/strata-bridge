@@ -666,7 +666,10 @@ pub struct MachineState {
 /// This is the core state machine for a given deposit contract.
 #[derive(Debug)]
 pub struct ContractSM {
+    /// The configuration of the contract.
     cfg: ContractCfg,
+
+    /// The state of the contract itself.
     state: MachineState,
 
     /// The peg out graphs associated with each operator for the given deposit.
