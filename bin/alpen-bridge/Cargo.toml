@@ -37,6 +37,7 @@ strata-bridge-common.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 bdk_bitcoind_rpc.workspace = true
+bincode.workspace = true
 bitcoin.workspace = true
 bitcoind-async-client.workspace = true
 chrono.workspace = true

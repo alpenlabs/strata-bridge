@@ -1,6 +1,6 @@
 //! Bootstraps an RPC server for the operator.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, str::FromStr};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
@@ -10,6 +10,7 @@ use duty_tracker::contract_state_machine::{ContractSM, ContractState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
+use sqlx::query;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, tracker::DutyTrackerDb};
 use strata_bridge_primitives::duties::{
     BridgeDuties, ClaimStatus, DepositRequestStatus, WithdrawalStatus,
@@ -181,27 +182,96 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         &self,
         deposit_request_outpoint: OutPoint,
     ) -> RpcResult<DepositRequestStatus> {
-        // If it is Requested, then we can just return the InProgress status.
-        // Otherwise, it is complete.
-        if let Some(contract_sm) = self.current_state.get(&deposit_request_outpoint.txid) {
-            match contract_sm.get_state() {
-                ContractState::Requested {
-                    deposit_request_txid,
-                    ..
-                } => {
-                    return Ok(DepositRequestStatus::InProgress {
-                        deposit_request_txid: *deposit_request_txid,
-                    })
-                }
-                _ => {
-                    return Ok(DepositRequestStatus::Complete {
-                        deposit_request_txid: deposit_request_outpoint.txid,
-                    })
+        let deposit_request_txid = deposit_request_outpoint.txid;
+        // Iterate over all contract states to find the matching deposit request
+        for contract_sm in self.current_state.values() {
+            if deposit_request_txid == contract_sm.deposit_request_txid() {
+                match contract_sm.get_state() {
+                    ContractState::Requested { .. } => {
+                        return Ok(DepositRequestStatus::InProgress {
+                            deposit_request_txid,
+                        });
+                    }
+                    _ => {
+                        let deposit_txid = contract_sm.deposit_txid();
+                        return Ok(DepositRequestStatus::Complete {
+                            deposit_request_txid,
+                            deposit_txid,
+                        });
+                    }
                 }
             }
         }
-        // TODO(@storopoli): Once we start purging contract states,
-        //                   we need to get the information from the database.
+
+        // If we are here, the deposit request outpoint was not found in the "hot state".
+        // Let's check the database.
+        let all_entries = query!(r#"SELECT * FROM contracts"#)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+        for entry in all_entries {
+            let entry_deposit_txid = if let Some(deposit_txid) = entry.deposit_txid.as_ref() {
+                Txid::from_str(deposit_txid).map_err(|_| {
+                    ErrorObjectOwned::owned::<_>(
+                        -666,
+                        "Database error. Config dumped",
+                        Some(self.db.config()),
+                    )
+                })?
+            } else {
+                return Err(ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                ));
+            };
+
+            if entry_deposit_txid == deposit_request_txid {
+                let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
+                    ErrorObjectOwned::owned::<_>(
+                        -666,
+                        "Database error. Config dumped",
+                        Some(self.db.config()),
+                    )
+                })?;
+
+                match state {
+                    ContractState::Requested { .. } => {
+                        return Ok(DepositRequestStatus::InProgress {
+                            deposit_request_txid,
+                        });
+                    }
+                    _ => {
+                        let deposit_txid_str = entry.deposit_txid.as_ref().ok_or_else(|| {
+                            ErrorObjectOwned::owned::<_>(
+                                -666,
+                                "Database error. Config dumped",
+                                Some(self.db.config()),
+                            )
+                        })?;
+                        let deposit_txid = Txid::from_str(deposit_txid_str).map_err(|_| {
+                            ErrorObjectOwned::owned::<_>(
+                                -666,
+                                "Database error. Config dumped",
+                                Some(self.db.config()),
+                            )
+                        })?;
+                        return Ok(DepositRequestStatus::Complete {
+                            deposit_request_txid,
+                            deposit_txid,
+                        });
+                    }
+                }
+            }
+        }
+
         Err(ErrorObjectOwned::owned::<_>(
             -32001,
             "Deposit request outpoint not found",

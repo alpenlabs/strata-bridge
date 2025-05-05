@@ -858,6 +858,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "bdk_bitcoind_rpc",
+ "bincode",
  "bitcoin",
  "bitcoind-async-client",
  "btc-notify",
