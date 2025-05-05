@@ -260,17 +260,17 @@ impl ConnectorA3Leaf {
 }
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ConnectorA3 {
-    network: Network,
-
-    deposit_txid: Txid,
-
     wots_public_keys: wots::PublicKeys,
 
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
     payout_timelock: u32,
+
+    output_address: Address,
+
+    spend_info: TaprootSpendInfo,
 }
 
 impl ConnectorA3 {
@@ -282,12 +282,24 @@ impl ConnectorA3 {
         wots_public_keys: wots::PublicKeys,
         payout_timelock: u32,
     ) -> Self {
-        Self {
-            network,
+        let disprove_scripts =
+            api_generate_full_tapscripts(*wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
+
+        let (output_address, spend_info) = Self::generate_taproot_address(
+            &network,
+            wots_public_keys,
+            n_of_n_agg_pubkey,
+            payout_timelock,
+            disprove_scripts,
             deposit_txid,
+        );
+
+        Self {
             n_of_n_agg_pubkey,
             payout_timelock,
             wots_public_keys,
+            output_address,
+            spend_info,
         }
     }
 
@@ -297,38 +309,33 @@ impl ConnectorA3 {
     }
 
     /// Generates the locking script for this connector.
-    pub fn generate_locking_script(&self, deposit_txid: Txid) -> ScriptBuf {
-        let (address, _) = self.generate_taproot_address(deposit_txid);
-
-        address.script_pubkey()
+    pub fn generate_locking_script(&self) -> ScriptBuf {
+        self.output_address.script_pubkey()
     }
 
     /// Generates the taproot spend info for this connector.
-    pub fn generate_spend_info(
-        &self,
-        tapleaf: ConnectorA3Leaf,
-        deposit_txid: Txid,
-    ) -> (ScriptBuf, ControlBlock) {
-        let (_, taproot_spend_info) = self.generate_taproot_address(deposit_txid);
-
+    pub fn generate_spend_info(&self, tapleaf: ConnectorA3Leaf) -> (ScriptBuf, ControlBlock) {
         let script = tapleaf.generate_locking_script(
             self.n_of_n_agg_pubkey,
             self.wots_public_keys,
             self.payout_timelock,
         );
-        let control_block = taproot_spend_info
+        let control_block = self
+            .spend_info
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
 
         (script, control_block)
     }
 
-    /// Generates the disprove scripts for this connector.
-    pub fn generate_disprove_scripts(&self) -> [ScriptBuf; NUM_TAPS] {
-        api_generate_full_tapscripts(*self.wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS)
-    }
-
-    fn generate_taproot_address(&self, deposit_txid: Txid) -> (Address, TaprootSpendInfo) {
+    fn generate_taproot_address(
+        network: &Network,
+        wots_public_keys: wots::PublicKeys,
+        n_of_n_agg_pubkey: XOnlyPublicKey,
+        payout_timelock: u32,
+        disprove_scripts: [ScriptBuf; NUM_TAPS],
+        deposit_txid: Txid,
+    ) -> (Address, TaprootSpendInfo) {
         let scripts = [
             ConnectorA3Leaf::Payout(None),
             ConnectorA3Leaf::DisprovePublicInputsCommitment {
@@ -337,39 +344,31 @@ impl ConnectorA3 {
             },
         ]
         .map(|leaf| {
-            leaf.generate_locking_script(
-                self.n_of_n_agg_pubkey,
-                self.wots_public_keys,
-                self.payout_timelock,
-            )
+            leaf.generate_locking_script(n_of_n_agg_pubkey, wots_public_keys, payout_timelock)
         })
         .into_iter();
 
-        let disprove_scripts = self.generate_disprove_scripts();
         let invalidate_proof_tapleaves = disprove_scripts
+            .clone()
             .map(|disprove_script| ConnectorA3Leaf::DisproveProof {
                 disprove_script,
                 witness_script: None,
             })
             .map(|leaf| {
-                leaf.generate_locking_script(
-                    self.n_of_n_agg_pubkey,
-                    self.wots_public_keys,
-                    self.payout_timelock,
-                )
+                leaf.generate_locking_script(n_of_n_agg_pubkey, wots_public_keys, payout_timelock)
             });
 
         let scripts = scripts
             .chain(invalidate_proof_tapleaves)
             .collect::<Vec<ScriptBuf>>();
 
-        create_taproot_addr(&self.network, SpendPath::ScriptSpend { scripts: &scripts })
+        create_taproot_addr(network, SpendPath::ScriptSpend { scripts: &scripts })
             .expect("should be able to create taproot address")
     }
 
     /// Finalizes the input for the psbt that spends this connector.
     pub fn finalize_input(&self, input: &mut Input, tapleaf: ConnectorA3Leaf) {
-        let (script, control_block) = self.generate_spend_info(tapleaf.clone(), self.deposit_txid);
+        let (script, control_block) = self.generate_spend_info(tapleaf.clone());
 
         let witness_script = tapleaf.generate_witness_script();
 

@@ -79,7 +79,7 @@ impl DisproveTx {
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("should be able to create psbt");
 
-        let connector_a3_script = connector_a3.generate_locking_script(data.deposit_txid);
+        let connector_a3_script = connector_a3.generate_locking_script();
 
         let prevouts = [
             TxOut {

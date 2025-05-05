@@ -228,7 +228,7 @@ impl PegOutGraph {
             assert_chain_data,
             connectors.claim_out_0,
             connectors.n_of_n,
-            connectors.post_assert_out_0,
+            connectors.post_assert_out_0.clone(),
             connectors.connector_cpfp,
             connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
@@ -260,7 +260,7 @@ impl PegOutGraph {
 
         let payout_tx = PayoutTx::new(
             payout_data,
-            connectors.post_assert_out_0,
+            connectors.post_assert_out_0.clone(),
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp,
@@ -281,7 +281,7 @@ impl PegOutGraph {
         let disprove_tx = DisproveTx::new(
             disprove_data,
             stake_chain_params,
-            connectors.post_assert_out_0,
+            connectors.post_assert_out_0.clone(),
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
@@ -439,7 +439,7 @@ impl PegOutGraph {
 ///
 /// Note that this does not include the stake chain connectors as those are shared at setup time at
 /// regular intervals and not during the peg-out graph generation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PegOutGraphConnectors {
     /// The first output of the stake transaction that kicks off the peg out graph.
     pub kickoff: ConnectorK,
@@ -1188,8 +1188,9 @@ mod tests {
 
         info!("creating transaction to fund dust outputs");
         let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
+        let funding_address = operator_address.clone();
         let result = btc_client
-            .send_to_address(&operator_address, OPERATOR_FUNDS)
+            .send_to_address(&funding_address, OPERATOR_FUNDS)
             .unwrap();
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
         let operator_funds_tx = btc_client.get_transaction(result.txid().unwrap()).unwrap();
@@ -1212,8 +1213,9 @@ mod tests {
             .unwrap();
 
         info!("creating transaction for operator's stake");
+        let pre_stake_address = operator_address.clone();
         let result = btc_client
-            .send_to_address(&operator_address, OPERATOR_STAKE)
+            .send_to_address(&pre_stake_address, OPERATOR_STAKE)
             .unwrap();
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
         let operator_stake_tx = btc_client.get_transaction(result.txid().unwrap()).unwrap();
@@ -1242,6 +1244,8 @@ mod tests {
             wots_public_keys.withdrawal_fulfillment,
             pre_stake,
             operator_funds,
+            funding_address,
+            pre_stake_address,
             operator_pubkey,
             connector_cpfp,
         );

@@ -61,7 +61,7 @@ impl PostAssertTx {
 
         trace!(event = "created tx ins", count = tx_ins.len());
 
-        let connector_a31_script = connector_a3.generate_locking_script(data.deposit_txid);
+        let connector_a31_script = connector_a3.generate_locking_script();
         trace!(
             event = "generated a31 locking script",
             size = connector_a31_script.len(),
