@@ -107,7 +107,7 @@ impl PayoutTx {
             },
             TxOut {
                 value: data.input_amount,
-                script_pubkey: connector_a3.generate_locking_script(data.deposit_txid),
+                script_pubkey: connector_a3.generate_locking_script(),
             },
             TxOut {
                 value: n_of_n_addr.script_pubkey().minimal_non_dust(),
@@ -140,7 +140,7 @@ impl PayoutTx {
         }
 
         let (connector_a3_script, connector_a3_control_block) =
-            connector_a3.generate_spend_info(ConnectorA3Leaf::Payout(None), data.deposit_txid);
+            connector_a3.generate_spend_info(ConnectorA3Leaf::Payout(None));
         let witnesses = [
             TaprootWitness::Key,
             TaprootWitness::Script {
