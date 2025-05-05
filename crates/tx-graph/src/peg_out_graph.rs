@@ -1244,8 +1244,6 @@ mod tests {
             wots_public_keys.withdrawal_fulfillment,
             pre_stake,
             operator_funds,
-            funding_address,
-            pre_stake_address,
             operator_pubkey,
             connector_cpfp,
         );
