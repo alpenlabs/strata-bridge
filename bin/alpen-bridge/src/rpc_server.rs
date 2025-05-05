@@ -12,6 +12,7 @@ use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
 use sqlx::query;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
+use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
     types::{
@@ -279,14 +280,162 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        todo!()
+        // we don't care about the hot state here, we only care about the database
+        let all_entries = query!(r#"SELECT * FROM contracts"#)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+        let mut duties = Vec::new();
+        for entry in all_entries {
+            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+            match state {
+                ContractState::Requested {
+                    deposit_request_txid,
+                    ..
+                } => {
+                    duties.push(RpcBridgeDutyStatus::Deposit {
+                        deposit_request_txid,
+                    });
+                }
+                ContractState::Deposited {
+                    deposit_request_txid,
+                    ..
+                } => duties.push(RpcBridgeDutyStatus::Deposit {
+                    deposit_request_txid,
+                }),
+                ContractState::Assigned {
+                    assignment_txid,
+                    fulfiller,
+                    ..
+                } => duties.push(RpcBridgeDutyStatus::Withdrawal {
+                    withdrawal_request_txid: assignment_txid,
+                    assigned_operator_idx: fulfiller,
+                }),
+                ContractState::StakeTxReady {
+                    assignment_txid,
+                    fulfiller,
+                    ..
+                } => duties.push(RpcBridgeDutyStatus::Withdrawal {
+                    withdrawal_request_txid: assignment_txid,
+                    assigned_operator_idx: fulfiller,
+                }),
+                // Anything else is not a duty for the RPC server
+                _ => (),
+            }
+        }
+
+        Ok(duties)
     }
 
     async fn get_bridge_duties_by_operator_pk(
         &self,
-        _operator_pk: PublicKey,
+        operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        todo!()
+        // we don't care about the hot state here, we only care about the database
+        let all_entries = query!(r#"SELECT * FROM contracts"#)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+        // NOTE: duties by operator pk is only for withdrawal duties,
+        //       it does not make sense for deposit duties
+        let mut duties = Vec::new();
+        for entry in all_entries {
+            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+            // First, get the operator_table from the record
+            let operator_table = bincode::deserialize::<OperatorTable>(&entry.operator_table)
+                .map_err(|_| {
+                    ErrorObjectOwned::owned::<_>(
+                        -666,
+                        "Database error. Config dumped",
+                        Some(self.db.config()),
+                    )
+                })?;
+
+            // Then, get the operator index from the operator table
+            let operator_index = operator_table
+                .btc_key_to_idx(&operator_pk.inner)
+                .ok_or_else(|| {
+                    ErrorObjectOwned::owned::<_>(
+                        -32001,
+                        "Operator public key not found in operator table",
+                        Some(operator_pk.to_string()),
+                    )
+                })?;
+
+            let operator_p2p_pk = operator_table
+                .idx_to_op_key(&operator_index)
+                .expect("we just checked that the index is valid");
+
+            // Then, only get the entries where the operator index matches
+            match state {
+                ContractState::Assigned {
+                    claim_txids,
+                    assignment_txid,
+                    ..
+                } => {
+                    if claim_txids.contains_key(operator_p2p_pk) {
+                        duties.push(RpcBridgeDutyStatus::Withdrawal {
+                            withdrawal_request_txid: assignment_txid,
+                            assigned_operator_idx: operator_index,
+                        });
+                    }
+                }
+                ContractState::StakeTxReady {
+                    claim_txids,
+                    assignment_txid,
+                    ..
+                } => {
+                    if claim_txids.contains_key(operator_p2p_pk) {
+                        duties.push(RpcBridgeDutyStatus::Withdrawal {
+                            withdrawal_request_txid: assignment_txid,
+                            assigned_operator_idx: operator_index,
+                        });
+                    }
+                }
+                ContractState::Fulfilled {
+                    claim_txids,
+                    withdrawal_fulfillment_txid,
+                    ..
+                } => {
+                    if claim_txids.contains_key(operator_p2p_pk) {
+                        duties.push(RpcBridgeDutyStatus::Withdrawal {
+                            withdrawal_request_txid: withdrawal_fulfillment_txid,
+                            assigned_operator_idx: operator_index,
+                        });
+                    }
+                }
+                _ => (),
+            }
+        }
+        Ok(duties)
     }
 
     async fn get_withdrawal_info(
