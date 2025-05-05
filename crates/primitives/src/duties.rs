@@ -179,7 +179,10 @@ pub enum DepositRequestStatus {
 
     /// Deposit request has been fully processed and minted.
     Complete {
+        /// The transaction ID of the deposit request.
         deposit_request_txid: Txid,
+
+        /// The transaction ID of the deposit.
         deposit_txid: Txid,
     },
 }
