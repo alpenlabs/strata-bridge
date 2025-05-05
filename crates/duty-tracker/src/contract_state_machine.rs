@@ -536,6 +536,41 @@ pub enum OperatorDuty {
     VerifierDuty(VerifierDuty),
 }
 
+impl Display for OperatorDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OperatorDuty::Abort => write!(f, "Abort"),
+            OperatorDuty::PublishStakeChainExchange => write!(f, "PublishStakeChainExchange"),
+            OperatorDuty::PublishDepositSetup {
+                deposit_txid,
+                deposit_idx,
+                ..
+            } => write!(f, "PublishDepositSetup ({deposit_txid}, {deposit_idx})"),
+            OperatorDuty::PublishGraphNonces { claim_txid, .. } => {
+                write!(f, "PublishGraphNonces ({claim_txid})")
+            }
+            OperatorDuty::PublishGraphSignatures { claim_txid, .. } => {
+                write!(f, "PublishGraphSignatures ({claim_txid})")
+            }
+            OperatorDuty::PublishRootNonce {
+                deposit_request_txid,
+                ..
+            } => write!(f, "PublishRootNonce ({deposit_request_txid})"),
+            OperatorDuty::PublishRootSignature {
+                deposit_request_txid,
+                ..
+            } => write!(f, "PublishRootSignature ({deposit_request_txid})"),
+            OperatorDuty::PublishDeposit { deposit_tx, .. } => {
+                write!(f, "PublishDeposit ({})", deposit_tx.compute_txid())
+            }
+            OperatorDuty::FulfillerDuty(fulfiller_duty) => {
+                write!(f, "FulfillerDuty: {fulfiller_duty}")
+            }
+            OperatorDuty::VerifierDuty(verifier_duty) => write!(f, "VerifierDuty: {verifier_duty}"),
+        }
+    }
+}
+
 /// This is a duty that has to be carried out if we are the assigned operator.
 #[derive(Debug, Clone)]
 pub enum FulfillerDuty {
@@ -599,6 +634,33 @@ pub enum FulfillerDuty {
     PublishPayout,
 }
 
+impl Display for FulfillerDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FulfillerDuty::InitStakeChain => write!(f, "InitStakeChain"),
+            FulfillerDuty::AdvanceStakeChain {
+                stake_index,
+                stake_tx,
+            } => write!(
+                f,
+                "AdvanceStakeChain for stake_index: {stake_index}, stake_tx: {stake_tx:?}"
+            ),
+            FulfillerDuty::PublishFulfillment {
+                withdrawal_metadata,
+                ..
+            } => write!(f, "PublishFulfillment: {withdrawal_metadata:?}"),
+            FulfillerDuty::PublishClaim { deposit_txid, .. } => {
+                write!(f, "PublishClaim for {deposit_txid}")
+            }
+            FulfillerDuty::PublishPayoutOptimistic { deposit_txid, .. } => {
+                write!(f, "PublishPayoutOptimistic for {deposit_txid}")
+            }
+            FulfillerDuty::PublishAssertChain => write!(f, "PublishAssertChain"),
+            FulfillerDuty::PublishPayout => write!(f, "PublishPayout"),
+        }
+    }
+}
+
 /// This is a duty that must be carried out as a Verifier.
 #[derive(Debug, Clone)]
 pub enum VerifierDuty {
@@ -617,6 +679,18 @@ pub enum VerifierDuty {
 
     /// Originates after Post-Assert is issued if Disprove script is satisfiable
     PublishDisprove,
+}
+
+impl Display for VerifierDuty {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VerifierDuty::VerifyClaim => write!(f, "VerifyClaim"),
+            VerifierDuty::VerifyAssertion => write!(f, "VerifyAssertion"),
+            VerifierDuty::VerifyStake => write!(f, "VerifyStake"),
+            VerifierDuty::PublishChallenge => write!(f, "PublishChallenge"),
+            VerifierDuty::PublishDisprove => write!(f, "PublishDisprove"),
+        }
+    }
 }
 
 /// Error representing an invalid state transition.
@@ -937,12 +1011,12 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         match &self.state.state {
             ContractState::Requested { .. } => Err(TransitionErr(format!(
-                "peg out graph confirmation ({}) delivered to CSM in Requested state ({:?})",
+                "peg out graph confirmation ({}) delivered to CSM in Requested state ({})",
                 tx.compute_txid(),
                 self.state.state
             ))),
             ContractState::Deposited { .. } => Err(TransitionErr(format!(
-                "peg out graph confirmation ({}) delivered to CSM in Deposited state ({:?})",
+                "peg out graph confirmation ({}) delivered to CSM in Deposited state ({})",
                 tx.compute_txid(),
                 self.state.state
             ))),
@@ -957,12 +1031,12 @@ impl ContractSM {
                 .process_disprove_confirmation(tx)
                 .or_else(|_| self.process_defended_payout_confirmation(tx)),
             ContractState::Disproved {} => Err(TransitionErr(format!(
-                "peg out graph confirmation ({}) delivered to CSM in Disproved state ({:?})",
+                "peg out graph confirmation ({}) delivered to CSM in Disproved state ({})",
                 tx.compute_txid(),
                 self.state.state
             ))),
             ContractState::Resolved { .. } => Err(TransitionErr(format!(
-                "peg out graph confirmation ({}) delivered to CSM in Resolved state ({:?})",
+                "peg out graph confirmation ({}) delivered to CSM in Resolved state ({})",
                 tx.compute_txid(),
                 self.state.state
             ))),
@@ -1092,7 +1166,7 @@ impl ContractSM {
                 Ok(duties)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_deposit_setup ({:?})",
+                "unexpected state in process_deposit_setup ({})",
                 self.state.state
             ))),
         }
@@ -1190,7 +1264,7 @@ impl ContractSM {
                 })
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_graph_nonces ({:?})",
+                "unexpected state in process_graph_nonces ({})",
                 self.state.state
             ))),
         }
@@ -1252,7 +1326,7 @@ impl ContractSM {
                 })
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_graph_signatures ({:?})",
+                "unexpected state in process_graph_signatures ({})",
                 self.state.state
             ))),
         }
@@ -1311,7 +1385,7 @@ impl ContractSM {
                 )
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_root_nonce ({:?})",
+                "unexpected state in process_root_nonce ({})",
                 self.state.state
             ))),
         }
@@ -1347,7 +1421,7 @@ impl ContractSM {
                 )
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_root_signature ({:?})",
+                "unexpected state in process_root_signature ({})",
                 self.state.state
             ))),
         }
@@ -1520,7 +1594,7 @@ impl ContractSM {
                 ))),
             },
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_assignment ({:?})",
+                "unexpected state in process_assignment ({})",
                 self.state.state
             ))),
         }
@@ -1577,7 +1651,7 @@ impl ContractSM {
                 )))
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_stake_chain_advancement ({:?})",
+                "unexpected state in process_stake_chain_advancement ({})",
                 current
             ))),
         }
@@ -1640,7 +1714,7 @@ impl ContractSM {
                 Ok(duty)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_fulfillment_confirmation ({:?})",
+                "unexpected state in process_fulfillment_confirmation ({})",
                 current
             ))),
         }
@@ -1684,7 +1758,7 @@ impl ContractSM {
                 Ok(duty)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_claim_confirmation ({:?})",
+                "unexpected state in process_claim_confirmation ({})",
                 current
             ))),
         }
@@ -1699,7 +1773,7 @@ impl ContractSM {
                 VerifierDuty::PublishChallenge,
             ))),
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_claim_verification_failure ({:?})",
+                "unexpected state in process_claim_verification_failure ({})",
                 self.state.state
             ))),
         }
@@ -1743,7 +1817,7 @@ impl ContractSM {
                 Ok(duty)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_challenge_confirmation ({:?})",
+                "unexpected state in process_challenge_confirmation ({})",
                 current
             ))),
         }
@@ -1787,7 +1861,7 @@ impl ContractSM {
                 Ok(duty)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_assert_chain_confirmation ({:?})",
+                "unexpected state in process_assert_chain_confirmation ({})",
                 current
             ))),
         }
@@ -1803,7 +1877,7 @@ impl ContractSM {
                 VerifierDuty::PublishDisprove,
             ))),
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_assert_verification_failure ({:?})",
+                "unexpected state in process_assert_verification_failure ({})",
                 current
             ))),
         }
@@ -1827,7 +1901,7 @@ impl ContractSM {
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_disprove_confirmation ({:?})",
+                "unexpected state in process_disprove_confirmation ({})",
                 self.state.state
             ))),
         }
@@ -1848,7 +1922,7 @@ impl ContractSM {
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_optimistic_payout_confirmation ({:?})",
+                "unexpected state in process_optimistic_payout_confirmation ({})",
                 self.state.state
             ))),
         }
@@ -1871,7 +1945,7 @@ impl ContractSM {
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
-                "unexpected state in process_defended_payout_confirmation ({:?})",
+                "unexpected state in process_defended_payout_confirmation ({})",
                 self.state.state
             ))),
         }

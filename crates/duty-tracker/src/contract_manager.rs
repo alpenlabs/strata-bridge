@@ -224,14 +224,14 @@ impl ContractManager {
                 match ctx.process_block(block).await {
                     Ok(duties) => {
                         duties.into_iter().for_each(|duty| {
-                            info!(?duty, "starting duty execution from lagging blocks");
+                            info!(%duty, "starting duty execution from lagging blocks");
                             let cfg = cfg.clone();
                             let output_handles = output_handles.clone();
                             tokio::task::spawn(async move {
                                 if let Err(e) =
                                     execute_duty(cfg, output_handles, duty.clone()).await
                                 {
-                                    error!(%e, ?duty, "failed to execute duty");
+                                    error!(%e, %duty, "failed to execute duty");
                                 }
                             });
                         });
@@ -326,13 +326,13 @@ impl ContractManager {
                 }
 
                 duties.into_iter().for_each(|duty| {
-                    debug!(?duty, "starting duty execution from new blocks");
+                    debug!(%duty, "starting duty execution from new blocks");
 
                     let cfg = cfg.clone();
                     let output_handles = output_handles.clone();
                     tokio::task::spawn(async move {
                         if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
-                            error!(%e, ?duty, "failed to execute duty");
+                            error!(%e, %duty, "failed to execute duty");
                         }
                     });
                 });
