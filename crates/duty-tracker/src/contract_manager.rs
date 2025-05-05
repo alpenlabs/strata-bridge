@@ -600,6 +600,7 @@ impl ContractManagerCtx {
         &mut self,
         tx: &Transaction,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
+        let assignment_txid = tx.compute_txid();
         let mut duties = Vec::new();
 
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
@@ -631,9 +632,11 @@ impl ContractManagerCtx {
                         continue;
                     };
 
-                    match sm
-                        .process_contract_event(ContractEvent::Assignment(entry.clone(), stake_tx))
-                    {
+                    match sm.process_contract_event(ContractEvent::Assignment(
+                        entry.clone(),
+                        stake_tx,
+                        assignment_txid,
+                    )) {
                         Ok(Some(duty)) => {
                             info!("committing stake chain state");
                             self.state_handles

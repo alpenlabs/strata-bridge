@@ -136,7 +136,7 @@ pub enum ContractEvent {
     RootSig(P2POperatorPubKey, PartialSignature),
 
     /// Signifies that this withdrawal has been assigned.
-    Assignment(DepositEntry, StakeTx),
+    Assignment(DepositEntry, StakeTx, Txid),
 
     /// Signifies that the deposit transaction has been confirmed, the second value is the global
     /// deposit index.
@@ -213,6 +213,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the deposit confirms, to the moment the
     /// strata state commitment that assigns this deposit confirms.
     Deposited {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -227,6 +230,9 @@ pub enum ContractState {
     /// to a valid withdrawal assignment is posted to bitcoin all the way to the corresponding
     /// stake transaction being confirmed.
     Assigned {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -247,12 +253,18 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the assignment transaction.
+        assignment_txid: Txid,
     },
 
     /// This state describes everything from the moment stake transaction corresponding to this
     /// deposit confirms to the moment the fulfillment transaction confirms for the assigned
     /// operator.
     StakeTxReady {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -273,11 +285,17 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the assignment transaction.
+        assignment_txid: Txid,
     },
 
     /// This state describes everything from the moment the fulfillment transaction confirms, to
     /// the moment the claim transaction confirms.
     Fulfilled {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -292,12 +310,18 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The withdrawal fulfillment transaction ID.
+        withdrawal_fulfillment_txid: Txid,
     },
 
     /// This state describes everything from the moment the claim transaction confirms, to the
     /// moment either the challenge transaction confirms, or the optimistic payout transaction
     /// confirms.
     Claimed {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -320,6 +344,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the challenge transaction confirms, to the
     /// moment the post-assert transaction confirms.
     Challenged {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -339,6 +366,9 @@ pub enum ContractState {
     /// This state describes everything from the moment the post-assert transaction confirms, to
     /// the moment either the disprove transaction confirms or the payout transaction confirms.
     Asserted {
+        /// The txid of the deposit request transaction that kicked off this contract.
+        deposit_request_txid: Txid,
+
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -420,8 +450,8 @@ impl Display for ContractState {
                 "Asserted by operator {} at height {} ({})",
                 fulfiller, post_assert_height, active_graph.1.post_assert_txid
             ),
-            ContractState::Disproved {} => "Disproved".to_string(),
-            ContractState::Resolved {} => "Resolved".to_string(),
+            ContractState::Disproved { .. } => "Disproved".to_string(),
+            ContractState::Resolved { .. } => "Resolved".to_string(),
         };
 
         write!(f, "ContractState: {}", display_str)
@@ -446,8 +476,68 @@ impl ContractState {
             ContractState::Claimed { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
             ContractState::Challenged { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
             ContractState::Asserted { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Disproved {} => vec![],
-            ContractState::Resolved {} => vec![],
+            ContractState::Disproved { .. } => vec![],
+            ContractState::Resolved { .. } => vec![],
+        }
+    }
+
+    /// Returns the transaction ID of the deposit request for this contract state.
+    pub fn deposit_request_txid(&self) -> Option<Txid> {
+        match self {
+            ContractState::Requested {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Deposited {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Assigned {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::StakeTxReady {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Fulfilled {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Claimed {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Challenged {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Asserted {
+                deposit_request_txid,
+                ..
+            } => Some(*deposit_request_txid),
+            ContractState::Disproved { .. } => None,
+            ContractState::Resolved { .. } => None,
+        }
+    }
+
+    /// Returns the claim txids for this contract state.
+    pub fn claim_txids(&self) -> Vec<Txid> {
+        match self {
+            ContractState::Requested { claim_txids, .. } => claim_txids.values().cloned().collect(),
+            ContractState::Deposited { claim_txids, .. } => claim_txids.values().cloned().collect(),
+            ContractState::Assigned { claim_txids, .. } => claim_txids.values().cloned().collect(),
+            ContractState::StakeTxReady { claim_txids, .. } => {
+                claim_txids.values().cloned().collect()
+            }
+            ContractState::Fulfilled { claim_txids, .. } => claim_txids.values().cloned().collect(),
+            ContractState::Claimed { claim_txids, .. } => claim_txids.values().cloned().collect(),
+            ContractState::Challenged { claim_txids, .. } => {
+                claim_txids.values().cloned().collect()
+            }
+            ContractState::Asserted { claim_txids, .. } => claim_txids.values().cloned().collect(),
+            ContractState::Disproved { .. } => vec![],
+            ContractState::Resolved { .. } => vec![],
         }
     }
 }
@@ -857,8 +947,8 @@ impl ContractSM {
             ContractEvent::Block(height) => self.notify_new_block(height),
             ContractEvent::ClaimFailure => self.process_claim_verification_failure(),
             ContractEvent::AssertionFailure => self.process_assertion_verification_failure(),
-            ContractEvent::Assignment(deposit_entry, stake_tx) => {
-                self.process_assignment(&deposit_entry, stake_tx)
+            ContractEvent::Assignment(deposit_entry, stake_tx, assignment_txid) => {
+                self.process_assignment(&deposit_entry, stake_tx, assignment_txid)
             }
         }
     }
@@ -884,6 +974,7 @@ impl ContractSM {
         if let ContractState::Requested {
             peg_out_graphs,
             claim_txids,
+            deposit_request_txid,
             ..
         } = current
         {
@@ -891,6 +982,7 @@ impl ContractSM {
             self.state.state = ContractState::Deposited {
                 peg_out_graphs,
                 claim_txids,
+                deposit_request_txid,
             }
         } else {
             self.state.state = current;
@@ -1366,6 +1458,7 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
         stake_tx: StakeTx,
+        assignment_txid: Txid,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if assignment.idx() != self.cfg.deposit_idx {
             return Err(TransitionErr(format!(
@@ -1379,6 +1472,7 @@ impl ContractSM {
             ContractState::Deposited {
                 peg_out_graphs,
                 claim_txids,
+                deposit_request_txid,
             } => match assignment.deposit_state() {
                 DepositState::Dispatched(dispatched_state) => {
                     let fulfiller = dispatched_state.assignee();
@@ -1425,6 +1519,8 @@ impl ContractSM {
                             deadline,
                             active_graph,
                             recipient: recipient.clone(),
+                            assignment_txid,
+                            deposit_request_txid,
                         };
 
                         let stake_index = assignment.idx();
@@ -1464,6 +1560,8 @@ impl ContractSM {
                 recipient,
                 deadline,
                 active_graph,
+                assignment_txid,
+                deposit_request_txid,
             } => {
                 if tx.compute_txid() != active_graph.1.stake_txid {
                     return Err(TransitionErr(format!(
@@ -1478,6 +1576,8 @@ impl ContractSM {
                     recipient: recipient.clone(),
                     deadline,
                     active_graph,
+                    assignment_txid,
+                    deposit_request_txid,
                 };
                 let is_assigned_to_me = fulfiller == self.cfg.operator_table.pov_idx();
 
@@ -1521,6 +1621,7 @@ impl ContractSM {
                 fulfiller,
                 active_graph,
                 recipient,
+                deposit_request_txid,
                 ..
             } => {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
@@ -1553,6 +1654,8 @@ impl ContractSM {
                     claim_txids,
                     fulfiller,
                     active_graph,
+                    withdrawal_fulfillment_txid: tx.compute_txid(),
+                    deposit_request_txid,
                 };
 
                 Ok(duty)
@@ -1576,6 +1679,7 @@ impl ContractSM {
                 claim_txids,
                 fulfiller,
                 active_graph,
+                deposit_request_txid,
                 ..
             } => {
                 if tx.compute_txid() != active_graph.1.claim_txid {
@@ -1597,6 +1701,7 @@ impl ContractSM {
                     claim_height: height,
                     fulfiller,
                     active_graph,
+                    deposit_request_txid,
                 };
 
                 Ok(duty)
@@ -1634,6 +1739,7 @@ impl ContractSM {
                 claim_txids,
                 fulfiller,
                 active_graph,
+                deposit_request_txid,
                 ..
             } => {
                 if !is_challenge(active_graph.1.claim_txid)(tx) {
@@ -1656,6 +1762,7 @@ impl ContractSM {
                     claim_txids,
                     fulfiller,
                     active_graph,
+                    deposit_request_txid,
                 };
 
                 Ok(duty)
@@ -1679,6 +1786,7 @@ impl ContractSM {
                 claim_txids,
                 fulfiller,
                 active_graph,
+                deposit_request_txid,
                 ..
             } => {
                 if tx.compute_txid() != active_graph.1.post_assert_txid {
@@ -1700,6 +1808,7 @@ impl ContractSM {
                     post_assert_height,
                     fulfiller,
                     active_graph,
+                    deposit_request_txid,
                 };
 
                 Ok(duty)
@@ -1841,5 +1950,49 @@ impl ContractSM {
         .values()
         .copied()
         .collect()
+    }
+
+    /// The txid of the assignment transaction for this contract.
+    ///
+    /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
+    /// [`ContractState::StakeTxReady`] state.
+    pub fn assignment_txid(&self) -> Option<Txid> {
+        match &self.state().state {
+            ContractState::Requested { .. } => None,
+            ContractState::Deposited { .. } => None,
+            ContractState::Assigned {
+                assignment_txid, ..
+            } => Some(*assignment_txid),
+            ContractState::StakeTxReady {
+                assignment_txid, ..
+            } => Some(*assignment_txid),
+            ContractState::Fulfilled { .. } => None,
+            ContractState::Claimed { .. } => None,
+            ContractState::Challenged { .. } => None,
+            ContractState::Asserted { .. } => None,
+            ContractState::Disproved {} => None,
+            ContractState::Resolved {} => None,
+        }
+    }
+    /// The txid of the withdrawal fulfillment for this contract.
+    ///
+    /// Note that this is only available if the contract is in the [`ContractState::Fulfilled`]
+    /// state.
+    pub fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
+        match &self.state().state {
+            ContractState::Requested { .. } => None,
+            ContractState::Deposited { .. } => None,
+            ContractState::Assigned { .. } => None,
+            ContractState::StakeTxReady { .. } => None,
+            ContractState::Fulfilled {
+                withdrawal_fulfillment_txid,
+                ..
+            } => Some(*withdrawal_fulfillment_txid),
+            ContractState::Claimed { .. } => None,
+            ContractState::Challenged { .. } => None,
+            ContractState::Asserted { .. } => None,
+            ContractState::Disproved {} => None,
+            ContractState::Resolved {} => None,
+        }
     }
 }
