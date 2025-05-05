@@ -1,7 +1,6 @@
 use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_ff::{AdditiveGroup, PrimeField};
 use ark_groth16::{Proof, VerifyingKey};
-use sha2::{Digest, Sha256};
 
 pub const MASK: u8 = 0b11 << 6;
 
@@ -45,14 +44,6 @@ pub fn is_zeroed(first_byte: u8, buf: &[u8]) -> bool {
         }
     }
     true
-}
-
-pub fn hash_bn254_be_bytes(data: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(data);
-    let mut hash: [u8; 32] = hasher.finalize().into();
-    hash[0] &= 0b00011111; // mask 3 most significant bits
-    hash
 }
 
 pub fn deserialize_with_flags(buf: &[u8; 32]) -> (Fq, CompressionFlag) {
