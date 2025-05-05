@@ -1562,7 +1562,8 @@ impl ContractSM {
             )));
         }
 
-        match std::mem::replace(&mut self.state.state, ContractState::Resolved {}) {
+        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        match &current {
             ContractState::Deposited {
                 peg_out_graphs,
                 claim_txids,
@@ -1606,8 +1607,8 @@ impl ContractSM {
 
                     if let Some(recipient) = recipient {
                         self.state.state = ContractState::Assigned {
-                            peg_out_graphs,
-                            claim_txids,
+                            peg_out_graphs: peg_out_graphs.clone(),
+                            claim_txids: claim_txids.clone(),
                             fulfiller,
                             deadline,
                             active_graph,
@@ -1624,6 +1625,7 @@ impl ContractSM {
                             },
                         )))
                     } else {
+                        self.state.state = current;
                         Ok(None)
                     }
                 }
