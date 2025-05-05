@@ -8,7 +8,7 @@ use bdk_wallet::{
     },
     descriptor,
     error::CreateTxError,
-    KeychainKind, LocalOutput, Wallet,
+    KeychainKind, LocalOutput, TxOrdering, Wallet,
 };
 use sync::{Backend, SyncError};
 use tracing::{debug, info};
@@ -222,6 +222,7 @@ impl OperatorWallet {
         tx_builder.unspendable(cpfp_utxos);
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), self.config.s_value);
+        tx_builder.ordering(TxOrdering::Untouched);
         tx_builder.finish()
     }
 
