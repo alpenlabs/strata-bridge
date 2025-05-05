@@ -998,25 +998,31 @@ impl ContractSM {
         }
 
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        if let ContractState::Requested {
-            peg_out_graphs,
-            claim_txids,
-            ..
-        } = current
-        {
-            info!(%deposit_txid, "updating contract state to deposited");
-            self.state.state = ContractState::Deposited {
+        match current {
+            ContractState::Requested {
                 peg_out_graphs,
                 claim_txids,
+                ..
+            } => {
+                info!(%deposit_txid, "updating contract state to deposited");
+                self.state.state = ContractState::Deposited {
+                    peg_out_graphs,
+                    claim_txids,
+                }
             }
-        } else {
-            self.state.state = current;
-            error!(txid=%deposit_txid, state=%self.state.state, "deposit confirmation delivered to CSM not in Requested state");
+            ContractState::Deposited { .. } => {
+                // somebody else may have deposited already.
+                info!("contract already in deposited state");
+            }
+            invalid_state => {
+                self.state.state = invalid_state;
+                error!(txid=%deposit_txid, state=%self.state.state, "deposit confirmation delivered to CSM not in Requested state");
 
-            return Err(TransitionErr(format!(
-                "deposit confirmation ({}) delivered to CSM not in Requested state ({})",
-                deposit_txid, self.state.state
-            )));
+                return Err(TransitionErr(format!(
+                    "deposit confirmation ({}) delivered to CSM not in Requested state ({})",
+                    deposit_txid, self.state.state
+                )));
+            }
         }
 
         Ok(None)
@@ -1403,6 +1409,11 @@ impl ContractSM {
                     },
                 )
             }
+            ContractState::Deposited { .. } => {
+                // somebody else may have deposited already.
+                info!("contract already in deposited state, skipping root nonce generation");
+                Ok(None)
+            }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_root_nonce ({})",
                 self.state.state
@@ -1438,6 +1449,11 @@ impl ContractSM {
                         None
                     },
                 )
+            }
+            ContractState::Deposited { .. } => {
+                // somebody else may have deposited already.
+                info!("contract already in deposited state, skipping root signature generation");
+                Ok(None)
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_root_signature ({})",
@@ -1536,6 +1552,8 @@ impl ContractSM {
         stake_tx: StakeTx,
         assignment_txid: Txid,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        info!(?assignment, "processing assignment");
+
         if assignment.idx() != self.cfg.deposit_idx {
             return Err(TransitionErr(format!(
                 "unexpected assignment ({}) delivered to CSM ({})",
