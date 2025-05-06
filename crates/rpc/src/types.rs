@@ -78,25 +78,16 @@ pub enum RpcWithdrawalStatus {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcReimbursementStatus {
     /// Claim exists, challenge step is "Claim", no payout.
-    InProgress {
-        /// Challenge step.
-        challenge_step: ChallengeStep,
-    },
+    InProgress,
 
     /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
-    Challenged {
-        /// Challenge step.
-        challenge_step: ChallengeStep,
-    },
+    Challenged,
 
     /// Operator was slashed, claim is no longer valid.
     Cancelled,
 
     /// Claim has been successfully reimbursed.
-    Complete {
-        /// Transaction ID of the payout transaction.
-        payout_txid: Txid,
-    },
+    Complete,
 }
 
 /// Represents deposit transaction details
