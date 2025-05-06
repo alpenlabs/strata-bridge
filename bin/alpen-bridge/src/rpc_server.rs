@@ -17,6 +17,7 @@ use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
     types::{
         RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus, RpcWithdrawalInfo,
+        RpcWithdrawalStatus,
     },
 };
 use strata_p2p::swarm::handle::P2PHandle;
@@ -440,9 +441,25 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_withdrawal_info(
         &self,
-        _withdrawal_outpoint: OutPoint,
+        withdrawal_outpoint: OutPoint,
     ) -> RpcResult<RpcWithdrawalInfo> {
-        todo!()
+        let withdrawal_txid = withdrawal_outpoint.txid;
+        // Iterate over all contract states to find the matching withdrawal
+        for contract_sm in self.current_state.values() {
+            if Some(withdrawal_txid) == contract_sm.withdrawal_fulfillment_txid() {
+                return Ok(RpcWithdrawalInfo {
+                    status: RpcWithdrawalStatus::Complete {
+                        fulfillment_txid: withdrawal_txid,
+                    },
+                });
+            }
+        }
+
+        Err(ErrorObjectOwned::owned::<_>(
+            -32001,
+            "Withdrawal outpoint not found",
+            Some(withdrawal_outpoint),
+        ))
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
