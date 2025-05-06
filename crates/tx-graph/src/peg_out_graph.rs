@@ -29,7 +29,7 @@ use crate::{
 ///
 /// This data is shared between various operators and verifiers and is used to construct the peg out
 /// graph deterministically.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PegOutGraphInput {
     /// The [`OutPoint`] of the stake transaction
     pub stake_outpoint: OutPoint,
