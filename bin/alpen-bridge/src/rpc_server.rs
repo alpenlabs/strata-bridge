@@ -16,8 +16,8 @@ use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
     types::{
-        RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus, RpcWithdrawalInfo,
-        RpcWithdrawalStatus,
+        RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus,
+        RpcReimbursementStatus, RpcWithdrawalInfo, RpcWithdrawalStatus,
     },
 };
 use strata_p2p::swarm::handle::P2PHandle;
@@ -463,11 +463,72 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        todo!()
+        // Get all the claims from the hot state.
+        let claims = self
+            .current_state
+            .values()
+            .flat_map(|sm| sm.claim_txids())
+            .collect();
+        Ok(claims)
     }
 
-    async fn get_claim_info(&self, _claim_txid: Txid) -> RpcResult<RpcClaimInfo> {
-        todo!()
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo> {
+        // Get the claim from the hot state.
+        let claim = self
+            .current_state
+            .values()
+            .find(|sm| sm.claim_txids().contains(&claim_txid));
+        if claim.is_some() {
+            return Ok(RpcClaimInfo {
+                claim_txid,
+                status: RpcReimbursementStatus::InProgress,
+            });
+        }
+
+        // If we are here it means that the claim is not in the hot state,
+        // so we need to check the database.
+        let all_entries = query!(r#"SELECT * FROM contracts"#)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+        for entry in all_entries {
+            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+            if state.claim_txids().contains(&claim_txid) {
+                let status = match state {
+                    ContractState::Requested { .. } => RpcReimbursementStatus::InProgress,
+                    ContractState::Deposited { .. } => RpcReimbursementStatus::InProgress,
+                    ContractState::Assigned { .. } => RpcReimbursementStatus::InProgress,
+                    ContractState::StakeTxReady { .. } => RpcReimbursementStatus::InProgress,
+                    ContractState::Fulfilled { .. } => RpcReimbursementStatus::InProgress,
+                    ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
+                    ContractState::Challenged { .. } => RpcReimbursementStatus::Challenged,
+                    ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
+                    ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
+                    ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
+                };
+                return Ok(RpcClaimInfo { claim_txid, status });
+            }
+        }
+
+        Err(ErrorObjectOwned::owned::<_>(
+            -32001,
+            "Claim not found",
+            Some(claim_txid),
+        ))
     }
 }
 
