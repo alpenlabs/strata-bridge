@@ -15,6 +15,7 @@ use strata_bridge_rpc::{
     traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
     types::{
         RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus, RpcWithdrawalInfo,
+        RpcWithdrawalStatus,
     },
 };
 use strata_p2p::swarm::handle::P2PHandle;
@@ -402,9 +403,44 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_withdrawal_info(
         &self,
-        _withdrawal_outpoint: OutPoint,
+        withdrawal_outpoint: OutPoint,
     ) -> RpcResult<RpcWithdrawalInfo> {
-        todo!()
+        let withdrawal_txid = withdrawal_outpoint.txid;
+        // Check the database.
+        let all_entries = query!(r#"SELECT * FROM contracts"#)
+            .fetch_all(self.db.pool())
+            .await
+            .map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+
+        // Iterate over all contract states to find the matching withdrawal
+        for entry in all_entries {
+            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
+                ErrorObjectOwned::owned::<_>(
+                    -666,
+                    "Database error. Config dumped",
+                    Some(self.db.config()),
+                )
+            })?;
+            if Some(withdrawal_txid) == state.withdrawal_fulfillment_txid() {
+                return Ok(RpcWithdrawalInfo {
+                    status: RpcWithdrawalStatus::Complete {
+                        fulfillment_txid: withdrawal_txid,
+                    },
+                });
+            }
+        }
+
+        Err(ErrorObjectOwned::owned::<_>(
+            -32001,
+            "Withdrawal outpoint not found",
+            Some(withdrawal_outpoint),
+        ))
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
