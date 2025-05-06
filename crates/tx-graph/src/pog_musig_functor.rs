@@ -12,7 +12,7 @@ use crate::transactions::{
 
 /// Functor like data structure for holding an arbitrary data structure that is matched with each of
 /// the inputs of the peg-out graph.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PogMusigF<T> {
     /// Data associated with the challenge transaction input.
     pub challenge: T,
