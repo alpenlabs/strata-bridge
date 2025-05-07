@@ -9,9 +9,9 @@ nag_interval = { secs = 120, nanos = 0 }
 server_addr = "172.28.1.7:69"
 server_hostname = "secret-service"
 timeout = 1000
-cert = "/app/tls/cert.der"
-key = "/app/tls/key.der"
-service_ca = "/app/tls/s2.ca.der"
+cert = "/app/tls/cert.pem"
+key = "/app/tls/key.pem"
+service_ca = "/app/tls/s2.ca.pem"
 
 [btc_client]
 url = "http://172.28.1.8:18443"
