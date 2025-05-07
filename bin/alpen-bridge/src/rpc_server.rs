@@ -1,5 +1,7 @@
 //! Bootstraps an RPC server for the operator.
 
+use std::str::FromStr;
+
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
@@ -152,27 +154,6 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         deposit_request_outpoint: OutPoint,
     ) -> RpcResult<RpcDepositStatus> {
         let deposit_request_txid = deposit_request_outpoint.txid;
-        // Iterate over all contract states to find the matching deposit request
-        for contract_sm in self.current_state.values() {
-            if deposit_request_txid == contract_sm.deposit_request_txid() {
-                match contract_sm.get_state() {
-                    ContractState::Requested { .. } => {
-                        return Ok(RpcDepositStatus::InProgress {
-                            deposit_request_txid,
-                        });
-                    }
-                    _ => {
-                        let deposit_txid = contract_sm.deposit_txid();
-                        return Ok(RpcDepositStatus::Complete {
-                            deposit_request_txid,
-                            deposit_txid,
-                        });
-                    }
-                }
-            }
-        }
-
-        // If we are here, the deposit request outpoint was not found in the "hot state".
         // Let's check the database.
         let all_entries = query!(r#"SELECT * FROM contracts"#)
             .fetch_all(self.db.pool())
@@ -240,6 +221,12 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 }
             }
         }
+
+        Err(ErrorObjectOwned::owned::<_>(
+            -32001,
+            "Deposit request outpoint not found",
+            Some(deposit_request_outpoint),
+        ))
     }
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
@@ -308,7 +295,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         &self,
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // we don't care about the hot state here, we only care about the database
+        // Check the database.
         let all_entries = query!(r#"SELECT * FROM contracts"#)
             .fetch_all(self.db.pool())
             .await
