@@ -99,10 +99,13 @@ impl MusigSessionManager {
         sender: XOnlyPublicKey,
         nonce: PubNonce,
     ) -> Result<(), MusigSessionErr> {
-        debug!(%outpoint, "loading first round nonce");
-
         let mut state = self.state.lock().await;
+        if state.second_round_map.contains_key(&outpoint) {
+            warn!("received ghost nonce for musig session {outpoint}, ignoring...");
+            return Ok(());
+        }
 
+        debug!(%outpoint, "loading first round nonce");
         let first_round = state
             .first_round_map
             .get_mut(&outpoint)
