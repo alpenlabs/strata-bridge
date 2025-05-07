@@ -1,16 +1,16 @@
 //! Bootstraps an RPC server for the operator.
 
-use std::str::FromStr;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
-use duty_tracker::contract_state_machine::ContractState;
+use duty_tracker::contract_state_machine::{ContractCfg, ContractState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
-use sqlx::query;
+use sqlx::{query_as, FromRow};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
@@ -20,9 +20,13 @@ use strata_bridge_rpc::{
         RpcReimbursementStatus, RpcWithdrawalInfo, RpcWithdrawalStatus,
     },
 };
+use strata_bridge_tx_graph::transactions::deposit::DepositTx;
 use strata_p2p::swarm::handle::P2PHandle;
-use tokio::sync::oneshot;
-use tracing::{info, warn};
+use tokio::{
+    sync::{oneshot, RwLock},
+    time::interval,
+};
+use tracing::{debug, error, info, warn};
 
 use crate::params::Params;
 
@@ -61,6 +65,51 @@ where
     Ok(())
 }
 
+/// In-memory representation of contract records from the database.
+#[derive(Debug, Clone, FromRow)]
+pub(crate) struct ContractRecord {
+    /// The deposit transaction ID with respect to this contract.
+    #[sqlx(rename = "deposit_txid")]
+    pub(crate) deposit_txid: String,
+
+    /// The deposit transaction with respect to this contract.
+    #[sqlx(rename = "deposit_tx")]
+    pub(crate) deposit_tx: Vec<u8>,
+
+    /// The deposit index with respect to this contract.
+    #[sqlx(rename = "deposit_idx")]
+    pub(crate) deposit_idx: i64,
+
+    /// The operator table that was in place when this contract was created.
+    #[sqlx(rename = "operator_table")]
+    pub(crate) operator_table: Vec<u8>,
+
+    /// The latest state of the contract.
+    #[sqlx(rename = "state")]
+    pub(crate) state: Vec<u8>,
+}
+
+impl ContractRecord {
+    fn into_typed(self) -> anyhow::Result<TypedContractRecord> {
+        Ok(TypedContractRecord {
+            deposit_txid: self.deposit_txid.parse::<Txid>()?,
+            deposit_tx: bincode::deserialize(&self.deposit_tx)?,
+            deposit_idx: self.deposit_idx as u32,
+            operator_table: bincode::deserialize(&self.operator_table)?,
+            state: bincode::deserialize(&self.state)?,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TypedContractRecord {
+    pub(crate) deposit_txid: Txid,
+    pub(crate) deposit_tx: DepositTx,
+    pub(crate) deposit_idx: u32,
+    pub(crate) operator_table: OperatorTable,
+    pub(crate) state: ContractState,
+}
+
 /// RPC server for the bridge node.
 /// Holds a handle to the database and the P2P messages; and a copy of [`Params`].
 #[derive(Clone)]
@@ -70,6 +119,14 @@ pub(crate) struct BridgeRpc {
 
     /// Database handle.
     db: SqliteDb,
+
+    /// Cached contracts from the database, refreshed periodically.
+    ///
+    /// This comprises of:
+    ///
+    /// 1. `TypesContractRecord`: the contract record with its associated types.
+    /// 2. `ContractCfg`: information that remain static for the lifetime of the contract.
+    cached_contracts: Arc<RwLock<Vec<(TypedContractRecord, ContractCfg)>>>,
 
     /// P2P message handle.
     ///
@@ -88,12 +145,115 @@ pub(crate) struct BridgeRpc {
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
     pub(crate) fn new(db: SqliteDb, p2p_handle: P2PHandle, params: Params) -> Self {
-        Self {
+        // Initialize with empty cache
+        let cached_contracts = Arc::new(RwLock::new(Vec::new()));
+        let instance = Self {
             start_time: Utc::now(),
             db,
+            cached_contracts,
             p2p_handle,
             params,
-        }
+        };
+
+        // Start the cache refresh task
+        instance.start_cache_refresh_task();
+
+        instance
+    }
+
+    /// Starts a task to periodically refresh the contracts cache.
+    fn start_cache_refresh_task(&self) {
+        let db = self.db.clone();
+        let cached_contracts = self.cached_contracts.clone();
+        // Clone the params we need before spawning the task
+        let network = self.params.network;
+        let connectors = self.params.connectors;
+        let tx_graph = self.params.tx_graph.clone();
+        let sidesystem = self.params.sidesystem.clone();
+        let stake_chain = self.params.stake_chain;
+
+        // Spawn a background task to refresh the cache
+        tokio::spawn(async move {
+            // TODO(@storopoli): make this configurable
+            let mut interval = interval(Duration::from_secs(10 * 60)); // 10 minutes, i.e. a bitcoin block
+
+            // Initial cache fill
+            if let Ok(contracts) = query_as!(
+                ContractRecord,
+                r#"SELECT deposit_txid as "deposit_txid!", deposit_tx as "deposit_tx!", deposit_idx as "deposit_idx!", operator_table as "operator_table!", state as "state!" FROM contracts"#
+            )
+            .fetch_all(db.pool())
+            .await
+            {
+                let mut cache_lock = cached_contracts.write().await;
+                // Convert raw records to typed records
+                *cache_lock = contracts
+                    .into_iter()
+                    .filter_map(|record| record.into_typed().ok())
+                    .map(|record| {
+                        let config = ContractCfg {
+                            network,
+                            operator_table: record.operator_table.clone(),
+                            connector_params: connectors,
+                            peg_out_graph_params: tx_graph.clone(),
+                            sidesystem_params: sidesystem.clone(),
+                            stake_chain_params: stake_chain,
+                            deposit_idx: record.deposit_idx,
+                            deposit_tx: record.deposit_tx.clone(),
+                        };
+                        (record, config)
+                    })
+                    .collect();
+                info!(cache_len=%cache_lock.len(), "Contracts cache initialized");
+
+                // drop the lock!
+                drop(cache_lock);
+            } else {
+                error!("Failed to initialize contracts cache");
+            }
+
+            // Periodic refresh
+            loop {
+                interval.tick().await;
+
+                match query_as!(
+                    ContractRecord,
+                    r#"SELECT deposit_txid as "deposit_txid!", deposit_tx as "deposit_tx!", deposit_idx as "deposit_idx!", operator_table as "operator_table!", state as "state!" FROM contracts"#
+                )
+                .fetch_all(db.pool())
+                .await
+                {
+                    Ok(contracts) => {
+                        let mut cache_lock = cached_contracts.write().await;
+                        // Convert raw records to typed records
+                        *cache_lock = contracts
+                            .into_iter()
+                            .filter_map(|record| record.into_typed().ok())
+                            .map(|record| {
+                                let config = ContractCfg {
+                                    network,
+                                    operator_table: record.operator_table.clone(),
+                                    connector_params: connectors,
+                                    peg_out_graph_params: tx_graph.clone(),
+                                    sidesystem_params: sidesystem.clone(),
+                                    stake_chain_params: stake_chain,
+                                    deposit_idx: record.deposit_idx,
+                                    deposit_tx: record.deposit_tx.clone(),
+                                };
+                                (record, config)
+                            })
+                            .collect();
+                        debug!(cache_len=%cache_lock.len(), "Contracts cache refreshed");
+
+                        // drop the lock!
+                        drop(cache_lock);
+                    }
+                    Err(e) => {
+                        error!(?e, "Failed to refresh contracts cache");
+                    }
+                }
+            }
+        });
     }
 }
 
@@ -154,68 +314,22 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         deposit_request_outpoint: OutPoint,
     ) -> RpcResult<RpcDepositStatus> {
         let deposit_request_txid = deposit_request_outpoint.txid;
-        // Let's check the database.
-        let all_entries = query!(r#"SELECT * FROM contracts"#)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+        // Use the cached contracts
+        let all_entries = self.cached_contracts.read().await.clone();
 
         for entry in all_entries {
-            let entry_deposit_txid = if let Some(deposit_txid) = entry.deposit_txid.as_ref() {
-                Txid::from_str(deposit_txid).map_err(|_| {
-                    ErrorObjectOwned::owned::<_>(
-                        -666,
-                        "Database error. Config dumped",
-                        Some(self.db.config()),
-                    )
-                })?
-            } else {
-                return Err(ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                ));
-            };
-
-            if entry_deposit_txid == deposit_request_txid {
-                let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
-                    ErrorObjectOwned::owned::<_>(
-                        -666,
-                        "Database error. Config dumped",
-                        Some(self.db.config()),
-                    )
-                })?;
-
-                match state {
+            let entry_deposit_request_txid = entry.1.deposit_request_txid();
+            if deposit_request_txid == entry_deposit_request_txid {
+                match &entry.0.state {
                     ContractState::Requested { .. } => {
                         return Ok(RpcDepositStatus::InProgress {
                             deposit_request_txid,
                         });
                     }
                     _ => {
-                        let deposit_txid_str = entry.deposit_txid.as_ref().ok_or_else(|| {
-                            ErrorObjectOwned::owned::<_>(
-                                -666,
-                                "Database error. Config dumped",
-                                Some(self.db.config()),
-                            )
-                        })?;
-                        let deposit_txid = Txid::from_str(deposit_txid_str).map_err(|_| {
-                            ErrorObjectOwned::owned::<_>(
-                                -666,
-                                "Database error. Config dumped",
-                                Some(self.db.config()),
-                            )
-                        })?;
                         return Ok(RpcDepositStatus::Complete {
                             deposit_request_txid,
-                            deposit_txid,
+                            deposit_txid: entry.0.deposit_txid,
                         });
                     }
                 }
@@ -231,57 +345,34 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
         // we don't care about the hot state here, we only care about the database
-        let all_entries = query!(r#"SELECT * FROM contracts"#)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+        let all_entries = self.cached_contracts.read().await.clone();
 
         let mut duties = Vec::new();
         for entry in all_entries {
-            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
-
-            match state {
-                ContractState::Requested {
-                    deposit_request_txid,
-                    ..
-                } => {
+            match &entry.0.state {
+                ContractState::Requested { .. } => {
                     duties.push(RpcBridgeDutyStatus::Deposit {
-                        deposit_request_txid,
+                        deposit_request_txid: entry.1.deposit_request_txid(),
                     });
                 }
-                ContractState::Deposited {
-                    deposit_request_txid,
-                    ..
-                } => duties.push(RpcBridgeDutyStatus::Deposit {
-                    deposit_request_txid,
+                ContractState::Deposited { .. } => duties.push(RpcBridgeDutyStatus::Deposit {
+                    deposit_request_txid: entry.1.deposit_request_txid(),
                 }),
                 ContractState::Assigned {
                     assignment_txid,
                     fulfiller,
                     ..
                 } => duties.push(RpcBridgeDutyStatus::Withdrawal {
-                    withdrawal_request_txid: assignment_txid,
-                    assigned_operator_idx: fulfiller,
+                    withdrawal_request_txid: *assignment_txid,
+                    assigned_operator_idx: *fulfiller,
                 }),
                 ContractState::StakeTxReady {
                     assignment_txid,
                     fulfiller,
                     ..
                 } => duties.push(RpcBridgeDutyStatus::Withdrawal {
-                    withdrawal_request_txid: assignment_txid,
-                    assigned_operator_idx: fulfiller,
+                    withdrawal_request_txid: *assignment_txid,
+                    assigned_operator_idx: *fulfiller,
                 }),
                 // Anything else is not a duty for the RPC server
                 _ => (),
@@ -295,42 +386,17 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         &self,
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
-        // Check the database.
-        let all_entries = query!(r#"SELECT * FROM contracts"#)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+        // Use the cached contracts
+        let all_entries = self.cached_contracts.read().await.clone();
 
         // NOTE: duties by operator pk is only for withdrawal duties,
         //       it does not make sense for deposit duties
         let mut duties = Vec::new();
         for entry in all_entries {
-            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
-
-            // First, get the operator_table from the record
-            let operator_table = bincode::deserialize::<OperatorTable>(&entry.operator_table)
-                .map_err(|_| {
-                    ErrorObjectOwned::owned::<_>(
-                        -666,
-                        "Database error. Config dumped",
-                        Some(self.db.config()),
-                    )
-                })?;
-
-            // Then, get the operator index from the operator table
-            let operator_index = operator_table
+            // Get the operator index from the operator table
+            let operator_index = entry
+                .0
+                .operator_table
                 .btc_key_to_idx(&operator_pk.inner)
                 .ok_or_else(|| {
                     ErrorObjectOwned::owned::<_>(
@@ -340,12 +406,14 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                     )
                 })?;
 
-            let operator_p2p_pk = operator_table
+            let operator_p2p_pk = entry
+                .0
+                .operator_table
                 .idx_to_op_key(&operator_index)
                 .expect("we just checked that the index is valid");
 
             // Then, only get the entries where the operator index matches
-            match state {
+            match &entry.0.state {
                 ContractState::Assigned {
                     claim_txids,
                     assignment_txid,
@@ -353,7 +421,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 } => {
                     if claim_txids.contains_key(operator_p2p_pk) {
                         duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: assignment_txid,
+                            withdrawal_request_txid: *assignment_txid,
                             assigned_operator_idx: operator_index,
                         });
                     }
@@ -365,7 +433,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 } => {
                     if claim_txids.contains_key(operator_p2p_pk) {
                         duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: assignment_txid,
+                            withdrawal_request_txid: *assignment_txid,
                             assigned_operator_idx: operator_index,
                         });
                     }
@@ -377,7 +445,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 } => {
                     if claim_txids.contains_key(operator_p2p_pk) {
                         duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: withdrawal_fulfillment_txid,
+                            withdrawal_request_txid: *withdrawal_fulfillment_txid,
                             assigned_operator_idx: operator_index,
                         });
                     }
@@ -393,33 +461,33 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         withdrawal_outpoint: OutPoint,
     ) -> RpcResult<RpcWithdrawalInfo> {
         let withdrawal_txid = withdrawal_outpoint.txid;
-        // Check the database.
-        let all_entries = query!(r#"SELECT * FROM contracts"#)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+        // Use the cached contracts
+        let all_entries = self.cached_contracts.read().await.clone();
 
         // Iterate over all contract states to find the matching withdrawal
         for entry in all_entries {
-            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
-            if Some(withdrawal_txid) == state.withdrawal_fulfillment_txid() {
-                return Ok(RpcWithdrawalInfo {
-                    status: RpcWithdrawalStatus::Complete {
-                        fulfillment_txid: withdrawal_txid,
-                    },
-                });
+            match &entry.0.state {
+                ContractState::Requested { .. } => todo!(),
+                ContractState::Deposited { .. } => todo!(),
+                ContractState::Assigned { .. } => todo!(),
+                ContractState::StakeTxReady { .. } => todo!(),
+                ContractState::Fulfilled {
+                    withdrawal_fulfillment_txid,
+                    ..
+                } => {
+                    if withdrawal_txid == *withdrawal_fulfillment_txid {
+                        return Ok(RpcWithdrawalInfo {
+                            status: RpcWithdrawalStatus::Complete {
+                                fulfillment_txid: withdrawal_txid,
+                            },
+                        });
+                    }
+                }
+                ContractState::Claimed { .. } => todo!(),
+                ContractState::Challenged { .. } => todo!(),
+                ContractState::Asserted { .. } => todo!(),
+                ContractState::Disproved { .. } => todo!(),
+                ContractState::Resolved { .. } => todo!(),
             }
         }
 
@@ -431,71 +499,133 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        // Check the database.
-        let all_entries = query!(r#"SELECT * FROM contracts"#)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+        // Use the cached contracts
+        let all_entries = self.cached_contracts.read().await.clone();
 
         let mut claims = Vec::new();
         for entry in all_entries {
-            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
-
-            claims.extend(state.claim_txids());
+            match &entry.0.state {
+                ContractState::Requested { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Deposited { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Assigned { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::StakeTxReady { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Fulfilled { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Claimed { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Challenged { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Asserted { claim_txids, .. } => {
+                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
+                }
+                ContractState::Disproved {} => (),
+                ContractState::Resolved {} => (),
+            }
         }
 
         Ok(claims)
     }
 
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo> {
-        // Check the database.
-        let all_entries = query!(r#"SELECT * FROM contracts"#)
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+        // Use the cached contracts
+        let all_entries = self.cached_contracts.read().await.clone();
 
         for entry in all_entries {
-            let state = bincode::deserialize::<ContractState>(&entry.state).map_err(|_| {
-                ErrorObjectOwned::owned::<_>(
-                    -666,
-                    "Database error. Config dumped",
-                    Some(self.db.config()),
-                )
-            })?;
+            match &entry.0.state {
+                ContractState::Requested { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::InProgress,
+                        });
+                    }
+                }
+                ContractState::Deposited { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
 
-            if state.claim_txids().contains(&claim_txid) {
-                let status = match state {
-                    ContractState::Requested { .. } => RpcReimbursementStatus::InProgress,
-                    ContractState::Deposited { .. } => RpcReimbursementStatus::InProgress,
-                    ContractState::Assigned { .. } => RpcReimbursementStatus::InProgress,
-                    ContractState::StakeTxReady { .. } => RpcReimbursementStatus::InProgress,
-                    ContractState::Fulfilled { .. } => RpcReimbursementStatus::InProgress,
-                    ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
-                    ContractState::Challenged { .. } => RpcReimbursementStatus::Challenged,
-                    ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
-                    ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
-                    ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
-                };
-                return Ok(RpcClaimInfo { claim_txid, status });
-            }
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::InProgress,
+                        });
+                    }
+                }
+                ContractState::Assigned { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::InProgress,
+                        });
+                    }
+                }
+                ContractState::StakeTxReady { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::InProgress,
+                        });
+                    }
+                }
+                ContractState::Fulfilled { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+
+                            status: RpcReimbursementStatus::InProgress,
+                        });
+                    }
+                }
+                ContractState::Claimed { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::InProgress,
+                        });
+                    }
+                }
+                ContractState::Challenged { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::Challenged,
+                        });
+                    }
+                }
+                ContractState::Asserted { claim_txids, .. } => {
+                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+
+                    if claim_txids.contains(&claim_txid) {
+                        return Ok(RpcClaimInfo {
+                            claim_txid,
+                            status: RpcReimbursementStatus::Challenged,
+                        });
+                    }
+                }
+                ContractState::Disproved { .. } => (),
+                ContractState::Resolved { .. } => (),
+            };
         }
 
         Err(ErrorObjectOwned::owned::<_>(

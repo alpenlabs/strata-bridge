@@ -882,6 +882,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-rpc",
  "strata-bridge-stake-chain",
+ "strata-bridge-tx-graph",
  "strata-p2p",
  "strata-p2p-types",
  "strata-primitives",
