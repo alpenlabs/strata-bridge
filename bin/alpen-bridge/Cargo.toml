@@ -19,6 +19,7 @@ rust.unused_must_use = "deny"
 
 [dependencies]
 alpen-bridge-params.workspace = true
+bincode.workspace = true
 btc-notify.workspace = true
 duty-tracker.workspace = true
 operator-wallet.workspace = true
