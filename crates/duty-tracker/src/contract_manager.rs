@@ -19,9 +19,9 @@ use bitcoin::{
 };
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
-use btc_notify::client::BtcZmqClient;
+use btc_notify::client::{BlockStatus, BtcZmqClient};
 use futures::{
-    future::{join3, join_all},
+    future::{self, join3, join_all},
     StreamExt,
 };
 use musig2::{
@@ -270,7 +270,11 @@ impl ContractManager {
                 cursor = next;
             }
 
-            let mut block_sub = zmq_client.subscribe_blocks().await;
+            let mut block_sub = zmq_client
+                .subscribe_blocks()
+                .await
+                .filter(|evt| future::ready(evt.status == BlockStatus::Buried));
+
             let mut interval = time::interval(nag_interval);
 
             loop {

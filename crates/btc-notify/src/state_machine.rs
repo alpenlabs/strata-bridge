@@ -124,7 +124,7 @@ impl BtcZmqSM {
 
     /// One of the three primary state transition functions of the [`BtcZmqSM`], updating internal
     /// state to reflect the the `rawblock` event.
-    pub(crate) fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
+    pub(crate) fn process_block(&mut self, block: Block) -> (Vec<TxEvent>, Option<BlockEvent>) {
         let block_height = block.bip34_block_height().unwrap_or(0);
         info!(block_hash=%block.block_hash(), %block_height, "processing block");
         trace!(?block, "started processing a block");
@@ -220,7 +220,7 @@ impl BtcZmqSM {
             }
         }
 
-        if self.unburied_blocks.len() > self.bury_depth {
+        let block_event = if self.unburied_blocks.len() > self.bury_depth {
             if let Some(newly_buried) = self.unburied_blocks.pop_back() {
                 // Now that we've handled the Mined transitions. We can take the oldest block we are
                 // still tracking and declare all of its relevant transactions
@@ -232,29 +232,34 @@ impl BtcZmqSM {
                 trace!(?newly_buried, %blockhash, %height, "handled all mined transactions, starting to process newly buried transactions");
                 info!(%blockhash, %height, "handled all mined transactions, starting to process newly buried transactions from block");
 
-                for buried_tx in newly_buried.txdata {
+                for buried_tx in newly_buried.txdata.iter() {
                     let buried_txid = buried_tx.compute_txid();
 
-                    trace!(?buried_tx, %buried_txid, %blockhash, %height, "handled all mined transactions, starting to process buried transactions");
-                    debug!(%buried_txid, %blockhash, %height, "handled all mined transactions, starting to process buried transactions");
+                    trace!(?buried_tx, %buried_txid, %blockhash, %height, "processing buried transaction");
+                    debug!(%buried_txid, %blockhash, %height, "processing buried transaction");
 
                     self.tx_lifecycles.remove(&buried_txid);
-                    if self.tx_filters.iter().any(|f| f(&buried_tx)) {
+                    if self.tx_filters.iter().any(|f| f(buried_tx)) {
                         diff.push(TxEvent {
-                            rawtx: buried_tx,
+                            rawtx: buried_tx.clone(),
                             status: TxStatus::Buried { blockhash, height },
                         });
                     }
-
-                    info!(%blockhash, %height, "processed all buried transactions");
                 }
+                info!(%blockhash, %height, "processed all buried transactions");
+                Some(BlockEvent {
+                    block: newly_buried,
+                    status: BlockStatus::Buried,
+                })
             } else {
                 unreachable!("unburied blocks will successfully pop back at lengths > 0");
             }
-        }
+        } else {
+            None
+        };
 
         debug!(?diff, "processed block");
-        diff
+        (diff, block_event)
     }
 
     /// One of the three primary state transition functions of the [`BtcZmqSM`], updating
@@ -702,7 +707,7 @@ mod prop_tests {
         fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(17, Hash::all_zeros())) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
-            let diff = sm.process_block(block);
+            let (diff, _block_event) = sm.process_block(block);
             for event in diff.iter() {
                 prop_assert!((pred.pred)(&event.rawtx))
             }
@@ -714,7 +719,7 @@ mod prop_tests {
         fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(17, Hash::all_zeros())) {
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred.clone());
-            let diff = sm.process_block(block.clone());
+            let (diff, _block_event) = sm.process_block(block.clone());
             prop_assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
         }
 
@@ -771,7 +776,7 @@ mod prop_tests {
 
             let mut sm = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
             sm.add_filter(pred.pred);
-            let diff_mined = sm.process_block(block);
+            let (diff_mined, _block_event) = sm.process_block(block);
             let is_mined = |s: &TxStatus| matches!(s, TxStatus::Mined{..});
             prop_assert!(diff_mined.iter().map(|event| &event.status).all(is_mined));
 
@@ -787,11 +792,11 @@ mod prop_tests {
             sm.add_filter(std::sync::Arc::new(|_|true));
 
             let oldest = chain.pop_back().unwrap();
-            let diff = sm.process_block(oldest);
+            let (diff, _block_event) = sm.process_block(oldest);
 
             let mut diff_last = Vec::new();
             for block in chain.into_iter().rev() {
-                diff_last = sm.process_block(block);
+                diff_last = sm.process_block(block).0;
             }
 
             let to_be_buried = diff.into_iter().map(|event| event.rawtx.compute_txid()).collect::<BTreeSet<Txid>>();

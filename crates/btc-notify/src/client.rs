@@ -16,14 +16,10 @@ use tracing::{debug, error, info, trace, warn};
 
 pub use crate::{
     config::BtcZmqConfig,
-    event::{TxEvent, TxStatus},
+    event::{BlockEvent, BlockStatus, TxEvent, TxStatus},
     state_machine::TxPredicate,
 };
-use crate::{
-    event::{BlockEvent, BlockStatus},
-    state_machine::BtcZmqSM,
-    subscription::Subscription,
-};
+use crate::{state_machine::BtcZmqSM, subscription::Subscription};
 
 struct TxSubscriptionDetails {
     predicate: TxPredicate,
@@ -138,7 +134,14 @@ impl BtcZmqClient {
                                     // transaction diff is.
                                     trace!(?block, "processing block");
                                     info!(block_hash=%block.block_hash(), "processing block");
-                                    sm.process_block(block)
+                                    let (tx_events, block_event) = sm.process_block(block);
+                                    if let Some(block_event) = block_event {
+                                        block_subs_thread
+                                            .lock()
+                                            .await
+                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                    }
+                                    tx_events
                                 }
                                 Message::Tx(tx, _) => {
                                     trace!(%topic, "received event");
