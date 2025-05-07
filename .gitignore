@@ -294,5 +294,5 @@ provers/sp1/proofs/
 seed
 certs
 
-# certificates and private keys in der format
-*.der
+# certificates and private keys in pem format
+*.pem

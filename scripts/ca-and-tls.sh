@@ -32,18 +32,11 @@ for i in $(seq 1 $N); do
     openssl req -new -key secret_service.key -out secret_service.csr -subj "/CN=Secret Service $i"
     openssl x509 -req -in secret_service.csr -CA secret_service_ca.crt -CAkey secret_service_ca.key -CAcreateserial -out secret_service.crt -days 365 -sha256
 
-    # Convert to DER format
-    openssl x509 -outform der -in bridge_node.crt -out bridge_node.der
-    openssl rsa -outform der -in bridge_node.key -out bridge_node.key.der
-    openssl x509 -outform der -in secret_service.crt -out secret_service.der
-    openssl rsa -outform der -in secret_service.key -out secret_service.key.der
-    openssl x509 -outform der -in bridge_node_ca.crt -out bridge.ca.der
-
     # Verify certificates
     openssl verify -CAfile bridge_node_ca.crt bridge_node.crt
     openssl verify -CAfile secret_service_ca.crt secret_service.crt
 
-    echo "Iteration $i certificates generated successfully and converted to DER format."
+    echo "Iteration $i certificates generated successfully."
 
     # Return to base directory
     cd ../../
