@@ -8,7 +8,7 @@ use bitcoin::{Block, BlockHash, Transaction, Txid};
 use bitcoincore_zmq::SequenceMessage;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::event::{TxEvent, TxStatus};
+use crate::event::{BlockEvent, BlockStatus, TxEvent, TxStatus};
 
 /// Type synonym to capture predicates of the following form: Transaction -> bool.
 ///
@@ -96,7 +96,7 @@ impl BtcZmqSM {
     /// that must be built on top of a given block before that block's transactions are
     /// considered Buried.
     pub(crate) fn init(bury_depth: usize) -> Self {
-        info!(%bury_depth, "initializing a ZMQ state machine");
+        info!(%bury_depth, "initializing ZMQ state machine");
         BtcZmqSM {
             bury_depth,
             tx_filters: Vec::new(),
@@ -110,13 +110,13 @@ impl BtcZmqSM {
     /// The state machine will track any transaction that matches the disjunction of predicates
     /// added.
     pub(crate) fn add_filter(&mut self, pred: TxPredicate) {
-        trace!("adding a predicate filter to a ZMQ state machine");
+        trace!("adding predicate filter to a ZMQ state machine");
         self.tx_filters.push(pred);
     }
 
     /// Takes a [`TxPredicate`] that was previously added via [`BtcZmqSM::add_filter`].
     pub(crate) fn rm_filter(&mut self, pred: &TxPredicate) {
-        trace!("Removing a predicate filter from a ZMQ state machine");
+        trace!("removing predicate filter from a ZMQ state machine");
         if let Some(idx) = self.tx_filters.iter().position(|p| Arc::ptr_eq(p, pred)) {
             self.tx_filters.swap_remove(idx);
         }
@@ -126,7 +126,7 @@ impl BtcZmqSM {
     /// state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> Vec<TxEvent> {
         let block_height = block.bip34_block_height().unwrap_or(0);
-        info!(block_hash=%block.block_hash(), %block_height, "started processing a block");
+        info!(block_hash=%block.block_hash(), %block_height, "processing block");
         trace!(?block, "started processing a block");
 
         match self.unburied_blocks.front() {
@@ -142,6 +142,7 @@ impl BtcZmqSM {
                     // be fixed.
                     trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
                     warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
+                    debug_assert!(false, "block's previous block hash does not match the tip");
                 }
             }
             // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup
@@ -214,7 +215,7 @@ impl BtcZmqSM {
                         status: TxStatus::Mined { blockhash, height },
                     });
 
-                    info!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "processed already seen transaction");
+                    debug!(txid=%matched_tx.compute_txid(), blockhash=%blockhash, %height, "processed already seen transaction");
                 }
             }
         }
@@ -247,6 +248,8 @@ impl BtcZmqSM {
 
                     info!(%blockhash, %height, "processed all buried transactions");
                 }
+            } else {
+                unreachable!("unburied blocks will successfully pop back at lengths > 0");
             }
         }
 
@@ -314,23 +317,29 @@ impl BtcZmqSM {
 
     /// One of the three primary state transition functions of the [`BtcZmqSM`],
     /// updating internal state to reflect the `sequence` event.
-    pub(crate) fn process_sequence(&mut self, seq: SequenceMessage) -> Vec<TxEvent> {
-        let mut diff = Vec::new();
+    pub(crate) fn process_sequence(
+        &mut self,
+        seq: SequenceMessage,
+    ) -> (Vec<TxEvent>, Option<BlockEvent>) {
         match seq {
             SequenceMessage::BlockConnect { .. } => {
-                trace!(?diff, ?seq, "BlockConnect received");
                 debug!(?seq, "BlockConnect received");
-                /* NOOP */
+                (vec![], None)
             }
             SequenceMessage::BlockDisconnect { blockhash } => {
+                let mut diff = Vec::new();
                 // If the block is disconnected we reset all transactions that currently have that
                 // blockhash as their containing block.
                 trace!(?diff, ?seq, "BlockDisconnect received");
                 debug!(?seq, %blockhash, "BlockDisconnect received");
-                if let Some(block) = self.unburied_blocks.front() {
+                let blk_evt = if let Some(block) = self.unburied_blocks.front() {
                     if block.block_hash() == blockhash {
                         info!(%blockhash, "block disconnected, removing all included transactions");
-                        self.unburied_blocks.pop_front();
+                        let block = self.unburied_blocks.pop_front().unwrap();
+                        Some(BlockEvent {
+                            block,
+                            status: BlockStatus::Uncled,
+                        })
                     } else {
                         // As far as I can tell, the block connect and disconnect events are done in
                         // "stack order". This means that block connects
@@ -341,7 +350,9 @@ impl BtcZmqSM {
                         error!(%blockhash, "invariant violated: out of order block disconnect");
                         panic!("invariant violated: out of order block disconnect");
                     }
-                }
+                } else {
+                    None
+                };
 
                 // Clear out all of the transactions we are tracking that were bound to the
                 // disconnected block.
@@ -370,9 +381,9 @@ impl BtcZmqSM {
                         },
                     }
                 });
+                (diff, blk_evt)
             }
             SequenceMessage::MempoolAcceptance { txid, .. } => {
-                trace!(?diff, ?seq, "MempoolAcceptance received");
                 debug!(?seq, %txid, "MempoolAcceptance received");
                 match self.tx_lifecycles.get_mut(&txid) {
                     // In this case we are well aware of the full transaction data here
@@ -380,18 +391,21 @@ impl BtcZmqSM {
                         match lifecycle.block {
                             // This will happen if we receive rawtx before MempoolAcceptance.
                             None => {
-                                diff = vec![TxEvent {
-                                    rawtx: lifecycle.raw.clone(),
-                                    status: TxStatus::Mempool,
-                                }];
-                                trace!(?diff, ?seq, %txid, "received MempoolAcceptance");
+                                trace!(?seq, %txid, "received MempoolAcceptance");
+                                (
+                                    vec![TxEvent {
+                                        rawtx: lifecycle.raw.clone(),
+                                        status: TxStatus::Mempool,
+                                    }],
+                                    None,
+                                )
                             }
                             // This can happen because there is a race between the rawblock event
                             // delivery and the sequence event for a given transaction. If we
                             // encounter this, we will ignore the MempoolAcceptance.
                             Some(_) => {
-                                trace!(?diff, ?seq, %txid, "ignoring duplicate MempoolAcceptance");
-                                /* NOOP */
+                                trace!(?seq, %txid, "ignoring duplicate MempoolAcceptance");
+                                (vec![], None)
                             }
                         }
                     }
@@ -416,8 +430,9 @@ impl BtcZmqSM {
                         // MempoolAcceptance event we are guaranteed to have a corresponding rawtx
                         // event. So this shouldn't cause a memory leak
                         // unless we miss ZMQ events entirely.
-                        trace!(?diff, ?seq, %txid, "saw dangling transaction in mempool");
+                        trace!(?seq, %txid, "saw dangling transaction in mempool");
                         self.tx_lifecycles.insert(txid, None);
+                        (vec![], None)
                     }
                 }
             }
@@ -438,28 +453,27 @@ impl BtcZmqSM {
                     // For now I think we can leave this alone, but if we notice memory leaks in a
                     // live deployment this will be one of the places to look.
                     Some(Some(lifecycle)) => {
-                        diff = vec![TxEvent {
+                        trace!(?seq, %txid, "MempoolRemoval received for a transaction with some lifecycle");
+                        let diff = vec![TxEvent {
                             rawtx: lifecycle.raw,
                             status: TxStatus::Unknown,
                         }];
-                        trace!(?diff, ?seq, %txid, "MempoolRemoval received for a transaction with some lifecycle");
+                        (diff, None)
                     }
                     // This will happen if we've only received a MempoolAcceptance event, the
                     // removal will cancel it fully.
                     Some(None) => {
-                        trace!(?diff, ?seq, %txid, "transaction removed from mempool");
-                        /* NOOP */
+                        trace!(?seq, %txid, "transaction removed from mempool");
+                        (vec![], None)
                     }
                     // This happens if we've never heard anything about this transaction before.
                     None => {
-                        trace!(?diff, ?seq, %txid, "observed removal of a new transaction from mempool");
-                        /* NOOP */
+                        trace!(?seq, %txid, "observed removal of a new transaction from mempool");
+                        (vec![], None)
                     }
                 }
             }
         }
-
-        diff
     }
 }
 
@@ -730,7 +744,7 @@ mod prop_tests {
             let diff_seq_1 = sm1.process_sequence(SequenceMessage::MempoolAcceptance{ txid, mempool_sequence });
 
             let diff_tx_1_set = BTreeSet::from_iter(diff_tx_1.into_iter());
-            let diff_seq_1_set = BTreeSet::from_iter(diff_seq_1.into_iter());
+            let diff_seq_1_set = BTreeSet::from_iter(diff_seq_1.0.into_iter());
             let diff_1 = diff_tx_1_set.union(&diff_seq_1_set).cloned().collect::<BTreeSet<TxEvent>>();
 
             let mut sm2 = BtcZmqSM::init(DEFAULT_BURY_DEPTH);
@@ -740,7 +754,7 @@ mod prop_tests {
             let diff_tx_2 = sm2.process_tx(tx);
 
             let diff_tx_2_set = BTreeSet::from_iter(diff_tx_2.into_iter());
-            let diff_seq_2_set = BTreeSet::from_iter(diff_seq_2.into_iter());
+            let diff_seq_2_set = BTreeSet::from_iter(diff_seq_2.0.into_iter());
             let diff_2 = diff_tx_2_set.union(&diff_seq_2_set).cloned().collect::<BTreeSet<TxEvent>>();
 
             prop_assert_eq!(diff_1, diff_2);
@@ -762,7 +776,7 @@ mod prop_tests {
             prop_assert!(diff_mined.iter().map(|event| &event.status).all(is_mined));
 
             let diff_dropped = sm.process_sequence(SequenceMessage::BlockDisconnect{ blockhash});
-            prop_assert!(diff_dropped.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
+            prop_assert!(diff_dropped.0.iter().map(|event| &event.status).all(|s| *s == TxStatus::Unknown));
         }
 
         // Ensures that adding a full bury_depth length chain of blocks on top of a block yields a
@@ -799,7 +813,7 @@ mod prop_tests {
             sm.add_filter(Arc::new(|_|true));
 
             let diff = sm.process_sequence(SequenceMessage::MempoolAcceptance { txid: tx.compute_txid(), mempool_sequence: 0 });
-            prop_assert!(diff.is_empty());
+            prop_assert!(diff.0.is_empty());
 
             let diff = sm.process_tx(tx.clone());
             prop_assert_eq!(diff, vec![TxEvent { rawtx: tx, status: TxStatus::Mempool }]);
