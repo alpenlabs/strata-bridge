@@ -52,7 +52,7 @@ use strata_bridge_primitives::{
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
-use tokio::{spawn, sync::broadcast, task::JoinHandle, try_join};
+use tokio::{net::lookup_host, spawn, sync::broadcast, task::JoinHandle, try_join};
 use tracing::{debug, info};
 
 use crate::{
@@ -186,9 +186,14 @@ async fn init_secret_service_client(config: &SecretServiceConfig) -> SecretServi
         .with_client_auth_cert(certs, key)
         .expect("good client config");
 
+    let mut addrs = lookup_host(&config.server_addr)
+        .await
+        .expect("DNS resolution failed");
+
+    let server_addr = addrs.next().expect("DNS resolved, but no addresses");
+
     let s2_config = secret_service_client::Config {
-        // fixme: use dns lookup
-        server_addr: config.server_addr.parse().expect("invalid server address"),
+        server_addr,
         server_hostname: config.server_hostname.clone(),
         local_addr: None,
         tls_config: tls_client_config,
