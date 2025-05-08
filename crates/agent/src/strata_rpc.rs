@@ -38,7 +38,7 @@ pub struct DepositInfoInterop {
     /// sanity check computation internally i.e., whether the known
     /// information (n/n script spend
     /// path, `static@UNSPENDABLE_INTERNAL_KEY`) + the
-    /// [`Self::take_back_leaf_hash`] yields the
+    /// [`Self::x_only_public_key`] yields the
     /// same P2TR address.
     pub original_script_pubkey: ScriptBuf,
 }
