@@ -898,7 +898,7 @@ impl ContractSM {
         let txid = tx.compute_txid();
 
         let operator_ids = cfg.operator_table.operator_idxs();
-        if let ContractState::Assigned { recipient, .. } = &self.state.state {
+        if let ContractState::StakeTxReady { recipient, .. } = &self.state.state {
             if operator_ids.iter().any(|operator_idx| {
                 is_fulfillment_tx(
                     cfg.network,
@@ -963,6 +963,7 @@ impl ContractSM {
                 stake_tx,
                 *wots_keys,
             ),
+
             ContractEvent::GraphNonces {
                 signer,
                 claim_txid,
@@ -970,6 +971,7 @@ impl ContractSM {
             } => self
                 .process_graph_nonces(signer, claim_txid, pubnonces)
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::GraphSigs {
                 signer,
                 claim_txid,
@@ -977,29 +979,37 @@ impl ContractSM {
             } => self
                 .process_graph_signatures(signer, claim_txid, signatures)
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::RootNonce(op, nonce) => self
                 .process_root_nonce(op, nonce)
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::RootSig(op, sig) => self
                 .process_root_signature(op, sig)
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::DepositConfirmation(tx) => self
                 .process_deposit_confirmation(tx)
                 .map(|x| x.into_iter().collect()),
+
+            ContractEvent::Assignment(deposit_entry, stake_tx) => self
+                .process_assignment(&deposit_entry, stake_tx)
+                .map(|x| x.into_iter().collect()),
+
             ContractEvent::PegOutGraphConfirmation(tx, height) => self
                 .process_peg_out_graph_tx_confirmation(height, &tx)
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::Block(height) => self
                 .notify_new_block(height)
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::ClaimFailure => self
                 .process_claim_verification_failure()
                 .map(|x| x.into_iter().collect()),
+
             ContractEvent::AssertionFailure => self
                 .process_assertion_verification_failure()
-                .map(|x| x.into_iter().collect()),
-            ContractEvent::Assignment(deposit_entry, stake_tx) => self
-                .process_assignment(&deposit_entry, stake_tx)
                 .map(|x| x.into_iter().collect()),
         }
     }
