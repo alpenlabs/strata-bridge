@@ -748,23 +748,27 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx as usize)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
-                    if let Some(duty) =
-                        contract.process_contract_event(ContractEvent::DepositSetup {
+                    let deposit_setup_duties = contract
+                        .process_contract_event(ContractEvent::DepositSetup {
                             operator_p2p_key: key.clone(),
                             operator_btc_key: operator_pk,
                             stake_hash: hash,
                             stake_tx,
                             wots_keys: Box::new(wots_pks),
                         })?
-                    {
-                        // we need a way to feed the claim txids back into the manager's index so
-                        // we skim it off of the publish graph nonces duty.
-                        if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = &duty {
-                            self.state.claim_txids.insert(*claim_txid, deposit_txid);
-                        }
+                        .into_iter()
+                        .map(|duty| {
+                            // we need a way to feed the claim txids back into the manager's index
+                            // so we skim it off of the publish graph
+                            // nonces duty.
+                            if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
+                                self.state.claim_txids.insert(claim_txid, deposit_txid);
+                            }
 
-                        duties.push(duty);
-                    }
+                            duty
+                        });
+
+                    duties.extend(deposit_setup_duties);
                 } else {
                     // One of the other operators has may have seen a DRT that we have not yet
                     // seen
