@@ -1,11 +1,11 @@
 //! MuSig2 signer client
 
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    AggNonce, LiftedSignature, PubNonce,
+    AggNonce, LiftedSignature, PartialSignature, PubNonce,
 };
 use quinn::Connection;
 use secret_service_proto::v1::{
@@ -157,21 +157,34 @@ impl Musig2SignerFirstRound<Client, Musig2SecondRound> for Musig2FirstRound {
         Ok(complete)
     }
 
-    async fn receive_pub_nonce(
+    async fn receive_pub_nonces(
         &mut self,
-        pubkey: XOnlyPublicKey,
-        pubnonce: PubNonce,
-    ) -> <Client as Origin>::Container<Result<(), RoundContributionError>> {
+        nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)> + Send,
+    ) -> <Client as Origin>::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>
+    {
         let msg = ClientMessage::Musig2FirstRoundReceivePubNonce {
             session_id: self.session_id,
-            pubkey: pubkey.serialize(),
-            pubnonce: pubnonce.serialize(),
+            nonces: nonces
+                .map(|(pk, nonce)| (pk.serialize(), nonce.serialize()))
+                .collect(),
         };
         let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
         let ServerMessage::Musig2FirstRoundReceivePubNonce(maybe_err) = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
-        Ok(maybe_err.map_or(Ok(()), Err))
+        if maybe_err.is_empty() {
+            Ok(Ok(()))
+        } else {
+            Ok(Err(maybe_err
+                .into_iter()
+                .map(|(pk, err)| {
+                    Ok((
+                        XOnlyPublicKey::from_slice(&pk).map_err(|_| ClientError::BadData)?,
+                        err,
+                    ))
+                })
+                .collect::<Result<_, ClientError>>()?))
+        }
     }
 
     async fn finalize(
@@ -259,21 +272,34 @@ impl Musig2SignerSecondRound<Client> for Musig2SecondRound {
         Ok(complete)
     }
 
-    async fn receive_signature(
+    async fn receive_signatures(
         &mut self,
-        pubkey: XOnlyPublicKey,
-        signature: musig2::PartialSignature,
-    ) -> <Client as Origin>::Container<Result<(), RoundContributionError>> {
+        sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)> + Send,
+    ) -> <Client as Origin>::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>
+    {
         let msg = ClientMessage::Musig2SecondRoundReceiveSignature {
             session_id: self.session_id,
-            pubkey: pubkey.serialize(),
-            signature: signature.serialize(),
+            sigs: sigs
+                .map(|(pk, sig)| (pk.serialize(), sig.serialize()))
+                .collect(),
         };
         let res = make_v1_req(&self.connection, msg, self.config.timeout).await?;
         let ServerMessage::Musig2SecondRoundReceiveSignature(maybe_err) = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
-        Ok(maybe_err.map_or(Ok(()), Err))
+        if maybe_err.is_empty() {
+            Ok(Ok(()))
+        } else {
+            Ok(Err(maybe_err
+                .into_iter()
+                .map(|(pk, err)| {
+                    Ok((
+                        XOnlyPublicKey::from_slice(&pk).map_err(|_| ClientError::BadData)?,
+                        err,
+                    ))
+                })
+                .collect::<Result<_, ClientError>>()?))
+        }
     }
 
     async fn finalize(
