@@ -1891,7 +1891,10 @@ impl ContractSM {
         height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        debug!(txid=%tx.compute_txid(), %height, "processing confirmation of claim tx");
+
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        let copy_of_current = current.clone();
         match current {
             ContractState::Fulfilled {
                 peg_out_graphs,
@@ -1902,6 +1905,8 @@ impl ContractSM {
                 ..
             } => {
                 if tx.compute_txid() != active_graph.1.claim_txid {
+                    self.state.state = copy_of_current;
+
                     return Err(TransitionErr(format!(
                         "invalid claim confirmation ({})",
                         tx.compute_txid()
