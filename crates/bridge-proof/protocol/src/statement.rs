@@ -97,13 +97,16 @@ pub(crate) fn process_bridge_proof(
         withdrawal_address: destination,
         withdrawal_amount: amount,
         ..
-    } = extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
+    } = extract_withdrawal_info(
+        peg_out_graph_params.tag.as_bytes().len(),
+        withdrawal_fulfillment_tx.transaction(),
+    )?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
     // transaction does not depend on witness data, hence `expect_witness` is `false`.
     verify_tx_inclusion(
         withdrawal_fulfillment_tx,
-        BridgeRelatedTx::WithdrawalFulfillment,
+        BridgeRelatedTx::WithdrawalFulfillment("".to_string()),
         headers[*withdrawal_fulfillment_idx],
         false,
     )?;
@@ -168,7 +171,7 @@ pub(crate) fn process_bridge_proof(
     if strata_checkpoint_idx > withdrawal_fulfillment_idx {
         return Err(BridgeProofError::InvalidTxOrder(
             BridgeRelatedTx::StrataCheckpoint,
-            BridgeRelatedTx::WithdrawalFulfillment,
+            BridgeRelatedTx::WithdrawalFulfillment("".to_string()),
         ));
     }
 
