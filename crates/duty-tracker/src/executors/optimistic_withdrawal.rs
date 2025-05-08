@@ -53,23 +53,46 @@ pub(crate) async fn handle_advance_stake_chain(
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
-    let messages = stake_tx.sighashes();
-
-    let funds_signature = s2_client
-        .stakechain_wallet_signer()
-        .sign(messages[0].as_ref(), None)
-        .await?;
-
     let signed_stake_tx = if stake_index == 0 {
         // the first stake transaction spends the pre-stake which is locked by the key in the
         // stake-chain wallet
+        let messages = stake_tx.sighashes_initial(
+            cfg.stake_chain_params.stake_amount,
+            [
+                cfg.funding_address.script_pubkey(),
+                cfg.pre_stake_pubkey.clone(),
+            ],
+        );
+
+        let funds_signature = s2_client
+            .stakechain_wallet_signer()
+            .sign(messages[0].as_ref(), None)
+            .await?;
         let stake_signature = s2_client
             .stakechain_wallet_signer()
             .sign(messages[1].as_ref(), None)
             .await?;
 
-        stake_tx.finalize_initial(funds_signature, stake_signature)
+        stake_tx.finalize_initial_unchecked(funds_signature, stake_signature)
     } else {
+        let messages = stake_tx.sighashes(cfg.funding_address.script_pubkey());
+
+        let funds_signature = s2_client
+            .stakechain_wallet_signer()
+            .sign(messages[0].as_ref(), None)
+            .await?;
+
+        // all the stake transactions except the first one are locked with the general wallet
+        // signer.
+        // this is a caveat of the fact that we only share one x-only pubkey during deposit
+        // setup which is used for reimbursements/cpfp.
+        // so instead of sharing another key, we can just reuse this key (which is part of a taproot
+        // address).
+        let stake_signature = s2_client
+            .general_wallet_signer()
+            .sign_no_tweak(messages[1].as_ref())
+            .await?;
+
         let operator_id = cfg.operator_table.pov_idx();
         let op_p2p_key = cfg.operator_table.pov_op_key();
 
@@ -105,18 +128,7 @@ pub(crate) async fn handle_advance_stake_chain(
             cfg.network,
         );
 
-        // all the stake transactions except the first one are locked with the general wallet
-        // signer.
-        // this is a caveat of the fact that we only share one x-only pubkey during deposit
-        // setup which is used for reimbursements/cpfp.
-        // so instead of sharing another key, we can just reuse this key (which is part of a taproot
-        // address).
-        let stake_signature = s2_client
-            .general_wallet_signer()
-            .sign_no_tweak(messages[1].as_ref())
-            .await?;
-
-        stake_tx.finalize(
+        stake_tx.finalize_unchecked(
             &prev_preimage,
             funds_signature,
             stake_signature,

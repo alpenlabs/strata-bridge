@@ -28,9 +28,6 @@ use strata_bridge_primitives::constants::NUM_ASSERT_DATA_TX;
 pub const OPERATOR_FUNDS: Amount =
     Amount::from_sat((330 * 2 * NUM_ASSERT_DATA_TX as u64) + (330 * 2) + 330 + 330 + 330 + 330);
 
-/// SegWit minimal non-dust value.
-pub const DUST_AMOUNT: Amount = Amount::from_sat(330);
-
 /// [`StakeTx`](crate::transactions::StakeTx) withdrawal fulfillment output, i.e. the output used to
 /// commit to the txid of the withdrawal fulfillment transaction.
 ///
