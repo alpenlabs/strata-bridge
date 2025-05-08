@@ -1195,7 +1195,10 @@ impl ContractSM {
                             thread::Builder::new()
                                 .stack_size(8 * 1024 * 1024)
                                 .spawn(move || {
-                                    info!("building graph...");
+                                    debug!(
+                                        stake_txid = %input.stake_outpoint.txid,
+                                        "building graph..."
+                                    );
                                     thread_cfg.build_graph(input)
                                 })
                                 .expect("spawn succeeds"),
