@@ -16,8 +16,9 @@ use bitcoin::{
     consensus,
     hashes::{self, Hash},
     hex::DisplayHex,
+    key::TapTweak,
     sighash::{Prevouts, SighashCache},
-    Block, OutPoint, TapNodeHash, TapSighashType, Transaction, TxOut, Txid,
+    Address, Block, Network, OutPoint, TapNodeHash, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::{
@@ -1955,7 +1956,9 @@ where
     ) {
         if let Some(withdrawal_fulfillment_txid) = status.should_claim() {
             info!(action = "broadcasting required stake txs", %deposit_txid, %own_index);
-            let _stake_tx = self.broadcast_stake_chain(deposit_txid).await;
+            let _stake_tx = self
+                .broadcast_stake_chain(self.build_context.network(), deposit_txid)
+                .await;
 
             let claim_commitment = self.agent.generate_withdrawal_fulfillment_signature(
                 &self.msk,
@@ -2475,7 +2478,7 @@ where
 
     /// Broadcasts the required stake transactions and returns the stake transaction
     /// corresponding to the deposit txid that can be spent by the claim transaction.
-    async fn broadcast_stake_chain(&self, deposit_txid: Txid) -> Transaction {
+    async fn broadcast_stake_chain(&self, network: Network, deposit_txid: Txid) -> Transaction {
         let own_index = self.build_context.own_index();
         info!(action = "retrieving stake id from db", %own_index, %deposit_txid);
         let stake_id = self
@@ -2497,7 +2500,6 @@ where
 
         let n_of_n_agg_pubkey = self.build_context.aggregated_pubkey();
         let operator_pubkey = self.agent.public_key().x_only_public_key().0;
-        let operator_address = self.agent.taproot_address(self.build_context.network());
 
         let num_stake_txs = stake_id as usize + 1;
         let mut stake_inputs = IndexSet::new();
@@ -2514,6 +2516,9 @@ where
         }
 
         let params = StakeChainParams::default();
+        let operator_untweaked_address =
+            Address::p2tr_tweaked(operator_pubkey.dangerous_assume_tweaked(), network);
+        let pre_stake_address = operator_untweaked_address.clone();
         let stake_chain_inputs = StakeChainInputs {
             operator_pubkey,
             pre_stake_outpoint: pre_stake,
@@ -2521,6 +2526,7 @@ where
         };
 
         let connector_cpfp = ConnectorCpfp::new(operator_pubkey, self.build_context.network());
+        let funding_address = operator_untweaked_address.clone();
         let stake_chain = StakeChain::new(
             &self.build_context,
             &stake_chain_inputs,
@@ -2538,11 +2544,11 @@ where
         let first_stake_tx = stake_chain.first().unwrap().clone();
         let prevouts = vec![
             TxOut {
-                script_pubkey: operator_address.script_pubkey(),
+                script_pubkey: funding_address.script_pubkey(),
                 value: OPERATOR_FUNDS,
             },
             TxOut {
-                script_pubkey: operator_address.script_pubkey(),
+                script_pubkey: pre_stake_address.script_pubkey(),
                 value: OPERATOR_STAKE,
             },
         ];
@@ -2554,7 +2560,8 @@ where
             .agent
             .sign(&first_stake_raw_tx, &prevouts, 1, None, None);
 
-        let mut signed_stake_tx = first_stake_tx.finalize_initial(first_funds_sig, first_stake_sig);
+        let mut signed_stake_tx =
+            first_stake_tx.finalize_initial_unchecked(first_funds_sig, first_stake_sig);
 
         let mut stake_txid = signed_stake_tx.compute_txid();
         let vsize = signed_stake_tx.vsize();
@@ -2613,7 +2620,7 @@ where
             );
 
             signed_stake_tx =
-                stake_tx.finalize(&prev_preimage, funds_sig, stake_sig, prev_connector_s);
+                stake_tx.finalize_unchecked(&prev_preimage, funds_sig, stake_sig, prev_connector_s);
             stake_txid = signed_stake_tx.compute_txid();
 
             let vsize = signed_stake_tx.vsize();

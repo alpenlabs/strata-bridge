@@ -12,7 +12,7 @@ use bitcoin::{
     hashes::Hash,
     secp256k1::SecretKey,
     sighash::{Prevouts, SighashCache, TapSighashType},
-    FeeRate, OutPoint, TxOut, XOnlyPublicKey,
+    FeeRate, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey,
 };
 use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
@@ -140,9 +140,12 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let zmq_client = BtcZmqClient::connect(&config.btc_zmq)
         .await
         .expect("should be able to connect to zmq");
+
+    let pre_stake_pubkey = operator_wallet.stakechain_script_buf();
     let contract_manager_task = init_duty_tracker(
         &params,
         &config,
+        pre_stake_pubkey.clone(),
         bitcoin_rpc_client.clone(),
         zmq_client,
         s2_client,
@@ -338,6 +341,7 @@ fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
 async fn init_duty_tracker(
     params: &Params,
     config: &Config,
+    pre_stake_pubkey: ScriptBuf,
     rpc_client: BitcoinClient,
     zmq_client: BtcZmqClient,
     s2_client: SecretServiceClient,
@@ -387,6 +391,7 @@ async fn init_duty_tracker(
         stake_chain_params,
         sidesystem_params,
         operator_table,
+        pre_stake_pubkey,
         zmq_client,
         rpc_client,
         tx_driver,

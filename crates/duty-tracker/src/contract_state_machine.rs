@@ -677,7 +677,8 @@ impl Display for FulfillerDuty {
                 stake_tx,
             } => write!(
                 f,
-                "AdvanceStakeChain for stake_index: {stake_index}, stake_tx: {stake_tx:?}"
+                "AdvanceStakeChain for stake_index: {stake_index}, stake_tx: {:?}",
+                &stake_tx.psbt.unsigned_tx
             ),
             FulfillerDuty::PublishFulfillment {
                 withdrawal_metadata,
