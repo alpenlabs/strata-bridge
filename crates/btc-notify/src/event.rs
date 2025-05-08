@@ -1,4 +1,4 @@
-use bitcoin::{BlockHash, Transaction};
+use bitcoin::{Block, BlockHash, Transaction};
 
 /// TxStatus is the primary output of this API via the subscription.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -56,4 +56,27 @@ pub struct TxEvent {
 
     /// The new [`TxStatus`] that this event is reporting for the transaction.
     pub status: TxStatus,
+}
+
+/// This is emitted as a pair with block events to denote what is happening to the block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BlockStatus {
+    /// A block that was once connected to the main chain has been disconnected.
+    Uncled,
+
+    /// A block has been connected to the main chain.
+    Mined,
+
+    /// A block has been buried under the configured number of blocks in the main chain.
+    Buried,
+}
+
+/// Event type that is emitted to indicate what is happening with a given block.
+#[derive(Debug, Clone)]
+pub struct BlockEvent {
+    /// The actual block data for the block event in question.
+    pub block: Block,
+
+    /// The status of the block as of this event.
+    pub status: BlockStatus,
 }

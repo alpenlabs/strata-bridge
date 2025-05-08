@@ -5,18 +5,18 @@
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
 use std::{error::Error, sync::Arc, time::Duration};
 
-use bitcoin::{Block, Transaction};
+use bitcoin::Transaction;
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
 use futures::StreamExt;
 use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
 };
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 pub use crate::{
     config::BtcZmqConfig,
-    event::{TxEvent, TxStatus},
+    event::{BlockEvent, BlockStatus, TxEvent, TxStatus},
     state_machine::TxPredicate,
 };
 use crate::{state_machine::BtcZmqSM, subscription::Subscription};
@@ -44,7 +44,7 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 /// Dropping this object will abort the monitoring thread.
 #[derive(Debug, Clone)]
 pub struct BtcZmqClient {
-    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<Block>>>>,
+    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
     thread_handle: Arc<JoinHandle<()>>,
@@ -94,7 +94,7 @@ impl BtcZmqClient {
             }
         };
 
-        let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<Block>>::new()));
+        let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<BlockEvent>>::new()));
         let block_subs_thread = block_subs.clone();
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
         let tx_subs_thread = tx_subs.clone();
@@ -122,16 +122,26 @@ impl BtcZmqClient {
                                 Message::Block(block, _) => {
                                     trace!(%topic, "received event");
                                     // First send the block to the block subscribers.
-                                    block_subs_thread
-                                        .lock()
-                                        .await
-                                        .retain(|sub| sub.send(block.clone()).is_ok());
+                                    block_subs_thread.lock().await.retain(|sub| {
+                                        sub.send(BlockEvent {
+                                            block: block.clone(),
+                                            status: BlockStatus::Mined,
+                                        })
+                                        .is_ok()
+                                    });
 
                                     // Now we process the block to understand what the relevant
                                     // transaction diff is.
                                     trace!(?block, "processing block");
                                     info!(block_hash=%block.block_hash(), "processing block");
-                                    sm.process_block(block)
+                                    let (tx_events, block_event) = sm.process_block(block);
+                                    if let Some(block_event) = block_event {
+                                        block_subs_thread
+                                            .lock()
+                                            .await
+                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                    }
+                                    tx_events
                                 }
                                 Message::Tx(tx, _) => {
                                     trace!(%topic, "received event");
@@ -141,7 +151,16 @@ impl BtcZmqClient {
                                 Message::Sequence(seq, _) => {
                                     trace!(%topic, "received event");
                                     info!(%seq, "processing sequence");
-                                    sm.process_sequence(seq)
+                                    let (tx_events, block_event) = sm.process_sequence(seq);
+
+                                    if let Some(block_event) = block_event {
+                                        block_subs_thread
+                                            .lock()
+                                            .await
+                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                    }
+
+                                    tx_events
                                 }
                             }
                         }
@@ -155,12 +174,12 @@ impl BtcZmqClient {
                         }
                     };
 
-                    info!("applying filtering predicates on the btc chain state diff");
                     tx_subs_thread.lock().await.retain(|sub| {
                         for msg in diff.iter().filter(|event| (sub.predicate)(&event.rawtx)) {
                             // Now we send the diff to the relevant subscribers.
                             // If we ever encounter a send error,
                             // it means the receiver has been dropped.
+                            debug!(?msg, "notifying subscriber");
                             if sub.outbox.send(msg.clone()).is_err() {
                                 sm.rm_filter(&sub.predicate);
                                 return false;
@@ -208,7 +227,7 @@ impl BtcZmqClient {
 
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is
     /// connected to the main Bitcoin blockchain.
-    pub async fn subscribe_blocks(&self) -> Subscription<Block> {
+    pub async fn subscribe_blocks(&self) -> Subscription<BlockEvent> {
         let (send, recv) = mpsc::unbounded_channel();
 
         trace!("subscribing to blocks");
@@ -336,7 +355,7 @@ mod e2e_tests {
             .into_model()?;
 
         // Wait for a new block to be delivered over the subscription
-        let blk = block_sub.next().await.map(|b| b.block_hash());
+        let blk = block_sub.next().await.map(|b| b.block.block_hash());
 
         // Assert that these blocks are equal
         assert_eq!(newly_mined.0.first(), blk.as_ref());
@@ -367,10 +386,10 @@ mod e2e_tests {
             .into_model()?;
 
         info!("waiting for block in client 1");
-        let blk_1 = block_sub_1.next().await.map(|b| b.block_hash());
+        let blk_1 = block_sub_1.next().await.map(|b| b.block.block_hash());
         info!("got block in client 1");
         info!("waiting for block in client 2");
-        let blk_2 = block_sub_2.next().await.map(|b| b.block_hash());
+        let blk_2 = block_sub_2.next().await.map(|b| b.block.block_hash());
         info!("got block in client 2");
 
         assert_eq!(newly_mined.0.first(), blk_1.as_ref());
@@ -817,7 +836,11 @@ mod e2e_tests {
         // Pull the Mempool event off of our subscription.
         assert_eq!(
             newly_mined.0.first(),
-            block_sub.next().await.map(|b| b.block_hash()).as_ref()
+            block_sub
+                .next()
+                .await
+                .map(|b| b.block.block_hash())
+                .as_ref()
         );
 
         // Drop the subscription to trigger its removal from the BtcZmqClient.
