@@ -3,32 +3,34 @@
 
 use std::sync::Arc;
 
-use alpen_bridge_params::prelude::StakeChainParams;
-use bdk_wallet::{miniscript::ToPublicKey, SignOptions};
 use bitcoin::{
     hashes::{sha256, Hash},
-    OutPoint, Psbt, Txid,
+    sighash::{Prevouts, SighashCache},
+    FeeRate, OutPoint, TapSighashType, Txid,
 };
 use bitcoin_bosd::Descriptor;
+use bitcoind_async_client::traits::Reader;
+use musig2::PartialSignature;
+use secp256k1::schnorr::Signature;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,
 };
 use strata_bridge_db::public::PublicDb;
-use strata_bridge_primitives::{build_context::BuildContext, constants::SEGWIT_MIN_AMOUNT};
-use strata_bridge_stake_chain::prelude::{StakeTx, OPERATOR_FUNDS, STAKE_VOUT};
-use strata_bridge_tx_graph::{
-    errors::TxGraphError,
-    transactions::{
-        claim::{ClaimData, ClaimTx},
-        prelude::{
-            CovenantTx, PayoutOptimisticData, PayoutOptimisticTx, WithdrawalFulfillment,
-            WithdrawalMetadata,
-        },
+use strata_bridge_primitives::{
+    build_context::BuildContext,
+    scripts::taproot::{create_message_hash, TaprootWitness},
+};
+use strata_bridge_stake_chain::prelude::{StakeTx, PAYOUT_VOUT, WITHDRAWAL_FULFILLMENT_VOUT};
+use strata_bridge_tx_graph::transactions::{
+    claim::{ClaimData, ClaimTx},
+    prelude::{
+        CovenantTx, PayoutOptimisticData, PayoutOptimisticTx, WithdrawalMetadata,
+        NUM_PAYOUT_OPTIMISTIC_INPUTS,
     },
 };
 use strata_p2p_types::Wots256PublicKey;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::{
     constants::WITHDRAWAL_FULFILLMENT_PK_IDX,
@@ -47,20 +49,14 @@ pub(crate) async fn handle_advance_stake_chain(
     stake_index: u32,
     stake_tx: StakeTx,
 ) -> Result<(), ContractManagerErr> {
-    let operator_id = cfg.operator_table.pov_idx();
-    let op_p2p_key = cfg.operator_table.pov_op_key();
+    info!(%stake_index, "starting to advance stake chain");
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
-    let pre_stake_outpoint = output_handles
-        .db
-        .get_pre_stake(operator_id)
-        .await?
-        .ok_or(StakeChainErr::StakeSetupDataNotFound(op_p2p_key.clone()))?;
-
     let messages = stake_tx.sighashes();
+
     let funds_signature = s2_client
-        .general_wallet_signer()
+        .stakechain_wallet_signer()
         .sign(messages[0].as_ref(), None)
         .await?;
 
@@ -68,39 +64,44 @@ pub(crate) async fn handle_advance_stake_chain(
         // the first stake transaction spends the pre-stake which is locked by the key in the
         // stake-chain wallet
         let stake_signature = s2_client
-            .general_wallet_signer()
+            .stakechain_wallet_signer()
             .sign(messages[1].as_ref(), None)
             .await?;
 
         stake_tx.finalize_initial(funds_signature, stake_signature)
     } else {
-        let pre_image_client = s2_client.stake_chain_preimages();
+        let operator_id = cfg.operator_table.pov_idx();
+        let op_p2p_key = cfg.operator_table.pov_op_key();
+
+        let pre_stake_outpoint = output_handles
+            .db
+            .get_pre_stake(operator_id)
+            .await?
+            .ok_or(StakeChainErr::StakeSetupDataNotFound(op_p2p_key.clone()))?;
+
         let OutPoint {
             txid: pre_stake_txid,
             vout: pre_stake_vout,
         } = pre_stake_outpoint;
+
+        let pre_image_client = s2_client.stake_chain_preimages();
         let prev_preimage = pre_image_client
             .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
             .await?;
+        let prev_stake_hash = sha256::Hash::hash(&prev_preimage);
+
         let n_of_n_agg_pubkey = cfg
             .operator_table
             .tx_build_context(cfg.network)
             .aggregated_pubkey();
-        let operator_pubkey = s2_client
-            .general_wallet_signer()
-            .pubkey()
-            .await?
-            .to_x_only_pubkey();
-        let stake_hash = pre_image_client
-            .get_preimg(pre_stake_txid, pre_stake_vout, stake_index)
-            .await?;
-        let stake_hash = sha256::Hash::hash(&stake_hash);
-        let StakeChainParams { delta, .. } = cfg.stake_chain_params;
+
+        let operator_pubkey = s2_client.general_wallet_signer().pubkey().await?;
+
         let prev_connector_s = ConnectorStake::new(
             n_of_n_agg_pubkey,
             operator_pubkey,
-            stake_hash,
-            delta,
+            prev_stake_hash,
+            cfg.stake_chain_params.delta,
             cfg.network,
         );
 
@@ -108,10 +109,10 @@ pub(crate) async fn handle_advance_stake_chain(
         // signer.
         // this is a caveat of the fact that we only share one x-only pubkey during deposit
         // setup which is used for reimbursements/cpfp.
-        // so instead of sharing ones, we can just reuse this key (which is part of a taproot
+        // so instead of sharing another key, we can just reuse this key (which is part of a taproot
         // address).
         let stake_signature = s2_client
-            .stakechain_wallet_signer()
+            .general_wallet_signer()
             .sign_no_tweak(messages[1].as_ref())
             .await?;
 
@@ -123,6 +124,7 @@ pub(crate) async fn handle_advance_stake_chain(
         )
     };
 
+    info!(txid=%signed_stake_tx.compute_txid(), %stake_index, "broadcasting stake transaction");
     output_handles.tx_driver.drive(signed_stake_tx).await?;
 
     Ok(())
