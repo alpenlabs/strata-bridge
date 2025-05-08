@@ -137,53 +137,85 @@ pub(crate) async fn handle_withdrawal_fulfillment(
     withdrawal_metadata: WithdrawalMetadata,
     user_descriptor: Descriptor,
 ) -> Result<(), ContractManagerErr> {
+    info!(dest=%user_descriptor, deposit_idx=%withdrawal_metadata.deposit_idx, "fulfilling withdrawal");
+
     let amount = cfg
         .pegout_graph_params
         .deposit_amount
         .checked_sub(cfg.pegout_graph_params.operator_fee)
         .unwrap_or_default();
 
-    let withdrawal_fulfillment_tx =
-        WithdrawalFulfillment::new(withdrawal_metadata, vec![], amount, None, user_descriptor);
+    let fee_rate = output_handles
+        .bitcoind_rpc_client
+        .estimate_smart_fee(1)
+        .await
+        .expect("should be able to get the fee rate estimate");
+    let fee_rate = FeeRate::from_sat_per_vb(fee_rate).unwrap_or(FeeRate::DUST);
 
-    let mut wft_psbt = Psbt::from_unsigned_tx(withdrawal_fulfillment_tx.tx())
-        .expect("withdrawal fulfillment transaction must be unsigned");
+    let op_return_data = withdrawal_metadata.op_return_data();
+    let user_script_pubkey = user_descriptor.to_script();
 
     let mut wallet = output_handles.wallet.write().await;
 
-    info!("syncing wallet before finalizing withdrawal fulfillment tx");
-    if let Err(err) = wallet.sync().await {
-        error!(
-            ?err,
-            "could not sync wallet before finalizing withdrawal fulfillment tx"
-        )
+    // this is to make sure that we're not using spent outputs
+    // if we are, the duty will not be fulfilled and we'll just wait for the next assigned operator
+    // to fulfill the duty.
+    info!("syncing wallet before constructing withdrawal fulfillment tx");
+    if let Err(e) = wallet.sync().await {
+        warn!(
+            ?e,
+            "could not sync wallet before constructing withdrawal tx, continuing anyway"
+        );
     };
 
-    let general_wallet = wallet.general_wallet();
+    match wallet.front_withdrawal(
+        fee_rate,
+        user_script_pubkey,
+        amount,
+        op_return_data.as_ref(),
+    ) {
+        Ok(wft_psbt) => {
+            let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
 
-    match general_wallet.finalize_psbt(&mut wft_psbt, SignOptions::default()) {
-        Ok(true) => {
-            let signed_wft = wft_psbt.extract_tx().expect("must be signed by wallet");
+            let prevouts = wft_psbt
+                .inputs
+                .iter()
+                .filter_map(|input| input.witness_utxo.clone())
+                .collect::<Vec<_>>();
+            let prevouts = Prevouts::All(&prevouts);
 
-            info!(
-                txid = %signed_wft.compute_txid(),
-                "submitting withdrawal fulfillment tx to the tx driver"
-            );
+            let message_hashes = wft_psbt.inputs.iter().enumerate().map(|(input_index, _)| {
+                create_message_hash(
+                    &mut sighash_cache,
+                    prevouts.clone(),
+                    &TaprootWitness::Key,
+                    TapSighashType::Default,
+                    input_index,
+                )
+                .expect("must be able to create message hash for each input in wft")
+            });
 
-            output_handles
-                .tx_driver
-                .drive(signed_wft)
-                .await
-                .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
-        }
-        // in most cases, the other cases just mean that the wallet does not have enough
-        // funds, in which case, there is nothing much we can do
-        // but at the same time, we must not crash the node.
-        Ok(false) => {
-            error!("could not finalize withdrawal fulfillment transaction with general wallet");
+            let mut signed_wft = wft_psbt.unsigned_tx.clone();
+            for (input_index, msg) in message_hashes.enumerate() {
+                let signature = output_handles
+                    .s2_session_manager
+                    .s2_client
+                    .general_wallet_signer()
+                    .sign(msg.as_ref(), None)
+                    .await?;
+
+                signed_wft.input[input_index]
+                    .witness
+                    .push(signature.serialize());
+            }
+
+            info!(txid=%signed_wft.compute_txid(), "submitting withdrawal fulfillment tx to the tx driver");
+
+            output_handles.tx_driver.drive(signed_wft).await?;
         }
         Err(err) => {
-            error!(%err, "could not sign withdrawal fulfillment with general wallet")
+            // most of the time, this just means that the wallet does not have enough funds
+            error!(%err, "could not front withdrawal");
         }
     }
 

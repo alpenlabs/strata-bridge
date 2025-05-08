@@ -3,8 +3,7 @@ pub mod sync;
 
 use bdk_wallet::{
     bitcoin::{
-        script::PushBytesBuf, Address, AddressType, Amount, FeeRate, Network, OutPoint, Psbt,
-        ScriptBuf, XOnlyPublicKey,
+        script::PushBytesBuf, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, XOnlyPublicKey,
     },
     descriptor,
     error::CreateTxError,
@@ -134,13 +133,10 @@ impl OperatorWallet {
     pub fn front_withdrawal(
         &mut self,
         fee_rate: FeeRate,
-        user_p2tr_address: Address,
+        user_script_pubkey: ScriptBuf,
         amount: Amount,
         op_return_data: &[u8],
     ) -> Result<Psbt, CreateTxError> {
-        if user_p2tr_address.address_type() != Some(AddressType::P2tr) {
-            return Err(CreateTxError::NoRecipients);
-        }
         let mut push_data = PushBytesBuf::new();
         push_data
             .extend_from_slice(op_return_data)
@@ -150,12 +146,14 @@ impl OperatorWallet {
             .into_iter()
             .map(|lo| lo.outpoint)
             .collect();
+
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
         tx_builder.unspendable(cpfp_utxos);
         tx_builder.fee_rate(fee_rate);
-        tx_builder.add_recipient(user_p2tr_address.script_pubkey(), amount);
+        tx_builder.add_recipient(user_script_pubkey, amount);
         tx_builder.add_data(&push_data);
+        tx_builder.ordering(TxOrdering::Untouched);
         tx_builder.finish()
     }
 
@@ -229,6 +227,13 @@ impl OperatorWallet {
     /// Returns the script buf of the general wallet address. External funds should be sent here.
     pub fn general_script_buf(&self) -> &ScriptBuf {
         &self.general_addr_script_buf
+    }
+
+    /// Returns the script buf of the stake chain wallet address.
+    ///
+    /// This is where the reserved funds for funding dust outputs reside.
+    pub fn stakechain_script_buf(&self) -> &ScriptBuf {
+        &self.stakechain_addr_script_buf
     }
 
     /// Returns an immutable reference to the general wallet
