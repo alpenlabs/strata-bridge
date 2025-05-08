@@ -282,6 +282,7 @@ pub enum ContractState {
 
         /// The transaction ID of the withdrawal request transaction in the execution environment.
         withdrawal_request_txid: Txid,
+
         /// This is a collection of all partial signatures for all graphs and for all operators.
         graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
     },
@@ -1772,7 +1773,11 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        info!("processing stake chain advancement");
+
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        let copy_of_current = current.clone();
+
         match current {
             ContractState::Assigned {
                 peg_out_graphs,
@@ -1785,9 +1790,10 @@ impl ContractSM {
                 graph_partials,
             } => {
                 if tx.compute_txid() != active_graph.1.stake_txid {
-                    return Err(TransitionErr(format!(
-                        "stake chain advancement txid ({}) doesn't match the stake txid of the active graph ({})", tx.compute_txid(), active_graph.1.stake_txid,
-                    )));
+                    // might be somebody else's stake txid
+                    self.state.state = copy_of_current;
+
+                    return Ok(None);
                 }
 
                 self.state.state = ContractState::StakeTxReady {
@@ -1835,6 +1841,8 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        let copy_of_current = current.clone();
+
         match current {
             ContractState::StakeTxReady {
                 peg_out_graphs,
@@ -1848,24 +1856,36 @@ impl ContractSM {
                 // TODO(proofofkeags): we need to verify that this is bound properly to the correct
                 // operator.
                 let cfg = self.cfg();
-                let deposit_txid = self.cfg.deposit_tx.compute_txid();
+                let deposit_txid = cfg.deposit_tx.compute_txid();
                 let stake_txid = active_graph.1.stake_txid;
 
                 if !is_fulfillment_tx(
                     cfg.network,
                     &cfg.peg_out_graph_params,
-                    cfg.operator_table.pov_idx(),
+                    fulfiller,
                     cfg.deposit_idx,
                     cfg.deposit_tx.compute_txid(),
-                    recipient,
+                    recipient.clone(),
                 )(tx)
                 {
-                    return Err(TransitionErr(format!(
-                        "invalid fulfillment transaction ({}) delivered to CSM ({})",
-                        tx.compute_txid(),
-                        deposit_txid,
-                    )));
+                    // might get somebody else's stake transaction here.
+                    // this can happen if this node's stake transaction is settled before other
+                    // nodes'.
+                    self.state.state = copy_of_current;
+
+                    return Ok(None);
                 }
+
+                let withdrawal_fulfillment_txid = tx.compute_txid();
+                debug!(%withdrawal_fulfillment_txid, "discovered withdrawal fulfillment");
+                self.state.state = ContractState::Fulfilled {
+                    peg_out_graphs,
+                    claim_txids,
+                    fulfiller,
+                    active_graph,
+                    graph_partials,
+                    withdrawal_fulfillment_txid,
+                };
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim {
@@ -1877,16 +1897,15 @@ impl ContractSM {
                     None
                 };
 
-                self.state.state = ContractState::Fulfilled {
-                    peg_out_graphs,
-                    claim_txids,
-                    fulfiller,
-                    active_graph,
-                    withdrawal_fulfillment_txid: tx.compute_txid(),
-                    graph_partials,
-                };
-
                 Ok(duty)
+            }
+            ContractState::Fulfilled { .. } => {
+                warn!(
+                    "received fulfillment confirmation even though contract is already fulfilled"
+                );
+                self.state.state = copy_of_current;
+
+                Ok(None)
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_fulfillment_confirmation ({})",
