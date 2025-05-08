@@ -41,7 +41,8 @@ pub struct PayoutOptimisticData {
     pub network: Network,
 }
 
-pub(crate) const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
+/// The number of inputs that require an $N-of-N$ signature in the [`PayoutOptimisticTx`].
+pub const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
 
 /// A transaction that reimburses a *functional* operator.
 #[derive(Debug, Clone)]
