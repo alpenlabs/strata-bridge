@@ -111,7 +111,9 @@ impl MusigSessionManager {
                 error!(%outpoint, %sender, %e, "first round missing");
             })?;
 
-        Ok(first_round.receive_pub_nonce(sender, nonce).await??)
+        Ok(first_round
+            .receive_pub_nonces([(sender, nonce)].into_iter())
+            .await??)
     }
 
     /// Given an [`OutPoint`] and the sighash for what is being signed, retrieves our MuSig2
@@ -176,7 +178,9 @@ impl MusigSessionManager {
             .inspect_err(|e| {
                 error!(%outpoint, %e, "second round missing");
             })?;
-        Ok(second_round.receive_signature(sender, partial).await??)
+        Ok(second_round
+            .receive_signatures([(sender, partial)].into_iter())
+            .await??)
     }
 
     /// Finalizes the MuSig2 signing process and extract the final [`LiftedSignature`].
@@ -227,7 +231,7 @@ pub enum MusigSessionErr {
 
     /// Errors from failed round contributions
     #[error("secret service failed to contribute to round {0:?}")]
-    SecretServiceRoundContributionErr(#[from] RoundContributionError),
+    SecretServiceRoundContributionErr(BTreeMap<XOnlyPublicKey, RoundContributionError>),
 
     /// Errors from failed round finalization
     #[error("secret service failed to finalize round {0:?}")]
@@ -240,4 +244,10 @@ pub enum MusigSessionErr {
     /// Outpoint doesn't have an active session
     #[error("outpoint {0} does not have a valid and active session")]
     NotFound(OutPoint),
+}
+
+impl From<BTreeMap<XOnlyPublicKey, RoundContributionError>> for MusigSessionErr {
+    fn from(value: BTreeMap<XOnlyPublicKey, RoundContributionError>) -> Self {
+        Self::SecretServiceRoundContributionErr(value)
+    }
 }

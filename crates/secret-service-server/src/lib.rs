@@ -7,13 +7,7 @@
 
 pub mod musig2_session_mgr;
 
-use std::{
-    collections::{BTreeMap, HashMap},
-    io,
-    marker::Sync,
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{collections::BTreeMap, io, marker::Sync, net::SocketAddr, sync::Arc};
 
 use bitcoin::{hashes::Hash, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
@@ -359,7 +353,7 @@ where
                         };
                         Ok((pk, pubnonce))
                     })
-                    .collect::<Result<HashMap<XOnlyPublicKey, PubNonce>, ServerMessage>>()
+                    .collect::<Result<BTreeMap<XOnlyPublicKey, PubNonce>, ServerMessage>>()
                 {
                     Ok(nonces) => nonces,
                     Err(e) => return Ok(e),
@@ -457,7 +451,7 @@ where
                         };
                         Ok((pk, partial_sig))
                     })
-                    .collect::<Result<HashMap<XOnlyPublicKey, PartialSignature>, ServerMessage>>()
+                    .collect::<Result<BTreeMap<XOnlyPublicKey, PartialSignature>, ServerMessage>>()
                 {
                     Ok(nonces) => nonces,
                     Err(e) => return Ok(e),
