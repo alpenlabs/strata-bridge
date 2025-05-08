@@ -1873,15 +1873,7 @@ impl ContractSM {
 
     /// The txid of the original deposit request that kicked off this contract.
     pub fn deposit_request_txid(&self) -> Txid {
-        self.cfg
-            .deposit_tx
-            .psbt()
-            .unsigned_tx
-            .input
-            .first()
-            .unwrap()
-            .previous_output
-            .txid
+        self.cfg().deposit_request_txid()
     }
 
     /// Gives us a list of claim txids that can be used to reference this contract.
