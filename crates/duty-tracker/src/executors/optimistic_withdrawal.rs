@@ -232,16 +232,11 @@ pub(crate) async fn handle_publish_claim(
 ) -> Result<(), ContractManagerErr> {
     let pov_idx = cfg.operator_table.pov_idx();
 
-    // the input to the claim transaction is the input to the stake transaction minus the two dust
-    // outputs in the stake transaction.
-    let input_amount = OPERATOR_FUNDS
-        .checked_sub(SEGWIT_MIN_AMOUNT * 2)
-        .unwrap_or_default();
+    info!(%deposit_txid, %withdrawal_fulfillment_txid, "executing duty to publish claim transaction");
 
     let claim_data = ClaimData {
         stake_outpoint: OutPoint::new(stake_txid, STAKE_VOUT),
         deposit_txid,
-        input_amount,
     };
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
@@ -317,13 +312,6 @@ pub(crate) async fn handle_publish_payout_optimistic(
     stake_txid: Txid,
     stake_index: u32,
 ) -> Result<(), ContractManagerErr> {
-    const DUST_OUTPUTS_IN_STAKE_TX: u64 = 2;
-    const DUST_OUTPUTS_IN_CLAIM_TX: u64 = 3;
-
-    let input_amount = OPERATOR_FUNDS
-        .checked_sub(SEGWIT_MIN_AMOUNT * (DUST_OUTPUTS_IN_CLAIM_TX + DUST_OUTPUTS_IN_STAKE_TX))
-        .unwrap_or_default();
-
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
     let operator_key = s2_client.general_wallet_signer().pubkey().await?;
