@@ -1365,6 +1365,7 @@ async fn execute_duty(
                 claim_txid,
                 stake_txid,
                 stake_index,
+                partials,
             } => {
                 handle_publish_payout_optimistic(
                     &cfg,
@@ -1373,6 +1374,7 @@ async fn execute_duty(
                     claim_txid,
                     stake_txid,
                     stake_index,
+                    partials,
                 )
                 .await
             }
