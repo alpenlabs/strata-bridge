@@ -1656,7 +1656,7 @@ impl ContractSM {
         assignment: &DepositEntry,
         stake_tx: StakeTx,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        info!(?assignment, "processing assignment");
+        info!(?assignment, current_state=%self.state().state, "processing assignment");
 
         if assignment.idx() != self.cfg.deposit_idx {
             return Err(TransitionErr(format!(
@@ -1667,7 +1667,9 @@ impl ContractSM {
         }
 
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        match &current {
+        let copy_of_current = current.clone();
+
+        match current {
             ContractState::Deposited {
                 peg_out_graphs,
                 claim_txids,
@@ -1736,21 +1738,33 @@ impl ContractSM {
                             )))
                         } else {
                             warn!(?assignment, "assignment does not contain a recipient or withdrawal request txid");
-                            self.state.state = current;
+                            self.state.state = copy_of_current.clone();
 
                             Ok(None)
                         }
                     }
+
                     _ => Err(TransitionErr(format!(
                         "received a non-dispatched deposit entry as an assignment {:?}",
                         assignment
                     ))),
                 }
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_assignment ({})",
-                self.state.state
-            ))),
+            ContractState::Assigned { .. } => {
+                // TODO: (@Rajil1213) check if this is a new assignment i.e., the assignee is
+                // different
+
+                warn!("received assignment even though contract is already assigned");
+                self.state.state = current;
+
+                Ok(None)
+            }
+            _ => {
+                warn!(?assignment, %current, "received stale assignment, ignoring...");
+                self.state.state = current;
+
+                Ok(None)
+            }
         }
     }
 
