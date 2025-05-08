@@ -989,6 +989,7 @@ impl ContractSM {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
         // SUBTLE WAY.
 
+        let deposit_txid = self.deposit_txid();
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
@@ -998,12 +999,6 @@ impl ContractSM {
                 graph_partials,
                 ..
             } => {
-                if peg_out_graph_inputs.contains_key(&signer) {
-                    let deposit_txid = self.cfg.deposit_tx.compute_txid();
-                    warn!("already received operator's ({signer}) deposit setup for contract {deposit_txid}");
-                    return Ok(vec![]);
-                }
-
                 let pog_input = PegOutGraphInput {
                     stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
                     withdrawal_fulfillment_outpoint: OutPoint::new(
@@ -1014,6 +1009,18 @@ impl ContractSM {
                     wots_public_keys: new_wots_keys.clone(),
                     operator_pubkey,
                 };
+
+                if let Some(existing) = peg_out_graph_inputs.get(&signer) {
+                    warn!(
+                        "already received deposit setup from {signer} for contract {deposit_txid}"
+                    );
+                    debug_assert_eq!(
+                        &pog_input, existing,
+                        "conflicting deposit setup from {signer} for contract {deposit_txid}"
+                    );
+                    return Ok(vec![]);
+                }
+
                 peg_out_graph_inputs.insert(signer, pog_input.clone());
 
                 if peg_out_graph_inputs.len() != self.cfg.operator_table.cardinality() {
@@ -1117,8 +1124,13 @@ impl ContractSM {
                     )));
                 };
 
-                if session_nonces.contains_key(&signer) {
+                if let Some(existing) = session_nonces.get(&signer) {
                     warn!(%claim_txid, %signer, "already received nonces for graph");
+                    debug_assert_eq!(
+                        &unpacked, existing,
+                        "conflicting graph nonces received from {} for claim {}",
+                        signer, claim_txid
+                    );
                     return Ok(None);
                 }
 
@@ -1212,8 +1224,13 @@ impl ContractSM {
                     )));
                 };
 
-                if session_partials.contains_key(&signer) {
+                if let Some(existing) = session_partials.get(&signer) {
                     warn!(%claim_txid, %signer, "already received signatures for graph");
+                    debug_assert_eq!(
+                        &unpacked, existing,
+                        "conflicting graph signatures received from {} for claim {}",
+                        &signer, &claim_txid
+                    );
                     return Ok(None);
                 }
 
@@ -1256,10 +1273,16 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         nonce: PubNonce,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        let deposit_txid = self.deposit_txid();
         match &mut self.state.state {
             ContractState::Requested { root_nonces, .. } => {
-                if root_nonces.contains_key(&signer) {
+                if let Some(existing) = root_nonces.get(&signer) {
                     warn!(%signer, "already received nonce for root");
+                    debug_assert_eq!(
+                        &nonce, existing,
+                        "conflicting root nonce received from {} for contract {}",
+                        signer, deposit_txid,
+                    );
                     return Ok(None);
                 }
 
@@ -1316,10 +1339,16 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         sig: PartialSignature,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        let deposit_txid = self.deposit_txid();
         match &mut self.state.state {
             ContractState::Requested { root_partials, .. } => {
-                if root_partials.contains_key(&signer) {
+                if let Some(existing) = root_partials.get(&signer) {
                     warn!(%signer, "already received signature for root");
+                    debug_assert_eq!(
+                        &sig, existing,
+                        "conflicting root signature received from {} for contract {}",
+                        signer, deposit_txid
+                    );
                     return Ok(None);
                 }
 
