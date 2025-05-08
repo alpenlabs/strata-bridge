@@ -26,7 +26,8 @@ pub struct PostAssertTxData {
     pub deposit_txid: Txid,
 }
 
-pub(crate) const NUM_POST_ASSERT_INPUTS: usize = NUM_ASSERT_DATA_TX;
+/// The number of inputs that require an $N-of-N$ signature in the [`PostAssertTx`].
+pub const NUM_POST_ASSERT_INPUTS: usize = NUM_ASSERT_DATA_TX;
 
 /// A transaction in the Assert chain that combines the outputs of the assert data transactions.
 ///
