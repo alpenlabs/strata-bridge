@@ -360,19 +360,19 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                     deposit_request_txid: entry.1.deposit_request_txid(),
                 }),
                 ContractState::Assigned {
-                    assignment_txid,
+                    withdrawal_request_txid,
                     fulfiller,
                     ..
                 } => duties.push(RpcBridgeDutyStatus::Withdrawal {
-                    withdrawal_request_txid: *assignment_txid,
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     assigned_operator_idx: *fulfiller,
                 }),
                 ContractState::StakeTxReady {
-                    assignment_txid,
+                    withdrawal_request_txid,
                     fulfiller,
                     ..
                 } => duties.push(RpcBridgeDutyStatus::Withdrawal {
-                    withdrawal_request_txid: *assignment_txid,
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     assigned_operator_idx: *fulfiller,
                 }),
                 // Anything else is not a duty for the RPC server
@@ -417,24 +417,24 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             match &entry.0.state {
                 ContractState::Assigned {
                     claim_txids,
-                    assignment_txid,
+                    withdrawal_request_txid,
                     ..
                 } => {
                     if claim_txids.contains_key(operator_p2p_pk) {
                         duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *assignment_txid,
+                            withdrawal_request_txid: *withdrawal_request_txid,
                             assigned_operator_idx: operator_index,
                         });
                     }
                 }
                 ContractState::StakeTxReady {
                     claim_txids,
-                    assignment_txid,
+                    withdrawal_request_txid,
                     ..
                 } => {
                     if claim_txids.contains_key(operator_p2p_pk) {
                         duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *assignment_txid,
+                            withdrawal_request_txid: *withdrawal_request_txid,
                             assigned_operator_idx: operator_index,
                         });
                     }

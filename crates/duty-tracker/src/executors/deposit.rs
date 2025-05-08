@@ -95,6 +95,7 @@ pub(crate) async fn handle_publish_deposit_setup(
         s2_session_manager,
         tx_driver,
         db,
+        ..
     } = output_handles.as_ref();
     let MusigSessionManager { s2_client, .. } = &s2_session_manager;
 

@@ -187,6 +187,7 @@ impl ContractManager {
 
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
+                bitcoind_rpc_client: rpc_client.clone(),
                 msg_handler,
                 s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
                 tx_driver,
@@ -363,6 +364,7 @@ impl Drop for ContractManager {
 pub(super) struct OutputHandles {
     pub(super) wallet: RwLock<OperatorWallet>,
     pub(super) msg_handler: MessageHandler,
+    pub(super) bitcoind_rpc_client: BitcoinClient,
     pub(super) s2_session_manager: MusigSessionManager,
     pub(super) tx_driver: TxDriver,
     pub(super) db: SqliteDb,
@@ -562,7 +564,6 @@ impl ContractManagerCtx {
         &mut self,
         tx: &Transaction,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
-        let assignment_txid = tx.compute_txid();
         let mut duties = Vec::new();
 
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
@@ -601,7 +602,6 @@ impl ContractManagerCtx {
                         match sm.process_contract_event(ContractEvent::Assignment(
                             entry.clone(),
                             stake_tx,
-                            assignment_txid,
                         )) {
                             Ok(new_duties) if !new_duties.is_empty() => {
                                 info!("committing stake chain state");
@@ -1369,6 +1369,7 @@ async fn execute_duty(
                 claim_txid,
                 stake_txid,
                 stake_index,
+                partials,
             } => {
                 handle_publish_payout_optimistic(
                     &cfg,
@@ -1377,6 +1378,7 @@ async fn execute_duty(
                     claim_txid,
                     stake_txid,
                     stake_index,
+                    partials,
                 )
                 .await
             }
