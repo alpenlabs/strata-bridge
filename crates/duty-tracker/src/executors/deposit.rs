@@ -33,6 +33,7 @@ use strata_p2p_types::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
+    constants::WITHDRAWAL_FULFILLMENT_PK_IDX,
     contract_manager::{ExecutionConfig, OutputHandles},
     contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
@@ -107,7 +108,7 @@ pub(crate) async fn handle_publish_deposit_setup(
     // withdrawal_fulfillment uses index 0
     let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
         &wots_client
-            .get_256_public_key(deposit_txid, VOUT, 0)
+            .get_256_public_key(deposit_txid, VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
             .await?,
     );
     const NUM_FQS: usize = NUM_U256;
