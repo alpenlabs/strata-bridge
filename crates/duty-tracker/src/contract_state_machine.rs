@@ -1957,6 +1957,7 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        let copy_of_current = current.clone();
         match current {
             ContractState::Claimed {
                 peg_out_graphs,
@@ -1967,10 +1968,10 @@ impl ContractSM {
                 ..
             } => {
                 if !is_challenge(active_graph.1.claim_txid)(tx) {
-                    return Err(TransitionErr(format!(
-                        "invalid challenge transaction ({}) in process_challenge_confirmation",
-                        tx.compute_txid()
-                    )));
+                    // could be an optimistic payout
+                    self.state.state = copy_of_current;
+
+                    return Ok(None);
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
