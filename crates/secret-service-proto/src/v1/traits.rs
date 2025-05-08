@@ -237,7 +237,7 @@ pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
     /// fail.
     ///
     /// Can also return an error if partial signature aggregation fails, but if
-    /// [`receive_signature`][Musig2SignerSecondRound::receive_signature] was successful, then
+    /// [`receive_signatures`][Musig2SignerSecondRound::receive_signatures] was successful, then
     /// finalizing will succeed with overwhelming probability.
     fn finalize(
         self,

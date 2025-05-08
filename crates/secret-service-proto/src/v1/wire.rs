@@ -93,7 +93,7 @@ pub enum ServerMessage {
     },
 
     /// Response for
-    /// [`Musig2SignerFirstRound::receive_pub_nonce`](super::traits::Musig2SignerFirstRound::receive_pub_nonce).
+    /// [`Musig2SignerFirstRound::receive_pub_nonces`](super::traits::Musig2SignerFirstRound::receive_pub_nonces).
     Musig2FirstRoundReceivePubNonce(
         /// Errors indicating whether the server was unable to process the request, indexed by the
         /// pubnonce's signer's xonly pubkey. If empty, should be returned as a Ok(())
@@ -139,7 +139,7 @@ pub enum ServerMessage {
     },
 
     /// Response for
-    /// [`Musig2SignerSecondRound::receive_signature`](super::traits::Musig2SignerSecondRound::receive_signature).
+    /// [`Musig2SignerSecondRound::receive_signatures`](super::traits::Musig2SignerSecondRound::receive_signatures).
     Musig2SecondRoundReceiveSignature(
         /// Any errors that occurred during signature reception, keyed by the partial signature's
         /// signer's xonly pubkey If empty, should be returned as a Ok(())
@@ -315,7 +315,7 @@ pub enum ClientMessage {
     },
 
     /// Request for
-    /// [`Musig2SignerFirstRound::receive_pub_nonce`](super::traits::Musig2SignerFirstRound::receive_pub_nonce).
+    /// [`Musig2SignerFirstRound::receive_pub_nonces`](super::traits::Musig2SignerFirstRound::receive_pub_nonces).
     Musig2FirstRoundReceivePubNonce {
         /// Session that this server is requesting for.
         #[rkyv(with = rkyv_wrappers::OutPoint)]
@@ -369,7 +369,7 @@ pub enum ClientMessage {
     },
 
     /// Request for
-    /// [`Musig2SignerSecondRound::receive_signature`](super::traits::Musig2SignerSecondRound::receive_signature).
+    /// [`Musig2SignerSecondRound::receive_signatures`](super::traits::Musig2SignerSecondRound::receive_signatures).
     Musig2SecondRoundReceiveSignature {
         /// Session that this server is requesting for.
         #[rkyv(with = rkyv_wrappers::OutPoint)]
