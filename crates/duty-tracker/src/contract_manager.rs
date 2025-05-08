@@ -172,6 +172,10 @@ impl ContractManager {
                     return;
                 }
             };
+            let mut block_sub = zmq_client
+                .subscribe_blocks()
+                .await
+                .filter(|evt| future::ready(evt.status == BlockStatus::Buried));
 
             // It's extremely unlikely that these will ever differ at all but it's possible for
             // them to differ by at most 1 in the scenario where we crash mid-batch when committing
@@ -269,11 +273,6 @@ impl ContractManager {
 
                 cursor = next;
             }
-
-            let mut block_sub = zmq_client
-                .subscribe_blocks()
-                .await
-                .filter(|evt| future::ready(evt.status == BlockStatus::Buried));
 
             let mut interval = time::interval(nag_interval);
 
