@@ -166,7 +166,7 @@ impl ContractManager {
             };
 
             let current = match rpc_client.get_block_count().await {
-                Ok(a) => a,
+                Ok(a) => a - (zmq_client.bury_depth() as u64),
                 Err(e) => {
                     crash(e.into());
                     return;
