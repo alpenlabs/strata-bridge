@@ -2,6 +2,8 @@
 //!
 //! This connector is spent by the Disprove transaction to disprove the proof committed in the
 //! AssertData transactions and the Claim transaction by the operator.
+use std::time::Instant;
+
 use bitcoin::{
     hashes::Hash,
     psbt::Input,
@@ -21,6 +23,7 @@ use strata_bridge_primitives::{
     scripts::prelude::*,
     wots::{self, Groth16PublicKeys},
 };
+use tracing::debug;
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
 
@@ -282,8 +285,13 @@ impl ConnectorA3 {
         wots_public_keys: wots::PublicKeys,
         payout_timelock: u32,
     ) -> Self {
+        let start_time = Instant::now();
+
         let disprove_scripts =
             api_generate_full_tapscripts(*wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
+
+        let elapsed = start_time.elapsed();
+        debug!(time_taken=?elapsed, "loaded full scripts");
 
         let (output_address, spend_info) = Self::generate_taproot_address(
             &network,
