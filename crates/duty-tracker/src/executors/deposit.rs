@@ -22,7 +22,7 @@ use secret_service_proto::v1::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
+use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
 use strata_bridge_tx_graph::{
     pog_musig_functor::PogMusigF,
     transactions::{deposit::DepositTx, prelude::CovenantTx},
@@ -236,22 +236,6 @@ pub(crate) async fn handle_publish_deposit_setup(
             }
         }
     };
-
-    info!(%deposit_txid, %deposit_idx, "constructing wots public keys for withdrawal fulfillment");
-    let withdrawal_fulfillment_pk = std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
-
-    let stake_data = StakeTxData {
-        operator_funds: funding_utxo,
-        hash: stakechain_preimg_hash,
-        withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
-            withdrawal_fulfillment_pk,
-        ),
-    };
-
-    info!(%deposit_txid, %deposit_idx, "adding stake data to the database");
-    debug!(%deposit_txid, %deposit_idx, ?stake_data, "adding stake data to the database");
-
-    db.add_stake_data(pov_idx, deposit_idx, stake_data).await?;
 
     info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
     msg_handler
