@@ -13,10 +13,13 @@ use crate::{
     tracker::{BitcoinBlockTrackerDb, DutyTrackerDb},
 };
 
+/// In-memory implementation of the duty tracker database.
 #[derive(Debug, Clone, Default)]
 pub struct DutyTrackerInMemory {
+    /// Last fetched duty index.
     last_fetched_duty_index: Arc<RwLock<u64>>,
 
+    /// Status of each duty.
     duty_status: Arc<RwLock<HashMap<Txid, BridgeDutyStatus>>>,
 }
 

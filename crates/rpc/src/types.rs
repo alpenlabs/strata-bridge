@@ -2,6 +2,7 @@
 
 use bitcoin::Txid;
 use serde::{Deserialize, Serialize};
+use strata_bridge_primitives::types::OperatorIdx;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,25 +78,16 @@ pub enum RpcWithdrawalStatus {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcReimbursementStatus {
     /// Claim exists, challenge step is "Claim", no payout.
-    InProgress {
-        /// Challenge step.
-        challenge_step: ChallengeStep,
-    },
+    InProgress,
 
     /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
-    Challenged {
-        /// Challenge step.
-        challenge_step: ChallengeStep,
-    },
+    Challenged,
 
     /// Operator was slashed, claim is no longer valid.
     Cancelled,
 
     /// Claim has been successfully reimbursed.
-    Complete {
-        /// Transaction ID of the payout transaction.
-        payout_txid: Txid,
-    },
+    Complete,
 }
 
 /// Represents deposit transaction details
@@ -120,4 +112,23 @@ pub struct RpcClaimInfo {
 
     /// Status of the reimbursement.
     pub status: RpcReimbursementStatus,
+}
+
+/// Represents a valid bridge duty status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RpcBridgeDutyStatus {
+    /// Deposit duty
+    Deposit {
+        /// Transaction ID of the deposit request transaction (DRT).
+        deposit_request_txid: Txid,
+    },
+
+    /// Withdrawal duty
+    Withdrawal {
+        /// Transaction ID of the withdrawal request transaction (WRT).
+        withdrawal_request_txid: Txid,
+
+        /// Assigned operator index.
+        assigned_operator_idx: OperatorIdx,
+    },
 }

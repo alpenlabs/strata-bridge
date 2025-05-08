@@ -136,7 +136,7 @@ pub enum ContractEvent {
     RootSig(P2POperatorPubKey, PartialSignature),
 
     /// Signifies that this withdrawal has been assigned.
-    Assignment(DepositEntry, StakeTx),
+    Assignment(DepositEntry, StakeTx, Txid),
 
     /// Signifies that the deposit transaction has been confirmed, the second value is the global
     /// deposit index.
@@ -243,6 +243,9 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the assignment transaction.
+        assignment_txid: Txid,
     },
 
     /// This state describes everything from the moment stake transaction corresponding to this
@@ -269,6 +272,9 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the assignment transaction.
+        assignment_txid: Txid,
     },
 
     /// This state describes everything from the moment the fulfillment transaction confirms, to
@@ -288,6 +294,9 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The withdrawal fulfillment transaction ID.
+        withdrawal_fulfillment_txid: Txid,
     },
 
     /// This state describes everything from the moment the claim transaction confirms, to the
@@ -416,8 +425,8 @@ impl Display for ContractState {
                 "Asserted by operator {} at height {} ({})",
                 fulfiller, post_assert_height, active_graph.1.post_assert_txid
             ),
-            ContractState::Disproved {} => "Disproved".to_string(),
-            ContractState::Resolved {} => "Resolved".to_string(),
+            ContractState::Disproved { .. } => "Disproved".to_string(),
+            ContractState::Resolved { .. } => "Resolved".to_string(),
         };
 
         write!(f, "ContractState: {}", display_str)
@@ -442,8 +451,8 @@ impl ContractState {
             ContractState::Claimed { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
             ContractState::Challenged { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
             ContractState::Asserted { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Disproved {} => vec![],
-            ContractState::Resolved {} => vec![],
+            ContractState::Disproved { .. } => vec![],
+            ContractState::Resolved { .. } => vec![],
         }
     }
 }
@@ -651,6 +660,13 @@ impl ContractCfg {
     pub fn tx_build_context(&self) -> TxBuildContext {
         self.operator_table.tx_build_context(self.network)
     }
+
+    /// Returns the transaction ID of the deposit request for this contract.
+    pub fn deposit_request_txid(&self) -> Txid {
+        self.deposit_tx.psbt().unsigned_tx.input[0]
+            .previous_output
+            .txid
+    }
 }
 
 /// Holds the state machine values that change over the lifetime of the contract.
@@ -666,7 +682,10 @@ pub struct MachineState {
 /// This is the core state machine for a given deposit contract.
 #[derive(Debug)]
 pub struct ContractSM {
+    /// The configuration of the contract.
     cfg: ContractCfg,
+
+    /// The state of the contract itself.
     state: MachineState,
 
     /// The peg out graphs associated with each operator for the given deposit.
@@ -855,8 +874,8 @@ impl ContractSM {
             ContractEvent::AssertionFailure => self
                 .process_assertion_verification_failure()
                 .map(|x| x.into_iter().collect()),
-            ContractEvent::Assignment(deposit_entry, stake_tx) => self
-                .process_assignment(&deposit_entry, stake_tx)
+            ContractEvent::Assignment(deposit_entry, stake_tx, assignment_txid) => self
+                .process_assignment(&deposit_entry, stake_tx, assignment_txid)
                 .map(|x| x.into_iter().collect()),
         }
     }
@@ -1403,6 +1422,7 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
         stake_tx: StakeTx,
+        assignment_txid: Txid,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         if assignment.idx() != self.cfg.deposit_idx {
             return Err(TransitionErr(format!(
@@ -1462,6 +1482,7 @@ impl ContractSM {
                             deadline,
                             active_graph,
                             recipient: recipient.clone(),
+                            assignment_txid,
                         };
 
                         let stake_index = assignment.idx();
@@ -1501,6 +1522,7 @@ impl ContractSM {
                 recipient,
                 deadline,
                 active_graph,
+                assignment_txid,
             } => {
                 if tx.compute_txid() != active_graph.1.stake_txid {
                     return Err(TransitionErr(format!(
@@ -1515,6 +1537,7 @@ impl ContractSM {
                     recipient: recipient.clone(),
                     deadline,
                     active_graph,
+                    assignment_txid,
                 };
                 let is_assigned_to_me = fulfiller == self.cfg.operator_table.pov_idx();
 
@@ -1590,6 +1613,7 @@ impl ContractSM {
                     claim_txids,
                     fulfiller,
                     active_graph,
+                    withdrawal_fulfillment_txid: tx.compute_txid(),
                 };
 
                 Ok(duty)
@@ -1849,15 +1873,7 @@ impl ContractSM {
 
     /// The txid of the original deposit request that kicked off this contract.
     pub fn deposit_request_txid(&self) -> Txid {
-        self.cfg
-            .deposit_tx
-            .psbt()
-            .unsigned_tx
-            .input
-            .first()
-            .unwrap()
-            .previous_output
-            .txid
+        self.cfg().deposit_request_txid()
     }
 
     /// Gives us a list of claim txids that can be used to reference this contract.
@@ -1878,5 +1894,49 @@ impl ContractSM {
         .values()
         .copied()
         .collect()
+    }
+
+    /// The txid of the assignment transaction for this contract.
+    ///
+    /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
+    /// [`ContractState::StakeTxReady`] state.
+    pub fn assignment_txid(&self) -> Option<Txid> {
+        match &self.state().state {
+            ContractState::Requested { .. } => None,
+            ContractState::Deposited { .. } => None,
+            ContractState::Assigned {
+                assignment_txid, ..
+            } => Some(*assignment_txid),
+            ContractState::StakeTxReady {
+                assignment_txid, ..
+            } => Some(*assignment_txid),
+            ContractState::Fulfilled { .. } => None,
+            ContractState::Claimed { .. } => None,
+            ContractState::Challenged { .. } => None,
+            ContractState::Asserted { .. } => None,
+            ContractState::Disproved {} => None,
+            ContractState::Resolved {} => None,
+        }
+    }
+    /// The txid of the withdrawal fulfillment for this contract.
+    ///
+    /// Note that this is only available if the contract is in the [`ContractState::Fulfilled`]
+    /// state.
+    pub fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
+        match &self.state().state {
+            ContractState::Requested { .. } => None,
+            ContractState::Deposited { .. } => None,
+            ContractState::Assigned { .. } => None,
+            ContractState::StakeTxReady { .. } => None,
+            ContractState::Fulfilled {
+                withdrawal_fulfillment_txid,
+                ..
+            } => Some(*withdrawal_fulfillment_txid),
+            ContractState::Claimed { .. } => None,
+            ContractState::Challenged { .. } => None,
+            ContractState::Asserted { .. } => None,
+            ContractState::Disproved {} => None,
+            ContractState::Resolved {} => None,
+        }
     }
 }
