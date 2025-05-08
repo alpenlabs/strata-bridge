@@ -1260,10 +1260,12 @@ impl ContractSM {
 
                 session_nonces.insert(signer.clone(), unpacked);
 
-                let required_nonces = self.cfg.operator_table.cardinality();
-                let have_all_nonces = graph_nonces
+                let num_operators = self.cfg.operator_table.cardinality();
+                let have_all_graphs = graph_nonces.values().count() == num_operators;
+                let have_all_nonces_in_each_graph = graph_nonces
                     .values()
-                    .all(|session_nonces| session_nonces.len() == required_nonces);
+                    .all(|session_nonces| session_nonces.len() == num_operators);
+                let have_all_nonces = have_all_graphs && have_all_nonces_in_each_graph;
 
                 Ok(if have_all_nonces {
                     info!(%claim_txid, %signer, "received all nonces for all graphs");
@@ -1313,7 +1315,7 @@ impl ContractSM {
                         .iter()
                         .map(|(claim, nonces)| (claim, nonces.len()))
                         .collect::<Vec<_>>();
-                    info!(%claim_txid, ?received_nonces, %required_nonces, "waiting for more nonces for some graphs");
+                    info!(?received_nonces, required=%num_operators, "waiting for more nonces for some graphs");
 
                     None
                 })
@@ -1355,10 +1357,12 @@ impl ContractSM {
 
                 session_partials.insert(signer, unpacked);
 
-                let required_partials = self.cfg.operator_table.cardinality();
-                let have_all_partials = graph_partials
+                let num_operators = self.cfg.operator_table.cardinality();
+                let have_all_graphs = graph_partials.values().count() == num_operators;
+                let have_all_partials_for_all_graphs = graph_partials
                     .values()
-                    .all(|session_partials| session_partials.len() == required_partials);
+                    .all(|session_partials| session_partials.len() == num_operators);
+                let have_all_partials = have_all_graphs && have_all_partials_for_all_graphs;
 
                 Ok(if have_all_partials {
                     info!(%claim_txid, "received all partials for all graphs");
@@ -1375,7 +1379,7 @@ impl ContractSM {
                         .map(|(claim, partials)| (claim, partials.len()))
                         .collect::<Vec<_>>();
 
-                    info!(%claim_txid, ?received_partials, %required_partials, "waiting for more partials for graph");
+                    info!(?received_partials, %num_operators, "waiting for more partials for graph");
 
                     None
                 })
