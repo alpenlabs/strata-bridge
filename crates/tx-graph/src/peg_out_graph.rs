@@ -580,7 +580,6 @@ mod tests {
         hashes::{self, Hash},
         key::TapTweak,
         policy::MAX_STANDARD_TX_WEIGHT,
-        sighash::{Prevouts, SighashCache},
         taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
         Transaction, TxOut,
     };
@@ -597,7 +596,7 @@ mod tests {
     use strata_bridge_primitives::{
         build_context::TxBuildContext,
         constants::*,
-        scripts::taproot::{create_message_hash, TaprootWitness},
+        scripts::taproot::TaprootWitness,
         wots::{Assertions, Wots256Signature},
     };
     use strata_bridge_stake_chain::{
@@ -1242,56 +1241,27 @@ mod tests {
             wots_public_keys.withdrawal_fulfillment,
             pre_stake,
             operator_funds,
-            funding_address,
-            pre_stake_address,
             operator_pubkey,
             connector_cpfp,
         );
 
         info!("signing and broadcasting the first stake tx");
-        let prevouts = vec![
-            TxOut {
-                value: OPERATOR_FUNDS,
-                script_pubkey: operator_address.script_pubkey(),
-            },
-            TxOut {
-                value: OPERATOR_STAKE,
-                script_pubkey: operator_address.script_pubkey(),
-            },
+        let prevouts = [
+            operator_address.script_pubkey(),
+            operator_address.script_pubkey(),
         ];
-        let prevouts = Prevouts::All(&prevouts);
-
-        let mut sighash_cache = SighashCache::new(&first_stake.psbt.unsigned_tx);
-        let witnesses = first_stake.witnesses();
-
-        let message_hash_0 = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            &witnesses[0],
-            TapSighashType::Default,
-            0,
-        )
-        .unwrap();
 
         let tweaked_operator_keypair = operator_keypair.tap_tweak(SECP256K1, None);
+        let messages = first_stake.sighashes_initial(OPERATOR_STAKE, prevouts);
 
         let op_signature_0 =
-            SECP256K1.sign_schnorr(&message_hash_0, &tweaked_operator_keypair.to_inner());
-
-        let message_hash_1 = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            &witnesses[1],
-            TapSighashType::Default,
-            1,
-        )
-        .unwrap();
+            SECP256K1.sign_schnorr(&messages[0], &tweaked_operator_keypair.to_inner());
         let op_signature_1 =
-            SECP256K1.sign_schnorr(&message_hash_1, &tweaked_operator_keypair.to_inner());
+            SECP256K1.sign_schnorr(&messages[1], &tweaked_operator_keypair.to_inner());
 
         let signed_first_stake_tx = first_stake
             .clone()
-            .finalize_initial(op_signature_0, op_signature_1);
+            .finalize_initial_unchecked(op_signature_0, op_signature_1);
 
         let input_amount = OPERATOR_FUNDS + OPERATOR_STAKE;
         let graph_funding_amount =
@@ -1916,40 +1886,13 @@ mod tests {
         );
 
         info!(action = "advancing the stake while previous claim is present", txid = %new_stake_tx.compute_txid());
+        let messages = new_stake_tx.sighashes(funding_address.script_pubkey());
 
+        let funds_signature = SECP256K1.sign_schnorr(&messages[0], &n_of_n_keypair);
+        let stake_signature = SECP256K1.sign_schnorr(&messages[1], &n_of_n_keypair);
         let prev_connector_s = connectors.stake;
-        let mut sighash_cache = SighashCache::new(&new_stake_tx.psbt.unsigned_tx);
-        let prevouts = new_stake_tx
-            .psbt
-            .inputs
-            .iter()
-            .map(|input| input.witness_utxo.clone().unwrap())
-            .collect::<Vec<_>>();
-        let prevouts = Prevouts::All(&prevouts);
 
-        let funds_witness = new_stake_tx.witnesses().first().unwrap();
-        let funding_tx_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            funds_witness,
-            TapSighashType::Default,
-            0,
-        )
-        .unwrap();
-        let funds_signature = SECP256K1.sign_schnorr(&funding_tx_msg, &n_of_n_keypair);
-
-        let stake_witness = new_stake_tx.witnesses().last().unwrap();
-        let stake_msg_hash = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            stake_witness,
-            TapSighashType::Default,
-            1,
-        )
-        .unwrap();
-        let stake_signature = SECP256K1.sign_schnorr(&stake_msg_hash, &n_of_n_keypair);
-
-        let signed_new_stake_tx = new_stake_tx.finalize(
+        let signed_new_stake_tx = new_stake_tx.finalize_unchecked(
             &stake_preimage,
             funds_signature,
             stake_signature,
@@ -1983,54 +1926,15 @@ mod tests {
 
         info!(action = "trying to spend slash stake tx");
         let slash_stake_tx = new_graph.slash_stake_txs[0].clone();
+        let sighashes = slash_stake_tx.sighashes();
+        let witnesses = slash_stake_tx.witnesses();
 
         let claim_out_conn = new_connectors.n_of_n;
         let stake_conn = new_connectors.stake;
 
-        let prevouts = slash_stake_tx
-            .psbt()
-            .inputs
-            .iter()
-            .map(|input| input.witness_utxo.clone().expect("must have witness utxo"))
-            .collect::<Vec<_>>();
-        let prevouts = Prevouts::All(&prevouts);
+        let claim_sig = generate_agg_signature(&sighashes[0], &n_of_n_keypair, &witnesses[0]);
 
-        let claim_input_index = 0;
-        let claim_witness = &slash_stake_tx.witnesses()[claim_input_index];
-        let claim_sighash = slash_stake_tx.psbt().inputs[claim_input_index]
-            .sighash_type
-            .unwrap()
-            .taproot_hash_ty()
-            .unwrap();
-        let mut sighash_cache = SighashCache::new(&slash_stake_tx.psbt().unsigned_tx);
-        let claim_slash_stake_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            claim_witness,
-            claim_sighash,
-            claim_input_index,
-        )
-        .unwrap();
-        let claim_sig =
-            generate_agg_signature(&claim_slash_stake_msg, &n_of_n_keypair, claim_witness);
-
-        let stake_input_index = 1;
-        let stake_witness = &slash_stake_tx.witnesses()[stake_input_index];
-        let stake_sighash = slash_stake_tx.psbt().inputs[stake_input_index]
-            .sighash_type
-            .unwrap()
-            .taproot_hash_ty()
-            .unwrap();
-        let stake_slash_stake_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            stake_witness,
-            stake_sighash,
-            stake_input_index,
-        )
-        .unwrap();
-        let stake_sig =
-            generate_agg_signature(&stake_slash_stake_msg, &n_of_n_keypair, stake_witness);
+        let stake_sig = generate_agg_signature(&sighashes[1], &n_of_n_keypair, &witnesses[1]);
 
         let mut signed_slash_stake_tx =
             slash_stake_tx.finalize(claim_sig, stake_sig, claim_out_conn, stake_conn);

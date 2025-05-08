@@ -10,8 +10,9 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bdk_wallet::miniscript::ToPublicKey;
-use bitcoin::{hashes::Hash, hex::DisplayHex, Block, Network, OutPoint, Transaction, Txid};
+use bitcoin::{
+    hashes::Hash, hex::DisplayHex, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
+};
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::BtcZmqClient;
 use futures::StreamExt;
@@ -68,6 +69,8 @@ impl ContractManager {
         stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
+        // Genesis information
+        pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
         zmq_client: BtcZmqClient,
         rpc_client: BitcoinClient,
@@ -113,14 +116,19 @@ impl ContractManager {
                 .general_wallet_signer()
                 .pubkey()
                 .await
-                .expect("must be able to get stake chain wallet key")
-                .to_x_only_pubkey();
+                .expect("must be able to get stake chain wallet key");
+
+            let funding_address =
+                Address::from_script(wallet.stakechain_script_buf(), network.params())
+                    .expect("funding locking script must be valid for supplied network");
 
             let stake_chains = match stake_chain_persister
                 .load(&operator_table, operator_pubkey)
                 .await
             {
                 Ok(stake_chains) => {
+                    info!("restoring stake chain data");
+
                     match StakeChainSM::restore(
                         network,
                         operator_table.clone(),
@@ -167,6 +175,8 @@ impl ContractManager {
                 stake_chain_params,
                 sidesystem_params,
                 operator_table,
+                pre_stake_pubkey: pre_stake_pubkey.clone(),
+                funding_address: funding_address.clone(),
             };
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
@@ -181,6 +191,7 @@ impl ContractManager {
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
+                bitcoind_rpc_client: rpc_client.clone(),
                 s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
                 tx_driver,
                 db,
@@ -355,6 +366,7 @@ impl Drop for ContractManager {
 pub(super) struct OutputHandles {
     pub(super) wallet: RwLock<OperatorWallet>,
     pub(super) msg_handler: MessageHandler,
+    pub(super) bitcoind_rpc_client: BitcoinClient,
     pub(super) s2_session_manager: MusigSessionManager,
     pub(super) tx_driver: TxDriver,
     pub(super) db: SqliteDb,
@@ -384,6 +396,8 @@ pub(super) struct ExecutionConfig {
     pub(super) stake_chain_params: StakeChainParams,
     pub(super) sidesystem_params: RollupParams,
     pub(super) operator_table: OperatorTable,
+    pub(super) pre_stake_pubkey: ScriptBuf,
+    pub(super) funding_address: Address,
 }
 
 pub(super) struct ContractManagerCtx {
@@ -414,7 +428,9 @@ impl ContractManagerCtx {
         // throughout the processing of this block.
         let stake_index = self.state.active_contracts.len() as u32;
 
+        let mut new_deposit_requests: u32 = 0;
         for tx in block.txdata {
+            // could be an assignment
             let assignment_duties = self.process_assignments(&tx).await?;
             if !assignment_duties.is_empty() {
                 info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
@@ -422,6 +438,7 @@ impl ContractManagerCtx {
             }
 
             let txid = tx.compute_txid();
+            // or a deposit request
             if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
                 &self.cfg.sidesystem_params,
@@ -464,6 +481,8 @@ impl ContractManagerCtx {
                     .get(&pov_key)
                     .expect("this operator's p2p key must exist in the operator table")
                     .clone();
+
+                debug!(%stake_index, %deposit_request_txid, "creating a new contract");
                 let (sm, duty) = ContractSM::new(
                     self.cfg.network,
                     self.cfg.operator_table.clone(),
@@ -473,11 +492,12 @@ impl ContractManagerCtx {
                     self.cfg.stake_chain_params,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    stake_index,
+                    stake_index + new_deposit_requests,
                     deposit_request_txid,
                     deposit_tx,
                     stake_chain_inputs,
                 );
+                new_deposit_requests += 1;
 
                 new_contracts.push(sm);
                 duties.push(duty);
@@ -486,6 +506,7 @@ impl ContractManagerCtx {
                 continue;
             }
 
+            // or a deposit
             if let Some(contract) = self.state.active_contracts.get_mut(&txid) {
                 if contract.state().block_height >= height {
                     // Don't process events if we've already processed them.
@@ -500,6 +521,7 @@ impl ContractManagerCtx {
                 continue;
             }
 
+            // or one of the pegout graph confirmations
             for (_deposit_txid, contract) in self.state.active_contracts.iter_mut() {
                 if contract.state().block_height >= height {
                     // Don't process events if we've already processed them.
@@ -707,10 +729,10 @@ impl ContractManagerCtx {
                         wots_pks: wots_pks.clone(),
                     };
 
-                    info!(%deposit_txid, %sender_id, %index, "processing stake chain setup");
+                    info!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
                     self.state.stake_chains.process_setup(key.clone(), &setup)?;
 
-                    info!(%deposit_txid, %sender_id, %index, "committing stake chain setup to disk");
+                    info!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
                     self.state_handles
                         .stake_chain_persister
                         .commit_stake_data(
@@ -726,19 +748,15 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx as usize)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
-                    for duty in contract.process_contract_event(ContractEvent::DepositSetup {
-                        operator_p2p_key: key.clone(),
-                        operator_btc_key: self
-                            .cfg
-                            .operator_table
-                            .op_key_to_btc_key(&key)
-                            .unwrap()
-                            .x_only_public_key()
-                            .0,
-                        stake_hash: hash,
-                        stake_tx,
-                        wots_keys: Box::new(wots_pks),
-                    })? {
+                    if let Some(duty) =
+                        contract.process_contract_event(ContractEvent::DepositSetup {
+                            operator_p2p_key: key.clone(),
+                            operator_btc_key: operator_pk,
+                            stake_hash: hash,
+                            stake_tx,
+                            wots_keys: Box::new(wots_pks),
+                        })?
+                    {
                         // we need a way to feed the claim txids back into the manager's index so
                         // we skim it off of the publish graph nonces duty.
                         if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = &duty {
@@ -913,7 +931,7 @@ impl ContractManagerCtx {
                     let deposit_request_txid = session_id_as_txid;
                     info!(%deposit_request_txid, "received nag for root nonces");
 
-                    if let ContractState::Requested { .. } = csm.state().state {
+                    if let ContractState::Requested { .. } = &csm.state().state {
                         let witness = csm.cfg().deposit_tx.witnesses()[0].clone();
 
                         Some(OperatorDuty::PublishRootNonce {

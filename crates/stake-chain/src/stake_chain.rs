@@ -46,6 +46,14 @@ impl StakeChain {
     /// Creates a new [`StakeChain`] from the provided [`StakeChainInputs`].
     ///
     /// This can be used to recreate a stake chain if the initial set of inputs are known.
+    ///
+    /// # Parameters
+    ///
+    /// - `context`: The context to use for building the transactions.
+    /// - `stake_chain_inputs`: The inputs to use for creating the stake chain.
+    /// - `stake_chain_params`: The parameters to used for creating the stake chain dictated by the
+    ///   protocol.
+    /// - `connector_cpfp`: The connector to use for CPFP.
     pub fn new(
         context: &impl BuildContext,
         stake_chain_inputs: &StakeChainInputs,
@@ -232,9 +240,7 @@ mod tests {
         key::{Keypair, TapTweak},
         relative,
         sighash::{self, Prevouts, SighashCache},
-        taproot::{self, LeafVersion},
-        transaction, Address, Amount, BlockHash, Network, OutPoint, TapLeafHash, Transaction, TxIn,
-        TxOut, Txid, Witness,
+        transaction, Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
     };
     use corepc_node::{Conf, Node};
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
@@ -274,45 +280,23 @@ mod tests {
         stake_chain: &StakeChain,
         keypair_operator_funds: &Keypair,
         keypair_pre_stake: &Keypair,
+        stake_amount: Amount,
         prevouts: [TxOut; 2],
     ) -> Transaction {
-        let sighash_type = sighash::TapSighashType::Default;
-        // The key path spend for the first input
-        let stake = stake_chain[0].clone();
-        let mut stake_tx = stake.psbt.unsigned_tx.clone();
-        // Create the prevouts
-        let prevouts = Prevouts::All(&prevouts);
+        let messages = stake_chain[0].sighashes_initial(
+            stake_amount,
+            prevouts.clone().map(|prevout| prevout.script_pubkey),
+        );
 
-        // OPERATOR_FUNDS witness (key path spend)
-        let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
-            .expect("must create sighash");
-        let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, keypair_operator_funds);
-        trace!(%signature, "Signature stake_tx operator funds");
-        // Update the witness stack.
-        let signature = taproot::Signature {
-            signature,
-            sighash_type,
-        };
-        *sighash_cache.witness_mut(0).unwrap() = Witness::p2tr_key_spend(&signature);
-        let mut stake_tx = sighash_cache.into_transaction().to_owned();
+        let funds_signature = SECP256K1.sign_schnorr(&messages[0], keypair_operator_funds);
+        trace!(%funds_signature, "Signature stake_tx operator funds");
 
-        let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(1, &prevouts, sighash_type)
-            .expect("must create sighash");
-        let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, keypair_pre_stake);
-        trace!(%signature, "Signature stake_tx operator funds");
-        // Update the witness stack.
-        let signature = taproot::Signature {
-            signature,
-            sighash_type,
-        };
-        *sighash_cache.witness_mut(1).unwrap() = Witness::p2tr_key_spend(&signature);
-        sighash_cache.into_transaction().to_owned()
+        let pre_stake_signature = SECP256K1.sign_schnorr(&messages[1], keypair_pre_stake);
+        trace!(%pre_stake_signature, "Signature stake_tx operator funds");
+
+        stake_chain[0]
+            .clone()
+            .finalize_initial_unchecked(funds_signature, pre_stake_signature)
     }
 
     /// Signs a [`StakeTx`], i.e. `StakeChain::[x]` given an index.
@@ -339,49 +323,32 @@ mod tests {
         delta: relative::LockTime,
         network: Network,
     ) -> Transaction {
-        let sighash_type = sighash::TapSighashType::Default;
         let stake_hash = sha256::Hash::hash(stake_preimage);
         // The key path spend for the first input
         let stake_tx = stake_chain[index].clone();
-        let mut stake_tx_raw = stake_tx.psbt.unsigned_tx.clone();
         // Recreate the connector s.
         let connector_s =
             ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
         // Create the prevouts
-        let prevouts = Prevouts::All(&prevouts);
 
         // OPERATOR_FUNDS witness (key path spend)
         // CATCH: if is the first stake, then we panic!
         if index == 0 {
             panic!("The first stake must be signed using another function");
         }
-        let mut sighash_cache = SighashCache::new(&mut stake_tx_raw);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
-            .expect("must create sighash");
-        let message = Message::from(sighash);
-        let funds_signature = SECP256K1.sign_schnorr(&message, keypair_operator_funds);
+
+        let messages = stake_tx.sighashes(prevouts[0].script_pubkey.clone());
+
+        let funds_signature = SECP256K1.sign_schnorr(&messages[0], keypair_operator_funds);
 
         trace!(%index, %funds_signature, "Signature stake_tx operator funds");
 
-        // Connector S witness (script path spend)
-        // Create the locking script
-        let mut sighash_cache = SighashCache::new(&mut stake_tx_raw);
-        // Get taproot spend info
-        let locking_script = connector_s.generate_script();
-        let leaf_hash =
-            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
-        let sighash = sighash_cache
-            .taproot_script_spend_signature_hash(1, &prevouts, leaf_hash, sighash_type)
-            .expect("must create sighash");
-        let message =
-            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
         // Sign the transaction with operator key
-        let stake_signature = SECP256K1.sign_schnorr(&message, keypair_connector_s);
+        let stake_signature = SECP256K1.sign_schnorr(&messages[1], keypair_connector_s);
         trace!(%index, %stake_signature, "Signature stake_tx connector s");
         // Construct the witness stack
 
-        stake_tx.finalize(
+        stake_tx.finalize_unchecked(
             stake_preimage,
             funds_signature,
             stake_signature,
@@ -728,6 +695,7 @@ mod tests {
             &stake_chain,
             &operator_fund_1_keypair,
             &stake_0_keypair,
+            stake_amount,
             prevouts,
         );
         let stake_chain_0_txid = stake_chain_0_tx.compute_txid();
