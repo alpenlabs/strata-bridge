@@ -193,7 +193,6 @@ impl ContractManager {
 
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
-                bitcoind_rpc_client: rpc_client.clone(),
                 msg_handler,
                 bitcoind_rpc_client: rpc_client.clone(),
                 s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
