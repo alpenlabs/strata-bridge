@@ -163,7 +163,6 @@ impl PegOutGraph {
 
         let claim_data = ClaimData {
             stake_outpoint: input.withdrawal_fulfillment_outpoint,
-            input_amount: FUNDING_AMOUNT,
             deposit_txid,
         };
 
@@ -198,7 +197,6 @@ impl PegOutGraph {
                 txid: input.stake_outpoint.txid,
                 vout: 1,
             },
-            input_amount: claim_tx.output_amount(),
             deposit_amount: graph_params.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),

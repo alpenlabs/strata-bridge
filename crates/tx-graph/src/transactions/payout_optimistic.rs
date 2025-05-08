@@ -8,7 +8,10 @@ use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorNOfN,
     ConnectorP, StakeSpendPath,
 };
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{
+    constants::{FUNDING_AMOUNT, SEGWIT_MIN_AMOUNT},
+    scripts::prelude::*,
+};
 
 use super::covenant_tx::CovenantTx;
 
@@ -23,9 +26,6 @@ pub struct PayoutOptimisticData {
 
     /// The [`OutPoint`] of the stake transaction.
     pub stake_outpoint: OutPoint,
-
-    /// The amount from the Claim transaction.
-    pub input_amount: Amount,
 
     /// The amount of the deposit.
     ///
@@ -74,6 +74,9 @@ impl PayoutOptimisticTx {
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        const NUM_OUTPUTS_IN_CLAIM_TX: u64 = 3;
+        let input_amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_OUTPUTS_IN_CLAIM_TX;
+
         let utxos = [
             OutPoint {
                 txid: data.deposit_txid,
@@ -118,7 +121,7 @@ impl PayoutOptimisticTx {
                 script_pubkey: n_of_n_addr.script_pubkey(),
             },
             TxOut {
-                value: data.input_amount,
+                value: input_amount,
                 script_pubkey: connector_c0.generate_locking_script(),
             },
             TxOut {
