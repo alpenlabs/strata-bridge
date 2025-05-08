@@ -1,6 +1,6 @@
 //! Bootstraps an RPC server for the operator.
 
-use std::{sync::Arc, time::Duration};
+use std::{fmt, sync::Arc, time::Duration};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
@@ -10,6 +10,7 @@ use duty_tracker::contract_state_machine::{ContractCfg, ContractState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
+use serde::Serialize;
 use sqlx::{query_as, FromRow};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
@@ -265,10 +266,10 @@ impl StrataBridgeControlApiServer for BridgeRpc {
 
         // The user might care about their system time being incorrect.
         if current_time <= start_time {
-            return Err(ErrorObjectOwned::owned::<_>(
-                -32000,
+            return Err(rpc_error(
+                -32_000,
                 "system time may be inaccurate", // `start_time` may have been incorrect too
-                Some(current_time.saturating_sub(start_time)),
+                current_time.saturating_sub(start_time),
             ));
         }
 
@@ -295,10 +296,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let conversion = convert_operator_pk_to_peer_id(&self.params, &operator_pk);
         // Avoid DoS attacks by just returning an error if the public key is invalid
         if conversion.is_err() {
-            return Err(ErrorObjectOwned::owned::<_>(
+            return Err(rpc_error(
                 -32001,
                 "Invalid operator public key",
-                Some(operator_pk.to_string()),
+                operator_pk,
             ));
         }
         // NOTE: safe to unwrap because we just checked if it's valid
@@ -336,10 +337,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             }
         }
 
-        Err(ErrorObjectOwned::owned::<_>(
-            -32001,
+        Err(rpc_error(
+            -32_001,
             "Deposit request outpoint not found",
-            Some(deposit_request_outpoint),
+            deposit_request_outpoint,
         ))
     }
 
@@ -399,10 +400,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 .operator_table
                 .btc_key_to_idx(&operator_pk.inner)
                 .ok_or_else(|| {
-                    ErrorObjectOwned::owned::<_>(
+                    rpc_error(
                         -32001,
                         "Operator public key not found in operator table",
-                        Some(operator_pk.to_string()),
+                        operator_pk,
                     )
                 })?;
 
@@ -491,10 +492,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             }
         }
 
-        Err(ErrorObjectOwned::owned::<_>(
-            -32001,
+        Err(rpc_error(
+            -32_001,
             "Withdrawal outpoint not found",
-            Some(withdrawal_outpoint),
+            withdrawal_outpoint,
         ))
     }
 
@@ -628,11 +629,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             };
         }
 
-        Err(ErrorObjectOwned::owned::<_>(
-            -32001,
-            "Claim not found",
-            Some(claim_txid),
-        ))
+        Err(rpc_error(-32_001, "Claim not found", claim_txid))
     }
 }
 
@@ -657,4 +654,10 @@ pub(crate) fn convert_operator_pk_to_peer_id(
     } else {
         bail!("Could not find operator public key in params")
     }
+}
+
+/// Returns an [`ErrorObjectOwned`] with the given code, message, and data.
+/// Useful for creating custom error objects in RPC responses.
+fn rpc_error<T: fmt::Display + Serialize>(code: i32, message: &str, data: T) -> ErrorObjectOwned {
+    ErrorObjectOwned::owned::<_>(code, message, Some(data))
 }
