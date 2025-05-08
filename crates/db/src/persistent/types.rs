@@ -368,8 +368,9 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbDutyStatus {
         &self,
         buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        let status_json = serde_json::to_string(&self.0)
-            .map_err(|_| sqlx::Error::Encode("Failed to serialize BridgeDutyStatus".into()))?;
+        let status_json = serde_json::to_string(&self.0).map_err(|e| {
+            sqlx::Error::Encode(format!("Failed to serialize BridgeDutyStatus: {e:?}").into())
+        })?;
         sqlx::Encode::<'q, Sqlite>::encode_by_ref(&status_json, buf)
     }
 }

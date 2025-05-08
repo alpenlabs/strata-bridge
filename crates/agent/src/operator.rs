@@ -17,7 +17,9 @@ use bitcoin::{
     hashes::{self, Hash},
     hex::DisplayHex,
     key::TapTweak,
+    secp256k1::XOnlyPublicKey,
     sighash::{Prevouts, SighashCache},
+    taproot::LeafVersion,
     Address, Block, Network, OutPoint, TapNodeHash, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitcoin_bosd::Descriptor;
@@ -42,6 +44,7 @@ use strata_bridge_connectors::{
 use strata_bridge_db::{
     errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
 };
+use strata_bridge_primitives::scripts::prelude::drt_take_back;
 #[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
@@ -98,7 +101,6 @@ use crate::{
 const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
 const STAKE_CHAIN_LENGTH: u32 = 10;
-const MAGIC_BYTES: &[u8] = b"alpenstrata";
 
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
@@ -257,6 +259,7 @@ where
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
         let pegout_graph_params = PegOutGraphParams::default();
+        let take_back_key = deposit_info.x_only_public_key();
 
         // 1. aggregate_tx_graph
         let mut deposit_psbt = match deposit_info.construct_psbt(
@@ -369,7 +372,7 @@ where
 
         info!(action = "aggregating signatures for deposit sweeping", %deposit_txid, %own_index);
         let signed_deposit_tx = self
-            .aggregate_signatures(agg_nonce, &mut deposit_psbt)
+            .aggregate_signatures(agg_nonce, &mut deposit_psbt, *take_back_key)
             .await
             .expect("should be able to construct fully signed deposit tx");
 
@@ -1182,11 +1185,15 @@ where
         &mut self,
         agg_nonce: AggNonce,
         deposit_psbt: &mut bitcoin::Psbt,
+        take_back_key: XOnlyPublicKey,
     ) -> Option<Transaction> {
         let own_index = self.build_context.own_index();
 
         let tx = &deposit_psbt.unsigned_tx;
         let txid = tx.compute_txid();
+        let refund_delay = 1008;
+        let take_back_script = drt_take_back(take_back_key, refund_delay);
+        let tweak = TapNodeHash::from_script(&take_back_script, LeafVersion::TapScript);
 
         let prevouts = deposit_psbt
             .inputs
@@ -1200,7 +1207,10 @@ where
         let prevouts = Prevouts::All(&prevouts);
 
         let key_agg_ctx = KeyAggContext::new(self.build_context.pubkey_table().0.values().copied())
-            .expect("should be able to generate agg key context");
+            .expect("should be able to generate agg key context")
+            .with_taproot_tweak(&tweak.to_byte_array())
+            .unwrap();
+
         let seckey = self.agent.secret_key();
         let secnonce = self
             .db
@@ -1215,7 +1225,7 @@ where
         let message = create_message_hash(
             &mut sighash_cache,
             prevouts,
-            &TaprootWitness::Key,
+            &TaprootWitness::Tweaked { tweak },
             TapSighashType::Default,
             0,
         )
@@ -1557,7 +1567,10 @@ where
                 .await
                 .expect("must be able to pay user");
 
-            let duty_status = WithdrawalStatus::PaidUser(withdrawal_fulfillment_txid).into();
+            let duty_status = WithdrawalStatus::PaidUser {
+                withdrawal_fulfillment_txid,
+            }
+            .into();
             info!(
                 action = "sending out duty update status for withdrawal fulfillment",
                 ?duty_status
@@ -2020,7 +2033,7 @@ where
         debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
         let withdrawal_metadata = WithdrawalMetadata {
-            tag: MAGIC_BYTES.to_vec(),
+            tag: PegOutGraphParams::default().tag.as_bytes().to_vec(),
             operator_idx: own_index,
             deposit_idx,
             deposit_txid,
