@@ -230,12 +230,10 @@ pub(crate) async fn handle_publish_claim(
     deposit_txid: Txid,
     withdrawal_fulfillment_txid: Txid,
 ) -> Result<(), ContractManagerErr> {
-    let pov_idx = cfg.operator_table.pov_idx();
-
     info!(%deposit_txid, %withdrawal_fulfillment_txid, "executing duty to publish claim transaction");
 
     let claim_data = ClaimData {
-        stake_outpoint: OutPoint::new(stake_txid, STAKE_VOUT),
+        stake_outpoint: OutPoint::new(stake_txid, WITHDRAWAL_FULFILLMENT_VOUT),
         deposit_txid,
     };
 
@@ -243,15 +241,9 @@ pub(crate) async fn handle_publish_claim(
 
     let wots_client = s2_client.wots_signer();
 
-    let OutPoint {
-        txid: prestake_txid,
-        vout: prestake_vout,
-    } = output_handles.db.get_pre_stake(pov_idx).await?.ok_or(
-        StakeChainErr::StakeSetupDataNotFound(cfg.operator_table.pov_op_key().clone()),
-    )?;
-
+    const VOUT: u32 = 0;
     let withdrawal_fulfillment_pk = wots_client
-        .get_256_public_key(prestake_txid, prestake_vout, WITHDRAWAL_FULFILLMENT_PK_IDX)
+        .get_256_public_key(deposit_txid, VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
         .await?;
     let withdrawal_fulfillment_pk =
         Wots256PublicKey::from_flattened_bytes(&withdrawal_fulfillment_pk).into();
@@ -289,8 +281,8 @@ pub(crate) async fn handle_publish_claim(
 
     let wots_signature = wots_client
         .get_256_signature(
-            prestake_txid,
-            prestake_vout,
+            deposit_txid,
+            VOUT,
             WITHDRAWAL_FULFILLMENT_PK_IDX,
             &withdrawal_fulfillment_txid.to_byte_array(),
         )
@@ -298,6 +290,7 @@ pub(crate) async fn handle_publish_claim(
 
     let signed_claim_tx = claim_tx.finalize(wots_signature);
 
+    info!(claim_txid=%signed_claim_tx.compute_txid(), %deposit_txid, "broadcasting claim transaction");
     output_handles.tx_driver.drive(signed_claim_tx).await?;
 
     Ok(())
