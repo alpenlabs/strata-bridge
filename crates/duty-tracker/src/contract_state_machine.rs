@@ -894,7 +894,7 @@ impl ContractSM {
 
     /// Filter that specifies which transactions should be delivered to this state machine.
     pub fn transaction_filter(&self, tx: &Transaction) -> bool {
-        let deposit_txid = self.cfg.deposit_tx.compute_txid();
+        let deposit_txid = self.deposit_txid();
         let summaries = &self.state.state.summaries();
         let cfg = self.cfg();
         let txid = tx.compute_txid();
@@ -1023,7 +1023,7 @@ impl ContractSM {
         let deposit_txid = tx.compute_txid();
         info!(%deposit_txid, "processing deposit confirmation");
 
-        let expected_txid = self.cfg.deposit_tx.compute_txid();
+        let expected_txid = self.deposit_txid();
         if tx.compute_txid() != expected_txid {
             error!(txid=%deposit_txid, %expected_txid, "deposit confirmation delivered to the wrong CSM");
 
@@ -1155,7 +1155,7 @@ impl ContractSM {
                 ..
             } => {
                 if peg_out_graph_inputs.contains_key(&signer) {
-                    let deposit_txid = self.cfg.deposit_tx.compute_txid();
+                    let deposit_txid = self.deposit_txid();
                     warn!("already received operator's ({signer}) deposit setup for contract {deposit_txid}");
                     return Ok(vec![]);
                 }
@@ -1700,7 +1700,7 @@ impl ContractSM {
                                 .ok_or(TransitionErr(format!(
                                     "could not find claim_txid for operator {} in csm {}",
                                     fulfiller_key,
-                                    self.cfg.deposit_tx.compute_txid()
+                                    self.deposit_txid()
                                 )))?;
 
                         let deadline = dispatched_state.exec_deadline();
@@ -1709,7 +1709,7 @@ impl ContractSM {
                             .ok_or(TransitionErr(format!(
                                 "could not find peg out graph {} in csm {}",
                                 fulfiller_claim_txid,
-                                self.cfg.deposit_tx.compute_txid()
+                                self.deposit_txid()
                             )))?
                             .to_owned();
 
@@ -1822,7 +1822,7 @@ impl ContractSM {
                     tag: self.cfg.peg_out_graph_params.tag.as_bytes().to_vec(),
                     operator_idx: fulfiller,
                     deposit_idx: self.cfg.deposit_idx,
-                    deposit_txid: self.cfg.deposit_tx.compute_txid(),
+                    deposit_txid: self.deposit_txid(),
                 };
 
                 Ok(Some(OperatorDuty::FulfillerDuty(
