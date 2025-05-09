@@ -101,6 +101,22 @@ pub(crate) struct P2PConfig {
     /// Default is
     /// [`DEFAULT_NUM_THREADS`](strata_bridge_p2p_service::constants::DEFAULT_NUM_THREADS).
     pub num_threads: Option<usize>,
+
+    /// Dial timeout.
+    ///
+    /// The default is [`DEFAULT_DIAL_TIMEOUT`](strata_p2p::swarm::DEFAULT_DIAL_TIMEOUT).
+    pub dial_timeout: Option<Duration>,
+
+    /// General timeout for operations.
+    ///
+    /// The default is [`DEFAULT_GENERAL_TIMEOUT`](strata_p2p::swarm::DEFAULT_GENERAL_TIMEOUT).
+    pub general_timeout: Option<Duration>,
+
+    /// Connection check interval.
+    ///
+    /// The default is
+    /// [`DEFAULT_CONNECTION_CHECK_INTERVAL`](strata_p2p::swarm::DEFAULT_CONNECTION_CHECK_INTERVAL).
+    pub connection_check_interval: Option<Duration>,
 }
 
 /// Operator wallet configuration.
@@ -150,6 +166,9 @@ mod tests {
             listening_addr = "/ip4/127.0.0.1/tcp/1234"
             connect_to = ["/ip4/127.0.0.1/tcp/5678", "/ip4/127.0.0.1/tcp/9012"]
             num_threads = 4
+            dial_timeout = { secs = 0, nanos = 250_000_000 }
+            general_timeout = { secs = 0, nanos = 250_000_000 }
+            connection_check_interval = { secs = 0, nanos = 500_000_000 }
 
             [operator_wallet]
             stake_funding_pool_size = 32

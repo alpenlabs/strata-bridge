@@ -28,6 +28,9 @@ idle_connection_timeout = { secs = 1000, nanos = 0 }
 listening_addr = "/ip4/172.28.0.5/tcp/5679"
 connect_to = ["/ip4/172.28.0.6/tcp/5679", "/ip4/172.28.0.7/tcp/5679"]
 num_threads = 4
+dial_timeout = { secs = 0, nanos = 250_000_000 }
+general_timeout = { secs = 0, nanos = 250_000_000 }
+connection_check_interval = { secs = 0, nanos = 500_000_000 }
 
 [operator_wallet]
 stake_funding_pool_size = 32
