@@ -24,9 +24,9 @@ use strata_bridge_primitives::{
     types::{BitcoinBlockHeight, OperatorIdx},
 };
 use strata_bridge_stake_chain::{
-    prelude::{StakeTx, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    prelude::{STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
     stake_chain::StakeChainInputs,
-    transactions::stake::StakeTxData,
+    transactions::stake::{StakeTxData, StakeTxKind},
 };
 use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
@@ -96,7 +96,7 @@ pub enum ContractEvent {
         stake_hash: sha256::Hash,
 
         /// The stake transaction that holds the stake corresponding to the current contract.
-        stake_tx: StakeTx,
+        stake_tx: StakeTxKind,
 
         /// The wots keys needed to construct the pog.
         wots_keys: Box<WotsPublicKeys>,
@@ -136,7 +136,7 @@ pub enum ContractEvent {
     RootSig(P2POperatorPubKey, PartialSignature),
 
     /// Signifies that this withdrawal has been assigned.
-    Assignment(DepositEntry, StakeTx),
+    Assignment(DepositEntry, StakeTxKind),
 
     /// Signifies that the deposit transaction has been confirmed, the second value is the global
     /// deposit index.
@@ -614,7 +614,7 @@ pub enum FulfillerDuty {
         stake_index: u32,
 
         /// The stake transaction to advance corresponding to the stake index.
-        stake_tx: StakeTx,
+        stake_tx: StakeTxKind,
     },
 
     /// Originates when strata state on L1 is published and assignment is self.
@@ -678,7 +678,7 @@ impl Display for FulfillerDuty {
             } => write!(
                 f,
                 "AdvanceStakeChain for stake_index: {stake_index}, stake_tx: {:?}",
-                &stake_tx.psbt.unsigned_tx
+                &stake_tx.psbt().unsigned_tx
             ),
             FulfillerDuty::PublishFulfillment {
                 withdrawal_metadata,
@@ -1134,7 +1134,7 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         operator_pubkey: XOnlyPublicKey,
         new_stake_hash: sha256::Hash,
-        new_stake_tx: StakeTx,
+        new_stake_tx: StakeTxKind,
         new_wots_keys: WotsPublicKeys,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
@@ -1654,7 +1654,7 @@ impl ContractSM {
     pub fn process_assignment(
         &mut self,
         assignment: &DepositEntry,
-        stake_tx: StakeTx,
+        stake_tx: StakeTxKind,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         info!(?assignment, current_state=%self.state().state, "processing assignment");
 
