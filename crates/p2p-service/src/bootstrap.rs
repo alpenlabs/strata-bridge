@@ -2,13 +2,16 @@
 
 use std::time::Duration;
 
-use strata_p2p::swarm::{
-    self, handle::P2PHandle, P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT,
-    DEFAULT_GENERAL_TIMEOUT, P2P,
+use strata_p2p::{
+    commands::{Command, ConnectToPeerCommand},
+    swarm::{
+        self, handle::P2PHandle, P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL,
+        DEFAULT_DIAL_TIMEOUT, DEFAULT_GENERAL_TIMEOUT, P2P,
+    },
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use crate::{config::Configuration, constants::DEFAULT_IDLE_CONNECTION_TIMEOUT};
 
@@ -16,6 +19,8 @@ use crate::{config::Configuration, constants::DEFAULT_IDLE_CONNECTION_TIMEOUT};
 pub async fn bootstrap(
     config: &Configuration,
 ) -> anyhow::Result<(P2PHandle, CancellationToken, JoinHandle<()>)> {
+    let allowlist_len = config.allowlist.len();
+
     let p2p_config = P2PConfig {
         keypair: config.keypair.clone(),
         idle_connection_timeout: config
@@ -47,6 +52,36 @@ pub async fn bootstrap(
 
     info!("listening for network events and commands from handles");
     let listen_task = tokio::spawn(p2p.listen());
+
+    let connect_handle = handle.clone();
+    let connect_to = config.connect_to.clone();
+    let allowlist = config.allowlist.clone();
+    let _connect_task = tokio::spawn(async move {
+        loop {
+            let connected_peers = connect_handle.get_connected_peers().await;
+            if connected_peers.len() < allowlist_len {
+                debug!(
+                    connected_peers=%connected_peers.len(),
+                    allowlist=%allowlist_len,
+                    "initializing period re-establishing connections"
+                );
+                for (addr, peer_id) in connect_to.iter().zip(allowlist.iter()) {
+                    warn!(
+                        %peer_id,
+                        "re-connecting to peer"
+                    );
+                    let command = Command::ConnectToPeer(ConnectToPeerCommand {
+                        peer_id: *peer_id,
+                        peer_addr: addr.clone(),
+                    });
+                    let _ = connect_handle.send_command(command).await;
+                    debug!(%peer_id, "command sent");
+                }
+            }
+            // TODO(@storopoli): make this configurable
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
 
     Ok((handle, cancel, listen_task))
 }
