@@ -196,11 +196,8 @@ pub(crate) fn parse_strata_checkpoint(
                 return None;
             }
 
-            let Ok(signed_checkpoint) =
-                borsh::from_slice::<SignedCheckpoint>(inscription[0].data())
-            else {
-                return None;
-            };
+            let signed_checkpoint =
+                borsh::from_slice::<SignedCheckpoint>(inscription[0].data()).ok()?;
 
             let cred_rule = &rollup_params.cred_rule;
             if verify_signed_checkpoint_sig(&signed_checkpoint, cred_rule) {
