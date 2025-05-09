@@ -46,11 +46,17 @@ impl StakeChainPersister {
         for (operator_id, chain_inputs) in op_id_and_chain_inputs {
             for (stake_index, stake_input) in chain_inputs.stake_inputs.iter().enumerate() {
                 trace!(
-                    ?operator_id,
-                    ?stake_index,
+                    %operator_id,
+                    %stake_index,
                     ?stake_input,
                     "committing stake data to disk"
                 );
+                // NOTE: (@Rajil1213) adding this log because I'm noticing a hash collision;
+                // this can only happen if we are somehow passing the wrong stake index when
+                // constructing the deposit setup, hopefully this log will give us more visibility
+                // when we do see this.
+                info!(%operator_id, %stake_index, hash=%stake_input.hash, "committing stake data to disk");
+
                 self.db
                     .add_stake_data(operator_id, stake_index as u32, stake_input.to_owned())
                     .await?;
