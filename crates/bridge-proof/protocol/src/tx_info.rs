@@ -88,9 +88,9 @@ pub(crate) fn extract_withdrawal_info(
     let metadata_script = withdrawal_metadata_output.script_pubkey.as_bytes();
 
     const OP_RETURN_INSTRUCTION_SIZE: usize = 2; // OP_RETURN + OP_PUSHBYTES
-    const OPERATOR_IDX_SIZE: usize = 4;
-    const DEPOSIT_IDX_SIZE: usize = 4;
-    const DEPOSIT_TXID_SIZE: usize = 32;
+    const OPERATOR_IDX_SIZE: usize = std::mem::size_of::<OperatorIdx>();
+    const DEPOSIT_IDX_SIZE: usize = std::mem::size_of::<u32>();
+    const DEPOSIT_TXID_SIZE: usize = std::mem::size_of::<Txid>();
 
     let expected_metadata_size: usize = OP_RETURN_INSTRUCTION_SIZE
         + tag_len

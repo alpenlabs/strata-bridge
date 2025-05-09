@@ -44,7 +44,7 @@ pub struct PayoutData {
     pub network: Network,
 }
 
-/// The number of inputs that require an $N-of-N$ signature in the [`PayoutTx`].
+/// The number of inputs that require an $N$-of-$N$ signature in the [`PayoutTx`].
 pub const NUM_PAYOUT_INPUTS: usize = 4;
 
 /// A transaction that reimburses a *functional* operator.
