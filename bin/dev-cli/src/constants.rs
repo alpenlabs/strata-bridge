@@ -22,8 +22,7 @@ pub(crate) const MAGIC_BYTES: &[u8] = b"strata";
 
 //change to appropriate value
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
-    // "68b5503d2b18d0ff78cb06c0ec79613eebd297a6e2f8f4ed8f435641bc087d34";
-    "c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164";
+    "68b5503d2b18d0ff78cb06c0ec79613eebd297a6e2f8f4ed8f435641bc087d34";
 
 //change to appropriate value
 pub(crate) const LOCKTIME: i64 = 1008;
