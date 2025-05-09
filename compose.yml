@@ -14,7 +14,7 @@ x-base-bridge-node: &base-bridge-node
     dockerfile: ./docker/alpen-bridge/Dockerfile
   environment:
     - MODE=operator
-    - RUST_LOG=info,duty_tracker=debug,alpen_bridge=debug,strata_bridge_tx_graph=debug,bitvm=error
+    - RUST_LOG=info,duty_tracker=debug,alpen_bridge=debug,strata_bridge_tx_graph=debug,bitvm=error,strata_bridge_p2p_service=debug,strata_p2p=warn
     - LOG_FILE=0
     - LOG_LINE_NUM=0
     - RUST_BACKTRACE=full
