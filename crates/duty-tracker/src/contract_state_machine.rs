@@ -1086,25 +1086,20 @@ impl ContractSM {
             ContractState::Assigned { .. } => self.process_stake_chain_advancement(tx),
             ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
-            ContractState::Claimed { .. } => {
-                // could be challenged
-                if let Some(duty) = self.process_challenge_confirmation(tx)? {
-                    return Ok(Some(duty));
-                }
+            ContractState::Claimed { .. } => self.process_challenge_confirmation(tx).or_else(|e| {
+                warn!(%e, "could not process challenge tx");
 
-                // or it could be an optimistic payout
+                // maybe it's an optimistic payout tx
                 self.process_optimistic_payout_confirmation(tx)
-            }
-            ContractState::Challenged { .. } => self.process_assert_chain_confirmation(height, tx),
-            ContractState::Asserted { .. } => {
-                // could be disproved
-                if let Some(duty) = self.process_disprove_confirmation(tx)? {
-                    return Ok(Some(duty));
-                }
+            }),
 
-                // or it could be a defended payout
+            ContractState::Challenged { .. } => self.process_assert_chain_confirmation(height, tx),
+            ContractState::Asserted { .. } => self.process_disprove_confirmation(tx).or_else(|e| {
+                warn!(%e, "could not process disprove tx");
+
+                // maybe it's a defended payout tx
                 self.process_defended_payout_confirmation(tx)
-            }
+            }),
             ContractState::Disproved {} => Err(TransitionErr(format!(
                 "peg out graph confirmation ({}) delivered to CSM in Disproved state ({})",
                 tx.compute_txid(),
@@ -2000,10 +1995,12 @@ impl ContractSM {
                 ..
             } => {
                 if !is_challenge(active_graph.1.claim_txid)(tx) {
-                    // could be an optimistic payout
                     self.state.state = copy_of_current;
 
-                    return Ok(None);
+                    return Err(TransitionErr(format!(
+                        "received non-challenge tx in process_challenge_confirmation: {}",
+                        tx.compute_txid()
+                    )));
                 }
 
                 let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
