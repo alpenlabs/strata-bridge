@@ -15,10 +15,7 @@ use bitcoin::{
 };
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
-use futures::{
-    future::{self},
-    StreamExt,
-};
+use futures::{future, StreamExt};
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
