@@ -2,7 +2,10 @@
 
 use std::time::Duration;
 
-use strata_p2p::swarm::{self, handle::P2PHandle, P2PConfig, P2P};
+use strata_p2p::swarm::{
+    self, handle::P2PHandle, P2PConfig, DEFAULT_CONNECTION_CHECK_INTERVAL, DEFAULT_DIAL_TIMEOUT,
+    DEFAULT_GENERAL_TIMEOUT, P2P,
+};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -23,6 +26,13 @@ pub async fn bootstrap(
         allowlist: config.allowlist.clone(),
         connect_to: config.connect_to.clone(),
         signers_allowlist: config.signers_allowlist.clone(),
+        dial_timeout: Some(config.dial_timeout.unwrap_or(DEFAULT_DIAL_TIMEOUT)),
+        general_timeout: Some(config.general_timeout.unwrap_or(DEFAULT_GENERAL_TIMEOUT)),
+        connection_check_interval: Some(
+            config
+                .connection_check_interval
+                .unwrap_or(DEFAULT_CONNECTION_CHECK_INTERVAL),
+        ),
     };
     let cancel = CancellationToken::new();
 

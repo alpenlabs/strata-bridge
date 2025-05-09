@@ -31,6 +31,7 @@ pub(crate) struct Operator {
 }
 
 impl Operator {
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn new(
         keypair: SecpKeypair,
         allowlist: Vec<PeerId>,
@@ -38,6 +39,9 @@ impl Operator {
         local_addr: Multiaddr,
         cancel: CancellationToken,
         signers_allowlist: Vec<P2POperatorPubKey>,
+        dial_timeout: Option<Duration>,
+        general_timeout: Option<Duration>,
+        connection_check_interval: Option<Duration>,
     ) -> anyhow::Result<Self> {
         let config = P2PConfig {
             keypair: keypair.clone(),
@@ -47,6 +51,9 @@ impl Operator {
             allowlist,
             connect_to,
             signers_allowlist,
+            dial_timeout,
+            general_timeout,
+            connection_check_interval,
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
@@ -101,6 +108,9 @@ impl Setup {
                 addr.clone(),
                 cancel.child_token(),
                 signers_allowlist.clone(),
+                None,
+                None,
+                None,
             )?;
 
             operators.push(operator);
@@ -149,6 +159,9 @@ impl Setup {
                 addr.clone(),
                 cancel.child_token(),
                 signers_allowlist.clone(),
+                None,
+                None,
+                None,
             )?;
 
             operators.push(operator);

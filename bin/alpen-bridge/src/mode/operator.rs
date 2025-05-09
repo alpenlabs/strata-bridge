@@ -247,6 +247,9 @@ async fn init_p2p_handle(
         listening_addr,
         connect_to,
         num_threads,
+        dial_timeout,
+        general_timeout,
+        connection_check_interval,
     } = config.p2p.clone();
 
     let config = P2PConfiguration::new_with_secret_key(
@@ -257,6 +260,9 @@ async fn init_p2p_handle(
         connect_to,
         signers_allowlist,
         num_threads,
+        dial_timeout,
+        general_timeout,
+        connection_check_interval,
     );
     let (p2p_handle, _cancel, listen_task) = p2p_bootstrap(&config).await?;
     Ok((p2p_handle, listen_task))

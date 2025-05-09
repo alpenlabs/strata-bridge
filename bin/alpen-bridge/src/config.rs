@@ -101,6 +101,22 @@ pub(crate) struct P2PConfig {
     /// Default is
     /// [`DEFAULT_NUM_THREADS`](strata_bridge_p2p_service::constants::DEFAULT_NUM_THREADS).
     pub num_threads: Option<usize>,
+
+    /// Dial timeout.
+    ///
+    /// The default is [`DEFAULT_DIAL_TIMEOUT`](strata_p2p::swarm::DEFAULT_DIAL_TIMEOUT).
+    pub dial_timeout: Option<Duration>,
+
+    /// General timeout for operations.
+    ///
+    /// The default is [`DEFAULT_GENERAL_TIMEOUT`](strata_p2p::swarm::DEFAULT_GENERAL_TIMEOUT).
+    pub general_timeout: Option<Duration>,
+
+    /// Connection check interval.
+    ///
+    /// The default is
+    /// [`DEFAULT_CONNECTION_CHECK_INTERVAL`](strata_p2p::swarm::DEFAULT_CONNECTION_CHECK_INTERVAL).
+    pub connection_check_interval: Option<Duration>,
 }
 
 /// Operator wallet configuration.
