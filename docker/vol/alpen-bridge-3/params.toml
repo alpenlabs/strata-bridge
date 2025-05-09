@@ -15,8 +15,8 @@ p2p = [
 
 [tx_graph]
 tag = "strata"
-deposit_amount = 100_000_000
-operator_fee = 1_000_000
+deposit_amount = 1_000_000_000
+operator_fee = 10_000_000
 challenge_cost = 10_000_000
 refund_delay = 1008
 
@@ -32,7 +32,7 @@ pre_assert_timelock = 1_152
 payout_timelock = 1_008
 
 [sidesystem]
-deposit_amount = 100_000_000
+deposit_amount = 1_000_000_000
 operator_config.static = [
   { signing_pk = "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000", wallet_pk = "0xb49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d" },
   { signing_pk = "0x0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d", wallet_pk = "0x1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4" },
