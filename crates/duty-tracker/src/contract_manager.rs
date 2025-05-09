@@ -859,6 +859,7 @@ impl ContractManagerCtx {
         &mut self,
         req: GetMessageRequest,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
+        info!("processing p2p request");
         Ok(match req {
             GetMessageRequest::StakeChainExchange { .. } => {
                 info!("received request for stake chain exchange");
