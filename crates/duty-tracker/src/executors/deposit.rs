@@ -37,6 +37,7 @@ use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
+    executors::constants::DEPOSIT_VOUT,
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
     tx_driver::TxDriver,
 };
@@ -104,24 +105,23 @@ pub(crate) async fn handle_publish_deposit_setup(
     let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
 
     let wots_client = s2_client.wots_signer();
-    /// VOUT is static because irrelevant so we're just gonna use 0
-    const VOUT: u32 = 0;
-    // withdrawal_fulfillment uses index 0
     let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
         &wots_client
-            .get_256_public_key(deposit_txid, VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
+            .get_256_public_key(deposit_txid, DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
             .await?,
     );
     const NUM_FQS: usize = NUM_U256;
     const NUM_PUB_INPUTS: usize = NUM_PUBS;
     const NUM_HASHES: usize = NUM_HASH;
-    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] =
-        std::array::from_fn(|i| wots_client.get_256_public_key(deposit_txid, VOUT, i as u32));
-    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
+    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
     });
-    let hashes_ftrs: [_; NUM_HASHES] =
-        std::array::from_fn(|i| wots_client.get_128_public_key(deposit_txid, VOUT, i as u32));
+    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, (i + NUM_PUB_INPUTS) as u32)
+    });
+    let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
+        wots_client.get_128_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
+    });
 
     let (public_inputs, fqs, hashes) = join3(
         join_all(public_inputs_ftrs),

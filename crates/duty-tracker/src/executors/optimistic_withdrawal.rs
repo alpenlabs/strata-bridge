@@ -36,6 +36,7 @@ use crate::{
     constants::WITHDRAWAL_FULFILLMENT_PK_IDX,
     contract_manager::{ExecutionConfig, OutputHandles},
     errors::{ContractManagerErr, StakeChainErr},
+    executors::constants::DEPOSIT_VOUT,
     s2_session_manager::MusigSessionManager,
 };
 
@@ -253,9 +254,8 @@ pub(crate) async fn handle_publish_claim(
 
     let wots_client = s2_client.wots_signer();
 
-    const VOUT: u32 = 0;
     let withdrawal_fulfillment_pk = wots_client
-        .get_256_public_key(deposit_txid, VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
+        .get_256_public_key(deposit_txid, DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
         .await?;
     let withdrawal_fulfillment_pk =
         Wots256PublicKey::from_flattened_bytes(&withdrawal_fulfillment_pk).into();
@@ -294,7 +294,7 @@ pub(crate) async fn handle_publish_claim(
     let wots_signature = wots_client
         .get_256_signature(
             deposit_txid,
-            VOUT,
+            DEPOSIT_VOUT,
             WITHDRAWAL_FULFILLMENT_PK_IDX,
             &withdrawal_fulfillment_txid.to_byte_array(),
         )
