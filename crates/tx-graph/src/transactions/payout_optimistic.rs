@@ -77,6 +77,10 @@ impl PayoutOptimisticTx {
     ) -> Self {
         const NUM_OUTPUTS_IN_CLAIM_TX: u64 = 3;
         let input_amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_OUTPUTS_IN_CLAIM_TX;
+        assert!(
+            input_amount.gt(&Amount::from_int_btc(0)),
+            "input to payout optimistic must be greater than zero"
+        );
 
         let utxos = [
             OutPoint {
