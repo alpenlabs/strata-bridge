@@ -120,7 +120,7 @@ impl TxDriver {
         }
     }
 
-    /// Instructs the TxDriver to drive a new transaction to confirmation by the supplied deadline.
+    /// Instructs the TxDriver to drive a new transaction to confirmation.
     pub async fn drive(&self, tx: Transaction) -> Result<(), DriveErr> {
         let (sender, receiver) = oneshot::channel();
         self.new_jobs_sender
