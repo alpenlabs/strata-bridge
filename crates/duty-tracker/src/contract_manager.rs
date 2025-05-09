@@ -436,7 +436,6 @@ impl ContractManagerCtx {
         // throughout the processing of this block.
         let stake_index = self.state.active_contracts.len() as u32;
 
-        let mut new_deposit_requests: u32 = 0;
         for tx in block.txdata {
             // could be an assignment
             let assignment_duties = self.process_assignments(&tx).await?;
@@ -500,12 +499,11 @@ impl ContractManagerCtx {
                     self.cfg.stake_chain_params,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    stake_index + new_deposit_requests,
+                    stake_index + new_contracts.len() as u32,
                     deposit_request_txid,
                     deposit_tx,
                     stake_chain_inputs,
                 );
-                new_deposit_requests += 1;
 
                 new_contracts.push(sm);
                 duties.push(duty);
