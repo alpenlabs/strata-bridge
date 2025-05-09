@@ -13,13 +13,6 @@ use strata_bridge_db::persistent::config::DbConfig;
 /// bridge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct Config {
-    /// The number of confirmations required for a transaction to be considered final.
-    ///
-    /// This is not consensus-critical as difference in what value is set by individual bridge node
-    /// operators will only cause delays while exchanging information but will not halt the
-    /// functioning of the bridge.
-    pub finality_depth: u8,
-
     /// The directory to store all the data in.
     pub datadir: PathBuf,
 
@@ -126,7 +119,6 @@ mod tests {
     #[test]
     fn test_config_serde_toml() {
         let config = r#"
-            finality_depth = 6
             datadir = ".data"
             num_threads = 4
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
