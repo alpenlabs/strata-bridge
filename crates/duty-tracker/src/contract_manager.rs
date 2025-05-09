@@ -189,14 +189,14 @@ impl ContractManager {
                 .map(|sm| sm.state().block_height)
                 .unwrap_or(current);
 
-            let cfg = ExecutionConfig {
+            let cfg = Arc::new(ExecutionConfig {
                 network,
                 connector_params,
                 pegout_graph_params,
                 stake_chain_params,
                 sidesystem_params,
                 operator_table,
-            };
+            });
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
             // configurable. When this capacity is reached, messages will be dropped (although the
@@ -235,7 +235,7 @@ impl ContractManager {
                 stake_chains,
             };
             let mut ctx = ContractManagerCtx {
-                cfg: cfg.clone(),
+                cfg,
                 state,
                 state_handles,
             };
@@ -250,15 +250,17 @@ impl ContractManager {
                     }
                 };
                 let blockhash = block.block_hash();
-                match ctx.process_block(block).await {
+                let res = ctx.process_block(block).await;
+                match res {
                     Ok(duties) => {
+                        let cfg = Arc::new(ctx.cfg.clone());
                         duties.into_iter().for_each(|duty| {
                             info!(?duty, "starting duty execution from lagging blocks");
                             let cfg = cfg.clone();
                             let output_handles = output_handles.clone();
                             tokio::task::spawn(async move {
                                 if let Err(e) =
-                                    execute_duty(cfg, output_handles, duty.clone()).await
+                                    execute_duty(&cfg, output_handles, duty.clone()).await
                                 {
                                     error!(%e, ?duty, "failed to execute duty");
                                 }
@@ -356,10 +358,10 @@ impl ContractManager {
                 duties.into_iter().for_each(|duty| {
                     debug!(?duty, "starting duty execution from new blocks");
 
-                    let cfg = cfg.clone();
+                    let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
                     tokio::task::spawn(async move {
-                        if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
+                        if let Err(e) = execute_duty(&cfg, output_handles, duty.clone()).await {
                             error!(%e, ?duty, "failed to execute duty");
                         }
                     });
@@ -412,7 +414,7 @@ struct ExecutionConfig {
 }
 
 struct ContractManagerCtx {
-    cfg: ExecutionConfig,
+    cfg: Arc<ExecutionConfig>,
     state_handles: StateHandles,
     state: ExecutionState,
 }
@@ -1227,7 +1229,7 @@ impl ContractManagerCtx {
 }
 
 async fn execute_duty(
-    cfg: ExecutionConfig,
+    cfg: &ExecutionConfig,
     output_handles: Arc<OutputHandles>,
     duty: OperatorDuty,
 ) -> Result<(), ContractManagerErr> {
@@ -1241,13 +1243,8 @@ async fn execute_duty(
 
     match duty {
         OperatorDuty::PublishStakeChainExchange => {
-            handle_publish_stake_chain_exchange(
-                &cfg,
-                &s2_session_manager.s2_client,
-                db,
-                msg_handler,
-            )
-            .await
+            handle_publish_stake_chain_exchange(cfg, &s2_session_manager.s2_client, db, msg_handler)
+                .await
         }
 
         OperatorDuty::PublishDepositSetup {
@@ -1256,7 +1253,7 @@ async fn execute_duty(
             stake_chain_inputs,
         } => {
             handle_publish_deposit_setup(
-                &cfg,
+                cfg,
                 &s2_session_manager.s2_client,
                 db,
                 wallet,
@@ -1320,7 +1317,7 @@ async fn execute_duty(
             sighash,
         } => {
             handle_publish_root_signature(
-                &cfg,
+                cfg,
                 &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 nonces,
@@ -1350,7 +1347,7 @@ async fn execute_duty(
         OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
             stake_index,
             stake_tx,
-        }) => handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx).await,
+        }) => handle_advance_stake_chain(cfg, output_handles.clone(), stake_index, stake_tx).await,
         ignored_duty => {
             warn!(?ignored_duty, "ignoring duty");
             Ok(())
