@@ -2,7 +2,7 @@ datadir = "/app/data"
 rpc_addr = "0.0.0.0:5678"
 # stub option ftm
 is_faulty = false
-nag_interval = { secs = 120, nanos = 0 }
+nag_interval = { secs = 60, nanos = 0 }
 
 [secret_service_client]
 server_addr = "172.28.1.7:69"
@@ -33,7 +33,7 @@ num_threads = 4
 stake_funding_pool_size = 32
 
 [btc_zmq]
-bury_depth = 6
+bury_depth = 2
 hashblock_connection_string = "tcp://host.docker.internal:28332"
 hashtx_connection_string = "tcp://host.docker.internal:28333"
 rawblock_connection_string = "tcp://host.docker.internal:28334"
