@@ -9,6 +9,7 @@ use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT},
     stake_chain::StakeChainInputs,
+    transactions::stake::{Head, StakeTxKind, Tail},
     StakeChain,
 };
 use strata_p2p_types::P2POperatorPubKey;
@@ -60,10 +61,17 @@ impl StakeChainSM {
                 )
             })
             .map(|chain| {
-                chain
-                    .iter()
-                    .map(|stake_tx| stake_tx.compute_txid())
-                    .collect::<IndexSet<_>>()
+                let mut txids = IndexSet::new();
+
+                let Some(first_stake_txid) = chain.head().map(|stake_tx| stake_tx.compute_txid())
+                else {
+                    return txids;
+                };
+
+                txids.insert(first_stake_txid);
+                txids.extend(chain.tail().iter().map(|stake_tx| stake_tx.compute_txid()));
+
+                txids
             })
             .zip(p2p_keys.iter())
             .map(|(stake_txids, p2p_key)| (p2p_key.clone(), stake_txids))
@@ -163,7 +171,7 @@ impl StakeChainSM {
         &self,
         op: &P2POperatorPubKey,
         nth: usize,
-    ) -> Result<Option<StakeTx>, StakeChainErr> {
+    ) -> Result<Option<StakeTxKind>, StakeChainErr> {
         match self.stake_chains.get(op) {
             Some(stake_chain_inputs) => {
                 let pre_stake = stake_chain_inputs.pre_stake_outpoint;
@@ -174,27 +182,27 @@ impl StakeChainSM {
 
                 // handle the first stake tx differently as it spends a pre-stake and not the stake
                 // tx.
+                let first_input = stake_chain_inputs
+                    .stake_inputs
+                    .first()
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
+                let stake_hash = first_input.hash;
+                let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk;
+                let operator_funds = first_input.operator_funds;
+
+                let first_stake = StakeTx::<Head>::new(
+                    &context,
+                    &self.params,
+                    stake_hash,
+                    withdrawal_fulfillment_pk,
+                    pre_stake,
+                    operator_funds,
+                    operator_pubkey,
+                    connector_cpfp,
+                );
+
                 if nth == 0 {
-                    let first_input = stake_chain_inputs
-                        .stake_inputs
-                        .first()
-                        .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
-                    let stake_hash = first_input.hash;
-                    let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk;
-                    let operator_funds = first_input.operator_funds;
-
-                    let first_stake = StakeTx::create_initial(
-                        &context,
-                        &self.params,
-                        stake_hash,
-                        withdrawal_fulfillment_pk,
-                        pre_stake,
-                        operator_funds,
-                        operator_pubkey,
-                        connector_cpfp,
-                    );
-
-                    return Ok(Some(first_stake));
+                    return Ok(Some(StakeTxKind::Head(first_stake)));
                 }
 
                 let stake_txids = self
@@ -216,7 +224,7 @@ impl StakeChainSM {
                     .nth(nth)
                     .ok_or(StakeChainErr::IncompleteStakeChainInput(op.clone(), nth))?;
 
-                let stake_tx = StakeTx::advance(
+                let stake_tx = StakeTx::<Tail>::new(
                     &context,
                     &self.params,
                     *input,
@@ -226,7 +234,7 @@ impl StakeChainSM {
                     connector_cpfp,
                 );
 
-                Ok(Some(stake_tx))
+                Ok(Some(StakeTxKind::Tail(stake_tx)))
             }
             _ => Ok(None),
         }

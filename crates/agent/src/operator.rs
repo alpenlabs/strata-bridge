@@ -2476,7 +2476,14 @@ where
             connector_cpfp,
         );
 
+        let stake_chain_head = stake_chain.head();
+        self.public_db
+            .add_stake_txid(own_index, stake_chain_head.unwrap().compute_txid())
+            .await
+            .unwrap();
+
         for (index, stake_txid) in stake_chain
+            .tail()
             .iter()
             .map(|stake_tx| stake_tx.compute_txid())
             .enumerate()
@@ -2554,7 +2561,7 @@ where
         // to wait before broadcasting the next one.
 
         // first, broadcast the first stake transaction.
-        let first_stake_tx = stake_chain.first().unwrap().clone();
+        let first_stake_tx = stake_chain.head().unwrap().clone();
         let prevouts = vec![
             TxOut {
                 script_pubkey: funding_address.script_pubkey(),
@@ -2574,7 +2581,7 @@ where
             .sign(&first_stake_raw_tx, &prevouts, 1, None, None);
 
         let mut signed_stake_tx =
-            first_stake_tx.finalize_initial_unchecked(first_funds_sig, first_stake_sig);
+            first_stake_tx.finalize_unchecked(first_funds_sig, first_stake_sig);
 
         let mut stake_txid = signed_stake_tx.compute_txid();
         let vsize = signed_stake_tx.vsize();
@@ -2599,7 +2606,7 @@ where
             }
         };
 
-        for (stake_index, stake_tx) in stake_chain.into_iter().enumerate().skip(1) {
+        for (stake_index, stake_tx) in stake_chain.tail().iter().cloned().enumerate() {
             let prevouts = stake_tx
                 .psbt
                 .inputs
@@ -2614,11 +2621,9 @@ where
             let stake_sig =
                 self.agent
                     .sign(raw_tx, &prevouts, 1, Some(&stake_tx.witnesses()[1]), None);
-            let prev_preimage = self
-                .agent
-                .generate_preimage(&self.msk, stake_index as u32 - 1);
+            let prev_preimage = self.agent.generate_preimage(&self.msk, stake_index as u32);
             let computed_hash = hashes::sha256::Hash::hash(&prev_preimage);
-            let prev_stake_hash = stake_inputs[stake_index - 1].hash;
+            let prev_stake_hash = stake_inputs[stake_index].hash;
             assert!(
                 computed_hash == prev_stake_hash,
                 "stake hash in db must match hash of computed preimage"

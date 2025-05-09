@@ -22,6 +22,7 @@ use secret_service_proto::v1::traits::*;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
@@ -1349,10 +1350,14 @@ async fn execute_duty(
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,
                 stake_tx,
-            } => {
-                handle_advance_stake_chain(&cfg, output_handles.clone(), stake_index, stake_tx)
-                    .await
-            }
+            } => match stake_tx {
+                StakeTxKind::Head(stake_tx) => {
+                    handle_publish_first_stake(&cfg, output_handles, stake_tx).await
+                }
+                StakeTxKind::Tail(stake_tx) => {
+                    handle_advance_stake_chain(&cfg, output_handles, stake_index, stake_tx).await
+                }
+            },
             FulfillerDuty::PublishFulfillment {
                 withdrawal_metadata,
                 user_descriptor,

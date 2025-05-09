@@ -21,7 +21,10 @@ use strata_bridge_primitives::{
     build_context::BuildContext,
     scripts::taproot::{create_message_hash, TaprootWitness},
 };
-use strata_bridge_stake_chain::prelude::{StakeTx, PAYOUT_VOUT, WITHDRAWAL_FULFILLMENT_VOUT};
+use strata_bridge_stake_chain::{
+    prelude::{StakeTx, PAYOUT_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
+    transactions::stake::{Head, Tail},
+};
 use strata_bridge_tx_graph::transactions::{
     claim::{ClaimData, ClaimTx},
     prelude::{
@@ -39,6 +42,42 @@ use crate::{
     s2_session_manager::MusigSessionManager,
 };
 
+pub(crate) async fn handle_publish_first_stake(
+    cfg: &ExecutionConfig,
+    output_handles: Arc<OutputHandles>,
+    stake_tx: StakeTx<Head>,
+) -> Result<(), ContractManagerErr> {
+    info!("starting to publish first stake tx");
+
+    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
+
+    // the first stake transaction spends the pre-stake which is locked by the key in the
+    // stake-chain wallet
+    let messages = stake_tx.sighashes(
+        cfg.stake_chain_params.stake_amount,
+        [
+            cfg.funding_address.script_pubkey(),
+            cfg.pre_stake_pubkey.clone(),
+        ],
+    );
+
+    let funds_signature = s2_client
+        .stakechain_wallet_signer()
+        .sign(messages[0].as_ref(), None)
+        .await?;
+    let stake_signature = s2_client
+        .stakechain_wallet_signer()
+        .sign(messages[1].as_ref(), None)
+        .await?;
+
+    let signed_stake_tx = stake_tx.finalize_unchecked(funds_signature, stake_signature);
+
+    info!(txid=%signed_stake_tx.compute_txid(), "broadcasting first stake transaction");
+    output_handles.tx_driver.drive(signed_stake_tx).await?;
+
+    Ok(())
+}
+
 /// Advances the stake chain by submitting the given transaction to the tx driver.
 ///
 /// It is the responsibility of the caller to ensure that the supplied `stake_index` corresponds to
@@ -47,94 +86,71 @@ pub(crate) async fn handle_advance_stake_chain(
     cfg: &ExecutionConfig,
     output_handles: Arc<OutputHandles>,
     stake_index: u32,
-    stake_tx: StakeTx,
+    stake_tx: StakeTx<Tail>,
 ) -> Result<(), ContractManagerErr> {
     info!(%stake_index, "starting to advance stake chain");
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
-    let signed_stake_tx = if stake_index == 0 {
-        // the first stake transaction spends the pre-stake which is locked by the key in the
-        // stake-chain wallet
-        let messages = stake_tx.sighashes_initial(
-            cfg.stake_chain_params.stake_amount,
-            [
-                cfg.funding_address.script_pubkey(),
-                cfg.pre_stake_pubkey.clone(),
-            ],
-        );
+    let messages = stake_tx.sighashes(cfg.funding_address.script_pubkey());
 
-        let funds_signature = s2_client
-            .stakechain_wallet_signer()
-            .sign(messages[0].as_ref(), None)
-            .await?;
-        let stake_signature = s2_client
-            .stakechain_wallet_signer()
-            .sign(messages[1].as_ref(), None)
-            .await?;
+    let funds_signature = s2_client
+        .stakechain_wallet_signer()
+        .sign(messages[0].as_ref(), None)
+        .await?;
 
-        stake_tx.finalize_initial_unchecked(funds_signature, stake_signature)
-    } else {
-        let messages = stake_tx.sighashes(cfg.funding_address.script_pubkey());
+    // all the stake transactions except the first one are locked with the general wallet
+    // signer.
+    // this is a caveat of the fact that we only share one x-only pubkey during deposit
+    // setup which is used for reimbursements/cpfp.
+    // so instead of sharing another key, we can just reuse this key (which is part of a taproot
+    // address).
+    let stake_signature = s2_client
+        .general_wallet_signer()
+        .sign_no_tweak(messages[1].as_ref())
+        .await?;
 
-        let funds_signature = s2_client
-            .stakechain_wallet_signer()
-            .sign(messages[0].as_ref(), None)
-            .await?;
+    let operator_id = cfg.operator_table.pov_idx();
+    let op_p2p_key = cfg.operator_table.pov_op_key();
 
-        // all the stake transactions except the first one are locked with the general wallet
-        // signer.
-        // this is a caveat of the fact that we only share one x-only pubkey during deposit
-        // setup which is used for reimbursements/cpfp.
-        // so instead of sharing another key, we can just reuse this key (which is part of a taproot
-        // address).
-        let stake_signature = s2_client
-            .general_wallet_signer()
-            .sign_no_tweak(messages[1].as_ref())
-            .await?;
+    let pre_stake_outpoint = output_handles
+        .db
+        .get_pre_stake(operator_id)
+        .await?
+        .ok_or(StakeChainErr::StakeSetupDataNotFound(op_p2p_key.clone()))?;
 
-        let operator_id = cfg.operator_table.pov_idx();
-        let op_p2p_key = cfg.operator_table.pov_op_key();
+    let OutPoint {
+        txid: pre_stake_txid,
+        vout: pre_stake_vout,
+    } = pre_stake_outpoint;
 
-        let pre_stake_outpoint = output_handles
-            .db
-            .get_pre_stake(operator_id)
-            .await?
-            .ok_or(StakeChainErr::StakeSetupDataNotFound(op_p2p_key.clone()))?;
+    let pre_image_client = s2_client.stake_chain_preimages();
+    let prev_preimage = pre_image_client
+        .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
+        .await?;
+    let prev_stake_hash = sha256::Hash::hash(&prev_preimage);
 
-        let OutPoint {
-            txid: pre_stake_txid,
-            vout: pre_stake_vout,
-        } = pre_stake_outpoint;
+    let n_of_n_agg_pubkey = cfg
+        .operator_table
+        .tx_build_context(cfg.network)
+        .aggregated_pubkey();
 
-        let pre_image_client = s2_client.stake_chain_preimages();
-        let prev_preimage = pre_image_client
-            .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
-            .await?;
-        let prev_stake_hash = sha256::Hash::hash(&prev_preimage);
+    let operator_pubkey = s2_client.general_wallet_signer().pubkey().await?;
 
-        let n_of_n_agg_pubkey = cfg
-            .operator_table
-            .tx_build_context(cfg.network)
-            .aggregated_pubkey();
+    let prev_connector_s = ConnectorStake::new(
+        n_of_n_agg_pubkey,
+        operator_pubkey,
+        prev_stake_hash,
+        cfg.stake_chain_params.delta,
+        cfg.network,
+    );
 
-        let operator_pubkey = s2_client.general_wallet_signer().pubkey().await?;
-
-        let prev_connector_s = ConnectorStake::new(
-            n_of_n_agg_pubkey,
-            operator_pubkey,
-            prev_stake_hash,
-            cfg.stake_chain_params.delta,
-            cfg.network,
-        );
-
-        stake_tx.finalize_unchecked(
-            &prev_preimage,
-            funds_signature,
-            stake_signature,
-            prev_connector_s,
-        )
-    };
+    let signed_stake_tx = stake_tx.finalize_unchecked(
+        &prev_preimage,
+        funds_signature,
+        stake_signature,
+        prev_connector_s,
+    );
 
     info!(txid=%signed_stake_tx.compute_txid(), %stake_index, "broadcasting stake transaction");
     output_handles.tx_driver.drive(signed_stake_tx).await?;

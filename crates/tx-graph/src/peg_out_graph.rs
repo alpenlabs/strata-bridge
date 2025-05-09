@@ -601,7 +601,7 @@ mod tests {
     };
     use strata_bridge_stake_chain::{
         prelude::{StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
-        transactions::stake::StakeTxData,
+        transactions::stake::{Head, StakeTxData},
     };
     use strata_bridge_test_utils::{
         bitcoin_rpc::fund_and_sign_raw_tx,
@@ -1172,7 +1172,7 @@ mod tests {
         context: &TxBuildContext,
         operator_keypair: Keypair,
         wots_public_keys: wots::PublicKeys,
-    ) -> (PegOutGraphInput, [u8; 32], Amount) {
+    ) -> (PegOutGraphInput, [u8; 32], StakeTx<Head>) {
         let operator_pubkey = operator_keypair.x_only_public_key().0;
         let wallet_addr = btc_client.new_address().expect("must generate new address");
 
@@ -1234,7 +1234,7 @@ mod tests {
             })
             .unwrap();
 
-        let first_stake = StakeTx::create_initial(
+        let first_stake = StakeTx::<Head>::new(
             context,
             &stake_chain_params,
             stake_hash,
@@ -1252,7 +1252,7 @@ mod tests {
         ];
 
         let tweaked_operator_keypair = operator_keypair.tap_tweak(SECP256K1, None);
-        let messages = first_stake.sighashes_initial(OPERATOR_STAKE, prevouts);
+        let messages = first_stake.sighashes(OPERATOR_STAKE, prevouts);
 
         let op_signature_0 =
             SECP256K1.sign_schnorr(&messages[0], &tweaked_operator_keypair.to_inner());
@@ -1261,11 +1261,9 @@ mod tests {
 
         let signed_first_stake_tx = first_stake
             .clone()
-            .finalize_initial_unchecked(op_signature_0, op_signature_1);
+            .finalize_unchecked(op_signature_0, op_signature_1);
 
         let input_amount = OPERATOR_FUNDS + OPERATOR_STAKE;
-        let graph_funding_amount =
-            signed_first_stake_tx.output[WITHDRAWAL_FULFILLMENT_VOUT as usize].value;
         let cpfp_child = create_cpfp_child(
             btc_client,
             &operator_keypair,
@@ -1305,7 +1303,7 @@ mod tests {
                 operator_pubkey,
             },
             stake_preimage,
-            graph_funding_amount,
+            first_stake,
         )
     }
 
@@ -1713,7 +1711,7 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, stake_preimage, _) =
+        let (input, stake_preimage, first_stake_tx) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
         let graph_params = PegOutGraphParams {
@@ -1833,12 +1831,11 @@ mod tests {
             withdrawal_fulfillment_pk: new_withdrawal_fulfillment_pk,
         };
 
-        let new_stake_tx = StakeTx::advance(
+        let new_stake_tx = first_stake_tx.advance(
             &context,
             &stake_chain_params,
             stake_data,
             input.stake_hash,
-            input.stake_outpoint,
             operator_pubkey,
             connector_cpfp,
         );
