@@ -1016,6 +1016,17 @@ impl ContractSM {
         }
     }
 
+    // NOTE: (@proofofkeags)
+    //
+    // All the following functions that handle contract events have these semantics:
+    //
+    // If an event cannot be consumed by the CSM it should give back an error. If it does get
+    // consumed by the CSM it should not have the same state prior. Not all errors need to be fatal
+    // but semantically there's no difference between rejecting an event because it has the wrong
+    // internal state or rejecting an event because the event doesn't apply to the machine. Either
+    // way the error semantics should be about whether or not the event was accepted or rejected.
+    // We can annotate it with different reasons still if we use errors.
+
     fn process_deposit_confirmation(
         &mut self,
         tx: Transaction,
@@ -1047,10 +1058,6 @@ impl ContractSM {
                     claim_txids,
                     graph_partials,
                 }
-            }
-            ContractState::Deposited { .. } => {
-                // somebody else may have deposited already.
-                warn!("contract already in deposited state");
             }
             invalid_state => {
                 self.state.state = invalid_state;
@@ -1152,6 +1159,8 @@ impl ContractSM {
                 if peg_out_graph_inputs.contains_key(&signer) {
                     let deposit_txid = self.deposit_txid();
                     warn!("already received operator's ({signer}) deposit setup for contract {deposit_txid}");
+
+                    // FIXME: (@Rajil1213) this should return an error
                     return Ok(vec![]);
                 }
 
@@ -1168,6 +1177,7 @@ impl ContractSM {
                 peg_out_graph_inputs.insert(signer, pog_input.clone());
 
                 if peg_out_graph_inputs.len() != self.cfg.operator_table.cardinality() {
+                    // FIXME: (@Rajil1213) this should return an error
                     return Ok(vec![]);
                 }
 
@@ -1282,6 +1292,7 @@ impl ContractSM {
 
                 if session_nonces.contains_key(&signer) {
                     warn!(%claim_txid, %signer, "already received nonces for graph");
+                    // FIXME: (@Rajil1213) this should return an error
                     return Ok(None);
                 }
 
@@ -1379,6 +1390,7 @@ impl ContractSM {
 
                 if session_partials.contains_key(&signer) {
                     warn!(%claim_txid, %signer, "already received signatures for graph");
+                    // FIXME: (@Rajil1213) this should return an error
                     return Ok(None);
                 }
 
@@ -1427,6 +1439,7 @@ impl ContractSM {
             ContractState::Requested { root_nonces, .. } => {
                 if root_nonces.contains_key(&signer) {
                     warn!(%signer, "already received nonce for root");
+                    // FIXME: (@Rajil1213) this should return an error
                     return Ok(None);
                 }
 
@@ -1473,6 +1486,7 @@ impl ContractSM {
             ContractState::Deposited { .. } => {
                 // somebody else may have deposited already.
                 warn!("contract already in deposited state, skipping root nonce generation");
+                // FIXME: (@Rajil1213) this should return an error
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
@@ -1492,6 +1506,7 @@ impl ContractSM {
             ContractState::Requested { root_partials, .. } => {
                 if root_partials.contains_key(&signer) {
                     warn!(%signer, "already received signature for root");
+                    // FIXME: (@Rajil1213) this should return an error
                     return Ok(None);
                 }
 
@@ -1514,6 +1529,7 @@ impl ContractSM {
             ContractState::Deposited { .. } => {
                 // somebody else may have deposited already.
                 warn!("contract already in deposited state, skipping root signature generation");
+                // FIXME: (@Rajil1213) this should return an error
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
@@ -1749,7 +1765,7 @@ impl ContractSM {
                             warn!(?assignment, "assignment does not contain a recipient or withdrawal request txid");
                             self.state.state = copy_of_current.clone();
 
-                            Ok(None)
+                            Err(TransitionErr(format!("invalid assignment state, missing recipient or withdrawal request txid, {assignment:?}")))
                         }
                     }
 
@@ -1801,6 +1817,9 @@ impl ContractSM {
                     // might be somebody else's stake txid
                     self.state.state = copy_of_current;
 
+                    // FIXME: (@Rajil1213) This should be an error variant that the upstream code
+                    // can handle. Most likely, the upstream code will just
+                    // ignore this error.
                     return Ok(None);
                 }
 
@@ -1817,6 +1836,8 @@ impl ContractSM {
                 let is_assigned_to_me = fulfiller == self.cfg.operator_table.pov_idx();
 
                 if !is_assigned_to_me {
+                    // FIXME: (@Rajil1213) this should be an error case (all cases that don't update
+                    // the state are error cases).
                     return Ok(None);
                 }
 
@@ -1881,6 +1902,8 @@ impl ContractSM {
                     // nodes'.
                     self.state.state = copy_of_current;
 
+                    // FIXME: (@Rajil1213) this should be an error case.
+
                     return Ok(None);
                 }
 
@@ -1906,14 +1929,6 @@ impl ContractSM {
                 };
 
                 Ok(duty)
-            }
-            ContractState::Fulfilled { .. } => {
-                warn!(
-                    "received fulfillment confirmation even though contract is already fulfilled"
-                );
-                self.state.state = copy_of_current;
-
-                Ok(None)
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_fulfillment_confirmation ({})",
