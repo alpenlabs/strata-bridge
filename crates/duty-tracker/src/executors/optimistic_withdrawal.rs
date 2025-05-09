@@ -33,10 +33,9 @@ use strata_p2p_types::Wots256PublicKey;
 use tracing::{error, info, warn};
 
 use crate::{
-    constants::WITHDRAWAL_FULFILLMENT_PK_IDX,
     contract_manager::{ExecutionConfig, OutputHandles},
     errors::{ContractManagerErr, StakeChainErr},
-    executors::constants::DEPOSIT_VOUT,
+    executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
     s2_session_manager::MusigSessionManager,
 };
 

@@ -33,11 +33,10 @@ use strata_p2p_types::{
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    constants::WITHDRAWAL_FULFILLMENT_PK_IDX,
     contract_manager::{ExecutionConfig, OutputHandles},
     contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
-    executors::constants::DEPOSIT_VOUT,
+    executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
     tx_driver::TxDriver,
 };

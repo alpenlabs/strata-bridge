@@ -2,7 +2,7 @@
 //! operator P2P network and responds to those events in accordance with the Strata Bridge protocol
 //! rules.
 #![feature(result_flattening)]
-pub mod constants;
+
 pub mod contract_manager;
 pub mod contract_persister;
 pub mod contract_state_machine;
