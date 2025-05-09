@@ -1050,7 +1050,7 @@ impl ContractSM {
             }
             ContractState::Deposited { .. } => {
                 // somebody else may have deposited already.
-                info!("contract already in deposited state");
+                warn!("contract already in deposited state");
             }
             invalid_state => {
                 self.state.state = invalid_state;
@@ -1468,7 +1468,7 @@ impl ContractSM {
             }
             ContractState::Deposited { .. } => {
                 // somebody else may have deposited already.
-                info!("contract already in deposited state, skipping root nonce generation");
+                warn!("contract already in deposited state, skipping root nonce generation");
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
@@ -1509,7 +1509,7 @@ impl ContractSM {
             }
             ContractState::Deposited { .. } => {
                 // somebody else may have deposited already.
-                info!("contract already in deposited state, skipping root signature generation");
+                warn!("contract already in deposited state, skipping root signature generation");
                 Ok(None)
             }
             _ => Err(TransitionErr(format!(
