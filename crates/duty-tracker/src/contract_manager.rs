@@ -620,14 +620,6 @@ impl ContractManagerCtx {
                             stake_tx,
                         )) {
                             Ok(new_duties) if !new_duties.is_empty() => {
-                                info!("committing stake chain state");
-                                self.state_handles
-                                    .stake_chain_persister
-                                    .commit_stake_data(
-                                        &self.cfg.operator_table,
-                                        self.state.stake_chains.state().clone(),
-                                    )
-                                    .await?;
                                 duties.extend(new_duties);
                             }
                             Ok(_) => {
