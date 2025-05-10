@@ -821,35 +821,6 @@ pub struct ContractSM {
     pog: BTreeMap<Txid, PegOutGraph>,
 }
 
-// NOTE: (@Rajil1213) we cannot use a function here because it needs
-// `&mut self` and the borrow checker does not allow us to reborrow it mutably
-// inside the mutable context of the state transition functions even though the fields being mutated
-// are different.
-
-/// Retrieves the peg out graph from the cache or builds it if it doesn't exist.
-///
-/// # Usage
-///
-/// ```rust,ignore
-/// fn generate_graph(&mut self, pog_input: PegOutgraphInput) -> PegOutGraph {
-///     get_or_build_graph!(self, pog_input)
-/// }
-/// ```
-macro_rules! get_or_build_graph {
-    ($self:expr, $pog_input:expr) => {{
-        let stake_txid = $pog_input.stake_outpoint.txid;
-        if let Some(pog) = $self.pog.get(&stake_txid) {
-            debug!(reimbursement_key=%$pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
-            pog.clone()
-        } else {
-            debug!(reimbursement_key=%$pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
-            let pog = $self.cfg.build_graph($pog_input);
-            $self.pog.insert(stake_txid, pog.clone());
-            pog
-        }
-    }}
-}
-
 impl ContractSM {
     /// Builds a new ContractSM around a given deposit transaction.
     ///
@@ -961,7 +932,16 @@ impl ContractSM {
     /// If the peg out graph is already cached, it will be returned. Otherwise, it will be built and
     /// cached.
     pub fn retrieve_graph(&mut self, input: PegOutGraphInput) -> PegOutGraph {
-        get_or_build_graph!(self, input)
+        let stake_txid = input.stake_outpoint.txid;
+        if let Some(pog) = self.pog.get(&stake_txid) {
+            debug!(reimbursement_key = %input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
+            pog.clone()
+        } else {
+            debug!(reimbursement_key = %input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
+            let pog = self.cfg.build_graph(input);
+            self.pog.insert(stake_txid, pog.clone());
+            pog
+        }
     }
 
     /// Processes the unified event type for the ContractSM.
@@ -1247,7 +1227,24 @@ impl ContractSM {
                     peg_out_graph_inputs
                         .iter()
                         .map(|(signer, pog_input)| {
-                            let pog = get_or_build_graph!(self, pog_input.clone());
+                            let pog = {
+                                let stake_txid = pog_input.stake_outpoint.txid;
+
+                                // NOTE: (@Rajil1213) we cannot invoke `retrieve_graph` here because it needs
+                                // `&mut self` and the borrow checker does not allow us to reborrow it mutably
+                                // inside the mutable context of the state transition functions even though the fields being mutated
+                                // are different.
+
+                                if let Some(pog) = self.pog.get(&stake_txid){
+                                    debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
+                                    pog.clone()
+                                } else {
+                                    debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
+                                    let pog = self.cfg.build_graph(pog_input.clone());
+                                    self.pog.insert(stake_txid, pog.clone());
+                                    pog
+                                }
+                            };
 
                             (signer, pog)
                         })
@@ -1340,7 +1337,25 @@ impl ContractSM {
                     };
                     let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
 
-                    let pog = get_or_build_graph!(self, pog_input.clone());
+                    let pog = {
+                        let stake_txid = pog_input.stake_outpoint.txid;
+
+                        // NOTE: (@Rajil1213) we cannot invoke `retrieve_graph` here because it
+                        // needs `&mut self` and the borrow checker does not
+                        // allow us to reborrow it mutably inside the
+                        // mutable context of the state transition functions even though the fields
+                        // being mutated are different.
+
+                        if let Some(pog) = self.pog.get(&stake_txid) {
+                            debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
+                            pog.clone()
+                        } else {
+                            debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
+                            let pog = self.cfg.build_graph(pog_input.clone());
+                            self.pog.insert(stake_txid, pog.clone());
+                            pog
+                        }
+                    };
 
                     let pubnonces = self
                         .cfg
