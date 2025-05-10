@@ -44,6 +44,7 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 /// Dropping this object will abort the monitoring thread.
 #[derive(Debug, Clone)]
 pub struct BtcZmqClient {
+    bury_depth: usize,
     block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
@@ -194,6 +195,7 @@ impl BtcZmqClient {
         info!("subscribed to bitcoind");
 
         Ok(BtcZmqClient {
+            bury_depth: cfg.bury_depth,
             block_subs,
             tx_subs,
             state_machine,
@@ -247,6 +249,11 @@ impl BtcZmqClient {
     /// [`BtcZmqClient::subscribe_blocks`].
     pub async fn num_block_subscriptions(&self) -> usize {
         self.block_subs.lock().await.len()
+    }
+
+    /// Returns the configured [`BtcZmqConfig::with_bury_depth`].
+    pub fn bury_depth(&self) -> usize {
+        self.bury_depth
     }
 }
 
