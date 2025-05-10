@@ -251,7 +251,7 @@ impl BtcZmqClient {
         self.block_subs.lock().await.len()
     }
 
-    /// Returns the configured [`BtcZmqConfig::bury_depth`].
+    /// Returns the configured [`BtcZmqConfig::with_bury_depth`].
     pub fn bury_depth(&self) -> usize {
         self.bury_depth
     }
