@@ -1,7 +1,7 @@
 use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
 use bitvm::signatures::wots_api::wots256;
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{constants::FUNDING_AMOUNT, scripts::prelude::*};
 
 use super::errors::{TxError, TxResult};
 
@@ -13,9 +13,6 @@ pub struct ClaimData {
 
     /// The deposit transaction id.
     pub deposit_txid: Txid,
-
-    /// The amount in the input (from the stake transaction).
-    pub input_amount: Amount,
 }
 
 #[derive(Debug, Clone)]
@@ -23,6 +20,8 @@ pub struct ClaimTx {
     psbt: Psbt,
 
     output_amount: Amount,
+
+    connector_k: ConnectorK,
 }
 
 impl ClaimTx {
@@ -34,6 +33,8 @@ impl ClaimTx {
         connector_n_of_n: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        let input_amount = FUNDING_AMOUNT;
+
         let tx_ins = create_tx_ins([data.stake_outpoint]);
 
         let c1_out = connector_c1.generate_locking_script();
@@ -46,7 +47,7 @@ impl ClaimTx {
         let cpfp_amt = cpfp_script.minimal_non_dust();
 
         let c0_out = connector_c0.generate_locking_script();
-        let c0_amt = data.input_amount - c1_amt - c2_amt - cpfp_amt;
+        let c0_amt = input_amount - c1_amt - c2_amt - cpfp_amt;
 
         let scripts_and_amounts = [
             (c0_out, c0_amt),
@@ -63,7 +64,7 @@ impl ClaimTx {
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("tx should have an empty witness");
 
         let prevout = TxOut {
-            value: data.input_amount,
+            value: input_amount,
             script_pubkey: connector_k.create_taproot_address().script_pubkey(),
         };
 
@@ -73,6 +74,7 @@ impl ClaimTx {
         Self {
             psbt,
             output_amount: c0_amt,
+            connector_k,
         }
     }
 
@@ -113,12 +115,9 @@ impl ClaimTx {
         2
     }
 
-    pub fn finalize(
-        mut self,
-        signature: wots256::Signature,
-        connector_k: ConnectorK,
-    ) -> Transaction {
-        connector_k.finalize_input(&mut self.psbt.inputs[0], signature);
+    pub fn finalize(mut self, signature: wots256::Signature) -> Transaction {
+        self.connector_k
+            .finalize_input(&mut self.psbt.inputs[0], signature);
 
         self.psbt
             .extract_tx()
@@ -164,7 +163,6 @@ mod tests {
 
     use bitcoin::{hashes::Hash, Network, Witness};
     use bitvm::treepp::*;
-    use secp256k1::rand::{rngs::OsRng, Rng};
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
         wots::{self, Wots256Signature},
@@ -194,16 +192,14 @@ mod tests {
                     vout: 0,
                 },
                 deposit_txid,
-                input_amount: Amount::from_sat(OsRng.gen_range(1..100_000)),
             },
-            ConnectorK::new(pubkey, network, wots_public_key),
+            ConnectorK::new(network, wots_public_key),
             ConnectorC0::new(pubkey, network, pre_assert_timelock),
             ConnectorC1::new(pubkey, network, payout_optimistic_timelock),
             ConnectorNOfN::new(build_context.aggregated_pubkey(), network),
             ConnectorCpfp::new(pubkey, network),
         );
 
-        let connector_k = ConnectorK::new(pubkey, network, wots_public_key);
         let withdrawal_fulfillment_txid = generate_txid();
 
         let signature = Wots256Signature::new(
@@ -211,7 +207,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let mut signed_claim_tx = claim_tx.finalize(*signature, connector_k);
+        let mut signed_claim_tx = claim_tx.finalize(*signature);
 
         let parsed_wots256 = ClaimTx::parse_witness(&signed_claim_tx)
             .expect("must be able to parse")

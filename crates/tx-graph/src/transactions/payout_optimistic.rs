@@ -8,7 +8,10 @@ use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorNOfN,
     ConnectorP, StakeSpendPath,
 };
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{
+    constants::{FUNDING_AMOUNT, SEGWIT_MIN_AMOUNT},
+    scripts::prelude::*,
+};
 
 use super::covenant_tx::CovenantTx;
 
@@ -24,10 +27,6 @@ pub struct PayoutOptimisticData {
     /// The [`OutPoint`] of the stake transaction.
     pub stake_outpoint: OutPoint,
 
-    /// The amount that remains after paying off the transaction fees in the preceding
-    /// transactions.
-    pub input_amount: Amount,
-
     /// The amount of the deposit.
     ///
     /// This is the amount held in a particular UTXO in the Bridge Address used to reimburse the
@@ -42,7 +41,8 @@ pub struct PayoutOptimisticData {
     pub network: Network,
 }
 
-pub(crate) const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
+/// The number of inputs that require an $N$-of-$N$ signature in the [`PayoutOptimisticTx`].
+pub const NUM_PAYOUT_OPTIMISTIC_INPUTS: usize = 5;
 
 /// A transaction that reimburses a *functional* operator.
 #[derive(Debug, Clone)]
@@ -52,6 +52,17 @@ pub struct PayoutOptimisticTx {
     prevouts: [TxOut; NUM_PAYOUT_OPTIMISTIC_INPUTS],
 
     witnesses: [TaprootWitness; NUM_PAYOUT_OPTIMISTIC_INPUTS],
+
+    connector_c0: ConnectorC0,
+
+    connector_c1: ConnectorC1,
+
+    connector_n_of_n: ConnectorNOfN,
+
+    connector_p: ConnectorP,
+
+    #[expect(dead_code)] // this field is read when settling this tx via cpfp
+    connector_cpfp: ConnectorCpfp,
 }
 
 impl PayoutOptimisticTx {
@@ -64,6 +75,13 @@ impl PayoutOptimisticTx {
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        const NUM_OUTPUTS_IN_CLAIM_TX: u64 = 3;
+        let input_amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_OUTPUTS_IN_CLAIM_TX;
+        assert!(
+            input_amount.gt(&Amount::from_int_btc(0)),
+            "input to payout optimistic must be greater than zero"
+        );
+
         let utxos = [
             OutPoint {
                 txid: data.deposit_txid,
@@ -108,7 +126,7 @@ impl PayoutOptimisticTx {
                 script_pubkey: n_of_n_addr.script_pubkey(),
             },
             TxOut {
-                value: data.input_amount,
+                value: input_amount,
                 script_pubkey: connector_c0.generate_locking_script(),
             },
             TxOut {
@@ -167,6 +185,12 @@ impl PayoutOptimisticTx {
 
             prevouts,
             witnesses,
+
+            connector_c0,
+            connector_c1,
+            connector_n_of_n,
+            connector_p,
+            connector_cpfp,
         }
     }
 
@@ -178,42 +202,34 @@ impl PayoutOptimisticTx {
     /// Finalizes the payout optimistic transaction.
     ///
     /// Note that the `deposit_signature` is also an n-of-n signature.
-    #[expect(clippy::too_many_arguments)]
-    pub fn finalize(
-        mut self,
-        deposit_signature: schnorr::Signature,
-        n_of_n_sig_c0: schnorr::Signature,
-        n_of_n_sig_c1: schnorr::Signature,
-        n_of_n_sig_c2: schnorr::Signature,
-        n_of_n_sig_p: schnorr::Signature,
-        connector_c0: ConnectorC0,
-        connector_c1: ConnectorC1,
-        connector_c2: ConnectorNOfN,
-        connector_p: ConnectorP,
-    ) -> Transaction {
-        finalize_input(&mut self.psbt.inputs[0], [deposit_signature.serialize()]);
+    pub fn finalize(mut self, signatures: [schnorr::Signature; 5]) -> Transaction {
+        finalize_input(&mut self.psbt.inputs[0], [signatures[0].serialize()]);
 
-        let c0_path = ConnectorC0Path::PayoutOptimistic(()).add_witness_data(n_of_n_sig_c0);
+        let c0_path = ConnectorC0Path::PayoutOptimistic(()).add_witness_data(signatures[1]);
         let c0_input_index = c0_path.get_input_index() as usize;
-        connector_c0.finalize_input(&mut self.psbt.inputs[c0_input_index], c0_path);
+        self.connector_c0
+            .finalize_input(&mut self.psbt.inputs[c0_input_index], c0_path);
 
         let c1_path = ConnectorC1Path::PayoutOptimistic(());
         let c1_path = c1_path.add_witness_data(taproot::Signature {
-            signature: n_of_n_sig_c1,
+            signature: signatures[2],
             sighash_type: c1_path.get_sighash_type(),
         });
         let c1_input_index = c1_path.get_input_index() as usize;
-        connector_c1.finalize_input(&mut self.psbt.inputs[c1_input_index], c1_path);
+        self.connector_c1
+            .finalize_input(&mut self.psbt.inputs[c1_input_index], c1_path);
 
         let n_of_n_sig_c2 = taproot::Signature {
-            signature: n_of_n_sig_c2,
+            signature: signatures[3],
             sighash_type: TapSighashType::Default,
         };
-        connector_c2.finalize_input(&mut self.psbt.inputs[3], n_of_n_sig_c2);
+        self.connector_n_of_n
+            .finalize_input(&mut self.psbt.inputs[3], n_of_n_sig_c2);
 
-        let p_witness = StakeSpendPath::PayoutOptimistic(n_of_n_sig_p);
+        let p_witness = StakeSpendPath::PayoutOptimistic(signatures[4]);
         let p_input_index = p_witness.get_input_index() as usize;
-        connector_p.finalize(&mut self.psbt.inputs[p_input_index], p_witness);
+        self.connector_p
+            .finalize(&mut self.psbt.inputs[p_input_index], p_witness);
 
         self.psbt
             .extract_tx()

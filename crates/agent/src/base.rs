@@ -34,7 +34,7 @@ pub(super) const BTC_CONFIRM_PERIOD: Duration = Duration::from_secs(6);
 
 pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {
     payout_optimistic_timelock: 100,
-    pre_assert_timelock: 200,
+    pre_assert_timelock: 50,
     payout_timelock: 100,
 };
 

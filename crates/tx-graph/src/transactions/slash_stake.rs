@@ -29,6 +29,7 @@ pub struct SlashStakeData {
     pub network: Network,
 }
 
+/// The number of inputs that require an $N$-of-$N$ signature in the [`SlashStakeTx`].
 pub const NUM_SLASH_STAKE_INPUTS: usize = 2;
 
 /// The transaction used to slash an operator's stake.

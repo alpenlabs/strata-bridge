@@ -10,7 +10,7 @@ use tokio::{
 };
 use tracing::{debug, error, info};
 
-use crate::strata_rpc::{BridgeDutyInteropTraitClient, RpcBridgeDutiesInterop};
+use crate::strata_rpc::{BridgeDutyInterop, BridgeDutyInteropTraitClient, RpcBridgeDutiesInterop};
 
 #[derive(Debug, Clone)]
 pub struct DutyWatcherConfig {
@@ -71,6 +71,7 @@ where
         let poll_interval = self.config.poll_interval;
 
         handles.spawn(async move {
+            let mut stake_index = 0;
             loop {
                 let operator_idx = u32::MAX; // doesn't really matter in the current impl
                 let last_fetched_duty_index = db.get_last_fetched_duty_index().await.unwrap(); // FIXME:
@@ -90,6 +91,16 @@ where
 
                         for duty in duties {
                             debug!(action = "dispatching duty", ?duty);
+
+                            let duty = if let BridgeDutyInterop::SignDeposit(deposit_duty) = duty {
+                                let mut updated_deposit_duty = deposit_duty.clone();
+                                updated_deposit_duty.stake_index = stake_index;
+                                stake_index += 1;
+
+                                BridgeDutyInterop::SignDeposit(updated_deposit_duty)
+                            } else {
+                                duty
+                            };
 
                             let duty_interop: BridgeDuty =
                                 serde_json::from_str(&serde_json::to_string(&duty).unwrap())

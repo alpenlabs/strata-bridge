@@ -28,9 +28,9 @@ pub enum DriveErr {
 
 struct TxDriveJob {
     tx: Transaction,
-    _deadline: usize,
     respond_on: oneshot::Sender<Result<(), DriveErr>>,
 }
+
 /// System for driving a signed transaction to confirmation.
 #[derive(Debug)]
 pub struct TxDriver {
@@ -120,13 +120,12 @@ impl TxDriver {
         }
     }
 
-    /// Instructs the TxDriver to drive a new transaction to confirmation by the supplied deadline.
-    pub async fn drive(&self, tx: Transaction, _deadline: usize) -> Result<(), DriveErr> {
+    /// Instructs the TxDriver to drive a new transaction to confirmation.
+    pub async fn drive(&self, tx: Transaction) -> Result<(), DriveErr> {
         let (sender, receiver) = oneshot::channel();
         self.new_jobs_sender
             .send(TxDriveJob {
                 tx,
-                _deadline,
                 respond_on: sender,
             })
             .map_err(|_| DriveErr::DriverAborted)?;
@@ -136,6 +135,7 @@ impl TxDriver {
             .flatten()
     }
 }
+
 impl Drop for TxDriver {
     fn drop(&mut self) {
         self.driver.abort();

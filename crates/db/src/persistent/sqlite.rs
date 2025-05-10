@@ -408,7 +408,7 @@ impl PublicDb for SqliteDb {
                 let stake_data = DbStakeTxData::from(stake_data);
 
                 sqlx::query!(
-                    "INSERT OR REPLACE INTO operator_stake_data
+                    "INSERT OR IGNORE INTO operator_stake_data
                         (operator_id, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
                         VALUES ($1, $2, $3, $4, $5, $6)",
                     operator_id,

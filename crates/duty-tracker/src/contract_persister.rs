@@ -10,6 +10,7 @@ use sqlx::{
 use strata_bridge_tx_graph::transactions::prelude::CovenantTx;
 use strata_primitives::params::RollupParams;
 use thiserror::Error;
+use tracing::{debug, error};
 
 use crate::contract_state_machine::{ContractCfg, ContractSM, MachineState};
 
@@ -57,7 +58,11 @@ impl ContractPersister {
         )
         .execute(&pool)
         .await
-        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(?e, "failed to create contracts table");
+
+            ContractPersistErr::Unexpected(e.to_string())
+        })?;
         Ok(ContractPersister { pool })
     }
 
@@ -85,7 +90,10 @@ impl ContractPersister {
         .bind(bincode::serialize(&state)?)
         .execute(&self.pool)
         .await
-        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(?e, "failed to insert contract into database");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?;
         Ok(())
     }
 
@@ -104,7 +112,10 @@ impl ContractPersister {
         .bind(deposit_txid.to_string())
         .execute(&self.pool)
         .await
-        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(?e, "failed to commit machine state to disk");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?;
         Ok(())
     }
 
@@ -113,6 +124,8 @@ impl ContractPersister {
         &self,
         active_contracts: impl Iterator<Item = (&Txid, &ContractSM)>,
     ) -> Result<(), ContractPersistErr> {
+        debug!("committing all active contracts");
+
         for (txid, contract_sm) in active_contracts {
             let machine_state = contract_sm.state();
             // FIXME: (@Rajil1213) wrap all commits into a single db transaction.
@@ -145,22 +158,37 @@ impl ContractPersister {
         .bind(deposit_txid.to_string())
         .fetch_one(&self.pool)
         .await
-        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
-        let deposit_idx = row
-            .try_get("deposit_idx")
-            .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
-        let deposit_tx = bincode::deserialize(
-            row.try_get("deposit_tx")
-                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-        )?;
-        let operator_table = bincode::deserialize(
-            row.try_get("operator_table")
-                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-        )?;
-        let state = bincode::deserialize(
-            row.try_get("state")
-                .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-        )?;
+        .map_err(|e| {
+            error!(?e, %deposit_txid, "could not load contract from disk");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?;
+
+        let deposit_idx = row.try_get("deposit_idx").map_err(|e| {
+            error!(?e, %deposit_txid, "could not parse deposit_idx from contract entry in disk");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?;
+
+        let deposit_tx = bincode::deserialize(row.try_get("deposit_tx").map_err(|e| {
+            error!(?e, %deposit_txid, "could not parse deposit_tx from contract entry in disk");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?).inspect_err(|e| {
+            error!(?e, %deposit_txid, "could not deserialize deposit_tx from contract entry in disk");
+        })?;
+
+        let operator_table = bincode::deserialize(row.try_get("operator_table").map_err(|e| {
+            error!(?e, %deposit_txid, "could not parse operator_table from contract entry in disk");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?).inspect_err(|e| {
+            error!(?e, %deposit_txid, "could not deserialize operator_table from contract entry in disk");
+        })?;
+
+        let state = bincode::deserialize(row.try_get("state").map_err(|e| {
+            error!(?e, %deposit_txid, "could not parse state from contract entry in disk");
+            ContractPersistErr::Unexpected(e.to_string())
+        })?)
+        .inspect_err(|e| {
+            error!(?e, %deposit_txid, "could not deserialize state from contract entry in disk");
+        })?;
 
         Ok((
             ContractCfg {
@@ -199,24 +227,59 @@ impl ContractPersister {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(?e, "could not load all contracts from disk");
+
+            ContractPersistErr::Unexpected(e.to_string())
+        })?;
+
         rows.into_iter()
             .map(|row| {
-                let deposit_idx = row
-                    .try_get("deposit_idx")
-                    .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?;
-                let deposit_tx = bincode::deserialize(
-                    row.try_get("deposit_tx")
-                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-                )?;
-                let operator_table = bincode::deserialize(
-                    row.try_get("operator_table")
-                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-                )?;
-                let state = bincode::deserialize(
-                    row.try_get("state")
-                        .map_err(|e| ContractPersistErr::Unexpected(e.to_string()))?,
-                )?;
+                let deposit_idx = row.try_get("deposit_idx").map_err(|e| {
+                    error!(
+                        ?e,
+                        "could not parse deposit_idx from contract entry in disk"
+                    );
+                    ContractPersistErr::Unexpected(e.to_string())
+                })?;
+
+                let deposit_tx = bincode::deserialize(row.try_get("deposit_tx").map_err(|e| {
+                    error!(?e, "could not parse deposit_tx from contract entry in disk");
+                    ContractPersistErr::Unexpected(e.to_string())
+                })?)
+                .inspect_err(|e| {
+                    error!(
+                        ?e,
+                        "could not deserialize deposit_tx from contract entry in disk"
+                    );
+                })?;
+
+                let operator_table =
+                    bincode::deserialize(row.try_get("operator_table").map_err(|e| {
+                        error!(
+                            ?e,
+                            "could not parse operator_table from contract entry in disk"
+                        );
+                        ContractPersistErr::Unexpected(e.to_string())
+                    })?)
+                    .inspect_err(|e| {
+                        error!(
+                            ?e,
+                            "could not deserialize operator_table from contract entry in disk"
+                        );
+                    })?;
+
+                let state = bincode::deserialize(row.try_get("state").map_err(|e| {
+                    error!(?e, "could not parse state from contract entry in disk");
+                    ContractPersistErr::Unexpected(e.to_string())
+                })?)
+                .inspect_err(|e| {
+                    error!(
+                        ?e,
+                        "could not deserialize state from contract entry in disk"
+                    );
+                })?;
+
                 Ok((
                     ContractCfg {
                         network,

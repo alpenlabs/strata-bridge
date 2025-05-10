@@ -1,5 +1,5 @@
 {
-    "rollup_name": "alpenstrata",
+    "rollup_name": "strata",
     "block_time": 5000,
     "cred_rule": {
         "schnorr_key": "0x8f2f6c25be6a4de02b8ae1f785749ba77431075ee801e00cfb0af1ed188f8eda"
@@ -10,15 +10,15 @@
         "static": [
             {
                 "signing_pk": "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000",
-                "wallet_pk": "0xd678aa2ad5e4f2174025aa7f77cd43ee662ccd94499982d0c322a73d1ffecd79"
+                "wallet_pk": "0xb49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d"
             },
             {
                 "signing_pk": "0x0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d",
-                "wallet_pk": "0x175cb26def00eaef40650c9d611be6750fb577a10ce1f8f85e2b28c346db89f6"
+                "wallet_pk": "0x1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4"
             },
             {
                 "signing_pk": "0x2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be",
-                "wallet_pk": "0x01a4a0e8d1ae4b10b8dc230d5c330e48940587998b94f76a5e2e73d1444d4afb"
+                "wallet_pk": "0xa4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
             }
         ]
     },
