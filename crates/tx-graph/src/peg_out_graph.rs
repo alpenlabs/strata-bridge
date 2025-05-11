@@ -1835,7 +1835,6 @@ mod tests {
             &context,
             &stake_chain_params,
             stake_data,
-            input.stake_hash,
             operator_pubkey,
             connector_cpfp,
         );

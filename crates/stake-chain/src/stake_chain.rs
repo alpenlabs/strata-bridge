@@ -93,28 +93,18 @@ impl StakeChain {
             };
         }
 
-        let prev_hash = stake_chain_inputs
-            .stake_hash_at_index(0)
-            .expect("must exist since we are sure `num_inputs` > 1");
-
         let new_stake_tx = first_stake_tx.advance(
             context,
             stake_chain_params,
             stake_inputs[1],
-            prev_hash,
             stake_chain_inputs.operator_pubkey,
             connector_cpfp,
         );
 
         let tail = stake_inputs
             .iter()
-            .enumerate()
             .skip(2) // first and the second created above
-            .fold(vec![new_stake_tx], |mut tail, (index, stake_input)| {
-                let prev_hash = stake_chain_inputs
-                    .stake_hash_at_index(index - 1)
-                    .expect("must exist since this loop runs from index 2 of stake_inputs");
-
+            .fold(vec![new_stake_tx], |mut tail, stake_input| {
                 let new_stake_tx = tail
                     .last()
                     .expect("must have at least one element in every loop because it is initialized with one element")
@@ -122,7 +112,6 @@ impl StakeChain {
                         context,
                         stake_chain_params,
                         *stake_input,
-                        prev_hash,
                         stake_chain_inputs.operator_pubkey,
                         connector_cpfp,
                     );

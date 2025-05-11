@@ -133,6 +133,11 @@ pub struct StakeTx<StakeTxType = Head> {
     /// The PSBT that contains the inputs and outputs for the transaction.
     pub psbt: Psbt,
 
+    /// The hash in the output of this transaction that locks the stake.
+    ///
+    /// This information is used to compute the locking script used to advance the stake.
+    hash: sha256::Hash,
+
     /// The type of witness required to spend the inputs of this transaction.
     witnesses: [TaprootWitness; NUM_STAKE_TX_INPUTS],
 }
@@ -170,7 +175,6 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         context: &impl BuildContext,
         params: &StakeChainParams,
         input: StakeTxData,
-        prev_hash: sha256::Hash,
         operator_pubkey: XOnlyPublicKey,
         connector_cpfp: ConnectorCpfp,
     ) -> StakeTx<Tail> {
@@ -228,7 +232,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
             operator_pubkey,
-            prev_hash,
+            self.hash,
             params.delta,
             context.network(),
         );
@@ -382,9 +386,7 @@ impl StakeTx<Head> {
             witnesses,
         }
     }
-}
 
-impl StakeTx<HEAD> {
     /// Generates the transaction message sighash for the first stake transaction.
     pub fn sighashes(
         &self,
