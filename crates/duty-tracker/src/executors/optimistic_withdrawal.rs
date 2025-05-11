@@ -160,7 +160,7 @@ pub(crate) async fn handle_advance_stake_chain(
 
 /// Constructs, finalizes and broadcasts the Withdrawal Fulfillment Transaction.
 pub(crate) async fn handle_withdrawal_fulfillment(
-    cfg: ExecutionConfig,
+    cfg: &ExecutionConfig,
     output_handles: Arc<OutputHandles>,
     withdrawal_metadata: WithdrawalMetadata,
     user_descriptor: Descriptor,

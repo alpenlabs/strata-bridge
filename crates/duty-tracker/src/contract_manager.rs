@@ -1251,7 +1251,7 @@ async fn execute_duty(
             stake_chain_inputs,
         } => {
             handle_publish_deposit_setup(
-                &cfg,
+                cfg,
                 output_handles.clone(),
                 deposit_txid,
                 deposit_idx,
@@ -1311,7 +1311,7 @@ async fn execute_duty(
             sighash,
         } => {
             handle_publish_root_signature(
-                &cfg,
+                cfg,
                 &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 nonces,
@@ -1344,10 +1344,10 @@ async fn execute_duty(
                 stake_tx,
             } => match stake_tx {
                 StakeTxKind::Head(stake_tx) => {
-                    handle_publish_first_stake(&cfg, output_handles, stake_tx).await
+                    handle_publish_first_stake(cfg, output_handles, stake_tx).await
                 }
                 StakeTxKind::Tail(stake_tx) => {
-                    handle_advance_stake_chain(&cfg, output_handles, stake_index, stake_tx).await
+                    handle_advance_stake_chain(cfg, output_handles, stake_index, stake_tx).await
                 }
             },
             FulfillerDuty::PublishFulfillment {
@@ -1368,7 +1368,7 @@ async fn execute_duty(
                 deposit_txid,
             } => {
                 handle_publish_claim(
-                    &cfg,
+                    cfg,
                     output_handles.clone(),
                     stake_txid,
                     deposit_txid,
@@ -1384,7 +1384,7 @@ async fn execute_duty(
                 partials,
             } => {
                 handle_publish_payout_optimistic(
-                    &cfg,
+                    cfg,
                     output_handles.clone(),
                     deposit_txid,
                     claim_txid,
