@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
-use bitcoin::{hashes::sha256, relative, OutPoint, Txid};
+use bitcoin::{hashes::sha256, relative, OutPoint, TapSighashType, Txid};
 use secp256k1::{Message, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -346,8 +346,46 @@ impl PegOutGraph {
         }
     }
 
+    /// Generates a functor over all the sighash types for each input in the peg-out graph that need
+    /// to be Musig2-signed.
+    pub fn musig_sighash_types(&self) -> PogMusigF<TapSighashType> {
+        let challenge = self.challenge_tx.sighash_types()[0];
+
+        let AssertChain {
+            pre_assert,
+            post_assert,
+            ..
+        } = &self.assert_chain;
+
+        let pre_assert = pre_assert.sighash_types()[0];
+
+        let post_assert = post_assert.sighash_types();
+
+        let payout_optimistic = self.payout_optimistic.sighash_types();
+
+        let payout = self.payout_tx.sighash_types();
+
+        let disprove = self.disprove_tx.sighash_types()[0];
+
+        let slash_stake = self
+            .slash_stake_txs
+            .iter()
+            .map(|slash_stake| slash_stake.sighash_types())
+            .collect();
+
+        PogMusigF {
+            challenge,
+            pre_assert,
+            post_assert,
+            payout_optimistic,
+            payout,
+            disprove,
+            slash_stake,
+        }
+    }
+
     /// Generates the sighash messages.
-    pub fn sighashes(&self) -> PogMusigF<Message> {
+    pub fn musig_sighashes(&self) -> PogMusigF<Message> {
         let challenge = self.challenge_tx.sighashes()[0];
 
         let AssertChain {
@@ -414,6 +452,8 @@ impl PegOutGraph {
         }
     }
 
+    /// Generates a functor over all the witnesses for each input in the peg-out graph that need to
+    /// be Musig2-signed.
     pub fn musig_witnesses(&self) -> PogMusigF<TaprootWitness> {
         PogMusigF {
             challenge: self.challenge_tx.witnesses()[0].clone(),
@@ -1072,11 +1112,7 @@ mod tests {
             "witness on the first input must be tweaked"
         );
 
-        let sighash_type = disprove_tx.psbt().inputs[INPUT_INDEX]
-            .sighash_type
-            .expect("sighash type must be set on the first index of the disprove tx")
-            .taproot_hash_ty()
-            .unwrap();
+        let sighash_type = disprove_tx.sighash_types()[0];
         assert_eq!(sighash_type, TapSighashType::Single);
 
         let disprove_msg = disprove_tx.sighashes()[INPUT_INDEX];

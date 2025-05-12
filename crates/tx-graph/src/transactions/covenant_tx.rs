@@ -25,6 +25,25 @@ pub trait CovenantTx<const NUM_COVENANT_INPUTS: usize> {
     /// Computes the transaction ID.
     fn compute_txid(&self) -> Txid;
 
+    /// Gets the sighash type for each input in the transaction.
+    fn sighash_types(&self) -> [TapSighashType; NUM_COVENANT_INPUTS] {
+        self.psbt()
+            .inputs
+            .get(..NUM_COVENANT_INPUTS)
+            .expect("must have enough inputs")
+            .iter()
+            .map(|input| {
+                input
+                    .sighash_type
+                    .map(|sighash_type| sighash_type.taproot_hash_ty())
+                    .unwrap_or(Ok(TapSighashType::Default))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("must have the right number of inputs")
+    }
+
     /// Computes the sighash of the transaction per input.
     ///
     /// # Panics
@@ -35,26 +54,17 @@ pub trait CovenantTx<const NUM_COVENANT_INPUTS: usize> {
         let mut sighash_cache = SighashCache::new(tx);
         let prevouts = self.prevouts();
 
-        self.psbt()
-            .inputs
-            .get(..NUM_COVENANT_INPUTS)
-            .expect("must have enough inputs")
-            .iter()
+        self.sighash_types()
+            .into_iter()
+            .zip(self.witnesses())
             .enumerate()
-            .map(|(i, input)| {
-                let witness_type = self.witnesses().get(i).unwrap_or(&TaprootWitness::Key);
-                let sighash_type = input
-                    .sighash_type
-                    .map(|sighash_type| sighash_type.taproot_hash_ty())
-                    .unwrap_or(Ok(TapSighashType::Default))
-                    .unwrap();
-
+            .map(|(input_index, (sighash_type, witness_type))| {
                 create_message_hash(
                     &mut sighash_cache,
                     prevouts.clone(),
                     witness_type,
                     sighash_type,
-                    i,
+                    input_index,
                 )
                 .expect("must be able to create message hash")
             })
