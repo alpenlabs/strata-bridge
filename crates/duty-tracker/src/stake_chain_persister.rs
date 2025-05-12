@@ -44,7 +44,7 @@ impl StakeChainPersister {
 
         info!("committing all stake chain data to disk");
         for (operator_id, chain_inputs) in op_id_and_chain_inputs {
-            for (stake_index, stake_input) in chain_inputs.stake_inputs.iter().enumerate() {
+            for (stake_index, stake_input) in chain_inputs.stake_inputs.iter() {
                 trace!(
                     %operator_id,
                     %stake_index,
@@ -58,7 +58,7 @@ impl StakeChainPersister {
                 info!(%operator_id, %stake_index, hash=%stake_input.hash, "committing stake data to disk");
 
                 self.db
-                    .add_stake_data(operator_id, stake_index as u32, stake_input.to_owned())
+                    .add_stake_data(operator_id, *stake_index, stake_input.to_owned())
                     .await?;
             }
         }
@@ -86,11 +86,11 @@ impl StakeChainPersister {
                         StakeChainInputs {
                             operator_pubkey,
                             pre_stake_outpoint,
-                            // NOTE: (@Rajil1213) convert stake data to an IndexedSet to avoid this
-                            // conversion alternatively, this is okay
-                            // since the loading of the stake data only
-                            // happens once.
-                            stake_inputs: stake_data.into_iter().collect(),
+                            stake_inputs: stake_data
+                                .into_iter()
+                                .enumerate()
+                                .map(|(index, stake_data)| (index as u32, stake_data))
+                                .collect(),
                         },
                     );
                 }
