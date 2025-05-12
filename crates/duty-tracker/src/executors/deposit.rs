@@ -28,13 +28,15 @@ use strata_bridge_tx_graph::{
     transactions::{deposit::DepositTx, prelude::CovenantTx},
 };
 use strata_p2p_types::{
-    Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey, WotsPublicKeys,
+    P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
+    WotsPublicKeys,
 };
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
-    contract_state_machine::TransitionErr,
+    contract_state_machine::{ContractEvent, TransitionErr},
     errors::ContractManagerErr,
     executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
@@ -424,6 +426,96 @@ pub(crate) async fn handle_publish_graph_sigs(
             partials.pack(),
         )
         .await;
+
+    Ok(())
+}
+
+/// Handles the duty to commit the aggregate signatures for the given peg out graph identified by
+/// the deposit txid.
+///
+/// This produces a `ContractEvent::AggregateSigs` event which is sent via the
+/// `ouroboros_event_sender` to the node itself so that the state can be updated with the aggregate
+/// signatures.
+pub(crate) async fn handle_commit_sig(
+    cfg: &ExecutionConfig,
+    deposit_txid: Txid,
+    s2_session_manager: &MusigSessionManager,
+    ouroboros_event_sender: &mpsc::UnboundedSender<ContractEvent>,
+    pog_inpoints: BTreeMap<Txid, PogMusigF<OutPoint>>,
+    pog_sighash_types: BTreeMap<Txid, PogMusigF<TapSighashType>>,
+    graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+) -> Result<(), ContractManagerErr> {
+    let mut graph_sigs = BTreeMap::new();
+
+    for (claim_txid, operator_partials) in graph_partials {
+        let Some(inpoints) = pog_inpoints.get(&claim_txid) else {
+            error!(%claim_txid, "no inpoints found for claim txid");
+
+            return Err(
+                TransitionErr(format!("inpoints missing for claim txid {claim_txid}")).into(),
+            );
+        };
+
+        let Some(sighash_types) = pog_sighash_types.get(&claim_txid) else {
+            error!(%claim_txid, "no sighash types found for claim txid");
+
+            return Err(TransitionErr(format!(
+                "sighash types missing for claim txid {claim_txid}"
+            ))
+            .into());
+        };
+
+        for (pk, partials) in operator_partials {
+            let pk = cfg
+                .operator_table
+                .op_key_to_btc_key(&pk)
+                .expect("signer must be known")
+                .x_only_public_key()
+                .0;
+
+            // TODO: (@Rajil1213) use the batching API instead
+            PogMusigF::<()>::transpose_result::<MusigSessionErr>(
+                inpoints
+                    .clone()
+                    .zip(partials)
+                    .map(|(inpoint, partial)| {
+                        s2_session_manager.put_partial(inpoint, pk.to_x_only_pubkey(), partial)
+                    })
+                    .join_all()
+                    .await,
+            )?;
+        }
+
+        let agg_sigs_for_graph = PogMusigF::transpose_result::<MusigSessionErr>(
+            inpoints
+                .clone()
+                .map(|inpoint| s2_session_manager.get_signature(inpoint))
+                .join_all()
+                .await,
+        )?;
+
+        let agg_sigs_for_graph =
+            agg_sigs_for_graph
+                .zip(sighash_types.clone())
+                .map(|(sig, sighash_type)| taproot::Signature {
+                    signature: schnorr::Signature::from_slice(&sig.serialize())
+                        .expect("lifted signature must be a valid schnorr signature"),
+                    sighash_type,
+                });
+
+        graph_sigs.insert(claim_txid, agg_sigs_for_graph);
+    }
+
+    ouroboros_event_sender
+        .send(ContractEvent::AggregateSigs(deposit_txid, graph_sigs))
+        .map_err(|e| {
+            error!(%e, "could not send aggregate sigs event");
+
+            // usually means the receiver is dropped i.e., the event loop has crashed.
+            ContractManagerErr::FatalErr(
+                format!("could not send aggregate sigs event due to {e}").into(),
+            )
+        })?;
 
     Ok(())
 }
