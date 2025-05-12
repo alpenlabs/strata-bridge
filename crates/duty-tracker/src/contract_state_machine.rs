@@ -761,7 +761,7 @@ pub enum FulfillerDuty {
         stake_index: u32,
 
         /// The partial signatures required to settle the `PayoutOptimistic` transaction.
-        partials: [Vec<PartialSignature>; NUM_PAYOUT_OPTIMISTIC_INPUTS],
+        agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS]>,
     },
 
     /// Originates once challenge transaction is issued
@@ -1874,8 +1874,8 @@ impl ContractSM {
             ContractState::Claimed {
                 fulfiller,
                 claim_height,
+                graph_sigs,
                 active_graph,
-                graph_partials,
                 ..
             } => {
                 let pov_idx = self.cfg.operator_table.pov_idx();
@@ -1887,7 +1887,13 @@ impl ContractSM {
                     let stake_index = self.cfg().deposit_idx;
                     let claim_txid = active_graph.1.claim_txid;
                     let stake_txid = active_graph.1.stake_txid;
-                    let partials = self.transpose_partials(graph_partials, claim_txid)?;
+                    let agg_sigs = graph_sigs
+                        .get(&claim_txid)
+                        .ok_or(TransitionErr(format!(
+                            "could not find graph sigs for claim txid {}",
+                            claim_txid
+                        )))?
+                        .payout_optimistic;
 
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishPayoutOptimistic {
@@ -1895,7 +1901,7 @@ impl ContractSM {
                             claim_txid,
                             stake_txid,
                             stake_index,
-                            partials,
+                            agg_sigs: agg_sigs.into(),
                         },
                     ))
                 } else {
@@ -1925,56 +1931,6 @@ impl ContractSM {
         self.state.state = current;
 
         Ok(duty)
-    }
-
-    /// Transposes an array of partials for each input per operator into an array of partials for
-    /// each operator per input.
-    ///
-    /// It accepts a map of graph partials such that each map holds the partials for an operator for
-    /// all inputs and then changes them so that the end result is an array of partials from all
-    /// operators for each input such that they can be aggregated on a per input basis.
-    fn transpose_partials<const NUM_INPUTS: usize>(
-        &mut self,
-        graph_partials: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
-        claim_txid: Txid,
-    ) -> Result<[Vec<PartialSignature>; NUM_INPUTS], TransitionErr> {
-        let payout_optimistic_partials =
-            graph_partials
-                .get(&claim_txid)
-                .ok_or(TransitionErr(format!(
-                    "could not find graph partials for claim txid {}",
-                    claim_txid
-                )))?;
-        let num_operators = self.cfg.operator_table.btc_keys().into_iter().count();
-
-        let mut partials_per_input: [Vec<_>; NUM_INPUTS] = (0..NUM_INPUTS)
-            .map(|_| Vec::with_capacity(num_operators))
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("must have matching size");
-
-        self.cfg
-            .operator_table
-            .btc_keys()
-            .into_iter()
-            .for_each(|btc_key| {
-                let p2p_key = self
-                    .cfg
-                    .operator_table
-                    .btc_key_to_op_key(&btc_key)
-                    .expect("each btc key must have a p2p key");
-
-                let partials_for_op = payout_optimistic_partials
-                    .get(p2p_key)
-                    .expect("each p2p key must have a partial")
-                    .payout_optimistic;
-
-                (0..NUM_INPUTS).for_each(|input| {
-                    partials_per_input[input].push(partials_for_op[input]);
-                });
-            });
-
-        Ok(partials_per_input)
     }
 
     /// Processes an assignment from the strata state commitment.
