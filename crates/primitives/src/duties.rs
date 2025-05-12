@@ -192,7 +192,9 @@ pub enum DepositRequestStatus {
 pub enum WithdrawalStatus {
     Received,
 
-    PaidUser(Txid),
+    PaidUser {
+        withdrawal_fulfillment_txid: Txid,
+    },
 
     Claim {
         withdrawal_fulfillment_txid: Txid,
@@ -229,8 +231,14 @@ pub enum WithdrawalStatus {
 impl WithdrawalStatus {
     pub fn next(&mut self, txid: Txid) {
         match self {
-            Self::Received => *self = Self::PaidUser(txid),
-            Self::PaidUser(withdrawal_fulfillment_txid) => {
+            Self::Received => {
+                *self = Self::PaidUser {
+                    withdrawal_fulfillment_txid: txid,
+                }
+            }
+            Self::PaidUser {
+                withdrawal_fulfillment_txid,
+            } => {
                 *self = Self::Claim {
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     claim_txid: txid,
@@ -278,16 +286,18 @@ impl WithdrawalStatus {
 
     pub fn should_kickoff(&self) -> Option<Txid> {
         match self {
-            WithdrawalStatus::PaidUser(txid) => Some(*txid),
+            WithdrawalStatus::PaidUser {
+                withdrawal_fulfillment_txid: txid,
+            } => Some(*txid),
             _ => None,
         }
     }
 
     pub fn should_claim(&self) -> Option<Txid> {
         match self {
-            WithdrawalStatus::PaidUser(withdrawal_fulfillment_txid) => {
-                Some(*withdrawal_fulfillment_txid)
-            }
+            WithdrawalStatus::PaidUser {
+                withdrawal_fulfillment_txid,
+            } => Some(*withdrawal_fulfillment_txid),
             _ => None,
         }
     }
@@ -387,7 +397,7 @@ mod tests {
 
         assert!(status.should_pay(), "should pay");
         status.next(txid); // broadcast bridge-out
-        assert!(matches!(status, WithdrawalStatus::PaidUser(_)));
+        assert!(matches!(status, WithdrawalStatus::PaidUser { .. }));
 
         assert!(status.should_claim().is_some(), "should claim");
         status.next(txid); // broadcast claim

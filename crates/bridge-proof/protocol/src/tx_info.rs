@@ -70,11 +70,15 @@ pub(crate) struct WithdrawalInfo {
 
 // TODO: make this standard
 pub(crate) fn extract_withdrawal_info(
+    tag_len: usize,
     tx: &Transaction,
 ) -> Result<WithdrawalInfo, BridgeProofError> {
     if tx.output.len() < 2 {
         return Err(BridgeProofError::TxInfoExtractionError(
-            BridgeRelatedTx::WithdrawalFulfillment,
+            BridgeRelatedTx::WithdrawalFulfillment(format!(
+                "outputs less than 2, got: {}",
+                tx.output.len()
+            )),
         ));
     }
 
@@ -82,28 +86,56 @@ pub(crate) fn extract_withdrawal_info(
     let withdrawal_metadata_output = &tx.output[1];
 
     let metadata_script = withdrawal_metadata_output.script_pubkey.as_bytes();
-    const EXPECTED_METADATA_SIZE: usize = 2 + 4 + 4 + 32; // OP_RETURN + OP_PUSHBYTES + operator_id + deposit_id + deposit_txid
-    if metadata_script.len() != EXPECTED_METADATA_SIZE {
+
+    const OP_RETURN_INSTRUCTION_SIZE: usize = 2; // OP_RETURN + OP_PUSHBYTES
+    const OPERATOR_IDX_SIZE: usize = std::mem::size_of::<OperatorIdx>();
+    const DEPOSIT_IDX_SIZE: usize = std::mem::size_of::<u32>();
+    const DEPOSIT_TXID_SIZE: usize = std::mem::size_of::<Txid>();
+
+    let expected_metadata_size: usize = OP_RETURN_INSTRUCTION_SIZE
+        + tag_len
+        + OPERATOR_IDX_SIZE
+        + DEPOSIT_IDX_SIZE
+        + DEPOSIT_TXID_SIZE;
+
+    if metadata_script.len() != expected_metadata_size {
         return Err(BridgeProofError::TxInfoExtractionError(
-            BridgeRelatedTx::WithdrawalFulfillment,
+            BridgeRelatedTx::WithdrawalFulfillment(format!(
+                "metadata script size mismatch, expected: {}, got: {}",
+                expected_metadata_size,
+                metadata_script.len()
+            )),
         ));
     }
 
-    let operator_idx_bytes = &metadata_script[2..6];
+    let mut offset = OP_RETURN_INSTRUCTION_SIZE + tag_len;
+    let operator_idx_bytes = &metadata_script[offset..offset + OPERATOR_IDX_SIZE];
 
-    let deposit_idx_bytes = &metadata_script[6..10];
-    let deposit_txid_bytes = &metadata_script[10..42];
+    offset += OPERATOR_IDX_SIZE;
+    let deposit_idx_bytes = &metadata_script[offset..offset + DEPOSIT_IDX_SIZE];
+
+    offset += DEPOSIT_IDX_SIZE;
+    let deposit_txid_bytes = &metadata_script[offset..offset + DEPOSIT_TXID_SIZE];
 
     let operator_idx = u32::from_be_bytes(operator_idx_bytes.try_into().map_err(|_| {
-        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment(format!(
+            "operator_idx bytes conversion error, expected 4 bytes, got: {}",
+            operator_idx_bytes.len()
+        )))
     })?);
 
     let deposit_idx = u32::from_be_bytes(deposit_idx_bytes.try_into().map_err(|_| {
-        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment(format!(
+            "deposit_idx bytes conversion error, expected 4 bytes, got: {}",
+            deposit_idx_bytes.len()
+        )))
     })?);
 
     let deposit_txid: Txid = consensus::encode::deserialize(deposit_txid_bytes).map_err(|_| {
-        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment)
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment(format!(
+            "deposit_txid bytes conversion error, expected 32 bytes, got: {}",
+            deposit_txid_bytes.len()
+        )))
     })?;
 
     let withdrawal_amount = BitcoinAmount::from_sat(withdrawal_fulfillment_output.value.to_sat());
@@ -175,7 +207,8 @@ mod tests {
             "custom computed txid must match rust-bitcoin computed txid"
         );
 
-        let res = extract_withdrawal_info(withdrawal_fulfillment_tx);
+        let tag_size = b"strata".len();
+        let res = extract_withdrawal_info(tag_size, withdrawal_fulfillment_tx);
         assert!(
             res.is_ok(),
             "must be able to extract withdrawal info but got {:?}",

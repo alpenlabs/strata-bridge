@@ -163,7 +163,6 @@ impl PegOutGraph {
 
         let claim_data = ClaimData {
             stake_outpoint: input.withdrawal_fulfillment_outpoint,
-            input_amount: FUNDING_AMOUNT,
             deposit_txid,
         };
 
@@ -198,7 +197,6 @@ impl PegOutGraph {
                 txid: input.stake_outpoint.txid,
                 vout: 1,
             },
-            input_amount: claim_tx.output_amount(),
             deposit_amount: graph_params.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
@@ -228,7 +226,7 @@ impl PegOutGraph {
             assert_chain_data,
             connectors.claim_out_0,
             connectors.n_of_n,
-            connectors.post_assert_out_0,
+            connectors.post_assert_out_0.clone(),
             connectors.connector_cpfp,
             connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
@@ -260,7 +258,7 @@ impl PegOutGraph {
 
         let payout_tx = PayoutTx::new(
             payout_data,
-            connectors.post_assert_out_0,
+            connectors.post_assert_out_0.clone(),
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp,
@@ -281,7 +279,7 @@ impl PegOutGraph {
         let disprove_tx = DisproveTx::new(
             disprove_data,
             stake_chain_params,
-            connectors.post_assert_out_0,
+            connectors.post_assert_out_0.clone(),
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
@@ -439,7 +437,7 @@ impl PegOutGraph {
 ///
 /// Note that this does not include the stake chain connectors as those are shared at setup time at
 /// regular intervals and not during the peg-out graph generation.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PegOutGraphConnectors {
     /// The first output of the stake transaction that kicks off the peg out graph.
     pub kickoff: ConnectorK,
@@ -499,11 +497,7 @@ impl PegOutGraphConnectors {
             "wots keys from strata-p2p must be compatible with those in the bridge primitives",
         );
 
-        let kickoff = ConnectorK::new(
-            n_of_n_agg_pubkey,
-            network,
-            wots_public_keys.withdrawal_fulfillment,
-        );
+        let kickoff = ConnectorK::new(network, wots_public_keys.withdrawal_fulfillment);
 
         let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network, params.pre_assert_timelock);
 
@@ -586,7 +580,6 @@ mod tests {
         hashes::{self, Hash},
         key::TapTweak,
         policy::MAX_STANDARD_TX_WEIGHT,
-        sighash::{Prevouts, SighashCache},
         taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
         Transaction, TxOut,
     };
@@ -603,12 +596,12 @@ mod tests {
     use strata_bridge_primitives::{
         build_context::TxBuildContext,
         constants::*,
-        scripts::taproot::{create_message_hash, TaprootWitness},
+        scripts::taproot::TaprootWitness,
         wots::{Assertions, Wots256Signature},
     };
     use strata_bridge_stake_chain::{
         prelude::{StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
-        transactions::stake::StakeTxData,
+        transactions::stake::{Head, StakeTxData},
     };
     use strata_bridge_test_utils::{
         bitcoin_rpc::fund_and_sign_raw_tx,
@@ -705,15 +698,7 @@ mod tests {
             ..
         } = graph;
 
-        let PegOutGraphConnectors {
-            kickoff,
-            claim_out_0,
-            claim_out_1,
-            n_of_n: claim_out_2,
-            hashlock_payout,
-            connector_cpfp,
-            ..
-        } = connectors;
+        let PegOutGraphConnectors { connector_cpfp, .. } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
 
@@ -725,7 +710,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
+        let signed_claim_tx = claim_tx.finalize(*claim_sig);
         info!(
             vsize = signed_claim_tx.vsize(),
             action = "broadcasting claim tx",
@@ -761,10 +746,11 @@ mod tests {
 
         let witnesses = payout_optimistic.witnesses();
 
-        let mut signatures = witnesses
+        let signatures = witnesses
             .iter()
             .zip(payout_optimistic.sighashes())
-            .map(|(witness, sighash)| generate_agg_signature(&sighash, &n_of_n_keypair, witness));
+            .map(|(witness, sighash)| generate_agg_signature(&sighash, &n_of_n_keypair, witness))
+            .collect::<Vec<_>>();
 
         assert_eq!(
             signatures.len(),
@@ -772,32 +758,10 @@ mod tests {
             "must have signatures for all inputs"
         );
 
-        let deposit_signature = signatures.next().expect("must have deposit signature");
-        let n_of_n_sig_c0 = signatures
-            .next()
-            .expect("must have n-of-n signature for c0");
-        let n_of_n_sig_c1 = signatures
-            .next()
-            .expect("must have n-of-n signature for c1");
-        let n_of_n_sig_c2 = signatures
-            .next()
-            .expect("must have n-of-n signature for c2");
-        let n_of_n_sig_p = signatures.next().expect("must have n-of-n signature for p");
-
         let payout_input_amount = payout_optimistic.input_amount();
         let payout_cpfp_vout = payout_optimistic.cpfp_vout();
 
-        let signed_payout_tx = payout_optimistic.finalize(
-            deposit_signature,
-            n_of_n_sig_c0,
-            n_of_n_sig_c1,
-            n_of_n_sig_c2,
-            n_of_n_sig_p,
-            claim_out_0,
-            claim_out_1,
-            claim_out_2,
-            hashlock_payout,
-        );
+        let signed_payout_tx = payout_optimistic.finalize(signatures.try_into().unwrap());
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
@@ -1208,7 +1172,7 @@ mod tests {
         context: &TxBuildContext,
         operator_keypair: Keypair,
         wots_public_keys: wots::PublicKeys,
-    ) -> (PegOutGraphInput, [u8; 32], Amount) {
+    ) -> (PegOutGraphInput, [u8; 32], StakeTx<Head>) {
         let operator_pubkey = operator_keypair.x_only_public_key().0;
         let wallet_addr = btc_client.new_address().expect("must generate new address");
 
@@ -1221,8 +1185,9 @@ mod tests {
 
         info!("creating transaction to fund dust outputs");
         let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
+        let funding_address = operator_address.clone();
         let result = btc_client
-            .send_to_address(&operator_address, OPERATOR_FUNDS)
+            .send_to_address(&funding_address, OPERATOR_FUNDS)
             .unwrap();
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
         let operator_funds_tx = btc_client.get_transaction(result.txid().unwrap()).unwrap();
@@ -1245,8 +1210,9 @@ mod tests {
             .unwrap();
 
         info!("creating transaction for operator's stake");
+        let pre_stake_address = operator_address.clone();
         let result = btc_client
-            .send_to_address(&operator_address, OPERATOR_STAKE)
+            .send_to_address(&pre_stake_address, OPERATOR_STAKE)
             .unwrap();
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
         let operator_stake_tx = btc_client.get_transaction(result.txid().unwrap()).unwrap();
@@ -1268,7 +1234,7 @@ mod tests {
             })
             .unwrap();
 
-        let first_stake = StakeTx::create_initial(
+        let first_stake = StakeTx::<Head>::new(
             context,
             &stake_chain_params,
             stake_hash,
@@ -1280,53 +1246,24 @@ mod tests {
         );
 
         info!("signing and broadcasting the first stake tx");
-        let prevouts = vec![
-            TxOut {
-                value: OPERATOR_FUNDS,
-                script_pubkey: operator_address.script_pubkey(),
-            },
-            TxOut {
-                value: OPERATOR_STAKE,
-                script_pubkey: operator_address.script_pubkey(),
-            },
+        let prevouts = [
+            operator_address.script_pubkey(),
+            operator_address.script_pubkey(),
         ];
-        let prevouts = Prevouts::All(&prevouts);
-
-        let mut sighash_cache = SighashCache::new(&first_stake.psbt.unsigned_tx);
-        let witnesses = first_stake.witnesses();
-
-        let message_hash_0 = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            &witnesses[0],
-            TapSighashType::Default,
-            0,
-        )
-        .unwrap();
 
         let tweaked_operator_keypair = operator_keypair.tap_tweak(SECP256K1, None);
+        let messages = first_stake.sighashes(OPERATOR_STAKE, prevouts);
 
         let op_signature_0 =
-            SECP256K1.sign_schnorr(&message_hash_0, &tweaked_operator_keypair.to_inner());
-
-        let message_hash_1 = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            &witnesses[1],
-            TapSighashType::Default,
-            1,
-        )
-        .unwrap();
+            SECP256K1.sign_schnorr(&messages[0], &tweaked_operator_keypair.to_inner());
         let op_signature_1 =
-            SECP256K1.sign_schnorr(&message_hash_1, &tweaked_operator_keypair.to_inner());
+            SECP256K1.sign_schnorr(&messages[1], &tweaked_operator_keypair.to_inner());
 
         let signed_first_stake_tx = first_stake
             .clone()
-            .finalize_initial(op_signature_0, op_signature_1);
+            .finalize_unchecked(op_signature_0, op_signature_1);
 
         let input_amount = OPERATOR_FUNDS + OPERATOR_STAKE;
-        let graph_funding_amount =
-            signed_first_stake_tx.output[WITHDRAWAL_FULFILLMENT_VOUT as usize].value;
         let cpfp_child = create_cpfp_child(
             btc_client,
             &operator_keypair,
@@ -1366,7 +1303,7 @@ mod tests {
                 operator_pubkey,
             },
             stake_preimage,
-            graph_funding_amount,
+            first_stake,
         )
     }
 
@@ -1414,7 +1351,6 @@ mod tests {
         } = graph;
 
         let PegOutGraphConnectors {
-            kickoff,
             claim_out_0,
             claim_out_1,
             n_of_n,
@@ -1436,7 +1372,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_claim_tx = claim_tx.finalize(*claim_sig, kickoff);
+        let signed_claim_tx = claim_tx.finalize(*claim_sig);
         info!(vsize = signed_claim_tx.vsize(), "broadcasting claim tx");
 
         let claim_child_tx = create_cpfp_child(
@@ -1775,7 +1711,7 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let operator_pubkey = n_of_n_keypair.x_only_public_key().0;
 
-        let (input, stake_preimage, _) =
+        let (input, stake_preimage, first_stake_tx) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, wots_public_keys);
         let stake_chain_params = StakeChainParams::default();
         let graph_params = PegOutGraphParams {
@@ -1803,11 +1739,7 @@ mod tests {
             ..
         } = graph;
 
-        let PegOutGraphConnectors {
-            kickoff,
-            connector_cpfp,
-            ..
-        } = connectors;
+        let PegOutGraphConnectors { connector_cpfp, .. } = connectors;
 
         let withdrawal_fulfillment_txid = generate_txid();
 
@@ -1819,7 +1751,7 @@ mod tests {
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
-        let signed_ongoing_claim_tx = ongoing_claim_tx.finalize(*claim_sig, kickoff);
+        let signed_ongoing_claim_tx = ongoing_claim_tx.finalize(*claim_sig);
         info!(
             action = "broadcasting claim tx",
             vsize = signed_ongoing_claim_tx.vsize(),
@@ -1899,12 +1831,10 @@ mod tests {
             withdrawal_fulfillment_pk: new_withdrawal_fulfillment_pk,
         };
 
-        let new_stake_tx = StakeTx::advance(
+        let new_stake_tx = first_stake_tx.advance(
             &context,
             &stake_chain_params,
             stake_data,
-            input.stake_hash,
-            input.stake_outpoint,
             operator_pubkey,
             connector_cpfp,
         );
@@ -1952,40 +1882,13 @@ mod tests {
         );
 
         info!(action = "advancing the stake while previous claim is present", txid = %new_stake_tx.compute_txid());
+        let messages = new_stake_tx.sighashes(funding_address.script_pubkey());
 
+        let funds_signature = SECP256K1.sign_schnorr(&messages[0], &n_of_n_keypair);
+        let stake_signature = SECP256K1.sign_schnorr(&messages[1], &n_of_n_keypair);
         let prev_connector_s = connectors.stake;
-        let mut sighash_cache = SighashCache::new(&new_stake_tx.psbt.unsigned_tx);
-        let prevouts = new_stake_tx
-            .psbt
-            .inputs
-            .iter()
-            .map(|input| input.witness_utxo.clone().unwrap())
-            .collect::<Vec<_>>();
-        let prevouts = Prevouts::All(&prevouts);
 
-        let funds_witness = new_stake_tx.witnesses().first().unwrap();
-        let funding_tx_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            funds_witness,
-            TapSighashType::Default,
-            0,
-        )
-        .unwrap();
-        let funds_signature = SECP256K1.sign_schnorr(&funding_tx_msg, &n_of_n_keypair);
-
-        let stake_witness = new_stake_tx.witnesses().last().unwrap();
-        let stake_msg_hash = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            stake_witness,
-            TapSighashType::Default,
-            1,
-        )
-        .unwrap();
-        let stake_signature = SECP256K1.sign_schnorr(&stake_msg_hash, &n_of_n_keypair);
-
-        let signed_new_stake_tx = new_stake_tx.finalize(
+        let signed_new_stake_tx = new_stake_tx.finalize_unchecked(
             &stake_preimage,
             funds_signature,
             stake_signature,
@@ -2019,54 +1922,15 @@ mod tests {
 
         info!(action = "trying to spend slash stake tx");
         let slash_stake_tx = new_graph.slash_stake_txs[0].clone();
+        let sighashes = slash_stake_tx.sighashes();
+        let witnesses = slash_stake_tx.witnesses();
 
         let claim_out_conn = new_connectors.n_of_n;
         let stake_conn = new_connectors.stake;
 
-        let prevouts = slash_stake_tx
-            .psbt()
-            .inputs
-            .iter()
-            .map(|input| input.witness_utxo.clone().expect("must have witness utxo"))
-            .collect::<Vec<_>>();
-        let prevouts = Prevouts::All(&prevouts);
+        let claim_sig = generate_agg_signature(&sighashes[0], &n_of_n_keypair, &witnesses[0]);
 
-        let claim_input_index = 0;
-        let claim_witness = &slash_stake_tx.witnesses()[claim_input_index];
-        let claim_sighash = slash_stake_tx.psbt().inputs[claim_input_index]
-            .sighash_type
-            .unwrap()
-            .taproot_hash_ty()
-            .unwrap();
-        let mut sighash_cache = SighashCache::new(&slash_stake_tx.psbt().unsigned_tx);
-        let claim_slash_stake_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts.clone(),
-            claim_witness,
-            claim_sighash,
-            claim_input_index,
-        )
-        .unwrap();
-        let claim_sig =
-            generate_agg_signature(&claim_slash_stake_msg, &n_of_n_keypair, claim_witness);
-
-        let stake_input_index = 1;
-        let stake_witness = &slash_stake_tx.witnesses()[stake_input_index];
-        let stake_sighash = slash_stake_tx.psbt().inputs[stake_input_index]
-            .sighash_type
-            .unwrap()
-            .taproot_hash_ty()
-            .unwrap();
-        let stake_slash_stake_msg = create_message_hash(
-            &mut sighash_cache,
-            prevouts,
-            stake_witness,
-            stake_sighash,
-            stake_input_index,
-        )
-        .unwrap();
-        let stake_sig =
-            generate_agg_signature(&stake_slash_stake_msg, &n_of_n_keypair, stake_witness);
+        let stake_sig = generate_agg_signature(&sighashes[1], &n_of_n_keypair, &witnesses[1]);
 
         let mut signed_slash_stake_tx =
             slash_stake_tx.finalize(claim_sig, stake_sig, claim_out_conn, stake_conn);

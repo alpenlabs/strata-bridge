@@ -1,4 +1,4 @@
-#!/bin/bash -xe
+#!/bin/bash -e
 
 BITCOIND_CONF_FILE=/home/bitcoin/bitcoin.conf
 BTC_USER=user
@@ -78,4 +78,12 @@ $bcli generatetoaddress 1 $MY_ADDRESS
 sleep 0.1
 
 # Run forever
-tail -f /dev/null
+if [ "$AUTOMINE" -ne 0 ]; then
+    while true; do
+        echo "generating a block to ${MY_ADDRESS}..."
+        $bcli generatetoaddress 1 $MY_ADDRESS
+        sleep $AUTOMINE;
+    done
+else
+    tail -f /dev/null
+fi

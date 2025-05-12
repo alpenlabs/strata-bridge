@@ -1,8 +1,6 @@
 //! The stake chain is a series of transactions that move the stake from one transaction to the
 //! next.
 
-use std::ops::{Deref, DerefMut};
-
 use alpen_bridge_params::stake_chain::StakeChainParams;
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use indexmap::IndexSet;
@@ -10,8 +8,8 @@ use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::build_context::BuildContext;
 
 use crate::{
-    prelude::{StakeTx, STAKE_VOUT},
-    transactions::stake::StakeTxData,
+    prelude::StakeTx,
+    transactions::stake::{Head, StakeTxData, Tail},
 };
 
 /// A [`StakeChain`] is a series of transactions that move the stake from one transaction to the
@@ -40,12 +38,24 @@ use crate::{
 /// use cases. Therefore for maximum flexibility, this type holds a heap-allocated [`Vec`] of
 /// [`StakeTx`] where each successive transaction spends the stake output from the previous.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StakeChain(Vec<StakeTx>);
+pub struct StakeChain {
+    head: Option<StakeTx<Head>>,
+
+    tail: Vec<StakeTx<Tail>>,
+}
 
 impl StakeChain {
     /// Creates a new [`StakeChain`] from the provided [`StakeChainInputs`].
     ///
     /// This can be used to recreate a stake chain if the initial set of inputs are known.
+    ///
+    /// # Parameters
+    ///
+    /// - `context`: The context to use for building the transactions.
+    /// - `stake_chain_inputs`: The inputs to use for creating the stake chain.
+    /// - `stake_chain_params`: The parameters to used for creating the stake chain dictated by the
+    ///   protocol.
+    /// - `connector_cpfp`: The connector to use for CPFP.
     pub fn new(
         context: &impl BuildContext,
         stake_chain_inputs: &StakeChainInputs,
@@ -55,15 +65,17 @@ impl StakeChain {
         // Instantiate a vector with the length `M`.
         let stake_inputs = &stake_chain_inputs.stake_inputs;
         let num_inputs = stake_inputs.len();
-        let mut stake_chain = Vec::with_capacity(num_inputs);
 
         if num_inputs == 0 {
-            return Self(stake_chain);
+            return Self {
+                head: None,
+                tail: vec![],
+            };
         }
 
         let first_stake_inputs = stake_chain_inputs.stake_inputs[0];
 
-        let first_stake_tx = StakeTx::create_initial(
+        let first_stake_tx = StakeTx::<Head>::new(
             context,
             stake_chain_params,
             first_stake_inputs.hash,
@@ -73,61 +85,66 @@ impl StakeChain {
             stake_chain_inputs.operator_pubkey,
             connector_cpfp,
         );
-        let mut stake_txid = first_stake_tx.compute_txid();
 
-        stake_chain.push(first_stake_tx);
+        if num_inputs == 1 {
+            return Self {
+                head: Some(first_stake_tx),
+                tail: vec![],
+            };
+        }
 
-        stake_inputs
+        let new_stake_tx = first_stake_tx.advance(
+            context,
+            stake_chain_params,
+            stake_inputs[1],
+            stake_chain_inputs.operator_pubkey,
+            connector_cpfp,
+        );
+
+        let tail = stake_inputs
             .iter()
-            .enumerate()
-            .skip(1)
-            .for_each(|(index, stake_input)| {
-                let prev_stake = OutPoint {
-                    txid: stake_txid,
-                    vout: STAKE_VOUT,
-                };
-                let prev_hash = stake_chain_inputs
-                    .stake_hash_at_index(index - 1)
-                    .expect("must exist since this loop runs from 1 to `num_inputs`");
+            .skip(2) // first and the second created above
+            .fold(vec![new_stake_tx], |mut tail, stake_input| {
+                let new_stake_tx = tail
+                    .last()
+                    .expect("must have at least one element in every loop because it is initialized with one element")
+                    .advance(
+                        context,
+                        stake_chain_params,
+                        *stake_input,
+                        stake_chain_inputs.operator_pubkey,
+                        connector_cpfp,
+                    );
 
-                let new_stake_tx = StakeTx::advance(
-                    context,
-                    stake_chain_params,
-                    *stake_input,
-                    prev_hash,
-                    prev_stake,
-                    stake_chain_inputs.operator_pubkey,
-                    connector_cpfp,
-                );
-                stake_txid = new_stake_tx.compute_txid();
+                tail.push(new_stake_tx);
 
-                stake_chain.push(new_stake_tx);
+                tail
             });
 
-        Self(stake_chain)
+        Self {
+            head: Some(first_stake_tx),
+            tail,
+        }
     }
-}
 
-impl IntoIterator for StakeChain {
-    type Item = StakeTx;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.0.into_iter()
+    /// Gets the first stake transaction in the chain.
+    pub fn head(&self) -> Option<&StakeTx<Head>> {
+        self.head.as_ref()
     }
-}
 
-impl Deref for StakeChain {
-    type Target = Vec<StakeTx>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    /// Gets the all the stake transactions in the chain except the first.
+    pub fn tail(&self) -> &[StakeTx<Tail>] {
+        &self.tail
     }
-}
 
-impl DerefMut for StakeChain {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+    /// Gets the length of the stake chain.
+    pub fn len(&self) -> usize {
+        self.head.as_ref().map(|_| 1 + self.tail.len()).unwrap_or(0)
+    }
+
+    /// Checks if the stake chain is empty.
+    pub fn is_empty(&self) -> bool {
+        self.head.is_none()
     }
 }
 
@@ -232,9 +249,7 @@ mod tests {
         key::{Keypair, TapTweak},
         relative,
         sighash::{self, Prevouts, SighashCache},
-        taproot::{self, LeafVersion},
-        transaction, Address, Amount, BlockHash, Network, OutPoint, TapLeafHash, Transaction, TxIn,
-        TxOut, Txid, Witness,
+        transaction, Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
     };
     use corepc_node::{Conf, Node};
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
@@ -274,45 +289,25 @@ mod tests {
         stake_chain: &StakeChain,
         keypair_operator_funds: &Keypair,
         keypair_pre_stake: &Keypair,
+        stake_amount: Amount,
         prevouts: [TxOut; 2],
     ) -> Transaction {
-        let sighash_type = sighash::TapSighashType::Default;
-        // The key path spend for the first input
-        let stake = stake_chain[0].clone();
-        let mut stake_tx = stake.psbt.unsigned_tx.clone();
-        // Create the prevouts
-        let prevouts = Prevouts::All(&prevouts);
+        let messages = stake_chain.head().unwrap().sighashes(
+            stake_amount,
+            prevouts.clone().map(|prevout| prevout.script_pubkey),
+        );
 
-        // OPERATOR_FUNDS witness (key path spend)
-        let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
-            .expect("must create sighash");
-        let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, keypair_operator_funds);
-        trace!(%signature, "Signature stake_tx operator funds");
-        // Update the witness stack.
-        let signature = taproot::Signature {
-            signature,
-            sighash_type,
-        };
-        *sighash_cache.witness_mut(0).unwrap() = Witness::p2tr_key_spend(&signature);
-        let mut stake_tx = sighash_cache.into_transaction().to_owned();
+        let funds_signature = SECP256K1.sign_schnorr(&messages[0], keypair_operator_funds);
+        trace!(%funds_signature, "Signature stake_tx operator funds");
 
-        let mut sighash_cache = SighashCache::new(&mut stake_tx);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(1, &prevouts, sighash_type)
-            .expect("must create sighash");
-        let message = Message::from(sighash);
-        let signature = SECP256K1.sign_schnorr(&message, keypair_pre_stake);
-        trace!(%signature, "Signature stake_tx operator funds");
-        // Update the witness stack.
-        let signature = taproot::Signature {
-            signature,
-            sighash_type,
-        };
-        *sighash_cache.witness_mut(1).unwrap() = Witness::p2tr_key_spend(&signature);
-        sighash_cache.into_transaction().to_owned()
+        let pre_stake_signature = SECP256K1.sign_schnorr(&messages[1], keypair_pre_stake);
+        trace!(%pre_stake_signature, "Signature stake_tx operator funds");
+
+        stake_chain
+            .head()
+            .unwrap()
+            .clone()
+            .finalize_unchecked(funds_signature, pre_stake_signature)
     }
 
     /// Signs a [`StakeTx`], i.e. `StakeChain::[x]` given an index.
@@ -339,49 +334,32 @@ mod tests {
         delta: relative::LockTime,
         network: Network,
     ) -> Transaction {
-        let sighash_type = sighash::TapSighashType::Default;
-        let stake_hash = sha256::Hash::hash(stake_preimage);
-        // The key path spend for the first input
-        let stake_tx = stake_chain[index].clone();
-        let mut stake_tx_raw = stake_tx.psbt.unsigned_tx.clone();
-        // Recreate the connector s.
-        let connector_s =
-            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
-        // Create the prevouts
-        let prevouts = Prevouts::All(&prevouts);
-
         // OPERATOR_FUNDS witness (key path spend)
         // CATCH: if is the first stake, then we panic!
         if index == 0 {
             panic!("The first stake must be signed using another function");
         }
-        let mut sighash_cache = SighashCache::new(&mut stake_tx_raw);
-        let sighash = sighash_cache
-            .taproot_key_spend_signature_hash(0, &prevouts, sighash_type)
-            .expect("must create sighash");
-        let message = Message::from(sighash);
-        let funds_signature = SECP256K1.sign_schnorr(&message, keypair_operator_funds);
+
+        let stake_hash = sha256::Hash::hash(stake_preimage);
+        // The key path spend for the first input
+        let stake_tx = stake_chain.tail()[index - 1].clone();
+        // Recreate the connector s.
+        let connector_s =
+            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
+        // Create the prevouts
+
+        let messages = stake_tx.sighashes(prevouts[0].script_pubkey.clone());
+
+        let funds_signature = SECP256K1.sign_schnorr(&messages[0], keypair_operator_funds);
 
         trace!(%index, %funds_signature, "Signature stake_tx operator funds");
 
-        // Connector S witness (script path spend)
-        // Create the locking script
-        let mut sighash_cache = SighashCache::new(&mut stake_tx_raw);
-        // Get taproot spend info
-        let locking_script = connector_s.generate_script();
-        let leaf_hash =
-            TapLeafHash::from_script(locking_script.as_script(), LeafVersion::TapScript);
-        let sighash = sighash_cache
-            .taproot_script_spend_signature_hash(1, &prevouts, leaf_hash, sighash_type)
-            .expect("must create sighash");
-        let message =
-            Message::from_digest_slice(sighash.as_byte_array()).expect("must create a message");
         // Sign the transaction with operator key
-        let stake_signature = SECP256K1.sign_schnorr(&message, keypair_connector_s);
+        let stake_signature = SECP256K1.sign_schnorr(&messages[1], keypair_connector_s);
         trace!(%index, %stake_signature, "Signature stake_tx connector s");
         // Construct the witness stack
 
-        stake_tx.finalize(
+        stake_tx.finalize_unchecked(
             stake_preimage,
             funds_signature,
             stake_signature,
@@ -728,6 +706,7 @@ mod tests {
             &stake_chain,
             &operator_fund_1_keypair,
             &stake_0_keypair,
+            stake_amount,
             prevouts,
         );
         let stake_chain_0_txid = stake_chain_0_tx.compute_txid();

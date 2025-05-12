@@ -105,26 +105,24 @@ impl WotsSigner<Server> for SeededWotsSigner {
         wots_public_key::<PARAMS_256_TOTAL_LEN>(&PARAMS_256, &sk)
     }
 
-    #[expect(refining_impl_trait)]
     async fn get_128_signature(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
         msg: &[u8; 16],
-    ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
+    ) -> wots_hash::Signature {
         let sk = self.get_128_secret_key(txid, vout, index).await;
         wots_sign_128_bitvm(msg, &sk)
     }
 
-    #[expect(refining_impl_trait)]
     async fn get_256_signature(
         &self,
         txid: Txid,
         vout: u32,
         index: u32,
         msg: &[u8; 32],
-    ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
+    ) -> wots256::Signature {
         let sk = self.get_256_secret_key(txid, vout, index).await;
         wots_sign_256_bitvm(msg, &sk)
     }
@@ -248,7 +246,7 @@ where
 fn wots_sign_128_bitvm(
     msg: &[u8; 16],
     secret_key: &[u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)],
-) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
+) -> wots_hash::Signature {
     let split_secret_key: [[u8; 20]; key_width(128, WINTERNITZ_DIGIT_WIDTH)] =
         std::array::from_fn(|i| {
             let mut key = [0; 20];
@@ -256,18 +254,13 @@ fn wots_sign_128_bitvm(
             key
         });
 
-    let msg_sig_compact = wots_hash::compact::get_signature_with_secrets(split_secret_key, msg);
-    let mut sig = [0u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)];
-    for i in 0..key_width(128, WINTERNITZ_DIGIT_WIDTH) {
-        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
-    }
-    sig
+    wots_hash::get_signature_with_secrets(split_secret_key, msg)
 }
 
 fn wots_sign_256_bitvm(
     msg: &[u8; 32],
     secret_key: &[u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)],
-) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
+) -> wots256::Signature {
     let split_secret_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
         std::array::from_fn(|i| {
             let mut key = [0; 20];
@@ -275,12 +268,7 @@ fn wots_sign_256_bitvm(
             key
         });
 
-    let msg_sig_compact = wots256::compact::get_signature_with_secrets(split_secret_key, msg);
-    let mut sig = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
-    for i in 0..key_width(256, WINTERNITZ_DIGIT_WIDTH) {
-        sig[20 * i..20 * (i + 1)].copy_from_slice(&msg_sig_compact[i]);
-    }
-    sig
+    wots256::get_signature_with_secrets(split_secret_key, msg)
 }
 
 /// This function was an attempt at implementing WOTS signing from scratch. However during some
@@ -420,7 +408,7 @@ const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 
 #[cfg(test)]
 mod tests {
-    use bitvm::{execute_script, treepp::script};
+    use bitvm::{execute_script, signatures::wots_api::SignatureImpl, treepp::script};
 
     use super::*;
 
@@ -468,11 +456,6 @@ mod tests {
 
         let sig = wots_sign_256_bitvm(&msg, &sk);
 
-        let mut sig_grouped = [[0u8; 20]; 68];
-        for i in 0..68 {
-            sig_grouped[i].copy_from_slice(&sig[20 * i..20 * (i + 1)]);
-        }
-
         let pk = wots_public_key::<68>(
             &Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32),
             &sk,
@@ -483,10 +466,8 @@ mod tests {
         }
 
         let scr = script! {
-            for s in sig_grouped {
-                { s.to_vec() }
-            }
-            { wots256::compact::checksig_verify(pk_grouped) }
+            { sig.to_script() }
+            { wots256::checksig_verify(pk_grouped) }
             for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };
@@ -502,11 +483,6 @@ mod tests {
 
         let sig = wots_sign_128_bitvm(&msg, &sk);
 
-        let mut sig_grouped = [[0u8; 20]; 36];
-        for i in 0..36 {
-            sig_grouped[i].copy_from_slice(&sig[20 * i..20 * (i + 1)]);
-        }
-
         let pk = wots_public_key::<36>(
             &Parameters::new_by_bit_length(128, WINTERNITZ_DIGIT_WIDTH as u32),
             &sk,
@@ -517,10 +493,8 @@ mod tests {
         }
 
         let scr = script! {
-            for s in sig_grouped {
-                { s.to_vec() }
-            }
-            { wots_hash::compact::checksig_verify(pk_grouped) }
+            { sig.to_script() }
+            { wots_hash::checksig_verify(pk_grouped) }
             for _ in 0..128/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };

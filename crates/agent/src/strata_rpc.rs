@@ -1,11 +1,8 @@
-use bitcoin::{Amount, OutPoint, TapNodeHash};
+use bitcoin::{secp256k1::XOnlyPublicKey, Amount, OutPoint, ScriptBuf};
 use bitcoin_bosd::Descriptor;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::{
-    bitcoin::BitcoinAddress,
-    types::{BitcoinBlockHeight, OperatorIdx},
-};
+use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 // HACK: convert from `strata` type to `strata-bridge` type
 // to avoid having to use all the deposit/withdrawal types from
@@ -16,9 +13,12 @@ pub struct DepositInfoInterop {
     /// The deposit request transaction outpoints from the users.
     pub deposit_request_outpoint: OutPoint,
 
+    /// The index of the stake transaction.
+    pub stake_index: u32,
+
     /// The execution layer address to mint the equivalent tokens to.
     /// As of now, this is just the 20-byte EVM address.
-    pub el_address: Vec<u8>,
+    pub ee_address: Vec<u8>,
 
     /// The amount in bitcoins that the user is sending.
     ///
@@ -31,16 +31,16 @@ pub struct DepositInfoInterop {
     /// The hash of the take back leaf in the Deposit Request
     /// Transaction (DRT) as provided by the
     /// user in their `OP_RETURN` output.
-    pub take_back_leaf_hash: TapNodeHash,
+    pub x_only_public_key: XOnlyPublicKey,
 
-    /// The original taproot address in the Deposit Request Transaction
+    /// The original script buf in the Deposit Request Transaction
     /// (DRT) output used to
     /// sanity check computation internally i.e., whether the known
     /// information (n/n script spend
     /// path, `static@UNSPENDABLE_INTERNAL_KEY`) + the
-    /// [`Self::take_back_leaf_hash`] yields the
+    /// [`Self::x_only_public_key`] yields the
     /// same P2TR address.
-    pub original_taproot_addr: BitcoinAddress,
+    pub original_script_pubkey: ScriptBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

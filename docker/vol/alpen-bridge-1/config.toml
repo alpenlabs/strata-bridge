@@ -2,7 +2,7 @@ datadir = "/app/data"
 rpc_addr = "0.0.0.0:5678"
 # stub option ftm
 is_faulty = false
-nag_interval = { secs = 120, nanos = 0 }
+nag_interval = { secs = 60, nanos = 0 }
 
 [secret_service_client]
 server_addr = "172.28.1.5:69"
@@ -13,7 +13,7 @@ key = "/app/tls/key.pem"
 service_ca = "/app/tls/s2.ca.pem"
 
 [btc_client]
-url = "http://172.28.1.8:18443"
+url = "http://host.docker.internal:18443"
 user = "user"
 pass = "password"
 retry_count = 3
@@ -33,9 +33,9 @@ num_threads = 4
 stake_funding_pool_size = 32
 
 [btc_zmq]
-bury_depth = 6
-hashblock_connection_string = "tcp://172.28.1.8:28332"
-hashtx_connection_string = "tcp://172.28.1.8:28333"
-rawblock_connection_string = "tcp://172.28.1.8:28334"
-rawtx_connection_string = "tcp://172.28.1.8:28335"
-sequence_connection_string = "tcp://172.28.1.8:28336"
+bury_depth = 2
+hashblock_connection_string = "tcp://host.docker.internal:28332"
+hashtx_connection_string = "tcp://host.docker.internal:28333"
+rawblock_connection_string = "tcp://host.docker.internal:28334"
+rawtx_connection_string = "tcp://host.docker.internal:28335"
+sequence_connection_string = "tcp://host.docker.internal:28336"

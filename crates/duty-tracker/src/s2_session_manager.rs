@@ -22,7 +22,7 @@ use secret_service_proto::v1::{
 use strata_bridge_primitives::{operator_table::OperatorTable, scripts::taproot::TaprootWitness};
 use thiserror::Error;
 use tokio::sync::Mutex;
-use tracing::{debug, error, trace, warn};
+use tracing::{error, trace, warn};
 
 #[derive(Debug, Clone)]
 struct MusigSessionManagerState {
@@ -63,7 +63,7 @@ impl MusigSessionManager {
         outpoint: OutPoint,
         taproot_witness: TaprootWitness,
     ) -> Result<PubNonce, MusigSessionErr> {
-        debug!(%outpoint, "getting first round nonce");
+        trace!(%outpoint, "getting first round nonce");
         let first_round = self
             .s2_client
             .musig2_signer()
@@ -99,7 +99,7 @@ impl MusigSessionManager {
         sender: XOnlyPublicKey,
         nonce: PubNonce,
     ) -> Result<(), MusigSessionErr> {
-        debug!(%outpoint, "loading first round nonce");
+        trace!(%outpoint, "loading first round nonce");
 
         let mut state = self.state.lock().await;
 
@@ -123,25 +123,25 @@ impl MusigSessionManager {
         outpoint: OutPoint,
         sighash: Message,
     ) -> Result<PartialSignature, MusigSessionErr> {
-        debug!(%outpoint, "getting second round partial signature");
+        trace!(%outpoint, "getting second round partial signature");
 
         let mut state = self.state.lock().await;
 
         if let Some(second_round) = state.second_round_map.get(&outpoint) {
-            debug!(%outpoint, "getting our partial signature");
+            trace!(%outpoint, "getting our partial signature");
 
             return Ok(second_round.our_signature().await?);
         }
 
         if let Some(first_round) = state.first_round_map.remove(&outpoint) {
             let holdouts = first_round.holdouts().await?;
-            debug!(%outpoint, ?holdouts, "fetched first round holdouts");
+            trace!(%outpoint, ?holdouts, "fetched first round holdouts");
 
             if holdouts.is_empty() {
                 trace!(%outpoint, "finalizing first round");
                 let second_round = first_round.finalize(*sighash.as_ref()).await??;
 
-                debug!(%outpoint, "getting our partial signature");
+                trace!(%outpoint, "getting our partial signature");
                 let ours = second_round.our_signature().await?;
 
                 trace!(%outpoint, "updating second round session with our signature");
@@ -167,7 +167,7 @@ impl MusigSessionManager {
         sender: XOnlyPublicKey,
         partial: PartialSignature,
     ) -> Result<(), MusigSessionErr> {
-        debug!(%outpoint, "loading second round partial signature");
+        trace!(%outpoint, "loading second round partial signature");
 
         let mut state = self.state.lock().await;
 
@@ -188,7 +188,7 @@ impl MusigSessionManager {
         &self,
         outpoint: OutPoint,
     ) -> Result<LiftedSignature, MusigSessionErr> {
-        debug!(%outpoint, "getting aggregated signature");
+        trace!(%outpoint, "getting aggregated signature");
 
         let mut state = self.state.lock().await;
 

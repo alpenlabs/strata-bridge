@@ -2,7 +2,7 @@
 //! and responding to chain events and operator p2p network messages according to the Strata Bridge
 //! protocol rules.
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::Arc,
     time::Duration,
@@ -10,45 +10,22 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bdk_wallet::{miniscript::ToPublicKey, Wallet};
 use bitcoin::{
-    hashes::{sha256, Hash},
-    hex::DisplayHex,
-    sighash::{Prevouts, SighashCache},
-    taproot, Block, FeeRate, Network, OutPoint, Psbt, TapSighashType, Transaction, Txid,
+    hashes::Hash, hex::DisplayHex, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
 };
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
-use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
-use futures::{
-    future::{self, join3, join_all},
-    StreamExt,
-};
-use musig2::{
-    secp256k1::{self, schnorr, Message},
-    PartialSignature, PubNonce,
-};
-use operator_wallet::{FundingUtxo, OperatorWallet};
+use futures::{future, StreamExt};
+use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_connectors::prelude::ConnectorStake;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::{
-    build_context::BuildContext, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
-};
-use strata_bridge_stake_chain::{
-    prelude::StakeTx, stake_chain::StakeChainInputs, transactions::stake::StakeTxData,
-};
-use strata_bridge_tx_graph::{
-    pog_musig_functor::PogMusigF,
-    transactions::{deposit::DepositTx, prelude::CovenantTx},
-};
+use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
+use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
-use strata_p2p_types::{
-    P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
-    WotsPublicKeys,
-};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
@@ -63,11 +40,11 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
-        TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
+    executors::prelude::*,
     predicates::{deposit_request_info, parse_strata_checkpoint},
-    s2_session_manager::{MusigSessionErr, MusigSessionManager},
+    s2_session_manager::MusigSessionManager,
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
     tx_driver::TxDriver,
@@ -93,6 +70,8 @@ impl ContractManager {
         stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
+        // Genesis information
+        pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
         zmq_client: BtcZmqClient,
         rpc_client: BitcoinClient,
@@ -138,14 +117,19 @@ impl ContractManager {
                 .general_wallet_signer()
                 .pubkey()
                 .await
-                .expect("must be able to get stake chain wallet key")
-                .to_x_only_pubkey();
+                .expect("must be able to get stake chain wallet key");
+
+            let funding_address =
+                Address::from_script(wallet.stakechain_script_buf(), network.params())
+                    .expect("funding locking script must be valid for supplied network");
 
             let stake_chains = match stake_chain_persister
                 .load(&operator_table, operator_pubkey)
                 .await
             {
                 Ok(stake_chains) => {
+                    info!("restoring stake chain data");
+
                     match StakeChainSM::restore(
                         network,
                         operator_table.clone(),
@@ -196,6 +180,8 @@ impl ContractManager {
                 stake_chain_params,
                 sidesystem_params,
                 operator_table,
+                pre_stake_pubkey: pre_stake_pubkey.clone(),
+                funding_address: funding_address.clone(),
             });
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
@@ -210,6 +196,7 @@ impl ContractManager {
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
+                bitcoind_rpc_client: rpc_client.clone(),
                 s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
                 tx_driver,
                 db,
@@ -255,14 +242,14 @@ impl ContractManager {
                     Ok(duties) => {
                         let cfg = Arc::new(ctx.cfg.clone());
                         duties.into_iter().for_each(|duty| {
-                            info!(?duty, "starting duty execution from lagging blocks");
+                            info!(%duty, "starting duty execution from lagging blocks");
                             let cfg = cfg.clone();
                             let output_handles = output_handles.clone();
                             tokio::task::spawn(async move {
                                 if let Err(e) =
                                     execute_duty(&cfg, output_handles, duty.clone()).await
                                 {
-                                    error!(%e, ?duty, "failed to execute duty");
+                                    error!(%e, %duty, "failed to execute duty");
                                 }
                             });
                         });
@@ -288,11 +275,12 @@ impl ContractManager {
                         let block_height = block.block.bip34_block_height().expect("must have valid height");
                         info!(%blockhash, %block_height, "processing block");
                         match ctx.process_block(block.block).await {
-                            Ok(block_duties) => {
+                            Ok(block_duties) if !block_duties.is_empty() => {
                                 let num_duties = block_duties.len();
                                 info!(%blockhash, %block_height, %num_duties, "queueing duties generated by the block event for execution");
-                                duties.extend(block_duties.into_iter());
+                                duties.extend(block_duties);
                             },
+                            Ok(_) => {},
                             Err(e) => {
                                 error!(%blockhash, %block_height, ?e, "failed to process block");
                                 break;
@@ -302,12 +290,13 @@ impl ContractManager {
                     ouroboros_msg = ouroboros_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
                             match ctx.process_p2p_message(msg).await {
-                                Ok(ouroboros_duties) => {
+                                Ok(ouroboros_duties) if !ouroboros_duties.is_empty() => {
                                     info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
                                     debug!(?ouroboros_duties, "queueing duties generated via ouroboros");
 
                                     duties.extend(ouroboros_duties);
                                 },
+                                Ok(_) => {},
                                 Err(e) => {
                                     error!(%e, "failed to process ouroboros message");
                                     break;
@@ -322,9 +311,10 @@ impl ContractManager {
                     Some(event) = p2p_handle.next() => match event {
                         Ok(Event::ReceivedMessage(msg)) => {
                             match ctx.process_p2p_message(msg.clone()).await {
-                                Ok(msg_duties) => {
-                                    duties.extend(msg_duties.into_iter());
+                                Ok(msg_duties) if !msg_duties.is_empty() => {
+                                    duties.extend(msg_duties);
                                 },
+                                Ok(_) => {},
                                 Err(e) => {
                                     error!(?msg, %e, "failed to process p2p msg");
                                     // in case an error occurs, we will just nag again
@@ -334,7 +324,7 @@ impl ContractManager {
                         },
                         Ok(Event::ReceivedRequest(req)) => {
                             match ctx.process_p2p_request(req.clone()).await {
-                                Ok(p2p_requests) => duties.extend(p2p_requests.into_iter()),
+                                Ok(p2p_requests) => duties.extend(p2p_requests),
                                 Err(e) => {
                                     error!(?req, %e, "failed to process p2p request");
                                     // in case an error occurs, the requester will just nag again
@@ -356,13 +346,13 @@ impl ContractManager {
                 }
 
                 duties.into_iter().for_each(|duty| {
-                    debug!(?duty, "starting duty execution from new blocks");
+                    debug!(%duty, "starting duty execution from new blocks");
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
                     tokio::task::spawn(async move {
                         if let Err(e) = execute_duty(&cfg, output_handles, duty.clone()).await {
-                            error!(%e, ?duty, "failed to execute duty");
+                            error!(%e, %duty, "failed to execute duty");
                         }
                     });
                 });
@@ -379,38 +369,41 @@ impl Drop for ContractManager {
 }
 
 /// The handles required by the duty tracker to execute duties.
-struct OutputHandles {
-    wallet: RwLock<OperatorWallet>,
-    msg_handler: MessageHandler,
-    s2_session_manager: MusigSessionManager,
-    tx_driver: TxDriver,
-    db: SqliteDb,
+pub(super) struct OutputHandles {
+    pub(super) wallet: RwLock<OperatorWallet>,
+    pub(super) msg_handler: MessageHandler,
+    pub(super) bitcoind_rpc_client: BitcoinClient,
+    pub(super) s2_session_manager: MusigSessionManager,
+    pub(super) tx_driver: TxDriver,
+    pub(super) db: SqliteDb,
 }
 
 /// The actual state that is being tracked by the [`ContractManager`].
 #[derive(Debug)]
-struct ExecutionState {
-    active_contracts: BTreeMap<Txid, ContractSM>,
-    claim_txids: BTreeMap<Txid, Txid>,
-    stake_chains: StakeChainSM,
+pub(super) struct ExecutionState {
+    pub(super) active_contracts: BTreeMap<Txid, ContractSM>,
+    pub(super) claim_txids: BTreeMap<Txid, Txid>,
+    pub(super) stake_chains: StakeChainSM,
 }
 
-/// The proxy for the state being tracked by the [`ContractManager`].
+/// pub(super) The proxy for the state being tracked by the [`ContractManager`].
 #[derive(Debug)]
-struct StateHandles {
-    contract_persister: ContractPersister,
-    stake_chain_persister: StakeChainPersister,
+pub(super) struct StateHandles {
+    pub(super) contract_persister: ContractPersister,
+    pub(super) stake_chain_persister: StakeChainPersister,
 }
 
-/// The parameters that all duty executions depend upon.
+/// pub(super) The parameters that all duty executions depend upon.
 #[derive(Debug, Clone)]
-struct ExecutionConfig {
-    network: Network,
-    connector_params: ConnectorParams,
-    pegout_graph_params: PegOutGraphParams,
-    stake_chain_params: StakeChainParams,
-    sidesystem_params: RollupParams,
-    operator_table: OperatorTable,
+pub(super) struct ExecutionConfig {
+    pub(super) network: Network,
+    pub(super) connector_params: ConnectorParams,
+    pub(super) pegout_graph_params: PegOutGraphParams,
+    pub(super) stake_chain_params: StakeChainParams,
+    pub(super) sidesystem_params: RollupParams,
+    pub(super) operator_table: OperatorTable,
+    pub(super) pre_stake_pubkey: ScriptBuf,
+    pub(super) funding_address: Address,
 }
 
 struct ContractManagerCtx {
@@ -442,10 +435,15 @@ impl ContractManagerCtx {
         let stake_index = self.state.active_contracts.len() as u32;
 
         for tx in block.txdata {
+            // could be an assignment
             let assignment_duties = self.process_assignments(&tx).await?;
-            duties.extend(assignment_duties.into_iter());
+            if !assignment_duties.is_empty() {
+                info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
+                duties.extend(assignment_duties);
+            }
 
             let txid = tx.compute_txid();
+            // or a deposit request
             if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
                 &self.cfg.sidesystem_params,
@@ -488,6 +486,8 @@ impl ContractManagerCtx {
                     .get(&pov_key)
                     .expect("this operator's p2p key must exist in the operator table")
                     .clone();
+
+                debug!(%stake_index, %deposit_request_txid, "creating a new contract");
                 let (sm, duty) = ContractSM::new(
                     self.cfg.network,
                     self.cfg.operator_table.clone(),
@@ -497,7 +497,7 @@ impl ContractManagerCtx {
                     self.cfg.stake_chain_params,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    stake_index,
+                    stake_index + new_contracts.len() as u32,
                     deposit_request_txid,
                     deposit_tx,
                     stake_chain_inputs,
@@ -510,6 +510,7 @@ impl ContractManagerCtx {
                 continue;
             }
 
+            // or a deposit
             if let Some(contract) = self.state.active_contracts.get_mut(&txid) {
                 if contract.state().block_height >= height {
                     // Don't process events if we've already processed them.
@@ -524,6 +525,7 @@ impl ContractManagerCtx {
                 continue;
             }
 
+            // or one of the pegout graph confirmations
             for (_deposit_txid, contract) in self.state.active_contracts.iter_mut() {
                 if contract.state().block_height >= height {
                     // Don't process events if we've already processed them.
@@ -578,63 +580,60 @@ impl ContractManagerCtx {
         &mut self,
         tx: &Transaction,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
-        let assignment_txid = tx.compute_txid();
         let mut duties = Vec::new();
 
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
             let chain_state = checkpoint.sidecar().chainstate();
 
-            if let Ok(chain_state) = borsh::from_slice::<Chainstate>(chain_state) {
-                let deposits_table = chain_state.deposits_table().deposits();
+            match borsh::from_slice::<Chainstate>(chain_state) {
+                Ok(chain_state) => {
+                    let deposits_table =
+                        chain_state.deposits_table().deposits().collect::<Vec<_>>();
+                    debug!(?deposits_table, "extracted deposits table from chain state");
 
-                let assigned_deposit_entries = deposits_table
-                    .filter(|entry| matches!(entry.deposit_state(), DepositState::Dispatched(_)));
+                    let assigned_deposit_entries = deposits_table.into_iter().filter(|entry| {
+                        matches!(entry.deposit_state(), DepositState::Dispatched(_))
+                    });
 
-                for entry in assigned_deposit_entries {
-                    let deposit_txid = entry.output().outpoint().txid;
+                    for entry in assigned_deposit_entries {
+                        let deposit_txid = entry.output().outpoint().txid;
 
-                    let sm = self
-                        .state
-                        .active_contracts
-                        .get_mut(&deposit_txid)
-                        .expect("withdrawal info must be for an active contract");
+                        let sm = self
+                            .state
+                            .active_contracts
+                            .get_mut(&deposit_txid)
+                            .expect("withdrawal info must be for an active contract");
 
-                    let pov_op_p2p_key = self.cfg.operator_table.pov_op_key();
-                    let stake_index = entry.idx();
-                    let Ok(Some(stake_tx)) = self
-                        .state
-                        .stake_chains
-                        .stake_tx(pov_op_p2p_key, stake_index as usize)
-                    else {
-                        warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
-                        continue;
-                    };
+                        let pov_op_p2p_key = self.cfg.operator_table.pov_op_key();
+                        let stake_index = entry.idx();
+                        let Ok(Some(stake_tx)) = self
+                            .state
+                            .stake_chains
+                            .stake_tx(pov_op_p2p_key, stake_index as usize)
+                        else {
+                            warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
+                            continue;
+                        };
 
-                    match sm.process_contract_event(ContractEvent::Assignment(
-                        entry.clone(),
-                        stake_tx,
-                        assignment_txid,
-                    )) {
-                        Ok(new_duties) if !new_duties.is_empty() => {
-                            info!("committing stake chain state");
-                            self.state_handles
-                                .stake_chain_persister
-                                .commit_stake_data(
-                                    &self.cfg.operator_table,
-                                    self.state.stake_chains.state().clone(),
-                                )
-                                .await?;
-
-                            duties.extend(new_duties);
-                        }
-                        Ok(_) => {
-                            info!(?entry, "no duty generated for assignment");
-                        }
-                        Err(e) => {
-                            error!(%e, "could not generate duty for assignment event");
-                            return Err(e)?;
+                        match sm.process_contract_event(ContractEvent::Assignment(
+                            entry.clone(),
+                            stake_tx,
+                        )) {
+                            Ok(new_duties) if !new_duties.is_empty() => {
+                                duties.extend(new_duties);
+                            }
+                            Ok(_) => {
+                                debug!(?entry, "no duty generated for assignment");
+                            }
+                            Err(e) => {
+                                error!(%e, "could not generate duty for assignment event");
+                                return Err(e)?;
+                            }
                         }
                     }
+                }
+                Err(e) => {
+                    warn!(%e, "failed to deserialize chainstate inscribed in checkpoint tx");
                 }
             }
         };
@@ -725,10 +724,10 @@ impl ContractManagerCtx {
                         wots_pks: wots_pks.clone(),
                     };
 
-                    info!(%deposit_txid, %sender_id, %index, "processing stake chain setup");
+                    info!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
                     self.state.stake_chains.process_setup(key.clone(), &setup)?;
 
-                    info!(%deposit_txid, %sender_id, %index, "committing stake chain setup to disk");
+                    info!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
                     self.state_handles
                         .stake_chain_persister
                         .commit_stake_data(
@@ -744,27 +743,27 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx as usize)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
-                    for duty in contract.process_contract_event(ContractEvent::DepositSetup {
-                        operator_p2p_key: key.clone(),
-                        operator_btc_key: self
-                            .cfg
-                            .operator_table
-                            .op_key_to_btc_key(&key)
-                            .unwrap()
-                            .x_only_public_key()
-                            .0,
-                        stake_hash: hash,
-                        stake_tx,
-                        wots_keys: Box::new(wots_pks),
-                    })? {
-                        // we need a way to feed the claim txids back into the manager's index so
-                        // we skim it off of the publish graph nonces duty.
-                        if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = &duty {
-                            self.state.claim_txids.insert(*claim_txid, deposit_txid);
-                        }
+                    let deposit_setup_duties = contract
+                        .process_contract_event(ContractEvent::DepositSetup {
+                            operator_p2p_key: key.clone(),
+                            operator_btc_key: operator_pk,
+                            stake_hash: hash,
+                            stake_tx,
+                            wots_keys: Box::new(wots_pks),
+                        })?
+                        .into_iter()
+                        .map(|duty| {
+                            // we need a way to feed the claim txids back into the manager's index
+                            // so we skim it off of the publish graph
+                            // nonces duty.
+                            if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
+                                self.state.claim_txids.insert(claim_txid, deposit_txid);
+                            }
 
-                        duties.push(duty);
-                    }
+                            duty
+                        });
+
+                    duties.extend(deposit_setup_duties);
                 } else {
                     // One of the other operators has may have seen a DRT that we have not yet
                     // seen
@@ -931,7 +930,7 @@ impl ContractManagerCtx {
                     let deposit_request_txid = session_id_as_txid;
                     info!(%deposit_request_txid, "received nag for root nonces");
 
-                    if let ContractState::Requested { .. } = csm.state().state {
+                    if let ContractState::Requested { .. } = &csm.state().state {
                         let witness = csm.cfg().deposit_tx.witnesses()[0].clone();
 
                         Some(OperatorDuty::PublishRootNonce {
@@ -1234,11 +1233,10 @@ async fn execute_duty(
     duty: OperatorDuty,
 ) -> Result<(), ContractManagerErr> {
     let OutputHandles {
-        wallet,
         msg_handler,
         s2_session_manager,
-        tx_driver,
         db,
+        ..
     } = &*output_handles;
 
     match duty {
@@ -1254,11 +1252,7 @@ async fn execute_duty(
         } => {
             handle_publish_deposit_setup(
                 cfg,
-                &s2_session_manager.s2_client,
-                db,
-                wallet,
-                msg_handler,
-                tx_driver,
+                output_handles.clone(),
                 deposit_txid,
                 deposit_idx,
                 stake_chain_inputs,
@@ -1344,631 +1338,70 @@ async fn execute_duty(
             .await
         }
 
-        OperatorDuty::FulfillerDuty(FulfillerDuty::AdvanceStakeChain {
-            stake_index,
-            stake_tx,
-        }) => handle_advance_stake_chain(cfg, output_handles.clone(), stake_index, stake_tx).await,
+        OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
+            FulfillerDuty::AdvanceStakeChain {
+                stake_index,
+                stake_tx,
+            } => match stake_tx {
+                StakeTxKind::Head(stake_tx) => {
+                    handle_publish_first_stake(cfg, output_handles, stake_tx).await
+                }
+                StakeTxKind::Tail(stake_tx) => {
+                    handle_advance_stake_chain(cfg, output_handles, stake_index, stake_tx).await
+                }
+            },
+            FulfillerDuty::PublishFulfillment {
+                withdrawal_metadata,
+                user_descriptor,
+            } => {
+                handle_withdrawal_fulfillment(
+                    cfg,
+                    output_handles,
+                    withdrawal_metadata,
+                    user_descriptor,
+                )
+                .await
+            }
+            FulfillerDuty::PublishClaim {
+                withdrawal_fulfillment_txid,
+                stake_txid,
+                deposit_txid,
+            } => {
+                handle_publish_claim(
+                    cfg,
+                    output_handles.clone(),
+                    stake_txid,
+                    deposit_txid,
+                    withdrawal_fulfillment_txid,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPayoutOptimistic {
+                deposit_txid,
+                claim_txid,
+                stake_txid,
+                stake_index,
+                partials,
+            } => {
+                handle_publish_payout_optimistic(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_txid,
+                    claim_txid,
+                    stake_txid,
+                    stake_index,
+                    partials,
+                )
+                .await
+            }
+            ignored_fulfiller_duty => {
+                warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
+                Ok(())
+            }
+        },
         ignored_duty => {
             warn!(?ignored_duty, "ignoring duty");
             Ok(())
         }
     }
-}
-
-async fn handle_publish_stake_chain_exchange(
-    cfg: &ExecutionConfig,
-    s2_client: &SecretServiceClient,
-    db: &SqliteDb,
-    msg_handler: &MessageHandler,
-) -> Result<(), ContractManagerErr> {
-    let pov_idx = cfg.operator_table.pov_idx();
-    let general_key = s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?
-        .to_x_only_pubkey();
-
-    if let Some(pre_stake) = db
-        .get_pre_stake(pov_idx)
-        .await
-        .expect("should be able to consult the database")
-    {
-        let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
-        info!(%stake_chain_id, "broadcasting pre-stake information");
-
-        msg_handler
-            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake.txid, pre_stake.vout)
-            .await;
-
-        return Ok(());
-    }
-
-    error!("pre-stake information does exist in the database");
-
-    Err(TransitionErr(
-        "pre-stake information missing in the database".to_string(),
-    ))?
-}
-
-async fn finalize_claim_funding_tx(
-    s2_client: &SecretServiceClient,
-    tx_driver: &TxDriver,
-    general_wallet: &Wallet,
-    psbt: Psbt,
-) -> Result<(), ContractManagerErr> {
-    let mut tx = psbt.unsigned_tx;
-    let txins_as_outs = tx
-        .input
-        .iter()
-        .map(|txin| {
-            general_wallet
-                .get_utxo(txin.previous_output)
-                .expect("always have this output because the wallet selected it in the first place")
-                .txout
-        })
-        .collect::<Vec<_>>();
-    let mut sighasher = SighashCache::new(&mut tx);
-    let sighash_type = TapSighashType::All;
-    let prevouts = Prevouts::All(&txins_as_outs);
-    for input_index in 0..txins_as_outs.len() {
-        let sighash = sighasher
-            .taproot_key_spend_signature_hash(input_index, &prevouts, sighash_type)
-            .expect("failed to construct sighash");
-        let signature = s2_client
-            .general_wallet_signer()
-            .sign(&sighash.to_byte_array(), None)
-            .await?;
-
-        let signature = bitcoin::taproot::Signature {
-            signature,
-            sighash_type,
-        };
-        sighasher
-            .witness_mut(input_index)
-            .expect("an input here")
-            .push(signature.to_vec());
-    }
-
-    info!(
-        txid = %tx.compute_txid(),
-        "submitting claim funding tx to the tx driver"
-    );
-    tx_driver
-        .drive(tx, 0)
-        .await
-        .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
-
-    Ok(())
-}
-
-async fn handle_advance_stake_chain(
-    cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
-    stake_index: u32,
-    stake_tx: StakeTx,
-) -> Result<(), ContractManagerErr> {
-    let operator_id = cfg.operator_table.pov_idx();
-    let op_p2p_key = cfg.operator_table.pov_op_key();
-
-    let pre_stake_outpoint = output_handles
-        .db
-        .get_pre_stake(operator_id)
-        .await?
-        .ok_or(StakeChainErr::StakeSetupDataNotFound(op_p2p_key.clone()))?;
-
-    let messages = stake_tx.sighashes();
-    let funds_signature = output_handles
-        .s2_session_manager
-        .s2_client
-        .general_wallet_signer()
-        .sign(messages[0].as_ref(), None)
-        .await?;
-
-    let signed_stake_tx = if stake_index == 0 {
-        // the first stake transaction spends the pre-stake which is locked by the key in the
-        // stake-chain wallet
-        let stake_signature = output_handles
-            .s2_session_manager
-            .s2_client
-            .general_wallet_signer()
-            .sign(messages[1].as_ref(), None)
-            .await?;
-
-        stake_tx.finalize_initial(funds_signature, stake_signature)
-    } else {
-        let pre_image_client = output_handles
-            .s2_session_manager
-            .s2_client
-            .stake_chain_preimages();
-        let OutPoint {
-            txid: pre_stake_txid,
-            vout: pre_stake_vout,
-        } = pre_stake_outpoint;
-        let prev_preimage = pre_image_client
-            .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
-            .await?;
-        let n_of_n_agg_pubkey = cfg
-            .operator_table
-            .tx_build_context(cfg.network)
-            .aggregated_pubkey();
-        let operator_pubkey = output_handles
-            .s2_session_manager
-            .s2_client
-            .general_wallet_signer()
-            .pubkey()
-            .await?
-            .to_x_only_pubkey();
-        let stake_hash = pre_image_client
-            .get_preimg(pre_stake_txid, pre_stake_vout, stake_index)
-            .await?;
-        let stake_hash = sha256::Hash::hash(&stake_hash);
-        let StakeChainParams { delta, .. } = cfg.stake_chain_params;
-        let prev_connector_s = ConnectorStake::new(
-            n_of_n_agg_pubkey,
-            operator_pubkey,
-            stake_hash,
-            delta,
-            cfg.network,
-        );
-
-        // all the stake transactions except the first one are locked with the general wallet
-        // signer.
-        // this is a caveat of the fact that we only share one x-only pubkey during deposit
-        // setup which is used for reimbursements/cpfp.
-        // so instead of sharing ones, we can just reuse this key (which is part of a taproot
-        // address).
-        let stake_signature = output_handles
-            .s2_session_manager
-            .s2_client
-            .stakechain_wallet_signer()
-            .sign_no_tweak(messages[1].as_ref())
-            .await?;
-
-        stake_tx.finalize(
-            &prev_preimage,
-            funds_signature,
-            stake_signature,
-            prev_connector_s,
-        )
-    };
-
-    let confirm_by = 1;
-    // FIXME: (@Rajil1213) change this to the current block height
-    // once the tx driver's deadline handling is implemented
-    output_handles
-        .tx_driver
-        .drive(signed_stake_tx, confirm_by)
-        .await?;
-
-    Ok(())
-}
-
-async fn handle_publish_graph_nonces(
-    musig: &MusigSessionManager,
-    message_handler: &MessageHandler,
-    claim_txid: Txid,
-    pog_outpoints: PogMusigF<OutPoint>,
-    pog_witnesses: PogMusigF<TaprootWitness>,
-) -> Result<(), ContractManagerErr> {
-    info!(%claim_txid, "executing duty to publish graph nonces");
-
-    let nonces: PogMusigF<PubNonce> = match PogMusigF::transpose_result(
-        pog_outpoints
-            .clone()
-            .zip(pog_witnesses)
-            .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
-            .join_all()
-            .await,
-    ) {
-        Ok(res) => res,
-        Err(err) => {
-            match err {
-                MusigSessionErr::SecretServiceClientErr(client_error) => {
-                    warn!(%client_error, "error getting nonces for graph from s2")
-                }
-                MusigSessionErr::SecretServiceNewSessionErr(musig2_new_session_error) => {
-                    // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    error!(
-                        ?musig2_new_session_error,
-                        "error getting nonces for graph from s2"
-                    )
-                }
-                MusigSessionErr::SecretServiceRoundContributionErr(errs) => {
-                    // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    for (pk, err) in errs {
-                        error!(%err, "error getting nonces for graph from s2 for {pk}")
-                    }
-                }
-                MusigSessionErr::SecretServiceRoundFinalizeErr(round_finalize_error) => {
-                    // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    error!(%round_finalize_error, "error getting nonces for graph from s2")
-                }
-                MusigSessionErr::Premature => {
-                    unreachable!("this should never happen unless the stf is wrong")
-                }
-                MusigSessionErr::NotFound(out_point) => {
-                    // this can happen either because the session has already been finalized
-                    // or if the contract is unknown to us
-                    // both of which are okay but we do log it here.
-                    warn!(%out_point, "session outpoint not found");
-                }
-            }
-
-            return Ok(());
-        }
-    };
-
-    info!(%claim_txid, "publishing graph nonces");
-
-    message_handler
-        .send_musig2_nonces(
-            SessionId::from_bytes(claim_txid.to_byte_array()),
-            nonces.pack(),
-        )
-        .await;
-
-    Ok(())
-}
-
-async fn handle_publish_graph_sigs(
-    musig: &MusigSessionManager,
-    message_handler: &MessageHandler,
-    claim_txid: Txid,
-    pubnonces: BTreeMap<secp256k1::PublicKey, PogMusigF<PubNonce>>,
-    pog_outpoints: PogMusigF<OutPoint>,
-    pog_sighashes: PogMusigF<Message>,
-) -> Result<(), ContractManagerErr> {
-    info!(%claim_txid, "executing duty to publish graph signatures");
-
-    // Add all nonces to the musig session manager context.
-    for (pk, graph_nonces) in pubnonces {
-        info!(%pk, "loading nonces");
-
-        PogMusigF::<()>::transpose_result::<MusigSessionErr>(
-            pog_outpoints
-                .clone()
-                .zip(graph_nonces)
-                .map(|(outpoint, nonce)| musig.put_nonce(outpoint, pk.to_x_only_pubkey(), nonce))
-                .join_all()
-                .await,
-        )?;
-    }
-
-    info!(%claim_txid, "getting all partials");
-
-    let partials = PogMusigF::transpose_result(
-        pog_outpoints
-            .zip(pog_sighashes)
-            .map(|(op, sighash)| musig.get_partial(op, sighash))
-            .join_all()
-            .await,
-    )
-    .inspect_err(|e| {
-        error!(
-            %claim_txid,
-            ?e,
-            "failed to get partials for graph signatures"
-        );
-    })?;
-
-    info!(%claim_txid, "publishing graph signatures");
-    debug!(%claim_txid, ?partials, "received all partials from s2");
-
-    message_handler
-        .send_musig2_signatures(
-            SessionId::from_bytes(claim_txid.to_byte_array()),
-            partials.pack(),
-        )
-        .await;
-
-    Ok(())
-}
-
-async fn handle_publish_root_nonce(
-    s2_client: &MusigSessionManager,
-    msg_handler: &MessageHandler,
-    prevout: OutPoint,
-    witness: TaprootWitness,
-) -> Result<(), ContractManagerErr> {
-    let deposit_request_txid = prevout.txid;
-    info!(%deposit_request_txid, "executing duty to publish root nonce");
-
-    let nonce = s2_client.get_nonce(prevout, witness).await?;
-
-    info!(%deposit_request_txid, "publishing root nonce");
-    msg_handler
-        .send_musig2_nonces(
-            SessionId::from_bytes(deposit_request_txid.to_byte_array()),
-            vec![nonce],
-        )
-        .await;
-
-    Ok(())
-}
-
-async fn handle_publish_root_signature(
-    cfg: &ExecutionConfig,
-    s2_client: &MusigSessionManager,
-    msg_handler: &MessageHandler,
-    nonces: BTreeMap<secp256k1::PublicKey, PubNonce>,
-    prevout: OutPoint,
-    sighash: Message,
-) -> Result<(), ContractManagerErr> {
-    let deposit_request_txid = prevout.txid;
-    info!(%deposit_request_txid, "executing duty to publish root signature");
-
-    let our_pubkey = cfg.operator_table.pov_btc_key();
-    for (musig2_pubkey, nonce) in nonces.into_iter().filter(|(pk, _)| *pk != our_pubkey) {
-        info!(%musig2_pubkey, %deposit_request_txid, "loading nonce");
-        s2_client
-            .put_nonce(prevout, musig2_pubkey.to_x_only_pubkey(), nonce)
-            .await
-            .inspect_err(|e| {
-                error!(
-                    %deposit_request_txid,
-                    ?e,
-                    "failed to load nonce for root"
-                );
-            })?
-    }
-
-    info!("getting partial root sig");
-    let partial = s2_client
-        .get_partial(prevout, sighash)
-        .await
-        .inspect_err(|e| {
-            error!(
-                %deposit_request_txid,
-                ?e,
-                "failed to get partial root sig"
-            );
-        })?;
-
-    info!(%deposit_request_txid, "publishing root signature");
-    msg_handler
-        .send_musig2_signatures(
-            SessionId::from_bytes(prevout.txid.as_raw_hash().to_byte_array()),
-            vec![partial],
-        )
-        .await;
-
-    Ok(())
-}
-
-async fn handle_publish_deposit(
-    musig: &MusigSessionManager,
-    tx_driver: &TxDriver,
-    deposit_tx: DepositTx,
-    partials: BTreeMap<secp256k1::PublicKey, PartialSignature>,
-) -> Result<(), ContractManagerErr> {
-    info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
-
-    let prevout = deposit_tx
-        .psbt()
-        .unsigned_tx
-        .input
-        .first()
-        .unwrap()
-        .previous_output;
-
-    for (pk, partial) in partials {
-        musig
-            .put_partial(prevout, pk.to_x_only_pubkey(), partial)
-            .await?;
-    }
-
-    let sig = musig.get_signature(prevout).await?;
-    let schnorr_sig = schnorr::Signature::from_slice(&sig.serialize())
-        .expect("must be a valid schnorr signature");
-    let taproot_sig = taproot::Signature {
-        signature: schnorr_sig,
-        sighash_type: TapSighashType::All,
-    };
-
-    let mut sighasher = SighashCache::new(deposit_tx.psbt().unsigned_tx.clone());
-
-    let deposit_tx_witness = sighasher.witness_mut(0).expect("must have first input");
-    deposit_tx_witness.push(taproot_sig.to_vec());
-
-    if let TaprootWitness::Script {
-        script_buf,
-        control_block,
-    } = &deposit_tx.witnesses()[0]
-    {
-        deposit_tx_witness.push(script_buf.to_bytes());
-        deposit_tx_witness.push(control_block.serialize());
-    }
-
-    let tx = sighasher.into_transaction();
-
-    info!(txid = %tx.compute_txid(), "broadcasting deposit tx");
-    tx_driver
-        .drive(tx, 0)
-        .await
-        .expect("deposit tx should get confirmed");
-
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn handle_publish_deposit_setup(
-    cfg: &ExecutionConfig,
-    s2_client: &SecretServiceClient,
-    db: &SqliteDb,
-    wallet: &RwLock<OperatorWallet>,
-    p2p_handle: &MessageHandler,
-    tx_driver: &TxDriver,
-    deposit_txid: Txid,
-    deposit_idx: u32,
-    stake_chain_inputs: StakeChainInputs,
-) -> Result<(), ContractManagerErr> {
-    info!(%deposit_txid, "executing duty to publish deposit setup");
-
-    let pov_idx = cfg.operator_table.pov_idx();
-    let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
-    let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
-
-    let wots_client = s2_client.wots_signer();
-    /// VOUT is static because irrelevant so we're just gonna use 0
-    const VOUT: u32 = 0;
-    // withdrawal_fulfillment uses index 0
-    let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-        &wots_client
-            .get_256_public_key(deposit_txid, VOUT, 0)
-            .await?,
-    );
-    const NUM_FQS: usize = NUM_U256;
-    const NUM_PUB_INPUTS: usize = NUM_PUBS;
-    const NUM_HASHES: usize = NUM_HASH;
-    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] =
-        std::array::from_fn(|i| wots_client.get_256_public_key(deposit_txid, VOUT, i as u32));
-    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, VOUT, (i + NUM_PUB_INPUTS) as u32)
-    });
-    let hashes_ftrs: [_; NUM_HASHES] =
-        std::array::from_fn(|i| wots_client.get_128_public_key(deposit_txid, VOUT, i as u32));
-
-    let (public_inputs, fqs, hashes) = join3(
-        join_all(public_inputs_ftrs),
-        join_all(fqs_ftrs),
-        join_all(hashes_ftrs),
-    )
-    .await;
-
-    info!(%deposit_txid, %deposit_idx, "constructing wots keys");
-    let public_inputs = public_inputs
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-    let fqs = fqs
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-    let hashes = hashes
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-
-    let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
-
-    // this duty is generated when this operator not only when a deposit request is observed
-    // but also when nagged by other operators.
-    // to avoid creating a new stake input, we first check the database.
-    info!(%deposit_txid, %deposit_idx, "checking if deposit data already exists");
-    if let Ok(Some(stake_data)) = db.get_stake_data(pov_idx, deposit_idx).await {
-        info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message from db");
-        let stakechain_preimg_hash = stake_data.hash;
-        let funding_outpoint = stake_data.operator_funds;
-
-        p2p_handle
-            .send_deposit_setup(
-                deposit_idx,
-                scope,
-                stakechain_preimg_hash,
-                funding_outpoint,
-                operator_pk,
-                wots_pks,
-            )
-            .await;
-
-        return Ok(());
-    }
-
-    info!(%deposit_txid, %deposit_idx, "constructing deposit setup message");
-    let StakeChainInputs {
-        stake_inputs,
-        pre_stake_outpoint,
-        ..
-    } = stake_chain_inputs;
-
-    info!(%deposit_txid, %deposit_idx, "querying for preimage");
-    let stakechain_preimg = s2_client
-        .stake_chain_preimages()
-        .get_preimg(
-            pre_stake_outpoint.txid,
-            pre_stake_outpoint.vout,
-            deposit_idx,
-        )
-        .await?;
-
-    let stakechain_preimg_hash = sha256::Hash::hash(&stakechain_preimg);
-
-    // check if there's a funding outpoint already for this stake index
-    // otherwise, find a new unspent one from operator wallet and filter out all the
-    // outpoints already in the db
-
-    info!(%deposit_txid, %deposit_idx, "fetching funding outpoint for the stake transaction");
-    let ignore = stake_inputs
-        .iter()
-        .map(|input| input.operator_funds.to_owned())
-        .collect::<HashSet<OutPoint>>();
-
-    let mut wallet = wallet.write().await;
-    info!("syncing wallet before fetching funding utxos for the stake");
-
-    match wallet.sync().await {
-        Ok(()) => info!("synced wallet successfully"),
-        Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
-    }
-
-    info!(?ignore, "claiming funding utxos");
-    let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
-
-    let funding_utxo = match funding_op {
-        FundingUtxo::Available(outpoint) => outpoint,
-        FundingUtxo::ShouldRefill { op, left } => {
-            info!("refilling stakechain funding utxos, have {left} left");
-
-            let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-            finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
-
-            op
-        }
-        FundingUtxo::Empty => {
-            // The first time we run the node, it may be the case that the wallet starts off
-            // empty.
-            //
-            // For every case afterwards, we should receive a `ShouldRefill` message before
-            // the wallet is actually empty.
-            let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-            finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
-
-            let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
-
-            match funding_utxo {
-                FundingUtxo::Available(outpoint) => outpoint,
-                _ => panic!("aaaaa no funding utxos available even after refill"),
-            }
-        }
-    };
-
-    info!(%deposit_txid, %deposit_idx, "constructing wots public keys for withdrawal fulfillment");
-    let withdrawal_fulfillment_pk = std::array::from_fn(|i| wots_pks.withdrawal_fulfillment[i]);
-
-    let stake_data = StakeTxData {
-        operator_funds: funding_utxo,
-        hash: stakechain_preimg_hash,
-        withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
-            withdrawal_fulfillment_pk,
-        ),
-    };
-
-    info!(%deposit_txid, %deposit_idx, "adding stake data to the database");
-    debug!(%deposit_txid, %deposit_idx, ?stake_data, "adding stake data to the database");
-
-    db.add_stake_data(pov_idx, deposit_idx, stake_data).await?;
-
-    info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
-    p2p_handle
-        .send_deposit_setup(
-            deposit_idx,
-            scope,
-            stakechain_preimg_hash,
-            funding_utxo,
-            operator_pk,
-            wots_pks.clone(),
-        )
-        .await;
-
-    Ok(())
 }

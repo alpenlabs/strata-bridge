@@ -26,7 +26,8 @@ pub struct PostAssertTxData {
     pub deposit_txid: Txid,
 }
 
-pub(crate) const NUM_POST_ASSERT_INPUTS: usize = NUM_ASSERT_DATA_TX;
+/// The number of inputs that require an $N$-of-$N$ signature in the [`PostAssertTx`].
+pub const NUM_POST_ASSERT_INPUTS: usize = NUM_ASSERT_DATA_TX;
 
 /// A transaction in the Assert chain that combines the outputs of the assert data transactions.
 ///
@@ -61,7 +62,7 @@ impl PostAssertTx {
 
         trace!(event = "created tx ins", count = tx_ins.len());
 
-        let connector_a31_script = connector_a3.generate_locking_script(data.deposit_txid);
+        let connector_a31_script = connector_a3.generate_locking_script();
         trace!(
             event = "generated a31 locking script",
             size = connector_a31_script.len(),

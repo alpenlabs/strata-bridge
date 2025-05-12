@@ -88,5 +88,6 @@ pub(crate) enum BridgeRelatedTx {
     /// A Strata checkpoint transaction.
     StrataCheckpoint,
     /// A withdrawal fulfillment transaction.
-    WithdrawalFulfillment,
+    #[expect(dead_code)]
+    WithdrawalFulfillment(String),
 }

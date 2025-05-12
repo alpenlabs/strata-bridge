@@ -44,7 +44,8 @@ pub struct PayoutData {
     pub network: Network,
 }
 
-pub(crate) const NUM_PAYOUT_INPUTS: usize = 4;
+/// The number of inputs that require an $N$-of-$N$ signature in the [`PayoutTx`].
+pub const NUM_PAYOUT_INPUTS: usize = 4;
 
 /// A transaction that reimburses a *functional* operator.
 #[derive(Debug, Clone)]
@@ -107,7 +108,7 @@ impl PayoutTx {
             },
             TxOut {
                 value: data.input_amount,
-                script_pubkey: connector_a3.generate_locking_script(data.deposit_txid),
+                script_pubkey: connector_a3.generate_locking_script(),
             },
             TxOut {
                 value: n_of_n_addr.script_pubkey().minimal_non_dust(),
@@ -140,7 +141,7 @@ impl PayoutTx {
         }
 
         let (connector_a3_script, connector_a3_control_block) =
-            connector_a3.generate_spend_info(ConnectorA3Leaf::Payout(None), data.deposit_txid);
+            connector_a3.generate_spend_info(ConnectorA3Leaf::Payout(None));
         let witnesses = [
             TaprootWitness::Key,
             TaprootWitness::Script {

@@ -18,6 +18,7 @@ x-base-bridge-node: &base-bridge-node
     - LOG_FILE=0
     - LOG_LINE_NUM=0
     - RUST_BACKTRACE=full
+    - MULTI_THREAD_GRAPH_GEN=0 # 1 in order to use an OS thread per graph generation
     - SP1_PROVER=$SP1_PROVER
     - NETWORK_RPC_URL=$NETWORK_RPC_URL
     - NETWORK_PRIVATE_KEY=$NETWORK_PRIVATE_KEY
@@ -107,6 +108,7 @@ services:
       - STAKE_CHAIN_WALLET_2=$STAKE_CHAIN_WALLET_2
       - GENERAL_WALLET_3=$GENERAL_WALLET_3
       - STAKE_CHAIN_WALLET_3=$STAKE_CHAIN_WALLET_3
+      - AUTOMINE=5 # every 5 seconds, set to 0 to disable auto generating blocks, keep in alignment with `block_time` in sidesystem params
     networks:
       bridge:
         ipv4_address: 172.28.1.8
