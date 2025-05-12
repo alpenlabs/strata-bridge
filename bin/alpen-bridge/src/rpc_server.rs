@@ -4,7 +4,7 @@ use std::{fmt, sync::Arc};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
-use bitcoin::{OutPoint, PublicKey, Txid};
+use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
 use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
@@ -15,7 +15,9 @@ use sqlx::{query_as, FromRow};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
-    traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
+    traits::{
+        StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
+    },
     types::{
         RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus,
         RpcReimbursementStatus, RpcWithdrawalInfo, RpcWithdrawalStatus,
@@ -708,6 +710,47 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         }
 
         Err(rpc_error(-32_001, "Claim not found", claim_txid))
+    }
+}
+
+#[async_trait]
+impl StrataBridgeDaApiServer for BridgeRpc {
+    async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
+        debug!(%claim_txid, "getting challenge signature");
+
+        let contracts = self.cached_contracts.read().await;
+
+        Ok(contracts.iter().find_map(|contract| {
+            if contract.0.state.claim_txids().contains(&claim_txid) {
+                contract
+                    .0
+                    .state
+                    .graph_sigs()
+                    .get(&claim_txid)
+                    .map(|sigs| sigs.challenge)
+            } else {
+                None
+            }
+        }))
+    }
+
+    async fn get_disprove_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
+        debug!(%claim_txid, "getting disprove signature");
+
+        let contracts = self.cached_contracts.read().await;
+
+        Ok(contracts.iter().find_map(|contract| {
+            if contract.0.state.claim_txids().contains(&claim_txid) {
+                contract
+                    .0
+                    .state
+                    .graph_sigs()
+                    .get(&claim_txid)
+                    .map(|sigs| sigs.disprove)
+            } else {
+                None
+            }
+        }))
     }
 }
 

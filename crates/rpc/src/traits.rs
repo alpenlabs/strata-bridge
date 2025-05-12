@@ -1,6 +1,6 @@
 //! Traits for the RPC server.
 
-use bitcoin::{OutPoint, PublicKey, Txid};
+use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 
 use crate::types::{
@@ -60,4 +60,16 @@ pub trait StrataBridgeMonitoringApi {
     /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo>;
+}
+
+#[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
+#[cfg_attr(feature = "client", rpc(server, client, namespace = "stratabridge"))]
+pub trait StrataBridgeDaApi {
+    /// Query for challenge signature for a particular claim.
+    #[method(name = "challengeSignature")]
+    async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>>;
+
+    /// Query for disprove signature for a particular claim.
+    #[method(name = "disproveSignature")]
+    async fn get_disprove_signature(&self, deposit_txid: Txid) -> RpcResult<Option<Signature>>;
 }
