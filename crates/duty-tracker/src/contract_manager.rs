@@ -633,7 +633,7 @@ impl ContractManagerCtx {
                         let Ok(Some(stake_tx)) = self
                             .state
                             .stake_chains
-                            .stake_tx(pov_op_p2p_key, stake_index as usize)
+                            .stake_tx(pov_op_p2p_key, stake_index)
                         else {
                             warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
                             continue;
@@ -764,7 +764,7 @@ impl ContractManagerCtx {
                     let stake_tx = self
                         .state
                         .stake_chains
-                        .stake_tx(&key, deposit_idx as usize)?
+                        .stake_tx(&key, deposit_idx)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
                     let deposit_setup_duties = contract
@@ -789,7 +789,7 @@ impl ContractManagerCtx {
 
                     duties.extend(deposit_setup_duties);
                 } else {
-                    // One of the other operators has may have seen a DRT that we have not yet
+                    // One of the other operators may have seen a DRT that we have not yet
                     // seen
                     warn!(
                         "Received a P2P message about an unknown contract: {}",

@@ -195,7 +195,7 @@ pub(crate) async fn handle_publish_deposit_setup(
 
     info!(%deposit_txid, %deposit_idx, "fetching funding outpoint for the stake transaction");
     let ignore = stake_inputs
-        .iter()
+        .values()
         .map(|input| input.operator_funds.to_owned())
         .collect::<HashSet<OutPoint>>();
 

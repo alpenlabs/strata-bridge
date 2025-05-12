@@ -465,7 +465,8 @@ impl PublicDb for SqliteDb {
                     hash AS "hash: DbHash",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
-                    WHERE operator_id = $1"#,
+                    WHERE operator_id = $1
+                    ORDER BY deposit_id ASC"#,
                 operator_id,
             )
             .fetch_all(&self.pool)
