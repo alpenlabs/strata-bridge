@@ -156,8 +156,11 @@ impl BridgeRpc {
     ) -> Self {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(Vec::new()));
+
+        let start_time = Utc::now();
+
         let instance = Self {
-            start_time: Utc::now(),
+            start_time,
             db,
             cached_contracts,
             p2p_handle,
@@ -191,6 +194,10 @@ impl BridgeRpc {
         // Spawn a background task to refresh the cache
         tokio::spawn(async move {
             let mut interval = interval(period);
+            info!(
+                ?period,
+                "initializing the background task for refreshing the RPC server cache"
+            );
 
             // Initial cache fill
             if let Ok(contracts) = query_as!(
@@ -200,6 +207,7 @@ impl BridgeRpc {
             .fetch_all(db.pool())
             .await
             {
+                info!(num_contracts=%contracts.len(), "initializing the RPC server initial contract cache fill");
                 let mut cache_lock = cached_contracts.write().await;
                 // Convert raw records to typed records
                 *cache_lock = contracts
@@ -219,7 +227,7 @@ impl BridgeRpc {
                         (record, config)
                     })
                     .collect();
-                info!(cache_len=%cache_lock.len(), "Contracts cache initialized");
+                info!(cache_len=%cache_lock.len(), "RPC server Contracts cache initialized");
 
                 // drop the lock!
                 drop(cache_lock);
@@ -239,6 +247,7 @@ impl BridgeRpc {
                 .await
                 {
                     Ok(contracts) => {
+                        info!(num_contracts=%contracts.len(), "initializing the RPC server periodic contract cache refresh");
                         let mut cache_lock = cached_contracts.write().await;
                         // Convert raw records to typed records
                         *cache_lock = contracts
@@ -258,7 +267,7 @@ impl BridgeRpc {
                                 (record, config)
                             })
                             .collect();
-                        debug!(cache_len=%cache_lock.len(), "Contracts cache refreshed");
+                        debug!(num_contracts=%cache_lock.len(), "Contracts cache refreshed");
 
                         // drop the lock!
                         drop(cache_lock);
