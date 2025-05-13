@@ -2581,3 +2581,104 @@ mod tests {
 
     use secp256k1::Parity;
     use strata_bridge_test_utils::prelude::generate_txid;
+    use strata_bridge_tx_graph::transactions::{
+        payout::NUM_PAYOUT_INPUTS, prelude::NUM_POST_ASSERT_INPUTS,
+        slash_stake::NUM_SLASH_STAKE_INPUTS,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_aggregate_nonces() {
+        let nonces = get_sample_pubnonces();
+        let expected_agg_nonce = nonces.iter().sum::<AggNonce>();
+
+        let txid = generate_txid();
+        let operator_table = get_sample_operator_table(0);
+
+        let mut graph_nonces = BTreeMap::new();
+        let mut session_nonces = BTreeMap::new();
+        operator_table.operator_idxs().iter().for_each(|op_idx| {
+            let signer = operator_table.idx_to_op_key(op_idx).unwrap();
+
+            // populate the nonce for every input with the same pubnonce.
+            // this means that each input will have the same pubnonce for the same operator.
+            // this is a hack so that we can just check the nonce aggregation without being
+            // completely faithful to how it will be in practice.
+            let nonce = nonces[*op_idx as usize].clone();
+
+            let pog_nonces = PogMusigF::<PubNonce> {
+                challenge: nonce.clone(),
+                pre_assert: nonce.clone(),
+                post_assert: vec![nonce.clone(); NUM_POST_ASSERT_INPUTS]
+                    .try_into()
+                    .unwrap(),
+                payout_optimistic: vec![nonce.clone(); NUM_PAYOUT_OPTIMISTIC_INPUTS]
+                    .try_into()
+                    .unwrap(),
+                payout: vec![nonce.clone(); NUM_PAYOUT_INPUTS].try_into().unwrap(),
+                disprove: nonce.clone(),
+                slash_stake: vec![vec![nonce.clone(); NUM_SLASH_STAKE_INPUTS]
+                    .try_into()
+                    .unwrap()],
+            };
+
+            session_nonces.insert(signer.clone(), pog_nonces);
+        });
+
+        graph_nonces.insert(txid, session_nonces);
+
+        let agg_nonces_map = aggregate_nonces(&operator_table, &graph_nonces);
+
+        agg_nonces_map.values().for_each(|agg_nonces| {
+            agg_nonces.iter().enumerate().for_each(|(i, agg_nonce)| {
+                assert_eq!(agg_nonce, &expected_agg_nonce, "agg_nonce mismatch at {i}");
+            });
+        });
+    }
+
+    fn get_sample_pubnonces() -> [PubNonce; 3] {
+        // sample nonces from `musig2` crate's example: https://docs.rs/musig2/latest/musig2/#functional-api
+        [
+            "02af252206259fc1bf588b1f847e15ac78fa840bfb06014cdbddcfcc0e5876f9c9\
+                0380ab2fc9abe84ef42a8d87062d5094b9ab03f4150003a5449846744a49394e45",
+            "020ab52d58f00887d5082c41dc85fd0bd3aaa108c2c980e0337145ac7003c28812\
+                03956ec5bd53023261e982ac0c6f5f2e4b6c1e14e9b1992fb62c9bdfcf5b27dc8d",
+            "02d1e90616ea78a612dddfe97de7b5e7e1ceef6e64b7bc23b922eae30fa2475cca\
+                02e676a3af322965d53cc128597897ef4f84a8d8080b456e27836db70e5343a2bb",
+        ]
+        .map(|nonce_str| nonce_str.parse::<PubNonce>().unwrap())
+    }
+
+    fn get_sample_operator_table(pov_idx: u32) -> OperatorTable {
+        let key_entries = [
+            (
+                "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
+                "020b1251c1a11d65a3cf324c66b67e9333799d21490d2e2c95866aab76e3a0f301",
+            ),
+            (
+                "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
+                "0232a73fb8a00f677703e95ebc398d806147587746d02d1945f9eff8703ccab4d0",
+            ),
+            (
+                "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba",
+                "02e9343c08723ba25cfaa6296ffe8bf57be391cac683f13a3de33a31734655b777",
+            ),
+        ]
+        .map(|(btc_str, signer_str)| {
+            (
+                XOnlyPublicKey::from_str(btc_str)
+                    .unwrap()
+                    .public_key(Parity::Even),
+                P2POperatorPubKey::from(hex::decode(signer_str).unwrap()),
+            )
+        })
+        .iter()
+        .enumerate()
+        .map(|(i, (btc_key, p2p_key))| (i as u32, p2p_key.clone(), *btc_key))
+        .collect::<Vec<_>>();
+
+        let pov_idx = pov_idx % key_entries.len() as u32;
+        OperatorTable::new(key_entries, pov_idx).unwrap()
+    }
+}

@@ -3385,6 +3385,7 @@ dependencies = [
  "borsh",
  "btc-notify",
  "futures",
+ "hex",
  "musig2",
  "operator-wallet",
  "secp256k1",
