@@ -1,5 +1,6 @@
 //! Defines the main loop for the bridge-client in operator mode.
 use std::{
+    collections::VecDeque,
     env, fs, io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -135,9 +136,18 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     )
     .await;
 
+    let current = bitcoin_rpc_client.get_block_count().await?;
+    let bury_height = current.saturating_sub(config.btc_zmq.bury_depth() as u64);
+
+    // we grab every block starting with the block after the bury_height all the way up to the
+    // current height and place it in the unburied blocks queue.
+    let mut unburied_blocks = VecDeque::new();
+    for height in bury_height + 1..=current {
+        unburied_blocks.push_front(bitcoin_rpc_client.get_block_at(height).await?);
+    }
     // Initialize the duty tracker.
     info!("initializing the duty tracker with the contract manager");
-    let zmq_client = BtcZmqClient::connect(&config.btc_zmq)
+    let zmq_client = BtcZmqClient::connect(&config.btc_zmq, unburied_blocks)
         .await
         .expect("should be able to connect to zmq");
 
