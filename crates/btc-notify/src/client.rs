@@ -62,8 +62,8 @@ impl BtcZmqClient {
     ///
     /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`. The second
     /// argument is the list of unburied blocks. It is assumed that the length of this queue is the
-    /// same as the `bury_depth` in the config and it is assumed that all of the blocks in this queue
-    /// are the most recent ones in the main chain.
+    /// same as the `bury_depth` in the config and it is assumed that all of the blocks in this
+    /// queue are the most recent ones in the main chain.
     pub async fn connect(
         cfg: &BtcZmqConfig,
         unburied_blocks: VecDeque<Block>,
