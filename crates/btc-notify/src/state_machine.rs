@@ -95,7 +95,7 @@ impl BtcZmqSM {
     /// Initializes a [`BtcZmqSM`] with the supplied bury_depth. bury_depth is the number of blocks
     /// that must be built on top of a given block before that block's transactions are
     /// considered Buried. It additionally takes a queue of unburied blocks to initialize the state
-    /// machine with. The length of this queue is assumed to be equal to the bury_depth, or less if
+    /// machine with. The length of this queue is assumed to be equal to the `bury_depth`, or less if
     /// the entire chain is unburied.
     pub(crate) fn init(bury_depth: usize, unburied_blocks: VecDeque<Block>) -> Self {
         info!(%bury_depth, "initializing ZMQ state machine");
