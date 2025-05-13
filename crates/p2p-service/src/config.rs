@@ -34,10 +34,27 @@ pub struct Configuration {
     ///
     /// Default is [`DEFAULT_NUM_THREADS`](crate::constants::DEFAULT_NUM_THREADS).
     pub num_threads: Option<usize>,
+
+    /// Dial timeout.
+    ///
+    /// The default is [`DEFAULT_DIAL_TIMEOUT`](strata_p2p::swarm::DEFAULT_DIAL_TIMEOUT).
+    pub dial_timeout: Option<Duration>,
+
+    /// General timeout for operations.
+    ///
+    /// The default is [`DEFAULT_GENERAL_TIMEOUT`](strata_p2p::swarm::DEFAULT_GENERAL_TIMEOUT).
+    pub general_timeout: Option<Duration>,
+
+    /// Connection check interval.
+    ///
+    /// The default is
+    /// [`DEFAULT_CONNECTION_CHECK_INTERVAL`](strata_p2p::swarm::DEFAULT_CONNECTION_CHECK_INTERVAL).
+    pub connection_check_interval: Option<Duration>,
 }
 
 impl Configuration {
     /// Creates a new [`Configuration`] by using a [`SecretKey`].
+    #[expect(clippy::too_many_arguments)]
     pub fn new_with_secret_key(
         sk: SecretKey,
         idle_connection_timeout: Option<Duration>,
@@ -46,6 +63,9 @@ impl Configuration {
         connect_to: Vec<Multiaddr>,
         signers_allowlist: Vec<P2POperatorPubKey>,
         num_threads: Option<usize>,
+        dial_timeout: Option<Duration>,
+        general_timeout: Option<Duration>,
+        connection_check_interval: Option<Duration>,
     ) -> Self {
         let sk = Libp2pSecpSecretKey::try_from_bytes(sk.secret_bytes()).expect("infallible");
         let keypair = Libp2pSecpKeypair::from(sk);
@@ -57,6 +77,9 @@ impl Configuration {
             connect_to,
             signers_allowlist,
             num_threads,
+            dial_timeout,
+            general_timeout,
+            connection_check_interval,
         }
     }
 
@@ -90,6 +113,9 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
+            None,
+            None,
             None,
         );
         assert_eq!(config.public_key().inner, pk);
