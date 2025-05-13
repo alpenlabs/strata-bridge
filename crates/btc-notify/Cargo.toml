@@ -27,4 +27,4 @@ tracing.workspace = true
 corepc-node.workspace = true
 strata-bridge-common.workspace = true
 serial_test = "3.2.0"
-proptest = "1.6.0"
+proptest.workspace = true
