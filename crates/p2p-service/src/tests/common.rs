@@ -108,9 +108,9 @@ impl Setup {
                 addr.clone(),
                 cancel.child_token(),
                 signers_allowlist.clone(),
-                None,
-                None,
-                None,
+                Some(Duration::from_millis(250)),
+                Some(Duration::from_millis(250)),
+                Some(Duration::from_millis(500)),
             )?;
 
             operators.push(operator);
@@ -159,9 +159,9 @@ impl Setup {
                 addr.clone(),
                 cancel.child_token(),
                 signers_allowlist.clone(),
-                None,
-                None,
-                None,
+                Some(Duration::from_millis(250)),
+                Some(Duration::from_millis(250)),
+                Some(Duration::from_millis(500)),
             )?;
 
             operators.push(operator);
