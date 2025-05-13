@@ -1,6 +1,6 @@
 //! Bootstraps an RPC server for the operator.
 
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, sync::Arc};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
@@ -29,7 +29,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::params::Params;
+use crate::{config::RpcConfig, constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL, params::Params};
 
 /// Starts an RPC server for a bridge operator.
 pub(crate) async fn start_rpc<T>(rpc_impl: &T, rpc_addr: &str) -> anyhow::Result<()>
@@ -139,13 +139,21 @@ pub(crate) struct BridgeRpc {
     /// The same applies for the `Stream` implementation of [`P2PHandle`].
     p2p_handle: P2PHandle,
 
-    /// The consensus-critical parameters that dictate the behavior of the bridge node.
+    /// Consensus-critical parameters that dictate the behavior of the bridge node.
     params: Params,
+
+    /// RPC server configuration.
+    config: RpcConfig,
 }
 
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
-    pub(crate) fn new(db: SqliteDb, p2p_handle: P2PHandle, params: Params) -> Self {
+    pub(crate) fn new(
+        db: SqliteDb,
+        p2p_handle: P2PHandle,
+        params: Params,
+        config: RpcConfig,
+    ) -> Self {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(Vec::new()));
         let instance = Self {
@@ -154,6 +162,7 @@ impl BridgeRpc {
             cached_contracts,
             p2p_handle,
             params,
+            config,
         };
 
         // Start the cache refresh task
@@ -166,6 +175,7 @@ impl BridgeRpc {
     fn start_cache_refresh_task(&self) {
         let db = self.db.clone();
         let cached_contracts = self.cached_contracts.clone();
+
         // Clone the params we need before spawning the task
         let network = self.params.network;
         let connectors = self.params.connectors;
@@ -173,10 +183,14 @@ impl BridgeRpc {
         let sidesystem = self.params.sidesystem.clone();
         let stake_chain = self.params.stake_chain;
 
+        let period = self
+            .config
+            .refresh_interval
+            .unwrap_or(DEFAULT_RPC_CACHE_REFRESH_INTERVAL);
+
         // Spawn a background task to refresh the cache
         tokio::spawn(async move {
-            // TODO(@storopoli): make this configurable
-            let mut interval = interval(Duration::from_secs(10 * 60)); // 10 minutes, i.e. a bitcoin block
+            let mut interval = interval(period);
 
             // Initial cache fill
             if let Ok(contracts) = query_as!(
