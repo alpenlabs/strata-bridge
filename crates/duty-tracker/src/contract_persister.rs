@@ -124,7 +124,9 @@ impl ContractPersister {
         &self,
         active_contracts: impl Iterator<Item = (&Txid, &ContractSM)>,
     ) -> Result<(), ContractPersistErr> {
-        debug!("committing all active contracts");
+        // NOTE: this is an pessimistic lower bound on the size of the iterator.
+        let num_contracts = active_contracts.size_hint().0;
+        debug!(%num_contracts, "committing all active contracts");
 
         for (txid, contract_sm) in active_contracts {
             let machine_state = contract_sm.state();
