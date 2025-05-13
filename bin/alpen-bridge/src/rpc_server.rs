@@ -207,10 +207,11 @@ impl BridgeRpc {
             .fetch_all(db.pool())
             .await
             {
-                info!(num_contracts=%contracts.len(), "initializing the RPC server initial contract cache fill");
-                let mut cache_lock = cached_contracts.write().await;
+                let before_num_contracts = contracts.len();
+                info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
+
                 // Convert raw records to typed records
-                *cache_lock = contracts
+                let refreshed_contracts: Vec<_> = contracts
                     .into_iter()
                     .filter_map(|record| record.into_typed().ok())
                     .map(|record| {
@@ -227,10 +228,15 @@ impl BridgeRpc {
                         (record, config)
                     })
                     .collect();
-                info!(cache_len=%cache_lock.len(), "RPC server Contracts cache initialized");
+                let after_num_contracts = refreshed_contracts.len();
 
+                let mut cache_lock = cached_contracts.write().await;
+                *cache_lock = refreshed_contracts;
                 // drop the lock!
                 drop(cache_lock);
+
+                info!(%after_num_contracts, "RPC server Contracts cache initialized");
+
             } else {
                 error!("Failed to initialize contracts cache");
             }
@@ -247,10 +253,11 @@ impl BridgeRpc {
                 .await
                 {
                     Ok(contracts) => {
-                        info!(num_contracts=%contracts.len(), "initializing the RPC server periodic contract cache refresh");
-                        let mut cache_lock = cached_contracts.write().await;
+                        let before_num_contracts = contracts.len();
+                        info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
+
                         // Convert raw records to typed records
-                        *cache_lock = contracts
+                        let refreshed_contracts: Vec<_> = contracts
                             .into_iter()
                             .filter_map(|record| record.into_typed().ok())
                             .map(|record| {
@@ -267,10 +274,14 @@ impl BridgeRpc {
                                 (record, config)
                             })
                             .collect();
-                        debug!(num_contracts=%cache_lock.len(), "Contracts cache refreshed");
+                        let after_num_contracts = refreshed_contracts.len();
 
+                        let mut cache_lock = cached_contracts.write().await;
+                        *cache_lock = refreshed_contracts;
                         // drop the lock!
                         drop(cache_lock);
+
+                        debug!(%after_num_contracts, "Contracts cache refreshed");
                     }
                     Err(e) => {
                         error!(?e, "Failed to refresh contracts cache");
