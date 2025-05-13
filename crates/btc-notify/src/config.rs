@@ -90,6 +90,11 @@ impl BtcZmqConfig {
         self.bury_depth = n;
         self
     }
+
+    /// Returns the value configured with the [`BtcZmqConfig::with_bury_depth`] function.
+    pub fn bury_depth(&self) -> usize {
+        self.bury_depth
+    }
 }
 
 impl Default for BtcZmqConfig {

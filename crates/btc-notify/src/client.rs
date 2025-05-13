@@ -3,9 +3,9 @@
 //! Once the client is initialized, consumers of this API will create [`Subscription`]s with
 //! [`BtcZmqClient::subscribe_blocks`] or [`BtcZmqClient::subscribe_transactions`]. These
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
-use std::{error::Error, sync::Arc, time::Duration};
+use std::{collections::VecDeque, error::Error, sync::Arc, time::Duration};
 
-use bitcoin::Transaction;
+use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
 use futures::StreamExt;
 use tokio::{
@@ -60,10 +60,15 @@ impl Drop for BtcZmqClient {
 impl BtcZmqClient {
     /// Primary constructor for [`BtcZmqClient`].
     ///
-    /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`.
-    pub async fn connect(cfg: &BtcZmqConfig) -> Result<Self, Box<dyn Error>> {
+    /// It takes a [`BtcZmqConfig`] and uses that information to connect to `bitcoind`. The second
+    /// argument is the list of unburied blocks. It is assumed that the length of this queue is the
+    /// same as the bury_depth in the config and it is assumed that all of the blocks in this queue
+    /// are the most recent ones in the main chain.
+    pub async fn connect(
+        cfg: &BtcZmqConfig,
+        unburied_blocks: VecDeque<Block>,
+    ) -> Result<Self, Box<dyn Error>> {
         trace!(?cfg, "subscribing to bitcoind");
-        let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth)));
 
         let sockets = cfg
             .hashblock_connection_string
@@ -95,6 +100,7 @@ impl BtcZmqClient {
             }
         };
 
+        let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth, unburied_blocks)));
         let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<BlockEvent>>::new()));
         let block_subs_thread = block_subs.clone();
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
@@ -290,7 +296,7 @@ mod e2e_tests {
             .with_rawtx_connection_string("tcp://127.0.0.1:23885")
             .with_sequence_connection_string("tcp://127.0.0.1:23886");
 
-        let client = BtcZmqClient::connect(&cfg).await?;
+        let client = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
 
         Ok((client, bitcoind))
     }
@@ -319,9 +325,9 @@ mod e2e_tests {
             .with_sequence_connection_string("tcp://127.0.0.1:23886");
 
         info!("connecting to bitcoind with client 1");
-        let client_1 = BtcZmqClient::connect(&cfg).await?;
+        let client_1 = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
         info!("connecting to bitcoind with client 2");
-        let client_2 = BtcZmqClient::connect(&cfg).await?;
+        let client_2 = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
 
         Ok((client_1, client_2, bitcoind))
     }

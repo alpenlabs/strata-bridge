@@ -227,6 +227,7 @@ impl ContractManager {
                 state_handles,
             };
 
+            info!(cursor = %cursor, current = %current, "performing bitcoin rpc sync");
             while cursor < current {
                 let next = cursor + 1;
                 let block = match rpc_client.get_block_at(next).await {
@@ -240,6 +241,7 @@ impl ContractManager {
                 let res = ctx.process_block(block).await;
                 match res {
                     Ok(duties) => {
+                        info!(%next, "successfully rpc sync'ed block");
                         let cfg = Arc::new(ctx.cfg.clone());
                         duties.into_iter().for_each(|duty| {
                             info!(%duty, "starting duty execution from lagging blocks");
@@ -256,7 +258,7 @@ impl ContractManager {
                     }
                     Err(e) => {
                         error!(%blockhash, %cursor, %e, "failed to process block");
-                        break;
+                        panic!("{e:?}");
                     }
                 }
 
@@ -896,6 +898,7 @@ impl ContractManagerCtx {
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                 let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
+                debug!(claims = ?self.state.claim_txids, "get nonces exchange");
                 if let Some(csm) = self
                     .state
                     .claim_txids
@@ -950,6 +953,7 @@ impl ContractManagerCtx {
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
                 let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
+                debug!(claims = ?self.state.claim_txids, "get signatures exchange");
                 if let Some(csm) = self
                     .state
                     .claim_txids
