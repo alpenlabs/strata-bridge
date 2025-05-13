@@ -1558,9 +1558,22 @@ impl ContractSM {
                     return Ok(None);
                 }
 
+                let graph_owner_for_claim = claim_txids
+                    .iter()
+                    .find_map(|(signer_in_map, claim_txid_in_map)| {
+                        if *claim_txid_in_map == claim_txid {
+                            Some(signer_in_map)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(TransitionErr(format!(
+                        "claim txid ({claim_txid}) not found in claim txids map"
+                    )))?;
+
                 let graph_input =
                     peg_out_graph_inputs
-                        .get(&signer)
+                        .get(graph_owner_for_claim)
                         .ok_or(TransitionErr(format!(
                             "peg out graph input missing for signer ({signer})"
                         )))?;

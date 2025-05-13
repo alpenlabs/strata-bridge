@@ -280,6 +280,7 @@ impl ContractManager {
                         if let Some(ContractEvent::AggregateSigs(deposit_txid, agg_sigs)) = ouroboros_event {
                             let contract = ctx.state.active_contracts.get_mut(&deposit_txid).expect("contract must exist in the state");
 
+                            info!(%deposit_txid, "committing aggregate signatures");
                             match contract.process_contract_event(ContractEvent::AggregateSigs(deposit_txid, agg_sigs)) {
                                 Ok(ouroboros_duties) if !ouroboros_duties.is_empty() => duties.extend(ouroboros_duties),
                                 Ok(ouroboros_duties) => { trace!(?ouroboros_duties, "got no duties when processing ouroboros event to aggregate signatures")},
