@@ -6,7 +6,7 @@ use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
-use duty_tracker::contract_state_machine::{ContractCfg, ContractState};
+use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
@@ -73,13 +73,13 @@ pub(crate) struct ContractRecord {
     #[sqlx(rename = "deposit_txid")]
     pub(crate) deposit_txid: String,
 
-    /// The deposit transaction with respect to this contract.
-    #[sqlx(rename = "deposit_tx")]
-    pub(crate) deposit_tx: Vec<u8>,
-
     /// The deposit index with respect to this contract.
     #[sqlx(rename = "deposit_idx")]
     pub(crate) deposit_idx: i64,
+
+    /// The deposit transaction with respect to this contract.
+    #[sqlx(rename = "deposit_tx")]
+    pub(crate) deposit_tx: Vec<u8>,
 
     /// The operator table that was in place when this contract was created.
     #[sqlx(rename = "operator_table")]
@@ -93,12 +93,30 @@ pub(crate) struct ContractRecord {
 impl ContractRecord {
     /// Converts this record into a strongly-typed in-memory representation.
     fn into_typed(self) -> anyhow::Result<TypedContractRecord> {
+        let deposit_txid = self.deposit_txid.parse::<Txid>().map_err(|e| {
+            error!(?e, "Failed to parse deposit_txid");
+            anyhow::anyhow!("Failed to parse deposit_txid: {e}")
+        })?;
+        let deposit_tx = bincode::deserialize(&self.deposit_tx).map_err(|e| {
+            error!(?e, "Failed to deserialize deposit_tx");
+            anyhow::anyhow!("Failed to deserialize deposit_tx: {e}")
+        })?;
+        let deposit_idx = self.deposit_idx as u32;
+        let operator_table = bincode::deserialize(&self.operator_table).map_err(|e| {
+            error!(?e, "Failed to deserialize operator_table");
+            anyhow::anyhow!("Failed to deserialize operator_table: {e}")
+        })?;
+        let state = bincode::deserialize(&self.state).map_err(|e| {
+            error!(?e, "Failed to deserialize state");
+            anyhow::anyhow!("Failed to deserialize state: {e}")
+        })?;
+
         Ok(TypedContractRecord {
-            deposit_txid: self.deposit_txid.parse::<Txid>()?,
-            deposit_tx: bincode::deserialize(&self.deposit_tx)?,
-            deposit_idx: self.deposit_idx as u32,
-            operator_table: bincode::deserialize(&self.operator_table)?,
-            state: bincode::deserialize(&self.state)?,
+            deposit_txid,
+            deposit_idx,
+            deposit_tx,
+            operator_table,
+            state,
         })
     }
 }
@@ -109,17 +127,17 @@ pub(crate) struct TypedContractRecord {
     /// The deposit transaction ID with respect to this contract.
     pub(crate) deposit_txid: Txid,
 
-    /// The deposit transaction with respect to this contract.
-    pub(crate) deposit_tx: DepositTx,
-
     /// The deposit index with respect to this contract.
     pub(crate) deposit_idx: u32,
+
+    /// The deposit transaction with respect to this contract.
+    pub(crate) deposit_tx: DepositTx,
 
     /// The operator table that was in place when this contract was created.
     pub(crate) operator_table: OperatorTable,
 
     /// The latest state of the contract.
-    pub(crate) state: ContractState,
+    pub(crate) state: MachineState,
 }
 
 /// RPC server for the bridge node.
@@ -381,7 +399,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         for entry in all_entries {
             let entry_deposit_request_txid = entry.1.deposit_request_txid();
             if deposit_request_txid == entry_deposit_request_txid {
-                match &entry.0.state {
+                match &entry.0.state.state {
                     ContractState::Requested { .. } => {
                         return Ok(RpcDepositStatus::InProgress {
                             deposit_request_txid,
@@ -410,7 +428,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut duties = Vec::new();
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { .. } => {
                     duties.push(RpcBridgeDutyStatus::Deposit {
                         deposit_request_txid: entry.1.deposit_request_txid(),
@@ -474,7 +492,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 .expect("we just checked that the index is valid");
 
             // Then, only get the entries where the operator index matches
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Assigned {
                     claim_txids,
                     withdrawal_request_txid,
@@ -527,7 +545,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         // Iterate over all contract states to find the matching withdrawal
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { .. } => todo!(),
                 ContractState::Deposited { .. } => todo!(),
                 ContractState::Assigned { .. } => todo!(),
@@ -565,7 +583,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut claims = Vec::new();
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { claim_txids, .. } => {
                     claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
                 }
@@ -603,7 +621,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let all_entries = self.cached_contracts.read().await.clone();
 
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { claim_txids, .. } => {
                     let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
                     if claim_txids.contains(&claim_txid) {
