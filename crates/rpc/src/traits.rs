@@ -17,6 +17,8 @@ pub trait StrataBridgeControlApi {
     async fn get_uptime(&self) -> RpcResult<u64>;
 }
 
+/// RPCs that allow monitoring the state of the bridge, including the status of the operators,
+/// deposit processing and withdrawal handling.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "stratabridge"))]
 pub trait StrataBridgeMonitoringApi {
@@ -62,6 +64,9 @@ pub trait StrataBridgeMonitoringApi {
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo>;
 }
 
+/// RPCs required for data availability.
+///
+/// These RPCs make the data required to enable permissionless challenging available.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "stratabridge"))]
 pub trait StrataBridgeDaApi {
