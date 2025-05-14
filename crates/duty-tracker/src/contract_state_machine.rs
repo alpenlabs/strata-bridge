@@ -180,7 +180,7 @@ pub enum ContractEvent {
 /// - Asserted -> Resolved
 ///
 /// The transaction ID used to index transactions and other data is the transaction ID of the claim
-/// transaction.
+/// transaction in the operators' graphs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
@@ -215,6 +215,7 @@ pub enum ContractState {
         agg_nonces: BTreeMap<Txid, Vec<AggNonce>>,
 
         /// This is a collection of all partial signatures for all graphs (indexed by the claim
+        /// txid) and for all operators.
         graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
 
         /// This is a collection of the aggregated signatures per graph that can be used to settle
@@ -615,7 +616,7 @@ pub enum OperatorDuty {
         pog_sighashes: PogMusigF<Message>,
     },
 
-    /// Instruscts us to commit the aggregated signatures to state.
+    /// Instructs us to commit the aggregated signatures to state.
     CommitSig {
         /// The transaction ID of the deposit transaction for this contract.
         deposit_txid: Txid,

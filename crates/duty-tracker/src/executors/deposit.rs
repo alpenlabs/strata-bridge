@@ -433,7 +433,7 @@ pub(crate) async fn handle_publish_graph_sigs(
 /// Handles the duty to commit the aggregate signatures for the given peg out graph identified by
 /// the deposit txid.
 ///
-/// This produces a `ContractEvent::AggregateSigs` event which is sent via the
+/// This produces a [`ContractEvent::AggregateSigs`] event which is sent via the
 /// `ouroboros_event_sender` to the node itself so that the state can be updated with the aggregate
 /// signatures.
 pub(crate) async fn handle_commit_sig(
