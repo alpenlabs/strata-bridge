@@ -2,11 +2,11 @@ PRAGMA foreign_keys = ON;
 
 -- Table for contracts
 CREATE TABLE IF NOT EXISTS contracts (
-    deposit_txid TEXT PRIMARY KEY,       -- Store as hex string
-    deposit_idx INTEGER NOT NULL UNIQUE, -- Index of the deposit in the stake chain
-    deposit_tx BLOB NOT NULL,            -- Serialized with bincode
-    operator_table BLOB NOT NULL,        -- Serialized with bincode
-    state BLOB NOT NULL                  -- Serialized with bincode
+    deposit_txid TEXT NOT NULL PRIMARY KEY, -- Store as hex string
+    deposit_idx INTEGER NOT NULL UNIQUE,    -- Index of the deposit in the stake chain
+    deposit_tx BLOB NOT NULL,               -- Serialized with bincode
+    operator_table BLOB NOT NULL,           -- Serialized with bincode
+    state BLOB NOT NULL                     -- Serialized with bincode
 );
 
 -- Table for wots_public_keys with a compound index on (operator_id, deposit_txid)

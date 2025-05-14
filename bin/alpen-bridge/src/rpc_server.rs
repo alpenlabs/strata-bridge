@@ -1,12 +1,12 @@
 //! Bootstraps an RPC server for the operator.
 
-use std::{fmt, sync::Arc, time::Duration};
+use std::{fmt, sync::Arc};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
-use duty_tracker::contract_state_machine::{ContractCfg, ContractState};
+use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
@@ -29,7 +29,7 @@ use tokio::{
 };
 use tracing::{debug, error, info, warn};
 
-use crate::params::Params;
+use crate::{config::RpcConfig, constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL, params::Params};
 
 /// Starts an RPC server for a bridge operator.
 pub(crate) async fn start_rpc<T>(rpc_impl: &T, rpc_addr: &str) -> anyhow::Result<()>
@@ -73,13 +73,13 @@ pub(crate) struct ContractRecord {
     #[sqlx(rename = "deposit_txid")]
     pub(crate) deposit_txid: String,
 
-    /// The deposit transaction with respect to this contract.
-    #[sqlx(rename = "deposit_tx")]
-    pub(crate) deposit_tx: Vec<u8>,
-
     /// The deposit index with respect to this contract.
     #[sqlx(rename = "deposit_idx")]
     pub(crate) deposit_idx: i64,
+
+    /// The deposit transaction with respect to this contract.
+    #[sqlx(rename = "deposit_tx")]
+    pub(crate) deposit_tx: Vec<u8>,
 
     /// The operator table that was in place when this contract was created.
     #[sqlx(rename = "operator_table")]
@@ -91,24 +91,53 @@ pub(crate) struct ContractRecord {
 }
 
 impl ContractRecord {
+    /// Converts this record into a strongly-typed in-memory representation.
     fn into_typed(self) -> anyhow::Result<TypedContractRecord> {
+        let deposit_txid = self.deposit_txid.parse::<Txid>().map_err(|e| {
+            error!(?e, "Failed to parse deposit_txid");
+            anyhow::anyhow!("Failed to parse deposit_txid: {e}")
+        })?;
+        let deposit_tx = bincode::deserialize(&self.deposit_tx).map_err(|e| {
+            error!(?e, "Failed to deserialize deposit_tx");
+            anyhow::anyhow!("Failed to deserialize deposit_tx: {e}")
+        })?;
+        let deposit_idx = self.deposit_idx as u32;
+        let operator_table = bincode::deserialize(&self.operator_table).map_err(|e| {
+            error!(?e, "Failed to deserialize operator_table");
+            anyhow::anyhow!("Failed to deserialize operator_table: {e}")
+        })?;
+        let state = bincode::deserialize(&self.state).map_err(|e| {
+            error!(?e, "Failed to deserialize state");
+            anyhow::anyhow!("Failed to deserialize state: {e}")
+        })?;
+
         Ok(TypedContractRecord {
-            deposit_txid: self.deposit_txid.parse::<Txid>()?,
-            deposit_tx: bincode::deserialize(&self.deposit_tx)?,
-            deposit_idx: self.deposit_idx as u32,
-            operator_table: bincode::deserialize(&self.operator_table)?,
-            state: bincode::deserialize(&self.state)?,
+            deposit_txid,
+            deposit_idx,
+            deposit_tx,
+            operator_table,
+            state,
         })
     }
 }
 
+/// Strongly-typed in-memory representation of contract records from the database.
 #[derive(Debug, Clone)]
 pub(crate) struct TypedContractRecord {
+    /// The deposit transaction ID with respect to this contract.
     pub(crate) deposit_txid: Txid,
-    pub(crate) deposit_tx: DepositTx,
+
+    /// The deposit index with respect to this contract.
     pub(crate) deposit_idx: u32,
+
+    /// The deposit transaction with respect to this contract.
+    pub(crate) deposit_tx: DepositTx,
+
+    /// The operator table that was in place when this contract was created.
     pub(crate) operator_table: OperatorTable,
-    pub(crate) state: ContractState,
+
+    /// The latest state of the contract.
+    pub(crate) state: MachineState,
 }
 
 /// RPC server for the bridge node.
@@ -139,21 +168,33 @@ pub(crate) struct BridgeRpc {
     /// The same applies for the `Stream` implementation of [`P2PHandle`].
     p2p_handle: P2PHandle,
 
-    /// The consensus-critical parameters that dictate the behavior of the bridge node.
+    /// Consensus-critical parameters that dictate the behavior of the bridge node.
     params: Params,
+
+    /// RPC server configuration.
+    config: RpcConfig,
 }
 
 impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
-    pub(crate) fn new(db: SqliteDb, p2p_handle: P2PHandle, params: Params) -> Self {
+    pub(crate) fn new(
+        db: SqliteDb,
+        p2p_handle: P2PHandle,
+        params: Params,
+        config: RpcConfig,
+    ) -> Self {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(Vec::new()));
+
+        let start_time = Utc::now();
+
         let instance = Self {
-            start_time: Utc::now(),
+            start_time,
             db,
             cached_contracts,
             p2p_handle,
             params,
+            config,
         };
 
         // Start the cache refresh task
@@ -166,6 +207,7 @@ impl BridgeRpc {
     fn start_cache_refresh_task(&self) {
         let db = self.db.clone();
         let cached_contracts = self.cached_contracts.clone();
+
         // Clone the params we need before spawning the task
         let network = self.params.network;
         let connectors = self.params.connectors;
@@ -173,22 +215,40 @@ impl BridgeRpc {
         let sidesystem = self.params.sidesystem.clone();
         let stake_chain = self.params.stake_chain;
 
+        let period = self
+            .config
+            .refresh_interval
+            .unwrap_or(DEFAULT_RPC_CACHE_REFRESH_INTERVAL);
+
         // Spawn a background task to refresh the cache
         tokio::spawn(async move {
-            // TODO(@storopoli): make this configurable
-            let mut interval = interval(Duration::from_secs(10 * 60)); // 10 minutes, i.e. a bitcoin block
+            let mut interval = interval(period);
+            info!(
+                ?period,
+                "initializing the background task for refreshing the RPC server cache"
+            );
 
             // Initial cache fill
             if let Ok(contracts) = query_as!(
                 ContractRecord,
-                r#"SELECT deposit_txid as "deposit_txid!", deposit_tx as "deposit_tx!", deposit_idx as "deposit_idx!", operator_table as "operator_table!", state as "state!" FROM contracts"#
+                r#"
+                SELECT
+                    deposit_txid,
+                    deposit_idx,
+                    deposit_tx,
+                    operator_table,
+                    state
+                FROM contracts
+                "#,
             )
             .fetch_all(db.pool())
             .await
             {
-                let mut cache_lock = cached_contracts.write().await;
+                let before_num_contracts = contracts.len();
+                info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
+
                 // Convert raw records to typed records
-                *cache_lock = contracts
+                let refreshed_contracts: Vec<_> = contracts
                     .into_iter()
                     .filter_map(|record| record.into_typed().ok())
                     .map(|record| {
@@ -205,10 +265,14 @@ impl BridgeRpc {
                         (record, config)
                     })
                     .collect();
-                info!(cache_len=%cache_lock.len(), "Contracts cache initialized");
+                let after_num_contracts = refreshed_contracts.len();
 
+                let mut cache_lock = cached_contracts.write().await;
+                *cache_lock = refreshed_contracts;
                 // drop the lock!
                 drop(cache_lock);
+
+                info!(%after_num_contracts, "RPC server Contracts cache initialized");
             } else {
                 error!("Failed to initialize contracts cache");
             }
@@ -219,15 +283,25 @@ impl BridgeRpc {
 
                 match query_as!(
                     ContractRecord,
-                    r#"SELECT deposit_txid as "deposit_txid!", deposit_tx as "deposit_tx!", deposit_idx as "deposit_idx!", operator_table as "operator_table!", state as "state!" FROM contracts"#
+                    r#"
+                    SELECT
+                        deposit_txid,
+                        deposit_idx,
+                        deposit_tx,
+                        operator_table,
+                        state
+                    FROM contracts
+                    "#,
                 )
                 .fetch_all(db.pool())
                 .await
                 {
                     Ok(contracts) => {
-                        let mut cache_lock = cached_contracts.write().await;
+                        let before_num_contracts = contracts.len();
+                        info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
+
                         // Convert raw records to typed records
-                        *cache_lock = contracts
+                        let refreshed_contracts: Vec<_> = contracts
                             .into_iter()
                             .filter_map(|record| record.into_typed().ok())
                             .map(|record| {
@@ -244,10 +318,14 @@ impl BridgeRpc {
                                 (record, config)
                             })
                             .collect();
-                        debug!(cache_len=%cache_lock.len(), "Contracts cache refreshed");
+                        let after_num_contracts = refreshed_contracts.len();
 
+                        let mut cache_lock = cached_contracts.write().await;
+                        *cache_lock = refreshed_contracts;
                         // drop the lock!
                         drop(cache_lock);
+
+                        debug!(%after_num_contracts, "Contracts cache refreshed");
                     }
                     Err(e) => {
                         error!(?e, "Failed to refresh contracts cache");
@@ -321,7 +399,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         for entry in all_entries {
             let entry_deposit_request_txid = entry.1.deposit_request_txid();
             if deposit_request_txid == entry_deposit_request_txid {
-                match &entry.0.state {
+                match &entry.0.state.state {
                     ContractState::Requested { .. } => {
                         return Ok(RpcDepositStatus::InProgress {
                             deposit_request_txid,
@@ -350,7 +428,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut duties = Vec::new();
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { .. } => {
                     duties.push(RpcBridgeDutyStatus::Deposit {
                         deposit_request_txid: entry.1.deposit_request_txid(),
@@ -414,7 +492,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 .expect("we just checked that the index is valid");
 
             // Then, only get the entries where the operator index matches
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Assigned {
                     claim_txids,
                     withdrawal_request_txid,
@@ -467,7 +545,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         // Iterate over all contract states to find the matching withdrawal
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { .. } => todo!(),
                 ContractState::Deposited { .. } => todo!(),
                 ContractState::Assigned { .. } => todo!(),
@@ -505,7 +583,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut claims = Vec::new();
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { claim_txids, .. } => {
                     claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
                 }
@@ -543,7 +621,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let all_entries = self.cached_contracts.read().await.clone();
 
         for entry in all_entries {
-            match &entry.0.state {
+            match &entry.0.state.state {
                 ContractState::Requested { claim_txids, .. } => {
                     let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
                     if claim_txids.contains(&claim_txid) {

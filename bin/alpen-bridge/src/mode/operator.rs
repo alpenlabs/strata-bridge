@@ -57,7 +57,7 @@ use tokio::{net::lookup_host, spawn, sync::broadcast, task::JoinHandle, try_join
 use tracing::{debug, info};
 
 use crate::{
-    config::{Config, P2PConfig, SecretServiceConfig},
+    config::{Config, P2PConfig, RpcConfig, SecretServiceConfig},
     params::Params,
     rpc_server::{start_rpc, BridgeRpc},
 };
@@ -167,8 +167,9 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     info!("initialized the contract manager");
 
     info!("starting the RPC server");
-    let rpc_address = config.rpc_addr.clone();
-    let rpc_task = start_rpc_server(rpc_address, db_rpc, p2p_handle_rpc, params.clone()).await?;
+    let rpc_config = config.rpc.clone();
+    let rpc_params = params.clone();
+    let rpc_task = start_rpc_server(db_rpc, p2p_handle_rpc, rpc_params, rpc_config).await?;
     info!("started the RPC server");
 
     // Wait for all tasks to run
@@ -421,14 +422,15 @@ async fn init_duty_tracker(
 }
 
 async fn start_rpc_server(
-    rpc_address: String,
     db: SqliteDb,
     p2p_handle: P2PHandle,
     params: Params,
+    config: RpcConfig,
 ) -> anyhow::Result<JoinHandle<()>> {
-    let rpc_client = BridgeRpc::new(db, p2p_handle, params);
+    let rpc_addr = config.rpc_addr.clone();
+    let rpc_client = BridgeRpc::new(db, p2p_handle, params, config);
     let handle = spawn(async move {
-        start_rpc(&rpc_client, rpc_address.as_str())
+        start_rpc(&rpc_client, rpc_addr.as_str())
             .await
             .expect("failed to start RPC server");
     });
