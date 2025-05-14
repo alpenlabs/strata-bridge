@@ -276,21 +276,35 @@ impl ContractManager {
                     biased; // follow the same order as specified below
 
                     synthetic_event = synthetic_event_receiver.recv() => {
-                        if let Some(SyntheticEvent::AggregatedSigs(deposit_txid, agg_sigs)) = synthetic_event {
+                        if let Some(SyntheticEvent::AggregatedSigs{ deposit_txid, agg_sigs }) = synthetic_event {
                             let contract = ctx.state.active_contracts.get_mut(&deposit_txid).expect("contract must exist in the state");
 
                             info!(%deposit_txid, "committing aggregate signatures");
-                            match contract.process_synthetic_event(SyntheticEvent::AggregatedSigs(deposit_txid, agg_sigs)) {
-                                Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => duties.extend(synthetic_event_duties),
-                                Ok(synthetic_event_duties) => { trace!(?synthetic_event_duties, "got no duties when processing synthetic event to commit signatures")},
-                                Err(e) => {
-                                    error!(%deposit_txid, %e, "failed to process ouroboros event");
-                                    // We only receive an event from this channel once (no retries).
-                                    // Not having aggregate signatures is catastrophic because we
-                                    // don't have a reliable fallback mechanism to get them in the
-                                    // future. So it's better to break the event loop and panic if this ever happens.
-                                    break;
+                            match contract.process_synthetic_event(SyntheticEvent::AggregatedSigs{ deposit_txid, agg_sigs }) {
+                                Ok(Some(contract_event)) => match contract.process_contract_event(contract_event) {
+                                    Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => duties.extend(synthetic_event_duties),
+                                    Ok(synthetic_event_duties) => { trace!(?synthetic_event_duties, "got no duties when processing contract event from synthetic event"); },
+                                    Err(e) => {
+                                        error!(%deposit_txid, %e, "failed to process ouroboros event");
+                                        // We only receive an event from this channel once (no retries).
+                                        // Not having aggregate signatures is catastrophic because we
+                                        // don't have a reliable fallback mechanism to get them in the
+                                        // future. So it's better to break the event loop and panic if this ever happens.
+                                        break;
+                                    },
                                 },
+                                Ok(None) => {
+                                    trace!(%deposit_txid, "no contract event generated from synthetic event");
+                                }
+                                Err(e) => {
+                                    error!(%deposit_txid, %e, "failed to process synthetic event");
+                                    // As the purpose of synthetic events enable some crucial part
+                                    // of the functionality that can usually not be reconstucted
+                                    // from an external source such as the chain state, any error is
+                                    // potentially fatal and so we break the event loop.
+                                    break;
+                                }
+
                             }
                         }
                     },
