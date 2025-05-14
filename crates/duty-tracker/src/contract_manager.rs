@@ -40,6 +40,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
+        SyntheticEvent,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -194,7 +195,7 @@ impl ContractManager {
             let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
 
             let (synthetic_event_sender, mut synthetic_event_receiver) =
-                mpsc::unbounded_channel::<ContractEvent>();
+                mpsc::unbounded_channel::<SyntheticEvent>();
 
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
@@ -275,13 +276,13 @@ impl ContractManager {
                     biased; // follow the same order as specified below
 
                     synthetic_event = synthetic_event_receiver.recv() => {
-                        if let Some(ContractEvent::AggregateSigs(deposit_txid, agg_sigs)) = synthetic_event {
+                        if let Some(SyntheticEvent::AggregatedSigs(deposit_txid, agg_sigs)) = synthetic_event {
                             let contract = ctx.state.active_contracts.get_mut(&deposit_txid).expect("contract must exist in the state");
 
                             info!(%deposit_txid, "committing aggregate signatures");
-                            match contract.process_contract_event(ContractEvent::AggregateSigs(deposit_txid, agg_sigs)) {
-                                Ok(synthetic_duties) if !synthetic_duties.is_empty() => duties.extend(synthetic_duties),
-                                Ok(synthetic_duties) => { trace!(?synthetic_duties, "got no duties when processing synthetic event to commit signatures")},
+                            match contract.process_synthetic_event(SyntheticEvent::AggregatedSigs(deposit_txid, agg_sigs)) {
+                                Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => duties.extend(synthetic_event_duties),
+                                Ok(synthetic_event_duties) => { trace!(?synthetic_event_duties, "got no duties when processing synthetic event to commit signatures")},
                                 Err(e) => {
                                     error!(%deposit_txid, %e, "failed to process ouroboros event");
                                     // We only receive an event from this channel once (no retries).
@@ -397,7 +398,7 @@ pub(super) struct OutputHandles {
     pub(super) wallet: RwLock<OperatorWallet>,
     pub(super) msg_handler: MessageHandler,
     pub(super) bitcoind_rpc_client: BitcoinClient,
-    pub(super) synthetic_event_sender: mpsc::UnboundedSender<ContractEvent>,
+    pub(super) synthetic_event_sender: mpsc::UnboundedSender<SyntheticEvent>,
     pub(super) s2_session_manager: MusigSessionManager,
     pub(super) tx_driver: TxDriver,
     pub(super) db: SqliteDb,
