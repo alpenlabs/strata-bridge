@@ -507,7 +507,10 @@ pub(crate) async fn handle_commit_sig(
     }
 
     synthetic_event_sender
-        .send(SyntheticEvent::AggregatedSigs(deposit_txid, graph_sigs))
+        .send(SyntheticEvent::AggregatedSigs {
+            deposit_txid,
+            agg_sigs: graph_sigs,
+        })
         .map_err(|e| {
             error!(%e, "could not send aggregate sigs event");
 
