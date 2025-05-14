@@ -91,6 +91,7 @@ pub(crate) struct ContractRecord {
 }
 
 impl ContractRecord {
+    /// Converts this record into a strongly-typed in-memory representation.
     fn into_typed(self) -> anyhow::Result<TypedContractRecord> {
         Ok(TypedContractRecord {
             deposit_txid: self.deposit_txid.parse::<Txid>()?,
@@ -102,12 +103,22 @@ impl ContractRecord {
     }
 }
 
+/// Strongly-typed in-memory representation of contract records from the database.
 #[derive(Debug, Clone)]
 pub(crate) struct TypedContractRecord {
+    /// The deposit transaction ID with respect to this contract.
     pub(crate) deposit_txid: Txid,
+
+    /// The deposit transaction with respect to this contract.
     pub(crate) deposit_tx: DepositTx,
+
+    /// The deposit index with respect to this contract.
     pub(crate) deposit_idx: u32,
+
+    /// The operator table that was in place when this contract was created.
     pub(crate) operator_table: OperatorTable,
+
+    /// The latest state of the contract.
     pub(crate) state: ContractState,
 }
 
@@ -202,7 +213,15 @@ impl BridgeRpc {
             // Initial cache fill
             if let Ok(contracts) = query_as!(
                 ContractRecord,
-                r#"SELECT deposit_txid as "deposit_txid!", deposit_tx as "deposit_tx!", deposit_idx as "deposit_idx!", operator_table as "operator_table!", state as "state!" FROM contracts"#
+                r#"
+                SELECT
+                    deposit_txid,
+                    deposit_idx,
+                    deposit_tx,
+                    operator_table,
+                    state
+                FROM contracts
+                "#,
             )
             .fetch_all(db.pool())
             .await
@@ -236,7 +255,6 @@ impl BridgeRpc {
                 drop(cache_lock);
 
                 info!(%after_num_contracts, "RPC server Contracts cache initialized");
-
             } else {
                 error!("Failed to initialize contracts cache");
             }
@@ -247,7 +265,15 @@ impl BridgeRpc {
 
                 match query_as!(
                     ContractRecord,
-                    r#"SELECT deposit_txid as "deposit_txid!", deposit_tx as "deposit_tx!", deposit_idx as "deposit_idx!", operator_table as "operator_table!", state as "state!" FROM contracts"#
+                    r#"
+                    SELECT
+                        deposit_txid,
+                        deposit_idx,
+                        deposit_tx,
+                        operator_table,
+                        state
+                    FROM contracts
+                    "#,
                 )
                 .fetch_all(db.pool())
                 .await
