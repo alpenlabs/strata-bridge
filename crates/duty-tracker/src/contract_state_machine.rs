@@ -1627,7 +1627,10 @@ impl ContractSM {
                             .map(|pog_input| (claim_txid, pog_input))
                     })
                     .map(|(claim_txid, pog_input)| {
-                        let pog = cfg.build_graph(pog_input.clone());
+                        let pog = pog_cache
+                            .get(&pog_input.stake_outpoint.txid)
+                            .cloned()
+                            .unwrap_or_else(|| cfg.build_graph(pog_input.clone()));
 
                         (
                             (*claim_txid, pog.musig_inpoints()),
