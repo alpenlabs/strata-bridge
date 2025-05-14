@@ -91,12 +91,15 @@ impl TxDriver {
                                     }
                                 }
                             }
-                            btc_notify::client::TxStatus::Buried { .. } => {
+                            btc_notify::client::TxStatus::Buried { height, .. } => {
                                 // Since our responsibility ends at block inclusion we will send an
                                 // answer on the response channel now. It is the API caller's
                                 // responsibility for handling reorgs after inclusion.
-                                match active_jobs.remove(&event.rawtx.compute_txid()) {
+                                let txid = event.rawtx.compute_txid();
+                                match active_jobs.remove(&txid) {
                                     Some(job) => {
+                                        info!(%txid, %height, "transaction confirmed in block");
+
                                         let _ = job.respond_on.send(Ok(()));
                                     }
                                     None => {
