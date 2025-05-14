@@ -282,8 +282,8 @@ impl ContractManager {
 
                             info!(%deposit_txid, "committing aggregate signatures");
                             match contract.process_contract_event(ContractEvent::AggregateSigs(deposit_txid, agg_sigs)) {
-                                Ok(ouroboros_duties) => { trace!(?ouroboros_duties, "got no duties when processing ouroboros event to aggregate signatures")},
                                 Ok(synthetic_duties) if !synthetic_duties.is_empty() => duties.extend(synthetic_duties),
+                                Ok(synthetic_duties) => { trace!(?synthetic_duties, "got no duties when processing synthetic event to commit signatures")},
                                 Err(e) => {
                                     error!(%deposit_txid, %e, "failed to process ouroboros event");
                                     // We only receive an event from this channel once (no retries).
