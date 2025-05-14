@@ -135,10 +135,6 @@ pub enum ContractEvent {
         signatures: Vec<PartialSignature>,
     },
 
-    /// Siginifies that we have aggregated the partial signatures for all relevant inpoints of all
-    /// the graphs for a particular contract and these need to be committed.
-    AggregateSigs(Txid, BTreeMap<Txid, PogMusigF<taproot::Signature>>),
-
     /// Signifies that we have received a new deposit nonce from one of our peers.
     RootNonce(P2POperatorPubKey, PubNonce),
 
@@ -563,6 +559,19 @@ impl ContractState {
 
         graph_sigs.clone()
     }
+}
+
+/// This is the set of events that are not directly derived from the chain state or the p2p network
+/// but rather serve a specific auxiliary function in the contract state machine architecture.
+#[derive(Debug, Clone)]
+pub enum SyntheticEvent {
+    /// Siginifies that we have aggregated the partial signatures for all relevant inpoints of all
+    /// the graphs for a particular contract (identified by the deposit txid) and that these need
+    /// to be committed.
+    ///
+    /// The committed signatures are used during withdrawal execution to settle relevant
+    /// transactions in the pre-signed peg-out graph.
+    AggregatedSigs(Txid, BTreeMap<Txid, PogMusigF<taproot::Signature>>),
 }
 
 /// This is the superset of all possible operator duties.
@@ -1088,9 +1097,6 @@ impl ContractSM {
                 .process_graph_signatures(signer, claim_txid, signatures)
                 .map(|x| x.into_iter().collect()),
 
-            ContractEvent::AggregateSigs(deposit_txid, sigs) => {
-                self.process_aggregate_sigs(deposit_txid, sigs)
-            }
             ContractEvent::RootNonce(op, nonce) => self
                 .process_root_nonce(op, nonce)
                 .map(|x| x.into_iter().collect()),
@@ -1122,6 +1128,18 @@ impl ContractSM {
             ContractEvent::AssertionFailure => self
                 .process_assertion_verification_failure()
                 .map(|x| x.into_iter().collect()),
+        }
+    }
+
+    /// Processes the unified synthetic event type for the [`ContractSM`].
+    pub fn process_synthetic_event(
+        &mut self,
+        ev: SyntheticEvent,
+    ) -> Result<Vec<OperatorDuty>, TransitionErr> {
+        match ev {
+            SyntheticEvent::AggregatedSigs(deposit_txid, agg_sigs) => {
+                self.process_aggregate_sigs(deposit_txid, agg_sigs)
+            }
         }
     }
 

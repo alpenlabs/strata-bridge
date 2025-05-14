@@ -36,7 +36,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
-    contract_state_machine::{ContractEvent, TransitionErr},
+    contract_state_machine::{SyntheticEvent, TransitionErr},
     errors::ContractManagerErr,
     executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
@@ -440,7 +440,7 @@ pub(crate) async fn handle_commit_sig(
     cfg: &ExecutionConfig,
     deposit_txid: Txid,
     s2_session_manager: &MusigSessionManager,
-    ouroboros_event_sender: &mpsc::UnboundedSender<ContractEvent>,
+    synthetic_event_sender: &mpsc::UnboundedSender<SyntheticEvent>,
     pog_inpoints: BTreeMap<Txid, PogMusigF<OutPoint>>,
     pog_sighash_types: BTreeMap<Txid, PogMusigF<TapSighashType>>,
     graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
@@ -506,8 +506,8 @@ pub(crate) async fn handle_commit_sig(
         graph_sigs.insert(claim_txid, agg_sigs_for_graph);
     }
 
-    ouroboros_event_sender
-        .send(ContractEvent::AggregateSigs(deposit_txid, graph_sigs))
+    synthetic_event_sender
+        .send(SyntheticEvent::AggregatedSigs(deposit_txid, graph_sigs))
         .map_err(|e| {
             error!(%e, "could not send aggregate sigs event");
 
