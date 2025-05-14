@@ -30,16 +30,17 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsu
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
-    sync::{broadcast, RwLock},
+    sync::{broadcast, mpsc, RwLock},
     task::{self, JoinHandle},
     time,
 };
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
+        SyntheticEvent,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -193,10 +194,14 @@ impl ContractManager {
             let (ouroboros_sender, mut ouroboros_receiver) = broadcast::channel(OUROBOROS_CAP);
             let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
 
+            let (synthetic_event_sender, mut synthetic_event_receiver) =
+                mpsc::unbounded_channel::<SyntheticEvent>();
+
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
                 bitcoind_rpc_client: rpc_client.clone(),
+                synthetic_event_sender,
                 s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
                 tx_driver,
                 db,
@@ -271,6 +276,27 @@ impl ContractManager {
                 let mut duties = vec![];
                 tokio::select! {
                     biased; // follow the same order as specified below
+
+                    synthetic_event = synthetic_event_receiver.recv() => {
+                        if let Some(SyntheticEvent::AggregatedSigs{ deposit_txid, agg_sigs }) = synthetic_event {
+                            let contract = ctx.state.active_contracts.get_mut(&deposit_txid).expect("contract must exist in the state");
+
+                            info!(%deposit_txid, "committing aggregate signatures");
+                            match contract.process_contract_event(ContractEvent::AggregatedSigs { agg_sigs }) {
+                                Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => duties.extend(synthetic_event_duties),
+                                Ok(synthetic_event_duties) => { trace!(?synthetic_event_duties, "got no duties when processing contract event from synthetic event"); },
+                                Err(e) => {
+                                    error!(%deposit_txid, %e, "failed to process ouroboros event");
+                                    // We only receive an event from this channel once (no retries).
+                                    // Not having aggregate signatures is catastrophic because we
+                                    // don't have a reliable fallback mechanism to get them in the
+                                    // future. So it's better to break the event loop and panic if this ever happens.
+                                    break;
+                                },
+
+                            }
+                        }
+                    },
 
                     Some(block) = block_sub.next() => {
                         let blockhash = block.block.block_hash();
@@ -375,6 +401,7 @@ pub(super) struct OutputHandles {
     pub(super) wallet: RwLock<OperatorWallet>,
     pub(super) msg_handler: MessageHandler,
     pub(super) bitcoind_rpc_client: BitcoinClient,
+    pub(super) synthetic_event_sender: mpsc::UnboundedSender<SyntheticEvent>,
     pub(super) s2_session_manager: MusigSessionManager,
     pub(super) tx_driver: TxDriver,
     pub(super) db: SqliteDb,
@@ -611,7 +638,7 @@ impl ContractManagerCtx {
                         let Ok(Some(stake_tx)) = self
                             .state
                             .stake_chains
-                            .stake_tx(pov_op_p2p_key, stake_index as usize)
+                            .stake_tx(pov_op_p2p_key, stake_index)
                         else {
                             warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
                             continue;
@@ -742,7 +769,7 @@ impl ContractManagerCtx {
                     let stake_tx = self
                         .state
                         .stake_chains
-                        .stake_tx(&key, deposit_idx as usize)?
+                        .stake_tx(&key, deposit_idx)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
                     let deposit_setup_duties = contract
@@ -767,7 +794,7 @@ impl ContractManagerCtx {
 
                     duties.extend(deposit_setup_duties);
                 } else {
-                    // One of the other operators has may have seen a DRT that we have not yet
+                    // One of the other operators may have seen a DRT that we have not yet
                     // seen
                     warn!(
                         "Received a P2P message about an unknown contract: {}",
@@ -982,7 +1009,7 @@ impl ContractManagerCtx {
                                 .convert_map_op_to_btc(graph_nonces)
                                 .unwrap(),
                             pog_prevouts: pog.musig_inpoints(),
-                            pog_sighashes: pog.sighashes(),
+                            pog_sighashes: pog.musig_sighashes(),
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1238,8 +1265,10 @@ async fn execute_duty(
 ) -> Result<(), ContractManagerErr> {
     let OutputHandles {
         msg_handler,
+        synthetic_event_sender,
         s2_session_manager,
         db,
+        tx_driver,
         ..
     } = &*output_handles;
 
@@ -1283,8 +1312,8 @@ async fn execute_duty(
             pog_witnesses,
         } => {
             handle_publish_graph_nonces(
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
+                s2_session_manager,
+                msg_handler,
                 claim_txid,
                 pog_inputs,
                 pog_witnesses,
@@ -1299,12 +1328,30 @@ async fn execute_duty(
             pog_sighashes,
         } => {
             handle_publish_graph_sigs(
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
+                s2_session_manager,
+                msg_handler,
                 claim_txid,
                 pubnonces,
                 pog_outpoints,
                 pog_sighashes,
+            )
+            .await
+        }
+
+        OperatorDuty::CommitSig {
+            deposit_txid,
+            graph_partials,
+            pog_inpoints,
+            pog_sighash_types,
+        } => {
+            handle_commit_sig(
+                cfg,
+                deposit_txid,
+                s2_session_manager,
+                synthetic_event_sender,
+                pog_inpoints,
+                pog_sighash_types,
+                graph_partials,
             )
             .await
         }
@@ -1316,8 +1363,8 @@ async fn execute_duty(
         } => {
             handle_publish_root_signature(
                 cfg,
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
+                s2_session_manager,
+                msg_handler,
                 nonces,
                 OutPoint::new(deposit_request_txid, 0),
                 sighash,
@@ -1331,8 +1378,8 @@ async fn execute_duty(
             partial_sigs,
         } => {
             handle_publish_deposit(
-                &output_handles.s2_session_manager,
-                &output_handles.tx_driver,
+                s2_session_manager,
+                tx_driver,
                 deposit_tx,
                 partial_sigs
                     .into_iter()
@@ -1385,7 +1432,7 @@ async fn execute_duty(
                 claim_txid,
                 stake_txid,
                 stake_index,
-                partials,
+                agg_sigs,
             } => {
                 handle_publish_payout_optimistic(
                     cfg,
@@ -1394,7 +1441,7 @@ async fn execute_duty(
                     claim_txid,
                     stake_txid,
                     stake_index,
-                    partials,
+                    *agg_sigs,
                 )
                 .await
             }

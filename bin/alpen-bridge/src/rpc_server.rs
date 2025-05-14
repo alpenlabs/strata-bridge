@@ -4,10 +4,14 @@ use std::{fmt, sync::Arc};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
-use bitcoin::{OutPoint, PublicKey, Txid};
+use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
 use chrono::{DateTime, Utc};
 use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
-use jsonrpsee::{core::RpcResult, types::ErrorObjectOwned, RpcModule};
+use jsonrpsee::{
+    core::RpcResult,
+    types::{ErrorCode, ErrorObjectOwned},
+    RpcModule,
+};
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
 use serde::Serialize;
@@ -15,7 +19,9 @@ use sqlx::{query_as, FromRow};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
-    traits::{StrataBridgeControlApiServer, StrataBridgeMonitoringApiServer},
+    traits::{
+        StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
+    },
     types::{
         RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus,
         RpcReimbursementStatus, RpcWithdrawalInfo, RpcWithdrawalStatus,
@@ -345,7 +351,7 @@ impl StrataBridgeControlApiServer for BridgeRpc {
         // The user might care about their system time being incorrect.
         if current_time <= start_time {
             return Err(rpc_error(
-                -32_000,
+                ErrorCode::InternalError,
                 "system time may be inaccurate", // `start_time` may have been incorrect too
                 current_time.saturating_sub(start_time),
             ));
@@ -375,7 +381,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         // Avoid DoS attacks by just returning an error if the public key is invalid
         if conversion.is_err() {
             return Err(rpc_error(
-                -32001,
+                ErrorCode::InvalidRequest,
                 "Invalid operator public key",
                 operator_pk,
             ));
@@ -416,7 +422,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         }
 
         Err(rpc_error(
-            -32_001,
+            ErrorCode::InvalidRequest,
             "Deposit request outpoint not found",
             deposit_request_outpoint,
         ))
@@ -479,7 +485,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 .btc_key_to_idx(&operator_pk.inner)
                 .ok_or_else(|| {
                     rpc_error(
-                        -32001,
+                        ErrorCode::InvalidRequest,
                         "Operator public key not found in operator table",
                         operator_pk,
                     )
@@ -571,7 +577,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         }
 
         Err(rpc_error(
-            -32_001,
+            ErrorCode::InvalidRequest,
             "Withdrawal outpoint not found",
             withdrawal_outpoint,
         ))
@@ -707,7 +713,54 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             };
         }
 
-        Err(rpc_error(-32_001, "Claim not found", claim_txid))
+        Err(rpc_error(
+            ErrorCode::InvalidRequest,
+            "Claim not found",
+            claim_txid,
+        ))
+    }
+}
+
+#[async_trait]
+impl StrataBridgeDaApiServer for BridgeRpc {
+    async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
+        debug!(%claim_txid, "getting challenge signature");
+
+        let contracts = self.cached_contracts.read().await;
+
+        Ok(contracts.iter().find_map(|contract| {
+            if contract.0.state.state.claim_txids().contains(&claim_txid) {
+                contract
+                    .0
+                    .state
+                    .state
+                    .graph_sigs()
+                    .get(&claim_txid)
+                    .map(|sigs| sigs.challenge)
+            } else {
+                None
+            }
+        }))
+    }
+
+    async fn get_disprove_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
+        debug!(%claim_txid, "getting disprove signature");
+
+        let contracts = self.cached_contracts.read().await;
+
+        Ok(contracts.iter().find_map(|contract| {
+            if contract.0.state.state.claim_txids().contains(&claim_txid) {
+                contract
+                    .0
+                    .state
+                    .state
+                    .graph_sigs()
+                    .get(&claim_txid)
+                    .map(|sigs| sigs.disprove)
+            } else {
+                None
+            }
+        }))
     }
 }
 
@@ -736,6 +789,10 @@ pub(crate) fn convert_operator_pk_to_peer_id(
 
 /// Returns an [`ErrorObjectOwned`] with the given code, message, and data.
 /// Useful for creating custom error objects in RPC responses.
-fn rpc_error<T: fmt::Display + Serialize>(code: i32, message: &str, data: T) -> ErrorObjectOwned {
-    ErrorObjectOwned::owned::<_>(code, message, Some(data))
+fn rpc_error<T: fmt::Display + Serialize>(
+    err_code: ErrorCode,
+    message: &str,
+    data: T,
+) -> ErrorObjectOwned {
+    ErrorObjectOwned::owned::<_>(err_code.code(), message, Some(data))
 }

@@ -3,7 +3,6 @@ use std::collections::BTreeMap;
 
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{secp256k1::XOnlyPublicKey, Network, OutPoint, Txid};
-use indexmap::IndexSet;
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::{
@@ -24,7 +23,7 @@ pub struct StakeChainSM {
     params: StakeChainParams,
     operator_table: OperatorTable,
     stake_chains: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
-    stake_txids: BTreeMap<P2POperatorPubKey, IndexSet<Txid>>,
+    stake_txids: BTreeMap<P2POperatorPubKey, BTreeMap<u32, Txid>>,
 }
 
 impl StakeChainSM {
@@ -61,15 +60,21 @@ impl StakeChainSM {
                 )
             })
             .map(|chain| {
-                let mut txids = IndexSet::new();
+                let mut txids = BTreeMap::new();
 
                 let Some(first_stake_txid) = chain.head().map(|stake_tx| stake_tx.compute_txid())
                 else {
                     return txids;
                 };
 
-                txids.insert(first_stake_txid);
-                txids.extend(chain.tail().iter().map(|stake_tx| stake_tx.compute_txid()));
+                txids.insert(0, first_stake_txid);
+                txids.extend(
+                    chain
+                        .tail()
+                        .iter()
+                        .enumerate()
+                        .map(|(index, stake_tx)| (index as u32 + 1, stake_tx.compute_txid())),
+                );
 
                 txids
             })
@@ -99,7 +104,7 @@ impl StakeChainSM {
     ) -> Result<(), StakeChainErr> {
         let inputs = StakeChainInputs {
             operator_pubkey,
-            stake_inputs: IndexSet::new(),
+            stake_inputs: BTreeMap::new(),
             pre_stake_outpoint,
         };
 
@@ -130,13 +135,19 @@ impl StakeChainSM {
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
 
-        let new_entry = chain_input.stake_inputs.insert(setup.stake_tx_data());
-        if !new_entry {
+        if chain_input.stake_inputs.contains_key(&setup.index) {
             warn!(%operator, "stake input already exists for this operator");
+            return Ok(self
+                .stake_tx(&operator, setup.index)?
+                .map(|tx| tx.compute_txid()));
         }
 
+        chain_input
+            .stake_inputs
+            .insert(setup.index, setup.stake_tx_data());
+
         // now try to create the stake transaction at the index
-        let Some(stake_tx) = self.stake_tx(&operator, setup.index as usize)? else {
+        let Some(stake_tx) = self.stake_tx(&operator, setup.index)? else {
             warn!(%operator, "stake tx not found for this operator");
 
             // if unable to create the stake tx, we ignore it but inform the caller.
@@ -148,15 +159,21 @@ impl StakeChainSM {
         let stake_txid = stake_tx.compute_txid();
 
         // only update if this is a new entry
-        let new_entry = self
+        if self
             .stake_txids
+            .get(&operator)
+            .map(|txids| txids.contains_key(&setup.index))
+            .unwrap_or(false)
+        {
+            warn!(%operator, index=%setup.index, "stake txid already exists for this index");
+
+            return Ok(Some(stake_txid));
+        }
+
+        self.stake_txids
             .entry(operator.clone())
             .or_default()
-            .insert(stake_txid);
-
-        if !new_entry {
-            warn!(%operator, "stake txid already exists for this operator");
-        }
+            .insert(setup.index, stake_txid);
 
         Ok(Some(stake_txid))
     }
@@ -170,7 +187,7 @@ impl StakeChainSM {
     pub fn stake_tx(
         &self,
         op: &P2POperatorPubKey,
-        nth: usize,
+        nth: u32,
     ) -> Result<Option<StakeTxKind>, StakeChainErr> {
         match self.stake_chains.get(op) {
             Some(stake_chain_inputs) => {
@@ -184,8 +201,9 @@ impl StakeChainSM {
                 // tx.
                 let first_input = stake_chain_inputs
                     .stake_inputs
-                    .first()
-                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
+                    .values()
+                    .nth(0)
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth))?;
                 let stake_hash = first_input.hash;
                 let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk;
                 let operator_funds = first_input.operator_funds;
@@ -208,20 +226,23 @@ impl StakeChainSM {
                 let stake_txids = self
                     .stake_txids
                     .get(op)
-                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth as u32))?;
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth))?;
 
-                let prev_stake_txid = stake_txids.iter().nth(nth - 1).ok_or(
-                    StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
-                )?;
-                let prev_input = stake_chain_inputs.stake_inputs.iter().nth(nth - 1).ok_or(
+                let prev_stake_txid =
+                    stake_txids
+                        .get(&(nth - 1))
+                        .ok_or(StakeChainErr::IncompleteStakeChainInput(
+                            op.clone(),
+                            nth - 1,
+                        ))?;
+                let prev_input = stake_chain_inputs.stake_inputs.get(&(nth - 1)).ok_or(
                     StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
                 )?;
                 let prev_stake = OutPoint::new(*prev_stake_txid, STAKE_VOUT);
 
                 let input = stake_chain_inputs
                     .stake_inputs
-                    .iter()
-                    .nth(nth)
+                    .get(&nth)
                     .ok_or(StakeChainErr::IncompleteStakeChainInput(op.clone(), nth))?;
 
                 let stake_tx = StakeTx::<Tail>::new(

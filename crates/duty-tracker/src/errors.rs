@@ -84,7 +84,7 @@ pub enum StakeChainErr {
 
     /// Error indicating that some stake chain data is missing.
     #[error("stake chain inputs incomplete for operator: {0}, index: {1}")]
-    IncompleteStakeChainInput(P2POperatorPubKey, usize),
+    IncompleteStakeChainInput(P2POperatorPubKey, u32),
 
     /// Error indicating that the pre stake data for the operator does not exist in the database.
     #[error("stake setup data not found for operator: {0}")]

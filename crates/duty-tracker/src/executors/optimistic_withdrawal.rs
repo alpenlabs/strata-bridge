@@ -6,12 +6,10 @@ use std::sync::Arc;
 use bitcoin::{
     hashes::{sha256, Hash},
     sighash::{Prevouts, SighashCache},
-    FeeRate, OutPoint, TapSighashType, Txid,
+    taproot, FeeRate, OutPoint, TapSighashType, Txid,
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
-use musig2::PartialSignature;
-use secp256k1::schnorr::Signature;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,
@@ -331,7 +329,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
     claim_txid: Txid,
     stake_txid: Txid,
     stake_index: u32,
-    partials: [Vec<PartialSignature>; NUM_PAYOUT_OPTIMISTIC_INPUTS],
+    agg_sigs: [taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS],
 ) -> Result<(), ContractManagerErr> {
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
@@ -397,40 +395,8 @@ pub(crate) async fn handle_publish_payout_optimistic(
     );
     let payout_optimistic_txid = payout_optimistic_tx.compute_txid();
 
-    let mut signatures = Vec::with_capacity(partials.len());
-
-    for (input_index, partials_per_op) in partials.iter().enumerate() {
-        let outpoint = OutPoint::new(payout_optimistic_txid, input_index as u32);
-
-        for (op_idx, partial) in partials_per_op.iter().enumerate() {
-            let sender = cfg
-                .operator_table
-                .idx_to_btc_key(&(op_idx as u32))
-                .expect("operator index must exist in the table");
-
-            // FIXME: (@Rajil1213) this call may fail if the s2 server crashed between the time the
-            // session was created and the time this call is made. One way to get the aggregate
-            // signature and then store that in the database/state instead of aggregating them just
-            // in time.
-            output_handles
-                .s2_session_manager
-                .put_partial(outpoint, sender.x_only_public_key().0, *partial)
-                .await?;
-        }
-
-        let signature = output_handles
-            .s2_session_manager
-            .get_signature(outpoint)
-            .await?;
-
-        let signature =
-            Signature::from_slice(&signature.serialize()[..]).expect("must have the right size");
-
-        signatures.push(signature);
-    }
-
     let signed_payout_optimistic_tx =
-        payout_optimistic_tx.finalize(signatures.try_into().expect("must have the right size"));
+        payout_optimistic_tx.finalize(agg_sigs.map(|agg_sig| agg_sig.signature));
 
     info!(txid = %payout_optimistic_txid, "submitting payout optimistic tx to the tx driver");
     output_handles

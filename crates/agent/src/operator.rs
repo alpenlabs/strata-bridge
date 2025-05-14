@@ -1,6 +1,6 @@
 use core::fmt;
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fs::{self, File},
     io::Write,
     ops::Deref,
@@ -31,7 +31,6 @@ use bitvm::{
     chunk::api::{api_generate_full_tapscripts, generate_assertions, validate_assertions},
     signatures::wots_api::HASH_LEN,
 };
-use indexmap::IndexSet;
 use musig2::{
     aggregate_partial_signatures, sign_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
@@ -2436,7 +2435,7 @@ where
 
         info!(action = "creating stake chain", length = %stake_chain_length, %own_index);
 
-        let mut stake_inputs: IndexSet<StakeTxData> = IndexSet::new();
+        let mut stake_inputs: BTreeMap<u32, StakeTxData> = BTreeMap::new();
         for i in 0..stake_chain_length {
             let preimage = self.agent.generate_preimage(&self.msk, i);
             let hash = hashes::sha256::Hash::hash(&preimage);
@@ -2459,7 +2458,7 @@ where
                 .await
                 .unwrap();
 
-            stake_inputs.insert(stake_tx_data);
+            stake_inputs.insert(i, stake_tx_data);
         }
 
         let stake_chain_params = StakeChainParams::default();
@@ -2522,7 +2521,7 @@ where
         let operator_pubkey = self.agent.public_key().x_only_public_key().0;
 
         let num_stake_txs = stake_id as usize + 1;
-        let mut stake_inputs = IndexSet::new();
+        let mut stake_inputs = BTreeMap::new();
         for i in 0..num_stake_txs {
             let stake_data = self
                 .public_db
@@ -2532,7 +2531,7 @@ where
                 .unwrap(); // FIXME:
                            // Handle me
 
-            stake_inputs.insert(stake_data);
+            stake_inputs.insert(i as u32, stake_data);
         }
 
         let params = StakeChainParams::default();
@@ -2623,7 +2622,10 @@ where
                     .sign(raw_tx, &prevouts, 1, Some(&stake_tx.witnesses()[1]), None);
             let prev_preimage = self.agent.generate_preimage(&self.msk, stake_index as u32);
             let computed_hash = hashes::sha256::Hash::hash(&prev_preimage);
-            let prev_stake_hash = stake_inputs[stake_index].hash;
+            let prev_stake_hash = stake_inputs
+                .get(&(stake_index as u32))
+                .map(|stake_input| stake_input.hash)
+                .unwrap();
             assert!(
                 computed_hash == prev_stake_hash,
                 "stake hash in db must match hash of computed preimage"

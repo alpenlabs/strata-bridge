@@ -1,7 +1,12 @@
 //! This module defines the core state machine for the Bridge Deposit Contract. All of the states,
 //! events and transition rules are encoded in this structure. When the ContractSM accepts an event
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
-use std::{collections::BTreeMap, fmt::Display, sync::Arc, thread};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fmt::Display,
+    sync::Arc,
+    thread,
+};
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
@@ -10,12 +15,12 @@ use bitcoin::{
         sha256,
     },
     sighash::{Prevouts, SighashCache},
-    Network, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
+    taproot, Network, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
 use musig2::{
     secp256k1::{self, Message},
-    PartialSignature, PubNonce,
+    verify_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
 };
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
@@ -107,6 +112,7 @@ pub enum ContractEvent {
     GraphNonces {
         /// The peer identified by the public key that broadcasted the nonces.
         signer: P2POperatorPubKey,
+
         /// The Transaction ID of the claim transaction in the graph being signed.
         claim_txid: Txid,
 
@@ -127,6 +133,13 @@ pub enum ContractEvent {
         /// The set of partial signatures associated with each transaction input in the graph that
         /// needs to be MuSig2 signed.
         signatures: Vec<PartialSignature>,
+    },
+
+    /// Signifies that the partial signatures for the peg out graph have been aggregated.
+    AggregatedSigs {
+        /// The aggregated signatures for the peg out graph indexed by the transaction ID of the
+        /// claim transaction in the peg out graph.
+        agg_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
     },
 
     /// Signifies that we have received a new deposit nonce from one of our peers.
@@ -168,6 +181,9 @@ pub enum ContractEvent {
 /// - Claimed -> Asserted
 /// - Asserted -> Disproved
 /// - Asserted -> Resolved
+///
+/// The transaction ID used to index transactions and other data is the transaction ID of the claim
+/// transaction in the operators' graphs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
@@ -196,9 +212,18 @@ pub enum ContractState {
         /// This is a collection of nonces for all graphs and for all operators.
         graph_nonces: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
 
+        /// This is a collection of all the packed aggregated nonces for each graph.
+        ///
+        /// This is used to validate partial signatures as they are received from the p2p.
+        agg_nonces: BTreeMap<Txid, Vec<AggNonce>>,
+
         /// This is a collection of all partial signatures for all graphs (indexed by the claim
         /// txid) and for all operators.
         graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
 
         /// This is a collection of nonces for the deposit tx for all operators.
         root_nonces: BTreeMap<P2POperatorPubKey, PubNonce>,
@@ -221,6 +246,10 @@ pub enum ContractState {
         /// This is an index so we can look up the claim txid that is owned by the specified key.
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
+
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
     },
 
     /// This state describes everything from the moment the strata state commitment corresponding
@@ -235,6 +264,10 @@ pub enum ContractState {
         /// This is an index so we can look up the claim txid that is owned by the specified key.
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
+
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
 
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
@@ -268,6 +301,10 @@ pub enum ContractState {
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
 
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
@@ -299,6 +336,10 @@ pub enum ContractState {
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
 
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
@@ -325,6 +366,10 @@ pub enum ContractState {
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
 
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+
         /// The height at which the claim transaction was confirmed.
         claim_height: BitcoinBlockHeight,
 
@@ -350,6 +395,10 @@ pub enum ContractState {
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
 
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
@@ -371,6 +420,10 @@ pub enum ContractState {
         /// This is an index so we can look up the claim txid that is owned by the specified key.
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
+
+        /// This is a collection of the aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
 
         /// The height at which the post-assert transaction was confirmed.
         post_assert_height: BitcoinBlockHeight,
@@ -477,6 +530,62 @@ impl ContractState {
             ContractState::Resolved { .. } => vec![],
         }
     }
+
+    /// Gets the transaction IDs of the claim transactions for this contract.
+    pub fn claim_txids(&self) -> HashSet<Txid> {
+        let claim_txids = match &self {
+            ContractState::Requested { claim_txids, .. } => claim_txids,
+            ContractState::Deposited { claim_txids, .. } => claim_txids,
+            ContractState::Assigned { claim_txids, .. } => claim_txids,
+            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
+            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
+            ContractState::Claimed { claim_txids, .. } => claim_txids,
+            ContractState::Challenged { claim_txids, .. } => claim_txids,
+            ContractState::Asserted { claim_txids, .. } => claim_txids,
+            ContractState::Disproved { .. } => &BTreeMap::new(),
+            ContractState::Resolved { .. } => &BTreeMap::new(),
+        };
+
+        claim_txids.values().copied().collect()
+    }
+
+    /// Gets the musig2-aggregated graph signatures for this contract.
+    pub fn graph_sigs(&self) -> BTreeMap<Txid, PogMusigF<taproot::Signature>> {
+        let graph_sigs = match &self {
+            ContractState::Requested { graph_sigs, .. } => graph_sigs,
+            ContractState::Deposited { graph_sigs, .. } => graph_sigs,
+            ContractState::Assigned { graph_sigs, .. } => graph_sigs,
+            ContractState::StakeTxReady { graph_sigs, .. } => graph_sigs,
+            ContractState::Fulfilled { graph_sigs, .. } => graph_sigs,
+            ContractState::Claimed { graph_sigs, .. } => graph_sigs,
+            ContractState::Challenged { graph_sigs, .. } => graph_sigs,
+            ContractState::Asserted { graph_sigs, .. } => graph_sigs,
+            ContractState::Disproved { .. } => &BTreeMap::new(),
+            ContractState::Resolved { .. } => &BTreeMap::new(),
+        };
+
+        graph_sigs.clone()
+    }
+}
+
+/// This is the set of events that are not directly derived from the chain state or the p2p network
+/// but rather serve a specific auxiliary function in the contract state machine architecture.
+#[derive(Debug, Clone)]
+pub enum SyntheticEvent {
+    /// Siginifies that we have aggregated the partial signatures for all relevant inpoints of all
+    /// the graphs for a particular contract (identified by the deposit txid) and that these need
+    /// to be committed.
+    ///
+    /// The committed signatures are used during withdrawal execution to settle relevant
+    /// transactions in the pre-signed peg-out graph.
+    AggregatedSigs {
+        /// The transaction ID of the deposit transaction that this contract is associated with.
+        deposit_txid: Txid,
+
+        /// The aggregated signatures for the peg out graph indexed by the transaction ID of the
+        /// claim transaction in the peg out graph.
+        agg_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+    },
 }
 
 /// This is the superset of all possible operator duties.
@@ -528,6 +637,21 @@ pub enum OperatorDuty {
 
         /// The set of sighashes that need to be signed.
         pog_sighashes: PogMusigF<Message>,
+    },
+
+    /// Instructs us to commit the aggregated signatures to state.
+    CommitSig {
+        /// The transaction ID of the deposit transaction for this contract.
+        deposit_txid: Txid,
+
+        /// The partial signatures for all graphs.
+        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+
+        /// The inpoints that need to be MuSig2-signed.
+        pog_inpoints: BTreeMap<Txid, PogMusigF<OutPoint>>,
+
+        /// The witness types for the inputs that need to be MuSig2-signed.
+        pog_sighash_types: BTreeMap<Txid, PogMusigF<TapSighashType>>,
     },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
@@ -582,6 +706,9 @@ impl Display for OperatorDuty {
             }
             OperatorDuty::PublishGraphSignatures { claim_txid, .. } => {
                 write!(f, "PublishGraphSignatures ({claim_txid})")
+            }
+            OperatorDuty::CommitSig { deposit_txid, .. } => {
+                write!(f, "CommitSig (deposit: {deposit_txid})")
             }
             OperatorDuty::PublishRootNonce {
                 deposit_request_txid,
@@ -658,7 +785,7 @@ pub enum FulfillerDuty {
         stake_index: u32,
 
         /// The partial signatures required to settle the `PayoutOptimistic` transaction.
-        partials: [Vec<PartialSignature>; NUM_PAYOUT_OPTIMISTIC_INPUTS],
+        agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS]>,
     },
 
     /// Originates once challenge transaction is issued
@@ -860,6 +987,8 @@ impl ContractSM {
             claim_txids: BTreeMap::new(),
             graph_nonces: BTreeMap::new(),
             graph_partials: BTreeMap::new(),
+            agg_nonces: BTreeMap::new(),
+            graph_sigs: BTreeMap::new(),
             root_nonces: BTreeMap::new(),
             root_partials: BTreeMap::new(),
         };
@@ -982,6 +1111,10 @@ impl ContractSM {
                 .process_graph_signatures(signer, claim_txid, signatures)
                 .map(|x| x.into_iter().collect()),
 
+            ContractEvent::AggregatedSigs { agg_sigs } => self
+                .process_aggregate_sigs(agg_sigs)
+                .map(|x| x.into_iter().collect()),
+
             ContractEvent::RootNonce(op, nonce) => self
                 .process_root_nonce(op, nonce)
                 .map(|x| x.into_iter().collect()),
@@ -1049,6 +1182,7 @@ impl ContractSM {
             ContractState::Requested {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 graph_partials,
                 ..
             } => {
@@ -1056,6 +1190,7 @@ impl ContractSM {
                 self.state.state = ContractState::Deposited {
                     peg_out_graphs,
                     claim_txids,
+                    graph_sigs,
                     graph_partials,
                 }
             }
@@ -1299,11 +1434,13 @@ impl ContractSM {
         nonces: Vec<PubNonce>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         debug!(%claim_txid, %signer, "processing graph nonces");
+        let cfg = self.cfg().clone();
 
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graphs,
                 graph_nonces,
+                agg_nonces,
                 ..
             } => {
                 let unpacked = PogMusigF::unpack(nonces).ok_or(TransitionErr(
@@ -1339,62 +1476,60 @@ impl ContractSM {
                     .all(|session_nonces| session_nonces.len() == num_operators);
                 let have_all_nonces = have_all_graphs && have_all_nonces_in_each_graph;
 
-                Ok(if have_all_nonces {
-                    info!(%claim_txid, %signer, "received all nonces for all graphs");
-
-                    let Some((pog_input, _)) = peg_out_graphs.get(&claim_txid) else {
-                        return Err(TransitionErr(format!(
-                                "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
-                                claim_txid
-                            )));
-                    };
-                    let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
-
-                    let pog = {
-                        let stake_txid = pog_input.stake_outpoint.txid;
-
-                        // NOTE: (@Rajil1213) we cannot invoke `retrieve_graph` here because it
-                        // needs `&mut self` and the borrow checker does not
-                        // allow us to reborrow it mutably inside the
-                        // mutable context of the state transition functions even though the fields
-                        // being mutated are different.
-
-                        if let Some(pog) = self.pog.get(&stake_txid) {
-                            debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
-                            pog.clone()
-                        } else {
-                            debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
-                            let pog = self.cfg.build_graph(pog_input.clone());
-                            self.pog.insert(stake_txid, pog.clone());
-                            pog
-                        }
-                    };
-
-                    let pubnonces = self
-                        .cfg
-                        .operator_table
-                        .convert_map_op_to_btc(graph_nonces)
-                        .map_err(|e| {
-                            TransitionErr(format!(
-                                "could not convert nonce map keys: {e} not in operator table",
-                            ))
-                        })?;
-
-                    Some(OperatorDuty::PublishGraphSignatures {
-                        claim_txid,
-                        pubnonces,
-                        pog_prevouts: pog.musig_inpoints(),
-                        pog_sighashes: pog.sighashes(),
-                    })
-                } else {
+                if !have_all_nonces {
                     let received_nonces = graph_nonces
                         .iter()
                         .map(|(claim, nonces)| (claim, nonces.len()))
                         .collect::<Vec<_>>();
                     info!(?received_nonces, required=%num_operators, "waiting for more nonces for some graphs");
 
-                    None
-                })
+                    return Ok(None);
+                }
+
+                info!(%claim_txid, %signer, "received all nonces for all graphs, aggregating them");
+
+                *agg_nonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
+
+                let Some((pog_input, _)) = peg_out_graphs.get(&claim_txid) else {
+                    return Err(TransitionErr(format!(
+                        "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
+                        claim_txid
+                    )));
+                };
+                let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
+
+                // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
+                // `&mut self` and the borrow checker does not allow us to reborrow it mutably
+                // inside the current mutable context even though the fields being mutated are
+                // different.
+                let stake_txid = pog_input.stake_outpoint.txid;
+                let pog = if let Some(pog) = self.pog.get(&stake_txid) {
+                    debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
+                    pog.clone()
+                } else {
+                    debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
+                    let pog = self.cfg.build_graph(pog_input.clone());
+                    self.pog.insert(stake_txid, pog.clone());
+
+                    pog
+                };
+
+                let pubnonces = self
+                    .cfg
+                    .operator_table
+                    .convert_map_op_to_btc(graph_nonces)
+                    .map_err(|e| {
+                        TransitionErr(format!(
+                            "could not convert nonce map keys: {e} not in operator table",
+                        ))
+                    })?;
+
+                Ok(Some(OperatorDuty::PublishGraphSignatures {
+                    claim_txid,
+                    pubnonces,
+                    pog_prevouts: pog.musig_inpoints(),
+                    pog_sighashes: pog.musig_sighashes(),
+                }))
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_graph_nonces ({})",
@@ -1408,16 +1543,26 @@ impl ContractSM {
         &mut self,
         signer: P2POperatorPubKey,
         claim_txid: Txid,
-        sig: Vec<PartialSignature>,
+        partial_sigs: Vec<PartialSignature>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         debug!(%claim_txid, %signer, "processing graph signatures");
 
-        let unpacked = PogMusigF::unpack(sig).ok_or(TransitionErr(
+        let unpacked = PogMusigF::unpack(partial_sigs.clone()).ok_or(TransitionErr(
             "could not unpack sig vector into PogMusigF".to_string(),
         ))?;
-        let deposit_request_txid = self.deposit_request_txid();
+
+        let cfg = self.cfg().clone();
+        let pog_cache = self.pog.clone();
+        let deposit_txid = self.deposit_txid();
         match &mut self.state.state {
-            ContractState::Requested { graph_partials, .. } => {
+            ContractState::Requested {
+                peg_out_graph_inputs,
+                graph_nonces,
+                agg_nonces,
+                claim_txids,
+                graph_partials,
+                ..
+            } => {
                 // session partials must be present for this claim_txid at this point
                 let Some(session_partials) = graph_partials.get_mut(&claim_txid) else {
                     return Err(TransitionErr(format!(
@@ -1438,6 +1583,42 @@ impl ContractSM {
                     return Ok(None);
                 }
 
+                let graph_owner_for_claim = claim_txids
+                    .iter()
+                    .find_map(|(signer_in_map, claim_txid_in_map)| {
+                        if *claim_txid_in_map == claim_txid {
+                            Some(signer_in_map)
+                        } else {
+                            None
+                        }
+                    })
+                    .ok_or(TransitionErr(format!(
+                        "claim txid ({claim_txid}) not found in claim txids map"
+                    )))?;
+
+                let graph_input =
+                    peg_out_graph_inputs
+                        .get(graph_owner_for_claim)
+                        .ok_or(TransitionErr(format!(
+                            "peg out graph input missing for signer ({signer})"
+                        )))?;
+
+                let pog = pog_cache
+                    .get(&graph_input.stake_outpoint.txid)
+                    .cloned()
+                    .unwrap_or_else(|| cfg.build_graph(graph_input.clone()));
+
+                verify_partials_from_peer(
+                    &cfg,
+                    &signer,
+                    &claim_txid,
+                    pog,
+                    graph_nonces,
+                    agg_nonces,
+                    &partial_sigs,
+                )?;
+
+                info!("partials verified successfully, adding to collection");
                 session_partials.insert(signer, unpacked);
 
                 let num_operators = self.cfg.operator_table.cardinality();
@@ -1447,16 +1628,7 @@ impl ContractSM {
                     .all(|session_partials| session_partials.len() == num_operators);
                 let have_all_partials = have_all_graphs && have_all_partials_for_all_graphs;
 
-                Ok(if have_all_partials {
-                    info!(%claim_txid, "received all partials for all graphs");
-
-                    let witness = self.cfg().deposit_tx.witnesses()[0].clone();
-
-                    Some(OperatorDuty::PublishRootNonce {
-                        deposit_request_txid,
-                        witness,
-                    })
-                } else {
+                if !have_all_partials {
                     let received_partials = graph_partials
                         .iter()
                         .map(|(claim, partials)| (claim, partials.len()))
@@ -1464,11 +1636,60 @@ impl ContractSM {
 
                     info!(?received_partials, %num_operators, "waiting for more partials for graph");
 
-                    None
-                })
+                    return Ok(None);
+                }
+
+                info!(%claim_txid, "received all partials for all graphs");
+
+                let (pog_inpoints, pog_sighash_types): (
+                    BTreeMap<Txid, PogMusigF<OutPoint>>,
+                    BTreeMap<Txid, PogMusigF<TapSighashType>>,
+                ) = claim_txids
+                    .iter()
+                    .filter_map(|(signer, claim_txid)| {
+                        peg_out_graph_inputs
+                            .get(signer)
+                            .map(|pog_input| (claim_txid, pog_input))
+                    })
+                    .map(|(claim_txid, pog_input)| {
+                        let pog = pog_cache
+                            .get(&pog_input.stake_outpoint.txid)
+                            .cloned()
+                            .unwrap_or_else(|| cfg.build_graph(pog_input.clone()));
+
+                        (
+                            (*claim_txid, pog.musig_inpoints()),
+                            (*claim_txid, pog.musig_sighash_types()),
+                        )
+                    })
+                    .unzip();
+
+                Ok(Some(OperatorDuty::CommitSig {
+                    deposit_txid,
+                    graph_partials: graph_partials.clone(),
+                    pog_inpoints,
+                    pog_sighash_types,
+                }))
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_graph_signatures ({})",
+                self.state.state
+            ))),
+        }
+    }
+
+    fn process_aggregate_sigs(
+        &mut self,
+        sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+    ) -> Result<Vec<OperatorDuty>, TransitionErr> {
+        match &mut self.state.state {
+            ContractState::Requested { graph_sigs, .. } => {
+                *graph_sigs = sigs;
+
+                Ok(vec![])
+            }
+            _ => Err(TransitionErr(format!(
+                "unexpected state in process_aggregate_sigs ({:?})",
                 self.state.state
             ))),
         }
@@ -1630,8 +1851,8 @@ impl ContractSM {
             ContractState::Claimed {
                 fulfiller,
                 claim_height,
+                graph_sigs,
                 active_graph,
-                graph_partials,
                 ..
             } => {
                 let pov_idx = self.cfg.operator_table.pov_idx();
@@ -1643,7 +1864,13 @@ impl ContractSM {
                     let stake_index = self.cfg().deposit_idx;
                     let claim_txid = active_graph.1.claim_txid;
                     let stake_txid = active_graph.1.stake_txid;
-                    let partials = self.transpose_partials(graph_partials, claim_txid)?;
+                    let agg_sigs = graph_sigs
+                        .get(&claim_txid)
+                        .ok_or(TransitionErr(format!(
+                            "could not find graph sigs for claim txid {}",
+                            claim_txid
+                        )))?
+                        .payout_optimistic;
 
                     Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishPayoutOptimistic {
@@ -1651,7 +1878,7 @@ impl ContractSM {
                             claim_txid,
                             stake_txid,
                             stake_index,
-                            partials,
+                            agg_sigs: agg_sigs.into(),
                         },
                     ))
                 } else {
@@ -1683,56 +1910,6 @@ impl ContractSM {
         Ok(duty)
     }
 
-    /// Transposes an array of partials for each input per operator into an array of partials for
-    /// each operator per input.
-    ///
-    /// It accepts a map of graph partials such that each map holds the partials for an operator for
-    /// all inputs and then changes them so that the end result is an array of partials from all
-    /// operators for each input such that they can be aggregated on a per input basis.
-    fn transpose_partials<const NUM_INPUTS: usize>(
-        &mut self,
-        graph_partials: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
-        claim_txid: Txid,
-    ) -> Result<[Vec<PartialSignature>; NUM_INPUTS], TransitionErr> {
-        let payout_optimistic_partials =
-            graph_partials
-                .get(&claim_txid)
-                .ok_or(TransitionErr(format!(
-                    "could not find graph partials for claim txid {}",
-                    claim_txid
-                )))?;
-        let num_operators = self.cfg.operator_table.btc_keys().into_iter().count();
-
-        let mut partials_per_input: [Vec<_>; NUM_INPUTS] = (0..NUM_INPUTS)
-            .map(|_| Vec::with_capacity(num_operators))
-            .collect::<Vec<_>>()
-            .try_into()
-            .expect("must have matching size");
-
-        self.cfg
-            .operator_table
-            .btc_keys()
-            .into_iter()
-            .for_each(|btc_key| {
-                let p2p_key = self
-                    .cfg
-                    .operator_table
-                    .btc_key_to_op_key(&btc_key)
-                    .expect("each btc key must have a p2p key");
-
-                let partials_for_op = payout_optimistic_partials
-                    .get(p2p_key)
-                    .expect("each p2p key must have a partial")
-                    .payout_optimistic;
-
-                (0..NUM_INPUTS).for_each(|input| {
-                    partials_per_input[input].push(partials_for_op[input]);
-                });
-            });
-
-        Ok(partials_per_input)
-    }
-
     /// Processes an assignment from the strata state commitment.
     pub fn process_assignment(
         &mut self,
@@ -1756,6 +1933,7 @@ impl ContractSM {
             ContractState::Deposited {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 graph_partials,
             } => {
                 match assignment.deposit_state() {
@@ -1803,6 +1981,7 @@ impl ContractSM {
                             self.state.state = ContractState::Assigned {
                                 peg_out_graphs: peg_out_graphs.clone(),
                                 claim_txids: claim_txids.clone(),
+                                graph_sigs,
                                 fulfiller,
                                 deadline,
                                 active_graph,
@@ -1864,6 +2043,7 @@ impl ContractSM {
             ContractState::Assigned {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 fulfiller,
                 recipient,
                 deadline,
@@ -1883,6 +2063,7 @@ impl ContractSM {
 
                 self.state.state = ContractState::StakeTxReady {
                     peg_out_graphs,
+                    graph_sigs,
                     claim_txids,
                     fulfiller,
                     recipient: recipient.clone(),
@@ -1934,6 +2115,7 @@ impl ContractSM {
             ContractState::StakeTxReady {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 fulfiller,
                 active_graph,
                 recipient,
@@ -1970,6 +2152,7 @@ impl ContractSM {
                 self.state.state = ContractState::Fulfilled {
                     peg_out_graphs,
                     claim_txids,
+                    graph_sigs,
                     fulfiller,
                     active_graph,
                     graph_partials,
@@ -2008,6 +2191,7 @@ impl ContractSM {
             ContractState::Fulfilled {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 fulfiller,
                 active_graph,
                 graph_partials,
@@ -2031,6 +2215,7 @@ impl ContractSM {
                 self.state.state = ContractState::Claimed {
                     peg_out_graphs,
                     claim_txids,
+                    graph_sigs,
                     claim_height: height,
                     fulfiller,
                     active_graph,
@@ -2071,6 +2256,7 @@ impl ContractSM {
             ContractState::Claimed {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 fulfiller,
                 active_graph,
                 graph_partials,
@@ -2096,6 +2282,7 @@ impl ContractSM {
                 self.state.state = ContractState::Challenged {
                     peg_out_graphs,
                     claim_txids,
+                    graph_sigs,
                     fulfiller,
                     active_graph,
                     graph_partials,
@@ -2120,6 +2307,7 @@ impl ContractSM {
             ContractState::Challenged {
                 peg_out_graphs,
                 claim_txids,
+                graph_sigs,
                 fulfiller,
                 active_graph,
                 graph_partials,
@@ -2141,6 +2329,7 @@ impl ContractSM {
                 self.state.state = ContractState::Asserted {
                     peg_out_graphs,
                     claim_txids,
+                    graph_sigs,
                     post_assert_height,
                     fulfiller,
                     active_graph,
@@ -2324,5 +2513,236 @@ impl ContractSM {
             ContractState::Disproved {} => None,
             ContractState::Resolved {} => None,
         }
+    }
+}
+
+fn aggregate_nonces(
+    operator_table: &OperatorTable,
+    graph_nonces: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
+) -> BTreeMap<Txid, Vec<AggNonce>> {
+    let signer_keys = operator_table
+        .btc_keys()
+        .into_iter()
+        .filter_map(|btc_key| operator_table.btc_key_to_op_key(&btc_key))
+        .collect::<Vec<_>>();
+
+    graph_nonces
+        .iter()
+        .map(|(claim_txid, session_nonces)| {
+            let nonces_per_graph: Vec<Vec<PubNonce>> = signer_keys
+                .iter()
+                .filter_map(|signer| {
+                    session_nonces
+                        .get(signer)
+                        .map(|nonces| nonces.clone().pack())
+                })
+                .collect::<Vec<_>>();
+
+            // all operators are guaranteed to produce the same number of nonces
+            // so we can get the total number of inputs from the nonces generated by the
+            // first operator.
+            let num_inputs = nonces_per_graph.first().map(|v| v.len()).unwrap_or(0);
+
+            // fold all the nonces into a single aggregated nonce per input
+            let agg_nonces_per_graph: Vec<AggNonce> = (0..num_inputs)
+                .map(|input_index| {
+                    nonces_per_graph
+                        .iter()
+                        .filter_map(|nonces| nonces.get(input_index))
+                        .sum::<AggNonce>()
+                })
+                .collect::<Vec<_>>();
+
+            (*claim_txid, agg_nonces_per_graph)
+        })
+        .collect()
+}
+
+/// Verifies that a signature provided by the `signer` is valid for the given graph and the set of
+/// the pubnonces shared previously.
+fn verify_partials_from_peer(
+    cfg: &ContractCfg,
+    signer: &P2POperatorPubKey,
+    claim_txid: &Txid,
+    pog: PegOutGraph,
+    graph_nonces: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
+    agg_nonces: &BTreeMap<Txid, Vec<AggNonce>>,
+    partial_sigs: &[PartialSignature],
+) -> Result<(), TransitionErr> {
+    let individual_pubkey = cfg
+        .operator_table
+        .op_key_to_btc_key(signer)
+        .expect("signer must be part of musig session");
+
+    let individual_pubnonces = graph_nonces
+        .get(claim_txid)
+        .map(|v| {
+            v.get(signer)
+                .expect("individual pubnonce must be present in unpacked")
+        })
+        .expect("claim txid must be present in graph nonces")
+        .clone()
+        .pack();
+
+    let agg_nonces = agg_nonces.get(claim_txid).ok_or(TransitionErr(format!(
+        "agg nonces missing for claim ({claim_txid})"
+    )))?;
+
+    let messages = pog.musig_sighashes().clone().pack();
+    let witnesses = pog.musig_witnesses().clone().pack();
+
+    let key_agg_ctx_script = KeyAggContext::new(cfg.operator_table.btc_keys())
+        .expect("must be able to create key agg ctx");
+    let key_agg_ctx_key = key_agg_ctx_script
+        .clone()
+        .with_unspendable_taproot_tweak()
+        .expect("must be able to add unspendable tweak");
+
+    if individual_pubnonces
+        .iter()
+        .zip(messages)
+        .zip(witnesses)
+        .zip(partial_sigs)
+        .zip(agg_nonces)
+        .any(
+            |(
+                    (((individual_pubnonce, message), witness), partial_signature),
+                    aggregated_nonce,
+            )| {
+                let key_agg_ctx = match witness {
+                    TaprootWitness::Key => &key_agg_ctx_key,
+                    TaprootWitness::Script { .. } => &key_agg_ctx_script,
+                    TaprootWitness::Tweaked { tweak } => &key_agg_ctx_script
+                        .clone()
+                        .with_taproot_tweak(tweak.as_ref())
+                        .expect("must be able to add tweak"),
+                };
+
+                verify_partial(
+                    key_agg_ctx,
+                    *partial_signature,
+                    aggregated_nonce,
+                    individual_pubkey,
+                    individual_pubnonce,
+                    message.as_ref(),
+                )
+                .inspect_err(
+                    |e| error!(%e, ?signer, %message, ?partial_signature, "partial sig verification failed"),
+                )
+                .is_err()
+            },
+        )
+    {
+        return Err(TransitionErr(format!("partial signature verification failed for claim txid ({}) from signer ({})", claim_txid, signer)));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use secp256k1::Parity;
+    use strata_bridge_test_utils::prelude::generate_txid;
+    use strata_bridge_tx_graph::transactions::{
+        payout::NUM_PAYOUT_INPUTS, prelude::NUM_POST_ASSERT_INPUTS,
+        slash_stake::NUM_SLASH_STAKE_INPUTS,
+    };
+
+    use super::*;
+
+    #[test]
+    fn test_aggregate_nonces() {
+        let nonces = get_sample_pubnonces();
+        let expected_agg_nonce = nonces.iter().sum::<AggNonce>();
+
+        let txid = generate_txid();
+        let operator_table = get_sample_operator_table(0);
+
+        let mut graph_nonces = BTreeMap::new();
+        let mut session_nonces = BTreeMap::new();
+        operator_table.operator_idxs().iter().for_each(|op_idx| {
+            let signer = operator_table.idx_to_op_key(op_idx).unwrap();
+
+            // populate the nonce for every input with the same pubnonce.
+            // this means that each input will have the same pubnonce for the same operator.
+            // this is a hack so that we can just check the nonce aggregation without being
+            // completely faithful to how it will be in practice.
+            let nonce = nonces[*op_idx as usize].clone();
+
+            let pog_nonces = PogMusigF::<PubNonce> {
+                challenge: nonce.clone(),
+                pre_assert: nonce.clone(),
+                post_assert: vec![nonce.clone(); NUM_POST_ASSERT_INPUTS]
+                    .try_into()
+                    .unwrap(),
+                payout_optimistic: vec![nonce.clone(); NUM_PAYOUT_OPTIMISTIC_INPUTS]
+                    .try_into()
+                    .unwrap(),
+                payout: vec![nonce.clone(); NUM_PAYOUT_INPUTS].try_into().unwrap(),
+                disprove: nonce.clone(),
+                slash_stake: vec![vec![nonce.clone(); NUM_SLASH_STAKE_INPUTS]
+                    .try_into()
+                    .unwrap()],
+            };
+
+            session_nonces.insert(signer.clone(), pog_nonces);
+        });
+
+        graph_nonces.insert(txid, session_nonces);
+
+        let agg_nonces_map = aggregate_nonces(&operator_table, &graph_nonces);
+
+        agg_nonces_map.values().for_each(|agg_nonces| {
+            agg_nonces.iter().enumerate().for_each(|(i, agg_nonce)| {
+                assert_eq!(agg_nonce, &expected_agg_nonce, "agg_nonce mismatch at {i}");
+            });
+        });
+    }
+
+    fn get_sample_pubnonces() -> [PubNonce; 3] {
+        // sample nonces from `musig2` crate's example: https://docs.rs/musig2/latest/musig2/#functional-api
+        [
+            "02af252206259fc1bf588b1f847e15ac78fa840bfb06014cdbddcfcc0e5876f9c9\
+                0380ab2fc9abe84ef42a8d87062d5094b9ab03f4150003a5449846744a49394e45",
+            "020ab52d58f00887d5082c41dc85fd0bd3aaa108c2c980e0337145ac7003c28812\
+                03956ec5bd53023261e982ac0c6f5f2e4b6c1e14e9b1992fb62c9bdfcf5b27dc8d",
+            "02d1e90616ea78a612dddfe97de7b5e7e1ceef6e64b7bc23b922eae30fa2475cca\
+                02e676a3af322965d53cc128597897ef4f84a8d8080b456e27836db70e5343a2bb",
+        ]
+        .map(|nonce_str| nonce_str.parse::<PubNonce>().unwrap())
+    }
+
+    fn get_sample_operator_table(pov_idx: u32) -> OperatorTable {
+        let key_entries = [
+            (
+                "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
+                "020b1251c1a11d65a3cf324c66b67e9333799d21490d2e2c95866aab76e3a0f301",
+            ),
+            (
+                "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
+                "0232a73fb8a00f677703e95ebc398d806147587746d02d1945f9eff8703ccab4d0",
+            ),
+            (
+                "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba",
+                "02e9343c08723ba25cfaa6296ffe8bf57be391cac683f13a3de33a31734655b777",
+            ),
+        ]
+        .map(|(btc_str, signer_str)| {
+            (
+                XOnlyPublicKey::from_str(btc_str)
+                    .unwrap()
+                    .public_key(Parity::Even),
+                P2POperatorPubKey::from(hex::decode(signer_str).unwrap()),
+            )
+        })
+        .iter()
+        .enumerate()
+        .map(|(i, (btc_key, p2p_key))| (i as u32, p2p_key.clone(), *btc_key))
+        .collect::<Vec<_>>();
+
+        let pov_idx = pov_idx % key_entries.len() as u32;
+        OperatorTable::new(key_entries, pov_idx).unwrap()
     }
 }

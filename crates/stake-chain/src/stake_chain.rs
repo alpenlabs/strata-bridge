@@ -1,9 +1,10 @@
 //! The stake chain is a series of transactions that move the stake from one transaction to the
 //! next.
 
+use std::collections::BTreeMap;
+
 use alpen_bridge_params::stake_chain::StakeChainParams;
 use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
-use indexmap::IndexSet;
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::build_context::BuildContext;
 
@@ -73,7 +74,11 @@ impl StakeChain {
             };
         }
 
-        let first_stake_inputs = stake_chain_inputs.stake_inputs[0];
+        let first_stake_inputs = stake_chain_inputs
+            .stake_inputs
+            .values()
+            .nth(0)
+            .expect("must have at least one stake input");
 
         let first_stake_tx = StakeTx::<Head>::new(
             context,
@@ -96,7 +101,10 @@ impl StakeChain {
         let new_stake_tx = first_stake_tx.advance(
             context,
             stake_chain_params,
-            stake_inputs[1],
+            *stake_inputs
+                .values()
+                .nth(1)
+                .expect("must have at least two stake inputs"),
             stake_chain_inputs.operator_pubkey,
             connector_cpfp,
         );
@@ -104,7 +112,7 @@ impl StakeChain {
         let tail = stake_inputs
             .iter()
             .skip(2) // first and the second created above
-            .fold(vec![new_stake_tx], |mut tail, stake_input| {
+            .fold(vec![new_stake_tx], |mut tail, (_stake_index, stake_input)| {
                 let new_stake_tx = tail
                     .last()
                     .expect("must have at least one element in every loop because it is initialized with one element")
@@ -149,33 +157,26 @@ impl StakeChain {
 }
 
 /// [`StakeChainInputs`] holds all the necessary data to construct a
-/// [`StakeChain`] whose length equals the length of the inputs.
+/// [`StakeChain`] whose length equals the size of the inputs.
 ///
 /// The data that it needs are:
 ///
 /// 1. Operator's public key.
-/// 2. WOTS public keys.
+/// 2. WOTS public key for committing to the withdrawal fulfillment txid.
 /// 3. Stake hashes.
 /// 4. Operator funds to fund the dust values in the tx graph.
 /// 5. Pre-stake prevout.
-/// 6. Pre-stake utxo.
-/// 7. Stake Chain protocol parameters:
-///    1. Stake amount.
-///    2. `ΔS` relative timelock interval.
-///
 ///
 /// The WOTS public keys, stake hashes, and operator funds are needed to
 /// construct the transaction graph for the corresponding deposit to be claimed while using and
 /// advancing the [`StakeChain`].
-///
-/// The staking amount and `ΔS` relative timelock interval are consensus parameters.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct StakeChainInputs {
     /// Operator's public key.
     pub operator_pubkey: XOnlyPublicKey,
 
     /// Inputs required for individual stake transactions.
-    pub stake_inputs: IndexSet<StakeTxData>,
+    pub stake_inputs: BTreeMap<u32, StakeTxData>,
 
     /// [`OutPoint`] from the [`PreStakeTx`](crate::transactions::PreStakeTx) that carries the
     /// stake.
@@ -191,7 +192,7 @@ impl StakeChainInputs {
     /// If you only need the stake hash for a single stake, use
     /// [`StakeChainInputs::stake_hash_at_index`].
     pub fn stake_hashes(&self) -> impl IntoIterator<Item = sha256::Hash> + use<'_> {
-        self.stake_inputs.iter().map(|input| input.hash)
+        self.stake_inputs.values().map(|input| input.hash)
     }
 
     /// Stake hash for the [`StakeChainInputs`] at the given index.
@@ -201,7 +202,7 @@ impl StakeChainInputs {
     ///
     /// If you need the stake hash for all the stakes, use [`StakeChainInputs::stake_hashes`].
     pub fn stake_hash_at_index(&self, index: usize) -> Option<sha256::Hash> {
-        self.stake_inputs.iter().nth(index).map(|v| v.hash)
+        self.stake_inputs.values().nth(index).map(|v| v.hash)
     }
 
     /// Operator funds for all the [`StakeChainInputs`]s.
@@ -216,7 +217,7 @@ impl StakeChainInputs {
     ///
     /// If the index is out of bounds.
     pub fn operator_funds(&self) -> impl IntoIterator<Item = OutPoint> + use<'_> {
-        self.stake_inputs.iter().map(|input| input.operator_funds)
+        self.stake_inputs.values().map(|input| input.operator_funds)
     }
 
     /// Operator funds for the [`StakeChainInputs`] at the given index.
@@ -227,7 +228,7 @@ impl StakeChainInputs {
     /// If you need the operator funds for all the stakes, use [`StakeChainInputs::operator_funds`].
     pub fn operator_funds_at_index(&self, index: usize) -> Option<OutPoint> {
         self.stake_inputs
-            .iter()
+            .values()
             .nth(index)
             .map(|v| v.operator_funds)
     }
@@ -670,10 +671,15 @@ mod tests {
         trace!(?wots_public_keys, "wots public keys");
 
         let stake_inputs = (0..stake_hashes.len())
-            .map(|i| StakeTxData {
-                operator_funds: operator_funds[i].previous_output,
-                hash: stake_hashes[i],
-                withdrawal_fulfillment_pk: wots_public_keys[i],
+            .map(|i| {
+                (
+                    i as u32,
+                    StakeTxData {
+                        operator_funds: operator_funds[i].previous_output,
+                        hash: stake_hashes[i],
+                        withdrawal_fulfillment_pk: wots_public_keys[i],
+                    },
+                )
             })
             .collect();
 
@@ -849,15 +855,20 @@ mod tests {
             let connector_cpfp = ConnectorCpfp::new(pk.x_only_public_key().0, Network::Regtest);
             let stake_chain_inputs = StakeChainInputs {
                 operator_pubkey: pk.x_only_public_key().0,
-                stake_inputs: [StakeTxData {
-                    operator_funds: OutPoint::null(),
-                    hash: sha256::Hash::hash(&[0; 32]),
-                    withdrawal_fulfillment_pk: wots::Wots256PublicKey::new(
-                        "0",
-                        Txid::from_raw_hash(sha256d::Hash::hash(&[0; 32])),
-                    ),
-                }; STAKE_CHAIN_SIZE]
-                    .into_iter()
+                stake_inputs: (0..STAKE_CHAIN_SIZE)
+                    .map(|i| {
+                        (
+                            i as u32,
+                            StakeTxData {
+                                operator_funds: OutPoint::null(),
+                                hash: sha256::Hash::hash(&[0; 32]),
+                                withdrawal_fulfillment_pk: wots::Wots256PublicKey::new(
+                                    "0",
+                                    Txid::from_raw_hash(sha256d::Hash::hash(&[0; 32])),
+                                ),
+                            },
+                        )
+                    })
                     .collect(),
                 pre_stake_outpoint: OutPoint::null(),
             };
