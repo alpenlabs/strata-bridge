@@ -1421,7 +1421,7 @@ impl BitcoinBlockTrackerDb for SqliteDb {
 /// Executes an operation for a given number of retries with a backoff period before erroring out.
 ///
 /// This is useful for retrying transactions that may fail when another thread is holding the lock.
-async fn execute_with_retries<F, Fut, Res>(
+pub async fn execute_with_retries<F, Fut, Res>(
     config: &DbConfig,
     mut operation: F,
 ) -> Result<Res, DbError>
