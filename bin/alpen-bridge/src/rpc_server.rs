@@ -46,13 +46,24 @@ use crate::{config::RpcConfig, constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL, pa
 /// Starts an RPC server for a bridge operator.
 pub(crate) async fn start_rpc<T>(rpc_impl: &T, rpc_addr: &str) -> anyhow::Result<()>
 where
-    T: StrataBridgeControlApiServer + Clone + Sync + Send,
+    T: StrataBridgeControlApiServer
+        + StrataBridgeMonitoringApiServer
+        + StrataBridgeDaApiServer
+        + Clone
+        + Sync
+        + Send,
 {
     let mut rpc_module = RpcModule::new(rpc_impl.clone());
 
     let control_api = StrataBridgeControlApiServer::into_rpc(rpc_impl.clone());
+    let monitoring_api = StrataBridgeMonitoringApiServer::into_rpc(rpc_impl.clone());
+    let da_api = StrataBridgeDaApiServer::into_rpc(rpc_impl.clone());
 
     rpc_module.merge(control_api).context("merge control api")?;
+    rpc_module
+        .merge(monitoring_api)
+        .context("merge monitoring api")?;
+    rpc_module.merge(da_api).context("merge da api")?;
 
     info!("Starting bridge RPC server at: {rpc_addr}");
     let rpc_server = jsonrpsee::server::ServerBuilder::new()
