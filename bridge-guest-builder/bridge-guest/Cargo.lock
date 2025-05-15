@@ -325,9 +325,9 @@ dependencies = [
 
 [[package]]
 name = "bitcoin"
-version = "0.32.5"
+version = "0.32.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce6bc65742dea50536e35ad42492b234c27904a27f0abdcbce605015cb4ea026"
+checksum = "ad8929a18b8e33ea6b3c09297b687baaa71fb1b97353243a3f1029fad5c59c5b"
 dependencies = [
  "base58ck",
  "bech32",
@@ -1752,8 +1752,8 @@ dependencies = [
 
 [[package]]
 name = "strata-crypto"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#eee497157a0c4f1e330fd5a8eb3c1812b4f8dd5e"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -1765,13 +1765,14 @@ dependencies = [
 
 [[package]]
 name = "strata-l1tx"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#eee497157a0c4f1e330fd5a8eb3c1812b4f8dd5e"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "anyhow",
  "bitcoin",
  "borsh",
  "musig2",
+ "secp256k1",
  "strata-primitives",
  "strata-state",
  "thiserror 2.0.12",
@@ -1780,8 +1781,8 @@ dependencies = [
 
 [[package]]
 name = "strata-primitives"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#eee497157a0c4f1e330fd5a8eb3c1812b4f8dd5e"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -1808,8 +1809,8 @@ dependencies = [
 
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#eee497157a0c4f1e330fd5a8eb3c1812b4f8dd5e"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -1825,8 +1826,8 @@ dependencies = [
 
 [[package]]
 name = "strata-state"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata.git#eee497157a0c4f1e330fd5a8eb3c1812b4f8dd5e"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "anyhow",
  "arbitrary",

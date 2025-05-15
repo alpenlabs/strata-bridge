@@ -1,6 +1,6 @@
 use bitcoin::{consensus, ScriptBuf, Transaction, Txid};
 use strata_crypto::groth16_verifier::verify_rollup_groth16_proof_receipt;
-use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::{
     batch::SignedCheckpoint, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
 };
@@ -16,8 +16,8 @@ pub(crate) fn extract_valid_chainstate_from_checkpoint(
         .map_err(|e| BridgeProofError::InvalidParams(e.to_string()))?;
 
     for inp in &tx.input {
-        if let Some(scr) = inp.witness.tapscript() {
-            if let Ok(payload) = parse_envelope_payloads(&scr.into(), &filter_config) {
+        if let Some(scr) = inp.witness.taproot_leaf_script() {
+            if let Ok(payload) = parse_envelope_payloads(&scr.script.into(), &filter_config) {
                 if payload.is_empty() {
                     continue;
                 }
