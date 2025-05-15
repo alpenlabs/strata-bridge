@@ -16,7 +16,13 @@ use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
 use secp256k1::Parity;
 use serde::Serialize;
 use sqlx::{query_as, FromRow};
-use strata_bridge_db::persistent::sqlite::SqliteDb;
+use strata_bridge_db::{
+    errors::DbError,
+    persistent::{
+        errors::StorageError,
+        sqlite::{execute_with_retries, SqliteDb},
+    },
+};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
     traits::{
@@ -213,6 +219,7 @@ impl BridgeRpc {
     fn start_cache_refresh_task(&self) {
         let db = self.db.clone();
         let cached_contracts = self.cached_contracts.clone();
+        let db_config = *self.db.config();
 
         // Clone the params we need before spawning the task
         let network = self.params.network;
@@ -228,30 +235,105 @@ impl BridgeRpc {
 
         // Spawn a background task to refresh the cache
         tokio::spawn(async move {
-            let mut interval = interval(period);
             info!(
                 ?period,
                 "initializing the background task for refreshing the RPC server cache"
             );
 
             // Initial cache fill
-            if let Ok(contracts) = query_as!(
-                ContractRecord,
-                r#"
-                SELECT
-                    deposit_txid,
-                    deposit_idx,
-                    deposit_tx,
-                    operator_table,
-                    state
-                FROM contracts
-                "#,
-            )
-            .fetch_all(db.pool())
+            let contracts = match execute_with_retries(&db_config, || async {
+                let result: Result<Vec<ContractRecord>, _> = query_as!(
+                    ContractRecord,
+                    r#"
+                    SELECT
+                        deposit_txid,
+                        deposit_idx,
+                        deposit_tx,
+                        operator_table,
+                        state
+                    FROM contracts
+                    "#,
+                )
+                .fetch_all(db.pool())
+                .await;
+
+                result.map_err(|e| DbError::Storage(StorageError::Driver(e)))
+            })
             .await
             {
+                Ok(contracts) => contracts,
+                Err(err) => {
+                    error!(?err, "Failed to initialize contracts cache");
+                    Vec::new() // Return empty vector on error
+                }
+            };
+
+            let before_num_contracts = contracts.len();
+            info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
+
+            // Convert raw records to typed records
+            let refreshed_contracts: Vec<_> = contracts
+                .into_iter()
+                .filter_map(|record| record.into_typed().ok())
+                .map(|record| {
+                    let config = ContractCfg {
+                        network,
+                        operator_table: record.operator_table.clone(),
+                        connector_params: connectors,
+                        peg_out_graph_params: tx_graph.clone(),
+                        sidesystem_params: sidesystem.clone(),
+                        stake_chain_params: stake_chain,
+                        deposit_idx: record.deposit_idx,
+                        deposit_tx: record.deposit_tx.clone(),
+                    };
+                    (record, config)
+                })
+                .collect();
+            let after_num_contracts = refreshed_contracts.len();
+
+            let mut cache_lock = cached_contracts.write().await;
+            *cache_lock = refreshed_contracts;
+            // Strive to always drop the lock as soon as possible to avoid blocking other
+            // tasks.
+            drop(cache_lock);
+
+            info!(%after_num_contracts, "RPC server Contracts cache initialized");
+
+            // Periodic refresh in a separate loop outside the closure
+            let mut refresh_interval = interval(period);
+            loop {
+                refresh_interval.tick().await;
+
+                // Each refresh uses execute_with_retries only for the DB operation
+                let contracts = match execute_with_retries(&db_config, || async {
+                    let result: Result<Vec<ContractRecord>, _> = query_as!(
+                        ContractRecord,
+                        r#"
+                                SELECT
+                                    deposit_txid,
+                                    deposit_idx,
+                                    deposit_tx,
+                                    operator_table,
+                                    state
+                                FROM contracts
+                                "#,
+                    )
+                    .fetch_all(db.pool())
+                    .await;
+
+                    result.map_err(|e| DbError::Storage(StorageError::Driver(e)))
+                })
+                .await
+                {
+                    Ok(contracts) => contracts,
+                    Err(err) => {
+                        error!(?err, "Failed to refresh contracts cache");
+                        Vec::new() // Return empty vector on error
+                    }
+                };
+
                 let before_num_contracts = contracts.len();
-                info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
+                debug!(%before_num_contracts, "refreshing RPC server contract cache");
 
                 // Convert raw records to typed records
                 let refreshed_contracts: Vec<_> = contracts
@@ -275,69 +357,11 @@ impl BridgeRpc {
 
                 let mut cache_lock = cached_contracts.write().await;
                 *cache_lock = refreshed_contracts;
-                // Strive to always drop the lock as soon as possible to avoid blocking other tasks.
+                // Strive to always drop the lock as soon as possible to avoid blocking
+                // other tasks.
                 drop(cache_lock);
 
-                info!(%after_num_contracts, "RPC server Contracts cache initialized");
-            } else {
-                error!("Failed to initialize contracts cache");
-            }
-
-            // Periodic refresh
-            loop {
-                interval.tick().await;
-
-                match query_as!(
-                    ContractRecord,
-                    r#"
-                    SELECT
-                        deposit_txid,
-                        deposit_idx,
-                        deposit_tx,
-                        operator_table,
-                        state
-                    FROM contracts
-                    "#,
-                )
-                .fetch_all(db.pool())
-                .await
-                {
-                    Ok(contracts) => {
-                        let before_num_contracts = contracts.len();
-                        info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
-
-                        // Convert raw records to typed records
-                        let refreshed_contracts: Vec<_> = contracts
-                            .into_iter()
-                            .filter_map(|record| record.into_typed().ok())
-                            .map(|record| {
-                                let config = ContractCfg {
-                                    network,
-                                    operator_table: record.operator_table.clone(),
-                                    connector_params: connectors,
-                                    peg_out_graph_params: tx_graph.clone(),
-                                    sidesystem_params: sidesystem.clone(),
-                                    stake_chain_params: stake_chain,
-                                    deposit_idx: record.deposit_idx,
-                                    deposit_tx: record.deposit_tx.clone(),
-                                };
-                                (record, config)
-                            })
-                            .collect();
-                        let after_num_contracts = refreshed_contracts.len();
-
-                        let mut cache_lock = cached_contracts.write().await;
-                        *cache_lock = refreshed_contracts;
-                        // Strive to always drop the lock as soon as possible to avoid blocking
-                        // other tasks.
-                        drop(cache_lock);
-
-                        debug!(%after_num_contracts, "Contracts cache refreshed");
-                    }
-                    Err(e) => {
-                        error!(?e, "Failed to refresh contracts cache");
-                    }
-                }
+                debug!(%after_num_contracts, "Contracts cache refreshed");
             }
         });
     }
