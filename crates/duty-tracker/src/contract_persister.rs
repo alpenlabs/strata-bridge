@@ -11,7 +11,8 @@ use strata_bridge_db::{
     errors::DbError,
     persistent::{config::DbConfig, errors::StorageError, sqlite::execute_with_retries},
 };
-use strata_bridge_tx_graph::transactions::prelude::CovenantTx;
+use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_primitives::params::RollupParams;
 use thiserror::Error;
 use tracing::{debug, error};
@@ -148,28 +149,39 @@ impl ContractPersister {
     pub async fn commit(
         &self,
         deposit_txid: &Txid,
+        deposit_idx: u32,
+        deposit_tx: &DepositTx,
+        operator_table: &OperatorTable,
         state: &MachineState,
     ) -> Result<(), ContractPersistErr> {
+        let deposit_tx_bytes = bincode::serialize(&deposit_tx)?;
+        let operator_table_bytes = bincode::serialize(&operator_table)?;
         let state_bytes = bincode::serialize(&state)?;
 
         execute_with_retries(&self.config, || async {
             let _: SqliteQueryResult = sqlx::query(
                 r#"
-            INSERT OR REPLACE INTO contracts (state, deposit_txid) VALUES (?, ?)
+            INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) VALUES (?, ?, ?, ?, ?)
             "#,
             )
-            .bind(&state_bytes)
             .bind(deposit_txid.to_string())
+            .bind(deposit_idx)
+            .bind(&deposit_tx_bytes)
+            .bind(&operator_table_bytes)
+            .bind(&state_bytes)
             .execute(&self.pool)
             .await
             .map_err(|e| {
-                error!(?e, "failed to commit machine state to disk");
+                error!(?e, %deposit_txid, "failed to commit machine state to disk");
                 StorageError::from(e)
             })?;
             Ok(())
         })
         .await
-        .map_err(ContractPersistErr::from)?;
+        .map_err(|e| {
+            error!(?e, %deposit_txid, "failed to commit machine state to disk");
+            ContractPersistErr::from(e)
+        })?;
 
         Ok(())
     }
@@ -184,9 +196,17 @@ impl ContractPersister {
         debug!(%num_contracts, "committing all active contracts");
 
         for (txid, contract_sm) in active_contracts {
+            let deposit_idx = contract_sm.cfg().deposit_idx;
+            let deposit_tx = &contract_sm.cfg().deposit_tx;
+            let operator_table = &contract_sm.cfg().operator_table;
             let machine_state = contract_sm.state();
             // FIXME: (@Rajil1213) wrap all commits into a single db transaction.
-            self.commit(txid, machine_state).await?;
+            self.commit(txid, deposit_idx, deposit_tx, operator_table, machine_state)
+                .await
+                .map_err(|e| {
+                    error!(?e, %txid, "failed to commit active contract");
+                    ContractPersistErr::Unexpected(e.to_string())
+                })?;
         }
 
         Ok(())
