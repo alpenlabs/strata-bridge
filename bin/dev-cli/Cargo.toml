@@ -19,7 +19,7 @@ strata-bridge-common.workspace = true
 
 alloy = { version = "0.14", features = ["full", "node-bindings"] }
 alloy-signer = "0.14"
-bitcoin = "0.32.2"
+bitcoin.workspace = true
 bitcoincore-rpc = "0.19.0"
 miniscript = "12.2.0"
 
