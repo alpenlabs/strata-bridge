@@ -18,7 +18,7 @@ secret-service-server = { version = "0.1.0", path = "../../crates/secret-service
 serde.workspace = true
 sha2.workspace = true
 strata-bridge-primitives.workspace = true
-strata-key-derivation = { git = "https://github.com/alpenlabs/strata", version = "0.1.0" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/strata", version = "0.3.0-alpha.1" }
 
 tokio.workspace = true
 toml = "0.8.19"

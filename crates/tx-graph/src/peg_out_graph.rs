@@ -1291,9 +1291,9 @@ mod tests {
         let messages = first_stake.sighashes(OPERATOR_STAKE, prevouts);
 
         let op_signature_0 =
-            SECP256K1.sign_schnorr(&messages[0], &tweaked_operator_keypair.to_inner());
+            SECP256K1.sign_schnorr(&messages[0], &tweaked_operator_keypair.to_keypair());
         let op_signature_1 =
-            SECP256K1.sign_schnorr(&messages[1], &tweaked_operator_keypair.to_inner());
+            SECP256K1.sign_schnorr(&messages[1], &tweaked_operator_keypair.to_keypair());
 
         let signed_first_stake_tx = first_stake
             .clone()

@@ -97,7 +97,7 @@ async fn e2e() {
                     .await
                     .expect("good response");
                 assert!(secp_ctx
-                    .verify_schnorr(&sig, &msg, &general_tweaked_pubkey.to_inner())
+                    .verify_schnorr(&sig, &msg, &general_tweaked_pubkey.to_x_only_public_key())
                     .is_ok());
 
                 // sign general wallet no tweak
@@ -113,7 +113,11 @@ async fn e2e() {
                     .await
                     .expect("good response");
                 assert!(secp_ctx
-                    .verify_schnorr(&sig, &msg, &stakechain_tweaked_pubkey.to_inner())
+                    .verify_schnorr(
+                        &sig,
+                        &msg,
+                        &stakechain_tweaked_pubkey.to_x_only_public_key()
+                    )
                     .is_ok());
 
                 // sign stakechain wallet no tweak

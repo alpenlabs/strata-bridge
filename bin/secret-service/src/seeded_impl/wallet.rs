@@ -37,7 +37,7 @@ impl WalletSigner<Server> for GeneralWalletSigner {
     ) -> <Server as Origin>::Container<Signature> {
         self.kp
             .tap_tweak(SECP256K1, tweak)
-            .to_inner()
+            .to_keypair()
             .sign_schnorr(Message::from_digest_slice(digest).unwrap())
     }
 
@@ -77,7 +77,7 @@ impl WalletSigner<Server> for StakechainWalletSigner {
     ) -> <Server as Origin>::Container<Signature> {
         self.kp
             .tap_tweak(SECP256K1, tweak)
-            .to_inner()
+            .to_keypair()
             .sign_schnorr(Message::from_digest_slice(digest).unwrap())
     }
 
