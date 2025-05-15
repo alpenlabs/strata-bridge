@@ -113,6 +113,7 @@ impl ContractManager {
                     .collect::<BTreeMap<Txid, ContractSM>>(),
                 Err(e) => crash(e.into()),
             };
+            info!(num_contracts=%active_contracts.len(), "loaded all active contracts");
 
             let operator_pubkey = s2_client
                 .general_wallet_signer()

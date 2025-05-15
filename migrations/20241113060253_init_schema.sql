@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS contracts (
     deposit_idx INTEGER NOT NULL UNIQUE,    -- Index of the deposit in the stake chain
     deposit_tx BLOB NOT NULL,               -- Serialized with bincode
     operator_table BLOB NOT NULL,           -- Serialized with bincode
-    state BLOB NOT NULL                     -- Serialized with bincode
+    state TEXT NOT NULL                     -- JSON
 );
 
 -- Table for wots_public_keys with a compound index on (operator_id, deposit_txid)

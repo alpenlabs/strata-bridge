@@ -395,7 +395,8 @@ async fn init_duty_tracker(
     let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
 
     info!("initializing the contract persister");
-    let contract_persister = ContractPersister::new(db.pool().clone()).await?;
+    let db_pool = db.pool().clone();
+    let contract_persister = ContractPersister::new(db_pool, config.db).await?;
 
     info!("initializing the stake chain persister");
     let stake_chain_persister = StakeChainPersister::new(db.clone()).await?;

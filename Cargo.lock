@@ -875,6 +875,7 @@ dependencies = [
  "secret-service-client",
  "secret-service-proto",
  "serde",
+ "serde_json",
  "sqlx",
  "strata-bridge-common",
  "strata-bridge-db",

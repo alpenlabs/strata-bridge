@@ -7,7 +7,12 @@ use sqlx::{
     sqlite::{SqliteQueryResult, SqliteRow},
     Pool, Row, Sqlite,
 };
-use strata_bridge_tx_graph::transactions::prelude::CovenantTx;
+use strata_bridge_db::{
+    errors::DbError,
+    persistent::{config::DbConfig, errors::StorageError, sqlite::execute_with_retries},
+};
+use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_primitives::params::RollupParams;
 use thiserror::Error;
 use tracing::{debug, error};
@@ -34,36 +39,69 @@ impl From<serde_json::Error> for ContractPersistErr {
     }
 }
 
-/// System for persisting the relevant data for [`crate::contract_state_machine::ContractSM`]
+impl From<DbError> for ContractPersistErr {
+    fn from(e: DbError) -> Self {
+        ContractPersistErr::Unexpected(e.to_string())
+    }
+}
+
+impl From<ContractPersistErr> for DbError {
+    fn from(e: ContractPersistErr) -> Self {
+        DbError::Unexpected(e.to_string())
+    }
+}
+
+impl From<StorageError> for ContractPersistErr {
+    fn from(e: StorageError) -> Self {
+        ContractPersistErr::Unexpected(e.to_string())
+    }
+}
+
+impl From<ContractPersistErr> for StorageError {
+    fn from(e: ContractPersistErr) -> Self {
+        StorageError::InvalidData(e.to_string())
+    }
+}
+
+/// System for persisting the relevant data for [`crate::contract_state_machine::ContractSM`].
 #[derive(Debug)]
 pub struct ContractPersister {
+    /// Database SQLite Pool.
     // TODO(proofofkeags): figure out how to avoid monomorphizing to Sqlite. We'd like the
     // persister to be generalized over SQL implementations.
     pool: Pool<Sqlite>,
+
+    /// Database configuration.
+    config: DbConfig,
 }
 impl ContractPersister {
-    /// Initializes the [`ContractPersister`]
-    pub async fn new(pool: Pool<Sqlite>) -> Result<Self, ContractPersistErr> {
-        let _: SqliteQueryResult = sqlx::query(
-            // TODO(proofofkeags): make state not opaque at the DB level
-            r#"
+    /// Initializes the [`ContractPersister`].
+    pub async fn new(pool: Pool<Sqlite>, config: DbConfig) -> Result<Self, ContractPersistErr> {
+        execute_with_retries(&config, || async {
+            let _: SqliteQueryResult = sqlx::query(
+                // TODO(proofofkeags): make state not opaque at the DB level
+                r#"
             CREATE TABLE IF NOT EXISTS contracts (
                 deposit_txid TEXT PRIMARY KEY,
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx BLOB NOT NULL,
                 operator_table BLOB NOT NULL,
-                state BLOB NOT NULL
+                state TEXT NOT NULL
             )
             "#,
-        )
-        .execute(&pool)
+            )
+            .execute(&pool)
+            .await
+            .map_err(|e| {
+                error!(?e, "failed to create contracts table");
+                StorageError::from(e)
+            })?;
+            Ok(())
+        })
         .await
-        .map_err(|e| {
-            error!(?e, "failed to create contracts table");
+        .map_err(ContractPersistErr::from)?;
 
-            ContractPersistErr::Unexpected(e.to_string())
-        })?;
-        Ok(ContractPersister { pool })
+        Ok(ContractPersister { pool, config })
     }
 
     /// Initializes a new contract with the given [`ContractCfg`] and [`MachineState`].
@@ -72,28 +110,38 @@ impl ContractPersister {
         cfg: &ContractCfg,
         state: &MachineState,
     ) -> Result<(), ContractPersistErr> {
-        let _: SqliteQueryResult = sqlx::query(
-            r#"
-            INSERT INTO contracts (
-                deposit_txid,
-                deposit_idx,
-                deposit_tx,
-                operator_table,
-                state
-            ) VALUES (?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(cfg.deposit_tx.compute_txid().to_string())
-        .bind(cfg.deposit_idx)
-        .bind(bincode::serialize(&cfg.deposit_tx)?)
-        .bind(bincode::serialize(&cfg.operator_table)?)
-        .bind(bincode::serialize(&state)?)
-        .execute(&self.pool)
+        let deposit_tx_bytes = bincode::serialize(&cfg.deposit_tx)?;
+        let operator_table_bytes = bincode::serialize(&cfg.operator_table)?;
+        let state_json = serde_json::to_string(&state)?;
+
+        execute_with_retries(&self.config, || async {
+            let _: SqliteQueryResult = sqlx::query(
+                r#"
+                INSERT INTO contracts (
+                    deposit_txid,
+                    deposit_idx,
+                    deposit_tx,
+                    operator_table,
+                    state
+                ) VALUES (?, ?, ?, ?, ?)
+                "#,
+            )
+            .bind(cfg.deposit_tx.compute_txid().to_string())
+            .bind(cfg.deposit_idx)
+            .bind(&deposit_tx_bytes)
+            .bind(&operator_table_bytes)
+            .bind(&state_json)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!(?e, "failed to insert contract into database");
+                StorageError::from(e)
+            })?;
+            Ok(())
+        })
         .await
-        .map_err(|e| {
-            error!(?e, "failed to insert contract into database");
-            ContractPersistErr::Unexpected(e.to_string())
-        })?;
+        .map_err(ContractPersistErr::from)?;
+
         Ok(())
     }
 
@@ -101,21 +149,40 @@ impl ContractPersister {
     pub async fn commit(
         &self,
         deposit_txid: &Txid,
+        deposit_idx: u32,
+        deposit_tx: &DepositTx,
+        operator_table: &OperatorTable,
         state: &MachineState,
     ) -> Result<(), ContractPersistErr> {
-        let _: SqliteQueryResult = sqlx::query(
-            r#"
-            UPDATE contracts SET state = ? WHERE deposit_txid = ?
+        let deposit_tx_bytes = bincode::serialize(&deposit_tx)?;
+        let operator_table_bytes = bincode::serialize(&operator_table)?;
+        let state_json = serde_json::to_string(&state)?;
+
+        execute_with_retries(&self.config, || async {
+            let _: SqliteQueryResult = sqlx::query(
+                r#"
+            INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) VALUES (?, ?, ?, ?, ?)
             "#,
-        )
-        .bind(bincode::serialize(state)?)
-        .bind(deposit_txid.to_string())
-        .execute(&self.pool)
+            )
+            .bind(deposit_txid.to_string())
+            .bind(deposit_idx)
+            .bind(&deposit_tx_bytes)
+            .bind(&operator_table_bytes)
+            .bind(&state_json)
+            .execute(&self.pool)
+            .await
+            .map_err(|e| {
+                error!(?e, %deposit_txid, "failed to commit machine state to disk");
+                StorageError::from(e)
+            })?;
+            Ok(())
+        })
         .await
         .map_err(|e| {
-            error!(?e, "failed to commit machine state to disk");
-            ContractPersistErr::Unexpected(e.to_string())
+            error!(?e, %deposit_txid, "failed to commit machine state to disk");
+            ContractPersistErr::from(e)
         })?;
+
         Ok(())
     }
 
@@ -129,9 +196,17 @@ impl ContractPersister {
         debug!(%num_contracts, "committing all active contracts");
 
         for (txid, contract_sm) in active_contracts {
+            let deposit_idx = contract_sm.cfg().deposit_idx;
+            let deposit_tx = &contract_sm.cfg().deposit_tx;
+            let operator_table = &contract_sm.cfg().operator_table;
             let machine_state = contract_sm.state();
             // FIXME: (@Rajil1213) wrap all commits into a single db transaction.
-            self.commit(txid, machine_state).await?;
+            self.commit(txid, deposit_idx, deposit_tx, operator_table, machine_state)
+                .await
+                .map_err(|e| {
+                    error!(?e, %txid, "failed to commit active contract");
+                    ContractPersistErr::Unexpected(e.to_string())
+                })?;
         }
 
         Ok(())
@@ -147,64 +222,80 @@ impl ContractPersister {
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
-        let row: SqliteRow = sqlx::query(
-            r#"
-            SELECT
-                deposit_idx,
-                deposit_tx,
-                operator_table,
-                state
-            FROM contracts WHERE deposit_txid = ?
-            "#,
-        )
-        .bind(deposit_txid.to_string())
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| {
-            error!(?e, %deposit_txid, "could not load contract from disk");
-            ContractPersistErr::Unexpected(e.to_string())
-        })?;
+        let result = execute_with_retries(&self.config, || async {
+                let peg_out_graph_params = peg_out_graph_params.clone();
+                let sidesystem_params = sidesystem_params.clone();
+                let row: SqliteRow = sqlx::query(
+                    r#"
+                    SELECT
+                        deposit_idx,
+                        deposit_tx,
+                        operator_table,
+                        state
+                    FROM contracts WHERE deposit_txid = ?
+                    "#,
+                )
+                .bind(deposit_txid.to_string())
+                .fetch_one(&self.pool)
+                .await
+                .map_err(|e| {
+                    error!(?e, %deposit_txid, "could not load contract from disk");
+                    StorageError::from(e)
+                })?;
 
-        let deposit_idx = row.try_get("deposit_idx").map_err(|e| {
-            error!(?e, %deposit_txid, "could not parse deposit_idx from contract entry in disk");
-            ContractPersistErr::Unexpected(e.to_string())
-        })?;
+                let deposit_idx = row.try_get("deposit_idx").map_err(|e| {
+                    error!(?e, %deposit_txid, "could not parse deposit_idx from contract entry in disk");
+                    StorageError::from(e)
+                })?;
 
-        let deposit_tx = bincode::deserialize(row.try_get("deposit_tx").map_err(|e| {
-            error!(?e, %deposit_txid, "could not parse deposit_tx from contract entry in disk");
-            ContractPersistErr::Unexpected(e.to_string())
-        })?).inspect_err(|e| {
-            error!(?e, %deposit_txid, "could not deserialize deposit_tx from contract entry in disk");
-        })?;
+                let deposit_tx_bytes = row.try_get::<Vec<u8>, _>("deposit_tx").map_err(|e| {
+                    error!(?e, %deposit_txid, "could not parse deposit_tx from contract entry in disk");
+                    StorageError::from(e)
+                })?;
 
-        let operator_table = bincode::deserialize(row.try_get("operator_table").map_err(|e| {
-            error!(?e, %deposit_txid, "could not parse operator_table from contract entry in disk");
-            ContractPersistErr::Unexpected(e.to_string())
-        })?).inspect_err(|e| {
-            error!(?e, %deposit_txid, "could not deserialize operator_table from contract entry in disk");
-        })?;
+                let deposit_tx = bincode::deserialize(&deposit_tx_bytes).map_err(|e| {
+                    error!(?e, %deposit_txid, "could not deserialize deposit_tx from contract entry in disk");
+                    ContractPersistErr::from(e)
+                })?;
 
-        let state = bincode::deserialize(row.try_get("state").map_err(|e| {
-            error!(?e, %deposit_txid, "could not parse state from contract entry in disk");
-            ContractPersistErr::Unexpected(e.to_string())
-        })?)
-        .inspect_err(|e| {
-            error!(?e, %deposit_txid, "could not deserialize state from contract entry in disk");
-        })?;
+                let operator_table_bytes = row.try_get::<Vec<u8>, _>("operator_table").map_err(|e| {
+                    error!(?e, %deposit_txid, "could not parse operator_table from contract entry in disk");
+                    StorageError::from(e)
+                })?;
 
-        Ok((
-            ContractCfg {
-                operator_table,
-                deposit_idx,
-                deposit_tx,
-                network,
-                connector_params,
-                peg_out_graph_params,
-                sidesystem_params,
-                stake_chain_params,
-            },
-            state,
-        ))
+                let operator_table = bincode::deserialize(&operator_table_bytes).map_err(|e| {
+                    error!(?e, %deposit_txid, "could not deserialize operator_table from contract entry in disk");
+                    ContractPersistErr::from(e)
+                })?;
+
+                let state_json = row.try_get::<String, _>("state").map_err(|e| {
+                    error!(?e, %deposit_txid, "could not parse state from contract entry in disk");
+                    StorageError::from(e)
+                })?;
+
+                let state: MachineState = serde_json::from_str(&state_json).map_err(|e| {
+                    error!(?e, %deposit_txid, "could not deserialize state from contract entry in disk");
+                    ContractPersistErr::from(e)
+                })?;
+
+                Ok((
+                    ContractCfg {
+                        operator_table,
+                        deposit_idx,
+                        deposit_tx,
+                        network,
+                        connector_params,
+                        peg_out_graph_params,
+                        sidesystem_params,
+                        stake_chain_params,
+                    },
+                    state,
+                ))
+            })
+            .await
+            .map_err(ContractPersistErr::from)?;
+
+        Ok(result)
     }
 
     /// Loads both the [`ContractCfg`] and [`MachineState`] from disk for all contracts in the
@@ -217,8 +308,11 @@ impl ContractPersister {
         sidesystem_params: RollupParams,
         stake_chain_params: StakeChainParams,
     ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
-        let rows = sqlx::query(
-            r#"
+        let result = execute_with_retries(&self.config, || async {
+            let peg_out_graph_params = peg_out_graph_params.clone();
+            let sidesystem_params = sidesystem_params.clone();
+            let rows = sqlx::query(
+                r#"
             SELECT
                 deposit_idx,
                 deposit_tx,
@@ -226,77 +320,85 @@ impl ContractPersister {
                 state
             FROM contracts
             "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            error!(?e, "could not load all contracts from disk");
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| {
+                error!(?e, "could not load all contracts from disk");
+                ContractPersistErr::Unexpected(e.to_string())
+            })?;
 
-            ContractPersistErr::Unexpected(e.to_string())
-        })?;
-
-        rows.into_iter()
-            .map(|row| {
-                let deposit_idx = row.try_get("deposit_idx").map_err(|e| {
-                    error!(
-                        ?e,
-                        "could not parse deposit_idx from contract entry in disk"
-                    );
-                    ContractPersistErr::Unexpected(e.to_string())
-                })?;
-
-                let deposit_tx = bincode::deserialize(row.try_get("deposit_tx").map_err(|e| {
-                    error!(?e, "could not parse deposit_tx from contract entry in disk");
-                    ContractPersistErr::Unexpected(e.to_string())
-                })?)
-                .inspect_err(|e| {
-                    error!(
-                        ?e,
-                        "could not deserialize deposit_tx from contract entry in disk"
-                    );
-                })?;
-
-                let operator_table =
-                    bincode::deserialize(row.try_get("operator_table").map_err(|e| {
+            rows.into_iter()
+                .map(|row| {
+                    let deposit_idx = row.try_get("deposit_idx").map_err(|e| {
                         error!(
                             ?e,
-                            "could not parse operator_table from contract entry in disk"
+                            "could not parse deposit_idx from contract entry in disk"
                         );
                         ContractPersistErr::Unexpected(e.to_string())
-                    })?)
-                    .inspect_err(|e| {
-                        error!(
-                            ?e,
-                            "could not deserialize operator_table from contract entry in disk"
-                        );
                     })?;
 
-                let state = bincode::deserialize(row.try_get("state").map_err(|e| {
-                    error!(?e, "could not parse state from contract entry in disk");
-                    ContractPersistErr::Unexpected(e.to_string())
-                })?)
-                .inspect_err(|e| {
-                    error!(
-                        ?e,
-                        "could not deserialize state from contract entry in disk"
-                    );
-                })?;
+                    let deposit_tx =
+                        bincode::deserialize(row.try_get("deposit_tx").map_err(|e| {
+                            error!(?e, "could not parse deposit_tx from contract entry in disk");
+                            ContractPersistErr::Unexpected(e.to_string())
+                        })?)
+                        .map_err(|e| {
+                            error!(
+                                ?e,
+                                "could not deserialize deposit_tx from contract entry in disk"
+                            );
+                            ContractPersistErr::Unexpected(e.to_string())
+                        })?;
 
-                Ok((
-                    ContractCfg {
-                        network,
-                        operator_table,
-                        connector_params,
-                        peg_out_graph_params: peg_out_graph_params.clone(),
-                        sidesystem_params: sidesystem_params.clone(),
-                        stake_chain_params,
-                        // later
-                        deposit_idx,
-                        deposit_tx,
-                    },
-                    state,
-                ))
-            })
-            .collect::<Result<Vec<_>, _>>()
+                    let operator_table =
+                        bincode::deserialize(row.try_get("operator_table").map_err(|e| {
+                            error!(
+                                ?e,
+                                "could not parse operator_table from contract entry in disk"
+                            );
+                            ContractPersistErr::Unexpected(e.to_string())
+                        })?)
+                        .map_err(|e| {
+                            error!(
+                                ?e,
+                                "could not deserialize operator_table from contract entry in disk"
+                            );
+                            ContractPersistErr::Unexpected(e.to_string())
+                        })?;
+
+                    let state = serde_json::from_str(row.try_get("state").map_err(|e| {
+                        error!(?e, "could not parse state from contract entry in disk");
+                        ContractPersistErr::Unexpected(e.to_string())
+                    })?)
+                    .map_err(|e| {
+                        error!(
+                            ?e,
+                            "could not deserialize state from contract entry in disk"
+                        );
+                        ContractPersistErr::Unexpected(e.to_string())
+                    })?;
+
+                    Ok((
+                        ContractCfg {
+                            network,
+                            operator_table,
+                            connector_params,
+                            peg_out_graph_params: peg_out_graph_params.clone(),
+                            sidesystem_params: sidesystem_params.clone(),
+                            stake_chain_params,
+                            // later
+                            deposit_idx,
+                            deposit_tx,
+                        },
+                        state,
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()
+        })
+        .await
+        .map_err(ContractPersistErr::from)?;
+
+        Ok(result)
     }
 }
