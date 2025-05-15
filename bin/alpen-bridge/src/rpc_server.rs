@@ -99,7 +99,7 @@ pub(crate) struct ContractRecord {
 
     /// The latest state of the contract.
     #[sqlx(rename = "state")]
-    pub(crate) state: Vec<u8>,
+    pub(crate) state: String,
 }
 
 impl ContractRecord {
@@ -118,7 +118,7 @@ impl ContractRecord {
             error!(?e, "Failed to deserialize operator_table");
             anyhow::anyhow!("Failed to deserialize operator_table: {e}")
         })?;
-        let state = bincode::deserialize(&self.state).map_err(|e| {
+        let state = serde_json::from_str(&self.state).map_err(|e| {
             error!(?e, "Failed to deserialize state");
             anyhow::anyhow!("Failed to deserialize state: {e}")
         })?;

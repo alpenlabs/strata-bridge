@@ -86,7 +86,7 @@ impl ContractPersister {
                 deposit_idx INTEGER NOT NULL UNIQUE,
                 deposit_tx BLOB NOT NULL,
                 operator_table BLOB NOT NULL,
-                state BLOB NOT NULL
+                state TEXT NOT NULL
             )
             "#,
             )
@@ -112,7 +112,7 @@ impl ContractPersister {
     ) -> Result<(), ContractPersistErr> {
         let deposit_tx_bytes = bincode::serialize(&cfg.deposit_tx)?;
         let operator_table_bytes = bincode::serialize(&cfg.operator_table)?;
-        let state_bytes = bincode::serialize(&state)?;
+        let state_json = serde_json::to_string(&state)?;
 
         execute_with_retries(&self.config, || async {
             let _: SqliteQueryResult = sqlx::query(
@@ -130,7 +130,7 @@ impl ContractPersister {
             .bind(cfg.deposit_idx)
             .bind(&deposit_tx_bytes)
             .bind(&operator_table_bytes)
-            .bind(&state_bytes)
+            .bind(&state_json)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -156,7 +156,7 @@ impl ContractPersister {
     ) -> Result<(), ContractPersistErr> {
         let deposit_tx_bytes = bincode::serialize(&deposit_tx)?;
         let operator_table_bytes = bincode::serialize(&operator_table)?;
-        let state_bytes = bincode::serialize(&state)?;
+        let state_json = serde_json::to_string(&state)?;
 
         execute_with_retries(&self.config, || async {
             let _: SqliteQueryResult = sqlx::query(
@@ -168,7 +168,7 @@ impl ContractPersister {
             .bind(deposit_idx)
             .bind(&deposit_tx_bytes)
             .bind(&operator_table_bytes)
-            .bind(&state_bytes)
+            .bind(&state_json)
             .execute(&self.pool)
             .await
             .map_err(|e| {
@@ -268,12 +268,12 @@ impl ContractPersister {
                     ContractPersistErr::from(e)
                 })?;
 
-                let state_bytes = row.try_get::<Vec<u8>, _>("state").map_err(|e| {
+                let state_json = row.try_get::<String, _>("state").map_err(|e| {
                     error!(?e, %deposit_txid, "could not parse state from contract entry in disk");
                     StorageError::from(e)
                 })?;
 
-                let state: MachineState = bincode::deserialize(&state_bytes).map_err(|e| {
+                let state: MachineState = serde_json::from_str(&state_json).map_err(|e| {
                     error!(?e, %deposit_txid, "could not deserialize state from contract entry in disk");
                     ContractPersistErr::from(e)
                 })?;
@@ -367,7 +367,7 @@ impl ContractPersister {
                             ContractPersistErr::Unexpected(e.to_string())
                         })?;
 
-                    let state = bincode::deserialize(row.try_get("state").map_err(|e| {
+                    let state = serde_json::from_str(row.try_get("state").map_err(|e| {
                         error!(?e, "could not parse state from contract entry in disk");
                         ContractPersistErr::Unexpected(e.to_string())
                     })?)
