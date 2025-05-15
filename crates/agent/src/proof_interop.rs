@@ -7,7 +7,7 @@ use bitcoin::{
     Transaction, Txid, Wtxid,
 };
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
-use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
 
@@ -135,8 +135,8 @@ pub fn checkpoint_last_verified_l1_height(
 ) -> Option<u64> {
     let filter_config =
         TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
-    if let Some(script) = tx.input[0].witness.tapscript() {
-        let script = script.to_bytes();
+    if let Some(script) = tx.input[0].witness.taproot_leaf_script() {
+        let script = script.script.to_bytes();
         if let Ok(inscription) = parse_envelope_payloads(&script.into(), &filter_config) {
             if inscription.is_empty() {
                 return None;

@@ -224,7 +224,7 @@ mod tests {
                         let tweak = connector.generate_merkle_root();
                         (
                             TaprootWitness::Tweaked { tweak },
-                            keypair.tap_tweak(SECP256K1, Some(tweak)).to_inner(),
+                            keypair.tap_tweak(SECP256K1, Some(tweak)).to_keypair(),
                         )
                     }
                     ConnectorC0Path::Assert(_) => {

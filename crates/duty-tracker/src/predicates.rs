@@ -12,7 +12,7 @@ use bitcoin_bosd::Descriptor;
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
 use strata_bridge_tx_graph::transactions::deposit::DepositRequestData;
-use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::TxFilterConfig};
+use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
 use tracing::{debug, warn};
@@ -189,8 +189,8 @@ pub(crate) fn parse_strata_checkpoint(
     let filter_config =
         TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
 
-    if let Some(script) = tx.input[0].witness.tapscript() {
-        let script = script.to_bytes();
+    if let Some(script) = tx.input[0].witness.taproot_leaf_script() {
+        let script = script.script.to_bytes();
         if let Ok(inscription) = parse_envelope_payloads(&script.into(), &filter_config) {
             if inscription.is_empty() {
                 return None;
