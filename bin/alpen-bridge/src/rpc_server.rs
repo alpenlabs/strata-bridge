@@ -275,7 +275,7 @@ impl BridgeRpc {
 
                 let mut cache_lock = cached_contracts.write().await;
                 *cache_lock = refreshed_contracts;
-                // drop the lock!
+                // Strive to always drop the lock as soon as possible to avoid blocking other tasks.
                 drop(cache_lock);
 
                 info!(%after_num_contracts, "RPC server Contracts cache initialized");
@@ -328,7 +328,8 @@ impl BridgeRpc {
 
                         let mut cache_lock = cached_contracts.write().await;
                         *cache_lock = refreshed_contracts;
-                        // drop the lock!
+                        // Strive to always drop the lock as soon as possible to avoid blocking
+                        // other tasks.
                         drop(cache_lock);
 
                         debug!(%after_num_contracts, "Contracts cache refreshed");
