@@ -155,7 +155,7 @@ impl ContractPersister {
         execute_with_retries(&self.config, || async {
             let _: SqliteQueryResult = sqlx::query(
                 r#"
-            UPDATE contracts SET state = ? WHERE deposit_txid = ?
+            INSERT OR REPLACE INTO contracts (state, deposit_txid) VALUES (?, ?)
             "#,
             )
             .bind(&state_bytes)
