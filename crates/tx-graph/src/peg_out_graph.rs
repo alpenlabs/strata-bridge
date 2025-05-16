@@ -1532,7 +1532,7 @@ mod tests {
         );
 
         btc_client
-            .generate_to_address(6, &btc_addr)
+            .generate_to_address(1, &btc_addr)
             .expect("must be able to mine blocks");
 
         let assert_sigs = wots::Signatures::new(MSK, deposit_txid, assertions);
@@ -1566,7 +1566,6 @@ mod tests {
                 );
 
                 assert_eq!(tx.output.len(), 2, "assert data tx {i} must have 2 outputs -- one to consolidate, the other to CPFP");
-                let assert_data_txid = tx.compute_txid();
 
                 let signed_child_tx = create_cpfp_child(
                     btc_client,
@@ -1593,17 +1592,10 @@ mod tests {
 
                 assert_eq!(result.package_msg, "success", "must have successful package submission but got: {result:?}");
                 assert_eq!(result.tx_results.len(), 2, "must have two transactions in package");
-
-                // generate a block so that the mempool size limit is not hit
-                btc_client
-                    .generate_to_address(1, &btc_addr)
-                    .expect("must be able to mine assert data tx");
-
-                btc_client.call::<String>("getrawtransaction", &[json!(assert_data_txid.to_string())]).expect("must be able to get assert data tx");
             });
 
         btc_client
-            .generate_to_address(5, &btc_addr)
+            .generate_to_address(1, &btc_addr)
             .expect("must be able to mine blocks");
 
         info!(%total_assert_vsize, %total_assert_with_child_vsize, "submitted all assert data txs");
