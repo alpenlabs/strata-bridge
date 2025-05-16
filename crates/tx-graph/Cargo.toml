@@ -23,6 +23,8 @@ bitcoin-bosd.workspace = true
 bitcoin-script = { workspace = true }
 bitvm = { workspace = true }
 futures = { workspace = true }
+miniscript.workspace = true
+proptest.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 thiserror.workspace = true

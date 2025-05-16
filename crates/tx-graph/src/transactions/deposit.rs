@@ -557,3 +557,50 @@ mod tests {
         );
     }
 }
+
+pub mod prop_tests {
+    use std::str::FromStr;
+
+    use bitcoin::{hashes::sha256d, Amount, OutPoint, Txid, XOnlyPublicKey};
+    use miniscript::Miniscript;
+    use proptest::{prelude::*, prop_compose};
+    use strata_bridge_primitives::operator_table::prop_test_generators::arb_btc_key;
+
+    use super::DepositRequestData;
+
+    prop_compose! {
+        fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
+            Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
+        }
+    }
+
+    prop_compose! {
+        fn arb_outpoint()(txid in arb_txid(), vout in 0..100u32) -> OutPoint {
+            OutPoint { txid, vout }
+        }
+    }
+
+    prop_compose! {
+        pub fn arb_deposit_request_data(deposit_amount: Amount)(
+            deposit_request_outpoint in arb_outpoint(),
+            stake_index in 1..100u32,
+            ee_address in proptest::collection::vec(any::<u8>(), 20),
+            excess_deposit_amount in 100000..500000u64,
+            x_only_public_key in arb_btc_key().prop_map(|x|x.x_only_public_key().0),
+        ) -> DepositRequestData {
+
+            let script = format!("and_v(v:pk({}),older({}))", x_only_public_key.clone(), 1008);
+            let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
+            let original_script_pubkey = miniscript.encode();
+
+            DepositRequestData {
+                deposit_request_outpoint,
+                stake_index,
+                ee_address,
+                total_amount: deposit_amount + Amount::from_sat(excess_deposit_amount),
+                x_only_public_key,
+                original_script_pubkey,
+            }
+        }
+    }
+}

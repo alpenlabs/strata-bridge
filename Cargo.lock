@@ -10111,6 +10111,8 @@ dependencies = [
  "bitvm",
  "corepc-node",
  "futures",
+ "miniscript",
+ "proptest",
  "rkyv",
  "secp256k1",
  "serde",
