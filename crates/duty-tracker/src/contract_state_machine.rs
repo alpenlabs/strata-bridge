@@ -2752,16 +2752,24 @@ mod tests {
     }
 }
 
+/// This module defines genenerator functions of various types defined in the super module.
 pub mod prop_tests {
     use std::str::FromStr;
 
     use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-    use bitcoin::Network;
-    use proptest::prop_compose;
-    use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
+    use bdk_wallet::miniscript::ToPublicKey;
+    use bitcoin::{
+        hashes::{sha256, sha256d, Hash},
+        Network, Txid,
+    };
+    use proptest::{prelude::*, prop_compose};
+    use strata_bridge_primitives::operator_table::prop_test_generators::{
+        arb_btc_key, arb_operator_table,
+    };
     use strata_bridge_tx_graph::transactions::deposit::{
         prop_tests::arb_deposit_request_data, DepositTx,
     };
+    use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
     use strata_primitives::{
         block_credential::CredRule,
         buf::Buf32,
@@ -2770,9 +2778,23 @@ pub mod prop_tests {
         proof::RollupVerifyingKey,
     };
 
-    use super::ContractCfg;
+    use super::{ContractCfg, ContractEvent};
+
+    // Generates a random 32 byte hash as a Txid`.
+    prop_compose! {
+        fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
+            Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
+        }
+    }
 
     prop_compose! {
+        fn arb_hash()(bytes in any::<[u8; 32]>()) -> sha256::Hash {
+            sha256::Hash::from_byte_array(bytes)
+        }
+    }
+
+    prop_compose! {
+        /// Generates a random ContractCfg.
         pub fn arb_contract_cfg()(
             operator_table in arb_operator_table(),
             deposit_idx in 1..100,
@@ -2857,6 +2879,24 @@ pub mod prop_tests {
                 stake_chain_params: StakeChainParams::default(),
                 deposit_idx: deposit_idx as u32,
                 deposit_tx,
+            }
+        }
+    }
+
+    prop_compose! {
+        /// Generates a random ContractEvent::DepositSetup {..}
+        pub fn arb_deposit_setup_from_operator(origin: P2POperatorPubKey)(
+            cpfp_pubkey in arb_btc_key().prop_map(|x|x.to_x_only_pubkey()),
+            stake_hash in arb_hash(),
+            stake_txid in arb_txid(),
+            wots_keys: WotsPublicKeys,
+        ) -> ContractEvent {
+            ContractEvent::DepositSetup {
+                operator_p2p_key: origin.clone(),
+                operator_btc_key: cpfp_pubkey,
+                stake_hash,
+                stake_txid,
+                wots_keys: Box::new(wots_keys),
             }
         }
     }

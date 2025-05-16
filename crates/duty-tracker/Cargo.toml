@@ -57,3 +57,4 @@ tracing.workspace = true
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 hex.workspace = true
+strata-p2p-types = { workspace = true, features = ["proptest"] }
