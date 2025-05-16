@@ -139,8 +139,7 @@ impl OperatorTable {
     }
 }
 
-#[cfg(test)]
-mod prop_tests {
+pub mod prop_test_generators {
     use proptest::{prelude::*, prop_compose};
     use strata_p2p_types::P2POperatorPubKey;
 

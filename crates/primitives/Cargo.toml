@@ -22,12 +22,10 @@ bitcoin-script.workspace = true
 bitvm.workspace = true
 miniscript.workspace = true
 musig2 = { workspace = true, features = ["serde"] }
+proptest.workspace = true
 rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 sha2.workspace = true
 strata-p2p-types.workspace = true
 thiserror.workspace = true
-
-[dev-dependencies]
-proptest.workspace = true
