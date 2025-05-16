@@ -1722,7 +1722,7 @@ where
                 .await
                 .unwrap()
                 .unwrap(); // FIXME: Handle me
-            let signed_pre_assert = pre_assert.finalize(connectors.claim_out_0, n_of_n_sig);
+            let signed_pre_assert = pre_assert.finalize(n_of_n_sig);
             let vsize = signed_pre_assert.vsize();
             let total_size = signed_pre_assert.total_size();
             let weight = signed_pre_assert.weight();
