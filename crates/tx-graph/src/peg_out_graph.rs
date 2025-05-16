@@ -51,6 +51,7 @@ pub struct PegOutGraphInput {
     // TODO: Make this a [`descriptor`](bitcoin_bosd::Descriptor).
     pub operator_pubkey: XOnlyPublicKey,
 }
+
 /// The minimum necessary information to recognize all of the relevant transactions in a given
 /// [`PegOutGraph`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -215,10 +216,7 @@ impl PegOutGraph {
 
         let start_time = Instant::now();
         let assert_chain_data = AssertChainData {
-            pre_assert_data: PreAssertData {
-                claim_txid,
-                input_amount: claim_tx.output_amount(),
-            },
+            pre_assert_data: PreAssertData { claim_txid },
             deposit_txid,
         };
 
@@ -1015,6 +1013,7 @@ mod tests {
 
         let (input, _, _) =
             create_tx_graph_input(btc_client, &context, n_of_n_keypair, public_keys);
+
         let graph_params = PegOutGraphParams {
             deposit_amount: DEPOSIT_AMOUNT,
             ..Default::default()
@@ -1375,6 +1374,7 @@ mod tests {
             stake_chain_params,
             vec![],
         );
+
         let PegOutGraph {
             claim_tx,
             assert_chain,
@@ -1384,7 +1384,6 @@ mod tests {
         } = graph;
 
         let PegOutGraphConnectors {
-            claim_out_0,
             claim_out_1,
             n_of_n,
             connector_cpfp,
@@ -1489,7 +1488,7 @@ mod tests {
         let pre_assert_cpfp_vout = pre_assert.cpfp_vout();
         let tx_hash = pre_assert.sighashes()[0];
         let n_of_n_sig = generate_agg_signature(&tx_hash, keypair, &witnesses[0]);
-        let signed_pre_assert = pre_assert.finalize(claim_out_0, n_of_n_sig);
+        let signed_pre_assert = pre_assert.finalize(n_of_n_sig);
         assert_eq!(
             signed_pre_assert.version,
             transaction::Version(3),
