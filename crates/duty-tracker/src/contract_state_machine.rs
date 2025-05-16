@@ -969,32 +969,16 @@ impl ContractSM {
     /// Builds a new ContractSM around a given deposit transaction.
     ///
     /// This will be constructible once we have a deposit request.
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
-        network: Network,
-        operator_table: OperatorTable,
-        connector_params: ConnectorParams,
-        peg_out_graph_params: PegOutGraphParams,
-        sidesystem_params: RollupParams,
-        stake_chain_params: StakeChainParams,
+        cfg: ContractCfg,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
-        deposit_idx: u32,
-        deposit_request_txid: Txid,
-        deposit_tx: DepositTx,
         stake_chain_inputs: StakeChainInputs,
     ) -> (Self, OperatorDuty) {
-        let deposit_txid = deposit_tx.compute_txid();
-        let cfg = ContractCfg {
-            network,
-            operator_table,
-            connector_params,
-            peg_out_graph_params,
-            sidesystem_params,
-            stake_chain_params,
-            deposit_idx,
-            deposit_tx,
-        };
+        let deposit_txid = cfg.deposit_tx.compute_txid();
+        let deposit_request_txid = cfg.deposit_tx.psbt().unsigned_tx.input[0]
+            .previous_output
+            .txid;
 
         let state = ContractState::new(deposit_request_txid, abort_deadline);
         let state = MachineState {
@@ -1002,16 +986,16 @@ impl ContractSM {
             state,
         };
 
+        let duty = OperatorDuty::PublishDepositSetup {
+            deposit_txid,
+            deposit_idx: cfg.deposit_idx,
+            stake_chain_inputs,
+        };
+
         let contract_sm = ContractSM {
             cfg,
             state,
             pog: BTreeMap::new(),
-        };
-
-        let duty = OperatorDuty::PublishDepositSetup {
-            deposit_txid,
-            deposit_idx,
-            stake_chain_inputs,
         };
 
         (contract_sm, duty)

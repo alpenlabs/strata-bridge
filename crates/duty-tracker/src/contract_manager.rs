@@ -39,8 +39,8 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
-        ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
-        SyntheticEvent,
+        ContractCfg, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
+        OperatorDuty, SyntheticEvent,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -518,18 +518,20 @@ impl ContractManagerCtx {
                     .clone();
 
                 debug!(%stake_index, %deposit_request_txid, "creating a new contract");
+                let cfg = ContractCfg {
+                    network: self.cfg.network,
+                    operator_table: self.cfg.operator_table.clone(),
+                    connector_params: self.cfg.connector_params,
+                    peg_out_graph_params: self.cfg.pegout_graph_params.clone(),
+                    sidesystem_params: self.cfg.sidesystem_params.clone(),
+                    stake_chain_params: self.cfg.stake_chain_params,
+                    deposit_idx: stake_index + new_contracts.len() as u32,
+                    deposit_tx,
+                };
                 let (sm, duty) = ContractSM::new(
-                    self.cfg.network,
-                    self.cfg.operator_table.clone(),
-                    self.cfg.connector_params,
-                    self.cfg.pegout_graph_params.clone(),
-                    self.cfg.sidesystem_params.clone(),
-                    self.cfg.stake_chain_params,
+                    cfg,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    stake_index + new_contracts.len() as u32,
-                    deposit_request_txid,
-                    deposit_tx,
                     stake_chain_inputs,
                 );
 
