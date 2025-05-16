@@ -4,3 +4,4 @@ pub(crate) mod constants;
 pub(crate) mod deposit;
 pub(crate) mod optimistic_withdrawal;
 pub(crate) mod prelude;
+pub(crate) mod wots_handler;

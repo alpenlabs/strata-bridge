@@ -31,13 +31,15 @@ use strata_bridge_tx_graph::transactions::{
         NUM_PAYOUT_OPTIMISTIC_INPUTS,
     },
 };
-use strata_p2p_types::Wots256PublicKey;
 use tracing::{error, info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     errors::{ContractManagerErr, StakeChainErr},
-    executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
+    executors::{
+        constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
+        wots_handler::get_withdrawal_fulfillment_wots_pk,
+    },
     s2_session_manager::MusigSessionManager,
 };
 
@@ -276,12 +278,8 @@ pub(crate) async fn handle_publish_claim(
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
     let wots_client = s2_client.wots_signer();
-
-    let withdrawal_fulfillment_pk = wots_client
-        .get_256_public_key(deposit_txid, DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
-        .await?;
     let withdrawal_fulfillment_pk =
-        Wots256PublicKey::from_flattened_bytes(&withdrawal_fulfillment_pk).into();
+        get_withdrawal_fulfillment_wots_pk(deposit_txid, &wots_client).await?;
 
     let network = cfg.network;
     let n_of_n_agg_pubkey = cfg
@@ -291,7 +289,7 @@ pub(crate) async fn handle_publish_claim(
 
     let cpfp_key = s2_client.general_wallet_signer().pubkey().await?;
 
-    let connector_k = ConnectorK::new(network, withdrawal_fulfillment_pk);
+    let connector_k = ConnectorK::new(network, withdrawal_fulfillment_pk.into());
     let connector_c0 = ConnectorC0::new(
         n_of_n_agg_pubkey,
         network,
