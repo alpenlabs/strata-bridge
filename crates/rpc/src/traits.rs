@@ -76,5 +76,5 @@ pub trait StrataBridgeDaApi {
 
     /// Query for disprove signature for a particular claim.
     #[method(name = "disproveSignature")]
-    async fn get_disprove_signature(&self, deposit_txid: Txid) -> RpcResult<Option<Signature>>;
+    async fn get_disprove_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>>;
 }
