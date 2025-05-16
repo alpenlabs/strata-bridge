@@ -100,8 +100,8 @@ pub enum ContractEvent {
         /// The hash used in the hashlock in the previous stake transaction.
         stake_hash: sha256::Hash,
 
-        /// The stake transaction that holds the stake corresponding to the current contract.
-        stake_tx: StakeTxKind,
+        /// The stake transaction id that holds the stake corresponding to the current contract.
+        stake_txid: Txid,
 
         /// The wots keys needed to construct the pog.
         wots_keys: Box<WotsPublicKeys>,
@@ -1090,13 +1090,13 @@ impl ContractSM {
                 operator_p2p_key,
                 operator_btc_key,
                 stake_hash,
-                stake_tx,
+                stake_txid,
                 wots_keys,
             } => self.process_deposit_setup(
                 operator_p2p_key,
                 operator_btc_key,
                 stake_hash,
-                stake_tx,
+                stake_txid,
                 *wots_keys,
             ),
 
@@ -1281,7 +1281,7 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         operator_pubkey: XOnlyPublicKey,
         new_stake_hash: sha256::Hash,
-        new_stake_tx: StakeTxKind,
+        new_stake_txid: Txid,
         new_wots_keys: WotsPublicKeys,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
@@ -1298,9 +1298,9 @@ impl ContractSM {
                 ..
             } => {
                 let pog_input = PegOutGraphInput {
-                    stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
+                    stake_outpoint: OutPoint::new(new_stake_txid, STAKE_VOUT),
                     withdrawal_fulfillment_outpoint: OutPoint::new(
-                        new_stake_tx.compute_txid(),
+                        new_stake_txid,
                         WITHDRAWAL_FULFILLMENT_VOUT,
                     ),
                     stake_hash: new_stake_hash,

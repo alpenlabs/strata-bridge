@@ -778,7 +778,7 @@ impl ContractManagerCtx {
                             operator_p2p_key: key.clone(),
                             operator_btc_key: operator_pk,
                             stake_hash: hash,
-                            stake_tx,
+                            stake_txid: stake_tx.compute_txid(),
                             wots_keys: Box::new(wots_pks),
                         })?
                         .into_iter()
