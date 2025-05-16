@@ -765,17 +765,13 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let contracts = self.cached_contracts.read().await;
 
         Ok(contracts.iter().find_map(|contract| {
-            if contract.0.state.state.claim_txids().contains(&claim_txid) {
-                contract
-                    .0
-                    .state
-                    .state
-                    .graph_sigs()
-                    .get(&claim_txid)
-                    .map(|sigs| sigs.challenge)
-            } else {
-                None
-            }
+            contract
+                .0
+                .state
+                .state
+                .graph_sigs()
+                .get(&claim_txid)
+                .map(|sigs| sigs.challenge)
         }))
     }
 
@@ -785,17 +781,13 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let contracts = self.cached_contracts.read().await;
 
         Ok(contracts.iter().find_map(|contract| {
-            if contract.0.state.state.claim_txids().contains(&claim_txid) {
-                contract
-                    .0
-                    .state
-                    .state
-                    .graph_sigs()
-                    .get(&claim_txid)
-                    .map(|sigs| sigs.disprove)
-            } else {
-                None
-            }
+            contract
+                .0
+                .state
+                .state
+                .graph_sigs()
+                .get(&claim_txid)
+                .map(|sigs| sigs.disprove)
         }))
     }
 }
