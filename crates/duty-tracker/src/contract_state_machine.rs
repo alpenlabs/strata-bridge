@@ -509,6 +509,23 @@ impl Display for ContractState {
 }
 
 impl ContractState {
+    /// Initializes a contract state at the beginning of its lifecycle with the given arguments.
+    pub fn new(deposit_request_txid: Txid, abort_deadline: BitcoinBlockHeight) -> ContractState {
+        ContractState::Requested {
+            deposit_request_txid,
+            abort_deadline,
+            peg_out_graph_inputs: BTreeMap::new(),
+            peg_out_graphs: BTreeMap::new(),
+            claim_txids: BTreeMap::new(),
+            graph_nonces: BTreeMap::new(),
+            agg_nonces: BTreeMap::new(),
+            graph_partials: BTreeMap::new(),
+            graph_sigs: BTreeMap::new(),
+            root_nonces: BTreeMap::new(),
+            root_partials: BTreeMap::new(),
+        }
+    }
+
     /// Computes all of the [`PegOutGraphSummary`]s that this contract state is currently aware of.
     pub fn summaries(&self) -> Vec<PegOutGraphSummary> {
         fn get_summaries<T>(
@@ -979,19 +996,7 @@ impl ContractSM {
             deposit_tx,
         };
 
-        let state = ContractState::Requested {
-            deposit_request_txid,
-            abort_deadline,
-            peg_out_graph_inputs: BTreeMap::new(),
-            peg_out_graphs: BTreeMap::new(),
-            claim_txids: BTreeMap::new(),
-            graph_nonces: BTreeMap::new(),
-            graph_partials: BTreeMap::new(),
-            agg_nonces: BTreeMap::new(),
-            graph_sigs: BTreeMap::new(),
-            root_nonces: BTreeMap::new(),
-            root_partials: BTreeMap::new(),
-        };
+        let state = ContractState::new(deposit_request_txid, abort_deadline);
         let state = MachineState {
             block_height,
             state,
