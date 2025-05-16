@@ -1550,6 +1550,22 @@ async fn execute_duty(
                 )
                 .await
             }
+            FulfillerDuty::PublishPreAssert {
+                deposit_idx,
+                deposit_txid,
+                claim_txid,
+                agg_sig,
+            } => {
+                handle_publish_pre_assert(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    claim_txid,
+                    agg_sig,
+                )
+                .await
+            }
             ignored_fulfiller_duty => {
                 warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
                 Ok(())

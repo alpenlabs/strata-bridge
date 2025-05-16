@@ -44,7 +44,7 @@ use strata_bridge_tx_graph::{
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_primitives::params::RollupParams;
-use strata_state::bridge_state::{DepositEntry, DepositState};
+use strata_state::bridge_state::{DepositEntry, DepositState, DepositsTable};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -406,8 +406,8 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The height at which the claim transaction was confirmed.
+        claim_height: BitcoinBlockHeight,
     },
 
     /// This state describes everything from the moment the post-assert transaction confirms, to
@@ -434,9 +434,6 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
-
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
     },
 
     /// This state describes the state after the disprove transaction confirms.
@@ -856,8 +853,33 @@ pub enum FulfillerDuty {
         agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS]>,
     },
 
+    /// Originates once challenge is issued
+    PublishPreAssert {
+        /// The index of the deposit being claimed.
+        deposit_idx: u32,
+
+        /// The transction ID of the deposit being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the claim transaction in the peg-out graph.
+        claim_txid: Txid,
+
+        /// The aggregate signature required to settle the pre-assert transaction.
+        agg_sig: taproot::Signature,
+    },
+
     /// Originates once challenge transaction is issued
-    PublishAssertChain,
+    PublishAssertData {
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// Start height of the bitcoin chain fragment that is part of the proof being asserted.
+        start_height: BitcoinBlockHeight,
+
+        /// The table of deposits entry in the chain state that contains the withdrawal assignment
+        /// being acted upon.
+        deposits_table: DepositsTable,
+    },
 
     /// Originates after post-assert timelock expires
     PublishPayout,
@@ -885,7 +907,19 @@ impl Display for FulfillerDuty {
             FulfillerDuty::PublishPayoutOptimistic { deposit_txid, .. } => {
                 write!(f, "PublishPayoutOptimistic for {deposit_txid}")
             }
-            FulfillerDuty::PublishAssertChain => write!(f, "PublishAssertChain"),
+            FulfillerDuty::PublishPreAssert {
+                deposit_idx,
+                deposit_txid,
+                claim_txid,
+                ..
+            } => write!(
+                f,
+                "PublishPreAssert for deposit {deposit_idx} ({deposit_txid} and claim ({claim_txid}))"
+            ),
+            FulfillerDuty::PublishAssertData {
+                withdrawal_fulfillment_txid,
+                ..
+            } => write!(f, "PublishAssertData for {withdrawal_fulfillment_txid}"),
             FulfillerDuty::PublishPayout => write!(f, "PublishPayout"),
         }
     }
@@ -1284,6 +1318,13 @@ impl ContractSM {
 
                 // maybe it's an optimistic payout tx
                 self.process_optimistic_payout_confirmation(tx)
+                    .or_else(|e| {
+                        warn!(%e, "could not process optimistic payout confirmation");
+
+                        // or maybe it's assert chain confirmation and some operator did not take
+                        // the payout optimistic path
+                        self.process_assert_chain_confirmation(height, tx)
+                    })
             }),
 
             ContractState::Challenged { .. } => self.process_assert_chain_confirmation(height, tx),
@@ -1910,9 +1951,41 @@ impl ContractSM {
                 ..
             } => {
                 let pov_idx = self.cfg.operator_table.pov_idx();
-                if self.state.block_height
+
+                if *fulfiller != pov_idx {
+                    // not our turn to assert or get a payout
+                    None
+                }
+                // TODO: (@Rajil1213) also check if an operator config is set that instructs the
+                // node to directly proceed to assertion after a claim.
+                else if self.state.block_height
+                    >= claim_height + self.cfg.connector_params.pre_assert_timelock as u64
+                {
+                    let claim_txid = active_graph.1.claim_txid;
+                    let deposit_txid = self.deposit_txid();
+                    let deposit_idx = self.cfg.deposit_idx;
+
+                    let agg_sig = self
+                        .state
+                        .state
+                        .graph_sigs()
+                        .get(&claim_txid)
+                        .ok_or(TransitionErr(format!(
+                            "could not find graph sigs for claim txid {}",
+                            claim_txid
+                        )))?
+                        .pre_assert;
+
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishPreAssert {
+                            deposit_idx,
+                            deposit_txid,
+                            claim_txid,
+                            agg_sig,
+                        },
+                    ))
+                } else if self.state.block_height
                     >= claim_height + self.cfg.connector_params.payout_optimistic_timelock as u64
-                    && *fulfiller == pov_idx
                 {
                     let deposit_txid = self.cfg().deposit_tx.compute_txid();
                     let stake_index = self.cfg().deposit_idx;
@@ -1939,7 +2012,45 @@ impl ContractSM {
                     None
                 }
             }
-            ContractState::Challenged { .. } => None,
+            ContractState::Challenged {
+                claim_height,
+                fulfiller,
+                active_graph,
+                ..
+            } => {
+                let pov_idx = self.cfg.operator_table.pov_idx();
+
+                if self.state.block_height
+                    >= claim_height + self.cfg.connector_params.pre_assert_timelock as u64
+                    && *fulfiller == pov_idx
+                {
+                    let deposit_idx = self.cfg.deposit_idx;
+                    let deposit_txid = self.deposit_txid();
+                    let claim_txid = active_graph.1.claim_txid;
+
+                    let agg_sig = self
+                        .state
+                        .state
+                        .graph_sigs()
+                        .get(&claim_txid)
+                        .ok_or(TransitionErr(format!(
+                            "could not find graph sigs for claim txid {}",
+                            claim_txid
+                        )))?
+                        .pre_assert;
+
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishPreAssert {
+                            deposit_idx,
+                            deposit_txid,
+                            claim_txid,
+                            agg_sig,
+                        },
+                    ))
+                } else {
+                    None
+                }
+            }
             ContractState::Asserted {
                 post_assert_height,
                 fulfiller,
@@ -2313,7 +2424,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
-                graph_partials,
+                claim_height,
                 ..
             } => {
                 if !is_challenge(active_graph.1.claim_txid)(tx) {
@@ -2325,24 +2436,16 @@ impl ContractSM {
                     )));
                 }
 
-                let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
-                    Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishAssertChain,
-                    ))
-                } else {
-                    None
-                };
-
                 self.state.state = ContractState::Challenged {
                     peg_out_graphs,
                     claim_txids,
                     graph_sigs,
                     fulfiller,
                     active_graph,
-                    graph_partials,
+                    claim_height,
                 };
 
-                Ok(duty)
+                Ok(None)
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_challenge_confirmation ({})",
@@ -2364,7 +2467,6 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
-                graph_partials,
                 ..
             } => {
                 if tx.compute_txid() != active_graph.1.post_assert_txid {
@@ -2387,7 +2489,6 @@ impl ContractSM {
                     post_assert_height,
                     fulfiller,
                     active_graph,
-                    graph_partials,
                 };
 
                 Ok(duty)
