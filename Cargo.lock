@@ -3389,6 +3389,7 @@ dependencies = [
  "hex",
  "musig2",
  "operator-wallet",
+ "proptest",
  "secp256k1",
  "secret-service-client",
  "secret-service-proto",

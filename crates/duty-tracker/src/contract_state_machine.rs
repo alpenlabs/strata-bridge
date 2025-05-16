@@ -2746,3 +2746,113 @@ mod tests {
         OperatorTable::new(key_entries, pov_idx).unwrap()
     }
 }
+
+pub mod prop_tests {
+    use std::str::FromStr;
+
+    use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
+    use bitcoin::Network;
+    use proptest::prop_compose;
+    use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
+    use strata_bridge_tx_graph::transactions::deposit::{
+        prop_tests::arb_deposit_request_data, DepositTx,
+    };
+    use strata_primitives::{
+        block_credential::CredRule,
+        buf::Buf32,
+        operator::OperatorPubkeys,
+        params::{OperatorConfig, ProofPublishMode, RollupParams},
+        proof::RollupVerifyingKey,
+    };
+
+    use super::ContractCfg;
+
+    prop_compose! {
+        pub fn arb_contract_cfg()(
+            operator_table in arb_operator_table(),
+            deposit_idx in 1..100,
+            drt_data in arb_deposit_request_data(PegOutGraphParams::default().deposit_amount),
+        ) -> ContractCfg {
+            let peg_out_graph_params = PegOutGraphParams::default();
+
+            let rollup_params = RollupParams {
+                rollup_name: "strata".into(),
+                block_time: 5000,
+                da_tag: "strata-da".into(),
+                checkpoint_tag: "strata-ckpt".into(),
+                cred_rule: CredRule::SchnorrKey(
+                    Buf32::from_str(
+                        "8f2f6c25be6a4de02b8ae1f785749ba77431075ee801e00cfb0af1ed188f8eda"
+                    ).unwrap(),
+                ),
+                horizon_l1_height: 50,
+                genesis_l1_height: 100,
+                operator_config: OperatorConfig::Static(vec![
+                    OperatorPubkeys::new(
+                        Buf32::from_str(
+                            "8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000"
+                        ).unwrap(),
+                        Buf32::from_str(
+                            "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d"
+                        ).unwrap()
+                    ),
+                    OperatorPubkeys::new(
+                        Buf32::from_str(
+                            "0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d"
+                        ).unwrap(),
+                        Buf32::from_str(
+                            "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4"
+                        ).unwrap()
+                    ),
+                    OperatorPubkeys::new(
+                        Buf32::from_str(
+                            "2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be"
+                        ).unwrap(),
+                        Buf32::from_str(
+                            "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                        ).unwrap()
+                    ),
+                ]),
+                evm_genesis_block_hash:
+                    Buf32::from_str(
+                        "37ad61cff1367467a98cf7c54c4ac99e989f1fbb1bc1e646235e90c065c565ba"
+                    ).unwrap(),
+                evm_genesis_block_state_root:
+                    Buf32::from_str(
+                        "351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f"
+                    ).unwrap(),
+                l1_reorg_safe_depth: 6,
+                target_l2_batch_size: 3,
+                address_length: 20,
+                deposit_amount: 1000000000,
+                rollup_vk: RollupVerifyingKey::NativeVerifyingKey(
+                    Buf32::from_str(
+                        ""
+                    ).unwrap(),
+                ),
+                dispatch_assignment_dur: 1000000,
+                proof_publish_mode: ProofPublishMode::Timeout(30),
+                max_deposits_in_block: 16,
+                network: Network::Regtest,
+            };
+
+            let deposit_tx = DepositTx::new(
+                &drt_data,
+                &operator_table.tx_build_context(Network::Regtest),
+                &peg_out_graph_params,
+                &rollup_params,
+            ).expect("consistent parameterization");
+
+            ContractCfg {
+                network: bitcoin::Network::Regtest,
+                operator_table,
+                connector_params: ConnectorParams::default(),
+                peg_out_graph_params,
+                sidesystem_params: rollup_params,
+                stake_chain_params: StakeChainParams::default(),
+                deposit_idx: deposit_idx as u32,
+                deposit_tx,
+            }
+        }
+    }
+}
