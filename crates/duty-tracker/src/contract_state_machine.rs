@@ -2922,12 +2922,12 @@ pub mod prop_tests {
         fn state_serialization_invertible(state in arb_machine_state().no_shrink()) {
             let mut time = std::time::Instant::now();
             println!("serializing machine state");
-            match bincode::serialize(&state) {
+            match serde_json::to_string(&state) {
                 Ok(serialized) => {
                     println!("serialization complete. time taken: {:?}", std::time::Instant::now().duration_since(time));
                     time = std::time::Instant::now();
                     println!("deserializing machine state");
-                    match bincode::deserialize(&serialized) {
+                    match serde_json::from_str(&serialized) {
                         Ok(deserialized) => {
                             println!("deserialization complete. time taken: {:?}", std::time::Instant::now().duration_since(time));
                             prop_assert_eq!(
