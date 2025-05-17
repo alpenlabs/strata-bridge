@@ -11,6 +11,7 @@ use bitvm::{
     },
     signatures::wots_api::{wots256, wots_hash},
 };
+use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 use proptest_derive::Arbitrary;
 use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
@@ -21,9 +22,7 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Arbitrary,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256PublicKey(pub wots256::PublicKey);
 
 impl Wots256PublicKey {
@@ -106,6 +105,19 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
     }
 }
 
+impl Arbitrary for Wots256PublicKey {
+    type Parameters = ();
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        any::<[u8; std::mem::size_of::<Wots256PublicKey>()]>()
+            .no_shrink()
+            .prop_map(|arr| unsafe { std::mem::transmute(arr) })
+            .boxed()
+    }
+
+    type Strategy = BoxedStrategy<Wots256PublicKey>;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct WotsHashPublicKey(pub wots_hash::PublicKey);
 
@@ -121,9 +133,7 @@ impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
     }
 }
 
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Arbitrary,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16PublicKeys(pub g16PublicKeys);
 
 // should probably not do this but `g16PublicKeys` is already a tuple, so these impls make the
@@ -306,6 +316,18 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
 
         deserializer.deserialize_seq(Groth16PublicKeysVisitor)
     }
+}
+impl Arbitrary for Groth16PublicKeys {
+    type Parameters = ();
+
+    fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        any::<[u8; std::mem::size_of::<Groth16PublicKeys>()]>()
+            .no_shrink()
+            .prop_map(|arr| unsafe { std::mem::transmute(arr) })
+            .boxed()
+    }
+
+    type Strategy = BoxedStrategy<Groth16PublicKeys>;
 }
 
 impl Groth16PublicKeys {
