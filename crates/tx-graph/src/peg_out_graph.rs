@@ -53,7 +53,7 @@ pub struct PegOutGraphInput {
 }
 /// The minimum necessary information to recognize all of the relevant transactions in a given
 /// [`PegOutGraph`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PegOutGraphSummary {
     /// Txid of the stake transaction that this graph is associated with.
     pub stake_txid: Txid,

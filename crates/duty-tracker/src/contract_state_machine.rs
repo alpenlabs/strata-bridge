@@ -100,8 +100,8 @@ pub enum ContractEvent {
         /// The hash used in the hashlock in the previous stake transaction.
         stake_hash: sha256::Hash,
 
-        /// The stake transaction that holds the stake corresponding to the current contract.
-        stake_tx: StakeTxKind,
+        /// The stake transaction id that holds the stake corresponding to the current contract.
+        stake_txid: Txid,
 
         /// The wots keys needed to construct the pog.
         wots_keys: Box<WotsPublicKeys>,
@@ -184,7 +184,7 @@ pub enum ContractEvent {
 ///
 /// The transaction ID used to index transactions and other data is the transaction ID of the claim
 /// transaction in the operators' graphs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
     /// the deposit confirms.
@@ -509,6 +509,23 @@ impl Display for ContractState {
 }
 
 impl ContractState {
+    /// Initializes a contract state at the beginning of its lifecycle with the given arguments.
+    pub fn new(deposit_request_txid: Txid, abort_deadline: BitcoinBlockHeight) -> ContractState {
+        ContractState::Requested {
+            deposit_request_txid,
+            abort_deadline,
+            peg_out_graph_inputs: BTreeMap::new(),
+            peg_out_graphs: BTreeMap::new(),
+            claim_txids: BTreeMap::new(),
+            graph_nonces: BTreeMap::new(),
+            agg_nonces: BTreeMap::new(),
+            graph_partials: BTreeMap::new(),
+            graph_sigs: BTreeMap::new(),
+            root_nonces: BTreeMap::new(),
+            root_partials: BTreeMap::new(),
+        }
+    }
+
     /// Computes all of the [`PegOutGraphSummary`]s that this contract state is currently aware of.
     pub fn summaries(&self) -> Vec<PegOutGraphSummary> {
         fn get_summaries<T>(
@@ -923,7 +940,7 @@ impl ContractCfg {
 }
 
 /// Holds the state machine values that change over the lifetime of the contract.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineState {
     /// The most recent block height the state machine is aware of.
     pub block_height: BitcoinBlockHeight,
@@ -952,64 +969,26 @@ impl ContractSM {
     /// Builds a new ContractSM around a given deposit transaction.
     ///
     /// This will be constructible once we have a deposit request.
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
-        network: Network,
-        operator_table: OperatorTable,
-        connector_params: ConnectorParams,
-        peg_out_graph_params: PegOutGraphParams,
-        sidesystem_params: RollupParams,
-        stake_chain_params: StakeChainParams,
+        cfg: ContractCfg,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
-        deposit_idx: u32,
-        deposit_request_txid: Txid,
-        deposit_tx: DepositTx,
-        stake_chain_inputs: StakeChainInputs,
-    ) -> (Self, OperatorDuty) {
-        let deposit_txid = deposit_tx.compute_txid();
-        let cfg = ContractCfg {
-            network,
-            operator_table,
-            connector_params,
-            peg_out_graph_params,
-            sidesystem_params,
-            stake_chain_params,
-            deposit_idx,
-            deposit_tx,
-        };
+    ) -> Self {
+        let deposit_request_txid = cfg.deposit_tx.psbt().unsigned_tx.input[0]
+            .previous_output
+            .txid;
 
-        let state = ContractState::Requested {
-            deposit_request_txid,
-            abort_deadline,
-            peg_out_graph_inputs: BTreeMap::new(),
-            peg_out_graphs: BTreeMap::new(),
-            claim_txids: BTreeMap::new(),
-            graph_nonces: BTreeMap::new(),
-            graph_partials: BTreeMap::new(),
-            agg_nonces: BTreeMap::new(),
-            graph_sigs: BTreeMap::new(),
-            root_nonces: BTreeMap::new(),
-            root_partials: BTreeMap::new(),
-        };
+        let state = ContractState::new(deposit_request_txid, abort_deadline);
         let state = MachineState {
             block_height,
             state,
         };
 
-        let contract_sm = ContractSM {
+        ContractSM {
             cfg,
             state,
             pog: BTreeMap::new(),
-        };
-
-        let duty = OperatorDuty::PublishDepositSetup {
-            deposit_txid,
-            deposit_idx,
-            stake_chain_inputs,
-        };
-
-        (contract_sm, duty)
+        }
     }
 
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]
@@ -1085,13 +1064,13 @@ impl ContractSM {
                 operator_p2p_key,
                 operator_btc_key,
                 stake_hash,
-                stake_tx,
+                stake_txid,
                 wots_keys,
             } => self.process_deposit_setup(
                 operator_p2p_key,
                 operator_btc_key,
                 stake_hash,
-                stake_tx,
+                stake_txid,
                 *wots_keys,
             ),
 
@@ -1276,7 +1255,7 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         operator_pubkey: XOnlyPublicKey,
         new_stake_hash: sha256::Hash,
-        new_stake_tx: StakeTxKind,
+        new_stake_txid: Txid,
         new_wots_keys: WotsPublicKeys,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
@@ -1293,9 +1272,9 @@ impl ContractSM {
                 ..
             } => {
                 let pog_input = PegOutGraphInput {
-                    stake_outpoint: OutPoint::new(new_stake_tx.compute_txid(), STAKE_VOUT),
+                    stake_outpoint: OutPoint::new(new_stake_txid, STAKE_VOUT),
                     withdrawal_fulfillment_outpoint: OutPoint::new(
-                        new_stake_tx.compute_txid(),
+                        new_stake_txid,
                         WITHDRAWAL_FULFILLMENT_VOUT,
                     ),
                     stake_hash: new_stake_hash,
@@ -2744,5 +2723,215 @@ mod tests {
 
         let pov_idx = pov_idx % key_entries.len() as u32;
         OperatorTable::new(key_entries, pov_idx).unwrap()
+    }
+}
+
+/// This module defines genenerator functions of various types defined in the super module.
+pub mod prop_tests {
+    use std::str::FromStr;
+
+    use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
+    use bdk_wallet::miniscript::ToPublicKey;
+    use bitcoin::{
+        hashes::{sha256, sha256d, Hash},
+        Network, Txid,
+    };
+    use proptest::{prelude::*, prop_compose};
+    use strata_bridge_primitives::{
+        build_context::BuildContext,
+        operator_table::prop_test_generators::{arb_btc_key, arb_operator_table},
+    };
+    use strata_bridge_tx_graph::transactions::deposit::{
+        prop_tests::arb_deposit_request_data, DepositTx,
+    };
+    use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
+    use strata_primitives::{
+        block_credential::CredRule,
+        buf::Buf32,
+        operator::OperatorPubkeys,
+        params::{OperatorConfig, ProofPublishMode, RollupParams},
+        proof::RollupVerifyingKey,
+    };
+
+    use super::{ContractCfg, ContractEvent, ContractSM, MachineState};
+
+    // Generates a random 32 byte hash as a Txid`.
+    prop_compose! {
+        fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
+            Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
+        }
+    }
+
+    prop_compose! {
+        fn arb_hash()(bytes in any::<[u8; 32]>()) -> sha256::Hash {
+            sha256::Hash::from_byte_array(bytes)
+        }
+    }
+
+    prop_compose! {
+        /// Generates a random ContractCfg.
+        pub fn arb_contract_cfg()(
+            operator_table in arb_operator_table(),
+            deposit_idx in 1..100,
+            peg_out_graph_params in Just(PegOutGraphParams::default())
+        )(
+            deposit_idx in Just(deposit_idx),
+            drt_data in arb_deposit_request_data(
+                peg_out_graph_params.deposit_amount,
+                peg_out_graph_params.refund_delay,
+                operator_table.tx_build_context(Network::Regtest).aggregated_pubkey(),
+            ),
+            operator_table in Just(operator_table),
+        ) -> ContractCfg {
+            let peg_out_graph_params = PegOutGraphParams::default();
+
+            let rollup_params = RollupParams {
+                rollup_name: "strata".into(),
+                block_time: 5000,
+                da_tag: "strata-da".into(),
+                checkpoint_tag: "strata-ckpt".into(),
+                cred_rule: CredRule::SchnorrKey(
+                    Buf32::from_str(
+                        "8f2f6c25be6a4de02b8ae1f785749ba77431075ee801e00cfb0af1ed188f8eda"
+                    ).unwrap(),
+                ),
+                horizon_l1_height: 50,
+                genesis_l1_height: 100,
+                operator_config: OperatorConfig::Static(vec![
+                    OperatorPubkeys::new(
+                        Buf32::from_str(
+                            "8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000"
+                        ).unwrap(),
+                        Buf32::from_str(
+                            "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d"
+                        ).unwrap()
+                    ),
+                    OperatorPubkeys::new(
+                        Buf32::from_str(
+                            "0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d"
+                        ).unwrap(),
+                        Buf32::from_str(
+                            "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4"
+                        ).unwrap()
+                    ),
+                    OperatorPubkeys::new(
+                        Buf32::from_str(
+                            "2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be"
+                        ).unwrap(),
+                        Buf32::from_str(
+                            "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba"
+                        ).unwrap()
+                    ),
+                ]),
+                evm_genesis_block_hash:
+                    Buf32::from_str(
+                        "37ad61cff1367467a98cf7c54c4ac99e989f1fbb1bc1e646235e90c065c565ba"
+                    ).unwrap(),
+                evm_genesis_block_state_root:
+                    Buf32::from_str(
+                        "351714af72d74259f45cd7eab0b04527cd40e74836a45abcae50f92d919d988f"
+                    ).unwrap(),
+                l1_reorg_safe_depth: 6,
+                target_l2_batch_size: 3,
+                address_length: 20,
+                deposit_amount: 1000000000,
+                rollup_vk: RollupVerifyingKey::NativeVerifyingKey(
+                    Buf32::from_str(
+                        "0000000000000000000000000000000000000000000000000000000000000000"
+                    ).unwrap(),
+                ),
+                dispatch_assignment_dur: 1000000,
+                proof_publish_mode: ProofPublishMode::Timeout(30),
+                max_deposits_in_block: 16,
+                network: Network::Regtest,
+            };
+
+            let deposit_tx = DepositTx::new(
+                &drt_data,
+                &operator_table.tx_build_context(Network::Regtest),
+                &peg_out_graph_params,
+                &rollup_params,
+            ).expect("consistent parameterization");
+
+            ContractCfg {
+                network: bitcoin::Network::Regtest,
+                operator_table,
+                connector_params: ConnectorParams::default(),
+                peg_out_graph_params,
+                sidesystem_params: rollup_params,
+                stake_chain_params: StakeChainParams::default(),
+                deposit_idx: deposit_idx as u32,
+                deposit_tx,
+            }
+        }
+    }
+
+    prop_compose! {
+        /// Generates a random ContractEvent::DepositSetup {..}
+        pub fn arb_deposit_setup_from_operator(origin: P2POperatorPubKey)(
+            cpfp_pubkey in arb_btc_key().prop_map(|x|x.to_x_only_pubkey()),
+            stake_hash in arb_hash(),
+            stake_txid in arb_txid(),
+            wots_keys: WotsPublicKeys,
+        ) -> ContractEvent {
+            ContractEvent::DepositSetup {
+                operator_p2p_key: origin.clone(),
+                operator_btc_key: cpfp_pubkey,
+                stake_hash,
+                stake_txid,
+                wots_keys: Box::new(wots_keys),
+            }
+        }
+    }
+
+    prop_compose! {
+        /// Generates a ContractState with all three DepositSetup messages.
+        pub fn arb_machine_state()(
+            cfg in arb_contract_cfg(),
+            block_height in 500_000..800_000u64,
+        )(
+            events in cfg.operator_table.clone()
+                .p2p_keys()
+                .iter()
+                .map(|pk| arb_deposit_setup_from_operator(pk.clone()).boxed()).collect::<Vec<_>>(),
+            cfg in Just(cfg),
+            block_height in Just(block_height),
+        ) -> MachineState {
+            let abort_deadline = block_height + cfg.peg_out_graph_params.refund_delay as u64;
+            let mut csm = ContractSM::new(cfg, block_height, abort_deadline);
+
+            for event in events {
+                csm.process_contract_event(event).expect("valid deposit setup");
+            }
+
+            csm.state().clone()
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn state_serialization_invertible(state in arb_machine_state()) {
+            match bincode::serialize(&state) {
+                Ok(serialized) => {
+                    match bincode::deserialize(&serialized) {
+                        Ok(deserialized) => {
+                            prop_assert_eq!(
+                                &state,
+                                &deserialized,
+                                "MachineState round trip serialization failed. before: {:?}, after: {:?}",
+                                state,
+                                deserialized
+                            );
+                        }
+                        Err(e) => {
+                            prop_assert!(false, "MachineState could not be serialized: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    prop_assert!(false, "MachineState could not be serialized: {}", e);
+                }
+            };
+        }
     }
 }

@@ -26,7 +26,7 @@ strata-bridge-tx-graph.workspace = true
 
 strata-l1tx.workspace = true
 strata-p2p.workspace = true
-strata-p2p-types.workspace = true
+strata-p2p-types = { workspace = true, features = ["proptest"] }
 strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
@@ -42,6 +42,7 @@ btc-notify.workspace = true
 futures.workspace = true
 musig2.workspace = true
 operator-wallet.workspace = true
+proptest.workspace = true
 secp256k1.workspace = true
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
