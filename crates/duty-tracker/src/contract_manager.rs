@@ -720,7 +720,7 @@ impl ContractManagerCtx {
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
 
-        match msg {
+        match msg.clone() {
             UnsignedGossipsubMsg::StakeChainExchange {
                 operator_pk,
                 pre_stake_txid,
@@ -781,13 +781,19 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
+                    let wots_keys = Box::new(
+                        wots_pks
+                            .try_into()
+                            .map_err(|_| ContractManagerErr::InvalidP2PMessage(Box::new(msg)))?,
+                    );
+
                     let deposit_setup_duties = contract
                         .process_contract_event(ContractEvent::DepositSetup {
                             operator_p2p_key: key.clone(),
                             operator_btc_key: operator_pk,
                             stake_hash: hash,
                             stake_txid: stake_tx.compute_txid(),
-                            wots_keys: Box::new(wots_pks),
+                            wots_keys,
                         })?
                         .into_iter()
                         .map(|duty| {

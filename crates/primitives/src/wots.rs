@@ -11,6 +11,7 @@ use bitvm::{
     },
     signatures::wots_api::{wots256, wots_hash},
 };
+use proptest_derive::Arbitrary;
 use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::scripts::{
@@ -20,7 +21,9 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Arbitrary,
+)]
 pub struct Wots256PublicKey(pub wots256::PublicKey);
 
 impl Wots256PublicKey {
@@ -118,7 +121,9 @@ impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Arbitrary,
+)]
 pub struct Groth16PublicKeys(pub g16PublicKeys);
 
 // should probably not do this but `g16PublicKeys` is already a tuple, so these impls make the
@@ -393,6 +398,7 @@ impl Groth16Signatures {
     rkyv::Deserialize,
     Serialize,
     Deserialize,
+    Arbitrary,
 )]
 pub struct PublicKeys {
     pub withdrawal_fulfillment: Wots256PublicKey,

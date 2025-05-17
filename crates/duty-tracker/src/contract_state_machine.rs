@@ -27,6 +27,7 @@ use strata_bridge_primitives::{
     operator_table::OperatorTable,
     scripts::taproot::{create_message_hash, TaprootWitness},
     types::{BitcoinBlockHeight, OperatorIdx},
+    wots,
 };
 use strata_bridge_stake_chain::{
     prelude::{STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -104,7 +105,7 @@ pub enum ContractEvent {
         stake_txid: Txid,
 
         /// The wots keys needed to construct the pog.
-        wots_keys: Box<WotsPublicKeys>,
+        wots_keys: Box<wots::PublicKeys>,
     },
 
     /// Signifies that we have a new set of nonces for the peg out graph from one of our peers for
@@ -1256,7 +1257,7 @@ impl ContractSM {
         operator_pubkey: XOnlyPublicKey,
         new_stake_hash: sha256::Hash,
         new_stake_txid: Txid,
-        new_wots_keys: WotsPublicKeys,
+        new_wots_keys: wots::PublicKeys,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
         // SUBTLE WAY.
@@ -1278,7 +1279,7 @@ impl ContractSM {
                         WITHDRAWAL_FULFILLMENT_VOUT,
                     ),
                     stake_hash: new_stake_hash,
-                    wots_public_keys: new_wots_keys.clone(),
+                    wots_public_keys: new_wots_keys,
                     operator_pubkey,
                 };
 
@@ -2740,11 +2741,12 @@ pub mod prop_tests {
     use strata_bridge_primitives::{
         build_context::BuildContext,
         operator_table::prop_test_generators::{arb_btc_key, arb_operator_table},
+        wots,
     };
     use strata_bridge_tx_graph::transactions::deposit::{
         prop_tests::arb_deposit_request_data, DepositTx,
     };
-    use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
+    use strata_p2p_types::P2POperatorPubKey;
     use strata_primitives::{
         block_credential::CredRule,
         buf::Buf32,
@@ -2872,7 +2874,7 @@ pub mod prop_tests {
             cpfp_pubkey in arb_btc_key().prop_map(|x|x.to_x_only_pubkey()),
             stake_hash in arb_hash(),
             stake_txid in arb_txid(),
-            wots_keys: WotsPublicKeys,
+            wots_keys: wots::PublicKeys,
         ) -> ContractEvent {
             ContractEvent::DepositSetup {
                 operator_p2p_key: origin.clone(),
