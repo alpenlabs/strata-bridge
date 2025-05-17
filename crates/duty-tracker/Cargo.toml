@@ -26,7 +26,7 @@ strata-bridge-tx-graph.workspace = true
 
 strata-l1tx.workspace = true
 strata-p2p.workspace = true
-strata-p2p-types.workspace = true
+strata-p2p-types = { workspace = true, features = ["proptest"] }
 strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
@@ -57,4 +57,3 @@ tracing.workspace = true
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 hex.workspace = true
-strata-p2p-types = { workspace = true, features = ["proptest"] }
