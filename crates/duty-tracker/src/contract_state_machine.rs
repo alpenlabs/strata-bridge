@@ -2752,7 +2752,7 @@ pub mod prop_tests {
         proof::RollupVerifyingKey,
     };
 
-    use super::{ContractCfg, ContractEvent};
+    use super::{ContractCfg, ContractEvent, ContractSM, ContractState};
 
     // Generates a random 32 byte hash as a Txid`.
     prop_compose! {
@@ -2872,6 +2872,30 @@ pub mod prop_tests {
                 stake_txid,
                 wots_keys: Box::new(wots_keys),
             }
+        }
+    }
+
+    prop_compose! {
+        /// Generates a ContractState with all three DepositSetup messages.
+        pub fn arb_contract_state()(
+            cfg in arb_contract_cfg(),
+            block_height in 500_000..800_000u64,
+        )(
+            events in cfg.operator_table.clone()
+                .p2p_keys()
+                .iter()
+                .map(|pk| arb_deposit_setup_from_operator(pk.clone()).boxed()).collect::<Vec<_>>(),
+            cfg in Just(cfg),
+            block_height in Just(block_height),
+        ) -> ContractState {
+            let abort_deadline = block_height + cfg.peg_out_graph_params.refund_delay as u64;
+            let mut csm = ContractSM::new(cfg, block_height, abort_deadline);
+
+            for event in events {
+                csm.process_contract_event(event).expect("valid deposit setup");
+            }
+
+            csm.state().state.clone()
         }
     }
 }
