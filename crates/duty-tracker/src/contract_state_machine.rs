@@ -973,9 +973,7 @@ impl ContractSM {
         cfg: ContractCfg,
         block_height: BitcoinBlockHeight,
         abort_deadline: BitcoinBlockHeight,
-        stake_chain_inputs: StakeChainInputs,
-    ) -> (Self, OperatorDuty) {
-        let deposit_txid = cfg.deposit_tx.compute_txid();
+    ) -> Self {
         let deposit_request_txid = cfg.deposit_tx.psbt().unsigned_tx.input[0]
             .previous_output
             .txid;
@@ -986,19 +984,11 @@ impl ContractSM {
             state,
         };
 
-        let duty = OperatorDuty::PublishDepositSetup {
-            deposit_txid,
-            deposit_idx: cfg.deposit_idx,
-            stake_chain_inputs,
-        };
-
-        let contract_sm = ContractSM {
+        ContractSM {
             cfg,
             state,
             pog: BTreeMap::new(),
-        };
-
-        (contract_sm, duty)
+        }
     }
 
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]

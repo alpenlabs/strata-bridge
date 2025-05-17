@@ -528,11 +528,17 @@ impl ContractManagerCtx {
                     deposit_idx: stake_index + new_contracts.len() as u32,
                     deposit_tx,
                 };
-                let (sm, duty) = ContractSM::new(
+
+                let duty = OperatorDuty::PublishDepositSetup {
+                    deposit_txid: cfg.deposit_tx.compute_txid(),
+                    deposit_idx: cfg.deposit_idx,
+                    stake_chain_inputs,
+                };
+
+                let sm = ContractSM::new(
                     cfg,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    stake_chain_inputs,
                 );
 
                 new_contracts.push(sm);
