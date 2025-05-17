@@ -184,7 +184,7 @@ pub enum ContractEvent {
 ///
 /// The transaction ID used to index transactions and other data is the transaction ID of the claim
 /// transaction in the operators' graphs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ContractState {
     /// This state describes everything from the moment the deposit request confirms, to the moment
     /// the deposit confirms.
@@ -940,7 +940,7 @@ impl ContractCfg {
 }
 
 /// Holds the state machine values that change over the lifetime of the contract.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MachineState {
     /// The most recent block height the state machine is aware of.
     pub block_height: BitcoinBlockHeight,
@@ -2737,8 +2737,9 @@ pub mod prop_tests {
         Network, Txid,
     };
     use proptest::{prelude::*, prop_compose};
-    use strata_bridge_primitives::operator_table::prop_test_generators::{
-        arb_btc_key, arb_operator_table,
+    use strata_bridge_primitives::{
+        build_context::BuildContext,
+        operator_table::prop_test_generators::{arb_btc_key, arb_operator_table},
     };
     use strata_bridge_tx_graph::transactions::deposit::{
         prop_tests::arb_deposit_request_data, DepositTx,
@@ -2752,7 +2753,7 @@ pub mod prop_tests {
         proof::RollupVerifyingKey,
     };
 
-    use super::{ContractCfg, ContractEvent, ContractSM, ContractState};
+    use super::{ContractCfg, ContractEvent, ContractSM, MachineState};
 
     // Generates a random 32 byte hash as a Txid`.
     prop_compose! {
@@ -2772,7 +2773,15 @@ pub mod prop_tests {
         pub fn arb_contract_cfg()(
             operator_table in arb_operator_table(),
             deposit_idx in 1..100,
-            drt_data in arb_deposit_request_data(PegOutGraphParams::default().deposit_amount),
+            peg_out_graph_params in Just(PegOutGraphParams::default())
+        )(
+            deposit_idx in Just(deposit_idx),
+            drt_data in arb_deposit_request_data(
+                peg_out_graph_params.deposit_amount,
+                peg_out_graph_params.refund_delay,
+                operator_table.tx_build_context(Network::Regtest).aggregated_pubkey(),
+            ),
+            operator_table in Just(operator_table),
         ) -> ContractCfg {
             let peg_out_graph_params = PegOutGraphParams::default();
 
@@ -2828,7 +2837,7 @@ pub mod prop_tests {
                 deposit_amount: 1000000000,
                 rollup_vk: RollupVerifyingKey::NativeVerifyingKey(
                     Buf32::from_str(
-                        ""
+                        "0000000000000000000000000000000000000000000000000000000000000000"
                     ).unwrap(),
                 ),
                 dispatch_assignment_dur: 1000000,
@@ -2877,7 +2886,7 @@ pub mod prop_tests {
 
     prop_compose! {
         /// Generates a ContractState with all three DepositSetup messages.
-        pub fn arb_contract_state()(
+        pub fn arb_machine_state()(
             cfg in arb_contract_cfg(),
             block_height in 500_000..800_000u64,
         )(
@@ -2887,7 +2896,7 @@ pub mod prop_tests {
                 .map(|pk| arb_deposit_setup_from_operator(pk.clone()).boxed()).collect::<Vec<_>>(),
             cfg in Just(cfg),
             block_height in Just(block_height),
-        ) -> ContractState {
+        ) -> MachineState {
             let abort_deadline = block_height + cfg.peg_out_graph_params.refund_delay as u64;
             let mut csm = ContractSM::new(cfg, block_height, abort_deadline);
 
@@ -2895,7 +2904,34 @@ pub mod prop_tests {
                 csm.process_contract_event(event).expect("valid deposit setup");
             }
 
-            csm.state().state.clone()
+            csm.state().clone()
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn state_serialization_invertible(state in arb_machine_state()) {
+            match bincode::serialize(&state) {
+                Ok(serialized) => {
+                    match bincode::deserialize(&serialized) {
+                        Ok(deserialized) => {
+                            prop_assert_eq!(
+                                &state,
+                                &deserialized,
+                                "MachineState round trip serialization failed. before: {:?}, after: {:?}",
+                                state,
+                                deserialized
+                            );
+                        }
+                        Err(e) => {
+                            prop_assert!(false, "MachineState could not be serialized: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    prop_assert!(false, "MachineState could not be serialized: {}", e);
+                }
+            };
         }
     }
 }
