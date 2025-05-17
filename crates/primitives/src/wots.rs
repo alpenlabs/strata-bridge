@@ -1,4 +1,7 @@
-use std::ops::{Deref, DerefMut};
+use std::{
+    fmt,
+    ops::{Deref, DerefMut},
+};
 
 use bitcoin::Txid;
 use bitvm::{
@@ -8,6 +11,7 @@ use bitvm::{
     },
     signatures::wots_api::{wots256, wots_hash},
 };
+use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
 
 use crate::scripts::{
     commitments::{
@@ -39,6 +43,63 @@ impl From<strata_p2p_types::Wots256PublicKey> for Wots256PublicKey {
 impl From<Wots256PublicKey> for strata_p2p_types::Wots256PublicKey {
     fn from(value: Wots256PublicKey) -> Self {
         strata_p2p_types::Wots256PublicKey::new(value.0)
+    }
+}
+
+impl Serialize for Wots256PublicKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut structure =
+            serializer.serialize_seq(Some(std::mem::size_of::<Wots256PublicKey>()))?;
+        for key in self.0 {
+            for byte in key {
+                structure.serialize_element(&byte)?;
+            }
+        }
+        structure.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Wots256PublicKey {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct Wots256PublicKeyVisitor;
+
+        impl<'de> Visitor<'de> for Wots256PublicKeyVisitor {
+            type Value = Wots256PublicKey;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a flattened structure of type [[u8; 20]; 68]")
+            }
+
+            // Handle the case where input is a sequence (e.g., JSON array)
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut packed = [[0u8; 20]; 68];
+                for (key_idx, key) in packed.iter_mut().enumerate() {
+                    for (byte_idx, byte) in key.iter_mut().enumerate() {
+                        if let Some(next) = seq.next_element()? {
+                            *byte = next;
+                        } else {
+                            return Err(serde::de::Error::invalid_length(
+                                (key_idx + 1) * (byte_idx + 1),
+                                &self,
+                            ));
+                        }
+                    }
+                }
+
+                Ok(Wots256PublicKey(packed))
+            }
+        }
+
+        deserializer.deserialize_seq(Wots256PublicKeyVisitor)
     }
 }
 
@@ -128,6 +189,120 @@ impl From<Groth16PublicKeys> for strata_p2p_types::Groth16PublicKeys {
     }
 }
 
+impl Serialize for Groth16PublicKeys {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut structure = serializer.serialize_seq(Some(std::mem::size_of::<Self>()))?;
+        let inner = self.0;
+        let public_inputs = inner.0;
+        let fqs = inner.1;
+        let hashes = inner.2;
+        for input in public_inputs {
+            for key in input {
+                for byte in key {
+                    structure.serialize_element(&byte)?;
+                }
+            }
+        }
+        for fq in fqs {
+            for key in fq {
+                for byte in key {
+                    structure.serialize_element(&byte)?;
+                }
+            }
+        }
+        for hash in hashes {
+            for key in hash {
+                for byte in key {
+                    structure.serialize_element(&byte)?;
+                }
+            }
+        }
+
+        structure.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for Groth16PublicKeys {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Create a visitor for our nested array
+        struct Groth16PublicKeysVisitor;
+
+        impl<'de> Visitor<'de> for Groth16PublicKeysVisitor {
+            type Value = Groth16PublicKeys;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str(
+                    "a flattened structure of type ([[[u8; 20]; 68]; NUM_PUBS], [[[u8; 20]; 68]; NUM_U256], [[[u8; 20]; 36]; NUM_HASHES])"
+                )
+            }
+
+            // Handle the case where input is a sequence (e.g., JSON array)
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let mut public_inputs = [[[0u8; 20]; 68]; NUM_PUBS];
+                for (input_idx, input) in public_inputs.iter_mut().enumerate() {
+                    for (key_idx, key) in input.iter_mut().enumerate() {
+                        for (byte_idx, byte) in key.iter_mut().enumerate() {
+                            if let Some(next) = seq.next_element()? {
+                                *byte = next;
+                            } else {
+                                return Err(serde::de::Error::invalid_length(
+                                    (input_idx + 1) * (key_idx + 1) * (byte_idx + 1),
+                                    &self,
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                let mut fqs = [[[0u8; 20]; 68]; NUM_U256];
+                for (fq_idx, fq) in fqs.iter_mut().enumerate() {
+                    for (key_idx, key) in fq.iter_mut().enumerate() {
+                        for (byte_idx, byte) in key.iter_mut().enumerate() {
+                            if let Some(next) = seq.next_element()? {
+                                *byte = next;
+                            } else {
+                                return Err(serde::de::Error::invalid_length(
+                                    (fq_idx + 1) * (key_idx + 1) * (byte_idx + 1),
+                                    &self,
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                let mut hashes = [[[0u8; 20]; 36]; NUM_HASH];
+                for (hash_idx, hash) in hashes.iter_mut().enumerate() {
+                    for (key_idx, key) in hash.iter_mut().enumerate() {
+                        for (byte_idx, byte) in key.iter_mut().enumerate() {
+                            if let Some(next) = seq.next_element()? {
+                                *byte = next;
+                            } else {
+                                return Err(serde::de::Error::invalid_length(
+                                    (hash_idx + 1) * (key_idx + 1) * (byte_idx + 1),
+                                    &self,
+                                ));
+                            }
+                        }
+                    }
+                }
+
+                Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
+            }
+        }
+
+        deserializer.deserialize_seq(Groth16PublicKeysVisitor)
+    }
+}
+
 impl Groth16PublicKeys {
     pub fn new(msk: &str, deposit_txid: Txid) -> Self {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
@@ -207,7 +382,18 @@ impl Groth16Signatures {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
+    Serialize,
+    Deserialize,
+)]
 pub struct PublicKeys {
     pub withdrawal_fulfillment: Wots256PublicKey,
     pub groth16: Groth16PublicKeys,
