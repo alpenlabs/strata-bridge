@@ -1,6 +1,8 @@
 use std::array;
 
-use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
+use bitcoin::{
+    transaction, Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid,
+};
 use bitvm::{chunk::api::Signatures as g16Signatures, signatures::wots_api::wots256, treepp::*};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
@@ -9,17 +11,14 @@ use strata_bridge_primitives::{
     wots,
 };
 
-use super::{
-    errors::{TxError, TxResult},
-    pre_assert::PRE_ASSERT_OUTS,
-};
+use super::errors::{TxError, TxResult};
 
 /// Data needed to construct a [`AssertDataTxBatch`].
 #[derive(Debug, Clone)]
 pub struct AssertDataTxInput {
     pub pre_assert_txid: Txid,
 
-    pub pre_assert_txouts: [TxOut; PRE_ASSERT_OUTS],
+    pub pre_assert_locking_scripts: [ScriptBuf; NUM_ASSERT_DATA_TX],
 }
 
 /// A batch of transactions in the Assert chain that spend outputs of the pre-assert transaction by
@@ -37,17 +36,22 @@ impl AssertDataTxBatch {
         connector_a2: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        let input_amount = SEGWIT_MIN_AMOUNT * 2;
+
         Self(array::from_fn(|i| {
             let (outpoint, prevout) = input
-                .pre_assert_txouts
+                .pre_assert_locking_scripts
                 .get(i)
-                .map(|txout| {
+                .map(|locking_script| {
                     (
                         OutPoint {
                             txid: input.pre_assert_txid,
                             vout: (i) as u32,
                         },
-                        txout.clone(),
+                        TxOut {
+                            value: input_amount,
+                            script_pubkey: locking_script.clone(),
+                        },
                     )
                 })
                 .expect("must have enough prevouts");
@@ -243,7 +247,7 @@ impl AssertDataTxBatch {
     /// Parse the assertion data from the signed transactions in the batch.
     pub fn parse_witnesses(
         assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
-    ) -> TxResult<Option<g16Signatures>> {
+    ) -> TxResult<g16Signatures> {
         let witnesses: [_; TOTAL_CONNECTORS] = assert_data_txs
             .iter()
             .flat_map(|tx| {
@@ -331,7 +335,9 @@ mod tests {
 
         let input = AssertDataTxInput {
             pre_assert_txid: generate_txid(),
-            pre_assert_txouts: std::array::from_fn(|_| pre_assert_txout.clone()),
+            pre_assert_locking_scripts: std::array::from_fn(|_| {
+                pre_assert_txout.script_pubkey.clone()
+            }),
         };
 
         let connector_a2 = ConnectorNOfN::new(generate_keypair().x_only_public_key().0, network);
