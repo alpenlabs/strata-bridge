@@ -703,18 +703,17 @@ impl ContractState {
     /// Gets the transaction IDs of the claim transactions for this contract.
     pub fn claim_txids(&self) -> HashSet<Txid> {
         let claim_txids = match &self {
-            ContractState::Requested { claim_txids, .. } => claim_txids,
-            ContractState::Deposited { claim_txids, .. } => claim_txids,
-            ContractState::Assigned { claim_txids, .. } => claim_txids,
-            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
-            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
-            ContractState::Claimed { claim_txids, .. } => claim_txids,
-            ContractState::Challenged { claim_txids, .. } => claim_txids,
-            ContractState::PreAssertConfirmed { claim_txids, .. } => claim_txids,
-            ContractState::AssertDataConfirmed { claim_txids, .. } => claim_txids,
-            ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved { .. } => &BTreeMap::new(),
-            ContractState::Resolved { .. } => &BTreeMap::new(),
+            ContractState::Requested { claim_txids, .. }
+            | ContractState::Deposited { claim_txids, .. }
+            | ContractState::Assigned { claim_txids, .. }
+            | ContractState::StakeTxReady { claim_txids, .. }
+            | ContractState::Fulfilled { claim_txids, .. }
+            | ContractState::Claimed { claim_txids, .. }
+            | ContractState::Challenged { claim_txids, .. }
+            | ContractState::PreAssertConfirmed { claim_txids, .. }
+            | ContractState::AssertDataConfirmed { claim_txids, .. }
+            | ContractState::Asserted { claim_txids, .. } => claim_txids,
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => &BTreeMap::new(),
         };
 
         claim_txids.values().copied().collect()
@@ -723,18 +722,17 @@ impl ContractState {
     /// Gets the musig2-aggregated graph signatures for this contract.
     pub fn graph_sigs(&self) -> BTreeMap<Txid, PogMusigF<taproot::Signature>> {
         let graph_sigs = match &self {
-            ContractState::Requested { graph_sigs, .. } => graph_sigs,
-            ContractState::Deposited { graph_sigs, .. } => graph_sigs,
-            ContractState::Assigned { graph_sigs, .. } => graph_sigs,
-            ContractState::StakeTxReady { graph_sigs, .. } => graph_sigs,
-            ContractState::Fulfilled { graph_sigs, .. } => graph_sigs,
-            ContractState::Claimed { graph_sigs, .. } => graph_sigs,
-            ContractState::Challenged { graph_sigs, .. } => graph_sigs,
-            ContractState::PreAssertConfirmed { graph_sigs, .. } => graph_sigs,
-            ContractState::AssertDataConfirmed { graph_sigs, .. } => graph_sigs,
-            ContractState::Asserted { graph_sigs, .. } => graph_sigs,
-            ContractState::Disproved { .. } => &BTreeMap::new(),
-            ContractState::Resolved { .. } => &BTreeMap::new(),
+            ContractState::Requested { graph_sigs, .. }
+            | ContractState::Deposited { graph_sigs, .. }
+            | ContractState::Assigned { graph_sigs, .. }
+            | ContractState::StakeTxReady { graph_sigs, .. }
+            | ContractState::Fulfilled { graph_sigs, .. }
+            | ContractState::Claimed { graph_sigs, .. }
+            | ContractState::Challenged { graph_sigs, .. }
+            | ContractState::PreAssertConfirmed { graph_sigs, .. }
+            | ContractState::AssertDataConfirmed { graph_sigs, .. }
+            | ContractState::Asserted { graph_sigs, .. } => graph_sigs,
+            ContractState::Disproved { .. } | ContractState::Resolved {} => &BTreeMap::new(),
         };
 
         graph_sigs.clone()
