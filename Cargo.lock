@@ -10027,6 +10027,7 @@ dependencies = [
  "rkyv",
  "secp256k1",
  "serde",
+ "serde_json",
  "sha2",
  "strata-p2p-types",
  "strata-primitives",
