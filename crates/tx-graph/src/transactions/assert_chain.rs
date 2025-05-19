@@ -72,9 +72,18 @@ impl AssertChain {
         let pre_assert_txid = pre_assert.compute_txid();
         trace!(event = "created pre-assert tx", %pre_assert_txid);
 
+        let pre_assert_locking_scripts = pre_assert
+            .tx_outs()
+            .into_iter()
+            .map(|txout| txout.script_pubkey)
+            .take(NUM_ASSERT_DATA_TX)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("pre-assert transaction must have the right number of outputs");
+
         let assert_data_input = AssertDataTxInput {
             pre_assert_txid,
-            pre_assert_txouts: pre_assert.tx_outs(),
+            pre_assert_locking_scripts,
         };
 
         trace!(event = "constructed assert data input", ?assert_data_input);
