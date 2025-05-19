@@ -1080,13 +1080,11 @@ mod tests {
                 .try_into()
                 .expect("the number of assert data txs must match"),
         )
-        .expect("must be able to parse assert data txs")
-        .expect("must have assertion witness");
+        .expect("must be able to parse assert data txs");
 
         info!("extracting withdrawal fulfillment txid commitment from claim transaction");
-        let sig_withdrawal_fulfillment_txid = ClaimTx::parse_witness(&signed_claim_tx)
-            .expect("must be able to parse claim witness")
-            .expect("must have claim witness");
+        let sig_withdrawal_fulfillment_txid =
+            ClaimTx::parse_witness(&signed_claim_tx).expect("must be able to parse claim witness");
 
         // TODO: find a way to get the groth16 disprove leaf without having to compile the actual
         // partial verification scripts (and vk).
