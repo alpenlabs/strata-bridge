@@ -139,6 +139,11 @@ impl ClaimTx {
             .expect("should be able to extract signed tx")
     }
 
+    /// Parses the witness from the transaction and returns the WOTS256 signature.
+    ///
+    /// # Errors
+    ///
+    /// If the structure of the transaction witness does not match that of the claim transaction.
     pub fn parse_witness(tx: &Transaction) -> TxResult<wots256::Signature> {
         let witness = &tx
             .input
