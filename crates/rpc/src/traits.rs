@@ -61,7 +61,7 @@ pub trait StrataBridgeMonitoringApi {
 
     /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo>;
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>>;
 }
 
 /// RPCs required for data availability.
