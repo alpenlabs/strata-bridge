@@ -296,15 +296,13 @@ impl AssertDataTxBatch {
                 "invalid hash witness size in batch 2".to_string(),
             )))?;
 
-        Ok(Some(
-            parse_assertion_witnesses(
-                witness256_batch1,
-                witness256_batch2,
-                witness_hash_batch1,
-                witness_hash_batch2,
-            )
-            .map_err(|e| TxError::Witness(e.to_string()))?,
-        ))
+        parse_assertion_witnesses(
+            witness256_batch1,
+            witness256_batch2,
+            witness_hash_batch1,
+            witness_hash_batch2,
+        )
+        .map_err(|e| TxError::Witness(e.to_string()))
     }
 }
 
@@ -377,9 +375,7 @@ mod tests {
             wots_signatures,
         );
 
-        AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs)
-            .expect("must parse witnesses")
-            .expect("must have witnesses");
+        AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs).expect("must parse witnesses");
 
         signed_assert_data_txs[0].input[0].witness =
             Witness::from_slice(&[[0u8; 32]; NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1]);
