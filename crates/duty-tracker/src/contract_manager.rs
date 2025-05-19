@@ -21,7 +21,7 @@ use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
@@ -468,7 +468,7 @@ impl ContractManagerCtx {
 
         for tx in block.txdata {
             // could be an assignment
-            let assignment_duties = self.process_assignments(&tx).await?;
+            let assignment_duties = self.process_assignments(&tx, height).await?;
             if !assignment_duties.is_empty() {
                 info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
                 duties.extend(assignment_duties);
@@ -619,6 +619,7 @@ impl ContractManagerCtx {
     async fn process_assignments(
         &mut self,
         tx: &Transaction,
+        height: BitcoinBlockHeight,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
 
@@ -655,10 +656,11 @@ impl ContractManagerCtx {
                             continue;
                         };
 
-                        match sm.process_contract_event(ContractEvent::Assignment(
-                            entry.clone(),
+                        match sm.process_contract_event(ContractEvent::Assignment {
+                            deposit_entry: entry.clone(),
                             stake_tx,
-                        )) {
+                            assignment_height: height,
+                        }) {
                             Ok(new_duties) if !new_duties.is_empty() => {
                                 duties.extend(new_duties);
                             }
@@ -1565,6 +1567,27 @@ async fn execute_duty(
                     agg_sig,
                 )
                 .await
+            }
+            FulfillerDuty::PublishAssertData {
+                start_height,
+                withdrawal_fulfillment_txid,
+                deposit_txid,
+                pre_assert_txid,
+                pre_assert_locking_scripts,
+            } => {
+                handle_publish_assert_data(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_txid,
+                    pre_assert_txid,
+                    *pre_assert_locking_scripts,
+                    withdrawal_fulfillment_txid,
+                    start_height,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPostAssertData { agg_sigs } => {
+                handle_publish_post_assert(cfg, output_handles.clone(), *agg_sigs).await
             }
             ignored_fulfiller_duty => {
                 warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");

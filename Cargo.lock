@@ -3369,6 +3369,8 @@ version = "0.1.0"
 dependencies = [
  "algebra",
  "alpen-bridge-params",
+ "ark-bn254",
+ "ark-groth16",
  "bdk_wallet",
  "bincode",
  "bitcoin",
@@ -3395,6 +3397,8 @@ dependencies = [
  "strata-bridge-db",
  "strata-bridge-p2p-service",
  "strata-bridge-primitives",
+ "strata-bridge-proof-protocol",
+ "strata-bridge-proof-snark",
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
