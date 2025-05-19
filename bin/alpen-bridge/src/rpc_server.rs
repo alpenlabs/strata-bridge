@@ -586,6 +586,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 ContractState::Asserted { .. } => todo!(),
                 ContractState::Disproved { .. } => todo!(),
                 ContractState::Resolved { .. } => todo!(),
+                _ => todo!(),
             }
         }
 

@@ -13,6 +13,8 @@ strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof-protocol.workspace = true
+strata-bridge-proof-snark.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 
@@ -23,6 +25,8 @@ strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
 
+ark-bn254.workspace = true
+ark-groth16.workspace = true
 bdk_wallet.workspace = true
 bincode.workspace = true
 bitcoin.workspace = true
