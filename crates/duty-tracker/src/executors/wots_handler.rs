@@ -1,8 +1,11 @@
+//! Contains functions to handle WOTS keys generation and signing.
+
 use bitcoin::Txid;
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use futures::future::{join3, join_all};
 use secret_service_client::{wots::WotsClient, SecretServiceClient};
 use secret_service_proto::v1::traits::*;
+use strata_bridge_primitives::wots::{self, Assertions};
 use strata_p2p_types::{Wots128PublicKey, Wots256PublicKey, WotsPublicKeys};
 use tracing::info;
 
@@ -71,4 +74,11 @@ pub(super) async fn get_withdrawal_fulfillment_wots_pk(
         Wots256PublicKey::from_flattened_bytes(withdrawal_fulfillment_pk);
 
     Ok(withdrawal_fulfillment_pk)
+}
+
+pub(super) async fn sign_assertions(
+    _wots_client: &WotsClient,
+    _assertions: Assertions,
+) -> Result<wots::Signatures, ContractManagerErr> {
+    todo!()
 }
