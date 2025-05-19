@@ -2,7 +2,7 @@
 
 #![allow(missing_docs)] // rkyv macros are not nice at generating docs from docstrings.
 
-use std::{fmt, ops::Deref, sync::Arc};
+use std::{fmt, marker::PhantomData, ops::Deref, sync::Arc};
 
 use bitcoin::Txid;
 use bitvm::{
@@ -14,7 +14,11 @@ use bitvm::{
 };
 use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 use proptest_derive::Arbitrary;
-use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
+use serde::{
+    de::{SeqAccess, Visitor},
+    ser::SerializeSeq,
+    Deserialize, Deserializer, Serialize, Serializer,
+};
 use strata_p2p_types::WotsPublicKeys;
 
 use crate::scripts::{
@@ -328,6 +332,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
         deserializer.deserialize_seq(Groth16PublicKeysVisitor)
     }
 }
+
 impl Arbitrary for Groth16PublicKeys {
     type Parameters = ();
 
@@ -361,6 +366,67 @@ impl Groth16PublicKeys {
     }
 }
 
+/// A stub for the WOTS signature, used for serialization.
+///
+/// All the wots signatures defined here and used in this codebase have this structure i.e., each
+/// signature is an array of tuples of a 20-byte preimage and a digit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WotsSignatureStub<const N: usize>([([u8; 20], u8); N]);
+
+impl<const N: usize> serde::Serialize for WotsSignatureStub<N> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut seq = serializer.serialize_seq(Some(N))?;
+        for item in &self.0 {
+            seq.serialize_element(item)?;
+        }
+        seq.end()
+    }
+}
+
+impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ArrayVisitor<const N: usize> {
+            marker: PhantomData<[([u8; 20], u8); N]>,
+        }
+
+        impl<'de, const N: usize> Visitor<'de> for ArrayVisitor<N> {
+            type Value = WotsSignatureStub<N>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(formatter, "an array of {} ([u8; 20], u8) tuples", N)
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: SeqAccess<'de>,
+            {
+                let mut items = Vec::with_capacity(N);
+                for _ in 0..N {
+                    let item: ([u8; 20], u8) = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(items.len(), &self))?;
+                    items.push(item);
+                }
+                let arr: [([u8; 20], u8); N] = items
+                    .try_into()
+                    .map_err(|_| serde::de::Error::custom("invalid array length"))?;
+
+                Ok(WotsSignatureStub(arr))
+            }
+        }
+
+        deserializer.deserialize_seq(ArrayVisitor {
+            marker: PhantomData,
+        })
+    }
+}
+
 /// A 256-bit WOTS signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256Signature(pub wots256::Signature);
@@ -387,6 +453,35 @@ impl Deref for Wots256Signature {
 }
 
 /// WOTS signatures used for Groth16 proofs.
+impl Serialize for Wots256Signature {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        WotsSignatureStub(self.0).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Wots256Signature {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wots_signature = WotsSignatureStub::deserialize(deserializer)?;
+        Ok(Self(wots_signature.0))
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WotsHashSignature(wots_hash::Signature);
+
+impl Serialize for WotsHashSignature {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        WotsSignatureStub(self.0).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for WotsHashSignature {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wots_signature = WotsSignatureStub::deserialize(deserializer)?;
+        Ok(Self(wots_signature.0))
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16Signatures(pub g16Signatures);
 
@@ -395,6 +490,47 @@ impl Deref for Groth16Signatures {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Serialize for Groth16Signatures {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let (pub_inputs, field_elems, hashes) = &self.0;
+
+        let pub_inputs = pub_inputs.map(WotsSignatureStub);
+        let field_elems = field_elems.map(WotsSignatureStub);
+        let hashes = hashes.map(WotsSignatureStub);
+
+        (pub_inputs, field_elems, &hashes[..]).serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Groth16Signatures {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let (pub_inputs, field_elems, hashes): (
+            [Wots256Signature; NUM_PUBS],
+            [Wots256Signature; NUM_U256],
+            Vec<WotsHashSignature>, /* vec because its length is longer than what is supported
+                                     * by serde */
+        ) = Deserialize::deserialize(deserializer)?;
+
+        if hashes.len() != NUM_HASH {
+            return Err(serde::de::Error::custom(format!(
+                "Invalid length of hashes, got: {}, expected: {}",
+                hashes.len(),
+                NUM_HASH
+            )));
+        }
+
+        let pub_inputs = pub_inputs.map(|val| val.0);
+        let field_elems = field_elems.map(|val| val.0);
+        let hashes = std::array::from_fn(|i| hashes[i].0);
+
+        Ok(Self((
+            Box::new(pub_inputs),
+            Box::new(field_elems),
+            Box::new(hashes),
+        )))
     }
 }
 
@@ -529,6 +665,7 @@ pub struct Assertions {
     pub groth16: g16Assertions,
 }
 
+// FIXME: (@Rajil1213) replace these with counterparts from the `wots` crate.
 const WINTERNITZ_DIGIT_WIDTH: usize = 4;
 
 /// Calculates the total WOTS key width based off of the number of bits in the message being signed
@@ -556,4 +693,75 @@ pub(super) const fn log_base_ceil(n: u32, base: u32) -> u32 {
         res += 1;
     }
     res
+}
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::hashes::{self, Hash};
+
+    use super::*;
+
+    #[test]
+    fn test_generic_wots_sig_serde() {
+        let wots_signature = WotsSignatureStub::<4>([
+            ([0u8; 20], 0),
+            ([1u8; 20], 1),
+            ([2u8; 20], 2),
+            ([3u8; 20], 3),
+        ]);
+
+        let serialized = serde_json::to_string(&wots_signature).expect("must be able to serialize");
+        let deserialized: WotsSignatureStub<4> =
+            serde_json::from_str(&serialized).expect("must be able to deserialize");
+
+        assert_eq!(
+            wots_signature, deserialized,
+            "roundtrip serialization must succeed"
+        );
+    }
+
+    #[test]
+    fn test_wots256_sig_serde() {
+        let msk = "msk";
+        let seed_txid = Txid::from_raw_hash(hashes::sha256d::Hash::hash("txid".as_bytes()));
+        let data = [0u8; 32];
+
+        let wots_256 = Wots256Signature::new(msk, seed_txid, &data);
+
+        let serialized =
+            serde_json::to_string(&wots_256).expect("must be able to serialize wots256");
+        let deserialized: Wots256Signature =
+            serde_json::from_str(&serialized).expect("must be able to deserialize wots256");
+
+        assert_eq!(
+            wots_256, deserialized,
+            "roundtrip serialization must succeed"
+        );
+    }
+
+    #[test]
+    fn test_groth16_sig_serde() {
+        let msk = "msk";
+        let seed_txid = Txid::from_raw_hash(hashes::sha256d::Hash::hash("txid".as_bytes()));
+        let assertions = Assertions {
+            withdrawal_fulfillment: [0u8; 32],
+            groth16: (
+                [[1u8; 32]; NUM_PUBS],
+                [[2u8; 32]; NUM_U256],
+                [[3u8; 16]; NUM_HASH],
+            ),
+        };
+
+        let groth_16 = Groth16Signatures::new(msk, seed_txid, assertions);
+
+        let serialized =
+            serde_json::to_string(&groth_16).expect("must be able to serialize groth16");
+        let deserialized: Groth16Signatures =
+            serde_json::from_str(&serialized).expect("must be able to deserialize groth16");
+
+        assert_eq!(
+            groth_16, deserialized,
+            "roundtrip serialization must succeed"
+        );
+    }
 }

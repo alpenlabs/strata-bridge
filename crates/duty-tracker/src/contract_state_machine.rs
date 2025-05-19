@@ -858,7 +858,7 @@ pub enum FulfillerDuty {
         /// The index of the deposit being claimed.
         deposit_idx: u32,
 
-        /// The transction ID of the deposit being claimed.
+        /// The transaction ID of the deposit being claimed.
         deposit_txid: Txid,
 
         /// The transaction ID of the claim transaction in the peg-out graph.
