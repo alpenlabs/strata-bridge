@@ -603,135 +603,40 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut claims = Vec::new();
         for entry in all_entries {
-            match &entry.0.state.state {
-                ContractState::Requested { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Deposited { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Assigned { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::StakeTxReady { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Fulfilled { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Claimed { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Challenged { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Asserted { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Disproved {} => (),
-                ContractState::Resolved {} => (),
-            }
+            claims.extend(entry.0.state.state.claim_txids())
         }
 
         Ok(claims)
     }
 
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo> {
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
-        for entry in all_entries {
-            match &entry.0.state.state {
-                ContractState::Requested { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Deposited { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+        let claim_info = all_entries
+            .iter()
+            .find(|entry| {
+                let claim_txids = entry.0.state.state.claim_txids();
 
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Assigned { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+                claim_txids.contains(&claim_txid)
+            })
+            .map(|entry| match &entry.0.state.state {
+                ContractState::Requested { .. }
+                | ContractState::Deposited { .. }
+                | ContractState::Assigned { .. }
+                | ContractState::StakeTxReady { .. }
+                | ContractState::Fulfilled { .. }
+                | ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::Challenged { .. }
+                | ContractState::PreAssertConfirmed { .. }
+                | ContractState::AssertDataConfirmed { .. }
+                | ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
+                ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
+                ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
+            })
+            .map(|status| RpcClaimInfo { claim_txid, status });
 
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::StakeTxReady { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Fulfilled { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Claimed { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Challenged { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::Challenged,
-                        });
-                    }
-                }
-                ContractState::Asserted { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::Challenged,
-                        });
-                    }
-                }
-                ContractState::Disproved { .. } => (),
-                ContractState::Resolved { .. } => (),
-            };
-        }
-
-        Err(rpc_error(
-            ErrorCode::InvalidRequest,
-            "Claim not found",
-            claim_txid,
-        ))
+        Ok(claim_info)
     }
 }
 
