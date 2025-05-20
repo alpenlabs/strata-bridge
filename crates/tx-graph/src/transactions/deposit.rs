@@ -579,18 +579,12 @@ pub mod prop_tests {
     }
 
     prop_compose! {
-        fn arb_outpoint()(txid in arb_txid(), vout in 0..100u32) -> OutPoint {
-            OutPoint { txid, vout }
-        }
-    }
-
-    prop_compose! {
         pub fn arb_deposit_request_data(
             deposit_amount: Amount,
             refund_delay: u16,
             aggregated_pubkey: XOnlyPublicKey
         )(
-            deposit_request_outpoint in arb_outpoint(),
+            deposit_request_txid in arb_txid(),
             stake_index in 1..100u32,
             ee_address in proptest::collection::vec(any::<u8>(), 20),
             excess_deposit_amount in 100000..500000u64,
@@ -608,7 +602,7 @@ pub mod prop_tests {
                 .expect("must be able to generate taproot address for drt");
 
             DepositRequestData {
-                deposit_request_outpoint,
+                deposit_request_outpoint: OutPoint::new(deposit_request_txid, 0),
                 stake_index,
                 ee_address,
                 total_amount: deposit_amount + Amount::from_sat(excess_deposit_amount),
