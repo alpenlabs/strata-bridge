@@ -139,28 +139,28 @@ pub enum ServerMessage {
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
     WotsGet128SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 36],
+        key: WotsKey<36>,
     },
 
     /// Response for
     /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
     WotsGet256SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 68],
+        key: WotsKey<68>,
     },
 
     /// Response for
     /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
     WotsGet128PublicKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 36],
+        key: WotsKey<36>,
     },
 
     /// Response for
     /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
     WotsGet256PublicKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: [u8; 20 * 68],
+        key: WotsKey<68>,
     },
 
     /// Response for
@@ -513,3 +513,5 @@ pub struct WotsKeySpecifier {
     /// hence to resolve the ambiguity, the index is needed.
     pub index: u32,
 }
+
+pub type WotsKey<const NUM: usize> = [u8; 20 * NUM];
