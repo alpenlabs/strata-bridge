@@ -2729,7 +2729,7 @@ mod tests {
 
 /// This module defines genenerator functions of various types defined in the super module.
 pub mod prop_tests {
-    use std::str::FromStr;
+    use std::{str::FromStr, time::Instant};
 
     use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
     use bdk_wallet::miniscript::ToPublicKey;
@@ -2922,16 +2922,16 @@ pub mod prop_tests {
         #![proptest_config(ProptestConfig::with_cases(0))] // This still does 1 test case. It's weird.
         #[test]
         fn state_serialization_invertible(state in arb_machine_state().no_shrink()) {
-            let mut time = std::time::Instant::now();
+            let mut time = Instant::now();
             println!("serializing machine state");
             match serde_json::to_string(&state) {
                 Ok(serialized) => {
-                    println!("serialization complete. time taken: {:?}", std::time::Instant::now().duration_since(time));
-                    time = std::time::Instant::now();
+                    println!("serialization complete. time taken: {:?}", Instant::now().duration_since(time));
+                    time = Instant::now();
                     println!("deserializing machine state");
                     match serde_json::from_str(&serialized) {
                         Ok(deserialized) => {
-                            println!("deserialization complete. time taken: {:?}", std::time::Instant::now().duration_since(time));
+                            println!("deserialization complete. time taken: {:?}", Instant::now().duration_since(time));
                             prop_assert_eq!(
                                 &state,
                                 &deserialized,
