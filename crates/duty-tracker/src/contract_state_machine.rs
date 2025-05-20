@@ -2728,7 +2728,8 @@ mod tests {
 }
 
 /// This module defines genenerator functions of various types defined in the super module.
-pub mod prop_tests {
+#[cfg(test)]
+mod prop_tests {
     use std::{str::FromStr, time::Instant};
 
     use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
