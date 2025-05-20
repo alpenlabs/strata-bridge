@@ -25,9 +25,9 @@ where
     O: Origin,
     FirstRound: Musig2SignerFirstRound<O, SecondRound>,
 {
-    /// Implementation of the [`WalletSigner`] trait for the general wallet.
+    /// Implementation of the [`SchnorrSigner`] trait for the general wallet.
     type GeneralWalletSigner: SchnorrSigner<O>;
-    /// Implementation of the [`WalletSigner`] trait for the stakechain wallet.
+    /// Implementation of the [`SchnorrSigner`] trait for the stakechain wallet.
     type StakechainWalletSigner: SchnorrSigner<O>;
 
     /// Implementation of the [`P2PSigner`] trait.

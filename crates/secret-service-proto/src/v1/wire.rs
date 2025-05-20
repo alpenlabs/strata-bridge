@@ -36,14 +36,14 @@ pub enum ServerMessage {
     /// An explicit signal from the the server that the client should immediately retry the request
     TryAgain,
 
-    /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign) and
-    /// [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak)
+    /// Response for [`SchnorrSigner::sign`](super::traits::SchnorrSigner::sign) and
+    /// [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak)
     WalletSignerSign {
         /// Schnorr signature for a certain message.
         sig: [u8; 64],
     },
 
-    /// Response for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
+    /// Response for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
     WalletSignerPubkey {
         /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
         pubkey: [u8; 32],
@@ -218,7 +218,7 @@ pub enum ClientMessage {
     /// Request for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
     P2PSecretKey,
 
-    /// Request for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
+    /// Request for [`SchnorrSigner::sign`](super::traits::SchnorrSigner::sign).
     WalletSignerSign {
         /// Which Schnorr key to use
         target: SignerTarget,
@@ -229,7 +229,7 @@ pub enum ClientMessage {
         tweak: Option<[u8; 32]>,
     },
 
-    /// Request for [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak).
+    /// Request for [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak).
     WalletSignerSignNoTweak {
         /// Which Schnorr key to use
         target: SignerTarget,
@@ -237,7 +237,7 @@ pub enum ClientMessage {
         digest: [u8; 32],
     },
 
-    /// Request for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
+    /// Request for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
     WalletSignerPubkey {
         /// Which Schnorr key to use
         target: SignerTarget,
