@@ -82,7 +82,7 @@ async fn e2e() {
         .expect("good response");
     let (stakechain_tweaked_pubkey, _) = stakechain_pubkey.tap_tweak(SECP256K1, None);
     let musig2_pubkey = musig2_signer.pubkey().await.expect("good response");
-    let (musig2_tweaked_pubkey, _) = stakechain_pubkey.tap_tweak(SECP256K1, None);
+    let (musig2_tweaked_pubkey, _) = musig2_pubkey.tap_tweak(SECP256K1, None);
 
     let secp_ctx = Arc::new(Secp256k1::verification_only());
     let handles = (0..100)
