@@ -6,7 +6,7 @@ use bitvm::signatures::wots_api::{wots256, wots_hash};
 use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{Client, ClientError, Origin, WotsSigner},
-    wire::{ClientMessage, ServerMessage},
+    wire::{ClientMessage, ServerMessage, WotsKeySpecifier},
 };
 
 use crate::{make_v1_req, Config};
@@ -36,9 +36,11 @@ impl WotsSigner<Client> for WotsClient {
         index: u32,
     ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
         let msg = ClientMessage::WotsGet128SecretKey {
-            txid: txid.as_raw_hash().to_byte_array(),
-            vout,
-            index,
+            specifier: WotsKeySpecifier {
+                txid: txid.as_raw_hash().to_byte_array(),
+                vout,
+                index,
+            },
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128SecretKey { key } = res else {
@@ -54,9 +56,11 @@ impl WotsSigner<Client> for WotsClient {
         index: u32,
     ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
         let msg = ClientMessage::WotsGet256SecretKey {
-            txid: txid.as_raw_hash().to_byte_array(),
-            vout,
-            index,
+            specifier: WotsKeySpecifier {
+                txid: txid.as_raw_hash().to_byte_array(),
+                vout,
+                index,
+            },
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256SecretKey { key } = res else {
@@ -72,9 +76,11 @@ impl WotsSigner<Client> for WotsClient {
         index: u32,
     ) -> <Client as Origin>::Container<[u8; 20 * 36]> {
         let msg = ClientMessage::WotsGet128PublicKey {
-            txid: txid.as_raw_hash().to_byte_array(),
-            vout,
-            index,
+            specifier: WotsKeySpecifier {
+                txid: txid.as_raw_hash().to_byte_array(),
+                vout,
+                index,
+            },
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128PublicKey { key } = res else {
@@ -90,9 +96,11 @@ impl WotsSigner<Client> for WotsClient {
         index: u32,
     ) -> <Client as Origin>::Container<[u8; 20 * 68]> {
         let msg = ClientMessage::WotsGet256PublicKey {
-            txid: txid.as_raw_hash().to_byte_array(),
-            vout,
-            index,
+            specifier: WotsKeySpecifier {
+                txid: txid.as_raw_hash().to_byte_array(),
+                vout,
+                index,
+            },
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256PublicKey { key } = res else {
@@ -109,9 +117,11 @@ impl WotsSigner<Client> for WotsClient {
         msg: &[u8; 16],
     ) -> <Client as Origin>::Container<wots_hash::Signature> {
         let wire_msg = ClientMessage::WotsGet128Signature {
-            txid: txid.as_raw_hash().to_byte_array(),
-            vout,
-            index,
+            specifier: WotsKeySpecifier {
+                txid: txid.as_raw_hash().to_byte_array(),
+                vout,
+                index,
+            },
             msg: *msg,
         };
         let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
@@ -129,9 +139,11 @@ impl WotsSigner<Client> for WotsClient {
         msg: &[u8; 32],
     ) -> <Client as Origin>::Container<wots256::Signature> {
         let wire_msg = ClientMessage::WotsGet256Signature {
-            txid: txid.as_raw_hash().to_byte_array(),
-            vout,
-            index,
+            specifier: WotsKeySpecifier {
+                txid: txid.as_raw_hash().to_byte_array(),
+                vout,
+                index,
+            },
             msg: *msg,
         };
         let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;

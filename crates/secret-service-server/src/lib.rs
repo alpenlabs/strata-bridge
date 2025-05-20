@@ -23,9 +23,9 @@ use secret_service_proto::{
     v1::{
         traits::{
             Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, P2PSigner,
-            SecretService, Server, StakeChainPreimages, WalletSigner, WotsSigner,
+            SchnorrSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
         },
-        wire::{ClientMessage, Musig2NewSessionError, ServerMessage},
+        wire::{ClientMessage, Musig2NewSessionError, ServerMessage, SignerTarget},
     },
     wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
 };
@@ -188,58 +188,6 @@ where
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
         VersionedClientMessage::V1(msg) => match msg {
-            ClientMessage::GeneralWalletSign { digest, tweak } => {
-                let tweak =
-                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
-                let sig = service.general_wallet_signer().sign(&digest, tweak).await;
-                ServerMessage::GeneralWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::GeneralWalletSignNoTweak { digest } => {
-                let sig = service.general_wallet_signer().sign_no_tweak(&digest).await;
-                ServerMessage::GeneralWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::GeneralWalletPubkey => {
-                let pubkey = service.general_wallet_signer().pubkey().await;
-                ServerMessage::GeneralWalletPubkey {
-                    pubkey: pubkey.serialize(),
-                }
-            }
-
-            ClientMessage::StakechainWalletSign { digest, tweak } => {
-                let tweak =
-                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
-                let sig = service
-                    .stakechain_wallet_signer()
-                    .sign(&digest, tweak)
-                    .await;
-                ServerMessage::StakechainWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::StakechainWalletSignNoTweak { digest } => {
-                let sig = service
-                    .stakechain_wallet_signer()
-                    .sign_no_tweak(&digest)
-                    .await;
-                ServerMessage::StakechainWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::StakechainWalletPubkey => {
-                let pubkey = service.stakechain_wallet_signer().pubkey().await;
-                ServerMessage::StakechainWalletPubkey {
-                    pubkey: pubkey.serialize(),
-                }
-            }
-
             ClientMessage::P2PSecretKey => {
                 let key = service.p2p_signer().secret_key().await;
                 ServerMessage::P2PSecretKey {
@@ -295,8 +243,60 @@ where
                 ServerMessage::Musig2NewSession(Ok(()))
             }
 
-            ClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {
-                pubkey: service.musig2_signer().pubkey().await.serialize(),
+            ClientMessage::WalletSignerSign {
+                target,
+                digest,
+                tweak,
+            } => {
+                let tweak =
+                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
+                let sig = match target {
+                    SignerTarget::General => {
+                        service.general_wallet_signer().sign(&digest, tweak).await
+                    }
+                    SignerTarget::Stakechain => {
+                        service
+                            .stakechain_wallet_signer()
+                            .sign(&digest, tweak)
+                            .await
+                    }
+                    SignerTarget::Musig2 => service.musig2_signer().sign(&digest, tweak).await,
+                };
+                ServerMessage::WalletSignerSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ClientMessage::WalletSignerSignNoTweak { target, digest } => {
+                let sig = match target {
+                    SignerTarget::General => {
+                        service.general_wallet_signer().sign_no_tweak(&digest).await
+                    }
+                    SignerTarget::Stakechain => {
+                        service
+                            .stakechain_wallet_signer()
+                            .sign_no_tweak(&digest)
+                            .await
+                    }
+                    SignerTarget::Musig2 => service.musig2_signer().sign_no_tweak(&digest).await,
+                };
+                ServerMessage::WalletSignerSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ClientMessage::WalletSignerPubkey { target } => ServerMessage::WalletSignerPubkey {
+                pubkey: match target {
+                    SignerTarget::General => {
+                        service.general_wallet_signer().pubkey().await.serialize()
+                    }
+                    SignerTarget::Stakechain => service
+                        .stakechain_wallet_signer()
+                        .pubkey()
+                        .await
+                        .serialize(),
+                    SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
+                },
             },
 
             ClientMessage::Musig2FirstRoundOurNonce { session_id } => {
@@ -480,66 +480,56 @@ where
                 }
             }
 
-            ClientMessage::WotsGet128SecretKey { index, vout, txid } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet128SecretKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_secret_key(txid, vout, index)
+                    .get_128_secret_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet128SecretKey { key }
             }
 
-            ClientMessage::WotsGet256SecretKey { index, vout, txid } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet256SecretKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_secret_key(txid, vout, index)
+                    .get_256_secret_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet256SecretKey { key }
             }
 
-            ClientMessage::WotsGet128PublicKey { txid, vout, index } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet128PublicKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_public_key(txid, vout, index)
+                    .get_128_public_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet128PublicKey { key }
             }
 
-            ClientMessage::WotsGet256PublicKey { txid, vout, index } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet256PublicKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_public_key(txid, vout, index)
+                    .get_256_public_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet256PublicKey { key }
             }
 
-            ClientMessage::WotsGet128Signature {
-                txid,
-                vout,
-                index,
-                msg,
-            } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet128Signature { specifier, msg } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_128_signature(txid, vout, index, &msg)
+                    .get_128_signature(txid, specifier.vout, specifier.index, &msg)
                     .await;
                 ServerMessage::WotsGet128Signature { sig }
             }
 
-            ClientMessage::WotsGet256Signature {
-                txid,
-                vout,
-                index,
-                msg,
-            } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet256Signature { specifier, msg } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_256_signature(txid, vout, index, &msg)
+                    .get_256_signature(txid, specifier.vout, specifier.index, &msg)
                     .await;
                 ServerMessage::WotsGet256Signature { sig }
             }

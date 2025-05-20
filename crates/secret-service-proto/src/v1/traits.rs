@@ -26,9 +26,9 @@ where
     FirstRound: Musig2SignerFirstRound<O, SecondRound>,
 {
     /// Implementation of the [`WalletSigner`] trait for the general wallet.
-    type GeneralWalletSigner: WalletSigner<O>;
+    type GeneralWalletSigner: SchnorrSigner<O>;
     /// Implementation of the [`WalletSigner`] trait for the stakechain wallet.
-    type StakechainWalletSigner: WalletSigner<O>;
+    type StakechainWalletSigner: SchnorrSigner<O>;
 
     /// Implementation of the [`P2PSigner`] trait.
     type P2PSigner: P2PSigner<O>;
@@ -70,7 +70,7 @@ where
 ///
 /// The user should make sure the operator's secret key should have its own unique key that isn't
 /// used for any other purpose.
-pub trait WalletSigner<O: Origin>: Send {
+pub trait SchnorrSigner<O: Origin>: Send {
     /// Signs a `digest` using the operator's [`SecretKey`].
     fn sign(
         &self,
@@ -121,7 +121,7 @@ pub struct SignerIdxOutOfBounds {
 ///
 /// A single secret key should be used across all sessions initiated by this signer,
 /// whose public key should be accessible via the [`Musig2Signer::pubkey`] method.
-pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
+pub trait Musig2Signer<O: Origin, FirstRound>: SchnorrSigner<O> + Send + Sync {
     /// Initializes a new MuSig2 session with the given public keys, witness, input transaction ID,
     /// and input vout.
     ///
@@ -136,9 +136,6 @@ pub trait Musig2Signer<O: Origin, FirstRound>: Send + Sync {
         input_txid: Txid,
         input_vout: u32,
     ) -> impl Future<Output = O::Container<Result<FirstRound, O::Musig2NewSessionErr>>> + Send;
-
-    /// Retrieves the public key associated with this MuSig2 signer.
-    fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
 }
 
 /// Represents a state-machine-like API for performing MuSig2 signing.

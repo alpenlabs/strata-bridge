@@ -33,26 +33,15 @@ pub enum ServerMessage {
     /// Check the server logs for debugging details.
     OpaqueServerError,
 
-    /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
-    GeneralWalletSign {
+    /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign) and
+    /// [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak)
+    WalletSignerSign {
         /// Schnorr signature for a certain message.
         sig: [u8; 64],
     },
 
     /// Response for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
-    GeneralWalletPubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
-        pubkey: [u8; 32],
-    },
-
-    /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
-    StakechainWalletSign {
-        /// Schnorr signature for a certain message.
-        sig: [u8; 64],
-    },
-
-    /// Response for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
-    StakechainWalletPubkey {
+    WalletSignerPubkey {
         /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
         pubkey: [u8; 32],
     },
@@ -65,12 +54,6 @@ pub enum ServerMessage {
 
     /// Response for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
     Musig2NewSession(Result<(), Musig2NewSessionError>),
-
-    /// Response for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
-    Musig2Pubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for MuSig2 signatures.
-        pubkey: [u8; 32],
-    },
 
     /// Response for
     /// [`Musig2SignerFirstRound::our_nonce`](super::traits::Musig2SignerFirstRound::our_nonce).
@@ -229,44 +212,33 @@ impl From<Musig2SessionResult> for Result<[u8; 64], RoundFinalizeError> {
 /// Various messages the client can send to the server.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ClientMessage {
-    /// Request for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
-    GeneralWalletSign {
-        /// The digest of the data the client wants signed.
-        digest: [u8; 32],
-
-        /// The tweak used to sign the message.
-        tweak: Option<[u8; 32]>,
-    },
-
-    /// Request for [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak).
-    GeneralWalletSignNoTweak {
-        /// The digest of the data the client wants signed.
-        digest: [u8; 32],
-    },
-
-    /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
-    GeneralWalletPubkey,
-
-    /// Request for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
-    StakechainWalletSign {
-        /// The digest of the data the client wants signed.
-        digest: [u8; 32],
-
-        /// The tweak used to sign the message.
-        tweak: Option<[u8; 32]>,
-    },
-
-    /// Request for [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak).
-    StakechainWalletSignNoTweak {
-        /// The digest of the data the client wants signed.
-        digest: [u8; 32],
-    },
-
-    /// Request for [`WalletSigner::pubkey`](super::traits::WalletSigner::pubkey).
-    StakechainWalletPubkey,
-
     /// Request for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
     P2PSecretKey,
+
+    /// Request for [`WalletSigner::sign`](super::traits::WalletSigner::sign).
+    WalletSignerSign {
+        /// Which Schnorr key to use
+        target: SignerTarget,
+        /// The digest of the data the client wants signed.
+        digest: [u8; 32],
+
+        /// The tweak used to sign the message.
+        tweak: Option<[u8; 32]>,
+    },
+
+    /// Request for [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak).
+    WalletSignerSignNoTweak {
+        /// Which Schnorr key to use
+        target: SignerTarget,
+        /// The digest of the data the client wants signed.
+        digest: [u8; 32],
+    },
+
+    /// Request for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
+    WalletSignerPubkey {
+        /// Which Schnorr key to use
+        target: SignerTarget,
+    },
 
     /// Request for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
     Musig2NewSession {
@@ -287,9 +259,6 @@ pub enum ClientMessage {
         /// The vout of the input transaction the client is signing for.
         input_vout: u32,
     },
-
-    /// Request for [`Musig2Signer::pubkey`](super::traits::Musig2Signer::pubkey).
-    Musig2Pubkey,
 
     /// Request for
     /// [`Musig2SignerFirstRound::our_nonce`](super::traits::Musig2SignerFirstRound::our_nonce).
@@ -390,81 +359,36 @@ pub enum ClientMessage {
     /// Request for
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
     WotsGet128SecretKey {
-        /// [`Txid`](bitcoin::Txid) that this WOTS secret key is derived from.
-        txid: [u8; 32],
-
-        /// Transaction's vout that this WOTS secret key is derived from.
-        vout: u32,
-
-        /// WOTS index that this WOTS secret key is derived from.
-        ///
-        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
-        /// hence to resolve the ambiguity, the index is needed.
-        index: u32,
+        /// Specifier for which WOTS key to use
+        specifier: WotsKeySpecifier,
     },
 
     /// Request for
     /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
     WotsGet256SecretKey {
-        /// [`Txid`](bitcoin::Txid) that this WOTS secret key is derived from.
-        txid: [u8; 32],
-
-        /// Transaction's vout that this WOTS secret key is derived from.
-        vout: u32,
-
-        /// WOTS index that this WOTS secret key is derived from.
-        ///
-        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
-        /// hence to resolve the ambiguity, the index is needed.
-        index: u32,
+        /// Specifier for which WOTS key to use
+        specifier: WotsKeySpecifier,
     },
 
     /// Request for
     /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
     WotsGet128PublicKey {
-        /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
-        txid: [u8; 32],
-
-        /// Transaction's vout that this WOTS public key is derived from.
-        vout: u32,
-
-        /// WOTS index that this WOTS public key is derived from.
-        ///
-        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
-        /// hence to resolve the ambiguity, the index is needed.
-        index: u32,
+        /// Specifier for which WOTS key to use
+        specifier: WotsKeySpecifier,
     },
 
     /// Request for
     /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
     WotsGet256PublicKey {
-        /// [`Txid`](bitcoin::Txid) that this WOTS public key is derived from.
-        txid: [u8; 32],
-
-        /// Transaction's vout that this WOTS public key is derived from.
-        vout: u32,
-
-        /// WOTS index that this WOTS public key is derived from.
-        ///
-        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS public key,
-        /// hence to resolve the ambiguity, the index is needed.
-        index: u32,
+        /// Specifier for which WOTS key to use
+        specifier: WotsKeySpecifier,
     },
 
     /// Request for
     /// [`WotsSigner::get_128_signature`](super::traits::WotsSigner::get_128_signature).
     WotsGet128Signature {
-        /// [`Txid`](bitcoin::Txid) that this WOTS signature is derived from.
-        txid: [u8; 32],
-
-        /// Transaction's vout that this WOTS signature is derived from.
-        vout: u32,
-
-        /// WOTS index that this WOTS signature is derived from.
-        ///
-        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
-        /// hence to resolve the ambiguity, the index is needed.
-        index: u32,
+        /// Specifier for which WOTS key to use
+        specifier: WotsKeySpecifier,
 
         /// 128-bit message to be signed.
         msg: [u8; 16],
@@ -473,17 +397,8 @@ pub enum ClientMessage {
     /// Request for
     /// [`WotsSigner::get_256_signature`](super::traits::WotsSigner::get_256_signature).
     WotsGet256Signature {
-        /// [`Txid`](bitcoin::Txid) that this WOTS signature is derived from.
-        txid: [u8; 32],
-
-        /// Transaction's vout that this WOTS signature is derived from.
-        vout: u32,
-
-        /// WOTS index that this WOTS signature is derived from.
-        ///
-        /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
-        /// hence to resolve the ambiguity, the index is needed.
-        index: u32,
+        /// Specifier for which WOTS key to use
+        specifier: WotsKeySpecifier,
 
         /// 256-bit message to be signed.
         msg: [u8; 32],
@@ -575,4 +490,26 @@ impl TryFrom<SerializableTaprootWitness> for TaprootWitness {
             }),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Archive, Serialize, Deserialize)]
+pub enum SignerTarget {
+    General,
+    Stakechain,
+    Musig2,
+}
+
+#[derive(Debug, Clone, Copy, Archive, Serialize, Deserialize)]
+pub struct WotsKeySpecifier {
+    /// [`Txid`](bitcoin::Txid) that the WOTS key is derived from.
+    pub txid: [u8; 32],
+
+    /// Transaction's vout that the WOTS key is derived from.
+    pub vout: u32,
+
+    /// WOTS index that the WOTS key is derived from.
+    ///
+    /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
+    /// hence to resolve the ambiguity, the index is needed.
+    pub index: u32,
 }

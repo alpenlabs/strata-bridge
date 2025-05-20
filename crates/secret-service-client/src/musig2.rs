@@ -2,18 +2,19 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use bitcoin::{hashes::Hash, OutPoint, Txid, XOnlyPublicKey};
+use bitcoin::{hashes::Hash, OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
+    secp256k1::schnorr::Signature,
     AggNonce, LiftedSignature, PartialSignature, PubNonce,
 };
 use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{
         Client, ClientError, Musig2SessionId, Musig2Signer, Musig2SignerFirstRound,
-        Musig2SignerSecondRound, Origin,
+        Musig2SignerSecondRound, Origin, SchnorrSigner,
     },
-    wire::{ClientMessage, Musig2NewSessionError, ServerMessage},
+    wire::{ClientMessage, Musig2NewSessionError, ServerMessage, SignerTarget},
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 
@@ -86,11 +87,48 @@ impl Musig2Signer<Client, Musig2FirstRound> for Musig2Client {
             Err(e) => Err(e),
         })
     }
+}
+
+impl SchnorrSigner<Client> for Musig2Client {
+    async fn sign(
+        &self,
+        digest: &[u8; 32],
+        tweak: Option<TapNodeHash>,
+    ) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::WalletSignerSign {
+            target: SignerTarget::Musig2,
+            digest: *digest,
+            tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        match res {
+            ServerMessage::WalletSignerSign { sig } => {
+                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
+            }
+            _ => Err(ClientError::WrongMessage(res.into())),
+        }
+    }
+
+    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
+        let msg = ClientMessage::WalletSignerSignNoTweak {
+            target: SignerTarget::Musig2,
+            digest: *digest,
+        };
+        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        match res {
+            ServerMessage::WalletSignerSign { sig } => {
+                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
+            }
+            _ => Err(ClientError::WrongMessage(res.into())),
+        }
+    }
 
     async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
-        let msg = ClientMessage::Musig2Pubkey;
+        let msg = ClientMessage::WalletSignerPubkey {
+            target: SignerTarget::Musig2,
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-        let ServerMessage::Musig2Pubkey { pubkey } = res else {
+        let ServerMessage::WalletSignerPubkey { pubkey } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
 

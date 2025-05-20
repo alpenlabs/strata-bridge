@@ -6,8 +6,8 @@ use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
 use musig2::secp256k1::schnorr::Signature;
 use quinn::Connection;
 use secret_service_proto::v1::{
-    traits::{Client, ClientError, Origin, WalletSigner},
-    wire::{ClientMessage, ServerMessage},
+    traits::{Client, ClientError, Origin, SchnorrSigner},
+    wire::{ClientMessage, ServerMessage, SignerTarget},
 };
 
 use crate::{make_v1_req, Config};
@@ -29,19 +29,20 @@ impl GeneralWalletClient {
     }
 }
 
-impl WalletSigner<Client> for GeneralWalletClient {
+impl SchnorrSigner<Client> for GeneralWalletClient {
     async fn sign(
         &self,
         digest: &[u8; 32],
         tweak: Option<TapNodeHash>,
     ) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::GeneralWalletSign {
+        let msg = ClientMessage::WalletSignerSign {
+            target: SignerTarget::General,
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::GeneralWalletSign { sig } => {
+            ServerMessage::WalletSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -49,10 +50,13 @@ impl WalletSigner<Client> for GeneralWalletClient {
     }
 
     async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::GeneralWalletSignNoTweak { digest: *digest };
+        let msg = ClientMessage::WalletSignerSignNoTweak {
+            target: SignerTarget::General,
+            digest: *digest,
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::GeneralWalletSign { sig } => {
+            ServerMessage::WalletSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -60,10 +64,12 @@ impl WalletSigner<Client> for GeneralWalletClient {
     }
 
     async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
-        let msg = ClientMessage::GeneralWalletPubkey;
+        let msg = ClientMessage::WalletSignerPubkey {
+            target: SignerTarget::General,
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::GeneralWalletPubkey { pubkey } => {
+            ServerMessage::WalletSignerPubkey { pubkey } => {
                 XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -88,19 +94,20 @@ impl StakechainWalletClient {
     }
 }
 
-impl WalletSigner<Client> for StakechainWalletClient {
+impl SchnorrSigner<Client> for StakechainWalletClient {
     async fn sign(
         &self,
         digest: &[u8; 32],
         tweak: Option<TapNodeHash>,
     ) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::StakechainWalletSign {
+        let msg = ClientMessage::WalletSignerSign {
+            target: SignerTarget::Stakechain,
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::StakechainWalletSign { sig } => {
+            ServerMessage::WalletSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -108,10 +115,13 @@ impl WalletSigner<Client> for StakechainWalletClient {
     }
 
     async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::StakechainWalletSignNoTweak { digest: *digest };
+        let msg = ClientMessage::WalletSignerSignNoTweak {
+            target: SignerTarget::Stakechain,
+            digest: *digest,
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::StakechainWalletSign { sig } => {
+            ServerMessage::WalletSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -119,10 +129,12 @@ impl WalletSigner<Client> for StakechainWalletClient {
     }
 
     async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
-        let msg = ClientMessage::StakechainWalletPubkey;
+        let msg = ClientMessage::WalletSignerPubkey {
+            target: SignerTarget::Stakechain,
+        };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::StakechainWalletPubkey { pubkey } => {
+            ServerMessage::WalletSignerPubkey { pubkey } => {
                 XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
