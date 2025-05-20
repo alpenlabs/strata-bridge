@@ -2757,21 +2757,22 @@ pub mod prop_tests {
 
     use super::{ContractCfg, ContractEvent, ContractSM, MachineState};
 
-    // Generates a random 32 byte hash as a Txid`.
     prop_compose! {
+        /// Generates a random 32 byte hash as a [`Txid`].
         fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
             Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
         }
     }
 
     prop_compose! {
+        /// Generates a random 32 byte hash as a [`sha256::Hash`].
         fn arb_hash()(bytes in any::<[u8; 32]>()) -> sha256::Hash {
             sha256::Hash::from_byte_array(bytes)
         }
     }
 
     prop_compose! {
-        /// Generates a random ContractCfg.
+        /// Generates a random [`ContractCfg`].
         pub fn arb_contract_cfg()(
             operator_table in arb_operator_table(),
             deposit_idx in 1..100,
@@ -2869,7 +2870,7 @@ pub mod prop_tests {
     }
 
     prop_compose! {
-        /// Generates a random ContractEvent::DepositSetup {..}
+        /// Generates a random [`ContractEvent::DepositSetup`].
         pub fn arb_deposit_setup_from_operator(origin: P2POperatorPubKey)(
             cpfp_pubkey in arb_btc_key().prop_map(|x|x.to_x_only_pubkey()),
             stake_hash in arb_hash(),
@@ -2887,7 +2888,8 @@ pub mod prop_tests {
     }
 
     prop_compose! {
-        /// Generates a ContractState with all three DepositSetup messages.
+        /// Generates a [`MachineState`] with all three [`DepositSetup`](super::DepositSetup)
+        /// messages.
         pub fn arb_machine_state()(
             cfg in arb_contract_cfg(),
             block_height in 500_000..800_000u64,
