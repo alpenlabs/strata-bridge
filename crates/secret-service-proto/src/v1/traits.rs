@@ -120,7 +120,7 @@ pub struct SignerIdxOutOfBounds {
 /// # Warning
 ///
 /// A single secret key should be used across all sessions initiated by this signer,
-/// whose public key should be accessible via the [`Musig2Signer::pubkey`] method.
+/// whose public key should be accessible via the [`SchnorrSigner::pubkey`] method.
 pub trait Musig2Signer<O: Origin, FirstRound>: SchnorrSigner<O> + Send + Sync {
     /// Initializes a new MuSig2 session with the given public keys, witness, input transaction ID,
     /// and input vout.
