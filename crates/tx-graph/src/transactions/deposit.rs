@@ -587,7 +587,7 @@ pub mod prop_tests {
             deposit_request_txid in arb_txid(),
             stake_index in 1..100u32,
             ee_address in proptest::collection::vec(any::<u8>(), 20),
-            excess_deposit_amount in 100000..500000u64,
+            excess_deposit_amount in 100_000..500_000u64,
             x_only_public_key in arb_btc_key().prop_map(|x|x.x_only_public_key().0),
         ) -> DepositRequestData {
 
