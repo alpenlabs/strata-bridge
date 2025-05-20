@@ -56,4 +56,5 @@ tracing.workspace = true
 [dev-dependencies]
 hex.workspace = true
 proptest.workspace = true
+strata-bridge-common.workspace = true
 strata-bridge-test-utils.workspace = true

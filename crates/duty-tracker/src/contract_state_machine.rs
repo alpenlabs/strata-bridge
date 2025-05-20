@@ -2739,6 +2739,7 @@ mod prop_tests {
         Network, Txid,
     };
     use proptest::{prelude::*, prop_compose};
+    use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_primitives::{
         build_context::BuildContext,
         operator_table::prop_test_generators::{arb_btc_key, arb_operator_table},
@@ -2755,6 +2756,7 @@ mod prop_tests {
         params::{OperatorConfig, ProofPublishMode, RollupParams},
         proof::RollupVerifyingKey,
     };
+    use tracing::{error, info};
 
     use super::{ContractCfg, ContractEvent, ContractSM, MachineState};
 
@@ -2922,17 +2924,18 @@ mod prop_tests {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(0))] // This still does 1 test case. It's weird.
         #[test]
-        fn state_serialization_invertible(state in arb_machine_state().no_shrink()) {
+        fn machine_state_serialization_invertible(state in arb_machine_state().no_shrink()) {
+            logging::init(LoggerConfig::new("machine_state_serialization_invertible".to_string()));
             let mut time = Instant::now();
-            println!("serializing machine state");
+            info!("serializing machine state");
             match serde_json::to_string(&state) {
                 Ok(serialized) => {
-                    println!("serialization complete. time taken: {:?}", Instant::now().duration_since(time));
+                    info!("serialization complete. time taken: {:?}", Instant::now().duration_since(time));
                     time = Instant::now();
-                    println!("deserializing machine state");
+                    info!("deserializing machine state");
                     match serde_json::from_str(&serialized) {
                         Ok(deserialized) => {
-                            println!("deserialization complete. time taken: {:?}", Instant::now().duration_since(time));
+                            info!("deserialization complete. time taken: {:?}", Instant::now().duration_since(time));
                             prop_assert_eq!(
                                 &state,
                                 &deserialized,
@@ -2942,12 +2945,17 @@ mod prop_tests {
                             );
                         }
                         Err(e) => {
-                            prop_assert!(false, "MachineState could not be serialized: {}", e);
+                            let msg = format!("MachineState could not be serialized: {e}");
+                            error!("{}", &msg);
+                            prop_assert!(false, "{}", &msg);
                         }
                     }
                 }
                 Err(e) => {
-                    prop_assert!(false, "MachineState could not be serialized: {}", e);
+                    let msg = format!("MachineState could not be serialized: {e}");
+                    error!("{}", &msg);
+                    prop_assert!(false, "{}", &msg);
+
                 }
             };
         }
