@@ -2837,7 +2837,7 @@ pub mod prop_tests {
                 l1_reorg_safe_depth: 6,
                 target_l2_batch_size: 3,
                 address_length: 20,
-                deposit_amount: 1000000000,
+                deposit_amount: peg_out_graph_params.deposit_amount.to_sat(),
                 rollup_vk: RollupVerifyingKey::NativeVerifyingKey(
                     Buf32::from_str(
                         "0000000000000000000000000000000000000000000000000000000000000000"
