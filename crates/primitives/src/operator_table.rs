@@ -144,6 +144,7 @@ pub mod prop_test_generators {
     use strata_p2p_types::P2POperatorPubKey;
 
     use super::OperatorTable;
+    use crate::secp::EvenSecretKey;
 
     prop_compose! {
         pub fn arb_p2p_key()(pk in arb_btc_key()) -> P2POperatorPubKey {
@@ -157,7 +158,7 @@ pub mod prop_test_generators {
                 .no_shrink()
                 .prop_filter_map(
                     "invalid secret key",
-                    |bs| secp256k1::SecretKey::from_slice(&bs).ok()
+                    |bs| secp256k1::SecretKey::from_slice(&bs).ok().map(EvenSecretKey::from)
                 )
         ) -> secp256k1::PublicKey {
             sk.public_key(secp256k1::SECP256K1)
