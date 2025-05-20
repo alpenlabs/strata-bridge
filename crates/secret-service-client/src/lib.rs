@@ -160,7 +160,7 @@ pub async fn make_v1_req(
     timeout_dur: Duration,
 ) -> Result<ServerMessage, ClientError> {
     let (mut tx, mut rx) = conn.open_bi().await.map_err(ClientError::ConnectionError)?;
-    let (len_bytes, msg_bytes) = VersionedClientMessage::V1(msg)
+    let (len_bytes, msg_bytes) = VersionedClientMessage::V1(msg.clone())
         .serialize()
         .map_err(ClientError::SerializationError)?;
     timeout(timeout_dur, tx.write_all(&len_bytes))
@@ -191,8 +191,12 @@ pub async fn make_v1_req(
     let archived = rkyv::access::<ArchivedVersionedServerMessage, rancor::Error>(&buf)
         .map_err(ClientError::DeserializationError)?;
 
-    let VersionedServerMessage::V1(msg) =
+    let VersionedServerMessage::V1(srv_msg) =
         deserialize(archived).map_err(ClientError::DeserializationError)?;
 
-    Ok(msg)
+    if let ServerMessage::TryAgain = srv_msg {
+        return Box::pin(make_v1_req(conn, msg, timeout_dur)).await;
+    }
+
+    Ok(srv_msg)
 }
