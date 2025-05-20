@@ -25,7 +25,7 @@ use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
@@ -720,7 +720,7 @@ impl ContractManagerCtx {
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
 
-        match msg.clone() {
+        match msg {
             UnsignedGossipsubMsg::StakeChainExchange {
                 operator_pk,
                 pre_stake_txid,
@@ -781,11 +781,20 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
-                    let wots_keys = Box::new(
-                        wots_pks
-                            .try_into()
-                            .map_err(|_| ContractManagerErr::InvalidP2PMessage(Box::new(msg)))?,
-                    );
+                    let wots_keys =
+                        Box::new(wots_pks.try_into().map_err(|e: (String, WotsPublicKeys)| {
+                            ContractManagerErr::InvalidP2PMessage(Box::new(
+                                UnsignedGossipsubMsg::DepositSetup {
+                                    scope,
+                                    index,
+                                    hash,
+                                    funding_txid,
+                                    funding_vout,
+                                    operator_pk,
+                                    wots_pks: e.1,
+                                },
+                            ))
+                        })?);
 
                     let deposit_setup_duties = contract
                         .process_contract_event(ContractEvent::DepositSetup {

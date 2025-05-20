@@ -14,6 +14,7 @@ use bitvm::{
 use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 use proptest_derive::Arbitrary;
 use serde::{de::Visitor, ser::SerializeSeq, Deserialize, Serialize};
+use strata_p2p_types::WotsPublicKeys;
 
 use crate::scripts::{
     commitments::{
@@ -156,29 +157,38 @@ impl DerefMut for Groth16PublicKeys {
 }
 
 impl TryFrom<strata_p2p_types::Groth16PublicKeys> for Groth16PublicKeys {
-    type Error = String;
+    type Error = (String, strata_p2p_types::Groth16PublicKeys);
 
     fn try_from(g16_keys: strata_p2p_types::Groth16PublicKeys) -> Result<Self, Self::Error> {
         if g16_keys.public_inputs.len() != NUM_PUBS {
-            return Err(format!(
-                "Could not convert groth 16 keys: invalid length of public inputs ({})",
-                g16_keys.public_inputs.len()
+            return Err((
+                format!(
+                    "Could not convert groth 16 keys: invalid length of public inputs ({})",
+                    g16_keys.public_inputs.len()
+                ),
+                g16_keys,
             ));
         }
         let public_inputs = std::array::from_fn(|i| *g16_keys.public_inputs[i]);
 
         if g16_keys.fqs.len() != NUM_U256 {
-            return Err(format!(
-                "Could not convert groth 16 keys: invalid length of fqs ({})",
-                g16_keys.fqs.len()
+            return Err((
+                format!(
+                    "Could not convert groth 16 keys: invalid length of fqs ({})",
+                    g16_keys.fqs.len()
+                ),
+                g16_keys,
             ));
         }
         let fqs = std::array::from_fn(|i| *g16_keys.fqs[i]);
 
         if g16_keys.hashes.len() != NUM_HASH {
-            return Err(format!(
-                "Could not convert groth 16 keys: invalid length of hashes ({})",
-                g16_keys.hashes.len()
+            return Err((
+                format!(
+                    "Could not convert groth 16 keys: invalid length of hashes ({})",
+                    g16_keys.hashes.len()
+                ),
+                g16_keys,
             ));
         }
         let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
@@ -442,12 +452,22 @@ impl PublicKeys {
 }
 
 impl TryFrom<strata_p2p_types::WotsPublicKeys> for PublicKeys {
-    type Error = String;
+    type Error = (String, strata_p2p_types::WotsPublicKeys);
 
     fn try_from(value: strata_p2p_types::WotsPublicKeys) -> Result<Self, Self::Error> {
-        let withdrawal_fulfillment = value.withdrawal_fulfillment.into();
+        let groth16 = value.groth16.try_into().map_err(
+            |e: (String, strata_p2p_types::Groth16PublicKeys)| {
+                (
+                    e.0,
+                    WotsPublicKeys {
+                        withdrawal_fulfillment: value.withdrawal_fulfillment,
+                        groth16: e.1,
+                    },
+                )
+            },
+        )?;
 
-        let groth16 = value.groth16.try_into()?;
+        let withdrawal_fulfillment = value.withdrawal_fulfillment.into();
 
         Ok(Self {
             withdrawal_fulfillment,
