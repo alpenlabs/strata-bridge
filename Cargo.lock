@@ -3389,12 +3389,14 @@ dependencies = [
  "hex",
  "musig2",
  "operator-wallet",
+ "proptest",
  "secp256k1",
  "secret-service-client",
  "secret-service-proto",
  "serde",
  "serde_json",
  "sqlx",
+ "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-p2p-service",
@@ -7511,6 +7513,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "proptest-derive"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ee1c9ac207483d5e7db4940700de86a9aae46ef90c48b57f99fe7edb8345e49"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.100",
+]
+
+[[package]]
 name = "prost"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9976,6 +9989,8 @@ dependencies = [
  "bitvm",
  "miniscript",
  "musig2",
+ "proptest",
+ "proptest-derive",
  "rkyv",
  "secp256k1",
  "serde",
@@ -10110,6 +10125,7 @@ dependencies = [
  "bitvm",
  "corepc-node",
  "futures",
+ "proptest",
  "rkyv",
  "secp256k1",
  "serde",
@@ -10120,7 +10136,6 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",
- "strata-p2p-types",
  "strata-primitives",
  "thiserror 2.0.12",
  "tokio",
@@ -10342,6 +10357,8 @@ dependencies = [
  "bitcoin",
  "hex",
  "libp2p-identity",
+ "proptest",
+ "proptest-derive",
  "serde",
 ]
 

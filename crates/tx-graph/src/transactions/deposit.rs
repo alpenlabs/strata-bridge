@@ -557,3 +557,58 @@ mod tests {
         );
     }
 }
+
+pub mod prop_tests {
+
+    use bitcoin::{hashes::sha256d, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
+    use proptest::{prelude::*, prop_compose};
+    use strata_bridge_primitives::{
+        operator_table::prop_test_generators::arb_btc_key,
+        scripts::{
+            prelude::drt_take_back,
+            taproot::{create_taproot_addr, SpendPath},
+        },
+    };
+
+    use super::DepositRequestData;
+
+    prop_compose! {
+        fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
+            Txid::from_raw_hash(*sha256d::Hash::from_bytes_ref(&bs))
+        }
+    }
+
+    prop_compose! {
+        pub fn arb_deposit_request_data(
+            deposit_amount: Amount,
+            refund_delay: u16,
+            aggregated_pubkey: XOnlyPublicKey
+        )(
+            deposit_request_txid in arb_txid(),
+            stake_index in 1..100u32,
+            ee_address in proptest::collection::vec(any::<u8>(), 20),
+            excess_deposit_amount in 100_000..500_000u64,
+            x_only_public_key in arb_btc_key().prop_map(|x|x.x_only_public_key().0),
+        ) -> DepositRequestData {
+
+            let take_back_script = drt_take_back(x_only_public_key, refund_delay);
+
+            let spend_path = SpendPath::Both {
+                internal_key: aggregated_pubkey,
+                scripts: &[take_back_script],
+            };
+
+            let (deposit_request_addr, _) = create_taproot_addr(&Network::Regtest, spend_path)
+                .expect("must be able to generate taproot address for drt");
+
+            DepositRequestData {
+                deposit_request_outpoint: OutPoint::new(deposit_request_txid, 0),
+                stake_index,
+                ee_address,
+                total_amount: deposit_amount + Amount::from_sat(excess_deposit_amount),
+                x_only_public_key,
+                original_script_pubkey: deposit_request_addr.script_pubkey(),
+            }
+        }
+    }
+}

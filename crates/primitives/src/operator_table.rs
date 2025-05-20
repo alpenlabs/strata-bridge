@@ -138,3 +138,58 @@ impl OperatorTable {
             .collect()
     }
 }
+
+pub mod prop_test_generators {
+    use proptest::{prelude::*, prop_compose};
+    use strata_p2p_types::P2POperatorPubKey;
+
+    use super::OperatorTable;
+    use crate::secp::EvenSecretKey;
+
+    prop_compose! {
+        pub fn arb_p2p_key()(pk in arb_btc_key()) -> P2POperatorPubKey {
+            P2POperatorPubKey::from(Vec::from(pk.serialize()))
+        }
+    }
+
+    prop_compose! {
+        pub fn arb_btc_key()(
+            sk in any::<[u8; 32]>()
+                .no_shrink()
+                .prop_filter_map(
+                    "invalid secret key",
+                    |bs| secp256k1::SecretKey::from_slice(&bs).ok().map(EvenSecretKey::from)
+                )
+        ) -> secp256k1::PublicKey {
+            sk.public_key(secp256k1::SECP256K1)
+        }
+    }
+
+    prop_compose! {
+        fn arb_operator_table_opt()(
+            keys in prop::collection::vec(
+                (arb_p2p_key().no_shrink(), arb_btc_key().no_shrink()),
+                3..=15
+            ),
+            pov in 0..15u32,
+        ) -> Option<OperatorTable> {
+            let size = keys.len() as u32;
+            let indexed = keys.into_iter()
+                .enumerate()
+                .map(|(idx, (p2p, btc))| (idx as u32, p2p, btc))
+                .collect();
+            OperatorTable::new(indexed, pov % size)
+        }
+    }
+
+    prop_compose! {
+        pub fn arb_operator_table()(
+            table in arb_operator_table_opt()
+                .prop_filter_map(
+                    "non-unique keys",
+                    |x|x),
+        ) -> OperatorTable {
+            table
+        }
+    }
+}

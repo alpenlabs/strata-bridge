@@ -25,7 +25,7 @@ use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
@@ -39,8 +39,8 @@ use tracing::{debug, error, info, trace, warn};
 use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
-        ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
-        SyntheticEvent,
+        ContractCfg, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
+        OperatorDuty, SyntheticEvent,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -518,19 +518,27 @@ impl ContractManagerCtx {
                     .clone();
 
                 debug!(%stake_index, %deposit_request_txid, "creating a new contract");
-                let (sm, duty) = ContractSM::new(
-                    self.cfg.network,
-                    self.cfg.operator_table.clone(),
-                    self.cfg.connector_params,
-                    self.cfg.pegout_graph_params.clone(),
-                    self.cfg.sidesystem_params.clone(),
-                    self.cfg.stake_chain_params,
+                let cfg = ContractCfg {
+                    network: self.cfg.network,
+                    operator_table: self.cfg.operator_table.clone(),
+                    connector_params: self.cfg.connector_params,
+                    peg_out_graph_params: self.cfg.pegout_graph_params.clone(),
+                    sidesystem_params: self.cfg.sidesystem_params.clone(),
+                    stake_chain_params: self.cfg.stake_chain_params,
+                    deposit_idx: stake_index + new_contracts.len() as u32,
+                    deposit_tx,
+                };
+
+                let duty = OperatorDuty::PublishDepositSetup {
+                    deposit_txid: cfg.deposit_tx.compute_txid(),
+                    deposit_idx: cfg.deposit_idx,
+                    stake_chain_inputs,
+                };
+
+                let sm = ContractSM::new(
+                    cfg,
                     height,
                     height + self.cfg.pegout_graph_params.refund_delay as u64,
-                    stake_index + new_contracts.len() as u32,
-                    deposit_request_txid,
-                    deposit_tx,
-                    stake_chain_inputs,
                 );
 
                 new_contracts.push(sm);
@@ -773,13 +781,28 @@ impl ContractManagerCtx {
                         .stake_tx(&key, deposit_idx)?
                         .ok_or(StakeChainErr::StakeTxNotFound(key.clone(), deposit_idx))?;
 
+                    let wots_keys =
+                        Box::new(wots_pks.try_into().map_err(|e: (String, WotsPublicKeys)| {
+                            ContractManagerErr::InvalidP2PMessage(Box::new(
+                                UnsignedGossipsubMsg::DepositSetup {
+                                    scope,
+                                    index,
+                                    hash,
+                                    funding_txid,
+                                    funding_vout,
+                                    operator_pk,
+                                    wots_pks: e.1,
+                                },
+                            ))
+                        })?);
+
                     let deposit_setup_duties = contract
                         .process_contract_event(ContractEvent::DepositSetup {
                             operator_p2p_key: key.clone(),
                             operator_btc_key: operator_pk,
                             stake_hash: hash,
-                            stake_tx,
-                            wots_keys: Box::new(wots_pks),
+                            stake_txid: stake_tx.compute_txid(),
+                            wots_keys,
                         })?
                         .into_iter()
                         .map(|duty| {
