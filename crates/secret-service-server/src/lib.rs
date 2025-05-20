@@ -30,7 +30,7 @@ use secret_service_proto::{
     wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-use terrors::OneOf;
+use terrors::{OneOf, E3};
 use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{error, span, warn, Instrument, Level};
 
@@ -204,17 +204,25 @@ where
             } => 'block: {
                 let signer = service.musig2_signer();
 
-                let Ok(witness) = TaprootWitness::try_from(witness)
-                    .map_err(|_| ServerMessage::InvalidClientMessage)
-                else {
-                    break 'block ServerMessage::InvalidClientMessage;
+                let witness = match TaprootWitness::try_from(witness) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        break 'block ServerMessage::InvalidClientMessage(format!(
+                            "invalid taproot witness: {e}"
+                        ))
+                    }
                 };
-                let Ok(pubkeys) = pubkeys
+                let pubkeys = match pubkeys
                     .iter()
                     .map(|data| XOnlyPublicKey::from_slice(data))
                     .collect::<Result<Vec<_>, _>>()
-                else {
-                    break 'block ServerMessage::InvalidClientMessage;
+                {
+                    Ok(pks) => pks,
+                    Err(e) => {
+                        break 'block ServerMessage::InvalidClientMessage(format!(
+                            "invalid public key: {e}"
+                        ))
+                    }
                 };
 
                 let first_round = match signer
@@ -305,7 +313,7 @@ where
                         let our_nonce = first_round.lock().await.our_nonce().await.serialize();
                         ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
                     }
-                    None => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
 
@@ -321,7 +329,7 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    None => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
 
@@ -330,7 +338,7 @@ where
                     Some(r1) => ServerMessage::Musig2FirstRoundIsComplete {
                         complete: r1.lock().await.is_complete().await,
                     },
-                    None => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
 
@@ -338,18 +346,30 @@ where
                 let session_id = &session_id;
                 let r1 = match musig2_sm.lock().await.first_round(session_id) {
                     Some(r1) => r1,
-                    None => return Ok(ServerMessage::InvalidClientMessage),
+                    None => {
+                        return Ok(ServerMessage::InvalidClientMessage(
+                            "no round present".to_owned(),
+                        ))
+                    }
                 };
                 let nonces = match nonces
                     .iter()
                     .map(|(pk, nonce)| {
                         let pk = match XOnlyPublicKey::from_slice(pk) {
                             Ok(pk) => pk,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid pubkey: {e}"
+                                )))
+                            }
                         };
                         let pubnonce = match PubNonce::from_bytes(nonce) {
                             Ok(nonce) => nonce,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid pubnonce: {e:}"
+                                )))
+                            }
                         };
                         Ok((pk, pubnonce))
                     })
@@ -380,8 +400,10 @@ where
                     match e.narrow::<RoundFinalizeError, _>() {
                         Ok(e) => ServerMessage::Musig2FirstRoundFinalize(Some(e)),
                         Err(e) => match e.as_enum() {
-                            A(_not_in_first_round) => ServerMessage::InvalidClientMessage,
-                            B(_other_refs_active) => ServerMessage::OpaqueServerError,
+                            A(not_in_correct_round) => ServerMessage::InvalidClientMessage(
+                                format!("{not_in_correct_round:?}"),
+                            ),
+                            B(_other_refs_active) => ServerMessage::TryAgain,
                         },
                     }
                 } else {
@@ -394,7 +416,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundAggNonce {
                         nonce: r2.lock().await.agg_nonce().await.serialize(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
             ClientMessage::Musig2SecondRoundHoldouts { session_id } => {
@@ -409,7 +431,7 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
 
@@ -418,7 +440,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundOurSignature {
                         sig: r2.lock().await.our_signature().await.serialize(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
 
@@ -427,7 +449,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundIsComplete {
                         complete: r2.lock().await.is_complete().await,
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
                 }
             }
 
@@ -435,7 +457,11 @@ where
                 let session_id = &session_id;
                 let r2 = match musig2_sm.lock().await.second_round(session_id) {
                     Some(r2) => r2,
-                    None => return Ok(ServerMessage::InvalidClientMessage),
+                    None => {
+                        return Ok(ServerMessage::InvalidClientMessage(
+                            "no round present".to_owned(),
+                        ))
+                    }
                 };
 
                 let sigs = match sigs
@@ -443,11 +469,19 @@ where
                     .map(|(pk, sig)| {
                         let pk = match XOnlyPublicKey::from_slice(pk) {
                             Ok(pk) => pk,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid pubkey: {e}"
+                                )))
+                            }
                         };
                         let partial_sig = match PartialSignature::from_slice(sig) {
                             Ok(partial_sig) => partial_sig,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid partial sig: {e}"
+                                )))
+                            }
                         };
                         Ok((pk, partial_sig))
                     })
@@ -473,10 +507,15 @@ where
                     .await
                     .finalize_second_round(session_id)
                     .await;
-                match r.map_err(|e| e.narrow::<RoundFinalizeError, _>()) {
+                match r {
                     Ok(sig) => ServerMessage::Musig2SecondRoundFinalize(Ok(sig.serialize()).into()),
-                    Err(Ok(e)) => ServerMessage::Musig2SecondRoundFinalize(Err(e).into()),
-                    Err(Err(_e)) => ServerMessage::InvalidClientMessage,
+                    Err(e) => match e.as_enum() {
+                        E3::A(e) => ServerMessage::InvalidClientMessage(format!("{e:?}")),
+                        E3::B(_other_refs_active) => ServerMessage::TryAgain,
+                        E3::C(round_finalize_err) => ServerMessage::Musig2SecondRoundFinalize(
+                            Err(round_finalize_err.to_owned()).into(),
+                        ),
+                    },
                 }
             }
 

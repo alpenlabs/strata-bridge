@@ -25,13 +25,16 @@ use super::{
 #[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
     /// The message the client sent was invalid.
-    InvalidClientMessage,
+    InvalidClientMessage(String),
 
     /// The server experienced an unexpected internal error while handling the
     /// request.
     ///
     /// Check the server logs for debugging details.
     OpaqueServerError,
+
+    /// An explicit signal from the the server that the client should immediately retry the request
+    TryAgain,
 
     /// Response for [`WalletSigner::sign`](super::traits::WalletSigner::sign) and
     /// [`WalletSigner::sign_no_tweak`](super::traits::WalletSigner::sign_no_tweak)
