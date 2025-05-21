@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/agent",
+  "crates/algebra",
   "crates/db",
   "crates/params",
   "crates/primitives",
@@ -44,6 +45,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # deps in this workspace
+algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-notify = { path = "crates/btc-notify" }
 duty-tracker = { path = "crates/duty-tracker" }
