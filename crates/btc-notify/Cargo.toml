@@ -24,7 +24,8 @@ tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }
 tracing.workspace = true
 
 [dev-dependencies]
-corepc-node.workspace = true
 strata-bridge-common.workspace = true
-serial_test = "3.2.0"
+
+corepc-node.workspace = true
 proptest.workspace = true
+serial_test.workspace = true
