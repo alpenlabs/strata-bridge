@@ -2,7 +2,8 @@
 //! to the blockchain within a reasonable time.
 use std::collections::BTreeMap;
 
-use bitcoin::Transaction;
+use algebra::{monoid::Monoid, semigroup::Semigroup};
+use bitcoin::{Transaction, Txid};
 use bitcoind_async_client::{traits::Broadcaster, Client as BitcoinClient};
 use btc_notify::{
     client::{BtcZmqClient, TxEvent},
@@ -31,6 +32,57 @@ struct TxDriveJob {
     respond_on: oneshot::Sender<Result<(), DriveErr>>,
 }
 
+#[allow(clippy::type_complexity)]
+struct TxJobHeap(BTreeMap<Txid, (Transaction, Vec<oneshot::Sender<Result<(), DriveErr>>>)>);
+impl TxJobHeap {
+    #[allow(clippy::type_complexity)]
+    fn remove(
+        &mut self,
+        txid: &Txid,
+    ) -> Option<(Transaction, Vec<oneshot::Sender<Result<(), DriveErr>>>)> {
+        self.0.remove(txid)
+    }
+
+    fn discharge(mut self, txid: &Txid) -> Self {
+        self.remove(txid)
+            .into_iter()
+            .flat_map(|x| {
+                info!(%txid, "transaction confirmed in block");
+                x.1.into_iter()
+            })
+            .for_each(|chan| {
+                let _ = chan.send(Ok(()));
+            });
+        self
+    }
+}
+impl Semigroup for TxJobHeap {
+    fn merge(self, other: Self) -> Self {
+        let mut a = self.0;
+        let b = other.0;
+        for (k, v) in b {
+            match a.get_mut(&k) {
+                Some(responders) => responders.1.extend(v.1),
+                None => {
+                    a.insert(k, v);
+                }
+            }
+        }
+        TxJobHeap(a)
+    }
+}
+impl Monoid for TxJobHeap {
+    fn empty() -> TxJobHeap {
+        TxJobHeap(BTreeMap::new())
+    }
+}
+impl From<TxDriveJob> for TxJobHeap {
+    fn from(job: TxDriveJob) -> Self {
+        let mut heap = BTreeMap::new();
+        heap.insert(job.tx.compute_txid(), (job.tx, vec![job.respond_on]));
+        TxJobHeap(heap)
+    }
+}
 /// System for driving a signed transaction to confirmation.
 #[derive(Debug)]
 pub struct TxDriver {
@@ -47,7 +99,7 @@ impl TxDriver {
         let driver = tokio::task::spawn(async move {
             let mut new_jobs_receiver_stream = UnboundedReceiverStream::new(new_jobs.1);
             let mut active_tx_subs = SelectAll::<Subscription<TxEvent>>::new();
-            let mut active_jobs = BTreeMap::new();
+            let mut active_jobs = TxJobHeap::empty();
             loop {
                 select! {
                     Some(job) = new_jobs_receiver_stream.next().fuse() => {
@@ -58,7 +110,7 @@ impl TxDriver {
                             move |tx| tx == &rawtx_filter
                         ).await;
                         active_tx_subs.push(tx_sub);
-                        active_jobs.insert(txid, job);
+                        active_jobs = active_jobs.merge(job.into());
                         match rpc_client.send_raw_transaction(&rawtx_rpc_client).await {
                             Ok(txid) => {
                                 info!(%txid, "broadcasted transaction successfully");
@@ -91,21 +143,12 @@ impl TxDriver {
                                     }
                                 }
                             }
-                            btc_notify::client::TxStatus::Buried { height, .. } => {
+                            btc_notify::client::TxStatus::Buried { .. } => {
                                 // Since our responsibility ends at block inclusion we will send an
                                 // answer on the response channel now. It is the API caller's
                                 // responsibility for handling reorgs after inclusion.
                                 let txid = event.rawtx.compute_txid();
-                                match active_jobs.remove(&txid) {
-                                    Some(job) => {
-                                        info!(%txid, %height, "transaction confirmed in block");
-
-                                        let _ = job.respond_on.send(Ok(()));
-                                    }
-                                    None => {
-                                        debug_assert!(false, "invariant violated: no job record");
-                                    }
-                                }
+                                active_jobs = active_jobs.discharge(&txid);
                             }
                             _ => {}
                         }
