@@ -101,7 +101,7 @@ pub(crate) async fn handle_publish_deposit_setup(
     let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
     let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
 
-    let wots_pks = get_wots_pks(deposit_idx, deposit_txid, s2_client).await?;
+    let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
 
     // this duty is generated not only when a deposit request is observed
     // but also when nagged by other operators.

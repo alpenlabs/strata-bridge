@@ -15,7 +15,6 @@ use crate::{
 };
 
 pub(super) async fn get_wots_pks(
-    deposit_idx: u32,
     deposit_txid: Txid,
     s2_client: &SecretServiceClient,
 ) -> Result<WotsPublicKeys, ContractManagerErr> {
@@ -23,17 +22,21 @@ pub(super) async fn get_wots_pks(
     let withdrawal_fulfillment_pk =
         get_withdrawal_fulfillment_wots_pk(deposit_txid, &wots_client).await?;
 
-    const NUM_FQS: usize = NUM_U256;
-    const NUM_PUB_INPUTS: usize = NUM_PUBS;
-    const NUM_HASHES: usize = NUM_HASH;
-
-    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
+    let public_inputs_ftrs: [_; NUM_PUBS] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(
+            deposit_txid,
+            DEPOSIT_VOUT,
+            WITHDRAWAL_FULFILLMENT_PK_IDX + i as u32,
+        )
     });
-    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, (i + NUM_PUB_INPUTS) as u32)
+    let fqs_ftrs: [_; NUM_U256] = std::array::from_fn(|i| {
+        wots_client.get_256_public_key(
+            deposit_txid,
+            DEPOSIT_VOUT,
+            WITHDRAWAL_FULFILLMENT_PK_IDX + (NUM_PUBS + i) as u32,
+        )
     });
-    let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
+    let hashes_ftrs: [_; NUM_HASH] = std::array::from_fn(|i| {
         wots_client.get_128_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
     });
     let (public_inputs, fqs, hashes) = join3(
@@ -43,7 +46,7 @@ pub(super) async fn get_wots_pks(
     )
     .await;
 
-    info!(%deposit_txid, %deposit_idx, "constructing wots keys");
+    info!(%deposit_txid, "constructing wots keys");
     let public_inputs = public_inputs
         .into_iter()
         .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
@@ -77,8 +80,117 @@ pub(super) async fn get_withdrawal_fulfillment_wots_pk(
 }
 
 pub(super) async fn sign_assertions(
-    _wots_client: &WotsClient,
-    _assertions: Assertions,
+    deposit_txid: Txid,
+    wots_client: &WotsClient,
+    assertions: Assertions,
 ) -> Result<wots::Signatures, ContractManagerErr> {
-    todo!()
+    let Assertions {
+        withdrawal_fulfillment,
+        groth16: (public_params, field_elems, hashes),
+    } = assertions;
+
+    let withdrawal_fulfillment_sig = wots_client
+        .get_256_signature(
+            deposit_txid,
+            DEPOSIT_VOUT,
+            WITHDRAWAL_FULFILLMENT_PK_IDX,
+            &withdrawal_fulfillment,
+        )
+        .await?;
+
+    let public_params_sigs_futures = public_params.iter().enumerate().map(|(i, public_param)| {
+        wots_client.get_256_signature(
+            deposit_txid,
+            DEPOSIT_VOUT,
+            WITHDRAWAL_FULFILLMENT_PK_IDX + i as u32,
+            public_param,
+        )
+    });
+
+    let field_elems_sigs_futures = field_elems.iter().enumerate().map(|(i, field_elem)| {
+        wots_client.get_256_signature(
+            deposit_txid,
+            DEPOSIT_VOUT,
+            WITHDRAWAL_FULFILLMENT_PK_IDX + NUM_PUBS as u32 + i as u32,
+            field_elem,
+        )
+    });
+
+    let hash_sigs_futures = hashes
+        .iter()
+        .enumerate()
+        .map(|(i, hash)| wots_client.get_128_signature(deposit_txid, DEPOSIT_VOUT, i as u32, hash));
+
+    let (public_params_sigs, field_elems_sigs, hash_sigs) = join3(
+        join_all(public_params_sigs_futures),
+        join_all(field_elems_sigs_futures),
+        join_all(hash_sigs_futures),
+    )
+    .await;
+
+    let public_params_sigs = public_params_sigs
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if public_params_sigs.len() != NUM_PUBS {
+        return Err(ContractManagerErr::FatalErr(
+            format!(
+                "public params signatures must have the right size, expected: {}, got: {}",
+                NUM_PUBS,
+                public_params_sigs.len()
+            )
+            .into(),
+        ));
+    }
+
+    let public_params_sigs = public_params_sigs
+        .try_into()
+        .expect("public params signatures must have the right size");
+
+    let field_elems_sigs = field_elems_sigs
+        .into_iter()
+        .collect::<Result<Vec<_>, _>>()?;
+
+    if field_elems_sigs.len() != NUM_U256 {
+        return Err(ContractManagerErr::FatalErr(
+            format!(
+                "field element signatures must have the right size, expected: {}, got: {}",
+                NUM_U256,
+                field_elems_sigs.len()
+            )
+            .into(),
+        ));
+    }
+
+    let field_elems_sigs = field_elems_sigs
+        .try_into()
+        .expect("field element signatures must have the right size");
+
+    let hash_sigs = hash_sigs.into_iter().collect::<Result<Vec<_>, _>>()?;
+
+    if hash_sigs.len() != NUM_HASH {
+        return Err(ContractManagerErr::FatalErr(
+            format!(
+                "hash signatures must have the right size, expected: {}, got: {}",
+                NUM_HASH,
+                hash_sigs.len()
+            )
+            .into(),
+        ));
+    }
+
+    let hash_sigs = hash_sigs
+        .try_into()
+        .expect("hash signatures must have the right size");
+
+    let wots_sigs = wots::Signatures {
+        withdrawal_fulfillment: wots::Wots256Signature(withdrawal_fulfillment_sig),
+        groth16: wots::Groth16Signatures((
+            Box::new(public_params_sigs),
+            Box::new(field_elems_sigs),
+            Box::new(hash_sigs),
+        )),
+    };
+
+    Ok(wots_sigs)
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bitcoin::{taproot, Network, ScriptBuf, Txid};
+use bitcoin::{taproot, Network, Txid};
 use bitvm::chunk::api::generate_assertions;
 use futures::future::join_all;
 use secret_service_proto::v1::traits::*;
@@ -57,7 +57,7 @@ pub(crate) async fn handle_publish_pre_assert(
     let connector_cpfp = ConnectorCpfp::new(operator_key, network);
 
     info!(%deposit_idx, %deposit_txid, "getting wots public keys from s2");
-    let wots_pks = get_wots_pks(deposit_idx, deposit_txid, s2_client).await?;
+    let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
 
     let (connector_a256_factory, connector_a_hash_factory) =
         create_assert_data_connectors(network, wots_pks);
@@ -85,24 +85,26 @@ pub(crate) async fn handle_publish_pre_assert(
 pub(crate) async fn handle_publish_assert_data(
     cfg: &ExecutionConfig,
     output_handles: Arc<OutputHandles>,
+    deposit_idx: u32,
     deposit_txid: Txid,
-    pre_assert_txid: Txid,
-    pre_assert_locking_scripts: [ScriptBuf; NUM_ASSERT_DATA_TX],
+    assert_data_input: AssertDataTxInput,
     withdrawal_fulfillment_txid: Txid,
     start_height: u64,
 ) -> Result<(), ContractManagerErr> {
-    // prepare proof input
+    info!(%deposit_idx, %deposit_txid, %start_height, %withdrawal_fulfillment_txid, "preparing proof input");
     let input = prepare_proof_input(
         cfg,
+        deposit_idx,
         output_handles.clone(),
         withdrawal_fulfillment_txid,
         start_height,
-    )?;
+    )
+    .await?;
 
-    // generate the proof
+    info!(header_length=%input.headers.len(), "generating proof");
     let (proof, scalars, public_params) = generate_proof(&input)?;
 
-    // generate assertions
+    info!(%deposit_idx, %deposit_txid, "generating assertions for proof");
     let groth16_assertions = generate_assertions(
         proof,
         scalars.to_vec(),
@@ -113,12 +115,6 @@ pub(crate) async fn handle_publish_assert_data(
     let assertions = Assertions {
         withdrawal_fulfillment: public_params.withdrawal_fulfillment_txid.0,
         groth16: groth16_assertions,
-    };
-
-    // prepare assert-data txs
-    let assert_data_batch_input = AssertDataTxInput {
-        pre_assert_txid,
-        pre_assert_locking_scripts,
     };
 
     let agg_pubkey = cfg
@@ -137,15 +133,15 @@ pub(crate) async fn handle_publish_assert_data(
     let connector_cpfp = ConnectorCpfp::new(general_key, cfg.network);
 
     let assert_data_tx_batch =
-        AssertDataTxBatch::new(assert_data_batch_input, connector_n_of_n, connector_cpfp);
+        AssertDataTxBatch::new(assert_data_input, connector_n_of_n, connector_cpfp);
 
-    // commit to assertions
+    info!(%deposit_idx, %deposit_txid, "committing to assertions with WOTS");
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
     let wots_client = s2_client.wots_signer();
-    let wots_signatures = sign_assertions(&wots_client, assertions).await?;
+    let wots_signatures = sign_assertions(deposit_txid, &wots_client, assertions).await?;
 
-    // finalize assert-data txs
-    let wots_pks = get_wots_pks(input.deposit_idx, deposit_txid, s2_client).await?;
+    info!(%deposit_txid, "finalizing assert-data transactions with signed assertions");
+    let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
 
     let (connector_a256_factory, connector_a_hash_factory) =
         create_assert_data_connectors(cfg.network, wots_pks);
@@ -157,6 +153,7 @@ pub(crate) async fn handle_publish_assert_data(
     );
 
     // submit assert-data txs to the tx-driver
+    info!(%deposit_idx, %deposit_txid, total_txs=%signed_assert_data_txs.len(), "submitting assert-data transactions to the tx-driver");
     join_all(
         signed_assert_data_txs
             .into_iter()
