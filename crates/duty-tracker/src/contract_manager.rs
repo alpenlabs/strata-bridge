@@ -23,7 +23,10 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
-use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
+use strata_bridge_tx_graph::transactions::{
+    deposit::DepositTx,
+    prelude::{AssertDataTxInput, CovenantTx},
+};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
@@ -1571,6 +1574,7 @@ async fn execute_duty(
             FulfillerDuty::PublishAssertData {
                 start_height,
                 withdrawal_fulfillment_txid,
+                deposit_idx,
                 deposit_txid,
                 pre_assert_txid,
                 pre_assert_locking_scripts,
@@ -1578,9 +1582,12 @@ async fn execute_duty(
                 handle_publish_assert_data(
                     cfg,
                     output_handles.clone(),
+                    deposit_idx,
                     deposit_txid,
-                    pre_assert_txid,
-                    *pre_assert_locking_scripts,
+                    AssertDataTxInput {
+                        pre_assert_txid,
+                        pre_assert_locking_scripts: *pre_assert_locking_scripts,
+                    },
                     withdrawal_fulfillment_txid,
                     start_height,
                 )

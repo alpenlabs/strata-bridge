@@ -13,6 +13,7 @@ strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true
+strata-bridge-proof-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark.workspace = true
 strata-bridge-stake-chain.workspace = true

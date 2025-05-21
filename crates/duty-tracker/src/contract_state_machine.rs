@@ -1026,6 +1026,9 @@ pub enum FulfillerDuty {
         /// Start height of the bitcoin chain fragment that is part of the proof being asserted.
         start_height: BitcoinBlockHeight,
 
+        /// The index of the deposit being claimed.
+        deposit_idx: u32,
+
         /// The transaction ID of the deposit being claimed.
         deposit_txid: Txid,
 
@@ -1079,8 +1082,9 @@ impl Display for FulfillerDuty {
             ),
             FulfillerDuty::PublishAssertData {
                 withdrawal_fulfillment_txid,
+                deposit_idx,
                 ..
-            } => write!(f, "PublishAssertData for {withdrawal_fulfillment_txid}"),
+            } => write!(f, "PublishAssertData for {withdrawal_fulfillment_txid} and deposit {deposit_idx}"),
             FulfillerDuty::PublishPostAssertData { .. } => {
                 write!(f, "PublishPostAssertData")
             }
@@ -2701,6 +2705,7 @@ impl ContractSM {
                     FulfillerDuty::PublishAssertData {
                         withdrawal_fulfillment_txid,
                         start_height: assignment_height,
+                        deposit_idx: self.cfg.deposit_idx,
                         deposit_txid: self.deposit_txid(),
                         pre_assert_txid: txid,
                         pre_assert_locking_scripts,
