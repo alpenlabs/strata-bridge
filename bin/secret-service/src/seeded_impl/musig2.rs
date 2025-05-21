@@ -128,12 +128,12 @@ impl SchnorrSigner<Server> for Ms2Signer {
         self.kp
             .tap_tweak(SECP256K1, tweak)
             .to_keypair()
-            .sign_schnorr(Message::from_digest_slice(digest).unwrap())
+            .sign_schnorr(Message::from_digest_slice(digest).expect("digest is 32 bytes"))
     }
 
     async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<Signature> {
         self.kp
-            .sign_schnorr(Message::from_digest_slice(digest).unwrap())
+            .sign_schnorr(Message::from_digest_slice(digest).expect("digest is exactly 32 bytes"))
     }
 
     async fn pubkey(&self) -> <Server as Origin>::Container<XOnlyPublicKey> {

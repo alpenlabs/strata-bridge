@@ -1,0 +1,15 @@
+[package]
+name = "wots"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bitcoin.workspace = true
+bitvm.optional = true
+bitvm.workspace = true
+
+[dev-dependencies]
+bitcoin-script.workspace = true
+
+[features]
+signing = ["dep:bitvm"]

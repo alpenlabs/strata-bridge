@@ -4,16 +4,21 @@ use std::collections::BTreeMap;
 
 use bitcoin::{
     hashes::Hash,
-    taproot::{ControlBlock, TaprootError},
+    key::constants::SCHNORR_PUBLIC_KEY_SIZE,
+    taproot::{ControlBlock, TaprootError, TAPROOT_CONTROL_NODE_SIZE},
     ScriptBuf, TapNodeHash,
 };
 use bitvm::signatures::wots_api::{wots256, wots_hash};
-use musig2::errors::{RoundContributionError, RoundFinalizeError};
+use musig2::{
+    errors::{RoundContributionError, RoundFinalizeError},
+    SCHNORR_SIGNATURE_SIZE,
+};
 use rkyv::{
     with::{Identity, Map, MapKV},
     Archive, Deserialize, Serialize,
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use wots::{key_width, WINTERNITZ_DIGIT_WIDTH};
 
 use super::{
     rkyv_wrappers,
@@ -40,13 +45,13 @@ pub enum ServerMessage {
     /// [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak)
     WalletSignerSign {
         /// Schnorr signature for a certain message.
-        sig: [u8; 64],
+        sig: [u8; SCHNORR_SIGNATURE_SIZE],
     },
 
     /// Response for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
     WalletSignerPubkey {
         /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
-        pubkey: [u8; 32],
+        pubkey: [u8; SCHNORR_PUBLIC_KEY_SIZE],
     },
 
     /// Response for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
@@ -142,28 +147,28 @@ pub enum ServerMessage {
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
     WotsGet128SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: WotsKey<36>,
+        key: [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)],
     },
 
     /// Response for
     /// [`WotsSigner::get_256_secret_key`](super::traits::WotsSigner::get_256_secret_key).
     WotsGet256SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: WotsKey<68>,
+        key: [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)],
     },
 
     /// Response for
     /// [`WotsSigner::get_128_public_key`](super::traits::WotsSigner::get_128_public_key).
     WotsGet128PublicKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: WotsKey<36>,
+        key: [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)],
     },
 
     /// Response for
     /// [`WotsSigner::get_256_public_key`](super::traits::WotsSigner::get_256_public_key).
     WotsGet256PublicKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
-        key: WotsKey<68>,
+        key: [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)],
     },
 
     /// Response for
@@ -226,7 +231,7 @@ pub enum ClientMessage {
         digest: [u8; 32],
 
         /// The tweak used to sign the message.
-        tweak: Option<[u8; 32]>,
+        tweak: Option<[u8; TAPROOT_CONTROL_NODE_SIZE]>,
     },
 
     /// Request for [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak).
@@ -516,5 +521,3 @@ pub struct WotsKeySpecifier {
     /// hence to resolve the ambiguity, the index is needed.
     pub index: u32,
 }
-
-pub type WotsKey<const NUM: usize> = [u8; 20 * NUM];
