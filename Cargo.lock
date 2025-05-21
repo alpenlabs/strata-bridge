@@ -3403,6 +3403,7 @@ dependencies = [
  "strata-bridge-db",
  "strata-bridge-p2p-service",
  "strata-bridge-primitives",
+ "strata-bridge-proof-primitives",
  "strata-bridge-proof-protocol",
  "strata-bridge-proof-snark",
  "strata-bridge-stake-chain",
