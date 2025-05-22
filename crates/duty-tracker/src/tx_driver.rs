@@ -27,22 +27,28 @@ pub enum DriveErr {
     DriverAborted,
 }
 
+/// This is the minimal description of a request to drive a transaction.
 struct TxDriveJob {
+    /// The actual transaction to publish
     tx: Transaction,
+
+    /// The channel that we should publish on when the job is done.
     respond_on: oneshot::Sender<Result<(), DriveErr>>,
 }
 
-#[allow(clippy::type_complexity)]
-struct TxJobHeap(BTreeMap<Txid, (Transaction, Vec<oneshot::Sender<Result<(), DriveErr>>>)>);
+type TxSubscriberSet = Vec<oneshot::Sender<Result<(), DriveErr>>>;
+
+/// The TxJobHeap is a map from [`Txid`]s to the corresponding [`Transaction`] and a list of
+/// listeners for the results.
+struct TxJobHeap(BTreeMap<Txid, (Transaction, TxSubscriberSet)>);
 impl TxJobHeap {
-    #[allow(clippy::type_complexity)]
-    fn remove(
-        &mut self,
-        txid: &Txid,
-    ) -> Option<(Transaction, Vec<oneshot::Sender<Result<(), DriveErr>>>)> {
+    /// Removes all jobs associated with a given [`Transaction`] and returns the job details.
+    fn remove(&mut self, txid: &Txid) -> Option<(Transaction, TxSubscriberSet)> {
         self.0.remove(txid)
     }
 
+    /// Notifies all listeners that the [`Txid`] has been buried and returns a new job heap without
+    /// the jobs that have been notified.
     fn discharge(mut self, txid: &Txid) -> Self {
         self.remove(txid)
             .into_iter()
@@ -56,6 +62,9 @@ impl TxJobHeap {
         self
     }
 }
+
+/// The Semigroup impl for TxJobHeap merges heaps so that all listeners are notified but the
+/// representation is always minimally encoded.
 impl Semigroup for TxJobHeap {
     fn merge(self, other: Self) -> Self {
         let mut a = self.0;
@@ -71,18 +80,23 @@ impl Semigroup for TxJobHeap {
         TxJobHeap(a)
     }
 }
+
+/// The Monoid impl for TxJobHeap yields a heap that contains no transactions it is trying to drive.
 impl Monoid for TxJobHeap {
     fn empty() -> TxJobHeap {
         TxJobHeap(BTreeMap::new())
     }
 }
+
 impl From<TxDriveJob> for TxJobHeap {
+    /// Converts a TxDriveJob into a TxJobHeap with a single job in it.
     fn from(job: TxDriveJob) -> Self {
         let mut heap = BTreeMap::new();
         heap.insert(job.tx.compute_txid(), (job.tx, vec![job.respond_on]));
         TxJobHeap(heap)
     }
 }
+
 /// System for driving a signed transaction to confirmation.
 #[derive(Debug)]
 pub struct TxDriver {
