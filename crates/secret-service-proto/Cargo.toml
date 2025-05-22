@@ -10,7 +10,7 @@ musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true
 strata-bridge-primitives.workspace = true
-wots = { version = "0.1.0", path = "../wots" }
+# wots = { version = "0.1.0", path = "../wots" }
 
 [lints]
 rust.missing_debug_implementations = "warn"
