@@ -55,10 +55,7 @@ impl TxJobHeap {
     fn discharge(mut self, txid: &Txid) -> Self {
         self.remove(txid)
             .into_iter()
-            .flat_map(|x| {
-                info!(%txid, "transaction confirmed in block");
-                x.into_iter()
-            })
+            .flat_map(|x| x.into_iter())
             .for_each(|chan| {
                 let _ = chan.send(Ok(()));
             });
@@ -166,11 +163,12 @@ impl TxDriver {
                                     }
                                 }
                             }
-                            btc_notify::client::TxStatus::Buried { .. } => {
+                            btc_notify::client::TxStatus::Buried { height, .. } => {
                                 // Since our responsibility ends at block inclusion we will send an
                                 // answer on the response channel now. It is the API caller's
                                 // responsibility for handling reorgs after inclusion.
                                 let txid = event.rawtx.compute_txid();
+                                info!(%txid, %height, "transaction confirmed in block");
                                 active_jobs = active_jobs.discharge(&txid);
                             }
                             _ => {}
