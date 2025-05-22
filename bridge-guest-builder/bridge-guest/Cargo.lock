@@ -1753,7 +1753,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
+source = "git+https://github.com/alpenlabs/alpen.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "secp256k1",
  "sha2",
@@ -1766,7 +1766,7 @@ dependencies = [
 [[package]]
 name = "strata-l1tx"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
+source = "git+https://github.com/alpenlabs/alpen.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -1782,7 +1782,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
+source = "git+https://github.com/alpenlabs/alpen.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -1810,7 +1810,7 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
+source = "git+https://github.com/alpenlabs/alpen.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -1827,7 +1827,7 @@ dependencies = [
 [[package]]
 name = "strata-state"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
+source = "git+https://github.com/alpenlabs/alpen.git#34479ee782f74a5aaf43ed2c850dd215093fa580"
 dependencies = [
  "anyhow",
  "arbitrary",
