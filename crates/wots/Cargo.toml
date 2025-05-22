@@ -5,8 +5,7 @@ edition = "2021"
 
 [dependencies]
 bitcoin.workspace = true
-bitvm.optional = true
-bitvm.workspace = true
+bitvm = { workspace = true, optional = true }
 
 [dev-dependencies]
 bitcoin-script.workspace = true
