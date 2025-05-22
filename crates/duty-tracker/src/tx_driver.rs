@@ -222,6 +222,7 @@ mod e2e_tests {
     use futures::join;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_test_utils::prelude::wait_for_height;
     use tracing::{debug, info};
 
     use super::TxDriver;
@@ -243,7 +244,6 @@ mod e2e_tests {
             format!("-zmqpubrawtx={raw_tx_socket}"),
             format!("-zmqpubsequence={sequence_socket}"),
         ];
-
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
         let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
         info!("corepc_node::Node initialized");
@@ -340,23 +340,5 @@ mod e2e_tests {
         snd_res.expect("second drive succeeds");
 
         Ok(())
-    }
-
-    // This is disabled because it is merely a testing helper function to ensure tests complete in
-    // a timely manner, so we don't want lack of full coverage in this function to distract from
-    // overall coverage.
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    async fn wait_for_height(
-        rpc_client: &corepc_node::Node,
-        height: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(
-            tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                while rpc_client.client.get_blockchain_info().unwrap().blocks != height as i64 {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-            })
-            .await?,
-        )
     }
 }

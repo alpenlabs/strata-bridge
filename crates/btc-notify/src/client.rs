@@ -270,6 +270,7 @@ mod e2e_tests {
     use corepc_node::serde_json::json;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_test_utils::prelude::wait_for_height;
 
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
@@ -337,24 +338,6 @@ mod e2e_tests {
         let client_2 = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
 
         Ok((client_1, client_2, bitcoind))
-    }
-
-    // This is disabled because it is merely a testing helper function to ensure tests complete in
-    // a timely manner, so we don't want lack of full coverage in this function to distract from
-    // overall coverage.
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    async fn wait_for_height(
-        rpc_client: &corepc_node::Node,
-        height: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(
-            tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                while rpc_client.client.get_blockchain_info().unwrap().blocks != height as i64 {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-            })
-            .await?,
-        )
     }
 
     #[tokio::test]

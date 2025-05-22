@@ -2235,6 +2235,7 @@ dependencies = [
  "serde",
  "serial_test",
  "strata-bridge-common",
+ "strata-bridge-test-utils",
  "tokio",
  "tracing",
 ]
@@ -10121,6 +10122,7 @@ dependencies = [
  "serde_json",
  "strata-bridge-primitives",
  "strata-primitives",
+ "tokio",
 ]
 
 [[package]]
