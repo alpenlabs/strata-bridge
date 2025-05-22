@@ -80,7 +80,7 @@ impl SqliteDb {
 impl PublicDb for SqliteDb {
     async fn get_wots_public_keys(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<Option<wots::PublicKeys>> {
         execute_with_retries(self.config(), || async {
@@ -93,7 +93,7 @@ impl PublicDb for SqliteDb {
                     deposit_txid AS "deposit_txid: DbTxid"
                     FROM wots_public_keys
                     WHERE operator_id = $1 AND deposit_txid = $2"#,
-                operator_id,
+                operator_idx,
                 deposit_txid,
             )
             .fetch_optional(&self.pool)
@@ -108,7 +108,7 @@ impl PublicDb for SqliteDb {
 
     async fn set_wots_public_keys(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
         public_keys: &wots::PublicKeys,
     ) -> DbResult<()> {
@@ -121,7 +121,7 @@ impl PublicDb for SqliteDb {
                 "INSERT OR REPLACE INTO wots_public_keys
                     (operator_id, deposit_txid, public_keys)
                     VALUES ($1, $2, $3)",
-                operator_id,
+                operator_idx,
                 deposit_txid,
                 public_keys,
             )
@@ -138,7 +138,7 @@ impl PublicDb for SqliteDb {
 
     async fn get_wots_signatures(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<Option<wots::Signatures>> {
         execute_with_retries(self.config(), || async move {
@@ -150,7 +150,7 @@ impl PublicDb for SqliteDb {
                     deposit_txid AS "deposit_txid: DbTxid"
                     FROM wots_signatures
                     WHERE operator_id = $1 AND deposit_txid = $2"#,
-                operator_id,
+                operator_idx,
                 deposit_txid,
             )
             .fetch_optional(&self.pool)
@@ -165,7 +165,7 @@ impl PublicDb for SqliteDb {
 
     async fn set_wots_signatures(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
         signatures: &wots::Signatures,
     ) -> DbResult<()> {
@@ -178,7 +178,7 @@ impl PublicDb for SqliteDb {
                 "INSERT OR REPLACE INTO wots_signatures
                     (operator_id, deposit_txid, signatures)
                     VALUES ($1, $2, $3)",
-                operator_id,
+                operator_idx,
                 deposit_txid,
                 db_signatures,
             )
@@ -225,7 +225,7 @@ impl PublicDb for SqliteDb {
 
     async fn set_signature(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
         signature: Signature,
@@ -240,7 +240,7 @@ impl PublicDb for SqliteDb {
                     (signature, operator_id, txid, input_index)
                     VALUES ($1, $2, $3, $4)",
                 signature,
-                operator_id,
+                operator_idx,
                 txid,
                 input_index
             )
@@ -297,13 +297,13 @@ impl PublicDb for SqliteDb {
         .await
     }
 
-    async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
+    async fn add_stake_txid(&self, operator_idx: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
         execute_with_retries(&self.config, || async {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
             let stake_id = sqlx::query!(
                 "SELECT COUNT(*) AS cnt FROM operator_stake_txids WHERE operator_id = $1",
-                operator_id
+                operator_idx
             )
             .fetch_all(&mut *tx)
             .await
@@ -317,7 +317,7 @@ impl PublicDb for SqliteDb {
                 "INSERT OR IGNORE INTO operator_stake_txids
                         (operator_id, stake_id, stake_txid)
                         VALUES ($1, $2, $3)",
-                operator_id,
+                operator_idx,
                 stake_id,
                 stake_txid
             )
@@ -334,7 +334,7 @@ impl PublicDb for SqliteDb {
 
     async fn get_stake_txid(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_id: u32,
     ) -> DbResult<Option<Txid>> {
         execute_with_retries(self.config(), || async {
@@ -342,7 +342,7 @@ impl PublicDb for SqliteDb {
                 r#"SELECT stake_txid AS "stake_txid: DbTxid"
                     FROM operator_stake_txids
                     WHERE operator_id = $1 AND stake_id = $2"#,
-                operator_id,
+                operator_idx,
                 stake_id
             )
             .fetch_optional(&self.pool)
@@ -353,7 +353,7 @@ impl PublicDb for SqliteDb {
         .await
     }
 
-    async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
+    async fn set_pre_stake(&self, operator_idx: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
         execute_with_retries(&self.config, || async {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
@@ -364,7 +364,7 @@ impl PublicDb for SqliteDb {
                 "INSERT OR IGNORE INTO operator_pre_stake_data
                     (operator_id, pre_stake_txid, pre_stake_vout)
                     VALUES ($1, $2, $3)",
-                operator_id,
+                operator_idx,
                 pre_stake_txid,
                 pre_stake_vout
             )
@@ -379,13 +379,13 @@ impl PublicDb for SqliteDb {
         .await
     }
 
-    async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>> {
+    async fn get_pre_stake(&self, operator_idx: OperatorIdx) -> DbResult<Option<OutPoint>> {
         execute_with_retries(self.config(), || async {
             Ok(sqlx::query!(
                 r#"SELECT pre_stake_txid AS "txid: DbTxid", pre_stake_vout AS "vout: DbInputIndex"
                     FROM operator_pre_stake_data
                     WHERE operator_id = $1"#,
-                operator_id
+                operator_idx
             )
             .fetch_optional(&self.pool)
             .await
@@ -400,7 +400,7 @@ impl PublicDb for SqliteDb {
 
     async fn add_stake_data(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()> {
@@ -415,7 +415,7 @@ impl PublicDb for SqliteDb {
                     "INSERT OR IGNORE INTO operator_stake_data
                         (operator_id, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
                         VALUES ($1, $2, $3, $4, $5, $6)",
-                    operator_id,
+                    operator_idx,
                     stake_index,
                     stake_data.funding_txid,
                     stake_data.funding_vout,
@@ -435,7 +435,7 @@ impl PublicDb for SqliteDb {
 
     async fn get_stake_data(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         deposit_id: u32,
     ) -> DbResult<Option<StakeTxData>> {
         execute_with_retries(self.config(), || async {
@@ -448,7 +448,7 @@ impl PublicDb for SqliteDb {
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
                     WHERE operator_id = $1 AND deposit_id = $2"#,
-                operator_id,
+                operator_idx,
                 deposit_id
             )
             .fetch_optional(&self.pool)
@@ -459,7 +459,7 @@ impl PublicDb for SqliteDb {
         .await
     }
 
-    async fn get_all_stake_data(&self, operator_id: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
+    async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
         execute_with_retries(self.config(), || async {
             Ok(sqlx::query_as!(
                 models::DbStakeTxData,
@@ -471,7 +471,7 @@ impl PublicDb for SqliteDb {
                     FROM operator_stake_data
                     WHERE operator_id = $1
                     ORDER BY deposit_id ASC"#,
-                operator_id,
+                operator_idx,
             )
             .fetch_all(&self.pool)
             .await

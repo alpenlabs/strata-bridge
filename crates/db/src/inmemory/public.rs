@@ -64,49 +64,49 @@ pub struct PublicDbInMemory {
 impl PublicDb for PublicDbInMemory {
     async fn get_wots_public_keys(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<Option<wots::PublicKeys>> {
         Ok(self
             .wots_public_keys
             .read()
             .await
-            .get(&operator_id)
+            .get(&operator_idx)
             .and_then(|m| m.get(&deposit_txid))
             .cloned())
     }
 
     async fn get_wots_signatures(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<Option<wots::Signatures>> {
         Ok(self
             .wots_signatures
             .read()
             .await
-            .get(&operator_id)
+            .get(&operator_idx)
             .and_then(|m| m.get(&deposit_txid))
             .cloned())
     }
 
     async fn set_wots_public_keys(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
         public_keys: &wots::PublicKeys,
     ) -> DbResult<()> {
-        trace!(action = "trying to acquire wlock on wots public keys", %operator_id, %deposit_txid);
+        trace!(action = "trying to acquire wlock on wots public keys", %operator_idx, %deposit_txid);
         let mut map = self.wots_public_keys.write().await;
-        trace!(event = "wlock acquired on wots public keys", %operator_id, %deposit_txid);
+        trace!(event = "wlock acquired on wots public keys", %operator_idx, %deposit_txid);
 
-        if let Some(op_keys) = map.get_mut(&operator_id) {
-            op_keys.insert(deposit_txid, public_keys.clone());
+        if let Some(op_keys) = map.get_mut(&operator_idx) {
+            op_keys.insert(deposit_txid, *public_keys);
         } else {
             let mut keys = HashMap::new();
             keys.insert(deposit_txid, public_keys.clone());
 
-            map.insert(operator_id, keys);
+            map.insert(operator_idx, keys);
         }
 
         Ok(())
@@ -129,21 +129,21 @@ impl PublicDb for PublicDbInMemory {
 
     async fn set_wots_signatures(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
         signatures: &wots::Signatures,
     ) -> DbResult<()> {
-        trace!(action = "trying to acquire wlock on wots signatures", %operator_id, %deposit_txid);
+        trace!(action = "trying to acquire lock on wots signatures", %operator_idx, %deposit_txid);
         let mut map = self.wots_signatures.write().await;
-        trace!(event = "wlock acquired on wots signatures", %operator_id, %deposit_txid);
+        trace!(event = "wlock acquired on wots signatures", %operator_idx, %deposit_txid);
 
-        if let Some(op_keys) = map.get_mut(&operator_id) {
+        if let Some(op_keys) = map.get_mut(&operator_idx) {
             op_keys.insert(deposit_txid, signatures.clone());
         } else {
             let mut sigs_map = HashMap::new();
             sigs_map.insert(deposit_txid, signatures.clone());
 
-            map.insert(operator_id, sigs_map);
+            map.insert(operator_idx, sigs_map);
         }
 
         Ok(())
@@ -184,20 +184,20 @@ impl PublicDb for PublicDbInMemory {
         Ok(self.deposits_table.read().await.get(&deposit_txid).copied())
     }
 
-    async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
+    async fn add_stake_txid(&self, operator_idx: OperatorIdx, stake_txid: Txid) -> DbResult<()> {
         let mut stake_txid_table = self.stake_txid_table.write().await;
         // get number of stake ids for this operator
         let stake_id = stake_txid_table
-            .get(&operator_id)
+            .get(&operator_idx)
             .map_or(0, |m| m.keys().count() as u32);
 
-        if let Some(m) = stake_txid_table.get_mut(&operator_id) {
+        if let Some(m) = stake_txid_table.get_mut(&operator_idx) {
             m.insert(stake_id, stake_txid);
         } else {
             let mut m = HashMap::new();
             m.insert(stake_id, stake_txid);
 
-            stake_txid_table.insert(operator_id, m);
+            stake_txid_table.insert(operator_idx, m);
         }
 
         Ok(())
@@ -205,44 +205,49 @@ impl PublicDb for PublicDbInMemory {
 
     async fn get_stake_txid(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_id: u32,
     ) -> DbResult<Option<Txid>> {
         Ok(self
             .stake_txid_table
             .read()
             .await
-            .get(&operator_id)
+            .get(&operator_idx)
             .and_then(|m| m.get(&stake_id))
             .copied())
     }
 
-    async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
+    async fn set_pre_stake(&self, operator_idx: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
         let mut pre_stake_table = self.pre_stake_table.write().await;
-        pre_stake_table.insert(operator_id, pre_stake);
+        pre_stake_table.insert(operator_idx, pre_stake);
 
         Ok(())
     }
 
-    async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>> {
-        Ok(self.pre_stake_table.read().await.get(&operator_id).copied())
+    async fn get_pre_stake(&self, operator_idx: OperatorIdx) -> DbResult<Option<OutPoint>> {
+        Ok(self
+            .pre_stake_table
+            .read()
+            .await
+            .get(&operator_idx)
+            .copied())
     }
 
     async fn add_stake_data(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()> {
         let mut operator_stake_data = self.stake_data.write().await;
 
-        if let Some(data) = operator_stake_data.get_mut(&operator_id) {
+        if let Some(data) = operator_stake_data.get_mut(&operator_idx) {
             data.insert(stake_index, stake_data);
         } else {
             let mut data = HashMap::new();
             data.insert(stake_index, stake_data);
 
-            operator_stake_data.insert(operator_id, data);
+            operator_stake_data.insert(operator_idx, data);
         }
 
         Ok(())
