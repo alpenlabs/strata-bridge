@@ -4,7 +4,10 @@ use std::collections::BTreeMap;
 
 use algebra::{monoid::Monoid, semigroup::Semigroup};
 use bitcoin::{Transaction, Txid};
-use bitcoind_async_client::{traits::Broadcaster, Client as BitcoinClient};
+use bitcoind_async_client::{
+    traits::{Broadcaster, Reader},
+    Client as BitcoinClient,
+};
 use btc_notify::{
     client::{BtcZmqClient, TxEvent},
     subscription::Subscription,
@@ -17,7 +20,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 /// Error type for the TxDriver.
 #[derive(Debug, Error)]
@@ -125,6 +128,12 @@ impl TxDriver {
                         ).await;
                         active_tx_subs.push(tx_sub);
                         active_jobs = active_jobs.merge(job.into());
+
+                        if rpc_client.get_raw_transaction_verbosity_zero(&txid).await.is_ok() {
+                            debug!(%txid, "duplicate TxDriver::drive request. skipping resubmission.");
+                            continue;
+                        }
+
                         match rpc_client.send_raw_transaction(&rawtx_rpc_client).await {
                             Ok(txid) => {
                                 info!(%txid, "broadcasted transaction successfully");
