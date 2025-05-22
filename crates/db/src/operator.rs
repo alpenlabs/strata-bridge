@@ -1,12 +1,12 @@
 //! This module defines the OperatorDb trait, which is used to interact with the operator's
 //! database.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use arbitrary::Arbitrary;
 use async_trait::async_trait;
 use bitcoin::{hashes::Hash, Amount, OutPoint, ScriptBuf, TxOut, Txid};
-use musig2::{PartialSignature, PubNonce, SecNonce};
+use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::{bitcoin::BitcoinAddress, types::OperatorIdx};
 
 use crate::errors::DbResult;
@@ -52,63 +52,82 @@ impl<'a> Arbitrary<'a> for KickoffInfo {
 
 /// Interface to operate on the data required by the operator.
 ///
-/// This data includes the pubnonces, secnonces, and signatures required for the operator to perform
-/// its duties. This interface operates on data that is either sensitive or not required to be
-/// public.
+/// This data includes the public nonces, aggregated nonces and partial signatures required for the
+/// operator to perform its duties. This interface operates on data that is either sensitive or not
+/// required to be public.
 #[async_trait]
 pub trait OperatorDb {
-    async fn add_pubnonce(
+    /// Gets, if present, a MuSig2 [`PubNonce`] from the database, given an [`OperatorIdx`],
+    /// a [`Txid`], and an `input_index`.
+    async fn get_pub_nonce(
         &self,
+        operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
+    ) -> DbResult<Option<PubNonce>>;
+
+    /// Sets a MuSig2 [`PubNonce`] in the database, for a given [`OperatorIdx`],
+    /// a [`Txid`], and an `input_index`.
+    async fn set_pub_nonce(
+        &self,
         operator_idx: OperatorIdx,
-        pubnonce: PubNonce,
+        txid: Txid,
+        input_index: u32,
+        pub_nonces: PubNonce,
     ) -> DbResult<()>;
 
-    async fn collected_pubnonces(
+    /// Gets, if present, a MuSig2 [`AggNonce`] (aggregated nonce) from the database,
+    /// given a [`Txid`], and an `input_index`.
+    async fn get_aggregated_nonce(
         &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<BTreeMap<OperatorIdx, PubNonce>>;
+    ) -> DbResult<Option<AggNonce>>;
 
-    async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()>;
-
-    async fn get_secnonce(&self, txid: Txid, input_index: u32) -> DbResult<Option<SecNonce>>;
-
-    async fn add_message_hash_and_signature(
+    /// Sets a MuSig2 [`AggNonce`] (aggregated nonce) in the database, for a given
+    /// a [`Txid`], and an `input_index`.
+    async fn set_aggregated_nonce(
         &self,
         txid: Txid,
         input_index: u32,
-        message_sighash: Vec<u8>,
+        pub_nonces: AggNonce,
+    ) -> DbResult<()>;
+
+    /// Gets, if present, a MuSig2 partial [`Signature`] from the database,
+    /// given an [`OperatorIdx`], a [`Txid`], and an `input_index`.
+    async fn get_partial_signature(
+        &self,
         operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
+    ) -> DbResult<Option<PartialSignature>>;
+
+    /// Sets a MuSig2 partial [`Signature`] in the database, for a given [`OperatorIdx`],
+    /// a [`Txid`], and an `input_index`.
+    async fn set_partial_signature(
+        &self,
+        operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
         signature: PartialSignature,
     ) -> DbResult<()>;
 
-    /// Adds a partial signature to the map if already present.
-    async fn add_partial_signature(
+    /// Gets, if present, a MuSig2 [`TaprootWitness`] from the database,
+    /// given an [`OperatorIdx`], a [`Txid`], and an `input_index`.
+    async fn get_witness(
         &self,
-        txid: Txid,
-        input_index: u32,
         operator_idx: OperatorIdx,
-        signature: PartialSignature,
-    ) -> DbResult<()>;
-
-    async fn collected_signatures_per_msg(
-        &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Option<MsgHashAndOpIdToSigMap>>;
+    ) -> DbResult<Option<TaprootWitness>>;
 
-    async fn add_outpoint(&self, outpoint: OutPoint) -> DbResult<bool>;
-
-    async fn selected_outpoints(&self) -> DbResult<HashSet<OutPoint>>;
-
-    async fn add_kickoff_info(&self, deposit_txid: Txid, kickoff_info: KickoffInfo)
-        -> DbResult<()>;
-
-    async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>>;
-
-    async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>>;
-
-    async fn set_checkpoint_index(&self, deposit_txid: Txid, checkpoint_idx: u64) -> DbResult<()>;
+    /// Sets a MuSig2 [`TaprootWitness`] in the database, for a given [`OperatorIdx`],
+    /// a [`Txid`], and an `input_index`.
+    async fn set_witness(
+        &self,
+        operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
+        witness: TaprootWitness,
+    ) -> DbResult<()>;
 }
