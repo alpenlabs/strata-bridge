@@ -371,6 +371,9 @@ pub enum ClientError {
     /// The server took too long to respond.
     Timeout,
 
+    /// We ran out of retries
+    NoMoreRetries,
+
     /// The server sent a message that was not expected.
     WrongMessage(Box<ServerMessage>),
 
