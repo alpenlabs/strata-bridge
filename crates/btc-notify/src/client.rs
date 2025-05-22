@@ -277,24 +277,31 @@ mod e2e_tests {
     async fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
+
         // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
-        bitcoin_conf.args.extend(vec![
-            "-zmqpubhashblock=tcp://127.0.0.1:23882",
-            "-zmqpubhashtx=tcp://127.0.0.1:23883",
-            "-zmqpubrawblock=tcp://127.0.0.1:23884",
-            "-zmqpubrawtx=tcp://127.0.0.1:23885",
-            "-zmqpubsequence=tcp://127.0.0.1:23886",
-            "-debug=zmq",
-        ]);
+        let hash_block_socket = "tcp://127.0.0.1:23882";
+        let hash_tx_socket = "tcp://127.0.0.1:23883";
+        let raw_block_socket = "tcp://127.0.0.1:23884";
+        let raw_tx_socket = "tcp://127.0.0.1:23885";
+        let sequence_socket = "tcp://127.0.0.1:23886";
+        let args = [
+            format!("-zmqpubhashblock={hash_block_socket}"),
+            format!("-zmqpubhashtx={hash_tx_socket}"),
+            format!("-zmqpubrawblock={raw_block_socket}"),
+            format!("-zmqpubrawtx={raw_tx_socket}"),
+            format!("-zmqpubsequence={sequence_socket}"),
+        ];
+        bitcoin_conf.args.extend(args.iter().map(String::as_str));
+
         let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
-            .with_hashblock_connection_string("tcp://127.0.0.1:23882")
-            .with_hashtx_connection_string("tcp://127.0.0.1:23883")
-            .with_rawblock_connection_string("tcp://127.0.0.1:23884")
-            .with_rawtx_connection_string("tcp://127.0.0.1:23885")
-            .with_sequence_connection_string("tcp://127.0.0.1:23886");
+            .with_hashblock_connection_string(hash_block_socket)
+            .with_hashtx_connection_string(hash_tx_socket)
+            .with_rawblock_connection_string(raw_block_socket)
+            .with_rawtx_connection_string(raw_tx_socket)
+            .with_sequence_connection_string(sequence_socket);
 
         let client = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
 
