@@ -248,7 +248,7 @@ pub fn wait_for_blocks(btc_client: &Client, count: usize) {
 // This is disabled because it is merely a testing helper function to ensure tests complete in
 // a timely manner, so we don't want lack of full coverage in this function to distract from
 // overall coverage.
-#[cfg_attr(coverage_nightly, coverage(off))]
+#[coverage(off)]
 pub async fn wait_for_height(
     rpc_client: &corepc_node::Node,
     height: usize,

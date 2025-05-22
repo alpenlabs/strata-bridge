@@ -6,7 +6,7 @@
 
 // This cfg_attr is needed so that we can disable coverage in parts of the code that we don't want
 // polluting coverage analysis. Removing this will cause this module to fail to compile.
-#![cfg_attr(coverage_nightly, feature(coverage_attribute))]
+#![feature(coverage_attribute)]
 
 pub mod arbitrary_generator;
 pub mod bitcoin;

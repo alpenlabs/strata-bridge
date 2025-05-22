@@ -62,6 +62,7 @@ pub mod laws {
 
     use super::Semigroup;
 
+    #[coverage(off)]
     pub fn merge_associative_clone_eq<T: Debug + Semigroup + Clone + Eq>(
         a: T,
         b: T,
@@ -98,6 +99,15 @@ mod tests {
             a in proptest::result::maybe_ok(any::<u32>(), any::<String>()),
             b in proptest::result::maybe_ok(any::<u32>(), any::<String>()),
             c in proptest::result::maybe_ok(any::<u32>(), any::<String>()),
+        ) {
+            super::laws::merge_associative_clone_eq(a, b, c)?;
+        }
+
+        #[test]
+        fn unit_semigroup_laws(
+            a: (),
+            b: (),
+            c: (),
         ) {
             super::laws::merge_associative_clone_eq(a, b, c)?;
         }

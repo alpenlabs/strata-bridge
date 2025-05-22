@@ -38,6 +38,7 @@ pub mod laws {
 
     use super::Monoid;
 
+    #[coverage(off)]
     pub fn merge_left_identity<T: Debug + Monoid + Clone + Eq>(a: T) -> Result<(), TestCaseError> {
         let lhs = T::empty().merge(a.clone());
         if lhs != a {
@@ -49,6 +50,7 @@ pub mod laws {
         Ok(())
     }
 
+    #[coverage(off)]
     pub fn merge_right_identity<T: Debug + Monoid + Clone + Eq>(a: T) -> Result<(), TestCaseError> {
         let rhs = a.clone().merge(T::empty());
         if a != rhs {
