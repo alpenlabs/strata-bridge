@@ -1,192 +1,180 @@
 //! In-memory database traits and implementations for the operator.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use bitcoin::{OutPoint, Txid};
-use musig2::{PartialSignature, PubNonce, SecNonce};
-use strata_bridge_primitives::types::OperatorIdx;
+use bitcoin::Txid;
+use musig2::{AggNonce, PartialSignature, PubNonce};
+use strata_bridge_primitives::{scripts::taproot::TaprootWitness, types::OperatorIdx};
 use tokio::sync::RwLock;
+use tracing::trace;
 
-use crate::{
-    errors::DbResult,
-    operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb},
-};
+use crate::{errors::DbResult, operator::OperatorDb};
+
+/// Maps a transaction input to a public nonce.
+pub type TxInputToPubNonceMap = HashMap<(Txid, u32), PubNonce>;
+
+/// Maps a transaction input to an aggregated nonce.
+pub type TxInputToAggNonceMap = HashMap<(Txid, u32), AggNonce>;
+
+/// Maps a transaction input to a partial signature.
+pub type TxInputToPartialSignatureMap = HashMap<(Txid, u32), PartialSignature>;
+
+/// Maps a transaction input to a taproot witness.
+pub type TxInputToWitnessMap = HashMap<(Txid, u32), TaprootWitness>;
+
+/// Maps an operator index to a transaction input to a public nonce.
+pub type OperatorIdxToTxInputNonceMap = HashMap<OperatorIdx, TxInputToPubNonceMap>;
+
+/// Maps an operator index to a transaction input to a partial signature.
+pub type OperatorIdxToTxInputPartialSigMap = HashMap<OperatorIdx, TxInputToPartialSignatureMap>;
+
+/// Maps an operator index to a transaction input to a taproot witness.
+pub type OperatorIdxToTxInputWitnessMap = HashMap<OperatorIdx, TxInputToWitnessMap>;
 
 /// In-memory database for the operator.    
 #[derive(Debug, Default)]
 pub struct OperatorDbInMemory {
-    /// Txid -> input_index -> OperatorIdx -> PubNonce
-    collected_pubnonces: RwLock<HashMap<(Txid, u32), BTreeMap<OperatorIdx, PubNonce>>>,
+    /// operator_id -> txid, input_index -> PubNonce
+    pub_nonces: Arc<RwLock<OperatorIdxToTxInputNonceMap>>,
 
-    /// Txid -> input_index -> SecNonce
-    sec_nonces: RwLock<HashMap<(Txid, u32), SecNonce>>,
+    /// operator_id -> txid, input_index -> AggNonce
+    aggregated_nonces: Arc<RwLock<TxInputToAggNonceMap>>,
 
-    /// Txid -> input_index -> (Message Hash, OperatorIdx -> PartialSignature)
-    collected_signatures: RwLock<HashMap<(Txid, u32), MsgHashAndOpIdToSigMap>>,
+    /// operator_id -> txid, input_index -> PartialSignature (secp256k1::schnorr::Signature)
+    partial_signatures: Arc<RwLock<OperatorIdxToTxInputPartialSigMap>>,
 
-    /// OutPoints that have already been used to create KickoffTx.
-    selected_outpoints: RwLock<HashSet<OutPoint>>,
-
-    /// Deposit Txid -> KickoffInfo
-    peg_out_graphs: RwLock<BTreeMap<Txid, KickoffInfo>>,
-
-    /// Deposit Txid (in withdrawal duty) -> Checkpoint Index
-    checkpoint_table: RwLock<HashMap<Txid, u64>>,
+    /// operator_id -> txid, input_index -> TaprootWitness
+    witnesses: Arc<RwLock<OperatorIdxToTxInputWitnessMap>>,
 }
 
 #[async_trait]
 impl OperatorDb for OperatorDbInMemory {
-    async fn add_pubnonce(
+    async fn get_pub_nonce(
         &self,
-        txid: Txid,
-        input_index: u32,
         operator_idx: OperatorIdx,
-        pubnonce: PubNonce,
-    ) -> DbResult<()> {
-        let mut collected_pubnonces = self.collected_pubnonces.write().await;
-
-        if let Some(pubnonce_table) = collected_pubnonces.get_mut(&(txid, input_index)) {
-            pubnonce_table.insert(operator_idx, pubnonce);
-        } else {
-            let mut new_entry = BTreeMap::new();
-            new_entry.insert(operator_idx, pubnonce);
-
-            collected_pubnonces.insert((txid, input_index), new_entry);
-        }
-
-        Ok(())
-    }
-
-    async fn collected_pubnonces(
-        &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<BTreeMap<OperatorIdx, PubNonce>> {
+    ) -> DbResult<Option<PubNonce>> {
         Ok(self
-            .collected_pubnonces
+            .pub_nonces
             .read()
             .await
-            .get(&(txid, input_index))
-            .unwrap_or(&BTreeMap::new())
-            .clone())
+            .get(&operator_idx)
+            .and_then(|m| m.get(&(txid, input_index)))
+            .cloned())
     }
 
-    async fn add_secnonce(&self, txid: Txid, input_index: u32, secnonce: SecNonce) -> DbResult<()> {
-        let mut sec_nonces = self.sec_nonces.write().await;
+    async fn set_pub_nonce(
+        &self,
+        operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
+        pub_nonces: PubNonce, // Matched trait parameter name
+    ) -> DbResult<()> {
+        trace!(action = "trying to acquire wlock on pub_nonces", %operator_idx, %txid, input_index);
+        let mut pub_nonces_map = self.pub_nonces.write().await;
+        trace!(event = "acquired wlock on pub_nonces", %operator_idx, %txid, input_index);
 
-        sec_nonces.insert((txid, input_index), secnonce);
+        pub_nonces_map
+            .entry(operator_idx)
+            .or_default()
+            .insert((txid, input_index), pub_nonces);
 
         Ok(())
     }
 
-    async fn get_secnonce(&self, txid: Txid, input_index: u32) -> DbResult<Option<SecNonce>> {
+    async fn get_aggregated_nonce(
+        &self,
+        txid: Txid,
+        input_index: u32,
+    ) -> DbResult<Option<AggNonce>> {
         Ok(self
-            .sec_nonces
+            .aggregated_nonces
             .read()
             .await
             .get(&(txid, input_index))
             .cloned())
     }
 
-    async fn add_message_hash_and_signature(
+    async fn set_aggregated_nonce(
         &self,
         txid: Txid,
         input_index: u32,
-        message_sighash: Vec<u8>,
-        operator_idx: OperatorIdx,
-        signature: PartialSignature,
+        pub_nonces: AggNonce, // Matched trait parameter name
     ) -> DbResult<()> {
-        let mut collected_sigs = self.collected_signatures.write().await;
+        trace!(action = "trying to acquire wlock on aggregated_nonces", %txid, input_index);
+        let mut aggregated_nonces_map = self.aggregated_nonces.write().await;
+        trace!(event = "acquired wlock on aggregated_nonces", %txid, input_index);
 
-        if let Some(sig_entry) = collected_sigs.get_mut(&(txid, input_index)) {
-            sig_entry.0 = message_sighash;
-            sig_entry.1.insert(operator_idx, signature);
-        } else {
-            let mut new_entry = (message_sighash, BTreeMap::new());
-            new_entry.1.insert(operator_idx, signature);
-
-            collected_sigs.insert((txid, input_index), new_entry);
-        }
+        aggregated_nonces_map.insert((txid, input_index), pub_nonces);
 
         Ok(())
     }
 
-    /// Adds a partial signature to the map if already present.
-    async fn add_partial_signature(
+    async fn get_partial_signature(
         &self,
-        txid: Txid,
-        input_index: u32,
         operator_idx: OperatorIdx,
-        signature: PartialSignature,
-    ) -> DbResult<()> {
-        let mut collected_sigs = self.collected_signatures.write().await;
-
-        if let Some(sig_entry) = collected_sigs.get_mut(&(txid, input_index)) {
-            sig_entry.1.insert(operator_idx, signature);
-        }
-
-        Ok(())
-    }
-
-    async fn collected_signatures_per_msg(
-        &self,
         txid: Txid,
         input_index: u32,
-    ) -> DbResult<Option<MsgHashAndOpIdToSigMap>> {
+    ) -> DbResult<Option<PartialSignature>> {
         Ok(self
-            .collected_signatures
+            .partial_signatures
             .read()
             .await
-            .get(&(txid, input_index))
-            .cloned())
-    }
-
-    async fn add_outpoint(&self, outpoint: OutPoint) -> DbResult<bool> {
-        let mut selected_outpoints = self.selected_outpoints.write().await;
-
-        Ok(selected_outpoints.insert(outpoint))
-    }
-
-    async fn selected_outpoints(&self) -> DbResult<HashSet<OutPoint>> {
-        Ok(self.selected_outpoints.read().await.clone())
-    }
-
-    async fn add_kickoff_info(
-        &self,
-        deposit_txid: Txid,
-        kickoff_info: KickoffInfo,
-    ) -> DbResult<()> {
-        let mut peg_out_graph = self.peg_out_graphs.write().await;
-
-        peg_out_graph.insert(deposit_txid, kickoff_info);
-
-        Ok(())
-    }
-
-    async fn get_kickoff_info(&self, deposit_txid: Txid) -> DbResult<Option<KickoffInfo>> {
-        Ok(self.peg_out_graphs.read().await.get(&deposit_txid).cloned())
-    }
-
-    async fn get_checkpoint_index(&self, deposit_txid: Txid) -> DbResult<Option<u64>> {
-        Ok(self
-            .checkpoint_table
-            .read()
-            .await
-            .get(&deposit_txid)
+            .get(&operator_idx)
+            .and_then(|m| m.get(&(txid, input_index)))
             .copied())
     }
 
-    async fn set_checkpoint_index(
+    async fn set_partial_signature(
         &self,
-        deposit_txid: Txid,
-        checkpoint_index: u64,
+        operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
+        partial_signature: PartialSignature,
     ) -> DbResult<()> {
-        self.checkpoint_table
-            .write()
-            .await
-            .insert(deposit_txid, checkpoint_index);
+        trace!(action = "trying to acquire wlock on partial_signatures", %operator_idx, %txid, input_index);
+        let mut partial_signatures_map = self.partial_signatures.write().await;
+        trace!(event = "acquired wlock on partial_signatures", %operator_idx, %txid, input_index);
 
+        partial_signatures_map
+            .entry(operator_idx)
+            .or_default()
+            .insert((txid, input_index), partial_signature);
+        Ok(())
+    }
+
+    async fn get_witness(
+        &self,
+        operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
+    ) -> DbResult<Option<TaprootWitness>> {
+        Ok(self
+            .witnesses
+            .read()
+            .await
+            .get(&operator_idx)
+            .and_then(|m| m.get(&(txid, input_index)))
+            .cloned())
+    }
+
+    async fn set_witness(
+        &self,
+        operator_idx: OperatorIdx,
+        txid: Txid,
+        input_index: u32,
+        witness: TaprootWitness,
+    ) -> DbResult<()> {
+        trace!(action = "trying to acquire wlock on witnesses", %operator_idx, %txid, input_index);
+        let mut witnesses_map = self.witnesses.write().await;
+        trace!(event = "acquired wlock on witnesses", %operator_idx, %txid, input_index);
+
+        witnesses_map
+            .entry(operator_idx)
+            .or_default()
+            .insert((txid, input_index), witness);
         Ok(())
     }
 }
