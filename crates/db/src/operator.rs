@@ -101,7 +101,7 @@ pub trait OperatorDb {
         pub_nonces: AggNonce,
     ) -> DbResult<()>;
 
-    /// Gets, if present, a MuSig2 partial [`Signature`] from the database,
+    /// Gets, if present, a MuSig2 partial [`PartialSignature`] from the database,
     /// given an [`OperatorIdx`], a [`Txid`], and an `input_index`.
     async fn get_partial_signature(
         &self,
@@ -110,7 +110,7 @@ pub trait OperatorDb {
         input_index: u32,
     ) -> DbResult<Option<PartialSignature>>;
 
-    /// Sets a MuSig2 partial [`Signature`] in the database, for a given [`OperatorIdx`],
+    /// Sets a MuSig2 partial [`PartialSignature`] in the database, for a given [`OperatorIdx`],
     /// a [`Txid`], and an `input_index`.
     async fn set_partial_signature(
         &self,

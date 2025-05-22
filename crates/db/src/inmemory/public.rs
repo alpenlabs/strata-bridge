@@ -101,7 +101,7 @@ impl PublicDb for PublicDbInMemory {
         trace!(event = "wlock acquired on wots public keys", %operator_idx, %deposit_txid);
 
         if let Some(op_keys) = map.get_mut(&operator_idx) {
-            op_keys.insert(deposit_txid, *public_keys);
+            op_keys.insert(deposit_txid, public_keys.clone());
         } else {
             let mut keys = HashMap::new();
             keys.insert(deposit_txid, public_keys.clone());
