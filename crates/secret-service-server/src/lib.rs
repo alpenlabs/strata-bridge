@@ -313,7 +313,7 @@ where
                         let our_nonce = first_round.lock().await.our_nonce().await.serialize();
                         ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
                     }
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -329,7 +329,7 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -338,7 +338,7 @@ where
                     Some(r1) => ServerMessage::Musig2FirstRoundIsComplete {
                         complete: r1.lock().await.is_complete().await,
                     },
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -346,11 +346,7 @@ where
                 let session_id = &session_id;
                 let r1 = match musig2_sm.lock().await.first_round(session_id) {
                     Some(r1) => r1,
-                    None => {
-                        return Ok(ServerMessage::InvalidClientMessage(
-                            "no round present".to_owned(),
-                        ))
-                    }
+                    None => return Ok(ServerMessage::ProtocolError("no round present".to_owned())),
                 };
                 let nonces = match nonces
                     .iter()
@@ -400,9 +396,9 @@ where
                     match e.narrow::<RoundFinalizeError, _>() {
                         Ok(e) => ServerMessage::Musig2FirstRoundFinalize(Some(e)),
                         Err(e) => match e.as_enum() {
-                            A(not_in_correct_round) => ServerMessage::InvalidClientMessage(
-                                format!("{not_in_correct_round:?}"),
-                            ),
+                            A(not_in_correct_round) => {
+                                ServerMessage::ProtocolError(format!("{not_in_correct_round:?}"))
+                            }
                             B(_other_refs_active) => ServerMessage::TryAgain,
                         },
                     }
@@ -416,7 +412,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundAggNonce {
                         nonce: r2.lock().await.agg_nonce().await.serialize(),
                     },
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
             ClientMessage::Musig2SecondRoundHoldouts { session_id } => {
@@ -431,7 +427,7 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -440,7 +436,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundOurSignature {
                         sig: r2.lock().await.our_signature().await.serialize(),
                     },
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -449,7 +445,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundIsComplete {
                         complete: r2.lock().await.is_complete().await,
                     },
-                    None => ServerMessage::InvalidClientMessage("no round present".to_owned()),
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -457,11 +453,7 @@ where
                 let session_id = &session_id;
                 let r2 = match musig2_sm.lock().await.second_round(session_id) {
                     Some(r2) => r2,
-                    None => {
-                        return Ok(ServerMessage::InvalidClientMessage(
-                            "no round present".to_owned(),
-                        ))
-                    }
+                    None => return Ok(ServerMessage::ProtocolError("no round present".to_owned())),
                 };
 
                 let sigs = match sigs
@@ -510,7 +502,7 @@ where
                 match r {
                     Ok(sig) => ServerMessage::Musig2SecondRoundFinalize(Ok(sig.serialize()).into()),
                     Err(e) => match e.as_enum() {
-                        E3::A(e) => ServerMessage::InvalidClientMessage(format!("{e:?}")),
+                        E3::A(e) => ServerMessage::ProtocolError(format!("{e:?}")),
                         E3::B(_other_refs_active) => ServerMessage::TryAgain,
                         E3::C(round_finalize_err) => ServerMessage::Musig2SecondRoundFinalize(
                             Err(round_finalize_err.to_owned()).into(),

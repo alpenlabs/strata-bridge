@@ -1,5 +1,6 @@
 //! V1 wire protocol
-
+// TODO: change all the hardcoded lengths in here to be calculated at compile time when we upgrade
+// our compiler
 use std::collections::BTreeMap;
 
 use bitcoin::{
@@ -24,8 +25,11 @@ use super::{
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum ServerMessage {
-    /// The message the client sent was invalid.
+    /// The message the client sent was invalid, with reasoning
     InvalidClientMessage(String),
+
+    /// The client violated the protocol, with reasoning
+    ProtocolError(String),
 
     /// The server experienced an unexpected internal error while handling the
     /// request.
