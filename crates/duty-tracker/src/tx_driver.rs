@@ -43,10 +43,10 @@ type TxSubscriberSet = Vec<oneshot::Sender<Result<(), DriveErr>>>;
 
 /// The TxJobHeap is a map from [`Txid`]s to the corresponding [`Transaction`] and a list of
 /// listeners for the results.
-struct TxJobHeap(BTreeMap<Txid, (Transaction, TxSubscriberSet)>);
+struct TxJobHeap(BTreeMap<Txid, TxSubscriberSet>);
 impl TxJobHeap {
     /// Removes all jobs associated with a given [`Transaction`] and returns the job details.
-    fn remove(&mut self, txid: &Txid) -> Option<(Transaction, TxSubscriberSet)> {
+    fn remove(&mut self, txid: &Txid) -> Option<TxSubscriberSet> {
         self.0.remove(txid)
     }
 
@@ -57,7 +57,7 @@ impl TxJobHeap {
             .into_iter()
             .flat_map(|x| {
                 info!(%txid, "transaction confirmed in block");
-                x.1.into_iter()
+                x.into_iter()
             })
             .for_each(|chan| {
                 let _ = chan.send(Ok(()));
@@ -74,7 +74,7 @@ impl Semigroup for TxJobHeap {
         let b = other.0;
         for (k, v) in b {
             match a.get_mut(&k) {
-                Some(responders) => responders.1.extend(v.1),
+                Some(responders) => responders.extend(v),
                 None => {
                     a.insert(k, v);
                 }
@@ -95,7 +95,7 @@ impl From<TxDriveJob> for TxJobHeap {
     /// Converts a TxDriveJob into a TxJobHeap with a single job in it.
     fn from(job: TxDriveJob) -> Self {
         let mut heap = BTreeMap::new();
-        heap.insert(job.tx.compute_txid(), (job.tx, vec![job.respond_on]));
+        heap.insert(job.tx.compute_txid(), vec![job.respond_on]);
         TxJobHeap(heap)
     }
 }
