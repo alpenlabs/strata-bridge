@@ -42,7 +42,7 @@ The following is the system diagram for this repository:
 ### Running
 
 Run the Strata stack (`strata-client`, `strata-reth`, `bitcoind`) as per the instructions
-in the [`strata`](https://github.com/alpenlabs/strata/tree/bitvm2) repository.
+in the [`alpen`](https://github.com/alpenlabs/alpen/tree/bitvm2) repository.
 
 Then, see the instructions in [`docker/README.md`](./docker/README.md) to run the bridge nodes
 and their corresponding secret-service nodes.
