@@ -99,7 +99,7 @@ mod tests {
         ) {
             prop_assert_eq!(
                 sconcat(a.clone()).merge(sconcat(b.clone())),
-                sconcat(a.into_iter().chain(b.into_iter())),
+                sconcat(a.merge(b)),
             )
         }
 
