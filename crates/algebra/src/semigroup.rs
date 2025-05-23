@@ -82,9 +82,27 @@ pub mod laws {
 
 #[cfg(test)]
 mod tests {
-    use proptest::{prelude::any, proptest};
+    use proptest::{prelude::any, prop_assert_eq, proptest};
+
+    use crate::semigroup::{sconcat, Semigroup};
+
+    #[test]
+    fn sconcat_base_case() {
+        assert_eq!(super::sconcat(Vec::<()>::new()), None)
+    }
 
     proptest! {
+        #[test]
+        fn sconcat_merge_homomorphism(
+            a in proptest::collection::vec(proptest::collection::vec(any::<u32>(), 1..5), 1..10),
+            b in proptest::collection::vec(proptest::collection::vec(any::<u32>(), 1..5), 1..10),
+        ) {
+            prop_assert_eq!(
+                sconcat(a.clone()).merge(sconcat(b.clone())),
+                sconcat(a.into_iter().chain(b.into_iter())),
+            )
+        }
+
         #[test]
         fn vec_semigroup_laws(
             a in proptest::collection::vec(any::<u32>(), 1..20),
@@ -108,6 +126,15 @@ mod tests {
             a: (),
             b: (),
             c: (),
+        ) {
+            super::laws::merge_associative_clone_eq(a, b, c)?;
+        }
+
+        #[test]
+        fn option_semigroup_laws(
+            a in proptest::option::of(proptest::collection::vec(any::<u32>(), 1..10)),
+            b in proptest::option::of(proptest::collection::vec(any::<u32>(), 1..10)),
+            c in proptest::option::of(proptest::collection::vec(any::<u32>(), 1..10)),
         ) {
             super::laws::merge_associative_clone_eq(a, b, c)?;
         }
