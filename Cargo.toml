@@ -21,6 +21,7 @@ members = [
   "crates/secret-service-server",
   "crates/p2p-service",
   "crates/operator-wallet",
+  "crates/wots",
 
   # binaries listed separately
   "bin/secret-service",

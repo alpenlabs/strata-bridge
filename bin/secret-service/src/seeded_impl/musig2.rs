@@ -5,20 +5,20 @@ use std::collections::BTreeMap;
 use bitcoin::{
     bip32::Xpriv,
     hashes::Hash,
-    key::{Keypair, Parity},
-    Txid, XOnlyPublicKey,
+    key::{Keypair, Parity, TapTweak},
+    TapNodeHash, Txid, XOnlyPublicKey,
 };
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::{
     errors::{RoundContributionError, RoundFinalizeError},
-    secp256k1::{SecretKey, SECP256K1},
+    secp256k1::{schnorr::Signature, Message, SecretKey, SECP256K1},
     FirstRound, KeyAggContext, LiftedSignature, PartialSignature, PubNonce, SecNonceSpices,
     SecondRound,
 };
 use secret_service_proto::v1::traits::{
-    Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin, Server,
-    SignerIdxOutOfBounds,
+    Musig2SessionId, Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, Origin,
+    SchnorrSigner, Server, SignerIdxOutOfBounds,
 };
 use sha2::Sha256;
 use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
@@ -116,6 +116,24 @@ impl Musig2Signer<Server, ServerFirstRound> for Ms2Signer {
             ordered_public_keys: ordered_pubkeys,
             seckey: self.kp.secret_key(),
         })
+    }
+}
+
+impl SchnorrSigner<Server> for Ms2Signer {
+    async fn sign(
+        &self,
+        digest: &[u8; 32],
+        tweak: Option<TapNodeHash>,
+    ) -> <Server as Origin>::Container<Signature> {
+        self.kp
+            .tap_tweak(SECP256K1, tweak)
+            .to_keypair()
+            .sign_schnorr(Message::from_digest_slice(digest).expect("digest is 32 bytes"))
+    }
+
+    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<Signature> {
+        self.kp
+            .sign_schnorr(Message::from_digest_slice(digest).expect("digest is exactly 32 bytes"))
     }
 
     async fn pubkey(&self) -> <Server as Origin>::Container<XOnlyPublicKey> {

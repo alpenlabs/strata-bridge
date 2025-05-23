@@ -23,14 +23,14 @@ use secret_service_proto::{
     v1::{
         traits::{
             Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, P2PSigner,
-            SecretService, Server, StakeChainPreimages, WalletSigner, WotsSigner,
+            SchnorrSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
         },
-        wire::{ClientMessage, Musig2NewSessionError, ServerMessage},
+        wire::{ClientMessage, Musig2NewSessionError, ServerMessage, SignerTarget},
     },
     wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
 };
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-use terrors::OneOf;
+use terrors::{OneOf, E3};
 use tokio::{sync::Mutex, task::JoinHandle};
 use tracing::{error, span, warn, Instrument, Level};
 
@@ -188,58 +188,6 @@ where
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
         VersionedClientMessage::V1(msg) => match msg {
-            ClientMessage::GeneralWalletSign { digest, tweak } => {
-                let tweak =
-                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
-                let sig = service.general_wallet_signer().sign(&digest, tweak).await;
-                ServerMessage::GeneralWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::GeneralWalletSignNoTweak { digest } => {
-                let sig = service.general_wallet_signer().sign_no_tweak(&digest).await;
-                ServerMessage::GeneralWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::GeneralWalletPubkey => {
-                let pubkey = service.general_wallet_signer().pubkey().await;
-                ServerMessage::GeneralWalletPubkey {
-                    pubkey: pubkey.serialize(),
-                }
-            }
-
-            ClientMessage::StakechainWalletSign { digest, tweak } => {
-                let tweak =
-                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
-                let sig = service
-                    .stakechain_wallet_signer()
-                    .sign(&digest, tweak)
-                    .await;
-                ServerMessage::StakechainWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::StakechainWalletSignNoTweak { digest } => {
-                let sig = service
-                    .stakechain_wallet_signer()
-                    .sign_no_tweak(&digest)
-                    .await;
-                ServerMessage::StakechainWalletSign {
-                    sig: sig.serialize(),
-                }
-            }
-
-            ClientMessage::StakechainWalletPubkey => {
-                let pubkey = service.stakechain_wallet_signer().pubkey().await;
-                ServerMessage::StakechainWalletPubkey {
-                    pubkey: pubkey.serialize(),
-                }
-            }
-
             ClientMessage::P2PSecretKey => {
                 let key = service.p2p_signer().secret_key().await;
                 ServerMessage::P2PSecretKey {
@@ -256,17 +204,25 @@ where
             } => 'block: {
                 let signer = service.musig2_signer();
 
-                let Ok(witness) = TaprootWitness::try_from(witness)
-                    .map_err(|_| ServerMessage::InvalidClientMessage)
-                else {
-                    break 'block ServerMessage::InvalidClientMessage;
+                let witness = match TaprootWitness::try_from(witness) {
+                    Ok(w) => w,
+                    Err(e) => {
+                        break 'block ServerMessage::InvalidClientMessage(format!(
+                            "invalid taproot witness: {e}"
+                        ))
+                    }
                 };
-                let Ok(pubkeys) = pubkeys
+                let pubkeys = match pubkeys
                     .iter()
                     .map(|data| XOnlyPublicKey::from_slice(data))
                     .collect::<Result<Vec<_>, _>>()
-                else {
-                    break 'block ServerMessage::InvalidClientMessage;
+                {
+                    Ok(pks) => pks,
+                    Err(e) => {
+                        break 'block ServerMessage::InvalidClientMessage(format!(
+                            "invalid public key: {e}"
+                        ))
+                    }
                 };
 
                 let first_round = match signer
@@ -295,8 +251,60 @@ where
                 ServerMessage::Musig2NewSession(Ok(()))
             }
 
-            ClientMessage::Musig2Pubkey => ServerMessage::Musig2Pubkey {
-                pubkey: service.musig2_signer().pubkey().await.serialize(),
+            ClientMessage::SchnorrSignerSign {
+                target,
+                digest,
+                tweak,
+            } => {
+                let tweak =
+                    tweak.map(|h| TapNodeHash::from_slice(&h).expect("guaranteed correct length"));
+                let sig = match target {
+                    SignerTarget::General => {
+                        service.general_wallet_signer().sign(&digest, tweak).await
+                    }
+                    SignerTarget::Stakechain => {
+                        service
+                            .stakechain_wallet_signer()
+                            .sign(&digest, tweak)
+                            .await
+                    }
+                    SignerTarget::Musig2 => service.musig2_signer().sign(&digest, tweak).await,
+                };
+                ServerMessage::SchnorrSignerSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ClientMessage::SchnorrSignerSignNoTweak { target, digest } => {
+                let sig = match target {
+                    SignerTarget::General => {
+                        service.general_wallet_signer().sign_no_tweak(&digest).await
+                    }
+                    SignerTarget::Stakechain => {
+                        service
+                            .stakechain_wallet_signer()
+                            .sign_no_tweak(&digest)
+                            .await
+                    }
+                    SignerTarget::Musig2 => service.musig2_signer().sign_no_tweak(&digest).await,
+                };
+                ServerMessage::SchnorrSignerSign {
+                    sig: sig.serialize(),
+                }
+            }
+
+            ClientMessage::SchnorrSignerPubkey { target } => ServerMessage::SchnorrSignerPubkey {
+                pubkey: match target {
+                    SignerTarget::General => {
+                        service.general_wallet_signer().pubkey().await.serialize()
+                    }
+                    SignerTarget::Stakechain => service
+                        .stakechain_wallet_signer()
+                        .pubkey()
+                        .await
+                        .serialize(),
+                    SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
+                },
             },
 
             ClientMessage::Musig2FirstRoundOurNonce { session_id } => {
@@ -305,7 +313,7 @@ where
                         let our_nonce = first_round.lock().await.our_nonce().await.serialize();
                         ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
                     }
-                    None => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -321,7 +329,7 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    None => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -330,7 +338,7 @@ where
                     Some(r1) => ServerMessage::Musig2FirstRoundIsComplete {
                         complete: r1.lock().await.is_complete().await,
                     },
-                    None => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -338,18 +346,26 @@ where
                 let session_id = &session_id;
                 let r1 = match musig2_sm.lock().await.first_round(session_id) {
                     Some(r1) => r1,
-                    None => return Ok(ServerMessage::InvalidClientMessage),
+                    None => return Ok(ServerMessage::ProtocolError("no round present".to_owned())),
                 };
                 let nonces = match nonces
                     .iter()
                     .map(|(pk, nonce)| {
                         let pk = match XOnlyPublicKey::from_slice(pk) {
                             Ok(pk) => pk,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid pubkey: {e}"
+                                )))
+                            }
                         };
                         let pubnonce = match PubNonce::from_bytes(nonce) {
                             Ok(nonce) => nonce,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid pubnonce: {e:}"
+                                )))
+                            }
                         };
                         Ok((pk, pubnonce))
                     })
@@ -380,8 +396,10 @@ where
                     match e.narrow::<RoundFinalizeError, _>() {
                         Ok(e) => ServerMessage::Musig2FirstRoundFinalize(Some(e)),
                         Err(e) => match e.as_enum() {
-                            A(_not_in_first_round) => ServerMessage::InvalidClientMessage,
-                            B(_other_refs_active) => ServerMessage::OpaqueServerError,
+                            A(not_in_correct_round) => {
+                                ServerMessage::ProtocolError(format!("{not_in_correct_round:?}"))
+                            }
+                            B(_other_refs_active) => ServerMessage::TryAgain,
                         },
                     }
                 } else {
@@ -394,7 +412,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundAggNonce {
                         nonce: r2.lock().await.agg_nonce().await.serialize(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
             ClientMessage::Musig2SecondRoundHoldouts { session_id } => {
@@ -409,7 +427,7 @@ where
                             .map(XOnlyPublicKey::serialize)
                             .collect(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -418,7 +436,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundOurSignature {
                         sig: r2.lock().await.our_signature().await.serialize(),
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -427,7 +445,7 @@ where
                     Some(r2) => ServerMessage::Musig2SecondRoundIsComplete {
                         complete: r2.lock().await.is_complete().await,
                     },
-                    _ => ServerMessage::InvalidClientMessage,
+                    None => ServerMessage::ProtocolError("no round present".to_owned()),
                 }
             }
 
@@ -435,7 +453,7 @@ where
                 let session_id = &session_id;
                 let r2 = match musig2_sm.lock().await.second_round(session_id) {
                     Some(r2) => r2,
-                    None => return Ok(ServerMessage::InvalidClientMessage),
+                    None => return Ok(ServerMessage::ProtocolError("no round present".to_owned())),
                 };
 
                 let sigs = match sigs
@@ -443,11 +461,19 @@ where
                     .map(|(pk, sig)| {
                         let pk = match XOnlyPublicKey::from_slice(pk) {
                             Ok(pk) => pk,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid pubkey: {e}"
+                                )))
+                            }
                         };
                         let partial_sig = match PartialSignature::from_slice(sig) {
                             Ok(partial_sig) => partial_sig,
-                            Err(_) => return Err(ServerMessage::InvalidClientMessage),
+                            Err(e) => {
+                                return Err(ServerMessage::InvalidClientMessage(format!(
+                                    "invalid partial sig: {e}"
+                                )))
+                            }
                         };
                         Ok((pk, partial_sig))
                     })
@@ -473,73 +499,68 @@ where
                     .await
                     .finalize_second_round(session_id)
                     .await;
-                match r.map_err(|e| e.narrow::<RoundFinalizeError, _>()) {
+                match r {
                     Ok(sig) => ServerMessage::Musig2SecondRoundFinalize(Ok(sig.serialize()).into()),
-                    Err(Ok(e)) => ServerMessage::Musig2SecondRoundFinalize(Err(e).into()),
-                    Err(Err(_e)) => ServerMessage::InvalidClientMessage,
+                    Err(e) => match e.as_enum() {
+                        E3::A(e) => ServerMessage::ProtocolError(format!("{e:?}")),
+                        E3::B(_other_refs_active) => ServerMessage::TryAgain,
+                        E3::C(round_finalize_err) => ServerMessage::Musig2SecondRoundFinalize(
+                            Err(round_finalize_err.to_owned()).into(),
+                        ),
+                    },
                 }
             }
 
-            ClientMessage::WotsGet128SecretKey { index, vout, txid } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet128SecretKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_secret_key(txid, vout, index)
+                    .get_128_secret_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet128SecretKey { key }
             }
 
-            ClientMessage::WotsGet256SecretKey { index, vout, txid } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet256SecretKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_secret_key(txid, vout, index)
+                    .get_256_secret_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet256SecretKey { key }
             }
 
-            ClientMessage::WotsGet128PublicKey { txid, vout, index } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet128PublicKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_128_public_key(txid, vout, index)
+                    .get_128_public_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet128PublicKey { key }
             }
 
-            ClientMessage::WotsGet256PublicKey { txid, vout, index } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet256PublicKey { specifier } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let key = service
                     .wots_signer()
-                    .get_256_public_key(txid, vout, index)
+                    .get_256_public_key(txid, specifier.vout, specifier.index)
                     .await;
                 ServerMessage::WotsGet256PublicKey { key }
             }
 
-            ClientMessage::WotsGet128Signature {
-                txid,
-                vout,
-                index,
-                msg,
-            } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet128Signature { specifier, msg } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_128_signature(txid, vout, index, &msg)
+                    .get_128_signature(txid, specifier.vout, specifier.index, &msg)
                     .await;
                 ServerMessage::WotsGet128Signature { sig }
             }
 
-            ClientMessage::WotsGet256Signature {
-                txid,
-                vout,
-                index,
-                msg,
-            } => {
-                let txid = Txid::from_slice(&txid).expect("correct length");
+            ClientMessage::WotsGet256Signature { specifier, msg } => {
+                let txid = Txid::from_slice(&specifier.txid).expect("correct length");
                 let sig = service
                     .wots_signer()
-                    .get_256_signature(txid, vout, index, &msg)
+                    .get_256_signature(txid, specifier.vout, specifier.index, &msg)
                     .await;
                 ServerMessage::WotsGet256Signature { sig }
             }

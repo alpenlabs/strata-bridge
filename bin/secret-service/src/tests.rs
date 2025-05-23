@@ -73,6 +73,7 @@ async fn e2e() {
     // wallet signers
     let general_wallet_signer = client.general_wallet_signer();
     let stakechain_wallet_signer = client.stakechain_wallet_signer();
+    let musig2_signer = client.musig2_signer();
     let general_pubkey = general_wallet_signer.pubkey().await.expect("good response");
     let (general_tweaked_pubkey, _) = general_pubkey.tap_tweak(SECP256K1, None);
     let stakechain_pubkey = stakechain_wallet_signer
@@ -80,12 +81,15 @@ async fn e2e() {
         .await
         .expect("good response");
     let (stakechain_tweaked_pubkey, _) = stakechain_pubkey.tap_tweak(SECP256K1, None);
+    let musig2_pubkey = musig2_signer.pubkey().await.expect("good response");
+    let (musig2_tweaked_pubkey, _) = musig2_pubkey.tap_tweak(SECP256K1, None);
 
     let secp_ctx = Arc::new(Secp256k1::verification_only());
     let handles = (0..100)
         .map(|_| {
             let general_wallet_signer = general_wallet_signer.clone();
             let stakechain_wallet_signer = stakechain_wallet_signer.clone();
+            let musig2_signer = musig2_signer.clone();
             let secp_ctx = secp_ctx.clone();
             tokio::spawn(async move {
                 let to_sign = thread_rng().gen();
@@ -128,6 +132,22 @@ async fn e2e() {
                 assert!(secp_ctx
                     .verify_schnorr(&sig, &msg, &stakechain_pubkey)
                     .is_ok());
+
+                // sign musig2
+                let sig = musig2_signer
+                    .sign(&to_sign, None)
+                    .await
+                    .expect("good response");
+                assert!(secp_ctx
+                    .verify_schnorr(&sig, &msg, &musig2_tweaked_pubkey.to_x_only_public_key())
+                    .is_ok());
+
+                // sign musig2 no tweak
+                let sig = musig2_signer
+                    .sign_no_tweak(&to_sign)
+                    .await
+                    .expect("good response");
+                assert!(secp_ctx.verify_schnorr(&sig, &msg, &musig2_pubkey).is_ok());
             })
         })
         .collect::<Vec<_>>();

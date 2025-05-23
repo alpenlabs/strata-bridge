@@ -38,7 +38,7 @@ use secret_service_client::{
     },
     SecretServiceClient,
 };
-use secret_service_proto::v1::traits::{Musig2Signer, P2PSigner, SecretService, WalletSigner};
+use secret_service_proto::v1::traits::{P2PSigner, SchnorrSigner, SecretService};
 use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},

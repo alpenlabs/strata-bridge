@@ -159,40 +159,56 @@ pub async fn make_v1_req(
     msg: ClientMessage,
     timeout_dur: Duration,
 ) -> Result<ServerMessage, ClientError> {
-    let (mut tx, mut rx) = conn.open_bi().await.map_err(ClientError::ConnectionError)?;
-    let (len_bytes, msg_bytes) = VersionedClientMessage::V1(msg)
-        .serialize()
-        .map_err(ClientError::SerializationError)?;
-    timeout(timeout_dur, tx.write_all(&len_bytes))
-        .await
-        .map_err(|_| ClientError::Timeout)?
-        .map_err(ClientError::WriteError)?;
-    timeout(timeout_dur, tx.write_all(&msg_bytes))
-        .await
-        .map_err(|_| ClientError::Timeout)?
-        .map_err(ClientError::WriteError)?;
+    async fn v1_req(
+        conn: &Connection,
+        msg: ClientMessage,
+        timeout_dur: Duration,
+        retries: usize,
+    ) -> Result<ServerMessage, ClientError> {
+        let (mut tx, mut rx) = conn.open_bi().await.map_err(ClientError::ConnectionError)?;
+        let (len_bytes, msg_bytes) = VersionedClientMessage::V1(msg.clone())
+            .serialize()
+            .map_err(ClientError::SerializationError)?;
+        timeout(timeout_dur, tx.write_all(&len_bytes))
+            .await
+            .map_err(|_| ClientError::Timeout)?
+            .map_err(ClientError::WriteError)?;
+        timeout(timeout_dur, tx.write_all(&msg_bytes))
+            .await
+            .map_err(|_| ClientError::Timeout)?
+            .map_err(ClientError::WriteError)?;
 
-    let len_to_read = {
-        let mut buf = [0; size_of::<LengthUint>()];
+        let len_to_read = {
+            let mut buf = [0; size_of::<LengthUint>()];
+            timeout(timeout_dur, rx.read_exact(&mut buf))
+                .await
+                .map_err(|_| ClientError::Timeout)?
+                .map_err(ClientError::ReadError)?;
+            LengthUint::from_le_bytes(buf)
+        };
+
+        let mut buf: AlignedVec<16> = AlignedVec::with_capacity(len_to_read as usize);
+        buf.resize(len_to_read as usize, 0);
         timeout(timeout_dur, rx.read_exact(&mut buf))
             .await
             .map_err(|_| ClientError::Timeout)?
             .map_err(ClientError::ReadError)?;
-        LengthUint::from_le_bytes(buf)
-    };
 
-    let mut buf: AlignedVec<16> = AlignedVec::with_capacity(len_to_read as usize);
-    buf.resize(len_to_read as usize, 0);
-    timeout(timeout_dur, rx.read_exact(&mut buf))
-        .await
-        .map_err(|_| ClientError::Timeout)?
-        .map_err(ClientError::ReadError)?;
+        let archived = rkyv::access::<ArchivedVersionedServerMessage, rancor::Error>(&buf)
+            .map_err(ClientError::DeserializationError)?;
 
-    let archived = rkyv::access::<ArchivedVersionedServerMessage, rancor::Error>(&buf)
-        .map_err(ClientError::DeserializationError)?;
+        let VersionedServerMessage::V1(srv_msg) =
+            deserialize(archived).map_err(ClientError::DeserializationError)?;
 
-    let VersionedServerMessage::V1(msg) =
-        deserialize(archived).map_err(ClientError::DeserializationError)?;
+        if let ServerMessage::TryAgain = srv_msg {
+            if retries == 0 {
+                return Err(ClientError::NoMoreRetries);
+            } else {
+                return Box::pin(v1_req(conn, msg, timeout_dur, retries - 1)).await;
+            }
+        }
 
-    Ok(msg)
+        Ok(srv_msg)
+    }
+    return v1_req(conn, msg, timeout_dur, 10).await;
 }

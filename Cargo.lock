@@ -3101,7 +3101,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18e4fdb82bd54a12e42fb58a800dcae6b9e13982238ce2296dc3570b92148e1f"
 dependencies = [
  "data-encoding",
- "syn 2.0.100",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -8675,7 +8675,6 @@ name = "secret-service"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "bitcoin-script",
  "bitvm",
  "colored 3.0.0",
  "hkdf",
@@ -8695,6 +8694,7 @@ dependencies = [
  "toml",
  "tracing",
  "tracing-subscriber 0.3.19",
+ "wots",
 ]
 
 [[package]]
@@ -12280,6 +12280,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f42320e61fe2cfd34354ecb597f86f413484a798ba44a8ca1165c58d42da6c1"
 dependencies = [
  "bitflags 2.9.0",
+]
+
+[[package]]
+name = "wots"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bitcoin-script",
+ "bitvm",
 ]
 
 [[package]]
