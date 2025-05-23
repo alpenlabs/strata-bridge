@@ -90,6 +90,11 @@ clean:
 clean-docker: build-base build-rt clean build-compose ## Builds the base image, runtime image and all images in the compose.yml
 	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE ========\033[0m\n"
 
+.PHONY: docker ## rebuilds and starts containers without cleaning data
+docker: build-base build-rt build-compose
+	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE_WITH_DATA ========\033[0m\n"
+
+
 .PHONY: gen-s2-tls-1
 gen-s2-tls-1:
 	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-1 docker/vol/secret-service-1
