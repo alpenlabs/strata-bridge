@@ -228,10 +228,11 @@ impl PegOutGraph {
         );
         let time_taken = start_time.elapsed();
 
+        let pre_assert_txid = assert_chain.pre_assert.compute_txid();
         let post_assert_txid = assert_chain.post_assert.compute_txid();
         let post_assert_out_amt = assert_chain.post_assert.output_amount();
 
-        debug!(event = "created assert chain", %post_assert_txid, ?time_taken);
+        debug!(event = "created assert chain", %pre_assert_txid, %post_assert_txid, ?time_taken);
 
         let start_time = Instant::now();
         let payout_data = PayoutData {
