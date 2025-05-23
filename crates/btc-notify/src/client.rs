@@ -27,7 +27,7 @@ struct TxSubscriptionDetails {
 }
 
 // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
-#[cfg_attr(coverage_nightly, coverage(off))]
+#[coverage(off)]
 impl std::fmt::Debug for TxSubscriptionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxSubscriptionDetails")

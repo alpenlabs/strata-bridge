@@ -55,7 +55,7 @@ pub(crate) struct BtcZmqSM {
 }
 
 // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
-#[cfg_attr(coverage_nightly, coverage(off))]
+#[coverage(off)]
 impl fmt::Debug for BtcZmqSM {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("BtcZmqSM")
@@ -520,7 +520,7 @@ mod prop_tests {
     }
 
     // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
-    #[cfg_attr(coverage_nightly, coverage(off))]
+    #[coverage(off)]
     impl std::fmt::Debug for DebuggablePredicate {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             f.write_str(&self.description)
