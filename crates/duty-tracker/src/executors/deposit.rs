@@ -318,7 +318,7 @@ pub(crate) async fn handle_publish_graph_nonces(
     let nonces: PogMusigF<PubNonce> = match PogMusigF::transpose_result(
         pog_outpoints
             .clone()
-            .zip(pog_witnesses)
+            .zip(pog_witnesses.clone())
             .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
             .join_all()
             .await,
