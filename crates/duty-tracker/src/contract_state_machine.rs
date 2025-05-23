@@ -2937,7 +2937,7 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match self.state.state.clone() {
+        match &mut self.state.state {
             ContractState::Claimed { active_graph, .. } => {
                 if tx.compute_txid() != active_graph.1.payout_optimistic_txid {
                     return Err(TransitionErr(format!("invalid optimistic payout transaction ({}) in process_optimistic_payout_confirmation", tx.compute_txid())));
