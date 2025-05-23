@@ -184,6 +184,7 @@ pub(super) struct PreAssertToOperatorAndDeposit {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(super) struct PubNonces {
     /// The ID of the operator stored as `INTEGER`.
+    #[expect(dead_code)]
     pub(super) operator_id: DbOperatorId,
 
     /// The hex-serialized txid.
@@ -225,6 +226,7 @@ pub(super) struct Secnonces {
     pub(super) input_index: DbInputIndex,
 
     /// The hex-serialized secnonce.
+    #[expect(dead_code)]
     pub(super) secnonce: DbSecNonce,
 }
 
@@ -262,6 +264,7 @@ pub(super) struct CollectedSigsPerMsg {
 
 /// The model for joint query of kickoff txid to FundingInfo.
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[expect(dead_code)]
 pub(super) struct JoinedKickoffInfo {
     /// The hex-serialized kickoff txid.
     #[expect(dead_code)]
@@ -291,6 +294,7 @@ pub(super) struct JoinedKickoffInfo {
 
 /// The model for outpoints.
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[expect(dead_code)]
 pub(super) struct DbOutPoint {
     /// The hex-serialized txid.
     pub(super) txid: DbTxid,
@@ -301,12 +305,14 @@ pub(super) struct DbOutPoint {
 
 /// The model for checkpoint index.
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[expect(dead_code)]
 pub(super) struct CheckPointIdx {
     pub(super) value: u64,
 }
 
 /// The model to map partial signatures to operators.
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[expect(dead_code)]
 pub(super) struct PartialSignatures {
     /// The ID of the operator stored as `INTEGER`.
     pub(super) operator_id: DbOperatorId,

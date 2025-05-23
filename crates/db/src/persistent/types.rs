@@ -447,7 +447,9 @@ impl<'r> sqlx::Decode<'r, Sqlite> for DbAggNonce {
         value: <Sqlite as sqlx::Database>::ValueRef<'r>,
     ) -> Result<Self, sqlx::error::BoxDynError> {
         let agg_nonce_str = <String as sqlx::Decode<'r, Sqlite>>::decode(value)?;
-        let agg_nonce = agg_nonce_str.parse().map_err(|e| format!("Failed to parse aggregated nonce: {e}"))?;
+        let agg_nonce = agg_nonce_str
+            .parse()
+            .map_err(|e| format!("Failed to parse aggregated nonce: {e}"))?;
         Ok(DbAggNonce(agg_nonce))
     }
 }
