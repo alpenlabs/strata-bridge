@@ -770,7 +770,14 @@ impl ContractManagerCtx {
                     };
 
                     info!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
-                    self.state.stake_chains.process_setup(key.clone(), &setup)?;
+                    let Some(_stake_txid) =
+                        self.state.stake_chains.process_setup(key.clone(), &setup)?
+                    else {
+                        // if the stake txid cannot be generated it means that the chain is broken,
+                        // this can happen if the deposit setup messages are received out of order,
+                        // when there are multiple deposits being processed concurrently.
+                        return Ok(vec![]);
+                    };
 
                     info!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
                     self.state_handles
