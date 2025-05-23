@@ -19,7 +19,7 @@ use operator_wallet::FundingUtxo;
 use secp256k1::{schnorr, Message};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
@@ -306,12 +306,16 @@ async fn finalize_claim_funding_tx(
 
 /// Handles the duty to publish the graph nonces for the given peg out graph identified by the
 /// transaction ID of its claim transaction.
+///
+/// This also commits the graph nonces to the database in the `pub_nonces` table.
 pub(crate) async fn handle_publish_graph_nonces(
+    cfg: &ExecutionConfig,
     musig: &MusigSessionManager,
     message_handler: &MessageHandler,
     claim_txid: Txid,
     pog_outpoints: PogMusigF<OutPoint>,
     pog_witnesses: PogMusigF<TaprootWitness>,
+    db: &SqliteDb,
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph nonces");
 
@@ -362,8 +366,32 @@ pub(crate) async fn handle_publish_graph_nonces(
         }
     };
 
-    info!(%claim_txid, "publishing graph nonces");
+    info!(%claim_txid, "committing graph nonces to database in the `pub_nonces` table");
+    let pov_idx = cfg.operator_table.pov_idx();
+    for (nonce, outpoint) in nonces
+        .clone()
+        .pack()
+        .into_iter()
+        .zip(pog_outpoints.clone().pack().into_iter())
+    {
+        db.set_pub_nonce(pov_idx, claim_txid, outpoint.vout, nonce)
+            .await
+            .expect("should be able to commit graph nonces to the database");
+    }
 
+    info!(%claim_txid, "committing graph witnesses to database in the `witnesses` table");
+    for (witness, outpoint) in pog_witnesses
+        .clone()
+        .pack()
+        .into_iter()
+        .zip(pog_outpoints.pack().into_iter())
+    {
+        db.set_witness(pov_idx, claim_txid, outpoint.vout, witness)
+            .await
+            .expect("should be able to commit graph witnesses to the database");
+    }
+
+    info!(%claim_txid, "publishing graph nonces");
     message_handler
         .send_musig2_nonces(
             SessionId::from_bytes(claim_txid.to_byte_array()),
@@ -376,13 +404,19 @@ pub(crate) async fn handle_publish_graph_nonces(
 
 /// Handles the duty to publish the graph partial signatures for the given peg out graph identified
 /// by the transaction ID of its claim transaction.
+///
+/// This also commits the graph partial signatures to the database in the `partial_signatures`
+/// table.
+#[expect(clippy::too_many_arguments)]
 pub(crate) async fn handle_publish_graph_sigs(
+    cfg: &ExecutionConfig,
     musig: &MusigSessionManager,
     message_handler: &MessageHandler,
     claim_txid: Txid,
     pubnonces: BTreeMap<secp256k1::PublicKey, PogMusigF<PubNonce>>,
     pog_outpoints: PogMusigF<OutPoint>,
     pog_sighashes: PogMusigF<Message>,
+    db: &SqliteDb,
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph signatures");
 
@@ -401,9 +435,9 @@ pub(crate) async fn handle_publish_graph_sigs(
     }
 
     info!(%claim_txid, "getting all partials");
-
     let partials = PogMusigF::transpose_result(
         pog_outpoints
+            .clone()
             .zip(pog_sighashes)
             .map(|(op, sighash)| musig.get_partial(op, sighash))
             .join_all()
@@ -417,9 +451,21 @@ pub(crate) async fn handle_publish_graph_sigs(
         );
     })?;
 
+    let pov_idx = cfg.operator_table.pov_idx();
+    info!(%claim_txid, %pov_idx, "committing graph signatures to database in the `partial_signatures` table");
+    for (partial, outpoint) in partials
+        .clone()
+        .pack()
+        .into_iter()
+        .zip(pog_outpoints.pack().into_iter())
+    {
+        db.set_partial_signature(pov_idx, claim_txid, outpoint.vout, partial)
+            .await
+            .expect("should be able to commit graph signatures to the database");
+    }
+
     info!(%claim_txid, "publishing graph signatures");
     debug!(%claim_txid, ?partials, "received all partials from s2");
-
     message_handler
         .send_musig2_signatures(
             SessionId::from_bytes(claim_txid.to_byte_array()),
@@ -525,18 +571,39 @@ pub(crate) async fn handle_commit_sig(
 
 /// Handles the duty to publish the root nonce for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
+///
+/// This also commits the root nonce to the database in the `pub_nonces` table.
 pub(crate) async fn handle_publish_root_nonce(
+    cfg: &ExecutionConfig,
     s2_client: &MusigSessionManager,
     msg_handler: &MessageHandler,
     prevout: OutPoint,
     witness: TaprootWitness,
+    db: &SqliteDb,
 ) -> Result<(), ContractManagerErr> {
     let deposit_request_txid = prevout.txid;
-    info!(%deposit_request_txid, "executing duty to publish root nonce");
+    let deposit_request_vout = prevout.vout;
+    info!(%deposit_request_txid, %deposit_request_vout, "executing duty to publish root nonce");
 
-    let nonce = s2_client.get_nonce(prevout, witness).await?;
+    let nonce = s2_client.get_nonce(prevout, witness.clone()).await?;
 
-    info!(%deposit_request_txid, "publishing root nonce");
+    info!(%deposit_request_txid, %deposit_request_vout, "committing root nonce to database in the `pub_nonces` table");
+    let pov_idx = cfg.operator_table.pov_idx();
+    db.set_pub_nonce(
+        pov_idx,
+        deposit_request_txid,
+        deposit_request_vout,
+        nonce.clone(),
+    )
+    .await
+    .expect("should be able to commit root nonce to the database");
+
+    info!(%deposit_request_txid, %deposit_request_vout, "committing root witness to database in the `witnesses` table");
+    db.set_witness(pov_idx, deposit_request_txid, deposit_request_vout, witness)
+        .await
+        .expect("should be able to commit root witness to the database");
+
+    info!(%deposit_request_txid, %deposit_request_vout, "publishing root nonce");
     msg_handler
         .send_musig2_nonces(
             SessionId::from_bytes(deposit_request_txid.to_byte_array()),
@@ -549,6 +616,8 @@ pub(crate) async fn handle_publish_root_nonce(
 
 /// Handles the duty to publish the root signature for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
+///
+/// This also commits the root signature to the database in the `partial_signatures` table.
 pub(crate) async fn handle_publish_root_signature(
     cfg: &ExecutionConfig,
     s2_client: &MusigSessionManager,
@@ -556,8 +625,10 @@ pub(crate) async fn handle_publish_root_signature(
     nonces: BTreeMap<secp256k1::PublicKey, PubNonce>,
     prevout: OutPoint,
     sighash: Message,
+    db: &SqliteDb,
 ) -> Result<(), ContractManagerErr> {
     let deposit_request_txid = prevout.txid;
+    let deposit_request_vout = prevout.vout;
     info!(%deposit_request_txid, "executing duty to publish root signature");
 
     let our_pubkey = cfg.operator_table.pov_btc_key();
@@ -587,7 +658,13 @@ pub(crate) async fn handle_publish_root_signature(
             );
         })?;
 
-    info!(%deposit_request_txid, "publishing root signature");
+    let pov_idx = cfg.operator_table.pov_idx();
+    info!(%deposit_request_txid, %deposit_request_vout, %pov_idx, "committing root signature to database in the `partial_signatures` table");
+    db.set_partial_signature(pov_idx, deposit_request_txid, deposit_request_vout, partial)
+        .await
+        .expect("should be able to commit root signature to the database");
+
+    info!(%deposit_request_txid, %deposit_request_vout, "publishing root signature");
     msg_handler
         .send_musig2_signatures(
             SessionId::from_bytes(prevout.txid.as_raw_hash().to_byte_array()),
