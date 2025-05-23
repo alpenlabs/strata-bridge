@@ -1,4 +1,5 @@
 //! Module to bootstrap the operator node by hooking up all the required services.
+#![allow(deprecated)]
 
 use std::{fs, sync::Arc};
 
@@ -15,7 +16,7 @@ use strata_bridge_agent::{
     signal::{CovenantNonceSignal, CovenantSignatureSignal, DepositSignal},
     verifier::Verifier,
 };
-use strata_bridge_db::persistent::sqlite::SqliteDb;
+use strata_bridge_db::{operator::LegacyOperatorDb, persistent::sqlite::SqliteDb};
 #[expect(deprecated)]
 use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
@@ -96,15 +97,16 @@ pub(crate) async fn bootstrap(args: Cli) {
     let public_db = Arc::new(public_db);
     debug!(event = "initialized public db");
 
-    let operators: Vec<Operator<SqliteDb, SqliteDb, SqliteDb>> = generate_operator_set(
-        &args,
-        pubkey_table.clone(),
-        public_db.clone(),
-        duty_tracker_db.clone(),
-        duty_status_sender,
-        network,
-    )
-    .await;
+    let operators: Vec<Operator<LegacyOperatorDb<SqliteDb>, SqliteDb, SqliteDb>> =
+        generate_operator_set(
+            &args,
+            pubkey_table.clone(),
+            public_db.clone(),
+            duty_tracker_db.clone(),
+            duty_status_sender,
+            network,
+        )
+        .await;
 
     let mut tasks = JoinSet::new();
 
@@ -187,7 +189,7 @@ pub(crate) async fn generate_operator_set(
     duty_db: Arc<SqliteDb>,
     duty_status_sender: mpsc::Sender<(Txid, BridgeDutyStatus)>,
     network: Network,
-) -> Vec<Operator<SqliteDb, SqliteDb, SqliteDb>> {
+) -> Vec<Operator<LegacyOperatorDb<SqliteDb>, SqliteDb, SqliteDb>> {
     let operator_indexes_and_keypairs =
         get_keypairs_and_load_xpriv(&args.xpriv_file, &pubkey_table);
 
@@ -221,7 +223,7 @@ pub(crate) async fn generate_operator_set(
         broadcast::channel::<CovenantSignatureSignal>(covenant_queue_size);
 
     let mut faulty_idxs = Vec::new();
-    let mut operator_set: Vec<Operator<SqliteDb, SqliteDb, SqliteDb>> =
+    let mut operator_set: Vec<Operator<LegacyOperatorDb<SqliteDb>, SqliteDb, SqliteDb>> =
         Vec::with_capacity(num_operators);
 
     for ((operator_idx, keypair), msk) in operator_indexes_and_keypairs.into_iter().zip(msks) {
@@ -258,7 +260,7 @@ pub(crate) async fn generate_operator_set(
             format!("{}{}.db", OPERATOR_DB_PREFIX, build_context.own_index()).as_str(),
         )
         .await;
-        let operator_db = Arc::new(operator_db);
+        let operator_db = Arc::new(LegacyOperatorDb::new(operator_db));
 
         let json =
             fs::read_to_string(&args.rollup_params_file).expect("rollup params must be present");
@@ -267,15 +269,14 @@ pub(crate) async fn generate_operator_set(
 
         let operator = Operator {
             agent,
-            build_context,
-            is_faulty,
             msk,
+            build_context,
             db: operator_db,
             public_db: public_db.clone(),
             duty_db: duty_db.clone(),
+            is_faulty,
             btc_poll_interval: args.btc_scan_interval,
             rollup_params,
-
             duty_status_sender: duty_status_sender.clone(),
             deposit_signal_sender: deposit_signal_sender.clone(),
             deposit_signal_receiver: deposit_signal_sender.subscribe(),
