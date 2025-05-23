@@ -191,23 +191,79 @@ impl ContractPersister {
         &self,
         active_contracts: impl Iterator<Item = (&Txid, &ContractSM)>,
     ) -> Result<(), ContractPersistErr> {
-        // NOTE: this is an pessimistic lower bound on the size of the iterator.
-        let num_contracts = active_contracts.size_hint().0;
+        // Collect all contract data first
+        let contracts_data: Vec<_> = active_contracts
+            .map(|(txid, contract_sm)| {
+                let deposit_idx = contract_sm.cfg().deposit_idx;
+                let deposit_tx = &contract_sm.cfg().deposit_tx;
+                let operator_table = &contract_sm.cfg().operator_table;
+                let machine_state = contract_sm.state();
+
+                let deposit_tx_bytes = bincode::serialize(&deposit_tx)?;
+                let operator_table_bytes = bincode::serialize(&operator_table)?;
+                let state_json = serde_json::to_string(&machine_state)?;
+
+                Ok((
+                    txid.to_string(),
+                    deposit_idx,
+                    deposit_tx_bytes,
+                    operator_table_bytes,
+                    state_json,
+                ))
+            })
+            .collect::<Result<Vec<_>, ContractPersistErr>>()?;
+
+        if contracts_data.is_empty() {
+            return Ok(());
+        }
+
+        let num_contracts = contracts_data.len();
         debug!(%num_contracts, "committing all active contracts");
 
-        for (txid, contract_sm) in active_contracts {
-            let deposit_idx = contract_sm.cfg().deposit_idx;
-            let deposit_tx = &contract_sm.cfg().deposit_tx;
-            let operator_table = &contract_sm.cfg().operator_table;
-            let machine_state = contract_sm.state();
-            // FIXME: (@Rajil1213) wrap all commits into a single db transaction.
-            self.commit(txid, deposit_idx, deposit_tx, operator_table, machine_state)
-                .await
-                .map_err(|e| {
-                    error!(?e, %txid, "failed to commit active contract");
-                    ContractPersistErr::Unexpected(e.to_string())
-                })?;
-        }
+        let contracts_data = &contracts_data;
+
+        // Build the VALUES clause with placeholders
+        let values_clause = contracts_data
+            .iter()
+            .map(|_| "(?, ?, ?, ?, ?)")
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let query_str = format!(
+            "INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) VALUES {}",
+            values_clause
+        );
+
+        execute_with_retries(&self.config, || async {
+            // Bind all parameters using fold to avoid for loop
+            let query = contracts_data.iter().fold(
+                sqlx::query(&query_str),
+                |query,
+                 (
+                    deposit_txid,
+                    deposit_idx,
+                    deposit_tx_bytes,
+                    operator_table_bytes,
+                    state_json,
+                )| {
+                    query
+                        .bind(deposit_txid)
+                        .bind(deposit_idx)
+                        .bind(deposit_tx_bytes)
+                        .bind(operator_table_bytes)
+                        .bind(state_json)
+                },
+            );
+
+            let _: SqliteQueryResult = query.execute(&self.pool).await.map_err(|e| {
+                error!(?e, "failed to commit all contracts to disk");
+                StorageError::from(e)
+            })?;
+
+            Ok(())
+        })
+        .await
+        .map_err(ContractPersistErr::from)?;
 
         Ok(())
     }
