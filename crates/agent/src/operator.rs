@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use core::fmt;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -41,7 +43,10 @@ use strata_bridge_connectors::{
     prelude::{ConnectorA3Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
 };
 use strata_bridge_db::{
-    errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
+    errors::DbError,
+    operator::{LegacyOperatorDb, OperatorDb},
+    public::PublicDb,
+    tracker::DutyTrackerDb,
 };
 use strata_bridge_primitives::scripts::prelude::drt_take_back;
 #[expect(deprecated)]
@@ -122,12 +127,50 @@ pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
     pub covenant_sig_receiver: broadcast::Receiver<CovenantSignatureSignal>,
 }
 
-impl<O, P, D> Operator<O, P, D>
+impl<O, P, D> Operator<LegacyOperatorDb<O>, P, D>
 where
-    O: OperatorDb,
+    O: OperatorDb + Send + Sync + Clone,
     P: PublicDb + Clone,
     D: DutyTrackerDb,
 {
+    /// Creates a new Operator with a raw OperatorDb implementation.
+    /// This wraps the OperatorDb with LegacyOperatorDb internally for backward compatibility.
+    #[expect(clippy::too_many_arguments)]
+    pub fn new(
+        agent: Agent,
+        msk: String,
+        build_context: TxBuildContext,
+        db: Arc<O>,
+        public_db: Arc<P>,
+        duty_db: Arc<D>,
+        is_faulty: bool,
+        btc_poll_interval: Duration,
+        rollup_params: RollupParams,
+        duty_status_sender: mpsc::Sender<(Txid, BridgeDutyStatus)>,
+        deposit_signal_sender: broadcast::Sender<DepositSignal>,
+        covenant_nonce_sender: broadcast::Sender<CovenantNonceSignal>,
+        covenant_sig_sender: broadcast::Sender<CovenantSignatureSignal>,
+    ) -> Self {
+        Self {
+            agent,
+            msk,
+            build_context,
+            db: Arc::new(LegacyOperatorDb::new((*db).clone())),
+            public_db,
+            duty_db,
+            is_faulty,
+            btc_poll_interval,
+            rollup_params,
+            duty_status_sender,
+            deposit_signal_receiver: deposit_signal_sender.subscribe(),
+            deposit_signal_sender,
+            covenant_nonce_receiver: covenant_nonce_sender.subscribe(),
+            covenant_nonce_sender,
+            covenant_sig_receiver: covenant_sig_sender.subscribe(),
+            covenant_sig_sender,
+        }
+    }
+
     pub fn am_i_faulty(&self) -> bool {
         self.is_faulty
     }

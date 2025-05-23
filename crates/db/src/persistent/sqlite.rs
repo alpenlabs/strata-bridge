@@ -32,7 +32,7 @@ use super::{
 };
 use crate::{
     errors::{DbError, DbResult},
-    operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb},
+    operator::OperatorDb,
     persistent::{models, types::DbPubNonce},
     public::PublicDb,
     tracker::{BitcoinBlockTrackerDb, DutyTrackerDb},
