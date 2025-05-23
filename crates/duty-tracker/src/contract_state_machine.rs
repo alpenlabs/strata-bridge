@@ -2661,6 +2661,8 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        let copy_of_current = current.clone();
+
         let txid = tx.compute_txid();
         match current {
             ContractState::Challenged {
@@ -2674,8 +2676,22 @@ impl ContractSM {
                 withdrawal_fulfillment_txid,
                 withdrawal_fulfillment_commitment,
                 ..
+            }
+            | ContractState::Claimed {
+                peg_out_graphs,
+                claim_txids,
+                graph_sigs,
+                claim_height,
+                fulfiller,
+                active_graph,
+                withdrawal_fulfillment_txid,
+                withdrawal_fulfillment_commitment,
+                assignment_height,
+                ..
             } => {
                 if txid != active_graph.1.pre_assert_txid {
+                    self.state.state = copy_of_current;
+
                     return Err(TransitionErr(format!(
                         "invalid pre assert transaction ({}) in process_pre_assert_confirmation",
                         tx.compute_txid()
