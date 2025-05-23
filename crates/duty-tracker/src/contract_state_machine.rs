@@ -1281,6 +1281,8 @@ impl ContractSM {
                 || g.stake_txid == txid
                 || g.claim_txid == txid
                 || g.payout_optimistic_txid == txid
+                || g.pre_assert_txid == txid
+                || g.assert_data_txids.contains(&txid)
                 || g.post_assert_txid == txid
                 || g.payout_txid == txid
                 || is_challenge(g.claim_txid)(tx)
