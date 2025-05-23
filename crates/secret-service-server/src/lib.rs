@@ -251,7 +251,7 @@ where
                 ServerMessage::Musig2NewSession(Ok(()))
             }
 
-            ClientMessage::WalletSignerSign {
+            ClientMessage::SchnorrSignerSign {
                 target,
                 digest,
                 tweak,
@@ -270,12 +270,12 @@ where
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign(&digest, tweak).await,
                 };
-                ServerMessage::WalletSignerSign {
+                ServerMessage::SchnorrSignerSign {
                     sig: sig.serialize(),
                 }
             }
 
-            ClientMessage::WalletSignerSignNoTweak { target, digest } => {
+            ClientMessage::SchnorrSignerSignNoTweak { target, digest } => {
                 let sig = match target {
                     SignerTarget::General => {
                         service.general_wallet_signer().sign_no_tweak(&digest).await
@@ -288,12 +288,12 @@ where
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign_no_tweak(&digest).await,
                 };
-                ServerMessage::WalletSignerSign {
+                ServerMessage::SchnorrSignerSign {
                     sig: sig.serialize(),
                 }
             }
 
-            ClientMessage::WalletSignerPubkey { target } => ServerMessage::WalletSignerPubkey {
+            ClientMessage::SchnorrSignerPubkey { target } => ServerMessage::SchnorrSignerPubkey {
                 pubkey: match target {
                     SignerTarget::General => {
                         service.general_wallet_signer().pubkey().await.serialize()

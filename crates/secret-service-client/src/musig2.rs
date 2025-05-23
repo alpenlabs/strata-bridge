@@ -95,14 +95,14 @@ impl SchnorrSigner<Client> for Musig2Client {
         digest: &[u8; 32],
         tweak: Option<TapNodeHash>,
     ) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::WalletSignerSign {
+        let msg = ClientMessage::SchnorrSignerSign {
             target: SignerTarget::Musig2,
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::WalletSignerSign { sig } => {
+            ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -110,13 +110,13 @@ impl SchnorrSigner<Client> for Musig2Client {
     }
 
     async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::WalletSignerSignNoTweak {
+        let msg = ClientMessage::SchnorrSignerSignNoTweak {
             target: SignerTarget::Musig2,
             digest: *digest,
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
         match res {
-            ServerMessage::WalletSignerSign { sig } => {
+            ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
             }
             _ => Err(ClientError::WrongMessage(res.into())),
@@ -124,11 +124,11 @@ impl SchnorrSigner<Client> for Musig2Client {
     }
 
     async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
-        let msg = ClientMessage::WalletSignerPubkey {
+        let msg = ClientMessage::SchnorrSignerPubkey {
             target: SignerTarget::Musig2,
         };
         let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
-        let ServerMessage::WalletSignerPubkey { pubkey } = res else {
+        let ServerMessage::SchnorrSignerPubkey { pubkey } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
 

@@ -42,13 +42,13 @@ pub enum ServerMessage {
 
     /// Response for [`SchnorrSigner::sign`](super::traits::SchnorrSigner::sign) and
     /// [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak)
-    WalletSignerSign {
+    SchnorrSignerSign {
         /// Schnorr signature for a certain message.
         sig: [u8; 64],
     },
 
     /// Response for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
-    WalletSignerPubkey {
+    SchnorrSignerPubkey {
         /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
         pubkey: [u8; 32],
     },
@@ -223,9 +223,10 @@ pub enum ClientMessage {
     P2PSecretKey,
 
     /// Request for [`SchnorrSigner::sign`](super::traits::SchnorrSigner::sign).
-    WalletSignerSign {
+    SchnorrSignerSign {
         /// Which Schnorr key to use
         target: SignerTarget,
+
         /// The digest of the data the client wants signed.
         digest: [u8; 32],
 
@@ -234,15 +235,16 @@ pub enum ClientMessage {
     },
 
     /// Request for [`SchnorrSigner::sign_no_tweak`](super::traits::SchnorrSigner::sign_no_tweak).
-    WalletSignerSignNoTweak {
+    SchnorrSignerSignNoTweak {
         /// Which Schnorr key to use
         target: SignerTarget,
+
         /// The digest of the data the client wants signed.
         digest: [u8; 32],
     },
 
     /// Request for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
-    WalletSignerPubkey {
+    SchnorrSignerPubkey {
         /// Which Schnorr key to use
         target: SignerTarget,
     },
