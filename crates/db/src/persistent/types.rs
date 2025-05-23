@@ -12,6 +12,7 @@ use secp256k1::schnorr::Signature;
 use sqlx::{sqlite::SqliteValueRef, Sqlite};
 use strata_bridge_primitives::{
     duties::BridgeDutyStatus,
+    scripts::taproot::TaprootWitness,
     types::OperatorIdx,
     wots::{self, Wots256PublicKey},
 };
@@ -418,6 +419,50 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbPubNonce {
     }
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct DbAggNonce(musig2::AggNonce);
+
+impl Deref for DbAggNonce {
+    type Target = musig2::AggNonce;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<musig2::AggNonce> for DbAggNonce {
+    fn from(agg_nonce: musig2::AggNonce) -> Self {
+        Self(agg_nonce)
+    }
+}
+
+impl sqlx::Type<Sqlite> for DbAggNonce {
+    fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
+        <String as sqlx::Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, Sqlite> for DbAggNonce {
+    fn decode(
+        value: <Sqlite as sqlx::Database>::ValueRef<'r>,
+    ) -> Result<Self, sqlx::error::BoxDynError> {
+        let agg_nonce_str = <String as sqlx::Decode<'r, Sqlite>>::decode(value)?;
+        let agg_nonce = agg_nonce_str.parse().map_err(|e| format!("Failed to parse aggregated nonce: {e}"))?;
+        Ok(DbAggNonce(agg_nonce))
+    }
+}
+
+impl<'q> sqlx::Encode<'q, Sqlite> for DbAggNonce {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let agg_nonce_str = self.0.to_string();
+
+        sqlx::Encode::<'q, Sqlite>::encode_by_ref(&agg_nonce_str, buf)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct DbSecNonce(SecNonce);
 
@@ -628,5 +673,48 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbTransaction {
         let tx_hex = consensus::encode::serialize_hex(&self.0);
 
         sqlx::Encode::<'q, Sqlite>::encode_by_ref(&tx_hex, buf)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DbTaprootWitness(TaprootWitness);
+
+impl Deref for DbTaprootWitness {
+    type Target = TaprootWitness;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<TaprootWitness> for DbTaprootWitness {
+    fn from(value: TaprootWitness) -> Self {
+        Self(value)
+    }
+}
+
+impl sqlx::Type<Sqlite> for DbTaprootWitness {
+    fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
+        <String as sqlx::Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, Sqlite> for DbTaprootWitness {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let witness_hex: String = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
+        let witness = TaprootWitness::from_hex(&witness_hex)
+            .map_err(|_| sqlx::Error::Decode("Failed to decode TaprootWitness".into()))?;
+        Ok(Self(witness))
+    }
+}
+
+impl<'q> sqlx::Encode<'q, Sqlite> for DbTaprootWitness {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let witness_hex = self.0.to_hex();
+
+        sqlx::Encode::<'q, Sqlite>::encode_by_ref(&witness_hex, buf)
     }
 }
