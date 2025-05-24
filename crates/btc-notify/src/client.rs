@@ -27,7 +27,7 @@ struct TxSubscriptionDetails {
 }
 
 // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
-#[cfg_attr(coverage_nightly, coverage(off))]
+#[coverage(off)]
 impl std::fmt::Debug for TxSubscriptionDetails {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TxSubscriptionDetails")
@@ -270,6 +270,7 @@ mod e2e_tests {
     use corepc_node::serde_json::json;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_test_utils::prelude::wait_for_height;
 
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
@@ -277,24 +278,31 @@ mod e2e_tests {
     async fn setup() -> Result<(BtcZmqClient, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
+
         // TODO(proofofkeags): do dynamic port allocation so these can be run in parallel
-        bitcoin_conf.args.extend(vec![
-            "-zmqpubhashblock=tcp://127.0.0.1:23882",
-            "-zmqpubhashtx=tcp://127.0.0.1:23883",
-            "-zmqpubrawblock=tcp://127.0.0.1:23884",
-            "-zmqpubrawtx=tcp://127.0.0.1:23885",
-            "-zmqpubsequence=tcp://127.0.0.1:23886",
-            "-debug=zmq",
-        ]);
+        let hash_block_socket = "tcp://127.0.0.1:23882";
+        let hash_tx_socket = "tcp://127.0.0.1:23883";
+        let raw_block_socket = "tcp://127.0.0.1:23884";
+        let raw_tx_socket = "tcp://127.0.0.1:23885";
+        let sequence_socket = "tcp://127.0.0.1:23886";
+        let args = [
+            format!("-zmqpubhashblock={hash_block_socket}"),
+            format!("-zmqpubhashtx={hash_tx_socket}"),
+            format!("-zmqpubrawblock={raw_block_socket}"),
+            format!("-zmqpubrawtx={raw_tx_socket}"),
+            format!("-zmqpubsequence={sequence_socket}"),
+        ];
+        bitcoin_conf.args.extend(args.iter().map(String::as_str));
+
         let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
-            .with_hashblock_connection_string("tcp://127.0.0.1:23882")
-            .with_hashtx_connection_string("tcp://127.0.0.1:23883")
-            .with_rawblock_connection_string("tcp://127.0.0.1:23884")
-            .with_rawtx_connection_string("tcp://127.0.0.1:23885")
-            .with_sequence_connection_string("tcp://127.0.0.1:23886");
+            .with_hashblock_connection_string(hash_block_socket)
+            .with_hashtx_connection_string(hash_tx_socket)
+            .with_rawblock_connection_string(raw_block_socket)
+            .with_rawtx_connection_string(raw_tx_socket)
+            .with_sequence_connection_string(sequence_socket);
 
         let client = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
 
@@ -330,24 +338,6 @@ mod e2e_tests {
         let client_2 = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
 
         Ok((client_1, client_2, bitcoind))
-    }
-
-    // This is disabled because it is merely a testing helper function to ensure tests complete in
-    // a timely manner, so we don't want lack of full coverage in this function to distract from
-    // overall coverage.
-    #[cfg_attr(coverage_nightly, coverage(off))]
-    async fn wait_for_height(
-        rpc_client: &corepc_node::Node,
-        height: usize,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(
-            tokio::time::timeout(std::time::Duration::from_secs(10), async {
-                while rpc_client.client.get_blockchain_info().unwrap().blocks != height as i64 {
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                }
-            })
-            .await?,
-        )
     }
 
     #[tokio::test]
