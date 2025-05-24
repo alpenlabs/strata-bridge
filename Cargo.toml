@@ -69,15 +69,15 @@ strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/strata.git" }
-strata-config = { git = "https://github.com/alpenlabs/strata.git" }
-strata-crypto = { git = "https://github.com/alpenlabs/strata.git" }
-strata-l1tx = { git = "https://github.com/alpenlabs/strata.git" }
-strata-primitives = { git = "https://github.com/alpenlabs/strata.git" }
-strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/strata.git" }
-strata-rpc-api = { git = "https://github.com/alpenlabs/strata.git" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/strata.git" }
-strata-state = { git = "https://github.com/alpenlabs/strata.git" }
+strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-config = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-crypto = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-primitives = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-state = { git = "https://github.com/alpenlabs/alpen.git" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }
