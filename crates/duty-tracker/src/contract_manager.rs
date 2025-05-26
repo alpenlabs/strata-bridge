@@ -1359,12 +1359,10 @@ async fn execute_duty(
             witness,
         } => {
             handle_publish_root_nonce(
-                cfg,
                 &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 OutPoint::new(deposit_request_txid, 0),
                 witness,
-                db,
             )
             .await
         }
@@ -1375,13 +1373,11 @@ async fn execute_duty(
             pog_witnesses,
         } => {
             handle_publish_graph_nonces(
-                cfg,
                 s2_session_manager,
                 msg_handler,
                 claim_txid,
                 pog_inputs,
                 pog_witnesses,
-                db,
             )
             .await
         }
@@ -1393,14 +1389,12 @@ async fn execute_duty(
             pog_sighashes,
         } => {
             handle_publish_graph_sigs(
-                cfg,
                 s2_session_manager,
                 msg_handler,
                 claim_txid,
                 pubnonces,
                 pog_outpoints,
                 pog_sighashes,
-                db,
             )
             .await
         }
@@ -1435,7 +1429,6 @@ async fn execute_duty(
                 nonces,
                 OutPoint::new(deposit_request_txid, 0),
                 sighash,
-                db,
             )
             .await
         }
