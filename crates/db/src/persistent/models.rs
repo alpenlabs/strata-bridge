@@ -7,7 +7,7 @@ use sqlx::{self};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use super::types::{
-    DbAggNonce, DbAmount, DbDutyStatus, DbHash, DbInputIndex, DbOperatorId, DbPartialSig,
+    DbAggNonce, DbAmount, DbDutyStatus, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig,
     DbPubNonce, DbScriptBuf, DbSecNonce, DbSignature, DbTaprootWitness, DbTransaction, DbTxid,
     DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures,
 };
@@ -17,7 +17,7 @@ use super::types::{
 pub(super) struct WotsPublicKey {
     /// The ID of the operator stored as `INTEGER`.
     #[expect(dead_code)]
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized deposit txid stored as `TEXT`.
     #[expect(dead_code)]
@@ -32,7 +32,7 @@ pub(super) struct WotsPublicKey {
 pub(super) struct WotsSignature {
     /// The ID of the operator stored as `INTEGER`.
     #[expect(dead_code)]
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized deposit txid stored as `TEXT`.
     #[expect(dead_code)]
@@ -47,7 +47,7 @@ pub(super) struct WotsSignature {
 pub(super) struct Signature {
     /// The ID of the operator stored as `INTEGER`.
     #[expect(dead_code)]
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     // The hex-serialized transaction ID.
     #[expect(dead_code)]
@@ -133,7 +133,7 @@ pub(super) struct ClaimToOperatorAndDeposit {
     pub(super) deposit_txid: DbTxid,
 
     /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 }
 
 /// The model to map post-assert txid to operators and deposit.
@@ -147,7 +147,7 @@ pub(super) struct PostAssertToOperatorAndDeposit {
     pub(super) deposit_txid: DbTxid,
 
     /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 }
 
 /// The model to map assert-data txids to operators and deposit.
@@ -161,7 +161,7 @@ pub(super) struct AssertDataToOperatorAndDeposit {
     pub(super) deposit_txid: DbTxid,
 
     /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 }
 
 /// The model to map pre-assert txids to operators and deposit.
@@ -175,7 +175,7 @@ pub(super) struct PreAssertToOperatorAndDeposit {
     pub(super) deposit_txid: DbTxid,
 
     /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 }
 
 /// The model to map pubnonces to operators and deposit.
@@ -183,7 +183,7 @@ pub(super) struct PreAssertToOperatorAndDeposit {
 pub(super) struct PubNonces {
     /// The ID of the operator stored as `INTEGER`.
     #[expect(dead_code)]
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized txid.
     #[expect(dead_code)]
@@ -233,7 +233,7 @@ pub(super) struct Secnonces {
 pub(super) struct Witnesses {
     /// The ID of the operator stored as `INTEGER`.
     #[expect(dead_code)]
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized txid.
     #[expect(dead_code)]
@@ -254,7 +254,7 @@ pub(super) struct CollectedSigsPerMsg {
     pub(super) msg_hash: Vec<u8>,
 
     /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized partial signature.
     pub(super) partial_signature: DbPartialSig,
@@ -313,7 +313,7 @@ pub(super) struct CheckPointIdx {
 #[expect(dead_code)]
 pub(super) struct PartialSignatures {
     /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_id: DbOperatorId,
+    pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized txid.
     #[expect(dead_code)]

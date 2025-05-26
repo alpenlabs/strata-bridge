@@ -19,9 +19,9 @@ use strata_bridge_primitives::{
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
 #[sqlx(transparent)]
-pub(super) struct DbOperatorId(OperatorIdx);
+pub(super) struct DbOperatorIdx(OperatorIdx);
 
-impl Deref for DbOperatorId {
+impl Deref for DbOperatorIdx {
     type Target = OperatorIdx;
 
     fn deref(&self) -> &Self::Target {
@@ -29,7 +29,7 @@ impl Deref for DbOperatorId {
     }
 }
 
-impl From<i64> for DbOperatorId {
+impl From<i64> for DbOperatorIdx {
     fn from(value: i64) -> Self {
         Self(value as u32)
     }
