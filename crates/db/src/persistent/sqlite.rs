@@ -86,10 +86,10 @@ impl PublicDb for SqliteDb {
                 models::WotsPublicKey,
                 r#"SELECT
                     public_keys as "public_keys: DbWotsPublicKeys",
-                    operator_id,
+                    operator_idx,
                     deposit_txid AS "deposit_txid: DbTxid"
                     FROM wots_public_keys
-                    WHERE operator_id = $1 AND deposit_txid = $2"#,
+                    WHERE operator_idx = $1 AND deposit_txid = $2"#,
                 operator_idx,
                 deposit_txid,
             )
@@ -116,7 +116,7 @@ impl PublicDb for SqliteDb {
 
             sqlx::query!(
                 "INSERT OR REPLACE INTO wots_public_keys
-                    (operator_id, deposit_txid, public_keys)
+                    (operator_idx, deposit_txid, public_keys)
                     VALUES ($1, $2, $3)",
                 operator_idx,
                 deposit_txid,
@@ -143,10 +143,10 @@ impl PublicDb for SqliteDb {
             let result = sqlx::query_as!(
                 models::WotsSignature,
                 r#"SELECT signatures AS "signatures: DbWotsSignatures",
-                    operator_id,
+                    operator_idx,
                     deposit_txid AS "deposit_txid: DbTxid"
                     FROM wots_signatures
-                    WHERE operator_id = $1 AND deposit_txid = $2"#,
+                    WHERE operator_idx = $1 AND deposit_txid = $2"#,
                 operator_idx,
                 deposit_txid,
             )
@@ -173,7 +173,7 @@ impl PublicDb for SqliteDb {
             let db_signatures = DbWotsSignatures::from(signatures.clone());
             sqlx::query!(
                 "INSERT OR REPLACE INTO wots_signatures
-                    (operator_id, deposit_txid, signatures)
+                    (operator_idx, deposit_txid, signatures)
                     VALUES ($1, $2, $3)",
                 operator_idx,
                 deposit_txid,
@@ -201,11 +201,11 @@ impl PublicDb for SqliteDb {
                 models::Signature,
                 r#"SELECT
                     signature AS "signature: DbSignature",
-                    operator_id,
+                    operator_idx,
                     txid AS "txid: DbTxid",
                     input_index
                     FROM signatures
-                    WHERE operator_id = $1 AND txid = $2 AND input_index = $3"#,
+                    WHERE operator_idx = $1 AND txid = $2 AND input_index = $3"#,
                 operator_idx,
                 txid,
                 input_index,
@@ -234,7 +234,7 @@ impl PublicDb for SqliteDb {
             let txid = DbTxid::from(txid);
             sqlx::query!(
                 "INSERT OR REPLACE INTO signatures
-                    (signature, operator_id, txid, input_index)
+                    (signature, operator_idx, txid, input_index)
                     VALUES ($1, $2, $3, $4)",
                 signature,
                 operator_idx,
@@ -299,7 +299,7 @@ impl PublicDb for SqliteDb {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
             let stake_id = sqlx::query!(
-                "SELECT COUNT(*) AS cnt FROM operator_stake_txids WHERE operator_id = $1",
+                "SELECT COUNT(*) AS cnt FROM operator_stake_txids WHERE operator_idx = $1",
                 operator_idx
             )
             .fetch_all(&mut *tx)
@@ -312,7 +312,7 @@ impl PublicDb for SqliteDb {
             let stake_txid = DbTxid::from(stake_txid);
             sqlx::query!(
                 "INSERT OR IGNORE INTO operator_stake_txids
-                        (operator_id, stake_id, stake_txid)
+                        (operator_idx, stake_id, stake_txid)
                         VALUES ($1, $2, $3)",
                 operator_idx,
                 stake_id,
@@ -338,7 +338,7 @@ impl PublicDb for SqliteDb {
             Ok(sqlx::query!(
                 r#"SELECT stake_txid AS "stake_txid: DbTxid"
                     FROM operator_stake_txids
-                    WHERE operator_id = $1 AND stake_id = $2"#,
+                    WHERE operator_idx = $1 AND stake_id = $2"#,
                 operator_idx,
                 stake_id
             )
@@ -359,7 +359,7 @@ impl PublicDb for SqliteDb {
 
             sqlx::query!(
                 "INSERT OR IGNORE INTO operator_pre_stake_data
-                    (operator_id, pre_stake_txid, pre_stake_vout)
+                    (operator_idx, pre_stake_txid, pre_stake_vout)
                     VALUES ($1, $2, $3)",
                 operator_idx,
                 pre_stake_txid,
@@ -381,7 +381,7 @@ impl PublicDb for SqliteDb {
             Ok(sqlx::query!(
                 r#"SELECT pre_stake_txid AS "txid: DbTxid", pre_stake_vout AS "vout: DbInputIndex"
                     FROM operator_pre_stake_data
-                    WHERE operator_id = $1"#,
+                    WHERE operator_idx = $1"#,
                 operator_idx
             )
             .fetch_optional(&self.pool)
@@ -410,7 +410,7 @@ impl PublicDb for SqliteDb {
 
                 sqlx::query!(
                     "INSERT OR IGNORE INTO operator_stake_data
-                        (operator_id, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
+                        (operator_idx, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
                         VALUES ($1, $2, $3, $4, $5, $6)",
                     operator_idx,
                     stake_index,
@@ -444,7 +444,7 @@ impl PublicDb for SqliteDb {
                     hash AS "hash: DbHash",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
-                    WHERE operator_id = $1 AND deposit_id = $2"#,
+                    WHERE operator_idx = $1 AND deposit_id = $2"#,
                 operator_idx,
                 deposit_id
             )
@@ -466,7 +466,7 @@ impl PublicDb for SqliteDb {
                     hash AS "hash: DbHash",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
-                    WHERE operator_id = $1
+                    WHERE operator_idx = $1
                     ORDER BY deposit_id ASC"#,
                 operator_idx,
             )
@@ -493,7 +493,7 @@ impl PublicDb for SqliteDb {
             let deposit_txid = DbTxid::from(deposit_txid);
             sqlx::query!(
                 "INSERT OR REPLACE INTO claim_txid_to_operator_index_and_deposit_txid
-                    (claim_txid, operator_id, deposit_txid)
+                    (claim_txid, operator_idx, deposit_txid)
                     VALUES ($1, $2, $3)",
                 claim_txid,
                 operator_idx,
@@ -519,7 +519,7 @@ impl PublicDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::ClaimToOperatorAndDeposit,
                 r#"SELECT
-                    operator_id,
+                    operator_idx,
                     deposit_txid AS "deposit_txid!: DbTxid",
                     claim_txid AS "claim_txid!: DbTxid"
                     FROM claim_txid_to_operator_index_and_deposit_txid
@@ -529,7 +529,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|row| (*row.operator_id, *row.deposit_txid)))
+            .map(|row| (*row.operator_idx, *row.deposit_txid)))
         })
         .await
     }
@@ -547,7 +547,7 @@ impl PublicDb for SqliteDb {
             let deposit_txid = DbTxid::from(deposit_txid);
             sqlx::query!(
                 "INSERT OR REPLACE INTO post_assert_txid_to_operator_index_and_deposit_txid
-                (post_assert_txid, operator_id, deposit_txid)
+                (post_assert_txid, operator_idx, deposit_txid)
                 VALUES ($1, $2, $3)",
                 post_assert_txid,
                 operator_idx,
@@ -574,7 +574,7 @@ impl PublicDb for SqliteDb {
                 models::PostAssertToOperatorAndDeposit,
                 r#"SELECT
                     post_assert_txid AS "post_assert_txid!: DbTxid",
-                    operator_id,
+                    operator_idx,
                     deposit_txid AS "deposit_txid!: DbTxid"
                     FROM post_assert_txid_to_operator_index_and_deposit_txid
                     WHERE post_assert_txid = $1"#,
@@ -583,7 +583,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|row| (*row.operator_id, *row.deposit_txid)))
+            .map(|row| (*row.operator_idx, *row.deposit_txid)))
         })
         .await
     }
@@ -602,7 +602,7 @@ impl PublicDb for SqliteDb {
                 let assert_data_txid = DbTxid::from(txid);
                 sqlx::query!(
                     "INSERT OR REPLACE INTO assert_data_txid_to_operator_and_deposit
-                        (assert_data_txid, operator_id, deposit_txid)
+                        (assert_data_txid, operator_idx, deposit_txid)
                         VALUES ($1, $2, $3)",
                     assert_data_txid,
                     operator_idx,
@@ -630,7 +630,7 @@ impl PublicDb for SqliteDb {
                 models::AssertDataToOperatorAndDeposit,
                 r#"SELECT
                     assert_data_txid AS "assert_data_txid!: DbTxid",
-                    operator_id,
+                    operator_idx,
                     deposit_txid AS "deposit_txid!: DbTxid"
                     FROM assert_data_txid_to_operator_and_deposit
                     WHERE assert_data_txid = ?"#,
@@ -639,7 +639,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|record| (*record.operator_id, *record.deposit_txid)))
+            .map(|record| (*record.operator_idx, *record.deposit_txid)))
         })
         .await
     }
@@ -657,7 +657,7 @@ impl PublicDb for SqliteDb {
             let deposit_txid = DbTxid::from(deposit_txid);
             sqlx::query!(
                 "INSERT OR REPLACE INTO pre_assert_txid_to_operator_and_deposit
-                    (pre_assert_data_txid, operator_id, deposit_txid)
+                    (pre_assert_data_txid, operator_idx, deposit_txid)
                     VALUES ($1, $2, $3)",
                 pre_assert_data_txid,
                 operator_idx,
@@ -684,7 +684,7 @@ impl PublicDb for SqliteDb {
                 models::PreAssertToOperatorAndDeposit,
                 r#"SELECT
                     pre_assert_data_txid AS "pre_assert_txid!: DbTxid",
-                    operator_id,
+                    operator_idx,
                     deposit_txid AS "deposit_txid!: DbTxid"
                     FROM pre_assert_txid_to_operator_and_deposit
                     WHERE pre_assert_data_txid = $1"#,
@@ -693,7 +693,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|record| (*record.operator_id, *record.deposit_txid)))
+            .map(|record| (*record.operator_idx, *record.deposit_txid)))
         })
         .await
     }
@@ -712,12 +712,12 @@ impl OperatorDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::PubNonces,
                 r#"SELECT
-                    operator_id,
+                    operator_idx,
                     pubnonce AS "pubnonce: DbPubNonce",
                     txid AS "txid: DbTxid",
                     input_index AS "input_index: DbInputIndex"
                     FROM pub_nonces 
-                    WHERE operator_id = $1 AND txid = $2 AND input_index = $3"#,
+                    WHERE operator_idx = $1 AND txid = $2 AND input_index = $3"#,
                 operator_idx,
                 txid,
                 input_index
@@ -747,7 +747,7 @@ impl OperatorDb for SqliteDb {
                 let pubnonce = DbPubNonce::from(pub_nonce);
                 sqlx::query!(
                     "INSERT OR REPLACE INTO pub_nonces
-                        (operator_id, txid, input_index, pubnonce)
+                        (operator_idx, txid, input_index, pubnonce)
                         VALUES ($1, $2, $3, $4)",
                     operator_idx,
                     txid,
@@ -837,12 +837,12 @@ impl OperatorDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::PartialSignatures,
                 r#"SELECT
-                    operator_id,
+                    operator_idx,
                     partial_signature AS "partial_signature: DbPartialSig",
                     txid AS "txid: DbTxid",
                     input_index AS "input_index: DbInputIndex"
                     FROM partial_signatures
-                    WHERE operator_id = $1 AND txid = $2 AND input_index = $3"#,
+                    WHERE operator_idx = $1 AND txid = $2 AND input_index = $3"#,
                 operator_idx,
                 txid,
                 input_index
@@ -871,7 +871,7 @@ impl OperatorDb for SqliteDb {
 
                 sqlx::query!(
                     "INSERT OR REPLACE INTO partial_signatures
-                        (operator_id, txid, input_index, partial_signature)
+                        (operator_idx, txid, input_index, partial_signature)
                         VALUES ($1, $2, $3, $4)",
                     operator_idx,
                     txid,
@@ -899,12 +899,12 @@ impl OperatorDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::Witnesses,
                 r#"SELECT
-                    operator_id,
+                    operator_idx,
                     witness AS "witness: DbTaprootWitness",
                     txid AS "txid: DbTxid",
                     input_index AS "input_index: DbInputIndex"
                     FROM witnesses
-                    WHERE operator_id = $1 AND txid = $2 AND input_index = $3"#,
+                    WHERE operator_idx = $1 AND txid = $2 AND input_index = $3"#,
                 operator_idx,
                 txid,
                 input_index
@@ -933,7 +933,7 @@ impl OperatorDb for SqliteDb {
 
                 sqlx::query!(
                     "INSERT OR REPLACE INTO witnesses
-                        (operator_id, txid, input_index, witness)
+                        (operator_idx, txid, input_index, witness)
                         VALUES ($1, $2, $3, $4)",
                     operator_idx,
                     txid,
