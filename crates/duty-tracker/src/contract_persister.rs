@@ -115,6 +115,9 @@ impl ContractPersister {
         let state_json = serde_json::to_string(&state)?;
 
         execute_with_retries(&self.config, || async {
+            // Begin transaction
+            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
             let _: SqliteQueryResult = sqlx::query(
                 r#"
                 INSERT INTO contracts (
@@ -131,12 +134,22 @@ impl ContractPersister {
             .bind(&deposit_tx_bytes)
             .bind(&operator_table_bytes)
             .bind(&state_json)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error!(?e, "failed to insert contract into database");
                 StorageError::from(e)
             })?;
+
+            // Commit the transaction
+            tx.commit().await.map_err(|e| {
+                error!(
+                    ?e,
+                    "failed to commit transaction for contract initialization"
+                );
+                StorageError::from(e)
+            })?;
+
             Ok(())
         })
         .await
@@ -159,22 +172,33 @@ impl ContractPersister {
         let state_json = serde_json::to_string(&state)?;
 
         execute_with_retries(&self.config, || async {
+            // Begin transaction
+            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
             let _: SqliteQueryResult = sqlx::query(
                 r#"
-            INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) VALUES (?, ?, ?, ?, ?)
-            "#,
+                INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) 
+                VALUES (?, ?, ?, ?, ?)
+                "#,
             )
             .bind(deposit_txid.to_string())
             .bind(deposit_idx)
             .bind(&deposit_tx_bytes)
             .bind(&operator_table_bytes)
             .bind(&state_json)
-            .execute(&self.pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 error!(?e, %deposit_txid, "failed to commit machine state to disk");
                 StorageError::from(e)
             })?;
+
+            // Commit the transaction
+            tx.commit().await.map_err(|e| {
+                error!(?e, %deposit_txid, "failed to commit transaction for machine state");
+                StorageError::from(e)
+            })?;
+
             Ok(())
         })
         .await
@@ -220,43 +244,34 @@ impl ContractPersister {
         let num_contracts = contracts_data.len();
         debug!(%num_contracts, "committing all active contracts");
 
-        let contracts_data = &contracts_data;
-
-        // Build the VALUES clause with placeholders
-        let values_clause = contracts_data
-            .iter()
-            .map(|_| "(?, ?, ?, ?, ?)")
-            .collect::<Vec<_>>()
-            .join(", ");
-
-        let query_str = format!(
-            "INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) VALUES {}",
-            values_clause
-        );
-
         execute_with_retries(&self.config, || async {
-            // Bind all parameters using fold to avoid for loop
-            let query = contracts_data.iter().fold(
-                sqlx::query(&query_str),
-                |query,
-                 (
-                    deposit_txid,
-                    deposit_idx,
-                    deposit_tx_bytes,
-                    operator_table_bytes,
-                    state_json,
-                )| {
-                    query
-                        .bind(deposit_txid)
-                        .bind(deposit_idx)
-                        .bind(deposit_tx_bytes)
-                        .bind(operator_table_bytes)
-                        .bind(state_json)
-                },
-            );
+            // Begin transaction
+            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
 
-            let _: SqliteQueryResult = query.execute(&self.pool).await.map_err(|e| {
-                error!(?e, "failed to commit all contracts to disk");
+            // Insert each contract within the transaction
+            for (deposit_txid, deposit_idx, deposit_tx_bytes, operator_table_bytes, state_json) in &contracts_data {
+                let _: SqliteQueryResult = sqlx::query(
+                    r#"
+                    INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) 
+                    VALUES (?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(deposit_txid)
+                .bind(deposit_idx)
+                .bind(deposit_tx_bytes)
+                .bind(operator_table_bytes)
+                .bind(state_json)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| {
+                    error!(?e, %deposit_txid, "failed to insert contract into transaction");
+                    StorageError::from(e)
+                })?;
+            }
+
+            // Commit the transaction
+            tx.commit().await.map_err(|e| {
+                error!(?e, "failed to commit transaction for all contracts");
                 StorageError::from(e)
             })?;
 
