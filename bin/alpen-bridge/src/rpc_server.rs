@@ -588,10 +588,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         // Iterate over all contract states to find the matching withdrawal
         for entry in all_entries {
             match &entry.0.state.state {
-                ContractState::Requested { .. } => todo!(),
-                ContractState::Deposited { .. } => todo!(),
-                ContractState::Assigned { .. } => todo!(),
-                ContractState::StakeTxReady { .. } => todo!(),
+                ContractState::Requested { .. } => (),
+                ContractState::Deposited { .. } => (),
+                ContractState::Assigned { .. } => (),
+                ContractState::StakeTxReady { .. } => (),
                 ContractState::Fulfilled {
                     withdrawal_fulfillment_txid,
                     ..
@@ -604,11 +604,12 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         });
                     }
                 }
-                ContractState::Claimed { .. } => todo!(),
-                ContractState::Challenged { .. } => todo!(),
-                ContractState::Asserted { .. } => todo!(),
-                ContractState::Disproved { .. } => todo!(),
-                ContractState::Resolved { .. } => todo!(),
+                // TODO(@storopoli): We cannot get the withdrawal_outpoint for these states
+                ContractState::Claimed { .. } => (),
+                ContractState::Challenged { .. } => (),
+                ContractState::Asserted { .. } => (),
+                ContractState::Disproved { .. } => (),
+                ContractState::Resolved { .. } => (),
             }
         }
 
