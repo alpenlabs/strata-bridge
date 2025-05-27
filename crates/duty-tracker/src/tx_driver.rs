@@ -315,10 +315,10 @@ mod e2e_tests {
         let snd = driver.drive(signed);
 
         info!("starting mining task");
-        let stop = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stop_thread = stop.clone();
         let mine_task = tokio::task::spawn_blocking(move || {
-            while stop_thread.load(std::sync::atomic::Ordering::SeqCst) {
+            while !stop_thread.load(std::sync::atomic::Ordering::SeqCst) {
                 bitcoind
                     .client
                     .generate_to_address(1, &new_address)
@@ -332,7 +332,7 @@ mod e2e_tests {
         info!("TxDriver::drive calls completed");
 
         debug!("terminating mining task");
-        stop.store(false, std::sync::atomic::Ordering::SeqCst);
+        stop.store(true, std::sync::atomic::Ordering::SeqCst);
         tokio::time::timeout(std::time::Duration::from_secs(1), mine_task).await??;
         info!("mining task terminated");
 
