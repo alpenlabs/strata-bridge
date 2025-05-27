@@ -245,6 +245,24 @@ pub fn wait_for_blocks(btc_client: &Client, count: usize) {
     });
 }
 
+// This is disabled because it is merely a testing helper function to ensure tests complete in
+// a timely manner, so we don't want lack of full coverage in this function to distract from
+// overall coverage.
+#[coverage(off)]
+pub async fn wait_for_height(
+    rpc_client: &corepc_node::Node,
+    height: usize,
+) -> Result<(), Box<dyn std::error::Error>> {
+    Ok(
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while rpc_client.client.get_blockchain_info().unwrap().blocks != height as i64 {
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+        })
+        .await?,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use bitcoin::key::Parity;

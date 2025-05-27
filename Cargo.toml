@@ -1,6 +1,7 @@
 [workspace]
 members = [
   "crates/agent",
+  "crates/algebra",
   "crates/db",
   "crates/params",
   "crates/primitives",
@@ -45,6 +46,7 @@ resolver = "2"
 
 [workspace.dependencies]
 # deps in this workspace
+algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
 btc-notify = { path = "crates/btc-notify" }
 duty-tracker = { path = "crates/duty-tracker" }
@@ -168,6 +170,7 @@ serde_json = { version = "1.0", default-features = false, features = [
   "raw_value",
 ] }
 serde_with = "3.12.0"
+serial_test = "3.2.0"
 sha2 = "0.10"
 sp1-sdk = "4.2.0"
 sp1-verifier = "4.2.0"

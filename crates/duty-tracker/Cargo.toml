@@ -16,6 +16,7 @@ rust.unused_must_use = "deny"
 rustdoc.all = "warn"
 
 [dependencies]
+algebra.workspace = true
 alpen-bridge-params.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
@@ -54,7 +55,10 @@ tokio-stream = "0.1.17"
 tracing.workspace = true
 
 [dev-dependencies]
-hex.workspace = true
-proptest.workspace = true
 strata-bridge-common.workspace = true
 strata-bridge-test-utils.workspace = true
+
+corepc-node.workspace = true
+hex.workspace = true
+proptest.workspace = true
+serial_test.workspace = true

@@ -86,6 +86,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "algebra"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2228,6 +2235,7 @@ dependencies = [
  "serde",
  "serial_test",
  "strata-bridge-common",
+ "strata-bridge-test-utils",
  "tokio",
  "tracing",
 ]
@@ -3376,6 +3384,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 name = "duty-tracker"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "alpen-bridge-params",
  "bdk_wallet",
  "bincode",
@@ -3385,6 +3394,7 @@ dependencies = [
  "bitvm",
  "borsh",
  "btc-notify",
+ "corepc-node",
  "futures",
  "hex",
  "musig2",
@@ -3395,6 +3405,7 @@ dependencies = [
  "secret-service-proto",
  "serde",
  "serde_json",
+ "serial_test",
  "sqlx",
  "strata-bridge-common",
  "strata-bridge-connectors",
@@ -10111,6 +10122,7 @@ dependencies = [
  "serde_json",
  "strata-bridge-primitives",
  "strata-primitives",
+ "tokio",
 ]
 
 [[package]]
