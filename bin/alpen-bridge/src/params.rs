@@ -134,7 +134,7 @@ mod tests {
             p2p = ["02e68354ebb3ef14caeac8f724fea1449d802133495ef1675f210b07421700a386", "03f79465fcc3ef14caeac8f724fea1449d802133495ef1675f210b07421811b497"]
 
             [tx_graph]
-            tag = "bridge-tag"
+            tag = "alp0"
             deposit_amount = {0}
             operator_fee = 1_000_000
             challenge_cost = 10_000_000
@@ -152,7 +152,7 @@ mod tests {
             payout_timelock = 1_008
 
             [sidesystem]
-            rollup_name = "alpen-bridge"
+            rollup_name = "alp0"
             block_time = 1_000
             da_tag = "alpen-bridge-da"
             checkpoint_tag = "alpen-bridge-checkpoint"
