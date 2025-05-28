@@ -30,6 +30,12 @@ pub struct ClaimTx {
     connector_k: ConnectorK,
 }
 
+/// The vout used in the payout transaction to reimburse the operator.
+pub const PAYOUT_VOUT: u32 = 2;
+
+/// The vout that is spent by the slash stake transaction.
+pub const SLASH_STAKE_VOUT: u32 = 2;
+
 impl ClaimTx {
     /// Creates a new claim transaction.
     pub fn new(
@@ -126,7 +132,7 @@ impl ClaimTx {
 
     /// The vout for the slash stake output.
     pub const fn slash_stake_vout(&self) -> u32 {
-        2
+        SLASH_STAKE_VOUT
     }
 
     /// Finalizes the transaction with the signature.

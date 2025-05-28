@@ -3,7 +3,7 @@
 use core::fmt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
-use bitcoin::{Amount, Txid};
+use bitcoin::Txid;
 use serde::{
     de::{SeqAccess, Visitor},
     ser::SerializeTuple,
@@ -92,17 +92,8 @@ impl AssertChain {
         let assert_data_txids = assert_data.compute_txids().to_vec();
         trace!(event = "created assert_data tx batch", ?assert_data_txids);
 
-        let input_amount = assert_data
-            .psbts()
-            .iter()
-            .fold(Amount::from_sat(0), |acc, psbt| {
-                acc + psbt.unsigned_tx.output[0].value
-            });
-
         let post_assert_data = PostAssertTxData {
             assert_data_txids,
-            pre_assert_txid,
-            input_amount,
             deposit_txid: data.deposit_txid,
         };
 

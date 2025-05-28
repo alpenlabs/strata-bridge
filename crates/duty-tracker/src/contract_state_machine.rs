@@ -41,6 +41,7 @@ use strata_bridge_tx_graph::{
     transactions::{
         claim::ClaimTx,
         deposit::DepositTx,
+        payout::NUM_PAYOUT_INPUTS,
         prelude::{
             AssertDataTxBatch, CovenantTx, WithdrawalMetadata, NUM_PAYOUT_OPTIMISTIC_INPUTS,
         },
@@ -1049,12 +1050,42 @@ pub enum FulfillerDuty {
 
     /// Originates once all the assert-data transactions have been confirmed.
     PublishPostAssertData {
+        /// The transaction ID of the deposit transaction whose output is being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction IDs of all the assert-data transactions whose outputs are spent by the
+        /// post-assert transaction, in order.
+        assert_data_txids: Box<[Txid; NUM_ASSERT_DATA_TX]>,
+
         /// The MuSig2 aggregated signatures required to settle the post-assert transaction.
         agg_sigs: Box<[taproot::Signature; NUM_ASSERT_DATA_TX]>,
     },
 
     /// Originates after post-assert timelock expires
-    PublishPayout,
+    PublishPayout {
+        /// The index of the deposit transaction whose output is being used to reimburse the
+        /// operator.
+        deposit_idx: u32,
+
+        /// The transaction ID of the deposit transaction whose output is being used to reimburse
+        /// the operator.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the post-assert transaction whose output is being spent by the
+        /// payout transaction.
+        post_assert_txid: Txid,
+
+        /// The transaction ID of the claim transaction whose output is being spent by the payout
+        /// transaction.
+        claim_txid: Txid,
+
+        /// The transaction ID of the stake transaction whose output is spent by the payout
+        /// transaction.
+        stake_txid: Txid,
+
+        /// The MuSig2 aggregated signatures required to settle the payout transaction.
+        agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_INPUTS]>,
+    },
 }
 
 impl Display for FulfillerDuty {
@@ -1096,7 +1127,7 @@ impl Display for FulfillerDuty {
             FulfillerDuty::PublishPostAssertData { .. } => {
                 write!(f, "PublishPostAssertData")
             }
-            FulfillerDuty::PublishPayout => write!(f, "PublishPayout"),
+            FulfillerDuty::PublishPayout { deposit_idx, deposit_txid, .. } => write!(f, "PublishPayout for deposit {deposit_idx} ({deposit_txid})"),
         }
     }
 }
@@ -2239,13 +2270,29 @@ impl ContractSM {
             ContractState::Asserted {
                 post_assert_height,
                 fulfiller,
+                active_graph,
+                graph_sigs,
                 ..
             } => {
                 if self.state.block_height
                     >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
                     && *fulfiller == self.cfg.operator_table.pov_idx()
                 {
-                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout {
+                        deposit_idx: self.cfg.deposit_idx,
+                        deposit_txid: self.deposit_txid(),
+                        post_assert_txid: active_graph.1.post_assert_txid,
+                        claim_txid: active_graph.1.claim_txid,
+                        stake_txid: active_graph.0.stake_outpoint.txid,
+                        agg_sigs: graph_sigs
+                            .get(&active_graph.1.claim_txid)
+                            .ok_or(TransitionErr(format!(
+                                "could not find graph sigs for claim txid {}",
+                                active_graph.1.claim_txid
+                            )))?
+                            .payout
+                            .into(),
+                    }))
                 } else {
                     None
                 }
@@ -2755,6 +2802,7 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let txid = tx.compute_txid();
+        let deposit_txid = self.deposit_txid();
 
         match &mut self.state.state {
             ContractState::PreAssertConfirmed {
@@ -2826,6 +2874,8 @@ impl ContractSM {
 
                     Ok(Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishPostAssertData {
+                            deposit_txid,
+                            assert_data_txids: Box::new(active_graph.1.assert_data_txids),
                             agg_sigs: Box::new(agg_sigs),
                         },
                     )))

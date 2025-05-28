@@ -261,6 +261,11 @@ impl ConnectorA3Leaf {
 }
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
+///
+/// # Caution
+///
+/// As this connector holds all the wots keys, it should not be used liberally in memory-constrained
+/// environments, where possible this connector should be passed by reference to avoid cloning it.
 #[derive(Debug, Clone)]
 pub struct ConnectorA3 {
     wots_public_keys: wots::PublicKeys,

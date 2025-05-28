@@ -1957,13 +1957,13 @@ where
                            // Handle me
 
             let signed_payout_tx = payout_tx.finalize(
-                deposit_signature,
-                n_of_n_sig_a3,
-                n_of_n_sig_c2,
-                n_of_n_sig_p,
                 connectors.post_assert_out_0,
-                connectors.n_of_n,
-                connectors.hashlock_payout,
+                [
+                    deposit_signature,
+                    n_of_n_sig_a3,
+                    n_of_n_sig_c2,
+                    n_of_n_sig_p,
+                ],
             );
 
             info!(action = "trying to get reimbursement", payout_txid=%signed_payout_tx.compute_txid(), %own_index);
