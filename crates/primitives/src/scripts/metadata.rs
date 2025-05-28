@@ -2,6 +2,8 @@
 
 use bitcoin::{Amount, TapNodeHash, XOnlyPublicKey};
 
+use crate::errors::{BridgeTxBuilderResult, DepositTransactionError};
+
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -58,6 +60,38 @@ pub enum DepositMetadata {
 }
 
 impl<'tag> AuxiliaryData<'tag> {
+    /// Validates the OP_RETURN metadata and returns the metadata as bytes.
+    ///
+    /// This function validates:
+    /// - Tag size (must be 4 bytes)
+    /// - EE address size (must match expected size)
+    ///
+    /// Returns the metadata as bytes if validation passes.
+    pub fn validate_and_extract(
+        tag: &'tag [u8],
+        ee_address: &[u8],
+        expected_ee_address_size: usize,
+        metadata: DepositMetadata,
+    ) -> BridgeTxBuilderResult<Self> {
+        // Validate tag size
+        if tag.len() != 4 {
+            return Err(DepositTransactionError::InvalidTagSize(tag.len()).into());
+        }
+
+        // Validate EE address size
+        if ee_address.len() != expected_ee_address_size {
+            return Err(DepositTransactionError::InvalidEeAddressSize(
+                ee_address.len(),
+                expected_ee_address_size,
+            )
+            .into());
+        }
+
+        let auxiliary_data = AuxiliaryData { tag, metadata };
+
+        Ok(auxiliary_data)
+    }
+
     /// Extracts the metadata as bytes.
     pub fn to_vec(&'tag self) -> Vec<u8> {
         let mut bytes = Vec::new();

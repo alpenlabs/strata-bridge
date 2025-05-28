@@ -176,31 +176,25 @@ impl DepositTx {
         let outpoint = data.deposit_request_outpoint();
         let tx_ins = create_tx_ins([*outpoint]);
 
-        // Second, create the `OP_RETURN` output:
-        // <magic_bytes>  (the `tag` argument)
-        // <stake_index> (4-byte big-endian)
-        // <ee_address> (from the DRT)
-        if data.ee_address.len() != sidesystem_params.address_length as usize {
-            return Err(DepositTransactionError::InvalidEeAddressSize(
-                data.ee_address.len(),
-                sidesystem_params.address_length as usize,
-            )
-            .into());
-        }
-
+        // Create and validate the OP_RETURN metadata
         let takeback_script = drt_take_back(*data.x_only_public_key(), *refund_delay);
         let takeback_script_hash =
             TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
 
-        let metadata = AuxiliaryData {
-            tag: tag.as_ref(),
-            metadata: DepositMetadata::DepositTx {
-                stake_index: data.stake_index(),
-                ee_address: data.ee_address.to_vec(),
-                takeback_hash: takeback_script_hash,
-                input_amount: data.total_amount,
-            },
+        let deposit_metadata = DepositMetadata::DepositTx {
+            stake_index: data.stake_index(),
+            ee_address: data.ee_address.to_vec(),
+            takeback_hash: takeback_script_hash,
+            input_amount: data.total_amount,
         };
+
+        let metadata = AuxiliaryData::validate_and_extract(
+            tag.as_ref(),
+            data.el_address(),
+            sidesystem_params.address_length as usize,
+            deposit_metadata,
+        )?;
+
         let metadata_script = metadata_script(metadata);
         let metadata_amount = Amount::from_int_btc(0);
 
