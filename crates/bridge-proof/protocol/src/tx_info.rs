@@ -207,7 +207,7 @@ mod tests {
             "custom computed txid must match rust-bitcoin computed txid"
         );
 
-        let tag_size = b"strata".len();
+        let tag_size = b"alp0".len();
         let res = extract_withdrawal_info(tag_size, withdrawal_fulfillment_tx);
         assert!(
             res.is_ok(),
