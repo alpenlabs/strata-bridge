@@ -3,7 +3,7 @@
 use bitcoin::Amount;
 use serde::{Deserialize, Serialize};
 
-use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE, REFUND_DELAY};
+use super::default::{BRIDGE_DENOMINATION, CHALLENGE_COST, OPERATOR_FEE, REFUND_DELAY, TAG_SIZE};
 use crate::default::BRIDGE_TAG;
 
 /// The parameters required to construct a peg-out graph.
@@ -29,6 +29,26 @@ pub struct PegOutGraphParams {
     /// The number of blocks for which the Deposit Request output must be locked before it can be
     /// taken back by the user.
     pub refund_delay: u16,
+}
+
+impl PegOutGraphParams {
+    /// Validates the parameters to ensure they meet the requirements.
+    ///
+    /// This function validates:
+    ///
+    /// - Tag must be exactly 4 bytes
+    ///
+    /// Returns an error if any validation fails.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tag.as_bytes().len() != TAG_SIZE {
+            return Err(format!(
+                "Tag size must be exactly {} bytes, got {} bytes",
+                TAG_SIZE,
+                self.tag.as_bytes().len()
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl Default for PegOutGraphParams {
