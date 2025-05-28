@@ -13,7 +13,7 @@ use strata_bridge_tx_graph::transactions::prelude::{
     AssertDataTxBatch, AssertDataTxInput, PreAssertData, PreAssertTx,
 };
 use strata_p2p_types::WotsPublicKeys;
-use tracing::{error, info};
+use tracing::info;
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
@@ -154,25 +154,26 @@ pub(crate) async fn handle_publish_assert_data(
 
     // submit assert-data txs to the tx-driver
     info!(%deposit_idx, %deposit_txid, total_txs=%signed_assert_data_txs.len(), "submitting assert-data transactions to the tx-driver");
-    join_all(
-        signed_assert_data_txs
-            .into_iter()
-            .enumerate()
-            .map(|(i, signed_assert_data_tx)| {
-                let txid = signed_assert_data_tx.compute_txid();
-                info!(txid = %txid, index=%i, "submitting assert-data transaction to the tx-driver");
+    const BATCH_SIZE: usize = 3;
 
-                output_handles.tx_driver.drive(signed_assert_data_tx)
-            })
-    )
-    .await
-    .iter()
-    .enumerate()
-    .for_each(|(index, result)| {
-        if let Err(e) = result {
-            error!(%e, %index, "could not submit assert-data transaction to the tx-driver");
-        }
-    });
+    for (batch_index, batch) in signed_assert_data_txs.chunks(BATCH_SIZE).enumerate() {
+        let tx_job_batch = batch.iter().enumerate().map(|(i, signed_assert_data_tx)| {
+            let index = batch_index * BATCH_SIZE + i;
+            let txid = signed_assert_data_tx.compute_txid();
+
+            info!(%txid, %index, "submitting assert-data transaction to the tx-driver");
+            output_handles
+                .tx_driver
+                .drive(signed_assert_data_tx.clone())
+        });
+
+        join_all(tx_job_batch)
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()?;
+    }
+
+    info!(%deposit_idx, %deposit_txid, "assert-data transactions submitted successfully");
 
     Ok(())
 }

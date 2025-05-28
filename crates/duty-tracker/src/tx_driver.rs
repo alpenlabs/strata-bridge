@@ -145,8 +145,12 @@ impl TxDriver {
                             btc_notify::client::TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
                                 match rpc_client.send_raw_transaction(&event.rawtx).await {
-                                    Ok(_txid) => { /* NOOP, we good fam */ }
-                                    Err(_err) => {
+                                    Ok(txid) => {
+                                        /* NOOP, we good fam */
+                                        info!(%txid, "resubmitted transaction successfully");
+                                    }
+                                    Err(err) => {
+                                        error!(txid=%event.rawtx.compute_txid(), %err, "could not resubmit transaction");
                                         // TODO(proofofkeags): in this case we need to analyze the
                                         // reported error. There are a few scenarios that can play
                                         // out here.
