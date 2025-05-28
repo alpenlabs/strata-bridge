@@ -2066,7 +2066,7 @@ impl ContractSM {
                 // if this withdrawal is assigned to this operator, then it needs to fulfill
                 // it.
                 let withdrawal_metadata = WithdrawalMetadata {
-                    tag: self.cfg.peg_out_graph_params.tag.as_bytes().to_vec(),
+                    tag: self.cfg.peg_out_graph_params.tag,
                     operator_idx: fulfiller,
                     deposit_idx: self.cfg.deposit_idx,
                     deposit_txid: self.deposit_txid(),

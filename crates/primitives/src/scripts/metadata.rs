@@ -1,5 +1,6 @@
 //! Primitives for Bridge metadata.
 
+use alpen_bridge_params::types::Tag;
 use bitcoin::{Amount, TapNodeHash, XOnlyPublicKey};
 
 use crate::errors::{BridgeTxBuilderResult, DepositTransactionError};
@@ -7,9 +8,9 @@ use crate::errors::{BridgeTxBuilderResult, DepositTransactionError};
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuxiliaryData<'tag> {
+pub struct AuxiliaryData {
     /// Tag, also known as "magic bytes".
-    pub tag: &'tag [u8],
+    pub tag: Tag,
 
     /// Deposit-specific metadata.
     pub metadata: DepositMetadata,
@@ -59,7 +60,7 @@ pub enum DepositMetadata {
     },
 }
 
-impl<'tag> AuxiliaryData<'tag> {
+impl AuxiliaryData {
     /// Validates the OP_RETURN metadata and returns the metadata as bytes.
     ///
     /// This function validates:
@@ -68,16 +69,11 @@ impl<'tag> AuxiliaryData<'tag> {
     ///
     /// Returns the metadata as bytes if validation passes.
     pub fn validate_and_extract(
-        tag: &'tag [u8],
+        tag: Tag,
         ee_address: &[u8],
         expected_ee_address_size: usize,
         metadata: DepositMetadata,
     ) -> BridgeTxBuilderResult<Self> {
-        // Validate tag size
-        if tag.len() != 4 {
-            return Err(DepositTransactionError::InvalidTagSize(tag.len()).into());
-        }
-
         // Validate EE address size
         if ee_address.len() != expected_ee_address_size {
             return Err(DepositTransactionError::InvalidEeAddressSize(
@@ -93,10 +89,10 @@ impl<'tag> AuxiliaryData<'tag> {
     }
 
     /// Extracts the metadata as bytes.
-    pub fn to_vec(&'tag self) -> Vec<u8> {
+    pub fn to_vec(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
-        bytes.extend_from_slice(self.tag);
+        bytes.extend_from_slice(self.tag.as_bytes());
 
         match &self.metadata {
             DepositMetadata::DepositRequestTx {

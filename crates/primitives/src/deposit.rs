@@ -5,7 +5,7 @@
 
 #![expect(deprecated)]
 
-use alpen_bridge_params::prelude::PegOutGraphParams;
+use alpen_bridge_params::{prelude::PegOutGraphParams, types::Tag};
 use bitcoin::{
     taproot::LeafVersion, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,
     XOnlyPublicKey,
@@ -131,7 +131,7 @@ impl DepositInfo {
         let unsigned_tx = self.create_unsigned_tx(
             build_context,
             *deposit_amount,
-            tag.as_bytes(),
+            *tag,
             sidesystem_params.address_length as usize,
             pegout_graph_params.refund_delay,
         )?;
@@ -186,7 +186,7 @@ impl DepositInfo {
         &self,
         build_context: &impl BuildContext,
         deposit_amt: Amount,
-        tag: &[u8],
+        tag: Tag,
         ee_address_size: usize,
         refund_delay: u16,
     ) -> BridgeTxBuilderResult<Transaction> {

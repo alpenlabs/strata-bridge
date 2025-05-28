@@ -33,6 +33,3 @@ pub(crate) const CHALLENGE_COST: Amount = Amount::from_int_btc(1);
 /// Default number of blocks for which the Deposit Request output must be locked before it can
 /// be taken back by the user.
 pub(crate) const REFUND_DELAY: u16 = 144 * 7; // 7 days' of worth of blocks in mainnet
-
-/// Default tag size in bytes.
-pub(crate) const TAG_SIZE: usize = 4;
