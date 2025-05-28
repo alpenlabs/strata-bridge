@@ -21,7 +21,7 @@ pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
 /// Magic bytes for the deposit request transaction.
 ///
 /// Must be exactly 4 bytes.
-pub(crate) const MAGIC_BYTES: &[u8] = b"alp\0";
+pub(crate) const MAGIC_BYTES: &[u8] = b"alp0";
 
 //change to appropriate value
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
