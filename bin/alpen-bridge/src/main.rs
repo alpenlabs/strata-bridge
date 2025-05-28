@@ -30,6 +30,12 @@ fn main() {
     info!(mode = %cli.mode, "starting bridge node");
 
     let params = parse_toml::<Params>(cli.params);
+
+    // Validate the parameters early to catch configuration errors
+    if let Err(e) = params.tx_graph.validate() {
+        panic!("Invalid tx_graph parameters: {}", e);
+    }
+
     let config = parse_toml::<Config>(cli.config);
 
     match cli.mode {
