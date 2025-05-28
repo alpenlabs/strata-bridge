@@ -1600,8 +1600,39 @@ async fn execute_duty(
                 )
                 .await
             }
-            FulfillerDuty::PublishPostAssertData { agg_sigs } => {
-                handle_publish_post_assert(cfg, output_handles.clone(), *agg_sigs).await
+            FulfillerDuty::PublishPostAssertData {
+                deposit_txid,
+                assert_data_txids,
+                agg_sigs,
+            } => {
+                handle_publish_post_assert(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_txid,
+                    *assert_data_txids,
+                    *agg_sigs,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPayout {
+                deposit_idx,
+                deposit_txid,
+                stake_txid,
+                claim_txid,
+                post_assert_txid,
+                agg_sigs,
+            } => {
+                handle_publish_payout(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    stake_txid,
+                    claim_txid,
+                    post_assert_txid,
+                    *agg_sigs,
+                )
+                .await
             }
             ignored_fulfiller_duty => {
                 warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
