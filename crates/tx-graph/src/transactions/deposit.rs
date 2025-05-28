@@ -189,7 +189,7 @@ impl DepositTx {
         };
 
         let metadata = AuxiliaryData::validate_and_extract(
-            tag.as_ref(),
+            *tag,
             data.el_address(),
             sidesystem_params.address_length as usize,
             deposit_metadata,

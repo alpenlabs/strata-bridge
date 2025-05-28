@@ -43,7 +43,7 @@ pub(crate) fn build_op_return_script(
     evm_address: &EvmAddress,
     take_back_key: &XOnlyPublicKey,
 ) -> Vec<u8> {
-    let mut data = MAGIC_BYTES.to_vec();
+    let mut data = MAGIC_BYTES.as_bytes().to_vec();
     data.extend(take_back_key.serialize());
     data.extend(evm_address.as_slice());
 

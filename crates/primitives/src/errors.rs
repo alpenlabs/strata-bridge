@@ -69,10 +69,6 @@ pub enum DepositTransactionError {
     #[error("invalid deposit request taproot address")]
     InvalidDRTAddress,
 
-    /// Invalid tag size.
-    #[error("tag size is invalid, got {0} expected 4")]
-    InvalidTagSize(usize),
-
     /// Invalid address size provided for the execution environment address where the bridged-in
     /// amount is to be minted.
     #[error("ee size mismatch, got {0} expected {1}")]

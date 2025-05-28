@@ -97,10 +97,7 @@ pub(crate) fn process_bridge_proof(
         withdrawal_address: destination,
         withdrawal_amount: amount,
         ..
-    } = extract_withdrawal_info(
-        peg_out_graph_params.tag.as_bytes().len(),
-        withdrawal_fulfillment_tx.transaction(),
-    )?;
+    } = extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
     // transaction does not depend on witness data, hence `expect_witness` is `false`.
