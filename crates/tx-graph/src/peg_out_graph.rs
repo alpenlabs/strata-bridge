@@ -249,7 +249,6 @@ impl PegOutGraph {
                 txid: claim_txid,
                 vout: claim_tx.slash_stake_vout(),
             },
-            input_amount: post_assert_out_amt,
             deposit_amount: graph_params.deposit_amount,
             operator_key: input.operator_pubkey,
             network: context.network(),
@@ -257,7 +256,7 @@ impl PegOutGraph {
 
         let payout_tx = PayoutTx::new(
             payout_data,
-            connectors.post_assert_out_0.clone(),
+            &connectors.post_assert_out_0,
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp,
@@ -493,7 +492,7 @@ pub struct PegOutGraphConnectors {
     /// The connector for the CPFP output.
     pub connector_cpfp: ConnectorCpfp,
 
-    /// The first output of the post-assert tx used to get the stake.
+    /// The first output of the post-assert tx.
     pub post_assert_out_0: ConnectorA3,
 
     /// The factory for the assertion data connectors for hashes.
@@ -894,8 +893,6 @@ mod tests {
         let SubmitAssertionsResult {
             payout_tx,
             post_assert_out_0,
-            n_of_n: claim_out_2,
-            hashlock_payout,
             ..
         } = submit_assertions(
             btc_client,
@@ -929,13 +926,13 @@ mod tests {
         let payout_input_amount = payout_tx.input_amount();
         let payout_cpfp_vout = payout_tx.cpfp_vout();
         let signed_payout_tx = payout_tx.finalize(
-            deposit_signature,
-            n_of_n_sig_a3,
-            n_of_n_sig_c2,
-            n_of_n_sig_p,
             post_assert_out_0,
-            claim_out_2,
-            hashlock_payout,
+            [
+                deposit_signature,
+                n_of_n_sig_a3,
+                n_of_n_sig_c2,
+                n_of_n_sig_p,
+            ],
         );
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
@@ -1345,8 +1342,6 @@ mod tests {
         post_assert_out_0: ConnectorA3,
         disprove_tx: DisproveTx,
         stake: ConnectorStake,
-        n_of_n: ConnectorNOfN,
-        hashlock_payout: ConnectorP,
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -1384,13 +1379,11 @@ mod tests {
 
         let PegOutGraphConnectors {
             claim_out_1,
-            n_of_n,
             connector_cpfp,
             post_assert_out_0,
             assert_data_hash_factory,
             assert_data256_factory,
             stake,
-            hashlock_payout,
             ..
         } = connectors;
 
@@ -1653,8 +1646,6 @@ mod tests {
             post_assert_out_0,
             disprove_tx,
             stake,
-            n_of_n,
-            hashlock_payout,
         }
     }
 
