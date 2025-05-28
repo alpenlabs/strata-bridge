@@ -1,6 +1,6 @@
 //! Contains logic to handle proof generation.
 
-use std::{sync::Arc, time::Duration};
+use std::{fs, sync::Arc, time::Duration};
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::Proof;
@@ -49,7 +49,7 @@ pub(super) async fn prepare_proof_input(
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
     let op_signature = s2_client
-        .general_wallet_signer()
+        .musig2_signer()
         .sign_no_tweak(withdrawal_fulfillment_txid.as_ref())
         .await?
         .as_ref()
@@ -163,6 +163,9 @@ async fn prepare_header_chain(
             "could not find checkpoint tx".into(),
         ));
     };
+
+    fs::write("blocks.bin", bincode::serialize(&headers).unwrap())
+        .expect("failed to write blocks to file");
 
     Ok(ProofHeaderChain {
         headers,
