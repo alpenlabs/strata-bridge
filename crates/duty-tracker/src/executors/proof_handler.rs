@@ -4,7 +4,7 @@ use std::{fs, sync::Arc, time::Duration};
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::Proof;
-use bitcoin::{block::Header, Transaction, Txid};
+use bitcoin::{block::Header, Block, Transaction, Txid};
 use bitcoind_async_client::{traits::Reader, Client as BtcClient};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
@@ -15,7 +15,7 @@ use strata_bridge_proof_protocol::{
 };
 use strata_bridge_proof_snark::prover;
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, TxFilterConfig};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{buf::Buf64, params::RollupParams};
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
 use tracing::info;
 
@@ -23,8 +23,27 @@ use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
+    predicates::parse_strata_checkpoint,
     s2_session_manager::MusigSessionManager,
 };
+
+/// Set this environment variable to 1 to dump test data required for prover unit tests.
+const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
+
+/// File to dump the operator signature to, for testing purposes.
+const OP_SIGNATURE_FILE: &str = "op_signature.bin";
+
+/// File to dump the chainstate to, for testing purposes.
+const CHAINSTATE_FILE: &str = "chainstate.borsh";
+
+/// File to dump the blocks to, for testing purposes.
+const BLOCKS_FILE: &str = "blocks.bin";
+
+/// Checks if the test data should be dumped based on the environment variable
+/// [`ENV_DUMP_TEST_DATA`].
+fn should_dump_test_data() -> bool {
+    std::env::var(ENV_DUMP_TEST_DATA).is_ok_and(|val| val == "1")
+}
 
 /// Prepares the data required to generate the bridge proof.
 pub(super) async fn prepare_proof_input(
@@ -48,12 +67,21 @@ pub(super) async fn prepare_proof_input(
     .await?;
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
-    let op_signature = s2_client
+    let op_signature: Buf64 = s2_client
         .musig2_signer()
         .sign_no_tweak(withdrawal_fulfillment_txid.as_ref())
         .await?
         .as_ref()
         .into();
+
+    if should_dump_test_data() {
+        info!("dumping operator signature to file");
+        if let Err(e) = fs::write(OP_SIGNATURE_FILE, op_signature.as_bytes()) {
+            info!(%e, "failed to dump operator signature to file");
+        } else {
+            info!("dumped operator signature to file");
+        }
+    }
 
     Ok(BridgeProofInput {
         pegout_graph_params: cfg.pegout_graph_params,
@@ -81,7 +109,7 @@ async fn prepare_header_chain(
     let start_height = start_height as u32;
     let mut height = start_height;
 
-    let mut headers: Vec<Header> = vec![];
+    let mut blocks: Vec<Block> = vec![];
     let mut withdrawal_fulfillment_tx = None;
     let mut strata_checkpoint_tx = None;
 
@@ -110,6 +138,23 @@ async fn prepare_header_chain(
                         %height,
                         checkpoint_txid = %tx.compute_txid()
                     );
+
+                    if should_dump_test_data() {
+                        if let Some(checkpoint) =
+                            parse_strata_checkpoint(tx, &cfg.sidesystem_params)
+                        {
+                            if let Err(e) =
+                                fs::write(CHAINSTATE_FILE, checkpoint.sidecar().chainstate())
+                            {
+                                info!(%e, "failed to dump chainstate to file");
+                            } else {
+                                info!("dumped chainstate to file");
+                            }
+                        } else {
+                            info!("could not parse checkpoint from inscribed tx");
+                        }
+                    }
+
                     (
                         L1TxWithProofBundle::generate(&block.txdata, idx as u32),
                         (height - start_height) as usize,
@@ -138,16 +183,17 @@ async fn prepare_header_chain(
                 })
         });
 
-        let header = block.header;
-        headers.push(header);
+        blocks.push(block);
         height += 1;
 
         if withdrawal_fulfillment_tx.is_some() {
             num_blocks_after_fulfillment += 1;
         }
 
+        info!(%height, %num_blocks_after_fulfillment, "parsed block");
+
         if num_blocks_after_fulfillment > REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX {
-            info!(event = "blocks period complete", total_blocks = %headers.len());
+            info!(event = "blocks period complete", total_blocks = %blocks.len());
             break;
         }
     }
@@ -164,11 +210,18 @@ async fn prepare_header_chain(
         ));
     };
 
-    fs::write("blocks.bin", bincode::serialize(&headers).unwrap())
-        .expect("failed to write blocks to file");
+    if should_dump_test_data() {
+        info!("dumping blocks to file");
+
+        if let Err(e) = fs::write(BLOCKS_FILE, bincode::serialize(&blocks).unwrap()) {
+            info!(%e, "failed to dump blocks to file");
+        } else {
+            info!("dumped blocks to file");
+        }
+    }
 
     Ok(ProofHeaderChain {
-        headers,
+        headers: blocks.into_iter().map(|b| b.header).collect(),
         withdrawal_fulfillment_tx,
         strata_checkpoint_tx,
     })
