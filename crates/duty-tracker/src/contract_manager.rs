@@ -275,6 +275,7 @@ impl ContractManager {
             }
 
             let mut interval = time::interval(nag_interval);
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
             loop {
                 let mut duties = vec![];
@@ -369,7 +370,9 @@ impl ContractManager {
                             // this could be a transient issue, so no need to break immediately
                         }
                     },
-                    _ = interval.tick() => {
+                    instant = interval.tick() => {
+                        debug!(?instant, "constructing nags");
+
                         let nags = ctx.nag();
                         for nag in nags {
                             p2p_handle.send_command(nag).await;
@@ -378,7 +381,7 @@ impl ContractManager {
                 }
 
                 duties.into_iter().for_each(|duty| {
-                    debug!(%duty, "starting duty execution from new blocks");
+                    debug!(%duty, "starting duty execution from new events");
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
@@ -1133,6 +1136,8 @@ impl ContractManagerCtx {
                 ))
             }),
         );
+
+        debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
 
         for (txid, contract) in self.state.active_contracts.iter() {
             let state = &contract.state().state;
