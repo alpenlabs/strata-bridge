@@ -272,6 +272,8 @@ impl ContractManager {
             }
 
             let mut interval = time::interval(nag_interval);
+            // skip any missed ticks to avoid flooding the network with duplicate nag messages
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
             loop {
                 let mut duties = vec![];
