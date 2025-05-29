@@ -1169,6 +1169,9 @@ impl ContractSM {
                 graph_partials,
                 ..
             } => {
+                debug!(%deposit_txid, "clearing peg out graph cache");
+                self.clear_pog_cache();
+
                 info!(%deposit_txid, "updating contract state to deposited");
                 self.state.state = ContractState::Deposited {
                     peg_out_graphs,
@@ -2436,6 +2439,11 @@ impl ContractSM {
     /// The txid of the original deposit request that kicked off this contract.
     pub fn deposit_request_txid(&self) -> Txid {
         self.cfg().deposit_request_txid()
+    }
+
+    /// Clears the [`PegOutGraph`] cache.
+    pub fn clear_pog_cache(&mut self) {
+        self.pog.clear();
     }
 
     /// Gives us a list of claim txids that can be used to reference this contract.
