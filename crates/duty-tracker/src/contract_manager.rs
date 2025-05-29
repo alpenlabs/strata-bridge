@@ -962,14 +962,25 @@ impl ContractManagerCtx {
                     if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
                         info!(%claim_txid, "received nag for graph nonces");
 
-                        let pog = csm.retrieve_graph(
-                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
-                        );
-                        let pog_inputs = pog.musig_inpoints();
+                        let input = &peg_out_graphs
+                            .get(&session_id_as_txid)
+                            .expect("session_id must exist as it is part of the claim_txids")
+                            .0;
+
+                        let (pog_prevouts, pog_witnesses) = csm
+                            .pog()
+                            .get(&input.stake_outpoint.txid)
+                            .map(|pog| (pog.musig_inpoints(), pog.musig_witnesses()))
+                            .unwrap_or_else(|| {
+                                let pog = csm.cfg().build_graph(input);
+
+                                (pog.musig_inpoints(), pog.musig_witnesses())
+                            });
+
                         Some(OperatorDuty::PublishGraphNonces {
                             claim_txid,
-                            pog_prevouts: pog_inputs,
-                            pog_witnesses: pog.musig_witnesses(),
+                            pog_prevouts,
+                            pog_witnesses,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1021,9 +1032,17 @@ impl ContractManagerCtx {
                         info!(%claim_txid, "received nag for graph signatures");
 
                         let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
-                        let pog = csm.retrieve_graph(
-                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
-                        );
+                        let input = &peg_out_graphs.get(&claim_txid).expect("session_id must exist because it is part of claim_txids in the state").0;
+
+                        let (pog_prevouts, pog_sighashes) = csm
+                            .pog()
+                            .get(&input.stake_outpoint.txid)
+                            .map(|pog| (pog.musig_inpoints(), pog.musig_sighashes()))
+                            .unwrap_or_else(|| {
+                                let pog = csm.cfg().build_graph(input);
+
+                                (pog.musig_inpoints(), pog.musig_sighashes())
+                            });
 
                         Some(OperatorDuty::PublishGraphSignatures {
                             claim_txid,
@@ -1032,8 +1051,8 @@ impl ContractManagerCtx {
                                 .operator_table
                                 .convert_map_op_to_btc(graph_nonces)
                                 .unwrap(),
-                            pog_prevouts: pog.musig_inpoints(),
-                            pog_sighashes: pog.musig_sighashes(),
+                            pog_prevouts,
+                            pog_sighashes,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");

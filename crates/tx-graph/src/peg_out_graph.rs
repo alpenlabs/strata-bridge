@@ -140,7 +140,7 @@ impl PegOutGraph {
     ///   slash_stake_count)` (assuming that the deposit index is zero-indexed). As an optimization,
     ///   only claim txids corresponding to unclaimed deposits need to be specified.
     pub fn generate(
-        input: PegOutGraphInput,
+        input: &PegOutGraphInput,
         context: &impl BuildContext,
         deposit_txid: Txid,
         graph_params: PegOutGraphParams,
@@ -720,7 +720,7 @@ mod tests {
 
         let prev_claim_txids = vec![generate_txid(); stake_chain_params.slash_stake_count];
         let (graph, connectors) = PegOutGraph::generate(
-            input,
+            &input,
             &context,
             deposit_txid,
             graph_params,
@@ -903,7 +903,7 @@ mod tests {
             &n_of_n_keypair,
             &context,
             deposit_txid,
-            input,
+            &input,
             graph_params,
             connector_params,
             assertions,
@@ -1050,7 +1050,7 @@ mod tests {
             &n_of_n_keypair,
             &context,
             deposit_txid,
-            input,
+            &input,
             graph_params,
             connector_params,
             faulty_assertions,
@@ -1357,7 +1357,7 @@ mod tests {
         keypair: &Keypair,
         context: &TxBuildContext,
         deposit_txid: Txid,
-        input: PegOutGraphInput,
+        input: &PegOutGraphInput,
         graph_params: PegOutGraphParams,
         connector_params: ConnectorParams,
         assertions: Assertions,
@@ -1758,7 +1758,7 @@ mod tests {
         };
 
         let (graph, connectors) = PegOutGraph::generate(
-            input.clone(),
+            &input,
             &context,
             deposit_txid,
             graph_params,
@@ -1897,7 +1897,7 @@ mod tests {
             payout_timelock: 10,
         };
         let (new_graph, new_connectors) = PegOutGraph::generate(
-            input.clone(),
+            &input,
             &context,
             deposit_txid,
             graph_params,
