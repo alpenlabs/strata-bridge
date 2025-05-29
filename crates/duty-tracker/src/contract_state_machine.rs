@@ -203,8 +203,8 @@ pub enum ContractState {
 
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
-        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
-        peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
+        /// contract through its lifecycle.
+        peg_out_graph_summaries: BTreeMap<Txid, PegOutGraphSummary>,
 
         /// This is an index so we can look up the claim txid that is owned by the specified key.
         /// This is primarily used to process assignments.
@@ -516,7 +516,7 @@ impl ContractState {
             deposit_request_txid,
             abort_deadline,
             peg_out_graph_inputs: BTreeMap::new(),
-            peg_out_graphs: BTreeMap::new(),
+            peg_out_graph_summaries: BTreeMap::new(),
             claim_txids: BTreeMap::new(),
             graph_nonces: BTreeMap::new(),
             agg_nonces: BTreeMap::new(),
@@ -536,7 +536,10 @@ impl ContractState {
         }
 
         match self {
-            ContractState::Requested { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
+            ContractState::Requested {
+                peg_out_graph_summaries: peg_out_graphs,
+                ..
+            } => peg_out_graphs.values().cloned().collect(),
             ContractState::Deposited { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
             ContractState::Assigned { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
             ContractState::StakeTxReady { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
@@ -583,6 +586,30 @@ impl ContractState {
         };
 
         graph_sigs.clone()
+    }
+
+    /// Maps the claim_txid to the operator's p2p key.
+    pub fn claim_to_operator(&self, claim_txid: &Txid) -> Option<P2POperatorPubKey> {
+        let claim_txids = match self {
+            ContractState::Requested { claim_txids, .. } => claim_txids,
+            ContractState::Deposited { claim_txids, .. } => claim_txids,
+            ContractState::Assigned { claim_txids, .. } => claim_txids,
+            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
+            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
+            ContractState::Claimed { claim_txids, .. } => claim_txids,
+            ContractState::Challenged { claim_txids, .. } => claim_txids,
+            ContractState::Asserted { claim_txids, .. } => claim_txids,
+            ContractState::Disproved {} => &BTreeMap::new(),
+            ContractState::Resolved {} => &BTreeMap::new(),
+        };
+
+        claim_txids.iter().find_map(|(op_key, claim)| {
+            if claim == claim_txid {
+                Some(op_key.clone())
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -1160,7 +1187,8 @@ impl ContractSM {
         let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
         match current {
             ContractState::Requested {
-                peg_out_graphs,
+                peg_out_graph_inputs,
+                peg_out_graph_summaries,
                 claim_txids,
                 graph_sigs,
                 graph_partials,
@@ -1168,8 +1196,25 @@ impl ContractSM {
             } => {
                 debug!(%deposit_txid, "clearing peg out graph cache");
                 self.clear_pog_cache();
+                let mut peg_out_graph_inputs = peg_out_graph_inputs;
+                let mut peg_out_graph_summaries = peg_out_graph_summaries;
 
                 info!(%deposit_txid, "updating contract state to deposited");
+                let peg_out_graphs = claim_txids
+                    .iter()
+                    .map(|(key, claim_txid)| {
+                        let input = peg_out_graph_inputs
+                            .remove(key)
+                            .expect("peg out graph input must exist");
+                        let summary = peg_out_graph_summaries
+                            .remove(claim_txid)
+                            .expect("peg out graph summary must exist")
+                            .to_owned();
+
+                        (*claim_txid, (input.clone(), summary))
+                    })
+                    .collect();
+
                 self.state.state = ContractState::Deposited {
                     peg_out_graphs,
                     claim_txids,
@@ -1269,7 +1314,7 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
-                peg_out_graphs,
+                peg_out_graph_summaries: peg_out_graphs,
                 claim_txids,
                 graph_nonces,
                 graph_partials,
@@ -1299,7 +1344,7 @@ impl ContractSM {
                     return Ok(vec![]);
                 }
 
-                peg_out_graph_inputs.insert(signer, pog_input.clone());
+                peg_out_graph_inputs.insert(signer, pog_input);
 
                 if peg_out_graph_inputs.len() != self.cfg.operator_table.cardinality() {
                     // FIXME: (@Rajil1213) this should return an error
@@ -1390,13 +1435,7 @@ impl ContractSM {
                     let pog_summary = graph.summarize();
                     let claim_txid = pog_summary.claim_txid;
 
-                    peg_out_graphs.insert(
-                        claim_txid,
-                        (
-                            peg_out_graph_inputs.get(signer).unwrap().clone(),
-                            pog_summary,
-                        ),
-                    );
+                    peg_out_graphs.insert(claim_txid, pog_summary);
                     claim_txids.insert(signer.clone(), claim_txid);
                     graph_nonces.insert(claim_txid, BTreeMap::new());
                     graph_partials.insert(claim_txid, BTreeMap::new());
@@ -1419,10 +1458,18 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         debug!(%claim_txid, %signer, "processing graph nonces");
         let cfg = self.cfg().clone();
+        let graph_owner = self
+            .state
+            .state
+            .claim_to_operator(&claim_txid)
+            .ok_or(TransitionErr(format!(
+                "claim txid ({}) not found in claim txids map",
+                claim_txid
+            )))?;
 
         match &mut self.state.state {
             ContractState::Requested {
-                peg_out_graphs,
+                peg_out_graph_inputs,
                 graph_nonces,
                 agg_nonces,
                 ..
@@ -1474,7 +1521,7 @@ impl ContractSM {
 
                 *agg_nonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
 
-                let Some((pog_input, _)) = peg_out_graphs.get(&claim_txid) else {
+                let Some(pog_input) = peg_out_graph_inputs.get(&graph_owner) else {
                     return Err(TransitionErr(format!(
                         "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
                         claim_txid
@@ -2423,7 +2470,7 @@ impl ContractSM {
         &self.state
     }
 
-    /// Returns a mutable copy of the peg out graph.
+    /// Returns an immutable copy of the peg out graph.
     pub fn pog(&self) -> &BTreeMap<Txid, PegOutGraph> {
         &self.pog
     }
