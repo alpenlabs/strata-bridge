@@ -2454,7 +2454,7 @@ where
 
             info!(action = "adding stake data to db", %own_index, index = %i);
             self.public_db
-                .add_stake_data(own_index, i, stake_tx_data)
+                .add_stake_data(own_index, i, stake_tx_data.clone())
                 .await
                 .unwrap();
 

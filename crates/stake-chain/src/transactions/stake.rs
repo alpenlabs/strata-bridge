@@ -25,7 +25,7 @@ use crate::prelude::{OPERATOR_FUNDS, STAKE_VOUT};
 
 /// The metadata required to create a [`StakeTx`] transaction in the stake chain (except the first
 /// stake transaction).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeTxData {
     /// The [`OutPoint`] used to fund the dust outputs for the tx-graph for the given stake
     /// transaction.

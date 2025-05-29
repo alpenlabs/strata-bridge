@@ -78,9 +78,9 @@ impl DepositSetup {
         StakeTxData {
             operator_funds: self.funding_outpoint,
             hash: self.hash,
-            withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+            withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(Arc::new(
                 self.wots_pks.withdrawal_fulfillment.0,
-            ),
+            )),
         }
     }
 }
