@@ -7,7 +7,7 @@ use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::Pu
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
 use strata_p2p_types::P2POperatorPubKey;
-use tracing::{info, trace, warn};
+use tracing::{debug, info, trace, warn};
 
 /// A database wrapper for dumping ad retrieving stake chain data.
 #[derive(Debug)]
@@ -51,11 +51,7 @@ impl StakeChainPersister {
                     ?stake_input,
                     "committing stake data to disk"
                 );
-                // NOTE: (@Rajil1213) adding this log because I'm noticing a hash collision;
-                // this can only happen if we are somehow passing the wrong stake index when
-                // constructing the deposit setup, hopefully this log will give us more visibility
-                // when we do see this.
-                info!(%operator_id, %stake_index, hash=%stake_input.hash, "committing stake data to disk");
+                debug!(%operator_id, %stake_index, hash=%stake_input.hash, "committing stake data to disk");
 
                 self.db
                     .add_stake_data(operator_id, *stake_index, stake_input.to_owned())
