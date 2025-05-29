@@ -917,7 +917,7 @@ pub struct ContractCfg {
 
 impl ContractCfg {
     /// Builds a [`PegOutGraph`] from a [`PegOutGraphInput`].
-    pub fn build_graph(&self, graph_input: PegOutGraphInput) -> PegOutGraph {
+    pub fn build_graph(&self, graph_input: &PegOutGraphInput) -> PegOutGraph {
         PegOutGraph::generate(
             graph_input,
             &self.operator_table.tx_build_context(self.network),
@@ -1043,7 +1043,7 @@ impl ContractSM {
     ///
     /// If the peg out graph is already cached, it will be returned. Otherwise, it will be built and
     /// cached.
-    pub fn retrieve_graph(&mut self, input: PegOutGraphInput) -> PegOutGraph {
+    pub fn retrieve_graph(&mut self, input: &PegOutGraphInput) -> PegOutGraph {
         let stake_txid = input.stake_outpoint.txid;
         if let Some(pog) = self.pog.get(&stake_txid) {
             debug!(reimbursement_key = %input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
@@ -1314,6 +1314,7 @@ impl ContractSM {
                         .map(|(signer, input)| {
                             let thread_cfg = shared_cfg.clone();
                             let input = input.clone();
+
                             (
                                 signer,
                                 // TODO(proofofkeags): use async thread pool in future commit.
@@ -1333,7 +1334,7 @@ impl ContractSM {
                                             stake_txid = %input.stake_outpoint.txid,
                                             "building graph..."
                                         );
-                                        thread_cfg.build_graph(input)
+                                        thread_cfg.build_graph(&input.clone())
                                     })
                                     .expect("spawn succeeds"),
                             )
@@ -1365,7 +1366,7 @@ impl ContractSM {
                                     pog.clone()
                                 } else {
                                     debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
-                                    let pog = self.cfg.build_graph(pog_input.clone());
+                                    let pog = self.cfg.build_graph(pog_input);
                                     self.pog.insert(stake_txid, pog.clone());
                                     pog
                                 }
@@ -1491,7 +1492,7 @@ impl ContractSM {
                     pog.clone()
                 } else {
                     debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
-                    let pog = self.cfg.build_graph(pog_input.clone());
+                    let pog = self.cfg.build_graph(pog_input);
                     self.pog.insert(stake_txid, pog.clone());
 
                     pog
@@ -1589,7 +1590,7 @@ impl ContractSM {
                 let pog = pog_cache
                     .get(&graph_input.stake_outpoint.txid)
                     .cloned()
-                    .unwrap_or_else(|| cfg.build_graph(graph_input.clone()));
+                    .unwrap_or_else(|| cfg.build_graph(graph_input));
 
                 verify_partials_from_peer(
                     &cfg,
@@ -1638,7 +1639,7 @@ impl ContractSM {
                         let pog = pog_cache
                             .get(&pog_input.stake_outpoint.txid)
                             .cloned()
-                            .unwrap_or_else(|| cfg.build_graph(pog_input.clone()));
+                            .unwrap_or_else(|| cfg.build_graph(pog_input));
 
                         (
                             (*claim_txid, pog.musig_inpoints()),
@@ -2420,6 +2421,11 @@ impl ContractSM {
     /// Dumps the current state of the state machine.
     pub const fn state(&self) -> &MachineState {
         &self.state
+    }
+
+    /// Returns a mutable copy of the peg out graph.
+    pub fn pog(&self) -> &BTreeMap<Txid, PegOutGraph> {
+        &self.pog
     }
 
     /// The txid of the deposit on which this contract is centered.
