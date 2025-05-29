@@ -1,5 +1,7 @@
 //! Test module related to `wots` keys and signatures.
 
+use std::sync::Arc;
+
 use bitcoin::key::rand::{rngs::OsRng, Rng, RngCore};
 use bitvm::{
     chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256},
@@ -29,15 +31,15 @@ pub fn generate_wots_public_keys() -> wots::PublicKeys {
     let wots256_public_key: wots256::PublicKey = generate_byte_slice_array(&mut OsRng);
     let wots_hash_public_key: wots_hash::PublicKey = generate_byte_slice_array(&mut OsRng);
 
-    let withdrawal_fulfillment = Wots256PublicKey(wots256_public_key);
+    let withdrawal_fulfillment = Wots256PublicKey(Arc::new(wots256_public_key));
 
     wots::PublicKeys {
         withdrawal_fulfillment,
-        groth16: Groth16PublicKeys((
+        groth16: Groth16PublicKeys(Arc::new((
             [wots256_public_key; NUM_PUBS],
             [wots256_public_key; NUM_U256],
             [wots_hash_public_key; NUM_HASH],
-        )),
+        ))),
     }
 }
 

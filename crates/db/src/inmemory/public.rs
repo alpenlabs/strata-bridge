@@ -73,7 +73,7 @@ impl PublicDb for PublicDbInMemory {
             .await
             .get(&operator_id)
             .and_then(|m| m.get(&deposit_txid))
-            .copied())
+            .cloned())
     }
 
     async fn get_wots_signatures(
@@ -101,10 +101,10 @@ impl PublicDb for PublicDbInMemory {
         trace!(event = "wlock acquired on wots public keys", %operator_id, %deposit_txid);
 
         if let Some(op_keys) = map.get_mut(&operator_id) {
-            op_keys.insert(deposit_txid, *public_keys);
+            op_keys.insert(deposit_txid, public_keys.clone());
         } else {
             let mut keys = HashMap::new();
-            keys.insert(deposit_txid, *public_keys);
+            keys.insert(deposit_txid, public_keys.clone());
 
             map.insert(operator_id, keys);
         }
@@ -259,7 +259,7 @@ impl PublicDb for PublicDbInMemory {
             .await
             .get(&operator_idx)
             .and_then(|m| m.get(&deposit_id))
-            .copied())
+            .cloned())
     }
 
     async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {

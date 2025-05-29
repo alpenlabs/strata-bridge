@@ -74,13 +74,13 @@ pub struct DepositSetup {
 
 impl DepositSetup {
     /// Conversion function into StakeTxData.
-    pub const fn stake_tx_data(&self) -> StakeTxData {
+    pub fn stake_tx_data(&self) -> StakeTxData {
         StakeTxData {
             operator_funds: self.funding_outpoint,
             hash: self.hash,
-            withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(
+            withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(Arc::new(
                 self.wots_pks.withdrawal_fulfillment.0,
-            ),
+            )),
         }
     }
 }
@@ -2474,7 +2474,7 @@ impl ContractSM {
     }
 
     /// Returns an immutable copy of the peg out graph.
-    pub fn pog(&self) -> &BTreeMap<Txid, PegOutGraph> {
+    pub const fn pog(&self) -> &BTreeMap<Txid, PegOutGraph> {
         &self.pog
     }
 

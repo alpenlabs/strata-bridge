@@ -244,7 +244,7 @@ where
                         self.build_context.network(),
                         deposit_txid,
                         self.build_context.aggregated_pubkey(),
-                        public_keys,
+                        public_keys.clone(),
                         CONNECTOR_PARAMS.payout_timelock,
                     );
 

@@ -209,7 +209,7 @@ mod tests {
                 },
                 deposit_txid,
             },
-            ConnectorK::new(network, wots_public_key),
+            ConnectorK::new(network, wots_public_key.clone()),
             ConnectorC0::new(pubkey, network, pre_assert_timelock),
             ConnectorC1::new(pubkey, network, payout_optimistic_timelock),
             ConnectorNOfN::new(build_context.aggregated_pubkey(), network),
@@ -234,7 +234,7 @@ mod tests {
                 { sig.to_vec() }
                 { digit }
             }
-            { wots256::checksig_verify(wots_public_key.0) }
+            { wots256::checksig_verify(*wots_public_key.0) }
             for _ in 0..256/4 { OP_DROP } // drop all nibbles
 
             OP_TRUE

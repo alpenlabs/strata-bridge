@@ -9,10 +9,7 @@ use secp256k1::{Message, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
-    build_context::BuildContext,
-    constants::*,
-    scripts::taproot::TaprootWitness,
-    wots::{self, Groth16PublicKeys},
+    build_context::BuildContext, constants::*, scripts::taproot::TaprootWitness, wots,
 };
 use tracing::{debug, info};
 
@@ -158,7 +155,7 @@ impl PegOutGraph {
             input.operator_pubkey,
             input.stake_hash,
             stake_chain_params.delta,
-            input.wots_public_keys,
+            input.wots_public_keys.clone(),
         );
 
         let claim_data = ClaimData {
@@ -168,7 +165,7 @@ impl PegOutGraph {
 
         let claim_tx = ClaimTx::new(
             claim_data,
-            connectors.kickoff,
+            connectors.kickoff.clone(),
             connectors.claim_out_0,
             connectors.claim_out_1,
             connectors.n_of_n,
@@ -540,7 +537,7 @@ impl PegOutGraphConnectors {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
 
-        let kickoff = ConnectorK::new(network, wots_public_keys.withdrawal_fulfillment);
+        let kickoff = ConnectorK::new(network, wots_public_keys.withdrawal_fulfillment.clone());
 
         let claim_out_0 = ConnectorC0::new(n_of_n_agg_pubkey, network, params.pre_assert_timelock);
 
@@ -557,15 +554,15 @@ impl PegOutGraphConnectors {
             network,
             deposit_txid,
             n_of_n_agg_pubkey,
-            wots_public_keys,
+            wots_public_keys.clone(),
             params.payout_timelock,
         );
 
         let wots::PublicKeys {
             withdrawal_fulfillment: _,
-            groth16:
-                Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_hash)),
+            groth16,
         } = wots_public_keys;
+        let ([public_inputs_hash_public_key], public_keys_256, public_keys_hash) = *groth16.0;
 
         let assert_data_hash_factory = ConnectorAHashFactory {
             network,
@@ -1277,7 +1274,7 @@ mod tests {
             context,
             &stake_chain_params,
             stake_hash,
-            wots_public_keys.withdrawal_fulfillment,
+            wots_public_keys.withdrawal_fulfillment.clone(),
             pre_stake,
             operator_funds,
             operator_pubkey,
@@ -1840,7 +1837,7 @@ mod tests {
         // create new stake tx
         let new_preimage = OsRng.gen::<[u8; 32]>();
         let new_hash = hashes::sha256::Hash::hash(&new_preimage);
-        let new_withdrawal_fulfillment_pk = wots_public_keys.withdrawal_fulfillment;
+        let new_withdrawal_fulfillment_pk = wots_public_keys.withdrawal_fulfillment.clone();
         let prev_claim_txids = [signed_ongoing_claim_tx.compute_txid()];
         let funding_address = Address::p2tr_tweaked(
             operator_pubkey.dangerous_assume_tweaked(),
