@@ -187,7 +187,8 @@ impl BtcZmqClient {
                             // If we ever encounter a send error,
                             // it means the receiver has been dropped.
                             debug!(?msg, "notifying subscriber");
-                            if sub.outbox.send(msg.clone()).is_err() {
+                            if let Err(e) = sub.outbox.send(msg.clone()) {
+                                warn!(%e, "failed to notify subscriber");
                                 sm.rm_filter(&sub.predicate);
                                 return false;
                             }
