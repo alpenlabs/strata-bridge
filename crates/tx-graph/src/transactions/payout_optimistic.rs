@@ -62,9 +62,6 @@ pub struct PayoutOptimisticTx {
     connector_n_of_n: ConnectorNOfN,
 
     connector_p: ConnectorP,
-
-    #[expect(dead_code)] // this field is read when settling this tx via cpfp
-    connector_cpfp: ConnectorCpfp,
 }
 
 impl PayoutOptimisticTx {
@@ -192,7 +189,6 @@ impl PayoutOptimisticTx {
             connector_c1,
             connector_n_of_n,
             connector_p,
-            connector_cpfp,
         }
     }
 
