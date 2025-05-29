@@ -1,5 +1,5 @@
 {
-    "rollup_name": "alp0",
+    "rollup_name": "alpn",
     "block_time": 5000,
     "cred_rule": {
         "schnorr_key": "0x8f2f6c25be6a4de02b8ae1f785749ba77431075ee801e00cfb0af1ed188f8eda"
