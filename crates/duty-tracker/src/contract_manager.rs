@@ -961,13 +961,21 @@ impl ContractManagerCtx {
                     let claim_txid = session_id_as_txid;
                     info!(%claim_txid, "received request for graph nonces");
 
-                    if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
+                    if let ContractState::Requested {
+                        peg_out_graph_inputs,
+                        ..
+                    } = &csm.state().state
+                    {
                         info!(%claim_txid, "received nag for graph nonces");
+                        let graph_owner = csm
+                            .state()
+                            .state
+                            .claim_to_operator(&claim_txid)
+                            .expect("claim_txid must exist as it is part of the claim_txids");
 
-                        let input = &peg_out_graphs
-                            .get(&session_id_as_txid)
-                            .expect("session_id must exist as it is part of the claim_txids")
-                            .0;
+                        let input = peg_out_graph_inputs
+                            .get(&graph_owner)
+                            .expect("graph input must exist if claim_txid exists");
 
                         let (pog_prevouts, pog_witnesses) = csm
                             .pog()
@@ -1025,7 +1033,7 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
                     if let ContractState::Requested {
-                        peg_out_graphs,
+                        peg_out_graph_inputs,
                         graph_nonces,
                         ..
                     } = &csm.state().state
@@ -1034,7 +1042,15 @@ impl ContractManagerCtx {
                         info!(%claim_txid, "received nag for graph signatures");
 
                         let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
-                        let input = &peg_out_graphs.get(&claim_txid).expect("session_id must exist because it is part of claim_txids in the state").0;
+                        let graph_owner = csm
+                            .state()
+                            .state
+                            .claim_to_operator(&claim_txid)
+                            .expect("claim_txid must exist as it is part of the claim_txids");
+
+                        let input = &peg_out_graph_inputs
+                            .get(&graph_owner)
+                            .expect("graph input must exist if claim_txid exists");
 
                         let (pog_prevouts, pog_sighashes) = csm
                             .pog()
