@@ -33,6 +33,13 @@ strata-p2p.workspace = true
 strata-p2p-types.workspace = true
 strata-primitives.workspace = true
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = { version = "0.6.0", features = [
+  "profiling",
+  "unprefixed_malloc_on_supported_platforms",
+] }
+jemalloc_pprof = "0.7"
+
 strata-bridge-common.workspace = true
 
 anyhow.workspace = true
@@ -56,3 +63,4 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+axum = "0.7"
