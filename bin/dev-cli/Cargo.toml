@@ -11,6 +11,7 @@ name = "dev-cli"
 path = "src/main.rs"
 
 [dependencies]
+alpen-bridge-params.workspace = true
 strata-bridge-common.workspace = true
 
 alloy = { version = "0.14", features = ["full", "node-bindings"] }

@@ -235,7 +235,7 @@ impl BridgeRpc {
         // Clone the params we need before spawning the task
         let network = self.params.network;
         let connectors = self.params.connectors;
-        let tx_graph = self.params.tx_graph.clone();
+        let tx_graph = self.params.tx_graph;
         let sidesystem = self.params.sidesystem.clone();
         let stake_chain = self.params.stake_chain;
 
@@ -291,7 +291,7 @@ impl BridgeRpc {
                         network,
                         operator_table: record.operator_table.clone(),
                         connector_params: connectors,
-                        peg_out_graph_params: tx_graph.clone(),
+                        peg_out_graph_params: tx_graph,
                         sidesystem_params: sidesystem.clone(),
                         stake_chain_params: stake_chain,
                         deposit_idx: record.deposit_idx,
@@ -355,7 +355,7 @@ impl BridgeRpc {
                             network,
                             operator_table: record.operator_table.clone(),
                             connector_params: connectors,
-                            peg_out_graph_params: tx_graph.clone(),
+                            peg_out_graph_params: tx_graph,
                             sidesystem_params: sidesystem.clone(),
                             stake_chain_params: stake_chain,
                             deposit_idx: record.deposit_idx,

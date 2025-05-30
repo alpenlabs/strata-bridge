@@ -230,7 +230,7 @@ mod tests {
         let peg_out_graph_params = PegOutGraphParams::default();
 
         let metadata = WithdrawalMetadata {
-            tag: peg_out_graph_params.tag.as_bytes().to_vec(),
+            tag: peg_out_graph_params.tag,
             operator_idx: 1,
             deposit_idx: 2,
             deposit_txid: generate_txid(),

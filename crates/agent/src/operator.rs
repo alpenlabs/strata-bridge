@@ -2078,7 +2078,7 @@ where
         debug!(%change_address, %change_amount, %outpoint, %total_amount, %net_payment, ?prevout, "found funding utxo for withdrawal fulfillment");
 
         let withdrawal_metadata = WithdrawalMetadata {
-            tag: PegOutGraphParams::default().tag.as_bytes().to_vec(),
+            tag: PegOutGraphParams::default().tag,
             operator_idx: own_index,
             deposit_idx,
             deposit_txid,
