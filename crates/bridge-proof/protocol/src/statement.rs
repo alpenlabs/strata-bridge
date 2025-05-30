@@ -1,4 +1,4 @@
-use alpen_bridge_params::prelude::PegOutGraphParams;
+use alpen_bridge_params::{prelude::PegOutGraphParams, types::Tag};
 use bitcoin::{block::Header, params::Params};
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_crypto::verify_schnorr_sig;
@@ -71,6 +71,13 @@ pub(crate) fn process_bridge_proof(
     rollup_params: RollupParams,
     peg_out_graph_params: PegOutGraphParams,
 ) -> Result<BridgeProofPublicOutput, BridgeProofError> {
+    let tag = Tag::try_from(rollup_params.checkpoint_tag.clone()).map_err(|_| {
+        BridgeProofError::TxInfoExtractionError(BridgeRelatedTx::WithdrawalFulfillment(format!(
+            "tag bytes conversion error, expected 4 bytes, got: {}",
+            rollup_params.checkpoint_tag.len()
+        )))
+    })?;
+
     // 1a. Extract valid chainstate from checkpoint.
     let (strata_checkpoint_tx, strata_checkpoint_idx) = &input.strata_checkpoint_tx;
     let chainstate = extract_valid_chainstate_from_checkpoint(
@@ -97,7 +104,7 @@ pub(crate) fn process_bridge_proof(
         withdrawal_address: destination,
         withdrawal_amount: amount,
         ..
-    } = extract_withdrawal_info(withdrawal_fulfillment_tx.transaction())?;
+    } = extract_withdrawal_info(withdrawal_fulfillment_tx.transaction(), tag)?;
 
     // 3b. Verify the inclusion of the withdrawal fulfillment transaction in the header chain. The
     // transaction does not depend on witness data, hence `expect_witness` is `false`.
