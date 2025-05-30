@@ -2,6 +2,8 @@
 //!
 //! These models rely on some common types in [`super::types`] module.
 
+use std::ops::Deref;
+
 use bitcoin::OutPoint;
 use sqlx::{self};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
@@ -95,7 +97,7 @@ impl From<DbStakeTxData> for StakeTxData {
                 vout: *db_stake_tx_data.funding_vout,
             },
             hash: *db_stake_tx_data.hash,
-            withdrawal_fulfillment_pk: *db_stake_tx_data.withdrawal_fulfillment_pk,
+            withdrawal_fulfillment_pk: db_stake_tx_data.withdrawal_fulfillment_pk.deref().clone(),
         }
     }
 }

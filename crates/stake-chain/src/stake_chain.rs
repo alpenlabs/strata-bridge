@@ -84,7 +84,7 @@ impl StakeChain {
             context,
             stake_chain_params,
             first_stake_inputs.hash,
-            first_stake_inputs.withdrawal_fulfillment_pk,
+            first_stake_inputs.withdrawal_fulfillment_pk.clone(),
             stake_chain_inputs.pre_stake_outpoint,
             first_stake_inputs.operator_funds,
             stake_chain_inputs.operator_pubkey,
@@ -101,9 +101,10 @@ impl StakeChain {
         let new_stake_tx = first_stake_tx.advance(
             context,
             stake_chain_params,
-            *stake_inputs
+            stake_inputs
                 .values()
                 .nth(1)
+                .cloned()
                 .expect("must have at least two stake inputs"),
             stake_chain_inputs.operator_pubkey,
             connector_cpfp,
@@ -119,7 +120,7 @@ impl StakeChain {
                     .advance(
                         context,
                         stake_chain_params,
-                        *stake_input,
+                        stake_input.clone(),
                         stake_chain_inputs.operator_pubkey,
                         connector_cpfp,
                     );
@@ -677,7 +678,7 @@ mod tests {
                     StakeTxData {
                         operator_funds: operator_funds[i].previous_output,
                         hash: stake_hashes[i],
-                        withdrawal_fulfillment_pk: wots_public_keys[i],
+                        withdrawal_fulfillment_pk: wots_public_keys[i].clone(),
                     },
                 )
             })

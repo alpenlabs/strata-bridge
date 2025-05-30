@@ -19,10 +19,7 @@ use bitvm::{
     treepp::*,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
-use strata_bridge_primitives::{
-    scripts::prelude::*,
-    wots::{self, Groth16PublicKeys},
-};
+use strata_bridge_primitives::{scripts::prelude::*, wots};
 use tracing::debug;
 
 use crate::partial_verification_scripts::PARTIAL_VERIFIER_SCRIPTS;
@@ -93,13 +90,14 @@ impl ConnectorA3Leaf {
     pub(crate) fn generate_locking_script(
         &self,
         n_of_n_agg_pubkey: XOnlyPublicKey,
-        wots_public_keys: wots::PublicKeys,
+        wots_public_keys: &wots::PublicKeys,
         payout_timelock: u32,
     ) -> ScriptBuf {
         let wots::PublicKeys {
             withdrawal_fulfillment,
-            groth16: Groth16PublicKeys(([public_inputs_hash_public_key], _, _)),
+            groth16,
         } = wots_public_keys;
+        let ([public_inputs_hash_public_key], _, _) = *groth16.0;
         match self {
             ConnectorA3Leaf::Payout(_) => {
                 n_of_n_with_timelock(&n_of_n_agg_pubkey, payout_timelock).compile()
@@ -110,7 +108,7 @@ impl ConnectorA3Leaf {
                     // first, verify that the WOTS for withdrawal fulfillment txid is correct.
                     // `checksig_verify` pushes the committed data onto the stack as nibbles in big-endian form.
                     // Assuming front as the top of stack we get Stack : [a,b,...,1,2] ; Alt-stack : []
-                    { wots256::compact::checksig_verify(withdrawal_fulfillment.0) }
+                    { wots256::compact::checksig_verify(*withdrawal_fulfillment.0) }
 
                     // send the 64 nibbles to altstack
                     // Stack : [] ; Alt-Stack : [2,1,...,b,a]
@@ -295,7 +293,7 @@ impl ConnectorA3 {
 
         let (output_address, spend_info) = Self::generate_taproot_address(
             &network,
-            wots_public_keys,
+            &wots_public_keys,
             n_of_n_agg_pubkey,
             payout_timelock,
             disprove_scripts,
@@ -325,7 +323,7 @@ impl ConnectorA3 {
     pub fn generate_spend_info(&self, tapleaf: ConnectorA3Leaf) -> (ScriptBuf, ControlBlock) {
         let script = tapleaf.generate_locking_script(
             self.n_of_n_agg_pubkey,
-            self.wots_public_keys,
+            &self.wots_public_keys,
             self.payout_timelock,
         );
         let control_block = self
@@ -338,7 +336,7 @@ impl ConnectorA3 {
 
     fn generate_taproot_address(
         network: &Network,
-        wots_public_keys: wots::PublicKeys,
+        wots_public_keys: &wots::PublicKeys,
         n_of_n_agg_pubkey: XOnlyPublicKey,
         payout_timelock: u32,
         disprove_scripts: [ScriptBuf; NUM_TAPS],
@@ -393,7 +391,8 @@ impl ConnectorA3 {
 mod tests {
     use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
     use strata_bridge_primitives::{
-        scripts::parse_witness::parse_wots256_signatures, wots::Wots256PublicKey,
+        scripts::parse_witness::parse_wots256_signatures,
+        wots::{Groth16PublicKeys, Wots256PublicKey},
     };
     use strata_bridge_proof_protocol::BridgeProofPublicOutput;
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
@@ -516,7 +515,7 @@ mod tests {
         let payout_timelock = 10;
         let locking_script = invalid_disprove_leaf.generate_locking_script(
             n_of_n_agg_pubkey,
-            wots_public_keys,
+            &wots_public_keys,
             payout_timelock,
         );
         let witness_script = invalid_disprove_leaf.generate_witness_script();
