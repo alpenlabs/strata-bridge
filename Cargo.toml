@@ -51,6 +51,7 @@ rust.unreachable_pub = "deny"
 rust.unused_crate_dependencies = "deny"
 rust.unused_must_use = "deny"
 rust.missing_docs = "deny"
+rust.unsafe_op_in_unsafe_fn = "deny"
 rustdoc.all = "deny"
 clippy.missing_const_for_fn = "deny"
 
