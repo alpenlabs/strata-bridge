@@ -12,7 +12,7 @@ use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
 };
-use tracing::{debug, error, info, trace, warn};
+use tracing::{error, info, trace, warn};
 
 pub use crate::{
     config::BtcZmqConfig,
@@ -189,7 +189,8 @@ impl BtcZmqClient {
                             // Now we send the diff to the relevant subscribers.
                             // If we ever encounter a send error,
                             // it means the receiver has been dropped.
-                            debug!(?msg, "notifying subscriber");
+                            trace!(?msg, "notifying subscriber");
+
                             if let Err(e) = sub.outbox.send(msg.clone()) {
                                 warn!(%e, "failed to notify subscriber");
                                 sm.rm_filter(&sub.predicate);
