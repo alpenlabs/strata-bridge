@@ -50,6 +50,7 @@
 /bridge-guest-builder/ @Rajil1213 @prajwolrg
 
 # Other components
+/crates/agent/ @Rajil1213 @prajwolrg
 /crates/db/ @Rajil1213 @storopoli
 /crates/p2p-service/ @storopoli
 /crates/rpc/ @storopoli
@@ -58,6 +59,7 @@
 # Test utilities
 /crates/test-utils/ @storopoli
 /bin/dev-cli/ @Rajil1213 @storopoli
+/bin/dev-bridge/ @Rajil1213
 /bin/assert-splitter/ @Rajil1213
 /test-data/ @Rajil1213
 
