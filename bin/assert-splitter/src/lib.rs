@@ -1,3 +1,5 @@
+//! Primitives and functions for splitting assertions into chunks.
+
 mod chunker_primitives;
 
 use std::fmt::Display;

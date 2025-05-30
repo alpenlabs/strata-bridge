@@ -1,3 +1,5 @@
+//! Wallet utilities for the bridge-in command.
+
 use alloy::primitives::Address as EvmAddress;
 use anyhow::{Context, Result};
 use bitcoin::{address::Address, Network, XOnlyPublicKey};
@@ -28,7 +30,7 @@ pub(crate) struct BitcoinRpcWallet {
 }
 
 impl BitcoinRpcWallet {
-    pub(crate) fn new(client: Client) -> Self {
+    pub(crate) const fn new(client: Client) -> Self {
         Self { client }
     }
 }

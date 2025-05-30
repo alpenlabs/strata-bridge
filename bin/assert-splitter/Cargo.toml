@@ -3,13 +3,16 @@ name = "assert-splitter"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 ark-bn254.workspace = true
 ark-ff.workspace = true
 bitcoin.workspace = true
 bitcoin-script.workspace = true
 bitvm.workspace = true
-blake3 = "1.6.1"
+blake3.workspace = true
 secp256k1.workspace = true
 
 [dev-dependencies]
