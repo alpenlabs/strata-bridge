@@ -27,7 +27,7 @@ where
 /// These parameters are consensus-critical meaning that these are values that are agreed upon by
 /// all operators and verifiers in the bridge.
 // TODO: move this to the primitives crate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PegOutGraphParams {
     /// The tag, also known as "magic bytes".
     #[serde(serialize_with = "serialize_tag")]
