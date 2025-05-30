@@ -352,7 +352,7 @@ impl ContractManager {
                             }
                         },
                         Ok(Event::ReceivedRequest(req)) => {
-                            match ctx.process_p2p_request(req.clone()).await {
+                            match ctx.process_p2p_request(req.clone(), &output_handles.msg_handler).await {
                                 Ok(p2p_requests) => duties.extend(p2p_requests),
                                 Err(e) => {
                                     error!(?req, %e, "failed to process p2p request");
@@ -910,6 +910,7 @@ impl ContractManagerCtx {
     async fn process_p2p_request(
         &mut self,
         req: GetMessageRequest,
+        message_handler: &MessageHandler,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         Ok(match req {
             GetMessageRequest::StakeChainExchange { .. } => {
@@ -959,18 +960,28 @@ impl ContractManagerCtx {
                     let claim_txid = session_id_as_txid;
                     info!(%claim_txid, "received request for graph nonces");
 
-                    if let ContractState::Requested { peg_out_graphs, .. } = &csm.state().state {
-                        info!(%claim_txid, "received nag for graph nonces");
+                    if let ContractState::Requested { graph_nonces, .. } = &csm.state().state {
+                        let pov_idx = csm.cfg().operator_table.pov_idx();
+                        let pov_p2p_key = csm
+                            .cfg()
+                            .operator_table
+                            .idx_to_op_key(&pov_idx)
+                            .expect("must be able to get the pov idx");
+                        // Handle the case where we don't have the nonces yet.
+                        let nonces = match graph_nonces.get(&claim_txid) {
+                            Some(nonces) => nonces
+                                .get(pov_p2p_key)
+                                .expect("if we have the claim txid, we must have the pov p2p key")
+                                .clone()
+                                .pack(),
+                            None => return Ok(None),
+                        };
 
-                        let pog = csm.retrieve_graph(
-                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
-                        );
-                        let pog_inputs = pog.musig_inpoints();
-                        Some(OperatorDuty::PublishGraphNonces {
-                            claim_txid,
-                            pog_prevouts: pog_inputs,
-                            pog_witnesses: pog.musig_witnesses(),
-                        })
+                        message_handler.send_musig2_nonces(session_id, nonces).await;
+                        info!(%claim_txid, "sent graph nonces to the network");
+
+                        // We don't need to generate a duty here
+                        None
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
                         None
@@ -984,13 +995,25 @@ impl ContractManagerCtx {
                     let deposit_request_txid = session_id_as_txid;
                     info!(%deposit_request_txid, "received nag for root nonces");
 
-                    if let ContractState::Requested { .. } = &csm.state().state {
-                        let witness = csm.cfg().deposit_tx.witnesses()[0].clone();
+                    if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
+                        let pov_idx = csm.cfg().operator_table.pov_idx();
+                        let pov_p2p_key = csm
+                            .cfg()
+                            .operator_table
+                            .idx_to_op_key(&pov_idx)
+                            .expect("must be able to get the pov idx");
+                        let nonces = root_nonces
+                            .get(pov_p2p_key)
+                            .expect("if we have the claim txid, we must have the pov p2p key")
+                            .clone();
 
-                        Some(OperatorDuty::PublishRootNonce {
-                            deposit_request_txid,
-                            witness,
-                        })
+                        message_handler
+                            .send_musig2_nonces(session_id, vec![nonces])
+                            .await;
+                        info!(%deposit_request_txid, "sent root nonces to the network");
+
+                        // We don't need to generate a duty here
+                        None
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
                         None
@@ -1011,30 +1034,32 @@ impl ContractManagerCtx {
                     .get(&session_id_as_txid)
                     .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
-                    if let ContractState::Requested {
-                        peg_out_graphs,
-                        graph_nonces,
-                        ..
-                    } = &csm.state().state
-                    {
+                    if let ContractState::Requested { graph_partials, .. } = &csm.state().state {
                         let claim_txid = session_id_as_txid;
                         info!(%claim_txid, "received nag for graph signatures");
 
-                        let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
-                        let pog = csm.retrieve_graph(
-                            peg_out_graphs.get(&session_id_as_txid).unwrap().0.clone(),
-                        );
+                        let pov_idx = csm.cfg().operator_table.pov_idx();
+                        let pov_p2p_key = csm
+                            .cfg()
+                            .operator_table
+                            .idx_to_op_key(&pov_idx)
+                            .expect("must be able to get the pov idx");
+                        let graph_partials = match graph_partials.get(&claim_txid) {
+                            Some(partials) => partials
+                                .get(pov_p2p_key)
+                                .expect("if we have the claim txid, we must have the pov p2p key")
+                                .clone()
+                                .pack(),
+                            None => return Ok(None),
+                        };
 
-                        Some(OperatorDuty::PublishGraphSignatures {
-                            claim_txid,
-                            pubnonces: csm
-                                .cfg()
-                                .operator_table
-                                .convert_map_op_to_btc(graph_nonces)
-                                .unwrap(),
-                            pog_prevouts: pog.musig_inpoints(),
-                            pog_sighashes: pog.musig_sighashes(),
-                        })
+                        message_handler
+                            .send_musig2_signatures(session_id, graph_partials)
+                            .await;
+                        info!(%claim_txid, "sent graph signatures to the network");
+
+                        // We don't need to generate a duty here
+                        None
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
                         None
@@ -1048,22 +1073,24 @@ impl ContractManagerCtx {
                     let deposit_request_txid = session_id_as_txid;
                     info!(%deposit_request_txid, "received nag for root signatures");
 
-                    if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
-                        let deposit_request_txid = session_id_as_txid;
-                        info!(%deposit_request_txid, "received nag for root nonces");
+                    if let ContractState::Requested { root_partials, .. } = &csm.state().state {
+                        let pov_idx = csm.cfg().operator_table.pov_idx();
+                        let pov_p2p_key = csm
+                            .cfg()
+                            .operator_table
+                            .idx_to_op_key(&pov_idx)
+                            .expect("must be able to get the pov idx");
+                        let root_partials = root_partials
+                            .get(pov_p2p_key)
+                            .expect("if we have the claim txid, we must have the pov p2p key");
 
-                        let deposit_tx = &csm.cfg().deposit_tx;
-                        let sighash = deposit_tx.sighashes()[0];
+                        message_handler
+                            .send_musig2_signatures(session_id, vec![*root_partials])
+                            .await;
+                        info!(%deposit_request_txid, "sent root signatures to the network");
 
-                        Some(OperatorDuty::PublishRootSignature {
-                            deposit_request_txid: session_id_as_txid,
-                            nonces: csm
-                                .cfg()
-                                .operator_table
-                                .convert_map_op_to_btc(root_nonces.clone())
-                                .expect("received nonces from non-existent operator"),
-                            sighash,
-                        })
+                        // We don't need to generate a duty here
+                        None
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
 
