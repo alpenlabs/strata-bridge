@@ -1,3 +1,5 @@
+//! Constructs the CPFP transaction.
+
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use bitcoin::{
@@ -90,12 +92,16 @@ pub struct Cpfp<Status = Unfunded> {
 }
 
 impl Cpfp {
+    /// The index of the parent input in the child transaction.
     pub const PARENT_INPUT_INDEX: usize = 0;
+
+    /// The index of the funding input in the child transaction.
     pub const FUNDING_INPUT_INDEX: usize = 1;
 }
 
 impl<Status> Cpfp<Status> {
-    pub fn psbt(&self) -> &Psbt {
+    /// Returns the underlying PSBT of the child transaction.
+    pub const fn psbt(&self) -> &Psbt {
         &self.psbt
     }
 
@@ -193,6 +199,7 @@ impl Cpfp<Unfunded> {
         }
     }
 
+    /// A mutable reference to the underlying PSBT.
     pub fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }

@@ -86,13 +86,13 @@ impl BtcZmqConfig {
     /// block is considered buried. A bury depth of 6 will mean that the most recent "buried"
     /// block will be the 7th newest block. A bury depth of 0 would mean that the block is
     /// considered buried the moment it is mined.
-    pub fn with_bury_depth(mut self, n: usize) -> Self {
+    pub const fn with_bury_depth(mut self, n: usize) -> Self {
         self.bury_depth = n;
         self
     }
 
     /// Returns the value configured with the [`BtcZmqConfig::with_bury_depth`] function.
-    pub fn bury_depth(&self) -> usize {
+    pub const fn bury_depth(&self) -> usize {
         self.bury_depth
     }
 }

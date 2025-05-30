@@ -9,6 +9,7 @@ use strata_bridge_primitives::wots::{
     self, Groth16PublicKeys, Groth16Signatures, Wots256PublicKey, Wots256Signature,
 };
 
+/// Generates a random WOTS signature.
 pub fn generate_wots_signatures() -> wots::Signatures {
     let wots256_signature: wots256::Signature = generate_byte_tuple_array(&mut OsRng);
     let wots_hash_signature: wots_hash::Signature = generate_byte_tuple_array(&mut OsRng);
@@ -23,6 +24,7 @@ pub fn generate_wots_signatures() -> wots::Signatures {
     }
 }
 
+/// Generates a random WOTS public key.
 pub fn generate_wots_public_keys() -> wots::PublicKeys {
     let wots256_public_key: wots256::PublicKey = generate_byte_slice_array(&mut OsRng);
     let wots_hash_public_key: wots_hash::PublicKey = generate_byte_slice_array(&mut OsRng);

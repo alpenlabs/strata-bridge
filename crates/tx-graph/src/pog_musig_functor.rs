@@ -1,3 +1,6 @@
+//! Functor like data structure for holding an arbitrary data structure that is matched with each of
+//! the inputs of the peg-out graph.
+
 use std::future::Future;
 
 use futures::future::join_all;
@@ -39,6 +42,7 @@ pub struct PogMusigF<T> {
 }
 
 impl<T> PogMusigF<T> {
+    /// Packs the data into a vector.
     pub fn pack(self) -> Vec<T> {
         // TODO(proofofkeags): ensure that this is the correct canonical ordering for stuff in the
         // graph as it is sent over the wire in the p2p message.
@@ -55,6 +59,7 @@ impl<T> PogMusigF<T> {
         packed
     }
 
+    /// Unpacks the data from a vector.
     pub fn unpack(graph_vec: Vec<T>) -> Option<PogMusigF<T>> {
         let mut cursor = graph_vec.into_iter();
         let cursor = cursor.by_ref();
@@ -110,6 +115,7 @@ impl<T> PogMusigF<T> {
         })
     }
 
+    /// Returns a reference to the data.
     pub fn as_ref(&self) -> PogMusigF<&T> {
         PogMusigF {
             challenge: &self.challenge,
@@ -126,6 +132,7 @@ impl<T> PogMusigF<T> {
         }
     }
 
+    /// Maps the data to a new type.
     pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> PogMusigF<U> {
         PogMusigF {
             challenge: f(self.challenge),
@@ -142,6 +149,7 @@ impl<T> PogMusigF<T> {
         }
     }
 
+    /// Zips the data with another data structure.
     pub fn zip<U>(self, other: PogMusigF<U>) -> PogMusigF<(T, U)> {
         PogMusigF {
             challenge: (self.challenge, other.challenge),
@@ -191,6 +199,7 @@ impl<T> PogMusigF<T> {
         }
     }
 
+    /// Applies a function to the data while zipping it with another data structure.
     pub fn zip_apply<A, B>(f: PogMusigF<impl Fn(A) -> B>, a: PogMusigF<A>) -> PogMusigF<B> {
         PogMusigF {
             challenge: (f.challenge)(a.challenge),
@@ -232,6 +241,7 @@ impl<T> PogMusigF<T> {
         }
     }
 
+    /// Applies a function to the data while zipping it with other two data structures.
     pub fn zip_with<A, B, C>(
         f: impl Fn(A, B) -> C,
         a: PogMusigF<A>,
@@ -240,6 +250,7 @@ impl<T> PogMusigF<T> {
         a.zip(b).map(|(a, b)| f(a, b))
     }
 
+    /// Applies a function to the data while zipping it with other three data structures.
     pub fn zip_with_3<A, B, C, O>(
         f: impl Fn(A, B, C) -> O,
         a: PogMusigF<A>,
@@ -249,6 +260,7 @@ impl<T> PogMusigF<T> {
         a.zip(b).zip(c).map(|((a, b), c)| f(a, b, c))
     }
 
+    /// Applies a function to the data while zipping it with other four data structures.
     pub fn zip_with_4<A, B, C, D, O>(
         f: impl Fn(A, B, C, D) -> O,
         a: PogMusigF<A>,
@@ -259,6 +271,7 @@ impl<T> PogMusigF<T> {
         a.zip(b).zip(c.zip(d)).map(|((a, b), (c, d))| f(a, b, c, d))
     }
 
+    /// Transposes the result of a [`PogMusigF`].
     pub fn transpose_result<E>(graph: PogMusigF<Result<T, E>>) -> Result<PogMusigF<T>, E> {
         Ok(PogMusigF {
             challenge: graph.challenge?,
@@ -295,6 +308,7 @@ impl<T> PogMusigF<T> {
 }
 
 impl<T: Clone, U: Clone> PogMusigF<(T, U)> {
+    /// Unzips the data into two data structures.
     pub fn unzip(self) -> (PogMusigF<T>, PogMusigF<U>) {
         let pog_t = PogMusigF {
             challenge: self.challenge.0,
@@ -331,6 +345,7 @@ where
     F: Future,
     F::Output: std::fmt::Debug,
 {
+    /// Joins all the futures in the data structure.
     pub async fn join_all(self) -> PogMusigF<F::Output> {
         PogMusigF::unpack(join_all(self.pack()).await).unwrap()
     }

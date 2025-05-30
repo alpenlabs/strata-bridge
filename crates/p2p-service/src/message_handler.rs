@@ -30,7 +30,7 @@ pub struct MessageHandler {
 
 impl MessageHandler {
     /// Creates a new message handler.
-    pub fn new(handle: P2PHandle, ouroboros_sender: broadcast::Sender<GossipsubMsg>) -> Self {
+    pub const fn new(handle: P2PHandle, ouroboros_sender: broadcast::Sender<GossipsubMsg>) -> Self {
         Self {
             handle,
             ouroboros_sender,

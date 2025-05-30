@@ -24,7 +24,7 @@ impl Default for DbConfig {
 
 impl DbConfig {
     /// Sets the max retry count for the database.
-    pub fn with_max_retry_count(self, count: usize) -> Self {
+    pub const fn with_max_retry_count(self, count: usize) -> Self {
         Self {
             max_retry_count: count,
             ..self
@@ -32,7 +32,7 @@ impl DbConfig {
     }
 
     /// Sets the backoff period for the database.
-    pub fn with_backoff_period(self, period: Duration) -> Self {
+    pub const fn with_backoff_period(self, period: Duration) -> Self {
         Self {
             backoff_period: period,
             ..self
@@ -40,12 +40,12 @@ impl DbConfig {
     }
 
     /// Returns the max retry count for the database.
-    pub fn max_retry_count(&self) -> usize {
+    pub const fn max_retry_count(&self) -> usize {
         self.max_retry_count
     }
 
     /// Returns the backoff period for the database.
-    pub fn backoff_period(&self) -> Duration {
+    pub const fn backoff_period(&self) -> Duration {
         self.backoff_period
     }
 }

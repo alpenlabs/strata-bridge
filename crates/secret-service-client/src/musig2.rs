@@ -32,7 +32,7 @@ pub struct Musig2Client {
 
 impl Musig2Client {
     /// Creates a new MuSig2 client with an existing QUIC connection and configuration.
-    pub fn new(conn: Connection, config: Arc<Config>) -> Self {
+    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
 
@@ -152,7 +152,7 @@ pub struct Musig2FirstRound {
 impl Musig2FirstRound {
     /// Exports internal session id from the session struct. This leaks the internals and should be
     /// used with caution.
-    pub fn dangerous_export_session_id(&self) -> Musig2SessionId {
+    pub const fn dangerous_export_session_id(&self) -> Musig2SessionId {
         self.session_id
     }
 }

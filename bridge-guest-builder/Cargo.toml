@@ -3,6 +3,9 @@ edition = "2021"
 name = "strata-bridge-guest-builder"
 version = "0.1.0"
 
+[lints]
+workspace = true
+
 [dependencies]
 sp1-sdk = "4.2.0"
 

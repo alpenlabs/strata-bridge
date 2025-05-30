@@ -1,3 +1,5 @@
+//! The Alpen Bridge is a bridge node for the Alpen BitVM rollup.
+
 use std::{fs, path::Path, thread::sleep};
 
 use args::OperationMode;

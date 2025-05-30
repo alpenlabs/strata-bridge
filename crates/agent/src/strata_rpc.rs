@@ -1,9 +1,12 @@
+//! Strata RPC for the agent.
+
 use bitcoin::{secp256k1::XOnlyPublicKey, Amount, OutPoint, ScriptBuf};
 use bitcoin_bosd::Descriptor;
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
+/// The deposit information.
 // HACK: convert from `strata` type to `strata-bridge` type
 // to avoid having to use all the deposit/withdrawal types from
 // `strata`. This is fine for now since these duties will be generated
@@ -43,6 +46,7 @@ pub struct DepositInfoInterop {
     pub original_script_pubkey: ScriptBuf,
 }
 
+/// The cooperative withdrawal information.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CooperativeWithdrawalInfoInterop {
     /// The [`OutPoint`] of the UTXO in the Bridge Address that is to
@@ -65,10 +69,14 @@ pub struct CooperativeWithdrawalInfoInterop {
     pub exec_deadline: BitcoinBlockHeight,
 }
 
+/// The bridge duty interop.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", content = "payload")]
 pub enum BridgeDutyInterop {
+    /// The deposit duty.
     SignDeposit(DepositInfoInterop),
+
+    /// The withdrawal duty.
     FulfillWithdrawal(CooperativeWithdrawalInfoInterop),
 }
 
@@ -91,9 +99,11 @@ pub struct RpcBridgeDutiesInterop {
     pub stop_index: u64,
 }
 
+/// The bridge duty interop trait.
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "strata"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "strata"))]
 pub trait BridgeDutyInteropTrait {
+    /// Gets the bridge duties.
     #[method(name = "getBridgeDuties")]
     async fn get_bridge_duties(
         &self,

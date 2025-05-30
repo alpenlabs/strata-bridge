@@ -74,7 +74,7 @@ pub enum StakeTxKind {
 
 impl StakeTxKind {
     /// Returns the stake transaction as a PSBT.
-    pub fn psbt(&self) -> &Psbt {
+    pub const fn psbt(&self) -> &Psbt {
         match self {
             StakeTxKind::Head(stake_tx) => &stake_tx.psbt,
             StakeTxKind::Tail(stake_tx) => &stake_tx.psbt,
@@ -146,7 +146,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
     }
 
     /// The witness types required to spend the inputs to this transaction.
-    pub fn witnesses(&self) -> &[TaprootWitness; 2] {
+    pub const fn witnesses(&self) -> &[TaprootWitness; 2] {
         &self.witnesses
     }
 

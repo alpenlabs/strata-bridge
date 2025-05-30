@@ -1,3 +1,5 @@
+//! Operator module.
+
 use core::fmt;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -101,24 +103,55 @@ const ENV_DUMP_TEST_DATA: &str = "DUMP_TEST_DATA";
 const ENV_SKIP_VALIDATION: &str = "SKIP_VALIDATION";
 const STAKE_CHAIN_LENGTH: u32 = 10;
 
+/// The operator is responsible for signing and broadcasting transactions.
 #[derive(Debug)]
 pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
+    /// The agent.
     pub agent: Agent,
+
+    /// The master secret key.
     pub msk: String,
+
+    /// The build context.
     pub build_context: TxBuildContext,
+
+    /// The database.
     pub db: Arc<O>,
+
+    /// The public database.
     pub public_db: Arc<P>,
+
+    /// The duty database.
     pub duty_db: Arc<D>,
+
+    /// Whether the operator is faulty.
     pub is_faulty: bool,
+
+    /// The interval at which to poll the Bitcoin blockchain.
     pub btc_poll_interval: Duration,
+
+    /// The rollup parameters.
     pub rollup_params: RollupParams,
 
+    /// The sender for duty status.
     pub duty_status_sender: mpsc::Sender<(Txid, BridgeDutyStatus)>,
+
+    /// The sender for deposit signal.
     pub deposit_signal_sender: broadcast::Sender<DepositSignal>,
+
+    /// The receiver for deposit signal.
     pub deposit_signal_receiver: broadcast::Receiver<DepositSignal>,
+
+    /// The sender for covenant nonce signal.
     pub covenant_nonce_sender: broadcast::Sender<CovenantNonceSignal>,
+
+    /// The receiver for covenant nonce signal.
     pub covenant_nonce_receiver: broadcast::Receiver<CovenantNonceSignal>,
+
+    /// The sender for covenant signature signal.
     pub covenant_sig_sender: broadcast::Sender<CovenantSignatureSignal>,
+
+    /// The receiver for covenant signature signal.
     pub covenant_sig_receiver: broadcast::Receiver<CovenantSignatureSignal>,
 }
 
@@ -128,10 +161,12 @@ where
     P: PublicDb + Clone,
     D: DutyTrackerDb,
 {
-    pub fn am_i_faulty(&self) -> bool {
+    /// Returns whether the operator is faulty.
+    pub const fn am_i_faulty(&self) -> bool {
         self.is_faulty
     }
 
+    /// Starts the operator.
     pub async fn start(&mut self, duty_receiver: &mut broadcast::Receiver<BridgeDuty>) {
         let own_index = self.build_context.own_index();
         info!(action = "starting operator", %own_index);
@@ -157,6 +192,7 @@ where
         }
     }
 
+    /// Processes a duty.
     pub async fn process_duty(&mut self, duty: BridgeDuty) {
         let own_index = self.build_context.own_index();
         let duty_id = duty.get_id();
@@ -254,6 +290,7 @@ where
         }
     }
 
+    /// Handles a deposit.
     #[expect(deprecated)]
     pub async fn handle_deposit(&mut self, deposit_info: DepositInfo) {
         let own_index = self.build_context.own_index();
@@ -404,6 +441,7 @@ where
         }
     }
 
+    /// Aggregates covenant nonces.
     pub async fn aggregate_covenant_nonces(
         &mut self,
         deposit_txid: Txid,
@@ -704,6 +742,7 @@ where
         }
     }
 
+    /// Aggregates covenant signatures.
     pub async fn aggregate_covenant_signatures(
         &mut self,
         deposit_txid: Txid,
@@ -852,6 +891,7 @@ where
         debug!(event = "computed aggregate signature for disprove", deposit_txid = %deposit_txid, %own_index);
     }
 
+    /// Generates covenant signatures.
     pub async fn generate_covenant_signatures(
         &self,
         agg_nonces: AggNonces,
@@ -935,6 +975,7 @@ where
         }
     }
 
+    /// Gathers and fulfills covenant signatures.
     pub async fn gather_and_fulfill_signatures(
         &mut self,
         deposit_txid: Txid,
@@ -1104,6 +1145,7 @@ where
         }
     }
 
+    /// Aggregates covenant nonces.
     pub async fn aggregate_nonces(&mut self, deposit_psbt: &bitcoin::Psbt) -> Option<AggNonce> {
         let tx = deposit_psbt.unsigned_tx.clone();
         let txid = tx.compute_txid();
@@ -1180,6 +1222,7 @@ where
         None
     }
 
+    /// Aggregates covenant signatures.
     pub async fn aggregate_signatures(
         &mut self,
         agg_nonce: AggNonce,
@@ -1317,6 +1360,7 @@ where
         None
     }
 
+    /// Generates covenant nonces.
     pub async fn generate_nonces<const NUM_COVENANT_INPUTS: usize>(
         &self,
         operator_idx: OperatorIdx,
@@ -1472,6 +1516,7 @@ where
         partial_sigs
     }
 
+    /// Computes an aggregated signature.
     async fn compute_agg_sig<const NUM_COVENANT_INPUTS: usize>(
         &self,
         key_agg_ctx: &KeyAggContext,
@@ -1527,6 +1572,7 @@ where
         }
     }
 
+    /// Handles a withdrawal.
     pub async fn handle_withdrawal(
         &self,
         withdrawal_info: WithdrawalInfo,

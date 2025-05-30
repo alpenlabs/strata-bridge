@@ -1,3 +1,5 @@
+//! Prelude for the transactions module.
+
 pub use super::{
     assert_chain::*,
     assert_data::*,

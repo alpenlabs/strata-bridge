@@ -1,3 +1,5 @@
+//! Persistent database traits and implementations.
+
 pub mod config;
 pub mod constants;
 pub mod errors;

@@ -1,3 +1,5 @@
+//! In-memory database traits and implementations for the tracker.
+
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
@@ -106,10 +108,13 @@ impl DutyTrackerDb for DutyTrackerInMemory {
     }
 }
 
+/// In-memory database for the bitcoin block tracker.   
 #[derive(Debug, Clone, Default)]
 pub struct BitcoinBlockTrackerInMemory {
+    /// Last scanned block height.
     last_scanned_block_height: Arc<RwLock<u64>>,
 
+    /// Relevant transactions.
     relevant_txs: Arc<RwLock<HashMap<Txid, Transaction>>>,
 }
 

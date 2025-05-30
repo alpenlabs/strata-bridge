@@ -32,7 +32,7 @@ pub struct WithdrawalInfo {
 
 impl WithdrawalInfo {
     /// Create a new withdrawal request.
-    pub fn new(
+    pub const fn new(
         deposit_outpoint: OutPoint,
         user_destination: Descriptor,
         assigned_operator_idx: OperatorIdx,
@@ -47,27 +47,27 @@ impl WithdrawalInfo {
     }
 
     /// Get the outpoint of the deposit UTXO that this withdrawal spends.
-    pub fn deposit_outpoint(&self) -> OutPoint {
+    pub const fn deposit_outpoint(&self) -> OutPoint {
         self.deposit_outpoint
     }
 
     /// Get the assignee for this withdrawal request.
-    pub fn assigned_operator_idx(&self) -> OperatorIdx {
+    pub const fn assigned_operator_idx(&self) -> OperatorIdx {
         self.assigned_operator_idx
     }
 
     /// Get the recipient's [`Descriptor`].
-    pub fn user_destination(&self) -> &Descriptor {
+    pub const fn user_destination(&self) -> &Descriptor {
         &self.user_destination
     }
 
     /// Get the execution deadline for the request.
-    pub fn exec_deadline(&self) -> u64 {
+    pub const fn exec_deadline(&self) -> u64 {
         self.exec_deadline
     }
 
     /// Check if the passed bitcoin block height is greater than the deadline for the withdrawal.
-    pub fn is_expired_at(&self, block_height: BitcoinBlockHeight) -> bool {
+    pub const fn is_expired_at(&self, block_height: BitcoinBlockHeight) -> bool {
         self.exec_deadline < block_height
     }
 }

@@ -33,6 +33,7 @@ pub fn derive_op_purpose_xprivs(root: &Xpriv) -> anyhow::Result<(Xpriv, Xpriv)> 
     Ok((signing_xpriv, wallet_xpriv))
 }
 
+/// Loads the keypairs and xprivs from the xpriv file.
 pub fn get_keypairs_and_load_xpriv(
     xpriv_file: impl AsRef<Path>,
     pubkey_table: &PublickeyTable,

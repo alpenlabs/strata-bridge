@@ -1,3 +1,5 @@
+//! Database errors.
+
 use thiserror::Error;
 
 use crate::persistent::errors::StorageError;

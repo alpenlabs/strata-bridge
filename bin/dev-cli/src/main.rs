@@ -1,3 +1,5 @@
+//! CLI for the alpen-bridge and dev-bridge.
+
 mod bridge_in;
 mod bridge_out;
 

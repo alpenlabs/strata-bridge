@@ -17,6 +17,7 @@ pub struct AuxiliaryData<'tag> {
 /// and the sidesystem.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositMetadata {
+    /// Deposit request transaction.
     DepositRequestTx {
         /// 32-bit X-only public key.
         // TODO: (@Rajil1213) make this a BOSD Descriptor.
@@ -25,6 +26,8 @@ pub enum DepositMetadata {
         /// Execution Environment address.
         ee_address: Vec<u8>,
     },
+
+    /// Deposit transaction.
     DepositTx {
         /// Stake index.
         ///

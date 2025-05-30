@@ -1,3 +1,5 @@
+//! Constructs the assert chain.
+
 use core::fmt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
@@ -16,7 +18,10 @@ use super::prelude::*;
 /// Data needed to construct an [`AssertChain`].
 #[derive(Debug, Clone)]
 pub struct AssertChainData {
+    /// The data for the pre-assert transaction.
     pub pre_assert_data: PreAssertData,
+
+    /// The txid of the deposit UTXO that can be withdrawn via this withdrawal fulfillment.
     pub deposit_txid: Txid,
 }
 

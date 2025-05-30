@@ -15,6 +15,7 @@ use strata_bridge_primitives::{
 };
 use strata_primitives::bridge::PublickeyTable;
 
+/// Generates a public key table from a slice of public keys.
 pub fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {
     let pubkey_table = table
         .iter()
@@ -25,6 +26,7 @@ pub fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {
     PublickeyTable::from(pubkey_table)
 }
 
+/// Creates a DRT taproot output.
 pub fn create_drt_taproot_output(
     pubkeys: PublickeyTable,
     recovery_xonly_pubkey: XOnlyPublicKey,

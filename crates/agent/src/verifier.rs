@@ -1,3 +1,5 @@
+//! Verifier for the agent.
+
 use std::{ops::Deref, sync::Arc};
 
 use alpen_bridge_params::prelude::StakeChainParams;
@@ -31,23 +33,30 @@ use tracing::{error, info, trace, warn};
 
 use crate::base::{Agent, BTC_CONFIRM_PERIOD, CONNECTOR_PARAMS, DISPROVER_REWARD};
 
+/// The verifier index.
 pub type VerifierIdx = u32;
 
+/// The verifier.
 #[derive(Debug)]
 pub struct Verifier<P: PublicDb> {
+    /// The agent.
     pub agent: Agent, // required for broadcasting tx
 
+    /// The build context.
     build_context: TxBuildContext,
 
+    /// The public database.
     public_db: Arc<P>,
 }
 
+/// The verifier implementation.
 impl<P> Verifier<P>
 where
     P: PublicDb + Clone,
 {
+    /// Creates a new verifier.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(public_db: Arc<P>, build_context: TxBuildContext, agent: Agent) -> Self {
+    pub const fn new(public_db: Arc<P>, build_context: TxBuildContext, agent: Agent) -> Self {
         Self {
             public_db,
             build_context,
@@ -55,6 +64,7 @@ where
         }
     }
 
+    /// Starts the verifier.
     #[expect(deprecated)]
     pub async fn start(&mut self, duty_receiver: &mut broadcast::Receiver<VerifierDuty>) {
         info!(action = "starting verifier");
@@ -77,6 +87,7 @@ where
         }
     }
 
+    /// Processes a duty.
     #[expect(deprecated)]
     pub async fn process_duty(&mut self, duty: VerifierDuty) {
         match duty {

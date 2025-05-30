@@ -1,3 +1,5 @@
+//! Constructs the assert data transactions.
+
 use std::array;
 
 use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
@@ -17,8 +19,10 @@ use super::{
 /// Data needed to construct a [`AssertDataTxBatch`].
 #[derive(Debug, Clone)]
 pub struct AssertDataTxInput {
+    /// The txid of the pre-assert transaction.
     pub pre_assert_txid: Txid,
 
+    /// The txouts of the pre-assert transaction.
     pub pre_assert_txouts: [TxOut; PRE_ASSERT_OUTS],
 }
 
@@ -78,7 +82,7 @@ impl AssertDataTxBatch {
     }
 
     /// Gets the PSBTs in the batch.
-    pub fn psbts(&self) -> &[Psbt; NUM_ASSERT_DATA_TX] {
+    pub const fn psbts(&self) -> &[Psbt; NUM_ASSERT_DATA_TX] {
         &self.0
     }
 

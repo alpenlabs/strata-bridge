@@ -25,7 +25,7 @@ pub struct ConnectorK {
 
 impl ConnectorK {
     /// Constructs a new connector.
-    pub fn new(network: Network, withdrawal_fulfillment_pk: wots::Wots256PublicKey) -> Self {
+    pub const fn new(network: Network, withdrawal_fulfillment_pk: wots::Wots256PublicKey) -> Self {
         Self {
             network,
             claim_bitcommitment: withdrawal_fulfillment_pk,

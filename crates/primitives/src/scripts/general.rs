@@ -1,3 +1,5 @@
+//! General scripts.
+
 use std::str::FromStr;
 
 use bitcoin::{
@@ -40,6 +42,9 @@ pub fn drt_take_back(recovery_xonly_pubkey: XOnlyPublicKey, refund_delay: u16) -
     let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
     miniscript.encode()
 }
+
+/// Creates a script with the spending condition that a MuSig2 aggregated signature corresponding to
+/// the pubkey set must be provided and the timelock is satisfied.
 pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -> Script {
     script! {
         { timelock }
@@ -50,6 +55,7 @@ pub fn n_of_n_with_timelock(aggregated_pubkey: &XOnlyPublicKey, timelock: u32) -
     }
 }
 
+/// Creates a script that returns a nonce.
 pub fn op_return_nonce(data: &[u8]) -> ScriptBuf {
     let mut push_data = PushBytesBuf::new();
     push_data
@@ -90,6 +96,7 @@ pub fn metadata_script(auxiliary_data: AuxiliaryData<'_>) -> ScriptBuf {
         .into_script()
 }
 
+/// Creates a script that can be spent by anyone.
 pub fn anyone_can_spend_script() -> ScriptBuf {
     script! {
         OP_TRUE
@@ -110,7 +117,7 @@ pub fn anyone_can_spend_txout() -> TxOut {
 }
 
 /// Create a bitcoin [`Transaction`] for the given inputs and outputs.
-pub fn create_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> Transaction {
+pub const fn create_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> Transaction {
     Transaction {
         version: transaction::Version::TWO,
         lock_time: LockTime::ZERO,

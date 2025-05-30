@@ -1,3 +1,5 @@
+//! Constructs the slash stake transaction.
+
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt,
@@ -114,6 +116,7 @@ impl SlashStakeTx {
         }
     }
 
+    /// Finalizes the transaction.
     pub fn finalize(
         mut self,
         claim_sig: schnorr::Signature,

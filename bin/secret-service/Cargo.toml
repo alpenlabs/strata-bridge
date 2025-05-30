@@ -3,6 +3,9 @@ name = "secret-service"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 bitcoin.workspace = true
 bitvm.workspace = true
@@ -29,13 +32,3 @@ wots = { version = "0.1.0", path = "../../crates/wots", features = ["signing"] }
 [dev-dependencies]
 rcgen = "0.13.2"
 secret-service-client = { path = "../../crates/secret-service-client" }
-
-[lints]
-rust.missing_debug_implementations = "warn"
-rust.rust_2018_idioms = { level = "deny", priority = -1 }
-rust.unreachable_pub = "warn"
-rust.unused_crate_dependencies = "deny"
-rust.unused_must_use = "deny"
-rust.unsafe_op_in_unsafe_fn = "warn"
-rust.missing_docs = "warn"
-rustdoc.all = "warn"

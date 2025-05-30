@@ -1,3 +1,7 @@
+//! WOTS primitives.
+
+#![allow(missing_docs)] // rkyv macros are not nice at generating docs from docstrings.
+
 use std::{
     fmt,
     ops::{Deref, DerefMut},
@@ -23,6 +27,7 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
+/// A 256-bit WOTS public key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256PublicKey(pub wots256::PublicKey);
 
@@ -122,6 +127,7 @@ impl Arbitrary for Wots256PublicKey {
     type Strategy = BoxedStrategy<Wots256PublicKey>;
 }
 
+/// A 128-bit WOTS public key used for hashing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct WotsHashPublicKey(pub wots_hash::PublicKey);
 
@@ -137,6 +143,7 @@ impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
     }
 }
 
+/// WOTS public keys used for Groth16 proofs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16PublicKeys(pub g16PublicKeys);
 
@@ -346,6 +353,8 @@ impl Arbitrary for Groth16PublicKeys {
 }
 
 impl Groth16PublicKeys {
+    /// Creates a new set of Groth16 public keys from a master secret key and a deposit transaction
+    /// ID.
     pub fn new(msk: &str, deposit_txid: Txid) -> Self {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
@@ -363,10 +372,13 @@ impl Groth16PublicKeys {
     }
 }
 
+/// A 256-bit WOTS signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256Signature(pub wots256::Signature);
 
 impl Wots256Signature {
+    /// Creates a new 256-bit WOTS signature from a master secret key, a seed transaction ID, and
+    /// data to sign.
     pub fn new(msk: &str, seed_txid: Txid, data: &[u8; 32]) -> Self {
         let sk = get_deposit_master_secret_key(msk, seed_txid);
 
@@ -385,6 +397,7 @@ impl Deref for Wots256Signature {
     }
 }
 
+/// WOTS signatures used for Groth16 proofs.
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Groth16Signatures(pub g16Signatures);
 
@@ -397,6 +410,8 @@ impl Deref for Groth16Signatures {
 }
 
 impl Groth16Signatures {
+    /// Creates a new set of Groth16 signatures from a master secret key, a deposit transaction
+    /// ID, and assertions.
     pub fn new(msk: &str, deposit_txid: Txid, assertions: Assertions) -> Self {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
@@ -424,6 +439,7 @@ impl Groth16Signatures {
     }
 }
 
+/// Groth16 public keys.
 #[derive(
     Debug,
     Clone,
@@ -438,11 +454,16 @@ impl Groth16Signatures {
     Arbitrary,
 )]
 pub struct PublicKeys {
+    /// The WOTS public key for the withdrawal fulfillment.
     pub withdrawal_fulfillment: Wots256PublicKey,
+
+    /// The Groth16 public keys.
     pub groth16: Groth16PublicKeys,
 }
 
 impl PublicKeys {
+    /// Creates a new set of WOTS public keys from a master secret key and a deposit transaction
+    /// ID.
     pub fn new(msk: &str, deposit_txid: Txid) -> Self {
         Self {
             withdrawal_fulfillment: Wots256PublicKey::new(msk, deposit_txid),
@@ -485,13 +506,19 @@ impl From<PublicKeys> for strata_p2p_types::WotsPublicKeys {
     }
 }
 
+/// WOTS signatures used for withdrawal fulfillment.
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Signatures {
+    /// The WOTS signature for the withdrawal fulfillment.
     pub withdrawal_fulfillment: Wots256Signature,
+
+    /// The Groth16 signatures.
     pub groth16: Groth16Signatures,
 }
 
 impl Signatures {
+    /// Creates a new set of WOTS signatures from a master secret key, a deposit transaction ID,
+    /// and assertions.
     pub fn new(msk: &str, deposit_txid: Txid, assertions: Assertions) -> Self {
         Self {
             withdrawal_fulfillment: Wots256Signature::new(
@@ -504,9 +531,13 @@ impl Signatures {
     }
 }
 
+/// Assertions used for withdrawal fulfillment and Groth16 proofs.
 #[derive(Debug, Clone, Copy, PartialEq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Assertions {
+    /// The data to sign for the withdrawal fulfillment.
     pub withdrawal_fulfillment: [u8; 32],
+
+    /// The assertions for the Groth16 proof.
     pub groth16: g16Assertions,
 }
 

@@ -28,7 +28,11 @@ pub struct StakeChainSM {
 
 impl StakeChainSM {
     /// Constructor for a brand new StakeChainSM.
-    pub fn new(network: Network, operator_table: OperatorTable, params: StakeChainParams) -> Self {
+    pub const fn new(
+        network: Network,
+        operator_table: OperatorTable,
+        params: StakeChainParams,
+    ) -> Self {
         StakeChainSM {
             network,
             params,
@@ -179,7 +183,7 @@ impl StakeChainSM {
     }
 
     /// Returns the state that can be used to restore the StakeChainSM.
-    pub fn state(&self) -> &BTreeMap<P2POperatorPubKey, StakeChainInputs> {
+    pub const fn state(&self) -> &BTreeMap<P2POperatorPubKey, StakeChainInputs> {
         &self.stake_chains
     }
 

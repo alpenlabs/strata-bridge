@@ -3,19 +3,12 @@ name = "operator-wallet"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 bdk_bitcoind_rpc.workspace = true
 bdk_esplora.workspace = true
 bdk_wallet.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-
-[lints]
-rust.missing_debug_implementations = "warn"
-rust.rust_2018_idioms = { level = "deny", priority = -1 }
-rust.unreachable_pub = "warn"
-rust.unused_crate_dependencies = "deny"
-rust.unused_must_use = "deny"
-rust.unsafe_op_in_unsafe_fn = "warn"
-rust.missing_docs = "warn"
-rustdoc.all = "warn"

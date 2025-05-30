@@ -21,6 +21,7 @@ use musig2::secp256k1::{schnorr, Message};
 use secp256k1::PublicKey;
 use strata_bridge_primitives::secp::EvenSecretKey;
 
+/// Gets a Bitcoin Core RPC client.
 pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
     // setting the ENV variable `BITCOIN_XPRIV_RETRIEVABLE` to retrieve the xpriv
     env::set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
@@ -36,6 +37,7 @@ fn get_auth(bitcoind: &Node) -> (String, String) {
     (cookie_values.user, cookie_values.password)
 }
 
+/// Generates a random transaction ID.
 pub fn generate_txid() -> Txid {
     let mut txid = [0u8; 32];
     OsRng.fill(&mut txid);
@@ -43,6 +45,7 @@ pub fn generate_txid() -> Txid {
     Txid::from_slice(&txid).expect("should be able to generate arbitrary txid")
 }
 
+/// Generates a random outpoint.
 pub fn generate_outpoint() -> bitcoin::OutPoint {
     let vout: u32 = OsRng.gen();
 
@@ -52,6 +55,7 @@ pub fn generate_outpoint() -> bitcoin::OutPoint {
     }
 }
 
+/// Generates a random signature.
 pub fn generate_signature() -> Signature {
     let mut sig = [0u8; 64];
     OsRng.fill(&mut sig);
@@ -88,6 +92,7 @@ pub fn generate_keypairs(count: usize) -> (Vec<PublicKey>, Vec<SecretKey>) {
     (pubkeys, secret_keys)
 }
 
+/// Generates a random x-only public key.
 pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
     let mut rng = thread_rng();
     let sk = SecretKey::new(&mut rng);
@@ -95,6 +100,7 @@ pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
     even_sk.x_only_public_key(SECP256K1).0
 }
 
+/// Generates a random transaction.
 pub fn generate_tx(num_inputs: usize, num_outputs: usize) -> Transaction {
     let inputs = (0..num_inputs)
         .map(|_| TxIn {
@@ -124,6 +130,7 @@ pub fn generate_tx(num_inputs: usize, num_outputs: usize) -> Transaction {
     }
 }
 
+/// Finds a funding UTXO for a transaction.
 pub fn find_funding_utxo(
     btc_client: &Client,
     ignore_list: HashSet<OutPoint>,
@@ -157,6 +164,7 @@ pub fn find_funding_utxo(
         .expect("must have a utxo with enough funds")
 }
 
+/// Gets a funding UTXO for a transaction with an exact amount.
 pub fn get_funding_utxo_exact(btc_client: &Client, target_amount: Amount) -> (TxOut, OutPoint) {
     let funding_address = btc_client
         .new_address()
@@ -194,6 +202,7 @@ pub fn get_funding_utxo_exact(btc_client: &Client, target_amount: Amount) -> (Tx
     (txout, outpoint)
 }
 
+/// Signs a child transaction for CPFP.
 pub fn sign_cpfp_child(
     btc_client: &Client,
     keypair: &Keypair,
@@ -232,6 +241,7 @@ pub fn sign_cpfp_child(
     (funding_witness, parent_signature)
 }
 
+/// Waits for a given number of blocks to be mined.
 pub fn wait_for_blocks(btc_client: &Client, count: usize) {
     let random_address = btc_client
         .new_address()
@@ -245,6 +255,7 @@ pub fn wait_for_blocks(btc_client: &Client, count: usize) {
     });
 }
 
+/// Waits for a given height to be reached.
 // This is disabled because it is merely a testing helper function to ensure tests complete in
 // a timely manner, so we don't want lack of full coverage in this function to distract from
 // overall coverage.

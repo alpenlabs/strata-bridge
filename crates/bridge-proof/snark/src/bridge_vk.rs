@@ -1,3 +1,5 @@
+//! Bridge verification key.
+
 use std::sync::LazyLock;
 
 use ark_bn254::{Bn254, Fr};
@@ -7,6 +9,7 @@ use ark_groth16::VerifyingKey;
 
 use crate::sp1;
 
+/// The Groth16 verification key.
 pub static GROTH16_VERIFICATION_KEY: LazyLock<VerifyingKey<Bn254>> = LazyLock::new(|| {
     let vkey_hash = if std::env::var("ZKVM_MOCK")
         .map(|v| v == "1" || v.to_lowercase() == "true")

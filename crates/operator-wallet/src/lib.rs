@@ -225,24 +225,24 @@ impl OperatorWallet {
     }
 
     /// Returns the script buf of the general wallet address. External funds should be sent here.
-    pub fn general_script_buf(&self) -> &ScriptBuf {
+    pub const fn general_script_buf(&self) -> &ScriptBuf {
         &self.general_addr_script_buf
     }
 
     /// Returns the script buf of the stake chain wallet address.
     ///
     /// This is where the reserved funds for funding dust outputs reside.
-    pub fn stakechain_script_buf(&self) -> &ScriptBuf {
+    pub const fn stakechain_script_buf(&self) -> &ScriptBuf {
         &self.stakechain_addr_script_buf
     }
 
     /// Returns an immutable reference to the general wallet
-    pub fn general_wallet(&self) -> &Wallet {
+    pub const fn general_wallet(&self) -> &Wallet {
         &self.general_wallet
     }
 
     /// Returns an immutable reference to the stakechain wallet
-    pub fn stakechain_wallet(&self) -> &Wallet {
+    pub const fn stakechain_wallet(&self) -> &Wallet {
         &self.stakechain_wallet
     }
 

@@ -23,7 +23,7 @@ pub struct P2PClient {
 
 impl P2PClient {
     /// Creates a new P2P client with an existing QUIC connection and configuration.
-    pub fn new(conn: Connection, config: Arc<Config>) -> Self {
+    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
 }

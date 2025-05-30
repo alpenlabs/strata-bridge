@@ -24,7 +24,7 @@ pub struct GeneralWalletClient {
 
 impl GeneralWalletClient {
     /// Creates a new operator client with an existing QUIC connection and configuration.
-    pub fn new(conn: Connection, config: Arc<Config>) -> Self {
+    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
 }
@@ -89,7 +89,7 @@ pub struct StakechainWalletClient {
 
 impl StakechainWalletClient {
     /// Creates a new operator client with an existing QUIC connection and configuration.
-    pub fn new(conn: Connection, config: Arc<Config>) -> Self {
+    pub const fn new(conn: Connection, config: Arc<Config>) -> Self {
         Self { conn, config }
     }
 }

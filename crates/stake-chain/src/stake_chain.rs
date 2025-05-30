@@ -136,7 +136,7 @@ impl StakeChain {
     }
 
     /// Gets the first stake transaction in the chain.
-    pub fn head(&self) -> Option<&StakeTx<Head>> {
+    pub const fn head(&self) -> Option<&StakeTx<Head>> {
         self.head.as_ref()
     }
 
@@ -151,7 +151,7 @@ impl StakeChain {
     }
 
     /// Checks if the stake chain is empty.
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.head.is_none()
     }
 }
@@ -234,7 +234,7 @@ impl StakeChainInputs {
     }
 
     /// Prevout of the first stake transaction.
-    pub fn pre_stake_prevout(&self) -> OutPoint {
+    pub const fn pre_stake_prevout(&self) -> OutPoint {
         self.pre_stake_outpoint
     }
 }

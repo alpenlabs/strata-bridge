@@ -1,3 +1,5 @@
+//! Prover module.
+
 use anyhow::Context;
 use ark_bn254::{Bn254, Fr};
 use ark_ff::PrimeField;
@@ -15,6 +17,7 @@ use zkaleido_sp1_host::SP1Host;
 
 use crate::sp1;
 
+/// Proves a bridge proof using SP1.
 pub fn sp1_prove(
     input: &BridgeProofInput,
 ) -> anyhow::Result<(Proof<Bn254>, [Fr; 1], BridgeProofPublicOutput)> {

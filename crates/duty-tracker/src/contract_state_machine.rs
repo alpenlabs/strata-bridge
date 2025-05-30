@@ -74,7 +74,7 @@ pub struct DepositSetup {
 
 impl DepositSetup {
     /// Conversion function into StakeTxData.
-    pub fn stake_tx_data(&self) -> StakeTxData {
+    pub const fn stake_tx_data(&self) -> StakeTxData {
         StakeTxData {
             operator_funds: self.funding_outpoint,
             hash: self.hash,
@@ -511,7 +511,10 @@ impl Display for ContractState {
 
 impl ContractState {
     /// Initializes a contract state at the beginning of its lifecycle with the given arguments.
-    pub fn new(deposit_request_txid: Txid, abort_deadline: BitcoinBlockHeight) -> ContractState {
+    pub const fn new(
+        deposit_request_txid: Txid,
+        abort_deadline: BitcoinBlockHeight,
+    ) -> ContractState {
         ContractState::Requested {
             deposit_request_txid,
             abort_deadline,
@@ -993,7 +996,7 @@ impl ContractSM {
     }
 
     /// Restores a [`ContractSM`] from its [`ContractCfg`] and [`MachineState`]
-    pub fn restore(cfg: ContractCfg, state: MachineState) -> Self {
+    pub const fn restore(cfg: ContractCfg, state: MachineState) -> Self {
         ContractSM {
             cfg,
             state,
@@ -2410,12 +2413,12 @@ impl ContractSM {
     }
 
     /// Dumps the config parameters of the state machine.
-    pub fn cfg(&self) -> &ContractCfg {
+    pub const fn cfg(&self) -> &ContractCfg {
         &self.cfg
     }
 
     /// Dumps the current state of the state machine.
-    pub fn state(&self) -> &MachineState {
+    pub const fn state(&self) -> &MachineState {
         &self.state
     }
 
@@ -2453,7 +2456,7 @@ impl ContractSM {
     ///
     /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
     /// [`ContractState::StakeTxReady`] state.
-    pub fn withdrawal_request_txid(&self) -> Option<Txid> {
+    pub const fn withdrawal_request_txid(&self) -> Option<Txid> {
         match &self.state().state {
             ContractState::Requested { .. } => None,
             ContractState::Deposited { .. } => None,
@@ -2477,7 +2480,7 @@ impl ContractSM {
     ///
     /// Note that this is only available if the contract is in the [`ContractState::Fulfilled`]
     /// state.
-    pub fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
+    pub const fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
         match &self.state().state {
             ContractState::Requested { .. } => None,
             ContractState::Deposited { .. } => None,

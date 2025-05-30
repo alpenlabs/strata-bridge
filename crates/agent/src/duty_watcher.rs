@@ -1,3 +1,5 @@
+//! Duty watcher for the agent.
+
 use std::{sync::Arc, time::Duration};
 
 use bitcoin::Txid;
@@ -12,11 +14,15 @@ use tracing::{debug, error, info};
 
 use crate::strata_rpc::{BridgeDutyInterop, BridgeDutyInteropTraitClient, RpcBridgeDutiesInterop};
 
+/// The configuration for the duty watcher.
 #[derive(Debug, Clone)]
 pub struct DutyWatcherConfig {
+    /// The interval at which to poll the blockchain.
     pub poll_interval: Duration,
 }
 
+/// The duty watcher is responsible for watching the blockchain and dispatching duties to the
+/// verifier.
 #[derive(Debug, Clone)]
 pub struct DutyWatcher<
     StrataClient: StrataApiClient + BridgeDutyInteropTraitClient,
@@ -34,7 +40,8 @@ where
     StrataClient: StrataApiClient + BridgeDutyInteropTraitClient + Send + Sync + 'static,
     Db: DutyTrackerDb + Send + Sync + 'static,
 {
-    pub fn new(
+    /// Creates a new duty watcher.
+    pub const fn new(
         config: DutyWatcherConfig,
         strata_rpc_client: Arc<StrataClient>,
         db: Arc<Db>,
@@ -46,6 +53,7 @@ where
         }
     }
 
+    /// Starts the duty watcher.
     pub async fn start(
         &mut self,
         duty_sender: broadcast::Sender<BridgeDuty>,

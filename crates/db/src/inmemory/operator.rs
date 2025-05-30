@@ -1,3 +1,5 @@
+//! In-memory database traits and implementations for the operator.
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use async_trait::async_trait;
@@ -11,24 +13,25 @@ use crate::{
     operator::{KickoffInfo, MsgHashAndOpIdToSigMap, OperatorDb},
 };
 
+/// In-memory database for the operator.    
 #[derive(Debug, Default)]
 pub struct OperatorDbInMemory {
-    /// Txid -> OperatorIdx -> PubNonce
+    /// Txid -> input_index -> OperatorIdx -> PubNonce
     collected_pubnonces: RwLock<HashMap<(Txid, u32), BTreeMap<OperatorIdx, PubNonce>>>,
 
-    /// Txid -> PubNonce
+    /// Txid -> input_index -> SecNonce
     sec_nonces: RwLock<HashMap<(Txid, u32), SecNonce>>,
 
-    /// (Txid, input_index) -> (Message Hash, OperatorIdx -> PartialSignature)
+    /// Txid -> input_index -> (Message Hash, OperatorIdx -> PartialSignature)
     collected_signatures: RwLock<HashMap<(Txid, u32), MsgHashAndOpIdToSigMap>>,
 
     /// OutPoints that have already been used to create KickoffTx.
     selected_outpoints: RwLock<HashSet<OutPoint>>,
 
-    /// Deposit Txid -> PegOutGraphData
+    /// Deposit Txid -> KickoffInfo
     peg_out_graphs: RwLock<BTreeMap<Txid, KickoffInfo>>,
 
-    /// Deposit Txid (in withdrawal duty) -> latest checkpoint index
+    /// Deposit Txid (in withdrawal duty) -> Checkpoint Index
     checkpoint_table: RwLock<HashMap<Txid, u64>>,
 }
 

@@ -1,3 +1,5 @@
+//! Duties that need to be executed by the operators.
+
 #![expect(deprecated)]
 
 use bitcoin::{Transaction, Txid};
@@ -8,22 +10,38 @@ use crate::{
     withdrawal::WithdrawalInfo,
 };
 
+/// A duty that needs to be verified by the verifier.
 #[derive(Clone, Debug)]
 #[expect(clippy::large_enum_variant)]
 #[deprecated = "this will be removed along with the `strata-bridge-agent` crate"]
 pub enum VerifierDuty {
+    /// A duty to verify a claim.
     VerifyClaim {
+        /// The operator index.
         operator_id: OperatorIdx,
+
+        /// The deposit transaction ID.
         deposit_txid: Txid,
 
+        /// The claim transaction.
         claim_tx: Transaction,
     },
+
+    /// A duty to verify assertions.
     VerifyAssertions {
+        /// The operator index.
         operator_id: OperatorIdx,
+
+        /// The deposit transaction ID.
         deposit_txid: Txid,
 
+        /// The post-assert transaction.
         post_assert_tx: Transaction,
+
+        /// The claim transaction.
         claim_tx: Transaction,
+
+        /// The assert data transactions.
         assert_data_txs: [Transaction; NUM_ASSERT_DATA_TX],
     },
 }
@@ -45,7 +63,8 @@ pub enum BridgeDuty {
 }
 
 impl BridgeDuty {
-    pub fn get_id(&self) -> Txid {
+    /// Returns the transaction ID of the duty.
+    pub const fn get_id(&self) -> Txid {
         match self {
             BridgeDuty::SignDeposit(deposit_info) => deposit_info.deposit_request_outpoint().txid,
             BridgeDuty::FulfillWithdrawal(withdrawal_info) => {
@@ -55,19 +74,26 @@ impl BridgeDuty {
     }
 }
 
+/// A collection of duties to be executed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeDuties {
+    /// The duties to be executed.
     pub duties: Vec<BridgeDuty>,
 
+    /// The start index of the duties.
     pub start_index: u64,
 
+    /// The stop index of the duties.
     pub stop_index: u64,
 }
 
+/// The status of a duty.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum BridgeDutyStatus {
+    /// The status of the deposit duty.
     Deposit(DepositStatus),
 
+    /// The status of the withdrawal duty.
     Withdrawal(WithdrawalStatus),
 }
 
@@ -84,7 +110,8 @@ impl From<WithdrawalStatus> for BridgeDutyStatus {
 }
 
 impl BridgeDutyStatus {
-    pub fn is_done(&self) -> bool {
+    /// Returns whether the duty is done.
+    pub const fn is_done(&self) -> bool {
         match self {
             BridgeDutyStatus::Deposit(deposit_status) => deposit_status.is_done(),
             BridgeDutyStatus::Withdrawal(withdrawal_status) => withdrawal_status.is_done(),
@@ -92,6 +119,7 @@ impl BridgeDutyStatus {
     }
 }
 
+/// The status of a deposit duty.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum DepositStatus {
@@ -159,21 +187,29 @@ pub enum DepositStatus {
 }
 
 impl DepositStatus {
-    pub fn is_done(&self) -> bool {
+    /// Returns whether the deposit duty is done.
+    pub const fn is_done(&self) -> bool {
         matches!(self, Self::Executed) || matches!(self, Self::Discarded(_))
     }
 }
 
+/// The status of a deposit request duty.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum DepositRequestStatus {
     /// Deposit request exists, but minting hasn't happened yet.
-    InProgress { deposit_request_txid: Txid },
+    InProgress {
+        /// The transaction ID of the deposit request.
+        deposit_request_txid: Txid,
+    },
 
     /// Deposit request exists, but was never completed (can be reclaimed with the "take back"
     /// leaf).
     Failed {
+        /// The transaction ID of the deposit request.
         deposit_request_txid: Txid,
+
+        /// The failure reason.
         failure_reason: String,
     },
 
@@ -187,36 +223,56 @@ pub enum DepositRequestStatus {
     },
 }
 
+/// The status of a withdrawal duty.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum WithdrawalStatus {
+    /// The withdrawal duty has been received.
     Received,
 
+    /// The withdrawal duty has been paid to the user.
     PaidUser {
+        /// The transaction ID of the withdrawal fulfillment.
         withdrawal_fulfillment_txid: Txid,
     },
 
+    /// The withdrawal duty has been claimed.
     Claim {
+        /// The transaction ID of the withdrawal fulfillment.
         withdrawal_fulfillment_txid: Txid,
+
+        /// The transaction ID of the claim.
         claim_txid: Txid,
     },
 
+    /// The withdrawal duty has been pre-asserted.
     PreAssert {
+        /// The transaction ID of the withdrawal fulfillment.
         withdrawal_fulfillment_txid: Txid,
+
+        /// The transaction ID of the pre-assert.
         pre_assert_txid: Txid,
     },
 
+    /// The withdrawal duty has been asserted.
     AssertData {
+        /// The transaction ID of the withdrawal fulfillment.
         withdrawal_fulfillment_txid: Txid,
+
+        /// The transaction IDs of the assert data.
         assert_data_txids: Vec<Txid>, // dynamic for assert data txs that have been broadcasted
     },
 
+    /// The withdrawal duty has been asserted.
     AssertDataComplete,
 
+    /// The withdrawal duty has been post-asserted.
     PostAssert,
 
+    /// The withdrawal duty has been executed.
     Executed,
 
+    /// The withdrawal duty has failed.
     Failed {
         /// The error message.
         error_msg: String,
@@ -225,10 +281,12 @@ pub enum WithdrawalStatus {
         num_retries: u32,
     },
 
+    /// The withdrawal duty has been discarded.
     Discarded(String),
 }
 
 impl WithdrawalStatus {
+    /// Updates the status of the withdrawal duty.
     pub fn next(&mut self, txid: Txid) {
         match self {
             Self::Received => {
@@ -280,11 +338,14 @@ impl WithdrawalStatus {
         }
     }
 
-    pub fn should_pay(&self) -> bool {
+    /// Returns whether the withdrawal duty should be paid.
+    pub const fn should_pay(&self) -> bool {
         matches!(self, WithdrawalStatus::Received)
     }
 
-    pub fn should_kickoff(&self) -> Option<Txid> {
+    /// Returns the transaction ID of the withdrawal fulfillment if the withdrawal duty should be
+    /// paid.
+    pub const fn should_kickoff(&self) -> Option<Txid> {
         match self {
             WithdrawalStatus::PaidUser {
                 withdrawal_fulfillment_txid: txid,
@@ -293,7 +354,9 @@ impl WithdrawalStatus {
         }
     }
 
-    pub fn should_claim(&self) -> Option<Txid> {
+    /// Returns the transaction ID of the withdrawal fulfillment if the withdrawal duty should be
+    /// claimed.
+    pub const fn should_claim(&self) -> Option<Txid> {
         match self {
             WithdrawalStatus::PaidUser {
                 withdrawal_fulfillment_txid,
@@ -302,7 +365,9 @@ impl WithdrawalStatus {
         }
     }
 
-    pub fn should_pre_assert(&self) -> Option<Txid> {
+    /// Returns the transaction ID of the withdrawal fulfillment if the withdrawal duty should be
+    /// pre-asserted.
+    pub const fn should_pre_assert(&self) -> Option<Txid> {
         match self {
             WithdrawalStatus::Claim {
                 withdrawal_fulfillment_txid,
@@ -312,6 +377,8 @@ impl WithdrawalStatus {
         }
     }
 
+    /// Returns the transaction ID of the withdrawal fulfillment if the withdrawal duty should be
+    /// asserted.
     pub fn should_assert_data(&self, assert_data_index: usize) -> Option<Txid> {
         match self {
             WithdrawalStatus::PreAssert {
@@ -330,15 +397,18 @@ impl WithdrawalStatus {
         }
     }
 
-    pub fn should_post_assert(&self) -> bool {
+    /// Returns whether the withdrawal duty should be post-asserted.
+    pub const fn should_post_assert(&self) -> bool {
         matches!(self, WithdrawalStatus::AssertDataComplete)
     }
 
-    pub fn should_get_payout(&self) -> bool {
+    /// Returns whether the withdrawal duty should get a payout.
+    pub const fn should_get_payout(&self) -> bool {
         matches!(self, WithdrawalStatus::PostAssert)
     }
 
-    pub fn is_done(&self) -> bool {
+    /// Returns whether the withdrawal duty is done.
+    pub const fn is_done(&self) -> bool {
         matches!(self, Self::Executed) || matches!(self, Self::Discarded(_))
     }
 }

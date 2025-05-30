@@ -1,3 +1,5 @@
+//! Database utilities for the dev-bridge.
+
 use std::{
     env, fs,
     path::{Path, PathBuf},
@@ -11,6 +13,7 @@ use sqlx::{
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use tracing::info;
 
+/// Creates a new SQLite database and runs the migrations.
 pub async fn create_db(datadir: impl AsRef<Path>, db_name: &str) -> SqliteDb {
     let db_path = create_db_file(datadir, db_name);
 

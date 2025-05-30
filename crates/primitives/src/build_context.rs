@@ -1,3 +1,5 @@
+//! Build context for building transactions.
+
 use bitcoin::Network;
 use secp256k1::XOnlyPublicKey;
 use strata_primitives::bridge::PublickeyTable;

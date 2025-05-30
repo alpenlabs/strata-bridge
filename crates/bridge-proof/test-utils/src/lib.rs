@@ -1,5 +1,6 @@
-/// Test data module for loading Bitcoin blocks, headers, chain state, and specific
-/// transactions.
+//! Test data module for loading Bitcoin blocks, headers, chain state, and specific
+//! transactions.
+
 use std::fs;
 
 use bitcoin::{block::Header, Block};

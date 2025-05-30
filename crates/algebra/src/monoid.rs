@@ -1,3 +1,5 @@
+//! Monoid module.
+
 use crate::semigroup::Semigroup;
 
 /// A [`Monoid`] is an algebraic structure with [`Semigroup`] properties as well as equipped with
@@ -10,6 +12,7 @@ use crate::semigroup::Semigroup;
 /// Intuitively this means that giving [`Monoid::empty`] as an argument to [`Semigroup::merge`] MUST
 /// return the merge's other argument.
 pub trait Monoid: Semigroup {
+    /// The empty value.
     fn empty() -> Self;
 }
 
@@ -31,6 +34,7 @@ impl<T> Monoid for Vec<T> {
     }
 }
 
+/// Laws for the [`Monoid`] trait.
 pub mod laws {
     use std::fmt::Debug;
 
@@ -38,6 +42,7 @@ pub mod laws {
 
     use super::Monoid;
 
+    /// Checks if the empty value is a left identity.
     #[coverage(off)]
     pub fn merge_left_identity<T: Debug + Monoid + Clone + Eq>(a: T) -> Result<(), TestCaseError> {
         let lhs = T::empty().merge(a.clone());
@@ -50,6 +55,7 @@ pub mod laws {
         Ok(())
     }
 
+    /// Checks if the empty value is a right identity.
     #[coverage(off)]
     pub fn merge_right_identity<T: Debug + Monoid + Clone + Eq>(a: T) -> Result<(), TestCaseError> {
         let rhs = a.clone().merge(T::empty());

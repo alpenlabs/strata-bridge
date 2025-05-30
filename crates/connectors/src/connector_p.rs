@@ -59,7 +59,7 @@ pub struct ConnectorP {
 impl ConnectorP {
     /// Creates a new [`ConnectorP`] with the given N-of-N aggregated public key, `k`th stake
     /// preimage, and the bitcoin network.
-    pub fn new(
+    pub const fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         network: Network,

@@ -1,3 +1,5 @@
+//! Constructs the withdrawal fulfillment transaction.
+
 use bitcoin::{consensus, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::{
@@ -46,6 +48,7 @@ pub struct WithdrawalMetadata {
 }
 
 impl WithdrawalMetadata {
+    /// Returns the op-return data for the withdrawal metadata.
     pub fn op_return_data(&self) -> Vec<u8> {
         let op_id_prefix: [u8; 4] = self.operator_idx.to_be_bytes();
         let deposit_id_prefix: [u8; 4] = self.deposit_idx.to_be_bytes();

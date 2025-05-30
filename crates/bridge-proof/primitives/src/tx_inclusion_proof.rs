@@ -1,3 +1,5 @@
+//! Transaction inclusion proof.
+
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
 use strata_primitives::{
@@ -27,7 +29,7 @@ pub struct L1TxWithIdProof<T> {
 impl<T: TxIdComputable> L1TxWithIdProof<T> {
     // Ignored for now. This is meant to be called from elsewhere to generate to the format to be
     // used by the prover
-    pub(crate) fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
+    pub(crate) const fn new(tx: BitcoinTx, proof: L1TxInclusionProof<T>) -> Self {
         Self { tx, proof }
     }
 
@@ -62,7 +64,7 @@ pub struct L1TxWithProofBundle {
 impl L1TxWithProofBundle {
     /// Returns the transaction for which this bundle includes a proof.
     /// If the transaction does not have any witness data, this returns `None`.
-    pub fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
+    pub const fn get_witness_tx(&self) -> &Option<L1TxWithIdProof<WtxIdMarker>> {
         &self.witness_tx
     }
 

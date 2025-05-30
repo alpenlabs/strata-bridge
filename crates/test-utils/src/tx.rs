@@ -1,8 +1,13 @@
+//! Module to generate transactions for testing.
+
 use bitcoin::{consensus, Address, Amount, OutPoint, Transaction, TxOut};
 use bitcoind_async_client::types::{ListUnspent, SignRawTransactionWithWallet};
 use corepc_node::{serde_json, Client};
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
+/// The fees for a transaction.
+///
+/// Hardcoded to 1,000 satoshis.
 pub const FEES: Amount = Amount::from_sat(1_000);
 
 /// Creates `NUM_LEAVES` transactions that send funds to the given output address.
@@ -100,6 +105,7 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
         .expect("transaction count must match")
 }
 
+/// Creates a mock deposit transaction.
 pub fn get_mock_deposit(
     btc_client: &Client,
     deposit_amount: Amount,

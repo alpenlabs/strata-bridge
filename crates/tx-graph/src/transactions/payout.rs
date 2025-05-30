@@ -1,3 +1,5 @@
+//! Constructs the payout transaction.
+
 use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
