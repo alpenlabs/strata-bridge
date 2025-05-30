@@ -154,7 +154,7 @@ mod tests {
         let deposit_idx: u32 = OsRng.gen();
         let deposit_txid = generate_txid();
 
-        let tag = Tag::new([b'a', b'l', b'p', b'0']);
+        let tag = Tag::new(*b"alp0");
         let withdrawal_metadata = WithdrawalMetadata {
             tag,
             operator_idx,
