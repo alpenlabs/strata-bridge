@@ -23,7 +23,10 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
-use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
+use strata_bridge_tx_graph::transactions::{
+    deposit::DepositTx,
+    prelude::{AssertDataTxInput, CovenantTx},
+};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
@@ -272,6 +275,7 @@ impl ContractManager {
             }
 
             let mut interval = time::interval(nag_interval);
+            interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
             loop {
                 let mut duties = vec![];
@@ -366,7 +370,9 @@ impl ContractManager {
                             // this could be a transient issue, so no need to break immediately
                         }
                     },
-                    _ = interval.tick() => {
+                    instant = interval.tick() => {
+                        debug!(?instant, "constructing nags");
+
                         let nags = ctx.nag();
                         for nag in nags {
                             p2p_handle.send_command(nag).await;
@@ -375,7 +381,7 @@ impl ContractManager {
                 }
 
                 duties.into_iter().for_each(|duty| {
-                    debug!(%duty, "starting duty execution from new blocks");
+                    debug!(%duty, "starting duty execution from new events");
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
@@ -653,10 +659,12 @@ impl ContractManagerCtx {
                             continue;
                         };
 
-                        match sm.process_contract_event(ContractEvent::Assignment(
-                            entry.clone(),
+                        let l1_start_height = checkpoint.batch_info().l1_range.1.height() + 1;
+                        match sm.process_contract_event(ContractEvent::Assignment {
+                            deposit_entry: entry.clone(),
                             stake_tx,
-                        )) {
+                            l1_start_height,
+                        }) {
                             Ok(new_duties) if !new_duties.is_empty() => {
                                 duties.extend(new_duties);
                             }
@@ -763,7 +771,14 @@ impl ContractManagerCtx {
                     };
 
                     info!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
-                    self.state.stake_chains.process_setup(key.clone(), &setup)?;
+                    let Some(_stake_txid) =
+                        self.state.stake_chains.process_setup(key.clone(), &setup)?
+                    else {
+                        // if the stake txid cannot be generated it means that the chain is broken,
+                        // this can happen if the deposit setup messages are received out of order,
+                        // when there are multiple deposits being processed concurrently.
+                        return Ok(vec![]);
+                    };
 
                     info!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
                     self.state_handles
@@ -1122,6 +1137,8 @@ impl ContractManagerCtx {
             }),
         );
 
+        debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
+
         for (txid, contract) in self.state.active_contracts.iter() {
             let state = &contract.state().state;
             if let ContractState::Requested {
@@ -1465,6 +1482,78 @@ async fn execute_duty(
                     claim_txid,
                     stake_txid,
                     stake_index,
+                    *agg_sigs,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPreAssert {
+                deposit_idx,
+                deposit_txid,
+                claim_txid,
+                agg_sig,
+            } => {
+                handle_publish_pre_assert(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    claim_txid,
+                    agg_sig,
+                )
+                .await
+            }
+            FulfillerDuty::PublishAssertData {
+                start_height,
+                withdrawal_fulfillment_txid,
+                deposit_idx,
+                deposit_txid,
+                pre_assert_txid,
+                pre_assert_locking_scripts,
+            } => {
+                handle_publish_assert_data(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    AssertDataTxInput {
+                        pre_assert_txid,
+                        pre_assert_locking_scripts: *pre_assert_locking_scripts,
+                    },
+                    withdrawal_fulfillment_txid,
+                    start_height,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPostAssertData {
+                deposit_txid,
+                assert_data_txids,
+                agg_sigs,
+            } => {
+                handle_publish_post_assert(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_txid,
+                    *assert_data_txids,
+                    *agg_sigs,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPayout {
+                deposit_idx,
+                deposit_txid,
+                stake_txid,
+                claim_txid,
+                post_assert_txid,
+                agg_sigs,
+            } => {
+                handle_publish_payout(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    stake_txid,
+                    claim_txid,
+                    post_assert_txid,
                     *agg_sigs,
                 )
                 .await

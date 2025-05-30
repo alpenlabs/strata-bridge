@@ -466,39 +466,36 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
         // we don't care about the hot state here, we only care about the database
-        let all_entries = self.cached_contracts.read().await.clone();
+        let all_entries = self.cached_contracts.read().await;
 
-        let mut duties = Vec::new();
-        for entry in all_entries {
-            match &entry.0.state.state {
-                ContractState::Requested { .. } => {
-                    duties.push(RpcBridgeDutyStatus::Deposit {
+        let duties = all_entries
+            .iter()
+            .filter_map(|entry| {
+                match entry.0.state.state {
+                    ContractState::Requested { .. } => Some(RpcBridgeDutyStatus::Deposit {
                         deposit_request_txid: entry.1.deposit_request_txid(),
-                    });
+                    }),
+                    ContractState::Assigned {
+                        withdrawal_request_txid,
+                        fulfiller,
+                        ..
+                    } => Some(RpcBridgeDutyStatus::Withdrawal {
+                        withdrawal_request_txid,
+                        assigned_operator_idx: fulfiller,
+                    }),
+                    ContractState::StakeTxReady {
+                        withdrawal_request_txid,
+                        fulfiller,
+                        ..
+                    } => Some(RpcBridgeDutyStatus::Withdrawal {
+                        withdrawal_request_txid,
+                        assigned_operator_idx: fulfiller,
+                    }),
+                    // Anything else is not a duty for the bridge operator
+                    _ => None,
                 }
-                ContractState::Deposited { .. } => duties.push(RpcBridgeDutyStatus::Deposit {
-                    deposit_request_txid: entry.1.deposit_request_txid(),
-                }),
-                ContractState::Assigned {
-                    withdrawal_request_txid,
-                    fulfiller,
-                    ..
-                } => duties.push(RpcBridgeDutyStatus::Withdrawal {
-                    withdrawal_request_txid: *withdrawal_request_txid,
-                    assigned_operator_idx: *fulfiller,
-                }),
-                ContractState::StakeTxReady {
-                    withdrawal_request_txid,
-                    fulfiller,
-                    ..
-                } => duties.push(RpcBridgeDutyStatus::Withdrawal {
-                    withdrawal_request_txid: *withdrawal_request_txid,
-                    assigned_operator_idx: *fulfiller,
-                }),
-                // Anything else is not a duty for the RPC server
-                _ => (),
-            }
-        }
+            })
+            .collect();
 
         Ok(duties)
     }
@@ -508,72 +505,52 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
         // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        let all_entries = self.cached_contracts.read().await;
 
         // NOTE: duties by operator pk is only for withdrawal duties,
         //       it does not make sense for deposit duties
-        let mut duties = Vec::new();
-        for entry in all_entries {
-            // Get the operator index from the operator table
-            let operator_index = entry
-                .0
-                .operator_table
-                .btc_key_to_idx(&operator_pk.inner)
-                .ok_or_else(|| {
-                    rpc_error(
-                        ErrorCode::InvalidRequest,
-                        "Operator public key not found in operator table",
-                        operator_pk,
-                    )
-                })?;
+        let duties = all_entries
+            .iter()
+            .filter_map(|entry| {
+                // Get the operator p2p key from the operator table
+                // If the key does not exist, just ignore that entry and continue
+                // as we want to extract all relevant duties for a given operator
+                // and there may be other duties in subsequent entries that the caller cares about.
+                let operator_p2p_pk = entry
+                    .0
+                    .operator_table
+                    .btc_key_to_op_key(&operator_pk.inner)?;
 
-            let operator_p2p_pk = entry
-                .0
-                .operator_table
-                .idx_to_op_key(&operator_index)
-                .expect("we just checked that the index is valid");
+                // Then, only get the entries where the operator index matches
+                match &entry.0.state.state {
+                    ContractState::Assigned {
+                        claim_txids,
+                        withdrawal_request_txid,
+                        fulfiller,
+                        ..
+                    } if claim_txids.contains_key(operator_p2p_pk) => {
+                        Some(RpcBridgeDutyStatus::Withdrawal {
+                            withdrawal_request_txid: *withdrawal_request_txid,
+                            assigned_operator_idx: *fulfiller,
+                        })
+                    }
 
-            // Then, only get the entries where the operator index matches
-            match &entry.0.state.state {
-                ContractState::Assigned {
-                    claim_txids,
-                    withdrawal_request_txid,
-                    ..
-                } => {
-                    if claim_txids.contains_key(operator_p2p_pk) {
-                        duties.push(RpcBridgeDutyStatus::Withdrawal {
+                    ContractState::StakeTxReady {
+                        claim_txids,
+                        withdrawal_request_txid,
+                        fulfiller,
+                        ..
+                    } if claim_txids.contains_key(operator_p2p_pk) => {
+                        Some(RpcBridgeDutyStatus::Withdrawal {
                             withdrawal_request_txid: *withdrawal_request_txid,
-                            assigned_operator_idx: operator_index,
-                        });
+                            assigned_operator_idx: *fulfiller,
+                        })
                     }
+                    _ => None,
                 }
-                ContractState::StakeTxReady {
-                    claim_txids,
-                    withdrawal_request_txid,
-                    ..
-                } => {
-                    if claim_txids.contains_key(operator_p2p_pk) {
-                        duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *withdrawal_request_txid,
-                            assigned_operator_idx: operator_index,
-                        });
-                    }
-                }
-                ContractState::Fulfilled {
-                    claim_txids,
-                    withdrawal_fulfillment_txid,
-                    ..
-                } => {
-                    if claim_txids.contains_key(operator_p2p_pk) {
-                        duties.push(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *withdrawal_fulfillment_txid,
-                            assigned_operator_idx: operator_index,
-                        });
-                    }
-                }
-                _ => (),
-            }
-        }
+            })
+            .collect();
+
         Ok(duties)
     }
 
@@ -609,6 +586,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 ContractState::Asserted { .. } => todo!(),
                 ContractState::Disproved { .. } => todo!(),
                 ContractState::Resolved { .. } => todo!(),
+                _ => todo!(),
             }
         }
 
@@ -625,135 +603,40 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut claims = Vec::new();
         for entry in all_entries {
-            match &entry.0.state.state {
-                ContractState::Requested { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Deposited { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Assigned { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::StakeTxReady { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Fulfilled { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Claimed { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Challenged { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Asserted { claim_txids, .. } => {
-                    claims.extend(claim_txids.values().copied().collect::<Vec<Txid>>())
-                }
-                ContractState::Disproved {} => (),
-                ContractState::Resolved {} => (),
-            }
+            claims.extend(entry.0.state.state.claim_txids())
         }
 
         Ok(claims)
     }
 
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo> {
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
-        for entry in all_entries {
-            match &entry.0.state.state {
-                ContractState::Requested { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Deposited { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+        let claim_info = all_entries
+            .iter()
+            .find(|entry| {
+                let claim_txids = entry.0.state.state.claim_txids();
 
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Assigned { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
+                claim_txids.contains(&claim_txid)
+            })
+            .map(|entry| match &entry.0.state.state {
+                ContractState::Requested { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::Deposited { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::Assigned { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::StakeTxReady { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::Fulfilled { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
+                ContractState::Challenged { .. } => RpcReimbursementStatus::Challenged,
+                ContractState::PreAssertConfirmed { .. } => RpcReimbursementStatus::Challenged,
+                ContractState::AssertDataConfirmed { .. } => RpcReimbursementStatus::Challenged,
+                ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
+                ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
+                ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
+            })
+            .map(|status| RpcClaimInfo { claim_txid, status });
 
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::StakeTxReady { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Fulfilled { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Claimed { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::InProgress,
-                        });
-                    }
-                }
-                ContractState::Challenged { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::Challenged,
-                        });
-                    }
-                }
-                ContractState::Asserted { claim_txids, .. } => {
-                    let claim_txids = claim_txids.values().copied().collect::<Vec<Txid>>();
-
-                    if claim_txids.contains(&claim_txid) {
-                        return Ok(RpcClaimInfo {
-                            claim_txid,
-                            status: RpcReimbursementStatus::Challenged,
-                        });
-                    }
-                }
-                ContractState::Disproved { .. } => (),
-                ContractState::Resolved { .. } => (),
-            };
-        }
-
-        Err(rpc_error(
-            ErrorCode::InvalidRequest,
-            "Claim not found",
-            claim_txid,
-        ))
+        Ok(claim_info)
     }
 }
 
@@ -765,17 +648,13 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let contracts = self.cached_contracts.read().await;
 
         Ok(contracts.iter().find_map(|contract| {
-            if contract.0.state.state.claim_txids().contains(&claim_txid) {
-                contract
-                    .0
-                    .state
-                    .state
-                    .graph_sigs()
-                    .get(&claim_txid)
-                    .map(|sigs| sigs.challenge)
-            } else {
-                None
-            }
+            contract
+                .0
+                .state
+                .state
+                .graph_sigs()
+                .get(&claim_txid)
+                .map(|sigs| sigs.challenge)
         }))
     }
 
@@ -785,17 +664,13 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         let contracts = self.cached_contracts.read().await;
 
         Ok(contracts.iter().find_map(|contract| {
-            if contract.0.state.state.claim_txids().contains(&claim_txid) {
-                contract
-                    .0
-                    .state
-                    .state
-                    .graph_sigs()
-                    .get(&claim_txid)
-                    .map(|sigs| sigs.disprove)
-            } else {
-                None
-            }
+            contract
+                .0
+                .state
+                .state
+                .graph_sigs()
+                .get(&claim_txid)
+                .map(|sigs| sigs.disprove)
         }))
     }
 }

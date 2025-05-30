@@ -24,6 +24,12 @@ pub struct ClaimTx {
     connector_k: ConnectorK,
 }
 
+/// The vout used in the payout transaction to reimburse the operator.
+pub const PAYOUT_VOUT: u32 = 2;
+
+/// The vout that is spent by the slash stake transaction.
+pub const SLASH_STAKE_VOUT: u32 = 2;
+
 impl ClaimTx {
     pub fn new(
         data: ClaimData,
@@ -112,7 +118,7 @@ impl ClaimTx {
     }
 
     pub const fn slash_stake_vout(&self) -> u32 {
-        2
+        SLASH_STAKE_VOUT
     }
 
     pub fn finalize(mut self, signature: wots256::Signature) -> Transaction {
@@ -124,7 +130,7 @@ impl ClaimTx {
             .expect("should be able to extract signed tx")
     }
 
-    pub fn parse_witness(tx: &Transaction) -> TxResult<Option<wots256::Signature>> {
+    pub fn parse_witness(tx: &Transaction) -> TxResult<wots256::Signature> {
         let witness = &tx
             .input
             .first()
@@ -132,7 +138,9 @@ impl ClaimTx {
             .witness;
 
         if witness.is_empty() {
-            return Ok(None);
+            return Err(TxError::Witness(
+                "witness is empty, tx is not signed".to_string(),
+            ));
         }
 
         let witness_txid = witness.to_vec();
@@ -153,7 +161,7 @@ impl ClaimTx {
 
         let wots256_signature = wots256_signature?;
 
-        Ok(Some(wots256_signature))
+        Ok(wots256_signature)
     }
 }
 
@@ -209,9 +217,8 @@ mod tests {
         );
         let mut signed_claim_tx = claim_tx.finalize(*signature);
 
-        let parsed_wots256 = ClaimTx::parse_witness(&signed_claim_tx)
-            .expect("must be able to parse")
-            .expect("must have witness");
+        let parsed_wots256 =
+            ClaimTx::parse_witness(&signed_claim_tx).expect("must be able to parse");
 
         let full_script = script! {
             for (sig, digit) in parsed_wots256 {
@@ -235,12 +242,6 @@ mod tests {
             ClaimTx::parse_witness(&signed_claim_tx)
                 .is_err_and(|e| e.to_string().contains("size invalid")),
             "must not be able to parse"
-        );
-
-        signed_claim_tx.input[0].witness = Witness::new();
-        assert!(
-            ClaimTx::parse_witness(&signed_claim_tx).is_ok_and(|v| v.is_none()),
-            "must not have witness"
         );
     }
 }
