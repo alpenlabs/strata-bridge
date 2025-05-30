@@ -1,3 +1,5 @@
+//! Operator table for the bridge.
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bitcoin::Network;
@@ -8,16 +10,25 @@ use strata_primitives::bridge::PublickeyTable;
 
 use crate::{build_context::TxBuildContext, types::OperatorIdx};
 
+/// A table that maps operator indices to their P2P public keys and bitcoin public keys.
 // TODO(proofofkeags): the derived serialization of this data structure is 3x more expensive than
 // optimal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OperatorTable {
+    /// The index of this operator.
     pov: OperatorIdx,
+
+    /// The index to the operator public key.
     idx_key: BTreeMap<OperatorIdx, (P2POperatorPubKey, secp256k1::PublicKey)>,
+
+    /// The operator public key to the index.
     op_key: BTreeMap<P2POperatorPubKey, (OperatorIdx, secp256k1::PublicKey)>,
+
+    /// The bitcoin public key to the operator public key.
     btc_key: BTreeMap<secp256k1::PublicKey, (OperatorIdx, P2POperatorPubKey)>,
 }
 impl OperatorTable {
+    /// Creates a new operator table from a list of entries.
     pub fn new(
         entries: Vec<(OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey)>,
         pov: OperatorIdx,
@@ -51,26 +62,32 @@ impl OperatorTable {
         })
     }
 
+    /// Returns the operator public key for the given index.
     pub fn idx_to_op_key<'a>(&'a self, idx: &OperatorIdx) -> Option<&'a P2POperatorPubKey> {
         self.idx_key.get(idx).map(|x| &x.0)
     }
 
+    /// Returns the bitcoin public key for the given index.
     pub fn idx_to_btc_key(&self, idx: &OperatorIdx) -> Option<secp256k1::PublicKey> {
         self.idx_key.get(idx).map(|x| x.1)
     }
 
+    /// Returns the index for the given operator public key.
     pub fn op_key_to_idx(&self, op_key: &P2POperatorPubKey) -> Option<OperatorIdx> {
         self.op_key.get(op_key).map(|x| x.0)
     }
 
+    /// Returns the bitcoin public key for the given operator public key.
     pub fn op_key_to_btc_key(&self, op_key: &P2POperatorPubKey) -> Option<secp256k1::PublicKey> {
         self.op_key.get(op_key).map(|x| x.1)
     }
 
+    /// Returns the index for the given bitcoin public key.
     pub fn btc_key_to_idx(&self, btc_key: &secp256k1::PublicKey) -> Option<OperatorIdx> {
         self.btc_key.get(btc_key).map(|x| x.0)
     }
 
+    /// Returns the operator public key for the given bitcoin public key.
     pub fn btc_key_to_op_key<'a>(
         &'a self,
         btc_key: &secp256k1::PublicKey,
@@ -78,54 +95,65 @@ impl OperatorTable {
         self.btc_key.get(btc_key).map(|x| &x.1)
     }
 
-    pub fn pov_idx(&self) -> OperatorIdx {
+    /// Returns the index of the proof of work operator.
+    pub const fn pov_idx(&self) -> OperatorIdx {
         self.pov
     }
 
+    /// Returns the operator public key for the proof of work operator.
     pub fn pov_op_key(&self) -> &P2POperatorPubKey {
         // NOTE(proofofkeags): unwrap is safe because we assert this key is in the map in the
         // constructor.
         &self.idx_key.get(&self.pov).unwrap().0
     }
 
+    /// Returns the bitcoin public key for the proof of work operator.
     pub fn pov_btc_key(&self) -> secp256k1::PublicKey {
         // NOTE(proofofkeags): unwrap is safe because we assert this key is in the map in the
         // constructor.
         self.idx_key.get(&self.pov).unwrap().1
     }
 
+    /// Returns the number of operators in the table.
     pub fn cardinality(&self) -> usize {
         self.idx_key.len()
     }
 
-    /// Returns the musig2 public keys for the operators in the table in their canonical order
+    /// Returns the MuSig2 public keys for the operators in the table in their canonical order
     /// i.e., the order of their indices.
     pub fn btc_keys(&self) -> impl IntoIterator<Item = secp256k1::PublicKey> + use<'_> {
         self.idx_key.values().map(|(_, btc_key)| *btc_key)
     }
 
+    /// Returns the P2P public keys for the operators in the table.
     pub fn p2p_keys(&self) -> BTreeSet<P2POperatorPubKey> {
         self.op_key.keys().cloned().collect()
     }
 
+    /// Returns the indices of the operators in the table.
     pub fn operator_idxs(&self) -> BTreeSet<OperatorIdx> {
         self.idx_key.keys().copied().collect()
     }
 
+    /// Returns the public key table for the operators in the table.
     pub fn public_key_table(&self) -> PublickeyTable {
         PublickeyTable(self.idx_key.iter().map(|(k, v)| (*k, v.1)).collect())
     }
 
+    /// Returns the aggregated bitcoin public key for the operators in the table.
     pub fn aggregated_btc_key(&self) -> secp256k1::PublicKey {
         let pks: Vec<secp256k1::PublicKey> = self.btc_keys().into_iter().collect();
 
         KeyAggContext::new(pks).unwrap().aggregated_pubkey()
     }
 
+    /// Returns the transaction build context for the operators in the table.
     pub fn tx_build_context(&self, network: Network) -> TxBuildContext {
         TxBuildContext::new(network, self.public_key_table(), self.pov)
     }
 
+    /// Converts a map from operator public keys to a value to a map from bitcoin public keys to the
+    /// same value.
     pub fn convert_map_op_to_btc<V>(
         &self,
         map: BTreeMap<P2POperatorPubKey, V>,
@@ -139,6 +167,7 @@ impl OperatorTable {
     }
 }
 
+/// Proptest generators for the operator table.
 pub mod prop_test_generators {
     use proptest::{prelude::*, prop_compose};
     use strata_p2p_types::P2POperatorPubKey;
@@ -147,12 +176,14 @@ pub mod prop_test_generators {
     use crate::secp::EvenSecretKey;
 
     prop_compose! {
+        /// Generates a random P2P public key.
         pub fn arb_p2p_key()(pk in arb_btc_key()) -> P2POperatorPubKey {
             P2POperatorPubKey::from(Vec::from(pk.serialize()))
         }
     }
 
     prop_compose! {
+        /// Generates a random bitcoin public key.
         pub fn arb_btc_key()(
             sk in any::<[u8; 32]>()
                 .no_shrink()
@@ -183,6 +214,7 @@ pub mod prop_test_generators {
     }
 
     prop_compose! {
+        /// Generates a random operator table.
         pub fn arb_operator_table()(
             table in arb_operator_table_opt()
                 .prop_filter_map(

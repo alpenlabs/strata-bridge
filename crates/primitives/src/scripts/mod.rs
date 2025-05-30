@@ -1,3 +1,5 @@
+//! Bitcoin scripts.
+
 pub mod commitments;
 pub mod general;
 pub mod metadata;

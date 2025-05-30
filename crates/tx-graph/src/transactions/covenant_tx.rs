@@ -1,3 +1,5 @@
+//! Trait for transactions in the tx graph that require N-of-N signatures to emulate covenants.
+
 use bitcoin::{
     sighash::{Prevouts, SighashCache},
     Amount, Psbt, TapSighashType, TxOut, Txid,

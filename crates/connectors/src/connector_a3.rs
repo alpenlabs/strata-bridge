@@ -72,7 +72,7 @@ impl ConnectorA3Leaf {
     ///
     /// The `Payout` leaf is spent in the second input of the `Payout` transaction,
     /// whereas the `Disprove` leaf is spent in the first input of the `Disprove` transaction.
-    pub fn get_input_index(&self) -> u32 {
+    pub const fn get_input_index(&self) -> u32 {
         match self {
             ConnectorA3Leaf::Payout(_) => 1,
             ConnectorA3Leaf::DisproveProof { .. }
@@ -81,7 +81,7 @@ impl ConnectorA3Leaf {
     }
 
     /// Returns the sighash type for each of the connector leaves.
-    pub fn get_sighash_type(&self) -> TapSighashType {
+    pub const fn get_sighash_type(&self) -> TapSighashType {
         match self {
             ConnectorA3Leaf::Payout(_) => TapSighashType::Default,
             ConnectorA3Leaf::DisproveProof { .. }
@@ -312,7 +312,7 @@ impl ConnectorA3 {
     }
 
     /// Returns the relative timelock for the payout, measured in number of blocks.
-    pub fn payout_timelock(&self) -> u32 {
+    pub const fn payout_timelock(&self) -> u32 {
         self.payout_timelock
     }
 

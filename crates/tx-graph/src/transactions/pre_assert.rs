@@ -1,3 +1,5 @@
+//! Constructs the pre-assert transaction.
+
 use bitcoin::{
     sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, TapSighashType, Transaction,
     TxOut, Txid,

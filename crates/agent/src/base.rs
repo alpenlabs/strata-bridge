@@ -1,3 +1,5 @@
+//! Base utilities for the agent.
+
 use std::{collections::HashSet, sync::Arc, time::Duration};
 
 use alpen_bridge_params::prelude::ConnectorParams;
@@ -38,17 +40,22 @@ pub(super) const CONNECTOR_PARAMS: ConnectorParams = ConnectorParams {
     payout_timelock: 100,
 };
 
+/// The agent is responsible for signing and broadcasting transactions.
 #[derive(Debug, Clone)]
 pub struct Agent {
+    /// The keypair of the agent.
     keypair: Keypair,
 
+    /// The Bitcoin client.
     pub btc_client: Arc<BitcoinClient>,
 
+    /// The Strata client.
     pub strata_client: Arc<WsClient>,
 }
 
 impl Agent {
-    #[allow(clippy::too_many_arguments)]
+    /// Creates a new agent.
+    #[expect(clippy::too_many_arguments)]
     pub async fn new(
         keypair: Keypair,
         btc_url: &str,
@@ -83,6 +90,7 @@ impl Agent {
         }
     }
 
+    /// Signs a transaction.
     pub fn sign(
         &self,
         tx: &Transaction,
@@ -104,11 +112,13 @@ impl Agent {
         SECP256K1.sign_schnorr(&msg, &self.keypair)
     }
 
+    /// Signs a transaction ID.
     pub fn sign_txid(&self, txid: &Txid) -> Signature {
         let msg = Message::from_digest(txid.to_byte_array());
         SECP256K1.sign_schnorr(&msg, &self.keypair)
     }
 
+    /// Waits for the transaction to be confirmed and broadcasts it.
     pub async fn wait_and_broadcast(
         &self,
         tx: &Transaction,
@@ -120,20 +130,24 @@ impl Agent {
         self.btc_client.send_raw_transaction(tx).await
     }
 
+    /// Returns the public key of the agent.
     pub fn public_key(&self) -> PublicKey {
         self.keypair.public_key()
     }
 
+    /// Returns the secret key of the agent.
     pub fn secret_key(&self) -> SecretKey {
         SecretKey::from_keypair(&self.keypair)
     }
 
+    /// Returns the taproot address of the agent.
     pub fn taproot_address(&self, network: Network) -> Address {
         let public_key = self.public_key().x_only_public_key().0;
 
         Address::p2tr_tweaked(public_key.dangerous_assume_tweaked(), network)
     }
 
+    /// Selects a UTXO from the Bitcoin client.
     pub async fn select_utxo(
         &self,
         target_amount: Amount,

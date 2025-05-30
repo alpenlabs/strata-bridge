@@ -1,3 +1,5 @@
+//! SECP256K1 primitives.
+
 use std::ops::Deref;
 
 use secp256k1::{Parity, SecretKey, SECP256K1};

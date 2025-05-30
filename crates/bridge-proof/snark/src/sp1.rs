@@ -1,22 +1,37 @@
+//! SP1 module.
+
 use ark_bn254::{Bn254, Fq, Fq2, G1Affine, G2Affine};
 use ark_ff::{AdditiveGroup, PrimeField};
 use ark_groth16::{Proof, VerifyingKey};
 
+/// The mask for the compressed point flag.
 pub const MASK: u8 = 0b11 << 6;
 
+/// The compressed positive flag.
 pub const COMPRESSED_POSTIVE: u8 = 0b10 << 6;
+
+/// The compressed negative flag.
 pub const COMPRESSED_NEGATIVE: u8 = 0b11 << 6;
+
+/// The compressed infinity flag.
 pub const COMPRESSED_INFINITY: u8 = 0b01 << 6;
 
 // pub const GROTH16_VK_BYTES: &[u8] = include_bytes!("../artifacts/sp1v3_groth16_vk.bin");
 
+/// The compression flag.
 #[derive(Debug, PartialEq)]
 pub enum CompressionFlag {
+    /// The positive flag.
     Positive = COMPRESSED_POSTIVE as isize,
+
+    /// The negative flag.
     Negative = COMPRESSED_NEGATIVE as isize,
+
+    /// The infinity flag.
     Infinity = COMPRESSED_INFINITY as isize,
 }
 
+/// The from u8 implementation.
 impl From<u8> for CompressionFlag {
     fn from(val: u8) -> Self {
         match val {
@@ -34,6 +49,7 @@ impl From<CompressionFlag> for u8 {
     }
 }
 
+/// Checks if the buffer is zeroed.
 pub fn is_zeroed(first_byte: u8, buf: &[u8]) -> bool {
     if first_byte != 0 {
         return false;
@@ -46,6 +62,7 @@ pub fn is_zeroed(first_byte: u8, buf: &[u8]) -> bool {
     true
 }
 
+/// Deserializes a compressed point with flags.
 pub fn deserialize_with_flags(buf: &[u8; 32]) -> (Fq, CompressionFlag) {
     let m_data = buf[0] & MASK;
     if m_data == <CompressionFlag as Into<u8>>::into(CompressionFlag::Infinity) {
@@ -62,6 +79,7 @@ pub fn deserialize_with_flags(buf: &[u8; 32]) -> (Fq, CompressionFlag) {
     }
 }
 
+/// Deserializes a compressed point with flags.
 pub fn g1_point_from_compressed_x_bytes(buf: &[u8; 32]) -> G1Affine {
     let (x, m_data) = deserialize_with_flags(buf);
     let (y, neg_y) = G1Affine::get_ys_from_x_unchecked(x).unwrap();
@@ -76,6 +94,7 @@ pub fn g1_point_from_compressed_x_bytes(buf: &[u8; 32]) -> G1Affine {
     G1Affine::new(x, final_y)
 }
 
+/// Deserializes a compressed point with flags.
 pub fn g1_point_from_compressed_x_unchecked_bytes(buf: &[u8; 32]) -> G1Affine {
     let (x, m_data) = deserialize_with_flags(buf);
     let (y, neg_y) = G1Affine::get_ys_from_x_unchecked(x).unwrap();
@@ -91,6 +110,7 @@ pub fn g1_point_from_compressed_x_unchecked_bytes(buf: &[u8; 32]) -> G1Affine {
     G1Affine::new_unchecked(x, final_y)
 }
 
+/// Deserializes an uncompressed point.
 pub fn g1_point_from_uncompressed_bytes(buf: &[u8; 64]) -> G1Affine {
     let (x_bytes, y_bytes) = buf.split_at(32);
     let x = Fq::from_be_bytes_mod_order(x_bytes);
@@ -98,6 +118,7 @@ pub fn g1_point_from_uncompressed_bytes(buf: &[u8; 64]) -> G1Affine {
     G1Affine::new(x, y)
 }
 
+/// Deserializes a compressed point with flags.
 pub fn g2_point_from_compressed_x_bytes(buf: &[u8; 64]) -> G2Affine {
     let (x1, flag) = deserialize_with_flags(&buf[..32].try_into().unwrap());
     let x0 = Fq::from_be_bytes_mod_order(&buf[32..64]);
@@ -116,6 +137,7 @@ pub fn g2_point_from_compressed_x_bytes(buf: &[u8; 64]) -> G2Affine {
     }
 }
 
+/// Deserializes a compressed point with flags.
 pub fn g2_point_from_compressed_x_bytes_unchecked(buf: &[u8; 64]) -> G2Affine {
     let (x1, flag) = deserialize_with_flags(&buf[..32].try_into().unwrap());
     let x0 = Fq::from_be_bytes_mod_order(&buf[32..64]);
@@ -134,6 +156,7 @@ pub fn g2_point_from_compressed_x_bytes_unchecked(buf: &[u8; 64]) -> G2Affine {
     }
 }
 
+/// Deserializes an uncompressed point.
 pub fn g2_point_from_uncompressed_bytes(buf: &[u8; 128]) -> G2Affine {
     let (x_bytes, y_bytes) = buf.split_at(64);
     let (x1_bytes, x0_bytes) = x_bytes.split_at(32);
@@ -150,6 +173,7 @@ pub fn g2_point_from_uncompressed_bytes(buf: &[u8; 128]) -> G2Affine {
     G2Affine::new(x, y)
 }
 
+/// Loads a Groth16 proof from bytes.
 pub fn load_groth16_proof_from_bytes(buffer: &[u8]) -> Proof<Bn254> {
     let a = g1_point_from_uncompressed_bytes(buffer[..64].try_into().unwrap());
     let b = g2_point_from_uncompressed_bytes(buffer[64..192].try_into().unwrap());
@@ -157,6 +181,7 @@ pub fn load_groth16_proof_from_bytes(buffer: &[u8]) -> Proof<Bn254> {
     Proof::<_> { a, b, c }
 }
 
+/// Loads a Groth16 verifying key from bytes.
 pub fn load_groth16_verifying_key_from_bytes(buffer: &[u8]) -> VerifyingKey<Bn254> {
     let alpha_g1 = g1_point_from_compressed_x_unchecked_bytes(&buffer[..32].try_into().unwrap());
     let _beta_g1 = g1_point_from_compressed_x_unchecked_bytes(&buffer[32..64].try_into().unwrap());

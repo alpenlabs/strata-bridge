@@ -18,7 +18,7 @@ pub struct ConnectorNOfN {
 impl ConnectorNOfN {
     /// Creates a new `ConnectorS` with the given N-of-N aggregated public key and the
     /// bitcoin network.
-    pub fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
+    pub const fn new(n_of_n_agg_pubkey: XOnlyPublicKey, network: Network) -> Self {
         Self {
             n_of_n_agg_pubkey,
             network,

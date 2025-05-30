@@ -29,7 +29,7 @@ where
     W: Sized,
 {
     /// Returns the input index of the transaction for the given spend path.
-    pub fn get_input_index(&self) -> u32 {
+    pub const fn get_input_index(&self) -> u32 {
         match self {
             ConnectorC0Path::PayoutOptimistic(_) => 1,
             ConnectorC0Path::Assert(_) => 0,
@@ -37,7 +37,7 @@ where
     }
 
     /// Returns the sighash type for the given spend path.
-    pub fn get_sighash_type(&self) -> TapSighashType {
+    pub const fn get_sighash_type(&self) -> TapSighashType {
         match self {
             ConnectorC0Path::PayoutOptimistic(_) => TapSighashType::Default,
             ConnectorC0Path::Assert(_) => TapSighashType::Default,
@@ -53,7 +53,7 @@ where
     }
 
     /// Returns the witness data for the path.
-    pub fn get_witness_data(&self) -> &W {
+    pub const fn get_witness_data(&self) -> &W {
         match self {
             ConnectorC0Path::PayoutOptimistic(witness_data) => witness_data,
             ConnectorC0Path::Assert(witness_data) => witness_data,
@@ -71,7 +71,7 @@ pub struct ConnectorC0 {
 
 impl ConnectorC0 {
     /// Constructs a new instance of this connector.
-    pub fn new(
+    pub const fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         network: Network,
         pre_assert_timelock: u32,
@@ -84,7 +84,7 @@ impl ConnectorC0 {
     }
 
     /// Returns the relative timelock on the pre-assert output (measured in number of blocks).
-    pub fn pre_assert_timelock(&self) -> u32 {
+    pub const fn pre_assert_timelock(&self) -> u32 {
         self.pre_assert_timelock
     }
 

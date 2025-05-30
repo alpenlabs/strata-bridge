@@ -327,6 +327,10 @@ impl PegOutGraph {
         )
     }
 
+    /// Summarizes the peg-out graph.
+    ///
+    /// This is used to generate a deterministic summary of the peg-out graph that can be used to
+    /// verify the peg-out graph.
     pub fn summarize(&self) -> PegOutGraphSummary {
         PegOutGraphSummary {
             stake_txid: self.claim_tx.psbt().unsigned_tx.input[0]
@@ -513,8 +517,10 @@ pub struct PegOutGraphConnectors {
         NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
     >,
 
+    /// The connector for the stake transaction.
     pub stake: ConnectorStake,
 
+    /// The connector for the hashlock payout.
     pub hashlock_payout: ConnectorP,
 }
 

@@ -70,7 +70,7 @@ impl BurnPayoutsTx {
     }
 
     /// The underlying PSBT.
-    pub fn psbt(&self) -> &Psbt {
+    pub const fn psbt(&self) -> &Psbt {
         &self.psbt
     }
 
@@ -80,10 +80,11 @@ impl BurnPayoutsTx {
     }
 
     /// The witnesses required to spend this transaction as per BIP-341.
-    pub fn witnesses(&self) -> &[TaprootWitness; 1] {
+    pub const fn witnesses(&self) -> &[TaprootWitness; 1] {
         &self.witnesses
     }
 
+    /// Computes the txid of the transaction.
     pub fn compute_txid(&self) -> Txid {
         self.psbt.unsigned_tx.compute_txid()
     }

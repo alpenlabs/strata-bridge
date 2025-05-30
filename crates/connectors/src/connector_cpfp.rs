@@ -21,7 +21,7 @@ pub struct ConnectorCpfp {
 
 impl ConnectorCpfp {
     /// Constructs a new CPFP connector.
-    pub fn new(public_key: XOnlyPublicKey, network: Network) -> Self {
+    pub const fn new(public_key: XOnlyPublicKey, network: Network) -> Self {
         Self {
             network,
             public_key,
@@ -29,12 +29,12 @@ impl ConnectorCpfp {
     }
 
     /// Returns the public key used to create the child transaction in CPFP.
-    pub fn public_key(&self) -> XOnlyPublicKey {
+    pub const fn public_key(&self) -> XOnlyPublicKey {
         self.public_key
     }
 
     /// Returns the bitcoin network for which to generate output addresses.
-    pub fn network(&self) -> Network {
+    pub const fn network(&self) -> Network {
         self.network
     }
 

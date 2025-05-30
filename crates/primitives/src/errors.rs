@@ -96,22 +96,29 @@ pub enum CooperativeWithdrawalError {
     Unauthorized(OperatorIdx),
 }
 
+/// Error while parsing a value.
 #[derive(Debug, Clone, Error)]
 pub enum ParseError {
+    /// Supplied public key is invalid.
     #[error("supplied pubkey is invalid")]
     InvalidPubkey(#[from] secp256k1::Error),
 
+    /// Supplied address is invalid.
     #[error("supplied address is invalid")]
     InvalidAddress(#[from] address::ParseError),
 
+    /// Only taproot addresses are supported but found a different address type.
     #[error("only taproot addresses are supported but found {0:?}")]
     UnsupportedAddress(Option<AddressType>),
 
+    /// Point is not a valid point on the curve.
     #[error("not a valid point on the curve: {0:?}")]
     InvalidPoint(Vec<u8>),
 
+    /// Witness is invalid.
     #[error("invalid witness: {0}")]
     InvalidWitness(String),
 }
 
+/// Result type alias that has [`ParseError`] as the error type for succinctness.
 pub type ParseResult<T> = Result<T, ParseError>;

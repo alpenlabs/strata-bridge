@@ -1,10 +1,15 @@
+//! Types that are used across the bridge.
+
 use std::collections::BTreeMap;
 
 use musig2::{errors::KeyAggError, KeyAggContext};
 use secp256k1::PublicKey;
 use serde::{Deserialize, Serialize};
 
+/// The index of an operator.
 pub type OperatorIdx = u32;
+
+/// The height of a bitcoin block.
 pub type BitcoinBlockHeight = u64;
 
 /// A table that maps [`OperatorIdx`] to the corresponding [`PublicKey`].

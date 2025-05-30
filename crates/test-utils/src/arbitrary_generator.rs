@@ -1,3 +1,5 @@
+//! Module to generate arbitrary values for testing.
+
 use arbitrary::{Arbitrary, Unstructured};
 use rand_core::{OsRng, TryCryptoRng};
 

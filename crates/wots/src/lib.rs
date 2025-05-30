@@ -1,3 +1,5 @@
+//! WOTS implementation for the tx-graph.
+
 #![feature(generic_const_exprs)]
 #![allow(incomplete_features)]
 
@@ -5,9 +7,13 @@ use bitcoin::hashes::{hash160, Hash};
 #[cfg(feature = "signing")]
 use bitvm::signatures::wots_api::{wots256, wots_hash};
 
-// Changing this number may cause certain code to break as the signing code is not designed to
-// handle cases where the digit width doesn't divide byte width without residue.
+/// The digit width for the WOTS algorithm.
+///
+/// Changing this number may cause certain code to break as the signing code is not designed to
+/// handle cases where the digit width doesn't divide byte width without residue.
 pub const WINTERNITZ_DIGIT_WIDTH: usize = 4;
+
+/// The maximum digit value for the WOTS algorithm.
 pub const WINTERNITZ_MAX_DIGIT: usize = (2 << WINTERNITZ_DIGIT_WIDTH) - 1;
 
 /// Calculates ceil(log_base(n))
@@ -125,6 +131,7 @@ where
     public_key
 }
 
+/// Signs a 128 bit message with the given secret key.
 #[cfg(feature = "signing")]
 pub fn wots_sign_128_bitvm(
     msg: &[u8; 16],
@@ -140,6 +147,7 @@ pub fn wots_sign_128_bitvm(
     wots_hash::get_signature_with_secrets(split_secret_key, msg)
 }
 
+/// Signs a 256 bit message with the given secret key.
 #[cfg(feature = "signing")]
 pub fn wots_sign_256_bitvm(
     msg: &[u8; 32],
@@ -284,11 +292,18 @@ where
 }
 
 // Taken from BitVM pile of amazing code.
+/// The parameters for the 256-bit WOTS algorithm.
 pub const PARAMS_256: Parameters =
     Parameters::new_by_bit_length(256, WINTERNITZ_DIGIT_WIDTH as u32);
+
+/// The total length of the 256-bit WOTS parameters.
 pub const PARAMS_256_TOTAL_LEN: usize = PARAMS_256.total_length() as usize;
+
+/// The parameters for the 128-bit WOTS algorithm.
 pub const PARAMS_128: Parameters =
     Parameters::new_by_bit_length(128, WINTERNITZ_DIGIT_WIDTH as u32);
+
+/// The total length of the 128-bit WOTS parameters.
 pub const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 
 #[cfg(test)]

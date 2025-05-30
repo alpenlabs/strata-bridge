@@ -25,7 +25,7 @@ pub struct LoggerConfig {
 
 impl LoggerConfig {
     /// Creates a new empty instance with whoami set.
-    pub fn new(whoami: String) -> Self {
+    pub const fn new(whoami: String) -> Self {
         Self {
             whoami,
             otel_url: None,

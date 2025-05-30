@@ -1,3 +1,5 @@
+//! Constructs the disprove transaction.
+
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     psbt::{ExtractTxError, PsbtSighashType},

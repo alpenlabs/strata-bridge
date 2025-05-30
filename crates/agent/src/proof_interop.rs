@@ -1,3 +1,5 @@
+//! Proof interop for the agent.
+
 use bitcoin::{
     block::Header,
     blockdata::block::Block,
@@ -11,6 +13,7 @@ use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFi
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{Checkpoint, SignedCheckpoint};
 
+/// The inclusion proof.
 #[derive(Debug, Clone)]
 pub struct InclusionProof(pub PartialMerkleTree);
 
@@ -36,7 +39,9 @@ impl<'de> Deserialize<'de> for InclusionProof {
     }
 }
 
+/// Trait for converting a [`Wtxid`] to a [`Txid`].
 pub trait WtxidToTxid {
+    /// Converts a [`Wtxid`] to a [`Txid`].
     fn to_txid(&self) -> Txid;
 }
 
@@ -46,20 +51,24 @@ impl WtxidToTxid for Wtxid {
     }
 }
 
+/// Trait for converting a [`Transaction`] to a [`TransactionWithInclusionProof`].
 pub trait WithInclusionProof {
+    /// Converts a [`Transaction`] to a [`TransactionWithInclusionProof`].
     fn with_inclusion_proof(&self, block: &Block) -> TransactionWithInclusionProof;
 }
 
+/// The transaction with inclusion proof.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionWithInclusionProof {
-    // Transaction and PMT for transaction (and coinbase) inclusion proof
+    /// Transaction and PMT for transaction (and coinbase) inclusion proof
     pub tx: (Transaction, InclusionProof),
 
-    // Coinbase transaction and PMT for witness inclusion proof
+    /// Coinbase transaction and PMT for witness inclusion proof
     pub witness: Option<(Transaction, InclusionProof)>,
 }
 
 impl WithInclusionProof for Transaction {
+    /// Converts a [`Transaction`] to a [`TransactionWithInclusionProof`].
     fn with_inclusion_proof(&self, block: &Block) -> TransactionWithInclusionProof {
         let (txids, wtxids): (Vec<_>, Vec<_>) = block
             .txdata
@@ -114,21 +123,23 @@ impl WithInclusionProof for Transaction {
     }
 }
 
+/// The bridge proof input.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BridgeProofInput {
-    /// headers after last verified l1 block
+    /// Headers after last verified l1 block
     pub headers: Vec<Header>,
 
-    /// Deposit Txid
+    /// Deposit transaction ID
     pub deposit_txid: [u8; 32],
 
-    /// Block height of checkpoint tx, and it's inclusion proof
+    /// Block height of checkpoint transaction, and its inclusion proof
     pub checkpoint: (u32, TransactionWithInclusionProof),
 
-    /// Block height of withdrawal_fulfillment tx, and it's inclusion proof
+    /// Block height of withdrawal fulfillment transaction, and its inclusion proof
     pub withdrawal_fulfillment: (u32, TransactionWithInclusionProof),
 }
 
+/// Returns the last verified L1 height from a checkpoint transaction.
 pub fn checkpoint_last_verified_l1_height(
     tx: &Transaction,
     rollup_params: &RollupParams,

@@ -41,10 +41,13 @@ use crate::{
     tracker::{BitcoinBlockTrackerDb, DutyTrackerDb},
 };
 
+/// A SQLite database connection pool.
 #[derive(Debug, Clone)]
 pub struct SqliteDb {
+    /// The database connection pool.
     pool: SqlitePool,
 
+    /// The database configuration.
     config: DbConfig,
 }
 
@@ -58,17 +61,17 @@ impl SqliteDb {
     }
 
     /// Creates a new instance of the SQLite database connection pool with the given config.
-    pub fn new_with_config(pool: SqlitePool, config: DbConfig) -> Self {
+    pub const fn new_with_config(pool: SqlitePool, config: DbConfig) -> Self {
         Self { pool, config }
     }
 
     /// Returns a reference to the database configuration.
-    pub fn config(&self) -> &DbConfig {
+    pub const fn config(&self) -> &DbConfig {
         &self.config
     }
 
     /// Returns the underlying [`SqlitePool`].
-    pub fn pool(&self) -> &SqlitePool {
+    pub const fn pool(&self) -> &SqlitePool {
         &self.pool
     }
 }

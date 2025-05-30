@@ -1,3 +1,5 @@
+//! In-memory database traits and implementations for the public.
+
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
@@ -10,42 +12,50 @@ use tracing::trace;
 
 use crate::{errors::DbResult, public::PublicDb};
 
+/// A map of transaction input to signature.
 pub type TxInputToSignatureMap = HashMap<(Txid, u32), Signature>;
+
+/// A map of operator index to transaction input to signature.
 pub type OperatorIdxToTxInputSigMap = HashMap<OperatorIdx, TxInputToSignatureMap>;
 
+/// In-memory database for the public.
 // Assume that no node will update other nodes' data in this public db.
 #[derive(Debug, Default, Clone)]
 pub struct PublicDbInMemory {
-    // operator_id -> deposit_txid -> WotsPublicKeys
+    /// operator_id -> deposit_txid -> WotsPublicKeys
     wots_public_keys: Arc<RwLock<HashMap<OperatorIdx, HashMap<Txid, wots::PublicKeys>>>>,
 
-    // operator_id -> deposit_txid -> WotsSignatures
+    /// operator_id -> deposit_txid -> WotsSignatures
     wots_signatures: Arc<RwLock<HashMap<OperatorIdx, HashMap<Txid, wots::Signatures>>>>,
 
-    // signature cache per txid and input index per operator
+    /// signature cache per txid and input index per operator
     signatures: Arc<RwLock<OperatorIdxToTxInputSigMap>>,
 
-    // deposit_txid -> deposit_id
+    /// deposit_txid -> deposit_id
     deposits_table: Arc<RwLock<HashMap<Txid, u32>>>,
 
-    // operator_id -> deposit_id -> stake_txid
+    /// operator_id -> deposit_id -> stake_txid
     stake_txid_table: Arc<RwLock<HashMap<OperatorIdx, HashMap<u32, Txid>>>>,
 
-    // operator_id -> pre stake txid
+    /// operator_id -> pre stake txid
     pre_stake_table: Arc<RwLock<HashMap<OperatorIdx, OutPoint>>>,
 
-    // operator_id -> stake_id -> stake_data
+    /// operator_id -> stake_id -> stake_data
     stake_data: Arc<RwLock<HashMap<OperatorIdx, HashMap<u32, StakeTxData>>>>,
 
-    // reverse mapping
+    /// reverse mapping
+    /// claim_txid -> (operator_index, deposit_txid)
     claim_txid_to_operator_index_and_deposit_txid: Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 
+    /// pre_assert_txid -> (operator_index, deposit_txid)
     pre_assert_txid_to_operator_index_and_deposit_txid:
         Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 
+    /// assert_data_txid -> (operator_index, deposit_txid)
     assert_data_txid_to_operator_index_and_deposit_txid:
         Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 
+    /// post_assert_txid -> (operator_index, deposit_txid)
     post_assert_txid_to_operator_index_and_deposit_txid:
         Arc<RwLock<HashMap<Txid, (OperatorIdx, Txid)>>>,
 }

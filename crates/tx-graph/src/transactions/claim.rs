@@ -1,3 +1,5 @@
+//! Constructs the claim transaction.
+
 use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
 use bitvm::signatures::wots_api::wots256;
 use strata_bridge_connectors::prelude::*;
@@ -15,16 +17,21 @@ pub struct ClaimData {
     pub deposit_txid: Txid,
 }
 
+/// The claim transaction.
 #[derive(Debug, Clone)]
 pub struct ClaimTx {
+    /// The psbt that contains the inputs and outputs for the transaction.
     psbt: Psbt,
 
+    /// The amount of the output.
     output_amount: Amount,
 
+    /// The connector for the kickoff and claim transactions.
     connector_k: ConnectorK,
 }
 
 impl ClaimTx {
+    /// Creates a new claim transaction.
     pub fn new(
         data: ClaimData,
         connector_k: ConnectorK,
@@ -78,18 +85,22 @@ impl ClaimTx {
         }
     }
 
-    pub fn psbt(&self) -> &Psbt {
+    /// The underlying PSBT.
+    pub const fn psbt(&self) -> &Psbt {
         &self.psbt
     }
 
+    /// A mutable reference to the underlying PSBT.
     pub fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }
 
+    /// Computes the txid of the transaction.
     pub fn compute_txid(&self) -> Txid {
         self.psbt.unsigned_tx.compute_txid()
     }
 
+    /// The input amount of the transaction.
     pub fn input_amount(&self) -> Amount {
         self.psbt
             .inputs
@@ -103,18 +114,22 @@ impl ClaimTx {
             .sum()
     }
 
-    pub fn output_amount(&self) -> Amount {
+    /// The output amount of the transaction.
+    pub const fn output_amount(&self) -> Amount {
         self.output_amount
     }
 
+    /// The vout for the CPFP output.
     pub fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
 
+    /// The vout for the slash stake output.
     pub const fn slash_stake_vout(&self) -> u32 {
         2
     }
 
+    /// Finalizes the transaction with the signature.
     pub fn finalize(mut self, signature: wots256::Signature) -> Transaction {
         self.connector_k
             .finalize_input(&mut self.psbt.inputs[0], signature);
@@ -124,6 +139,7 @@ impl ClaimTx {
             .expect("should be able to extract signed tx")
     }
 
+    /// Parses the witness from the transaction.
     pub fn parse_witness(tx: &Transaction) -> TxResult<Option<wots256::Signature>> {
         let witness = &tx
             .input

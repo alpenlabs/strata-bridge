@@ -30,7 +30,7 @@ impl<Witness: Sized> ConnectorC1Path<Witness> {
     /// The `PayoutOptimistic` leaf is spent in the third input of the `PayoutOptimistic`
     /// transaction, whereas the `Challenge` leaf is spent in the first input of the `Challenge`
     /// transaction.
-    pub fn get_input_index(&self) -> u32 {
+    pub const fn get_input_index(&self) -> u32 {
         match self {
             ConnectorC1Path::PayoutOptimistic(_) => 2,
             ConnectorC1Path::Challenge(_) => 0,
@@ -38,7 +38,7 @@ impl<Witness: Sized> ConnectorC1Path<Witness> {
     }
 
     /// Returns the sighash type for each of the connector leaves.
-    pub fn get_sighash_type(&self) -> TapSighashType {
+    pub const fn get_sighash_type(&self) -> TapSighashType {
         match self {
             ConnectorC1Path::PayoutOptimistic(_) => TapSighashType::Default,
             ConnectorC1Path::Challenge(_) => TapSighashType::SinglePlusAnyoneCanPay,
@@ -57,7 +57,7 @@ impl<Witness: Sized> ConnectorC1Path<Witness> {
     }
 
     /// Returns the witness data for the leaf.
-    pub fn get_witness_data(&self) -> &Witness {
+    pub const fn get_witness_data(&self) -> &Witness {
         match self {
             ConnectorC1Path::PayoutOptimistic(witness_data) => witness_data,
             ConnectorC1Path::Challenge(witness_data) => witness_data,
@@ -75,7 +75,7 @@ pub struct ConnectorC1 {
 
 impl ConnectorC1 {
     /// Constructs a new instance of this connector.
-    pub fn new(
+    pub const fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         network: Network,
         payout_optimistic_timelock: u32,
@@ -89,7 +89,7 @@ impl ConnectorC1 {
 
     /// Returns the relative timelock on the payout optimistic output (measured in number of
     /// blocks).
-    pub fn payout_optimistic_timelock(&self) -> u32 {
+    pub const fn payout_optimistic_timelock(&self) -> u32 {
         self.payout_optimistic_timelock
     }
 

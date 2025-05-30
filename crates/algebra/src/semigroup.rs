@@ -1,3 +1,5 @@
+//! Semigroup module.
+
 /// A [`Semigroup`] is an algebraic structure that is closed under a binary associative operation.
 /// To define a lawful semigroup impl you must define the [`Semigroup::merge`] operation. The
 /// requirement is as follows:
@@ -55,6 +57,7 @@ impl<T, E> Semigroup for Result<T, E> {
     }
 }
 
+/// Laws for the [`Semigroup`] trait.
 pub mod laws {
     use std::fmt::Debug;
 
@@ -62,6 +65,7 @@ pub mod laws {
 
     use super::Semigroup;
 
+    /// Checks if the merge operation is associative.
     #[coverage(off)]
     pub fn merge_associative_clone_eq<T: Debug + Semigroup + Clone + Eq>(
         a: T,

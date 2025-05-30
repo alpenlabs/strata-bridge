@@ -150,6 +150,7 @@ fn build_taptree(
     ))
 }
 
+/// Returns the witness stack for a taproot script.
 pub fn taproot_witness_signatures(script: Script) -> Vec<Vec<u8>> {
     let result = execute_script(script);
 
@@ -204,12 +205,18 @@ pub enum TaprootWitness {
     /// This requires the script being spent from as well as the [`ControlBlock`] in addition to
     /// the elements that fulfill the spending condition in the script.
     Script {
+        /// The script being spent.
         script_buf: ScriptBuf,
+
+        /// The control block for the script.
         control_block: ControlBlock,
     },
 
     /// Use the keypath spend tweaked with some known hash.
-    Tweaked { tweak: TapNodeHash },
+    Tweaked {
+        /// The tweak for the keypath spend.
+        tweak: TapNodeHash,
+    },
 }
 
 impl<'a> Arbitrary<'a> for TaprootWitness {

@@ -38,7 +38,7 @@ pub enum StakeSpendPath {
 
 impl StakeSpendPath {
     /// Returns the index of the input in the PSBT that corresponds to the witness data.
-    pub fn get_input_index(&self) -> u32 {
+    pub const fn get_input_index(&self) -> u32 {
         match self {
             StakeSpendPath::PayoutOptimistic(_) => 4,
             StakeSpendPath::Payout(_) => 3,

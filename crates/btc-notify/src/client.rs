@@ -258,7 +258,7 @@ impl BtcZmqClient {
     }
 
     /// Returns the configured [`BtcZmqConfig::with_bury_depth`].
-    pub fn bury_depth(&self) -> usize {
+    pub const fn bury_depth(&self) -> usize {
         self.bury_depth
     }
 }

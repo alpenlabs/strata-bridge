@@ -3,6 +3,9 @@ name = "wots"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [dependencies]
 bitcoin.workspace = true
 bitvm = { workspace = true, optional = true }

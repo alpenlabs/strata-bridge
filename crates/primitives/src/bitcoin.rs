@@ -1,3 +1,5 @@
+//! Bitcoin primitives.
+
 use arbitrary::{Arbitrary, Unstructured};
 use bitcoin::{self, address::NetworkUnchecked, hashes::Hash, Address, Network, ScriptHash};
 use serde::{de, Deserialize, Deserializer, Serialize};
@@ -47,6 +49,7 @@ impl<'a> Arbitrary<'a> for BitcoinAddress {
 }
 
 impl BitcoinAddress {
+    /// Parses a bitcoin address from a string and network.
     pub fn parse(address_str: &str, network: Network) -> anyhow::Result<Self> {
         let address = address_str.parse::<Address<NetworkUnchecked>>()?;
 
@@ -60,11 +63,13 @@ impl BitcoinAddress {
 }
 
 impl BitcoinAddress {
-    pub fn address(&self) -> &Address {
+    /// Returns the address.
+    pub const fn address(&self) -> &Address {
         &self.address
     }
 
-    pub fn network(&self) -> &Network {
+    /// Returns the network.
+    pub const fn network(&self) -> &Network {
         &self.network
     }
 }

@@ -64,7 +64,7 @@ pub struct DepositInfo {
 impl DepositInfo {
     /// Create a new deposit info with all the necessary data required to create a deposit
     /// transaction.
-    pub fn new(
+    pub const fn new(
         deposit_request_outpoint: OutPoint,
         stake_index: u32,
         el_address: Vec<u8>,
@@ -83,12 +83,12 @@ impl DepositInfo {
     }
 
     /// Get the total deposit amount that needs to be bridged-in.
-    pub fn total_amount(&self) -> &Amount {
+    pub const fn total_amount(&self) -> &Amount {
         &self.total_amount
     }
 
     /// Get the stake index.
-    pub fn stake_index(&self) -> u32 {
+    pub const fn stake_index(&self) -> u32 {
         self.stake_index
     }
 
@@ -99,13 +99,13 @@ impl DepositInfo {
 
     /// Get the outpoint of the Deposit Request Transaction (DRT) that is to spent in the Deposit
     /// Transaction (DT).
-    pub fn deposit_request_outpoint(&self) -> &OutPoint {
+    pub const fn deposit_request_outpoint(&self) -> &OutPoint {
         &self.deposit_request_outpoint
     }
 
     /// Get the x-only public key of the user-takes-back leaf in the taproot of the Deposit Request
     /// Transaction (DRT).
-    pub fn x_only_public_key(&self) -> &XOnlyPublicKey {
+    pub const fn x_only_public_key(&self) -> &XOnlyPublicKey {
         &self.x_only_public_key
     }
 

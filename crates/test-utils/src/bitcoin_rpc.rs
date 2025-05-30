@@ -8,35 +8,55 @@ use corepc_node::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+/// The result of a `fundrawtransaction` call.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FundRawTransactionResult {
+    /// The hex-encoded transaction.
     #[serde(with = "hex::serde")]
     pub hex: Vec<u8>,
+
+    /// The fee for the transaction.
     #[serde(with = "bitcoin::amount::serde::as_btc")]
     pub fee: Amount,
+
+    /// The position of the change output.
     #[serde(rename = "changepos")]
     pub change_position: i32,
 }
 
-/// Used to represent an address type.
+/// Address type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AddressType {
+    /// Legacy address type.
     Legacy,
+
+    /// P2shSegwit address type.
     P2shSegwit,
+
+    /// Bech32 address type.
     Bech32,
+
+    /// Bech32m address type.
     Bech32m,
 }
 
+/// Estimate fee mode.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum EstimateMode {
+    /// Unset.
     Unset,
+
+    /// Economical.
     Economical,
+
+    /// Conservative.
     Conservative,
 }
 
+/// Options for a `fundrawtransaction` call.
 #[derive(Serialize, Clone, PartialEq, Eq, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct FundRawTransactionOptions {
@@ -44,17 +64,30 @@ pub struct FundRawTransactionOptions {
     /// enough (default true). Added in Bitcoin Core v0.21
     #[serde(rename = "add_inputs", skip_serializing_if = "Option::is_none")]
     pub add_inputs: Option<bool>,
+
+    /// The address to use for the change output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub change_address: Option<Address>,
+
+    /// The position of the change output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub change_position: Option<u32>,
+
+    /// The type of change output.
     #[serde(rename = "change_type", skip_serializing_if = "Option::is_none")]
     pub change_type: Option<AddressType>,
+
+    /// Whether to include watching addresses.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub include_watching: Option<bool>,
+
+    /// Whether to lock unspent outputs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lock_unspents: Option<bool>,
-    /// The fee rate to pay per kvB. NB. This field is converted to camelCase
+
+    /// The fee rate to pay per kvB.
+    ///
+    /// NOTE: This field is converted to camelCase
     /// when serialized, so it is receeived by fundrawtransaction as `feeRate`,
     /// which fee rate per kvB, and *not* `fee_rate`, which is per vB.
     #[serde(
@@ -62,16 +95,25 @@ pub struct FundRawTransactionOptions {
         skip_serializing_if = "Option::is_none"
     )]
     pub fee_rate: Option<Amount>,
+
+    /// The outputs to subtract the fee from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtract_fee_from_outputs: Option<Vec<u32>>,
+
+    /// Whether the transaction is replaceable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replaceable: Option<bool>,
+
+    /// The confirmation target.
     #[serde(rename = "conf_target", skip_serializing_if = "Option::is_none")]
     pub conf_target: Option<u32>,
+
+    /// The estimate mode.
     #[serde(rename = "estimate_mode", skip_serializing_if = "Option::is_none")]
     pub estimate_mode: Option<EstimateMode>,
 }
 
+/// Funds a transaction and signs it.
 pub fn fund_and_sign_raw_tx(
     btc_client: &Client,
     tx: &Transaction,
@@ -114,6 +156,7 @@ pub fn fund_and_sign_raw_tx(
     consensus::encode::deserialize_hex(&signed_tx.hex).unwrap()
 }
 
+/// Gets a raw transaction from the Bitcoin Core RPC interface.
 pub fn get_raw_transaction(btc_client: &Client, txid: &Txid) -> Transaction {
     let txid = txid.to_string();
     let raw_tx = btc_client

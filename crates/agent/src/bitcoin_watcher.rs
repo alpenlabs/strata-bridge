@@ -1,3 +1,5 @@
+//! Bitcoin watcher for the agent.
+
 use std::{sync::Arc, time::Duration};
 
 use bitcoin::{Transaction, Txid};
@@ -10,16 +12,23 @@ use strata_bridge_primitives::{
 use tokio::sync::broadcast;
 use tracing::{debug, info, warn};
 
+/// The Bitcoin watcher is responsible for watching the Bitcoin blockchain and dispatching duties to
+/// the verifier.
 #[derive(Debug, Clone)]
 pub struct BitcoinWatcher<D: BitcoinBlockTrackerDb, P: PublicDb, R: Reader> {
+    /// The database for tracking Bitcoin blocks.
     db: Arc<D>,
 
+    /// The database for tracking public data.
     public_db: Arc<P>,
 
+    /// The interval at which to poll the Bitcoin blockchain.
     poll_interval: Duration,
 
+    /// The Bitcoin client.
     client: Arc<R>,
 
+    /// The genesis height of the Bitcoin blockchain.
     genesis_height: u32,
 }
 
@@ -29,7 +38,8 @@ where
     P: PublicDb + Send + Sync + 'static,
     R: Reader + Send + Sync + 'static,
 {
-    pub fn new(
+    /// Creates a new Bitcoin watcher.
+    pub const fn new(
         db: Arc<D>,
         public_db: Arc<P>,
         client: Arc<R>,
@@ -45,6 +55,7 @@ where
         }
     }
 
+    /// Starts the Bitcoin watcher.
     #[expect(deprecated)]
     pub async fn start(&self, notifier: broadcast::Sender<VerifierDuty>) {
         info!(action = "starting bitcoin watcher", %self.genesis_height);
@@ -132,11 +143,13 @@ where
         }
     }
 
+    /// Handles a claim transaction.
     #[expect(deprecated)]
     pub async fn handle_claim(&self) -> VerifierDuty {
         unimplemented!("challenge not supported yet");
     }
 
+    /// Handles a post-assert transaction.
     #[expect(deprecated)]
     pub async fn handle_assertion(
         &self,

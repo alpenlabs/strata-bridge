@@ -7592,19 +7592,11 @@ version = "0.1.0"
 dependencies = [
  "bincode",
  "bitcoin",
- "bitcoind-async-client",
  "borsh",
- "hex",
- "serde",
  "serde_json",
- "sp1-core-machine",
  "strata-bridge-proof-primitives",
- "strata-l1tx",
  "strata-primitives",
- "strata-proofimpl-btc-blockspace",
  "strata-state",
- "tokio",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
 ]
 
 [[package]]
@@ -8232,15 +8224,6 @@ dependencies = [
  "downcast-rs",
  "num_enum 0.5.11",
  "paste",
-]
-
-[[package]]
-name = "rs_merkle"
-version = "1.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb09b49230ba22e8c676e7b75dfe2887dea8121f18b530ae0ba519ce442d2b21"
-dependencies = [
- "sha2 0.10.8",
 ]
 
 [[package]]
@@ -10055,24 +10038,11 @@ dependencies = [
  "ark-ff 0.5.0",
  "ark-groth16",
  "bincode",
- "bitcoin",
- "bitcoin-script",
- "bitvm",
- "borsh",
  "hex",
- "num-bigint 0.4.6",
- "num-traits",
- "prover-test-utils",
- "rs_merkle",
- "serde",
- "sha2 0.10.8",
  "sp1-sdk",
  "sp1-verifier",
  "strata-bridge-guest-builder",
- "strata-bridge-primitives",
  "strata-bridge-proof-protocol",
- "strata-primitives",
- "strata-state",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
  "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",

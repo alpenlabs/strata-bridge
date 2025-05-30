@@ -1,3 +1,5 @@
+//! Scripts for transforming data.
+
 use bitvm::{bigint::U254, pseudo::NMUL, treepp::*};
 
 fn split_digit(window: u32, index: u32) -> Script {
@@ -22,6 +24,7 @@ fn split_digit(window: u32, index: u32) -> Script {
     }
 }
 
+/// Converts a sequence of nibbles to a 254-bit integer.
 pub fn ts_from_nibbles() -> Script {
     script! {
         // [a]
@@ -32,6 +35,7 @@ pub fn ts_from_nibbles() -> Script {
     }
 }
 
+/// Converts a sequence of nibbles to a 254-bit integer.
 pub fn fq_from_nibbles() -> Script {
     const WINDOW: u32 = 4;
     const LIMB_SIZE: u32 = 29;
@@ -59,6 +63,7 @@ pub fn fq_from_nibbles() -> Script {
     }
 }
 
+/// Flips the nibbles of a byte.
 pub fn flip_byte_nibbles() -> Script {
     script! {
         for i in 1..=4 {
@@ -75,6 +80,7 @@ pub fn flip_byte_nibbles() -> Script {
     }
 }
 
+/// Converts a 256-bit hash to a 254-bit integer.
 pub fn hash_to_bn254_fq() -> Script {
     script! {
         for i in 1..=3 {
@@ -88,6 +94,7 @@ pub fn hash_to_bn254_fq() -> Script {
     }
 }
 
+/// Adds 7 zero bytes to a 32-byte value to handle the bincode serialization.
 pub fn add_bincode_padding_bytes32() -> Script {
     script! {
         for b in [0; 7] { {b} } 32

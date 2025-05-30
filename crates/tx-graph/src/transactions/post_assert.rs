@@ -1,3 +1,5 @@
+//! Constructs the post-assert transaction.
+
 use bitcoin::{
     sighash::Prevouts, transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     Txid,
@@ -116,10 +118,11 @@ impl PostAssertTx {
     }
 
     /// Returns the remaining stake after the post-assert transaction.
-    pub fn output_amount(&self) -> Amount {
+    pub const fn output_amount(&self) -> Amount {
         self.output_amount
     }
 
+    /// Returns the output index of the CPFP output.
     pub fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
