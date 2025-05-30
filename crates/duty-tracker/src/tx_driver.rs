@@ -23,7 +23,7 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, trace};
 
 /// Error type for the TxDriver.
 #[derive(Debug, Error)]
@@ -114,21 +114,26 @@ impl TxDriver {
             loop {
                 select! {
                     Some(job) = new_jobs_receiver_stream.next().fuse() => {
-                        let rawtx_filter = job.tx.clone();
-                        let rawtx_rpc_client = job.tx.clone();
+                        let raw_tx = job.tx.clone();
                         let txid = job.tx.compute_txid();
+                        trace!("received new job to drive transaction");
+
                         let tx_sub = zmq_client.subscribe_transactions(
-                            move |tx| tx == &rawtx_filter
+                            move |tx|
+                                tx.compute_txid() == txid
                         ).await;
+                        trace!(%txid, "added subscription for transaction");
+
                         active_tx_subs.push(tx_sub);
                         active_jobs = active_jobs.merge(job.into());
 
                         if rpc_client.get_raw_transaction_verbosity_zero(&txid).await.is_ok() {
-                            debug!(%txid, "duplicate TxDriver::drive request. skipping resubmission.");
+                            debug!(%txid, "duplicate tx submission request, skipping resubmission");
                             continue;
                         }
 
-                        match rpc_client.send_raw_transaction(&rawtx_rpc_client).await {
+                        trace!(%txid, "broadcasting transaction");
+                        match rpc_client.send_raw_transaction(&raw_tx).await {
                             Ok(txid) => {
                                 info!(%txid, "broadcasted transaction successfully");
                             },
@@ -136,7 +141,7 @@ impl TxDriver {
                                 // TODO(proofofkeags): in this case we may have not hit the mempool
                                 // purge rate and then we have to probably CPFP using anchor from
                                 // the getgo and try again via submit package.
-                                error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
+                                error!(%txid, tx=?raw_tx, %err, "could not submit transaction");
                             }
                         }
                     }
