@@ -1,3 +1,5 @@
+//! Constructs and finalizes withdrawal fulfillment transactions.
+
 use alpen_bridge_params::types::Tag;
 use bitcoin::{consensus, Amount, OutPoint, Transaction, TxOut, Txid};
 use bitcoin_bosd::Descriptor;
