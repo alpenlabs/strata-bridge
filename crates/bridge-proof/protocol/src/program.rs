@@ -121,6 +121,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "binary test blobs are broken due to using a tag that is not 4 bytes (strata)"]
     fn test_native() {
         logging::init(LoggerConfig::new("test-native".to_string()));
         let input = get_input();
