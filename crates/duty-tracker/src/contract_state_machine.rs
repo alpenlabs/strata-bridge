@@ -922,7 +922,7 @@ impl ContractCfg {
             graph_input,
             &self.operator_table.tx_build_context(self.network),
             self.deposit_tx.compute_txid(),
-            self.peg_out_graph_params.clone(),
+            self.peg_out_graph_params,
             self.connector_params,
             self.stake_chain_params,
             Vec::new(),

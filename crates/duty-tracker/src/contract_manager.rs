@@ -96,7 +96,7 @@ impl ContractManager {
                 .load_all(
                     network,
                     connector_params,
-                    pegout_graph_params.clone(),
+                    pegout_graph_params,
                     sidesystem_params.clone(),
                     stake_chain_params,
                 )
@@ -522,7 +522,7 @@ impl ContractManagerCtx {
                     network: self.cfg.network,
                     operator_table: self.cfg.operator_table.clone(),
                     connector_params: self.cfg.connector_params,
-                    peg_out_graph_params: self.cfg.pegout_graph_params.clone(),
+                    peg_out_graph_params: self.cfg.pegout_graph_params,
                     sidesystem_params: self.cfg.sidesystem_params.clone(),
                     stake_chain_params: self.cfg.stake_chain_params,
                     deposit_idx: stake_index + new_contracts.len() as u32,
