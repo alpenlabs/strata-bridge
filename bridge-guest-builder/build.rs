@@ -1,4 +1,7 @@
+//! Build script for the bridge guest.
+
 use sp1_helper::build_program;
+use sp1_sdk as _;
 
 fn main() {
     // Tell Cargo to rerun this build script if SKIP_GUEST_BUILD changes.
