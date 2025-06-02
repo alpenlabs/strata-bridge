@@ -260,6 +260,18 @@ bridge-in: ## Run bridge-in
 		--recovery-address bcrt1qsddjnk0u256809tepf8hf6fj90j0qfrgm5t7s8 \
 		--strata-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
+.PHONY: challenge
+challenge: ## Issue a challenge transaction, set CLAIM_TXID env var to use
+	RUST_LOG=info \
+	cargo r \
+		--bin dev-cli \
+		-- \
+		challenge \
+		--btc-url http://localhost:18443/wallet/default \
+		--btc-user user \
+		--btc-pass password \
+		--bridge-node-url http://localhost:15678/rpc
+
 .PHONY: bridge-out
 bridge-out: ## Run bridge-out
 	RUST_LOG=info \

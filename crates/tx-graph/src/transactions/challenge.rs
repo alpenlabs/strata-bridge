@@ -46,6 +46,8 @@ pub struct ChallengeTx {
 
     prevouts: [TxOut; NUM_CHALLENGE_INPUTS],
     witnesses: [TaprootWitness; NUM_CHALLENGE_INPUTS],
+
+    connector: ConnectorC1,
 }
 
 impl ChallengeTx {
@@ -83,6 +85,8 @@ impl ChallengeTx {
 
             prevouts,
             witnesses,
+
+            connector: challenge_connector,
         }
     }
 
@@ -96,10 +100,9 @@ impl ChallengeTx {
     /// broadcasted.
     pub fn finalize_presigned(
         mut self,
-        connector_c1: ConnectorC1,
         challenge_leaf: ConnectorC1Path<taproot::Signature>,
     ) -> Transaction {
-        connector_c1.finalize_input(
+        self.connector.finalize_input(
             &mut self.psbt.inputs[challenge_leaf.get_input_index() as usize],
             challenge_leaf,
         );
@@ -266,6 +269,6 @@ mod tests {
         };
         let signed_challenge_leaf = challenge_leaf.add_witness_data(n_of_n_sig);
 
-        challenge_tx.finalize_presigned(challenge_connector, signed_challenge_leaf)
+        challenge_tx.finalize_presigned(signed_challenge_leaf)
     }
 }
