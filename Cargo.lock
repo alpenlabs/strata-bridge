@@ -885,6 +885,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "strata-bridge-common",
+ "strata-bridge-connectors",
  "strata-bridge-db",
  "strata-bridge-p2p-service",
  "strata-bridge-primitives",

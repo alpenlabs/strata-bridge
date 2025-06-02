@@ -750,13 +750,15 @@ impl ContractState {
     /// Maps the claim_txid to the operator's p2p key.
     pub fn claim_to_operator(&self, claim_txid: &Txid) -> Option<P2POperatorPubKey> {
         let claim_txids = match self {
-            ContractState::Requested { claim_txids, .. } => claim_txids,
-            ContractState::Deposited { claim_txids, .. } => claim_txids,
-            ContractState::Assigned { claim_txids, .. } => claim_txids,
-            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
-            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
-            ContractState::Claimed { claim_txids, .. } => claim_txids,
-            ContractState::Challenged { claim_txids, .. } => claim_txids,
+            ContractState::Requested { claim_txids, .. }
+            | ContractState::Deposited { claim_txids, .. }
+            | ContractState::Assigned { claim_txids, .. }
+            | ContractState::StakeTxReady { claim_txids, .. }
+            | ContractState::Fulfilled { claim_txids, .. }
+            | ContractState::Claimed { claim_txids, .. }
+            | ContractState::Challenged { claim_txids, .. }
+            | ContractState::PreAssertConfirmed { claim_txids, .. }
+            | ContractState::AssertDataConfirmed { claim_txids, .. } => claim_txids,
             ContractState::Asserted { claim_txids, .. } => claim_txids,
             ContractState::Disproved {} => &BTreeMap::new(),
             ContractState::Resolved {} => &BTreeMap::new(),
@@ -769,6 +771,30 @@ impl ContractState {
                 None
             }
         })
+    }
+
+    /// Gets the graph input for a particular claim transaction ID.
+    pub fn graph_input(&self, claim_txid: Txid) -> Option<&PegOutGraphInput> {
+        match self {
+            ContractState::Requested {
+                peg_out_graph_inputs,
+                ..
+            } => self
+                .claim_to_operator(&claim_txid)
+                .and_then(|op_key| peg_out_graph_inputs.get(&op_key)),
+            ContractState::Deposited { peg_out_graphs, .. }
+            | ContractState::Assigned { peg_out_graphs, .. }
+            | ContractState::StakeTxReady { peg_out_graphs, .. }
+            | ContractState::Fulfilled { peg_out_graphs, .. }
+            | ContractState::Claimed { peg_out_graphs, .. }
+            | ContractState::Challenged { peg_out_graphs, .. }
+            | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
+            | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
+            | ContractState::Asserted { peg_out_graphs, .. } => {
+                peg_out_graphs.get(&claim_txid).map(|(input, _)| input)
+            }
+            ContractState::Disproved {} | ContractState::Resolved {} => None,
+        }
     }
 }
 
