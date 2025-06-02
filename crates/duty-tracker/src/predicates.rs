@@ -289,7 +289,7 @@ mod tests {
         let blocks: Vec<Block> = bincode::deserialize(&blocks_bytes).unwrap();
 
         // these values are known during test-data generation
-        let block_height = 736;
+        let block_height = 233;
         let tx_index = 2;
 
         let strata_checkpoint_tx = blocks

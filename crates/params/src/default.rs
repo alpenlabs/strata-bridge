@@ -24,7 +24,7 @@ pub(crate) const NUM_SLASH_STAKE_TX: usize = 24;
 /// Default fee charged by the operator to process a withdrawal.
 ///
 /// This has the type [`Amount`] for convenience.
-pub(crate) const OPERATOR_FEE: Amount = Amount::from_int_btc(2);
+pub(crate) const OPERATOR_FEE: Amount = Amount::from_sat(10_000_000); // 0.1 BTC
 
 /// Default output amount in the challenge transaction that is paid to the operator that is
 /// being challenged.

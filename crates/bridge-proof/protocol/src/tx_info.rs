@@ -205,7 +205,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "rollup_name is not 4 bytes because of hardcoded test data blobs"]
     fn test_extract_withdrawal_info() {
         logging::init(LoggerConfig::new(
             "test-extract-withdrawal-info".to_string(),
