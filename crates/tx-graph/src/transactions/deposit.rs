@@ -188,12 +188,16 @@ impl DepositTx {
             input_amount: data.total_amount,
         };
 
-        let metadata = AuxiliaryData::validate_and_extract(
-            *tag,
-            data.el_address(),
-            sidesystem_params.address_length as usize,
-            deposit_metadata,
-        )?;
+        // Validate EE address size
+        if data.el_address().len() != sidesystem_params.address_length as usize {
+            return Err(DepositTransactionError::InvalidEeAddressSize(
+                data.el_address().len(),
+                sidesystem_params.address_length as usize,
+            )
+            .into());
+        }
+
+        let metadata = AuxiliaryData::new(*tag, deposit_metadata);
 
         let metadata_script = metadata_script(metadata);
         let metadata_amount = Amount::from_int_btc(0);

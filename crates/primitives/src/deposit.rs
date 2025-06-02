@@ -206,12 +206,16 @@ impl DepositInfo {
             input_amount: self.total_amount,
         };
 
-        let metadata = AuxiliaryData::validate_and_extract(
-            tag,
-            &self.ee_address,
-            ee_address_size,
-            deposit_metadata,
-        )?;
+        // Validate EE address size
+        if self.ee_address.len() != ee_address_size {
+            return Err(DepositTransactionError::InvalidEeAddressSize(
+                self.ee_address.len(),
+                ee_address_size,
+            )
+            .into());
+        }
+
+        let metadata = AuxiliaryData::new(tag, deposit_metadata);
 
         let metadata_script = metadata_script(metadata);
         let metadata_amount = Amount::from_int_btc(0);

@@ -3,8 +3,6 @@
 use alpen_bridge_params::types::Tag;
 use bitcoin::{Amount, TapNodeHash, XOnlyPublicKey};
 
-use crate::errors::{BridgeTxBuilderResult, DepositTransactionError};
-
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,31 +59,9 @@ pub enum DepositMetadata {
 }
 
 impl AuxiliaryData {
-    /// Validates the OP_RETURN metadata and returns the metadata as bytes.
-    ///
-    /// This function validates:
-    /// - Tag size (must be 4 bytes)
-    /// - EE address size (must match expected size)
-    ///
-    /// Returns the metadata as bytes if validation passes.
-    pub fn validate_and_extract(
-        tag: Tag,
-        ee_address: &[u8],
-        expected_ee_address_size: usize,
-        metadata: DepositMetadata,
-    ) -> BridgeTxBuilderResult<Self> {
-        // Validate EE address size
-        if ee_address.len() != expected_ee_address_size {
-            return Err(DepositTransactionError::InvalidEeAddressSize(
-                ee_address.len(),
-                expected_ee_address_size,
-            )
-            .into());
-        }
-
-        let auxiliary_data = AuxiliaryData { tag, metadata };
-
-        Ok(auxiliary_data)
+    /// Creates a new AuxiliaryData instance.
+    pub const fn new(tag: Tag, metadata: DepositMetadata) -> Self {
+        Self { tag, metadata }
     }
 
     /// Extracts the metadata as bytes.
