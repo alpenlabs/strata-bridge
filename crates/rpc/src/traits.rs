@@ -4,7 +4,7 @@ use bitcoin::{taproot::Signature, OutPoint, PublicKey, Transaction, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 
 use crate::types::{
-    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcDisproveData, RpcOperatorStatus,
+    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcDisproveData, RpcOperatorStatus,
     RpcWithdrawalInfo,
 };
 
@@ -31,25 +31,43 @@ pub trait StrataBridgeMonitoringApi {
     #[method(name = "operatorStatus")]
     async fn get_operator_status(&self, operator_pk: PublicKey) -> RpcResult<RpcOperatorStatus>;
 
+    /// Get all deposit request outpoints.
+    #[method(name = "depositRequests")]
+    async fn get_deposit_requests(&self) -> RpcResult<Vec<OutPoint>>;
+
     /// Get deposit details using the deposit request outpoint.
     #[method(name = "depositInfo")]
     async fn get_deposit_request_info(
         &self,
         deposit_request_outpoint: OutPoint,
-    ) -> RpcResult<RpcDepositStatus>;
+    ) -> RpcResult<RpcDepositInfo>;
 
     /// Get bridge duties.
+    // TODO: refactor this to a new trait since the monitoring API does not use it
+    //       but we'll use it internally for debugging and introspection.
     #[method(name = "bridgeDuties")]
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
 
     /// Get bridge duties assigned to an operator by its [`PublicKey`].
+    // TODO: refactor this to a new trait since the monitoring API does not use it
+    //       but we'll use it internally for debugging and introspection.
     #[method(name = "bridgeDutiesByPk")]
     async fn get_bridge_duties_by_operator_pk(
         &self,
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>>;
 
-    /// Get withdrawal details using withdrawal outpoint.
+    /// Get all withdrawal request outpoints.
+    ///
+    /// NOTE: This outpoint is the on-chain strata checkpoint that assigned operators to fulfill a
+    /// withdraw.
+    #[method(name = "withdrawals")]
+    async fn get_withdrawals(&self) -> RpcResult<Vec<OutPoint>>;
+
+    /// Get withdrawal details using withdrawal request outpoint.
+    ///
+    /// NOTE: This outpoint is the on-chain strata checkpoint that assigned operators to fulfill a
+    /// withdraw.
     #[method(name = "withdrawalInfo")]
     async fn get_withdrawal_info(
         &self,
