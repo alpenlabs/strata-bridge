@@ -173,6 +173,7 @@ pub(crate) fn extract_withdrawal_info(
 
 #[cfg(test)]
 mod tests {
+    use alpen_bridge_params::prelude::PegOutGraphParams;
     use bitcoin::hashes::Hash;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
@@ -209,8 +210,7 @@ mod tests {
         logging::init(LoggerConfig::new(
             "test-extract-withdrawal-info".to_string(),
         ));
-        let rollup_params = load_test_rollup_params();
-        let tag = Tag::try_from(rollup_params.rollup_name.clone()).unwrap();
+        let peg_out_graph_params = PegOutGraphParams::default();
         let headers = extract_test_headers();
         let (withdrawal_fulfillment_tx_bundle, idx) = get_withdrawal_fulfillment_tx();
         assert!(withdrawal_fulfillment_tx_bundle.verify(headers[idx]));
@@ -232,7 +232,7 @@ mod tests {
             "custom computed txid must match rust-bitcoin computed txid"
         );
 
-        let res = extract_withdrawal_info(withdrawal_fulfillment_tx, tag);
+        let res = extract_withdrawal_info(withdrawal_fulfillment_tx, peg_out_graph_params.tag);
         assert!(
             res.is_ok(),
             "must be able to extract withdrawal info but got {:?}",
