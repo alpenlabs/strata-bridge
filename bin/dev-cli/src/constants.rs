@@ -20,7 +20,7 @@ pub(crate) const BTC_TO_WEI: u128 = ETH_TO_WEI;
 pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
 
 /// Magic bytes for the deposit request transaction.
-pub(crate) const MAGIC_BYTES: Tag = Tag::new([b'a', b'l', b'p', b'0']);
+pub(crate) const MAGIC_BYTES: Tag = Tag::new(*b"alpn");
 
 //change to appropriate value
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
