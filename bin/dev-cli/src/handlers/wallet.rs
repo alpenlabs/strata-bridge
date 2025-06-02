@@ -1,8 +1,7 @@
 //! Wallet utilities for the bridge-in command.
 
-use alloy::primitives::Address as EvmAddress;
 use anyhow::{Context, Result};
-use bitcoin::{address::Address, Network, XOnlyPublicKey};
+use bitcoin::{address::Address, Network};
 use bitcoincore_rpc::{
     json::{
         CreateRawTransactionInput, WalletCreateFundedPsbtOptions, WalletCreateFundedPsbtResult,
@@ -11,14 +10,13 @@ use bitcoincore_rpc::{
 };
 use tracing::{debug, info};
 
-use crate::{bridge_in::deposit_request::*, constants::AMOUNT};
+use crate::constants::AMOUNT;
 
 pub(crate) trait PsbtWallet {
-    fn create_psbt(
+    fn create_drt_psbt(
         &self,
         destination_address: &Address,
-        evm_address: &EvmAddress,
-        take_back_key: &XOnlyPublicKey,
+        metadata: Vec<u8>,
         network: &Network,
     ) -> Result<String>;
 
@@ -36,14 +34,12 @@ impl BitcoinRpcWallet {
 }
 
 impl PsbtWallet for BitcoinRpcWallet {
-    fn create_psbt(
+    fn create_drt_psbt(
         &self,
         destination_address: &Address,
-        evm_address: &EvmAddress,
-        take_back_key: &XOnlyPublicKey,
+        metadata: Vec<u8>,
         network: &Network,
     ) -> Result<String> {
-        let op_return_bytes = build_op_return_script(evm_address, take_back_key);
         let change_address = self
             .client
             .get_new_address(None, Some(bitcoincore_rpc::json::AddressType::Bech32m))
@@ -59,7 +55,7 @@ impl PsbtWallet for BitcoinRpcWallet {
             )]),
             serde_json::Map::from_iter(vec![(
                 "data".to_string(),
-                serde_json::to_value(hex::encode(op_return_bytes))?,
+                serde_json::to_value(hex::encode(metadata))?,
             )]),
         ];
 

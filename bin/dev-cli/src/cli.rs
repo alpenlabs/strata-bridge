@@ -38,7 +38,7 @@ pub(crate) struct BridgeInArgs {
         env = "BTC_USER",
         default_value = "rpcuser"
     )]
-    pub(crate) btc_user: Option<String>,
+    pub(crate) btc_user: String,
 
     #[arg(
         long,
@@ -46,7 +46,7 @@ pub(crate) struct BridgeInArgs {
         env = "BTC_PASS",
         default_value = "rpcpassword"
     )]
-    pub(crate) btc_pass: Option<String>,
+    pub(crate) btc_pass: String,
 
     #[arg(long, help = "if not provided, will use the default address")]
     pub(crate) recovery_address: Option<String>,
