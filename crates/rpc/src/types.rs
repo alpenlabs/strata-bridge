@@ -21,25 +21,16 @@ pub enum RpcOperatorStatus {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcDepositStatus {
     /// Deposit exists, but minting hasn't happened yet.
-    InProgress {
-        /// Transaction ID of the deposit request transaction (DRT).
-        deposit_request_txid: Txid,
-    },
+    InProgress,
 
     /// Deposit exists, but was never completed (can be reclaimed).
     Failed {
-        /// Transaction ID of the deposit request transaction (DRT).
-        deposit_request_txid: Txid,
-
         /// Reason for the failure.
         failure_reason: String,
     },
 
     /// Deposit has been fully processed and minted.
     Complete {
-        /// Transaction ID of the deposit request transaction (DRT).
-        deposit_request_txid: Txid,
-
         /// Transaction ID of the deposit transaction (DT).
         deposit_txid: Txid,
     },
@@ -81,16 +72,25 @@ pub enum RpcReimbursementStatus {
     NotStarted,
 
     /// Claim exists, challenge step is "Claim", no payout.
-    InProgress,
+    InProgress {
+        /// Challenge step.
+        challenge_step: ChallengeStep,
+    },
 
     /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
-    Challenged,
+    Challenged {
+        /// Challenge step.
+        challenge_step: ChallengeStep,
+    },
 
     /// Operator was slashed, claim is no longer valid.
     Cancelled,
 
     /// Claim has been successfully reimbursed.
-    Complete,
+    Complete {
+        /// Payout transaction ID.
+        payout_txid: Txid,
+    },
 }
 
 /// Represents deposit transaction details
@@ -98,6 +98,9 @@ pub enum RpcReimbursementStatus {
 pub struct RpcDepositInfo {
     /// Status of the deposit.
     pub status: RpcDepositStatus,
+
+    /// Transaction ID of the deposit request transaction (DRT).
+    pub deposit_request_txid: Txid,
 }
 
 /// Represents withdrawal transaction details
@@ -105,6 +108,12 @@ pub struct RpcDepositInfo {
 pub struct RpcWithdrawalInfo {
     /// Status of the withdrawal.
     pub status: RpcWithdrawalStatus,
+
+    /// Outpoint of the withdrawal request transaction (WRT).
+    ///
+    /// NOTE: This outpoint is the on-chain strata checkpoint that assigned operators to fulfill a
+    /// withdraw.
+    pub withdrawal_request_outpoint: OutPoint,
 }
 
 /// Represents reimbursement transaction details
