@@ -3,6 +3,8 @@
 
 pub mod connectors;
 pub(crate) mod default;
+pub mod errors;
 pub mod prelude;
 pub mod stake_chain;
 pub mod tx_graph;
+pub mod types;

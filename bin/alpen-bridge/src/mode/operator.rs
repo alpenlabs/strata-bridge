@@ -369,7 +369,7 @@ async fn init_duty_tracker(
     let network = params.network;
     let nag_interval = config.nag_interval;
     let connector_params = params.connectors;
-    let pegout_graph_params = params.tx_graph.clone();
+    let pegout_graph_params = params.tx_graph;
     let stake_chain_params = params.stake_chain;
     let sidesystem_params = params.sidesystem.clone();
     let operator_table_entries: Vec<(u32, P2POperatorPubKey, secp256k1::PublicKey)> = params

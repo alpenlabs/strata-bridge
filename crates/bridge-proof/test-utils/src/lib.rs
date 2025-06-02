@@ -50,7 +50,7 @@ pub fn load_op_signature() -> Buf64 {
 /// This transaction is found at block height 988, with index 1 in the block's transaction list.
 /// Returns the transaction along with the relative block index in the test blocks.
 pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
-    let block_height = 740;
+    let block_height = 239;
     let tx_index = 1;
     fetch_test_transaction(block_height, tx_index)
 }
@@ -60,7 +60,7 @@ pub fn get_withdrawal_fulfillment_tx() -> (L1TxWithProofBundle, usize) {
 /// This transaction is found at block height 968, with index 2 in the block's transaction list.
 /// Returns the transaction along with the relative block index in the test blocks.
 pub fn get_strata_checkpoint_tx() -> (L1TxWithProofBundle, usize) {
-    let block_height = 736;
+    let block_height = 233;
     let tx_index = 2;
     fetch_test_transaction(block_height, tx_index)
 }

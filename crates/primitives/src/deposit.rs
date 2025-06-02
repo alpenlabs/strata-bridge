@@ -5,7 +5,7 @@
 
 #![expect(deprecated)]
 
-use alpen_bridge_params::prelude::PegOutGraphParams;
+use alpen_bridge_params::{prelude::PegOutGraphParams, types::Tag};
 use bitcoin::{
     taproot::LeafVersion, Amount, OutPoint, Psbt, ScriptBuf, TapNodeHash, Transaction, TxOut,
     XOnlyPublicKey,
@@ -131,7 +131,7 @@ impl DepositInfo {
         let unsigned_tx = self.create_unsigned_tx(
             build_context,
             *deposit_amount,
-            tag.as_bytes(),
+            *tag,
             sidesystem_params.address_length as usize,
             pegout_graph_params.refund_delay,
         )?;
@@ -186,7 +186,7 @@ impl DepositInfo {
         &self,
         build_context: &impl BuildContext,
         deposit_amt: Amount,
-        tag: &[u8],
+        tag: Tag,
         ee_address_size: usize,
         refund_delay: u16,
     ) -> BridgeTxBuilderResult<Transaction> {
@@ -194,10 +194,19 @@ impl DepositInfo {
         let outpoint = self.deposit_request_outpoint();
         let tx_ins = create_tx_ins([*outpoint]);
 
-        // Second, create the `OP_RETURN` output:
-        // <magic_bytes>  (the `tag` argument)
-        // <stake_index> (4-byte big-endian)
-        // <ee_address> (from the DRT)
+        // Create and validate the OP_RETURN metadata
+        let takeback_script = drt_take_back(*self.x_only_public_key(), refund_delay);
+        let takeback_script_hash =
+            TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
+
+        let deposit_metadata = DepositMetadata::DepositTx {
+            stake_index: self.stake_index(),
+            ee_address: self.ee_address.to_vec(),
+            takeback_hash: takeback_script_hash,
+            input_amount: self.total_amount,
+        };
+
+        // Validate EE address size
         if self.ee_address.len() != ee_address_size {
             return Err(DepositTransactionError::InvalidEeAddressSize(
                 self.ee_address.len(),
@@ -206,19 +215,8 @@ impl DepositInfo {
             .into());
         }
 
-        let takeback_script = drt_take_back(*self.x_only_public_key(), refund_delay);
-        let takeback_script_hash =
-            TapNodeHash::from_script(&takeback_script, LeafVersion::TapScript);
+        let metadata = AuxiliaryData::new(tag, deposit_metadata);
 
-        let metadata = AuxiliaryData {
-            tag,
-            metadata: DepositMetadata::DepositTx {
-                stake_index: self.stake_index(),
-                ee_address: self.ee_address.to_vec(),
-                takeback_hash: takeback_script_hash,
-                input_amount: self.total_amount,
-            },
-        };
         let metadata_script = metadata_script(metadata);
         let metadata_amount = Amount::from_int_btc(0);
 

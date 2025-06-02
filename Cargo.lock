@@ -903,6 +903,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "serde",
+ "thiserror 2.0.12",
  "toml",
 ]
 
@@ -3237,6 +3238,7 @@ version = "0.1.0"
 dependencies = [
  "alloy",
  "alloy-signer",
+ "alpen-bridge-params",
  "anyhow",
  "bitcoin",
  "bitcoin-bosd",

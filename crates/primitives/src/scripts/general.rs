@@ -82,7 +82,7 @@ pub fn get_aggregated_pubkey(pubkeys: impl IntoIterator<Item = PublicKey>) -> XO
 
 /// Create the metadata script that "stores" all the required metadata information for both the
 /// deposit request transaction (DRT) and deposit transaction (DT).
-pub fn metadata_script(auxiliary_data: AuxiliaryData<'_>) -> ScriptBuf {
+pub fn metadata_script(auxiliary_data: AuxiliaryData) -> ScriptBuf {
     let bytes = auxiliary_data.to_vec();
 
     let mut data = PushBytesBuf::new();

@@ -1,13 +1,14 @@
 //! Primitives for Bridge metadata.
 
+use alpen_bridge_params::types::Tag;
 use bitcoin::{Amount, TapNodeHash, XOnlyPublicKey};
 
 /// Metadata bytes that the Bridge uses to read information from the bitcoin blockchain and the
 /// sidesystem.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AuxiliaryData<'tag> {
+pub struct AuxiliaryData {
     /// Tag, also known as "magic bytes".
-    pub tag: &'tag [u8],
+    pub tag: Tag,
 
     /// Deposit-specific metadata.
     pub metadata: DepositMetadata,
@@ -57,12 +58,17 @@ pub enum DepositMetadata {
     },
 }
 
-impl<'tag> AuxiliaryData<'tag> {
+impl AuxiliaryData {
+    /// Creates a new AuxiliaryData instance.
+    pub const fn new(tag: Tag, metadata: DepositMetadata) -> Self {
+        Self { tag, metadata }
+    }
+
     /// Extracts the metadata as bytes.
-    pub fn to_vec(&'tag self) -> Vec<u8> {
+    pub fn to_vec(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
 
-        bytes.extend_from_slice(self.tag);
+        bytes.extend_from_slice(self.tag.as_bytes());
 
         match &self.metadata {
             DepositMetadata::DepositRequestTx {

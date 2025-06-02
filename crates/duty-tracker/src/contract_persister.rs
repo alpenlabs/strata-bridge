@@ -223,7 +223,6 @@ impl ContractPersister {
         stake_chain_params: StakeChainParams,
     ) -> Result<(ContractCfg, MachineState), ContractPersistErr> {
         let result = execute_with_retries(&self.config, || async {
-                let peg_out_graph_params = peg_out_graph_params.clone();
                 let sidesystem_params = sidesystem_params.clone();
                 let row: SqliteRow = sqlx::query(
                     r#"
@@ -309,7 +308,6 @@ impl ContractPersister {
         stake_chain_params: StakeChainParams,
     ) -> Result<Vec<(ContractCfg, MachineState)>, ContractPersistErr> {
         let result = execute_with_retries(&self.config, || async {
-            let peg_out_graph_params = peg_out_graph_params.clone();
             let sidesystem_params = sidesystem_params.clone();
             let rows = sqlx::query(
                 r#"
@@ -384,7 +382,7 @@ impl ContractPersister {
                             network,
                             operator_table,
                             connector_params,
-                            peg_out_graph_params: peg_out_graph_params.clone(),
+                            peg_out_graph_params,
                             sidesystem_params: sidesystem_params.clone(),
                             stake_chain_params,
                             // later

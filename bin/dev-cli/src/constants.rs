@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use alloy::consensus::constants::ETH_TO_WEI;
+use alpen_bridge_params::types::Tag;
 use bitcoin::{secp256k1::XOnlyPublicKey, Amount, Network};
 
 pub(crate) const AMOUNT: Amount = Amount::from_sat(1_000_100_000);
@@ -18,7 +19,8 @@ pub(crate) const BTC_TO_WEI: u128 = ETH_TO_WEI;
 
 pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
 
-pub(crate) const MAGIC_BYTES: &[u8] = b"strata";
+/// Magic bytes for the deposit request transaction.
+pub(crate) const MAGIC_BYTES: Tag = Tag::new(*b"alpn");
 
 //change to appropriate value
 pub(crate) const AGGREGATED_PUBKEY_HEX: &str =
