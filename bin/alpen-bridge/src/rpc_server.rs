@@ -13,9 +13,11 @@ use jsonrpsee::{
     RpcModule,
 };
 use libp2p::{identity::PublicKey as LibP2pPublicKey, PeerId};
+use musig2::KeyAggContext;
 use secp256k1::Parity;
 use serde::Serialize;
 use sqlx::{query_as, FromRow};
+use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
 use strata_bridge_db::{
     errors::DbError,
     persistent::{
@@ -33,7 +35,11 @@ use strata_bridge_rpc::{
         RpcReimbursementStatus, RpcWithdrawalInfo, RpcWithdrawalStatus,
     },
 };
-use strata_bridge_tx_graph::transactions::deposit::DepositTx;
+use strata_bridge_tx_graph::transactions::{
+    claim::PAYOUT_VOUT as CHALLENGE_VOUT,
+    deposit::DepositTx,
+    prelude::{ChallengeTx, ChallengeTxInput},
+};
 use strata_p2p::swarm::handle::P2PHandle;
 use tokio::{
     sync::{oneshot, RwLock},
@@ -208,7 +214,6 @@ impl BridgeRpc {
     ) -> Self {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(Vec::new()));
-
         let start_time = Utc::now();
 
         let instance = Self {
@@ -642,6 +647,66 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
 #[async_trait]
 impl StrataBridgeDaApiServer for BridgeRpc {
+    async fn get_challenge_tx(&self, claim_txid: Txid) -> RpcResult<Option<bitcoin::Transaction>> {
+        debug!(%claim_txid, "getting challenge transaction");
+
+        let contracts = self.cached_contracts.read().await;
+        let challenge_tx = contracts
+            .iter()
+            .find_map(|contract| {
+                let challenge_sig = contract
+                    .0
+                    .state
+                    .state
+                    .graph_sigs()
+                    .get(&claim_txid)
+                    .map(|sigs| sigs.challenge);
+
+                let reimbursement_key = contract
+                    .0
+                    .state
+                    .state
+                    .graph_input(claim_txid)
+                    .map(|input| input.operator_pubkey);
+
+                match (challenge_sig, reimbursement_key) {
+                    (Some(challenge_sig), Some(reimbursement_key)) => {
+                        Some((challenge_sig, reimbursement_key))
+                    }
+                    _ => None, // No challenge transaction available for this claim
+                }
+            })
+            .map(|(challenge_sig, reimbursement_key)| {
+                let challenge_input = ChallengeTxInput {
+                    claim_outpoint: OutPoint::new(claim_txid, CHALLENGE_VOUT),
+                    challenge_amt: self.params.tx_graph.challenge_cost,
+                    operator_pubkey: reimbursement_key,
+                    network: self.params.network,
+                };
+
+                let key_agg_ctx = KeyAggContext::new(
+                    self.params
+                        .keys
+                        .musig2
+                        .iter()
+                        .map(|x_only| x_only.public_key(Parity::Even)),
+                )
+                .expect("key aggregation must succeed");
+                let agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+                let challenge_connector = ConnectorC1::new(
+                    agg_pubkey,
+                    self.params.network,
+                    self.params.connectors.payout_optimistic_timelock,
+                );
+
+                ChallengeTx::new(challenge_input, challenge_connector)
+                    .finalize_presigned(ConnectorC1Path::Challenge(challenge_sig))
+            });
+
+        Ok(challenge_tx)
+    }
+
     async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
         debug!(%claim_txid, "getting challenge signature");
 
