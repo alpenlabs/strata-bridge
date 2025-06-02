@@ -371,7 +371,7 @@ where
 
         info!(action = "generating pegout graph and connectors", %deposit_txid, %own_index);
         let (peg_out_graph, _connectors) = PegOutGraph::generate(
-            peg_out_graph_input.clone(),
+            &peg_out_graph_input,
             &self.build_context,
             deposit_txid,
             graph_params,
@@ -626,7 +626,7 @@ where
                         },
                         _connectors,
                     ) = PegOutGraph::generate(
-                        peg_out_graph_input.clone(),
+                        &peg_out_graph_input,
                         &self.build_context,
                         deposit_txid,
                         graph_params,
@@ -1018,7 +1018,7 @@ where
                     info!(event = "received covenant request for signatures", %deposit_txid, %sender_id, %own_index);
                     let graph_params = PegOutGraphParams::default();
                     let (peg_out_graph, _connectors) = PegOutGraph::generate(
-                        peg_out_graph_input,
+                        &peg_out_graph_input,
                         &self.build_context,
                         deposit_txid,
                         graph_params,
@@ -1678,7 +1678,7 @@ where
         };
 
         let (peg_out_graph, connectors) = PegOutGraph::generate(
-            peg_out_graph_input,
+            &peg_out_graph_input,
             &self.build_context,
             deposit_txid,
             graph_params,
@@ -2500,7 +2500,7 @@ where
 
             info!(action = "adding stake data to db", %own_index, index = %i);
             self.public_db
-                .add_stake_data(own_index, i, stake_tx_data)
+                .add_stake_data(own_index, i, stake_tx_data.clone())
                 .await
                 .unwrap();
 

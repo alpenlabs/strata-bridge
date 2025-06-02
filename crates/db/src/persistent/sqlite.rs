@@ -99,7 +99,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(|v| *v.public_keys);
+            .map(|v| v.public_keys.deref().clone());
 
             Ok(result)
         })
@@ -115,7 +115,7 @@ impl PublicDb for SqliteDb {
         execute_with_retries(self.config(), || async {
             let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
             let deposit_txid = DbTxid::from(deposit_txid);
-            let public_keys = DbWotsPublicKeys::from(*public_keys);
+            let public_keys = DbWotsPublicKeys::from(public_keys.clone());
 
             sqlx::query!(
                 "INSERT OR REPLACE INTO wots_public_keys
@@ -406,6 +406,7 @@ impl PublicDb for SqliteDb {
     ) -> DbResult<()> {
         execute_with_retries(&self.config, || {
             let pool = self.pool.to_owned();
+            let stake_data = stake_data.to_owned();
             async move {
                 let mut tx = pool.begin().await.map_err(StorageError::from)?;
                 let stake_data = DbStakeTxData::from(stake_data);
@@ -1694,7 +1695,7 @@ mod tests {
                     vout: OsRng.gen_range(0..10),
                 },
                 hash: stake_hash,
-                withdrawal_fulfillment_pk,
+                withdrawal_fulfillment_pk: withdrawal_fulfillment_pk.clone(),
             };
 
             assert!(
@@ -1703,13 +1704,13 @@ mod tests {
                     .is_ok_and(|v| v.is_none()),
                 "stake data must not exist initially"
             );
-            db.add_stake_data(operator_id, stake_id, stake_data)
+            db.add_stake_data(operator_id, stake_id, stake_data.to_owned())
                 .await
                 .expect("must be able to set stake data");
             assert!(
                 db.get_stake_data(operator_id, stake_id)
                     .await
-                    .is_ok_and(|v| v == Some(stake_data)),
+                    .is_ok_and(|v| v == Some(stake_data.to_owned())),
                 "stake data must exist after setting and stake_id must increment"
             );
         }

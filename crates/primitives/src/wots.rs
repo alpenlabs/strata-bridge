@@ -2,10 +2,7 @@
 
 #![allow(missing_docs)] // rkyv macros are not nice at generating docs from docstrings.
 
-use std::{
-    fmt,
-    ops::{Deref, DerefMut},
-};
+use std::{fmt, ops::Deref, sync::Arc};
 
 use bitcoin::Txid;
 use bitvm::{
@@ -27,30 +24,29 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
-/// A 256-bit WOTS public key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots256PublicKey(pub wots256::PublicKey);
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Wots256PublicKey(pub Arc<wots256::PublicKey>);
 
 impl Wots256PublicKey {
     /// Creates a new 256-bit WOTS public key from a secret key string.
     pub fn new(msk: &str, txid: Txid) -> Self {
         let sk = get_deposit_master_secret_key(msk, txid);
 
-        Self(wots256::generate_public_key(
+        Self(Arc::new(wots256::generate_public_key(
             &secret_key_for_bridge_out_txid(&sk),
-        ))
+        )))
     }
 }
 
 impl From<strata_p2p_types::Wots256PublicKey> for Wots256PublicKey {
     fn from(value: strata_p2p_types::Wots256PublicKey) -> Self {
-        Self(value.0)
+        Self(Arc::new(value.0))
     }
 }
 
 impl From<Wots256PublicKey> for strata_p2p_types::Wots256PublicKey {
     fn from(value: Wots256PublicKey) -> Self {
-        strata_p2p_types::Wots256PublicKey::new(value.0)
+        strata_p2p_types::Wots256PublicKey::new(*value.0)
     }
 }
 
@@ -61,7 +57,7 @@ impl Serialize for Wots256PublicKey {
     {
         let mut structure =
             serializer.serialize_seq(Some(std::mem::size_of::<Wots256PublicKey>()))?;
-        for key in self.0 {
+        for key in *self.0 {
             for byte in key {
                 structure.serialize_element(&byte)?;
             }
@@ -106,7 +102,7 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
                     }
                 }
 
-                Ok(Wots256PublicKey(packed))
+                Ok(Wots256PublicKey(Arc::new(packed)))
             }
         }
 
@@ -143,9 +139,8 @@ impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
     }
 }
 
-/// WOTS public keys used for Groth16 proofs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16PublicKeys(pub g16PublicKeys);
+#[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
+pub struct Groth16PublicKeys(pub Arc<g16PublicKeys>);
 
 // should probably not do this but `g16PublicKeys` is already a tuple, so these impls make the
 // tuple access more ergonomic.
@@ -154,12 +149,6 @@ impl Deref for Groth16PublicKeys {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-impl DerefMut for Groth16PublicKeys {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
     }
 }
 
@@ -200,13 +189,13 @@ impl TryFrom<strata_p2p_types::Groth16PublicKeys> for Groth16PublicKeys {
         }
         let hashes = std::array::from_fn(|i| *g16_keys.hashes[i]);
 
-        Ok(Self((public_inputs, fqs, hashes)))
+        Ok(Self(Arc::new((public_inputs, fqs, hashes))))
     }
 }
 
 impl From<Groth16PublicKeys> for strata_p2p_types::Groth16PublicKeys {
     fn from(value: Groth16PublicKeys) -> Self {
-        let (public_inputs, fqs, hashes) = value.0;
+        let (public_inputs, fqs, hashes) = *value.0;
 
         Self::new(
             public_inputs
@@ -230,7 +219,7 @@ impl Serialize for Groth16PublicKeys {
         S: serde::Serializer,
     {
         let mut structure = serializer.serialize_seq(Some(std::mem::size_of::<Self>()))?;
-        let inner = self.0;
+        let inner = *self.0;
         let public_inputs = inner.0;
         let fqs = inner.1;
         let hashes = inner.2;
@@ -332,7 +321,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
                     }
                 }
 
-                Ok(Groth16PublicKeys((public_inputs, fqs, hashes)))
+                Ok(Groth16PublicKeys(Arc::new((public_inputs, fqs, hashes))))
             }
         }
 
@@ -358,7 +347,7 @@ impl Groth16PublicKeys {
     pub fn new(msk: &str, deposit_txid: Txid) -> Self {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
-        Self((
+        Self(Arc::new((
             [wots256::generate_public_key(
                 &secret_key_for_public_inputs_hash(&deposit_msk),
             )],
@@ -368,7 +357,7 @@ impl Groth16PublicKeys {
             std::array::from_fn(|i| {
                 wots_hash::generate_public_key(&secret_key_for_proof_element(&deposit_msk, i + 40))
             }),
-        ))
+        )))
     }
 }
 
@@ -443,7 +432,6 @@ impl Groth16Signatures {
 #[derive(
     Debug,
     Clone,
-    Copy,
     PartialEq,
     Eq,
     rkyv::Archive,

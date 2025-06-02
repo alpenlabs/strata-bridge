@@ -348,8 +348,7 @@ mod tests {
         let msk = "test-assert-data-parse-witnesses";
         let g16_pks = Groth16PublicKeys::new(msk, generate_txid());
 
-        let Groth16PublicKeys(([public_inputs_hash_public_key], public_keys_256, public_keys_hash)) =
-            g16_pks;
+        let ([public_inputs_hash_public_key], public_keys_256, public_keys_hash) = *g16_pks.0;
 
         let public_keys_256 = std::array::from_fn(|i| match i {
             0 => public_inputs_hash_public_key,

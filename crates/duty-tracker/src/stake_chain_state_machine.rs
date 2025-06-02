@@ -209,7 +209,7 @@ impl StakeChainSM {
                     .nth(0)
                     .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth))?;
                 let stake_hash = first_input.hash;
-                let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk;
+                let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
                 let operator_funds = first_input.operator_funds;
 
                 let first_stake = StakeTx::<Head>::new(
@@ -252,7 +252,7 @@ impl StakeChainSM {
                 let stake_tx = StakeTx::<Tail>::new(
                     &context,
                     &self.params,
-                    *input,
+                    input.clone(),
                     prev_input.hash,
                     prev_stake,
                     operator_pubkey,
