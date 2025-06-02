@@ -3249,10 +3249,12 @@ dependencies = [
  "bitcoincore-rpc",
  "clap",
  "hex",
+ "jsonrpsee",
  "miniscript",
  "secp256k1",
  "serde_json",
  "strata-bridge-common",
+ "strata-bridge-rpc",
  "tokio",
  "tracing",
 ]

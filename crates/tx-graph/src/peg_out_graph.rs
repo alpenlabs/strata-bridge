@@ -1454,8 +1454,7 @@ mod tests {
             sighash_type: challenge_leaf.get_sighash_type(),
         };
         let signed_challenge_leaf = challenge_leaf.add_witness_data(signature);
-        let partially_signed_challenge_tx =
-            challenge_tx.finalize_presigned(connectors.claim_out_1, signed_challenge_leaf);
+        let partially_signed_challenge_tx = challenge_tx.finalize_presigned(signed_challenge_leaf);
 
         let signed_challenge_tx =
             fund_and_sign_raw_tx(btc_client, &partially_signed_challenge_tx, None, Some(true));
