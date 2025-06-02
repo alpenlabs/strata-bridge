@@ -1,6 +1,6 @@
 //! Operator module.
 
-#![allow(deprecated)]
+#![expect(deprecated)]
 
 use core::fmt;
 use std::{
