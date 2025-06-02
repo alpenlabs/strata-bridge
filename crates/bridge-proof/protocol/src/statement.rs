@@ -16,7 +16,8 @@ use crate::{
 /// input
 ///
 /// TODO: update this once this is fixed
-pub const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 30;
+// this is fine for testnet-i
+pub const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 10;
 
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
 /// Also optionally checks if the transaction includes witness data.
