@@ -15,37 +15,42 @@ use crate::errors::DbResult;
 /// database.
 #[async_trait]
 pub trait PublicDb {
-    /// Returns the WOTS public keys for a given operator and deposit transaction ID.
+    /// Gets, if present, a bundle of Winternitz One-time Signature (WOTS) public keys from the
+    /// database, given an [`OperatorIdx`] and a `deposit_txid`.
     async fn get_wots_public_keys(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<Option<wots::PublicKeys>>;
 
-    /// Sets the WOTS public keys for a given operator and deposit transaction ID.
+    /// Sets a bundle of Winternitz One-time Signature (WOTS) public keys from the database, given
+    /// an [`OperatorIdx`] and a `deposit_txid`.
     async fn set_wots_public_keys(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
         public_keys: &wots::PublicKeys,
     ) -> DbResult<()>;
 
-    /// Returns the WOTS signatures for a given operator and deposit transaction ID.
+    /// Gets, if present, a bundle Winternitz One-time Signature (WOTS) signatures from the
+    /// database, given an [`OperatorIdx`] and a `deposit_txid`.
     async fn get_wots_signatures(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
     ) -> DbResult<Option<wots::Signatures>>;
 
-    /// Sets the WOTS signatures for a given operator and deposit transaction ID.
+    /// Sets a bundle Winternitz One-time Signature (WOTS) signatures from the database, given an
+    /// [`OperatorIdx`] and a `deposit_txid`.
     async fn set_wots_signatures(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         deposit_txid: Txid,
         signatures: &wots::Signatures,
     ) -> DbResult<()>;
 
-    /// Returns the Schnorr signature for a given operator, transaction ID, and input index.
+    /// Gets, if present, a Schnorr [`Signature`] from the database, given an [`OperatorIdx`], a
+    /// [`Txid`] and an `input_index`.
     async fn get_signature(
         &self,
         operator_idx: OperatorIdx,
@@ -53,56 +58,60 @@ pub trait PublicDb {
         input_index: u32,
     ) -> DbResult<Option<Signature>>;
 
-    /// Sets the Schnorr signature for a given operator, transaction ID, and input index.
+    /// Sets a Schnorr [`Signature`] from the database, given an [`OperatorIdx`], a [`Txid`] and an
+    /// `input_index`.
     async fn set_signature(
         &self,
-        operator_id: u32,
+        operator_idx: OperatorIdx,
         txid: Txid,
         input_index: u32,
         signature: Signature,
     ) -> DbResult<()>;
 
-    /// Adds a deposit transaction ID.
+    /// Adds a `deposit_txid` to the database, associating it with a new unique deposit ID.
     async fn add_deposit_txid(&self, deposit_txid: Txid) -> DbResult<()>;
 
-    /// Returns the deposit ID for a given deposit transaction ID.
+    /// Gets the unique ID associated with a `deposit_txid`.
     async fn get_deposit_id(&self, deposit_txid: Txid) -> DbResult<Option<u32>>;
 
-    /// Adds a stake transaction ID.
-    async fn add_stake_txid(&self, operator_id: OperatorIdx, stake_txid: Txid) -> DbResult<()>;
+    /// Adds a `stake_txid` for a given [`OperatorIdx`] to the database, associating it with a new
+    /// unique stake ID for that operator.
+    async fn add_stake_txid(&self, operator_idx: OperatorIdx, stake_txid: Txid) -> DbResult<()>;
 
-    /// Returns the stake transaction ID for a given operator and stake ID.
+    /// Gets, if present, the `stake_txid` associated with an `operator_idx` and a `stake_id`.
     async fn get_stake_txid(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_id: u32,
     ) -> DbResult<Option<Txid>>;
 
-    /// Returns all stake data for a given operator.
-    async fn get_all_stake_data(&self, operator_id: OperatorIdx) -> DbResult<Vec<StakeTxData>>;
+    /// Gets all [`StakeTxData`] for a given [`OperatorIdx`].
+    async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>>;
 
-    /// Sets the pre-stake for a given operator.
-    async fn set_pre_stake(&self, operator_id: OperatorIdx, pre_stake: OutPoint) -> DbResult<()>;
+    /// Sets the pre-stake [`OutPoint`] for a given [`OperatorIdx`]. This is typically the output
+    /// point of the transaction that will be used as an input to the first stake transaction.
+    async fn set_pre_stake(&self, operator_idx: OperatorIdx, pre_stake: OutPoint) -> DbResult<()>;
 
-    /// Returns the pre-stake for a given operator.
-    async fn get_pre_stake(&self, operator_id: OperatorIdx) -> DbResult<Option<OutPoint>>;
+    /// Gets, if present, the pre-stake [`OutPoint`] for a given [`OperatorIdx`].
+    async fn get_pre_stake(&self, operator_idx: OperatorIdx) -> DbResult<Option<OutPoint>>;
 
-    /// Adds stake data for a given operator and stake index.
+    /// Adds [`StakeTxData`] for a given [`OperatorIdx`] and `stake_index`.
     async fn add_stake_data(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_index: u32,
         stake_data: StakeTxData,
     ) -> DbResult<()>;
 
-    /// Returns the stake data for a given operator and stake index.
+    /// Gets, if present, the [`StakeTxData`] for a given [`OperatorIdx`] and `stake_id`.
     async fn get_stake_data(
         &self,
-        operator_id: OperatorIdx,
+        operator_idx: OperatorIdx,
         stake_id: u32,
     ) -> DbResult<Option<StakeTxData>>;
 
-    /// Registers a claim transaction ID.
+    /// Registers a `claim_txid` in the database, associating it with an [`OperatorIdx`] and a
+    /// `deposit_txid`.
     async fn register_claim_txid(
         &self,
         claim_txid: Txid,
@@ -110,13 +119,14 @@ pub trait PublicDb {
         deposit_txid: Txid,
     ) -> DbResult<()>;
 
-    /// Returns the operator and deposit for a given claim transaction ID.
+    /// Gets, if present, the [`OperatorIdx`] and `deposit_txid` associated with a `claim_txid`.
     async fn get_operator_and_deposit_for_claim(
         &self,
         claim_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>>;
 
-    /// Registers a post-assert transaction ID.
+    /// Registers a `post_assert_txid` in the database, associating it with an [`OperatorIdx`]
+    /// and a `deposit_txid`.
     async fn register_post_assert_txid(
         &self,
         post_assert_txid: Txid,
@@ -124,13 +134,15 @@ pub trait PublicDb {
         deposit_txid: Txid,
     ) -> DbResult<()>;
 
-    /// Returns the operator and deposit for a given post-assert transaction ID.
+    /// Gets, if present, the [`OperatorIdx`] and `deposit_txid` associated with a
+    /// `post_assert_txid`.
     async fn get_operator_and_deposit_for_post_assert(
         &self,
         post_assert_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>>;
 
-    /// Registers assert data transaction IDs.
+    /// Registers an array of `assert_data_txids` in the database, associating them with an
+    /// [`OperatorIdx`] and a `deposit_txid`.
     async fn register_assert_data_txids(
         &self,
         assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
@@ -138,13 +150,15 @@ pub trait PublicDb {
         deposit_txid: Txid,
     ) -> DbResult<()>;
 
-    /// Returns the operator and deposit for a given assert data transaction ID.
+    /// Gets, if present, the [`OperatorIdx`] and `deposit_txid` associated with an
+    /// `assert_data_txid`.
     async fn get_operator_and_deposit_for_assert_data(
         &self,
         assert_data_txid: &Txid,
     ) -> DbResult<Option<(OperatorIdx, Txid)>>;
 
-    /// Registers a pre-assert transaction ID.
+    /// Registers a `pre_assert_data_txid` in the database, associating it with an [`OperatorIdx`]
+    /// and a `deposit_txid`.
     async fn register_pre_assert_txid(
         &self,
         pre_assert_data_txid: Txid,
@@ -152,7 +166,8 @@ pub trait PublicDb {
         deposit_txid: Txid,
     ) -> DbResult<()>;
 
-    /// Returns the operator and deposit for a given pre-assert transaction ID.
+    /// Gets, if present, the [`OperatorIdx`] and `deposit_txid` associated with a
+    /// `pre_assert_data_txid`.
     async fn get_operator_and_deposit_for_pre_assert(
         &self,
         pre_assert_data_txid: &Txid,

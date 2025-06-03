@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use arbitrary::Arbitrary;
 use bitcoin::{
+    consensus,
     hashes::Hash,
     key::UntweakedPublicKey,
     psbt::Input,
@@ -217,6 +218,53 @@ pub enum TaprootWitness {
         /// The tweak for the keypath spend.
         tweak: TapNodeHash,
     },
+}
+
+impl TaprootWitness {
+    /// Serialize the witness to a hex string.
+    pub fn to_hex(&self) -> String {
+        match self {
+            TaprootWitness::Key => "key".to_string(),
+            TaprootWitness::Script {
+                script_buf,
+                control_block,
+            } => format!(
+                "script:{}:{}",
+                consensus::encode::serialize_hex(script_buf),
+                consensus::encode::serialize_hex(&control_block.serialize()),
+            ),
+            TaprootWitness::Tweaked { tweak } => {
+                format!("tweaked:{}", tweak.as_raw_hash())
+            }
+        }
+    }
+
+    /// Deserialize the witness from a hex string.
+    pub fn from_hex(hex: &str) -> Result<Self, anyhow::Error> {
+        let parts = hex.split(':').collect::<Vec<&str>>();
+        if parts.len() != 3 {
+            return Err(anyhow::anyhow!("invalid witness hex"));
+        }
+
+        let witness_type = parts[0];
+        match witness_type {
+            "key" => Ok(Self::Key),
+            "script" => {
+                let script_buf = consensus::encode::deserialize_hex(parts[1])?;
+                let control_block = ControlBlock::decode(parts[2].as_bytes())?;
+
+                Ok(Self::Script {
+                    script_buf,
+                    control_block,
+                })
+            }
+            "tweaked" => {
+                let tweak = TapNodeHash::from_slice(parts[1].as_bytes())?;
+                Ok(Self::Tweaked { tweak })
+            }
+            _ => Err(anyhow::anyhow!("invalid witness hex")),
+        }
+    }
 }
 
 impl<'a> Arbitrary<'a> for TaprootWitness {

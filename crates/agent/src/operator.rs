@@ -1,5 +1,7 @@
 //! Operator module.
 
+#![expect(deprecated)]
+
 use core::fmt;
 use std::{
     collections::{BTreeMap, HashSet},
@@ -43,7 +45,10 @@ use strata_bridge_connectors::{
     prelude::{ConnectorA3Leaf, ConnectorCpfp, ConnectorP, ConnectorStake},
 };
 use strata_bridge_db::{
-    errors::DbError, operator::OperatorDb, public::PublicDb, tracker::DutyTrackerDb,
+    errors::DbError,
+    operator::{LegacyOperatorDb, OperatorDb},
+    public::PublicDb,
+    tracker::DutyTrackerDb,
 };
 use strata_bridge_primitives::scripts::prelude::drt_take_back;
 #[expect(deprecated)]
@@ -155,9 +160,9 @@ pub struct Operator<O: OperatorDb, P: PublicDb, D: DutyTrackerDb> {
     pub covenant_sig_receiver: broadcast::Receiver<CovenantSignatureSignal>,
 }
 
-impl<O, P, D> Operator<O, P, D>
+impl<O, P, D> Operator<LegacyOperatorDb<O>, P, D>
 where
-    O: OperatorDb,
+    O: OperatorDb + Send + Sync + Clone,
     P: PublicDb + Clone,
     D: DutyTrackerDb,
 {

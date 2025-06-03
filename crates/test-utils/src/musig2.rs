@@ -34,6 +34,14 @@ pub fn generate_partial_signature() -> PartialSignature {
         .expect("should be able to generate arbitrary partial signature")
 }
 
+/// Generates a random aggregated nonce.
+pub fn generate_agg_nonce() -> AggNonce {
+    let pubnonce1 = generate_pubnonce();
+    let pubnonce2 = generate_pubnonce();
+
+    [pubnonce1, pubnonce2].iter().cloned().sum()
+}
+
 /// Generates a musig2-aggregated signature from a single keypair.
 ///
 /// This means that we assume that the provided keypair is the only in the musig2 set.
