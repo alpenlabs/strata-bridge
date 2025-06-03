@@ -1037,11 +1037,19 @@ impl ContractManagerCtx {
                     if let ContractState::Requested {
                         peg_out_graph_inputs,
                         graph_nonces,
+                        graph_partials,
                         ..
                     } = &csm.state().state
                     {
                         let claim_txid = session_id_as_txid;
                         info!(%claim_txid, "received nag for graph signatures");
+
+                        // Check if we already have our own partial signatures for this graph
+                        let our_p2p_key = self.cfg.operator_table.pov_op_key();
+                        let existing_partials = graph_partials
+                            .get(&claim_txid)
+                            .and_then(|session_partials| session_partials.get(our_p2p_key))
+                            .cloned();
 
                         let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
                         let graph_owner = csm
@@ -1073,6 +1081,7 @@ impl ContractManagerCtx {
                                 .unwrap(),
                             pog_prevouts,
                             pog_sighashes,
+                            partial_signatures: existing_partials,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1087,9 +1096,18 @@ impl ContractManagerCtx {
                     let deposit_request_txid = session_id_as_txid;
                     info!(%deposit_request_txid, "received nag for root signatures");
 
-                    if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
+                    if let ContractState::Requested {
+                        root_nonces,
+                        root_partials,
+                        ..
+                    } = &csm.state().state
+                    {
                         let deposit_request_txid = session_id_as_txid;
-                        info!(%deposit_request_txid, "received nag for root nonces");
+                        info!(%deposit_request_txid, "received nag for root signatures");
+
+                        // Check if we already have our own root partial signature for this contract
+                        let our_p2p_key = self.cfg.operator_table.pov_op_key();
+                        let existing_partial = root_partials.get(our_p2p_key).cloned();
 
                         let deposit_tx = &csm.cfg().deposit_tx;
                         let sighash = deposit_tx.sighashes()[0];
@@ -1102,6 +1120,7 @@ impl ContractManagerCtx {
                                 .convert_map_op_to_btc(root_nonces.clone())
                                 .expect("received nonces from non-existent operator"),
                             sighash,
+                            partial_signature: existing_partial,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1393,6 +1412,7 @@ async fn execute_duty(
             pubnonces,
             pog_prevouts: pog_outpoints,
             pog_sighashes,
+            partial_signatures,
         } => {
             handle_publish_graph_sigs(
                 s2_session_manager,
@@ -1401,6 +1421,7 @@ async fn execute_duty(
                 pubnonces,
                 pog_outpoints,
                 pog_sighashes,
+                partial_signatures,
             )
             .await
         }
@@ -1427,6 +1448,7 @@ async fn execute_duty(
             nonces,
             deposit_request_txid,
             sighash,
+            partial_signature,
         } => {
             handle_publish_root_signature(
                 cfg,
@@ -1435,6 +1457,7 @@ async fn execute_duty(
                 nonces,
                 OutPoint::new(deposit_request_txid, 0),
                 sighash,
+                partial_signature,
             )
             .await
         }

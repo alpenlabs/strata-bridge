@@ -691,6 +691,12 @@ pub enum OperatorDuty {
 
         /// The set of sighashes that need to be signed.
         pog_sighashes: PogMusigF<Message>,
+
+        /// Pre-generated partial signatures to publish.
+        ///
+        /// If [`None`], will generate new partial signatures via secret service, and then add them
+        /// here as [`Some`].
+        partial_signatures: Option<PogMusigF<PartialSignature>>,
     },
 
     /// Instructs us to commit the aggregated signatures to state.
@@ -733,6 +739,13 @@ pub enum OperatorDuty {
 
         /// The sighash that needs to be signed.
         sighash: Message,
+
+        /// Pre-generated partial signature to publish.
+        ///
+        /// If [`None`], will generate new partial signature via secret service, and then add it
+        /// here as
+        /// [`Some`].
+        partial_signature: Option<PartialSignature>,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -1573,6 +1586,7 @@ impl ContractSM {
                     pubnonces,
                     pog_prevouts: pog.musig_inpoints(),
                     pog_sighashes: pog.musig_sighashes(),
+                    partial_signatures: None,
                 }))
             }
             _ => Err(TransitionErr(format!(
@@ -1793,6 +1807,7 @@ impl ContractSM {
                                 .expect("received nonces from nonexistent operator"),
                             deposit_request_txid: self.deposit_request_txid(),
                             sighash,
+                            partial_signature: None,
                         })
                     } else {
                         None
