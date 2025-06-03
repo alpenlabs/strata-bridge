@@ -669,6 +669,12 @@ pub enum OperatorDuty {
         /// The set of taproot witnesses required to reconstruct the taproot control blocks for the
         /// outpoints.
         pog_witnesses: PogMusigF<TaprootWitness>,
+
+        /// Pre-generated nonces to publish.
+        ///
+        /// If [`None`], will generate new nonces via secret service, and then add them here as
+        /// [`Some`].
+        nonces: Option<PogMusigF<PubNonce>>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -709,6 +715,12 @@ pub enum OperatorDuty {
 
         /// The taproot witness required to reconstruct the taproot control block for the outpoint.
         witness: TaprootWitness,
+
+        /// Pre-generated nonce to publish.
+        ///
+        /// If [`None`], will generate new nonce via secret service, and then add it here as
+        /// [`Some`].
+        nonce: Option<PubNonce>,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
@@ -1431,6 +1443,7 @@ impl ContractSM {
                         claim_txid: graph.claim_tx.compute_txid(),
                         pog_prevouts: graph.musig_inpoints(),
                         pog_witnesses: graph.musig_witnesses(),
+                        nonces: None,
                     })
                     .collect::<Vec<_>>();
 

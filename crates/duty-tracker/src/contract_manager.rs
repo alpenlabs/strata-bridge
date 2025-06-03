@@ -991,6 +991,7 @@ impl ContractManagerCtx {
                             claim_txid,
                             pog_prevouts,
                             pog_witnesses,
+                            nonces: None,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1011,6 +1012,7 @@ impl ContractManagerCtx {
                         Some(OperatorDuty::PublishRootNonce {
                             deposit_request_txid,
                             witness,
+                            nonce: None,
                         })
                     } else {
                         warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1357,12 +1359,14 @@ async fn execute_duty(
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
             witness,
+            nonce,
         } => {
             handle_publish_root_nonce(
                 &output_handles.s2_session_manager,
                 &output_handles.msg_handler,
                 OutPoint::new(deposit_request_txid, 0),
                 witness,
+                nonce,
             )
             .await
         }
@@ -1371,6 +1375,7 @@ async fn execute_duty(
             claim_txid,
             pog_prevouts: pog_inputs,
             pog_witnesses,
+            nonces,
         } => {
             handle_publish_graph_nonces(
                 s2_session_manager,
@@ -1378,6 +1383,7 @@ async fn execute_duty(
                 claim_txid,
                 pog_inputs,
                 pog_witnesses,
+                nonces,
             )
             .await
         }

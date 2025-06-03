@@ -307,60 +307,69 @@ async fn finalize_claim_funding_tx(
 /// Handles the duty to publish the graph nonces for the given peg out graph identified by the
 /// transaction ID of its claim transaction.
 ///
-/// This also commits the graph nonces to the database in the `pub_nonces` table.
+/// TODO: This also commits the graph nonces to the database in the `pub_nonces` table.
 pub(crate) async fn handle_publish_graph_nonces(
     musig: &MusigSessionManager,
     message_handler: &MessageHandler,
     claim_txid: Txid,
     pog_outpoints: PogMusigF<OutPoint>,
     pog_witnesses: PogMusigF<TaprootWitness>,
+    pre_generated_nonces: Option<PogMusigF<PubNonce>>,
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph nonces");
 
-    let nonces: PogMusigF<PubNonce> = match PogMusigF::transpose_result(
-        pog_outpoints
-            .clone()
-            .zip(pog_witnesses.clone())
-            .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
-            .join_all()
-            .await,
-    ) {
-        Ok(res) => res,
-        Err(err) => {
-            match err {
-                MusigSessionErr::SecretServiceClientErr(client_error) => {
-                    warn!(%client_error, "error getting nonces for graph from s2")
+    let nonces: PogMusigF<PubNonce> = if let Some(existing_nonces) = pre_generated_nonces {
+        debug!(%claim_txid, "using pre-generated nonces from contract state");
+        existing_nonces
+    } else {
+        debug!(%claim_txid, "generating new nonces via secret service");
+        match PogMusigF::transpose_result(
+            pog_outpoints
+                .clone()
+                .zip(pog_witnesses.clone())
+                .map(|(outpoint, witness)| musig.get_nonce(outpoint, witness))
+                .join_all()
+                .await,
+        ) {
+            Ok(res) => res,
+            Err(err) => {
+                match err {
+                    MusigSessionErr::SecretServiceClientErr(client_error) => {
+                        warn!(%client_error, "error getting nonces for graph from s2")
+                    }
+                    MusigSessionErr::SecretServiceNewSessionErr(musig2_new_session_error) => {
+                        // TODO: (@Rajil1213) handle this properly when we known what causes this
+                        error!(
+                            ?musig2_new_session_error,
+                            "error getting nonces for graph from s2"
+                        )
+                    }
+                    MusigSessionErr::SecretServiceRoundContributionErr(
+                        round_contribution_error,
+                    ) => {
+                        // TODO: (@Rajil1213) handle this properly when we known what causes this
+                        error!(
+                            ?round_contribution_error,
+                            "error getting nonces for graph from s2"
+                        )
+                    }
+                    MusigSessionErr::SecretServiceRoundFinalizeErr(round_finalize_error) => {
+                        // TODO: (@Rajil1213) handle this properly when we known what causes this
+                        error!(%round_finalize_error, "error getting nonces for graph from s2")
+                    }
+                    MusigSessionErr::Premature => {
+                        unreachable!("this should never happen unless the stf is wrong")
+                    }
+                    MusigSessionErr::NotFound(out_point) => {
+                        // this can happen either because the session has already been finalized
+                        // or if the contract is unknown to us
+                        // both of which are okay but we do log it here.
+                        warn!(%out_point, "session outpoint not found");
+                    }
                 }
-                MusigSessionErr::SecretServiceNewSessionErr(musig2_new_session_error) => {
-                    // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    error!(
-                        ?musig2_new_session_error,
-                        "error getting nonces for graph from s2"
-                    )
-                }
-                MusigSessionErr::SecretServiceRoundContributionErr(round_contribution_error) => {
-                    // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    error!(
-                        ?round_contribution_error,
-                        "error getting nonces for graph from s2"
-                    )
-                }
-                MusigSessionErr::SecretServiceRoundFinalizeErr(round_finalize_error) => {
-                    // TODO: (@Rajil1213) handle this properly when we known what causes this
-                    error!(%round_finalize_error, "error getting nonces for graph from s2")
-                }
-                MusigSessionErr::Premature => {
-                    unreachable!("this should never happen unless the stf is wrong")
-                }
-                MusigSessionErr::NotFound(out_point) => {
-                    // this can happen either because the session has already been finalized
-                    // or if the contract is unknown to us
-                    // both of which are okay but we do log it here.
-                    warn!(%out_point, "session outpoint not found");
-                }
-            }
 
-            return Ok(());
+                return Ok(());
+            }
         }
     };
 
@@ -384,7 +393,7 @@ pub(crate) async fn handle_publish_graph_nonces(
 /// Handles the duty to publish the graph partial signatures for the given peg out graph identified
 /// by the transaction ID of its claim transaction.
 ///
-/// This also commits the graph partial signatures to the database in the `partial_signatures`
+/// TODO: This also commits the graph partial signatures to the database in the `partial_signatures`
 /// table.
 pub(crate) async fn handle_publish_graph_sigs(
     musig: &MusigSessionManager,
@@ -539,18 +548,25 @@ pub(crate) async fn handle_commit_sig(
 /// Handles the duty to publish the root nonce for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
 ///
-/// This also commits the root nonce to the database in the `pub_nonces` table.
+/// TODO: This also commits the root nonce to the database in the `pub_nonces` table.
 pub(crate) async fn handle_publish_root_nonce(
     s2_client: &MusigSessionManager,
     msg_handler: &MessageHandler,
     prevout: OutPoint,
     witness: TaprootWitness,
+    pre_generated_nonce: Option<PubNonce>,
 ) -> Result<(), ContractManagerErr> {
     let deposit_request_txid = prevout.txid;
     let deposit_request_vout = prevout.vout;
     info!(%deposit_request_txid, %deposit_request_vout, "executing duty to publish root nonce");
 
-    let nonce = s2_client.get_nonce(prevout, witness.clone()).await?;
+    let nonce = if let Some(existing_nonce) = pre_generated_nonce {
+        debug!(%deposit_request_txid, %deposit_request_vout, "using pre-generated root nonce from contract state");
+        existing_nonce
+    } else {
+        debug!(%deposit_request_txid, %deposit_request_vout, "generating new root nonce via secret service");
+        s2_client.get_nonce(prevout, witness.clone()).await?
+    };
 
     // TODO(@storopoli): Commit the root nonce to the database in the `pub_nonces` table.
     //                   This function should take a `&SqliteDB` handle as an argument.
@@ -572,7 +588,7 @@ pub(crate) async fn handle_publish_root_nonce(
 /// Handles the duty to publish the root signature for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
 ///
-/// This also commits the root signature to the database in the `partial_signatures` table.
+/// TODO: This also commits the root signature to the database in the `partial_signatures` table.
 pub(crate) async fn handle_publish_root_signature(
     cfg: &ExecutionConfig,
     s2_client: &MusigSessionManager,
