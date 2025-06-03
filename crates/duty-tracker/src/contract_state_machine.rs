@@ -1484,8 +1484,7 @@ impl ContractSM {
                 // session nonces must be present for this claim_txid at this point
                 let Some(session_nonces) = graph_nonces.get_mut(&claim_txid) else {
                     return Err(TransitionErr(format!(
-                        "could not process graph nonces. claim_txid ({}) not found in nonce map",
-                        claim_txid
+                        "could not process graph nonces. claim_txid ({claim_txid}) not found in nonce map"
                     )));
                 };
 
@@ -1493,8 +1492,7 @@ impl ContractSM {
                     warn!(%claim_txid, %signer, "already received nonces for graph");
                     debug_assert_eq!(
                         &unpacked, existing,
-                        "conflicting graph nonces received from {} for claim {}",
-                        signer, claim_txid
+                        "conflicting graph nonces received from {signer} for claim {claim_txid}"
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
@@ -1526,8 +1524,7 @@ impl ContractSM {
 
                 let Some(pog_input) = peg_out_graph_inputs.get(&graph_owner) else {
                     return Err(TransitionErr(format!(
-                        "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
-                        claim_txid
+                        "could not process graph nonces. claim_txid ({claim_txid}) not found in peg out graph map"
                     )));
                 };
                 let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
