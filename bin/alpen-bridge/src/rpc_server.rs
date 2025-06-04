@@ -631,7 +631,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 | ContractState::Assigned { .. }
                 | ContractState::StakeTxReady { .. }
                 | ContractState::Fulfilled { .. }
-                | ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
+                | ContractState::Stub => RpcReimbursementStatus::NotStarted,
+                ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
                 ContractState::Challenged { .. }
                 | ContractState::PreAssertConfirmed { .. }
                 | ContractState::AssertDataConfirmed { .. }

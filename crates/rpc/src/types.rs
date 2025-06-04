@@ -77,6 +77,9 @@ pub enum RpcWithdrawalStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcReimbursementStatus {
+    /// Claim does not exist.
+    NotStarted,
+
     /// Claim exists, challenge step is "Claim", no payout.
     InProgress,
 
