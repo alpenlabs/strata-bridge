@@ -399,7 +399,7 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
             type Value = WotsSignatureStub<N>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(formatter, "an array of {} ([u8; 20], u8) tuples", N)
+                write!(formatter, "an array of {N} ([u8; 20], u8) tuples")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -515,10 +515,9 @@ impl<'de> Deserialize<'de> for Groth16Signatures {
         ) = Deserialize::deserialize(deserializer)?;
 
         if hashes.len() != NUM_HASH {
-            return Err(serde::de::Error::custom(format!(
-                "Invalid length of hashes, got: {}, expected: {}",
+            return Err(de::Error::custom(format!(
+                "Invalid length of hashes, got: {}, expected: {NUM_HASH}",
                 hashes.len(),
-                NUM_HASH
             )));
         }
 

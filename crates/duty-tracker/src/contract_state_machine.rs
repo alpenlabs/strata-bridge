@@ -2211,8 +2211,7 @@ impl ContractSM {
                     let agg_sig = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {} in claimed state after pre-assert timelock",
-                            claim_txid
+                            "could not find graph sigs for claim txid {claim_txid} in claimed state after pre-assert timelock",
                         )))?
                         .pre_assert;
 
@@ -2234,8 +2233,7 @@ impl ContractSM {
                     let agg_sigs = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {} in claimed state after payout optimistic timelock",
-                            claim_txid
+                            "could not find graph sigs for claim txid {claim_txid} in claimed state after payout optimistic timelock",
                         )))?
                         .payout_optimistic;
 
@@ -2272,8 +2270,7 @@ impl ContractSM {
                     let agg_sig = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {} in challenged state",
-                            claim_txid
+                            "could not find graph sigs for claim txid {claim_txid} in challenged state",
                         )))?
                         .pre_assert;
 
@@ -2376,17 +2373,15 @@ impl ContractSM {
                             claim_txids
                                 .get(&fulfiller_key)
                                 .ok_or(TransitionErr(format!(
-                                    "could not find claim_txid for operator {} in csm {}",
-                                    fulfiller_key,
-                                    self.deposit_txid()
-                                )))?;
+                                "could not find claim_txid for operator {fulfiller_key} in csm {}",
+                                self.deposit_txid()
+                            )))?;
 
                         let deadline = dispatched_state.exec_deadline();
                         let active_graph = peg_out_graphs
                             .get(fulfiller_claim_txid)
                             .ok_or(TransitionErr(format!(
-                                "could not find peg out graph {} in csm {}",
-                                fulfiller_claim_txid,
+                                "could not find peg out graph {fulfiller_claim_txid} in csm {}",
                                 self.deposit_txid()
                             )))?
                             .to_owned();
@@ -2949,8 +2944,7 @@ impl ContractSM {
                         signed_assert_data_txs
                             .get(txid)
                             .ok_or(TransitionErr(format!(
-                                "could not find assert data tx {} in csm {}",
-                                txid,
+                                "could not find assert data tx {txid} in csm {}",
                                 self.deposit_txid()
                             )))
                             .cloned()
