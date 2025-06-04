@@ -672,8 +672,7 @@ pub enum OperatorDuty {
 
         /// Pre-generated nonces to publish.
         ///
-        /// If [`None`], will generate new nonces via secret service, and then add them here as
-        /// [`Some`].
+        /// The duty executor will generate new nonces if [`None`] is passed.
         nonces: Option<PogMusigF<PubNonce>>,
     },
 
@@ -694,8 +693,7 @@ pub enum OperatorDuty {
 
         /// Pre-generated partial signatures to publish.
         ///
-        /// If [`None`], will generate new partial signatures via secret service, and then add them
-        /// here as [`Some`].
+        /// The duty executor will generate new partial signatures if [`None`] is passed.
         partial_signatures: Option<PogMusigF<PartialSignature>>,
     },
 
@@ -724,8 +722,7 @@ pub enum OperatorDuty {
 
         /// Pre-generated nonce to publish.
         ///
-        /// If [`None`], will generate new nonce via secret service, and then add it here as
-        /// [`Some`].
+        /// The duty executor will generate new nonce if [`None`] is passed.
         nonce: Option<PubNonce>,
     },
 
@@ -742,9 +739,7 @@ pub enum OperatorDuty {
 
         /// Pre-generated partial signature to publish.
         ///
-        /// If [`None`], will generate new partial signature via secret service, and then add it
-        /// here as
-        /// [`Some`].
+        /// The duty executor will generate new partial signature if [`None`] is passed.
         partial_signature: Option<PartialSignature>,
     },
 

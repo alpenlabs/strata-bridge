@@ -306,8 +306,7 @@ async fn finalize_claim_funding_tx(
 
 /// Handles the duty to publish the graph nonces for the given peg out graph identified by the
 /// transaction ID of its claim transaction.
-///
-/// TODO: This also commits the graph nonces to the database in the `pub_nonces` table.
+// TODO: This also commits the graph nonces to the database in the `pub_nonces` table.
 pub(crate) async fn handle_publish_graph_nonces(
     musig: &MusigSessionManager,
     message_handler: &MessageHandler,
@@ -392,9 +391,8 @@ pub(crate) async fn handle_publish_graph_nonces(
 
 /// Handles the duty to publish the graph partial signatures for the given peg out graph identified
 /// by the transaction ID of its claim transaction.
-///
-/// TODO: This also commits the graph partial signatures to the database in the `partial_signatures`
-/// table.
+// TODO: This also commits the graph partial signatures to the database in the `partial_signatures`
+// table.
 pub(crate) async fn handle_publish_graph_sigs(
     musig: &MusigSessionManager,
     message_handler: &MessageHandler,
@@ -557,8 +555,7 @@ pub(crate) async fn handle_commit_sig(
 
 /// Handles the duty to publish the root nonce for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
-///
-/// TODO: This also commits the root nonce to the database in the `pub_nonces` table.
+// TODO: This also commits the root nonce to the database in the `pub_nonces` table.
 pub(crate) async fn handle_publish_root_nonce(
     s2_client: &MusigSessionManager,
     msg_handler: &MessageHandler,
@@ -597,8 +594,7 @@ pub(crate) async fn handle_publish_root_nonce(
 
 /// Handles the duty to publish the root signature for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
-///
-/// TODO: This also commits the root signature to the database in the `partial_signatures` table.
+// TODO: This also commits the root signature to the database in the `partial_signatures` table.
 pub(crate) async fn handle_publish_root_signature(
     cfg: &ExecutionConfig,
     s2_client: &MusigSessionManager,
