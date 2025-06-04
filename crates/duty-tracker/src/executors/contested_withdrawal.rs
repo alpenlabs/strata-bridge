@@ -42,7 +42,7 @@ pub(crate) async fn handle_publish_pre_assert(
     claim_txid: Txid,
     agg_sig: taproot::Signature,
 ) -> Result<(), ContractManagerErr> {
-    info!("executing duty to publish pre-assert tx");
+    info!(%deposit_idx, %deposit_txid, %claim_txid, "executing duty to publish pre-assert tx");
 
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
@@ -193,7 +193,7 @@ pub(crate) async fn handle_publish_post_assert(
     assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
     agg_sigs: [taproot::Signature; NUM_ASSERT_DATA_TX],
 ) -> Result<(), ContractManagerErr> {
-    info!("executing duty to publish post-assert transaction");
+    info!(%deposit_txid, "executing duty to publish post-assert transaction");
 
     let post_assert_data = PostAssertTxData {
         assert_data_txids: assert_data_txids.to_vec(),
@@ -252,7 +252,7 @@ pub(crate) async fn handle_publish_payout(
     post_assert_txid: Txid,
     agg_sigs: [taproot::Signature; NUM_PAYOUT_INPUTS],
 ) -> Result<(), ContractManagerErr> {
-    info!("executing duty to publish payout transaction");
+    info!(%deposit_idx, %deposit_txid, %claim_txid, %stake_txid, %post_assert_txid, "executing duty to publish payout transaction");
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
     let reimbursement_key = s2_client.general_wallet_signer().pubkey().await?;
