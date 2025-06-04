@@ -49,3 +49,4 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+mimalloc.workspace = true

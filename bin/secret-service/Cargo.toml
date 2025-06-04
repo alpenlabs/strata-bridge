@@ -12,6 +12,7 @@ bitvm.workspace = true
 colored = "3.0.0"
 hkdf = "0.12.4"
 make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
+mimalloc.workspace = true
 musig2.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"

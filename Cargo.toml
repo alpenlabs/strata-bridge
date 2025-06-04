@@ -120,6 +120,7 @@ bdk_esplora = { version = "0.20.1", features = [
 bdk_wallet = "1.1.0"
 bincode = "1.3.3"
 blake3 = "1.6.1"
+mimalloc = { version = "*", features = ["secure"] }
 # TODO(proofofkeags): when updating `bitcoin` to >=0.33.0, go through btc-notify and update tests to no longer constrain heights.
 bitcoin = { version = "0.32.6", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"

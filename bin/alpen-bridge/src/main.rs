@@ -6,6 +6,7 @@ use args::OperationMode;
 use clap::Parser;
 use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
+use mimalloc::MiMalloc;
 use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
@@ -19,6 +20,9 @@ mod params;
 mod rpc_server;
 
 mod constants;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 fn main() {
     logging::init(LoggerConfig::with_base_name("bridge-node"));
