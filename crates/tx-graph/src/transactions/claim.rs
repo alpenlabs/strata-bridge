@@ -30,6 +30,9 @@ pub struct ClaimTx {
     connector_k: ConnectorK,
 }
 
+/// The vout used in the challenge/pre-assert transactions.
+pub const CHALLENGE_VOUT: u32 = 1;
+
 /// The vout used in the payout transaction to reimburse the operator.
 pub const PAYOUT_VOUT: u32 = 2;
 

@@ -178,7 +178,7 @@ impl PegOutGraph {
         let start_time = Instant::now();
 
         let challenge_input = ChallengeTxInput {
-            claim_outpoint: OutPoint::new(claim_txid, 1),
+            claim_outpoint: OutPoint::new(claim_txid, CHALLENGE_VOUT),
             challenge_amt: graph_params.challenge_cost,
             operator_pubkey: input.operator_pubkey,
             network: context.network(),

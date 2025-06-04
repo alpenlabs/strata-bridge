@@ -36,7 +36,7 @@ use strata_bridge_rpc::{
     },
 };
 use strata_bridge_tx_graph::transactions::{
-    claim::PAYOUT_VOUT as CHALLENGE_VOUT,
+    claim::CHALLENGE_VOUT,
     deposit::DepositTx,
     prelude::{ChallengeTx, ChallengeTxInput},
 };
