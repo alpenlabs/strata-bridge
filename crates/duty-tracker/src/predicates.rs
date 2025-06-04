@@ -15,7 +15,7 @@ use strata_bridge_tx_graph::transactions::{claim::CHALLENGE_VOUT, deposit::Depos
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
-use tracing::{debug, warn};
+use tracing::warn;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -189,26 +189,27 @@ pub(crate) fn parse_strata_checkpoint(
     let filter_config =
         TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
 
-    if let Some(script) = tx.input[0].witness.taproot_leaf_script() {
-        let script = script.script.to_bytes();
-        if let Ok(inscription) = parse_envelope_payloads(&script.into(), &filter_config) {
-            if inscription.is_empty() {
-                return None;
-            }
+    let script = tx.input[0].witness.taproot_leaf_script()?.script.to_bytes();
 
-            let signed_checkpoint =
-                borsh::from_slice::<SignedCheckpoint>(inscription[0].data()).ok()?;
+    let Ok(inscriptions) = parse_envelope_payloads(&script.into(), &filter_config) else {
+        return None;
+    };
 
-            let cred_rule = &rollup_params.cred_rule;
-            if verify_signed_checkpoint_sig(&signed_checkpoint, cred_rule) {
-                debug!(?cred_rule, epoch=%signed_checkpoint.checkpoint().batch_info().epoch, "found valid strata checkpoint");
-
-                return Some(signed_checkpoint.into());
-            }
-        }
+    if inscriptions.is_empty() {
+        return None;
     }
 
-    None
+    let Ok(signed_checkpoint) = borsh::from_slice::<SignedCheckpoint>(inscriptions[0].data())
+    else {
+        return None;
+    };
+
+    let cred_rule = &rollup_params.cred_rule;
+    if !verify_signed_checkpoint_sig(&signed_checkpoint, cred_rule) {
+        return None;
+    }
+
+    Some(signed_checkpoint.into())
 }
 
 #[cfg(test)]

@@ -628,6 +628,11 @@ impl ContractManagerCtx {
         let mut duties = Vec::new();
 
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
+            debug!(
+                epoch = %checkpoint.batch_info().epoch(),
+                "found valid strata checkpoint"
+            );
+
             let chain_state = checkpoint.sidecar().chainstate();
 
             match borsh::from_slice::<Chainstate>(chain_state) {
