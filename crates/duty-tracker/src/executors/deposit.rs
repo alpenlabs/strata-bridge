@@ -32,7 +32,7 @@ use strata_p2p_types::{
     WotsPublicKeys,
 };
 use tokio::sync::mpsc;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
@@ -413,7 +413,7 @@ pub(crate) async fn handle_publish_graph_sigs(
 
             // Add all nonces to the musig session manager context.
             for (pk, graph_nonces) in pubnonces {
-                info!(%pk, "loading nonces");
+                trace!(%pk, "loading nonces");
 
                 PogMusigF::<()>::transpose_result::<MusigSessionErr>(
                     pog_outpoints
@@ -617,7 +617,7 @@ pub(crate) async fn handle_publish_root_signature(
 
         let our_pubkey = cfg.operator_table.pov_btc_key();
         for (musig2_pubkey, nonce) in nonces.into_iter().filter(|(pk, _)| *pk != our_pubkey) {
-            info!(%musig2_pubkey, %deposit_request_txid, "loading nonce");
+            trace!(%musig2_pubkey, %deposit_request_txid, "loading nonce");
             s2_client
                 .put_nonce(prevout, musig2_pubkey.to_x_only_pubkey(), nonce)
                 .await
