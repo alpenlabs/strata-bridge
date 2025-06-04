@@ -15,7 +15,7 @@ use bitvm::{
 use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 use proptest_derive::Arbitrary;
 use serde::{
-    de::{SeqAccess, Visitor},
+    de::{self, SeqAccess, Visitor},
     ser::SerializeSeq,
     Deserialize, Deserializer, Serialize, Serializer,
 };
@@ -57,7 +57,7 @@ impl From<Wots256PublicKey> for strata_p2p_types::Wots256PublicKey {
 impl Serialize for Wots256PublicKey {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         let mut structure =
             serializer.serialize_seq(Some(std::mem::size_of::<Wots256PublicKey>()))?;
@@ -73,7 +73,7 @@ impl Serialize for Wots256PublicKey {
 impl<'de> Deserialize<'de> for Wots256PublicKey {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
         struct Wots256PublicKeyVisitor;
 
@@ -90,7 +90,7 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
             // Handle the case where input is a sequence (e.g., JSON array)
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::SeqAccess<'de>,
+                A: de::SeqAccess<'de>,
             {
                 let mut packed = [[0u8; 20]; wots_key_width(256)];
                 for (key_idx, key) in packed.iter_mut().enumerate() {
@@ -98,7 +98,7 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
                         if let Some(next) = seq.next_element()? {
                             *byte = next;
                         } else {
-                            return Err(serde::de::Error::invalid_length(
+                            return Err(de::Error::invalid_length(
                                 (key_idx + 1) * (byte_idx + 1),
                                 &self,
                             ));
@@ -220,7 +220,7 @@ impl From<Groth16PublicKeys> for strata_p2p_types::Groth16PublicKeys {
 impl Serialize for Groth16PublicKeys {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
-        S: serde::Serializer,
+        S: Serializer,
     {
         let mut structure = serializer.serialize_seq(Some(std::mem::size_of::<Self>()))?;
         let inner = *self.0;
@@ -256,7 +256,7 @@ impl Serialize for Groth16PublicKeys {
 impl<'de> Deserialize<'de> for Groth16PublicKeys {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
-        D: serde::Deserializer<'de>,
+        D: Deserializer<'de>,
     {
         // Create a visitor for our nested array
         struct Groth16PublicKeysVisitor;
@@ -275,7 +275,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
             // Handle the case where input is a sequence (e.g., JSON array)
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
-                A: serde::de::SeqAccess<'de>,
+                A: de::SeqAccess<'de>,
             {
                 let mut public_inputs = [[[0u8; 20]; wots_key_width(256)]; NUM_PUBS];
                 for (input_idx, input) in public_inputs.iter_mut().enumerate() {
@@ -284,7 +284,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
                             if let Some(next) = seq.next_element()? {
                                 *byte = next;
                             } else {
-                                return Err(serde::de::Error::invalid_length(
+                                return Err(de::Error::invalid_length(
                                     (input_idx + 1) * (key_idx + 1) * (byte_idx + 1),
                                     &self,
                                 ));
@@ -300,7 +300,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
                             if let Some(next) = seq.next_element()? {
                                 *byte = next;
                             } else {
-                                return Err(serde::de::Error::invalid_length(
+                                return Err(de::Error::invalid_length(
                                     (fq_idx + 1) * (key_idx + 1) * (byte_idx + 1),
                                     &self,
                                 ));
@@ -316,7 +316,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
                             if let Some(next) = seq.next_element()? {
                                 *byte = next;
                             } else {
-                                return Err(serde::de::Error::invalid_length(
+                                return Err(de::Error::invalid_length(
                                     (hash_idx + 1) * (key_idx + 1) * (byte_idx + 1),
                                     &self,
                                 ));
@@ -373,7 +373,7 @@ impl Groth16PublicKeys {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WotsSignatureStub<const N: usize>([([u8; 20], u8); N]);
 
-impl<const N: usize> serde::Serialize for WotsSignatureStub<N> {
+impl<const N: usize> Serialize for WotsSignatureStub<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -410,12 +410,12 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
                 for _ in 0..N {
                     let item: ([u8; 20], u8) = seq
                         .next_element()?
-                        .ok_or_else(|| serde::de::Error::invalid_length(items.len(), &self))?;
+                        .ok_or_else(|| de::Error::invalid_length(items.len(), &self))?;
                     items.push(item);
                 }
                 let arr: [([u8; 20], u8); N] = items
                     .try_into()
-                    .map_err(|_| serde::de::Error::custom("invalid array length"))?;
+                    .map_err(|_| de::Error::custom("invalid array length"))?;
 
                 Ok(WotsSignatureStub(arr))
             }
@@ -454,7 +454,7 @@ impl Deref for Wots256Signature {
 
 /// WOTS signatures used for Groth16 proofs.
 impl Serialize for Wots256Signature {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         WotsSignatureStub(self.0).serialize(serializer)
     }
 }
@@ -470,7 +470,7 @@ impl<'de> Deserialize<'de> for Wots256Signature {
 pub struct WotsHashSignature(wots_hash::Signature);
 
 impl Serialize for WotsHashSignature {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         WotsSignatureStub(self.0).serialize(serializer)
     }
 }
@@ -494,7 +494,7 @@ impl Deref for Groth16Signatures {
 }
 
 impl Serialize for Groth16Signatures {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let (pub_inputs, field_elems, hashes) = &self.0;
 
         let pub_inputs = pub_inputs.map(WotsSignatureStub);
