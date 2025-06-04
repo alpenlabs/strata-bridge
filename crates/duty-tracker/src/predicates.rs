@@ -11,7 +11,7 @@ use bitcoin::{
 use bitcoin_bosd::Descriptor;
 use btc_notify::client::TxPredicate;
 use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
-use strata_bridge_tx_graph::transactions::deposit::DepositRequestData;
+use strata_bridge_tx_graph::transactions::{claim::CHALLENGE_VOUT, deposit::DepositRequestData};
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
@@ -97,7 +97,7 @@ pub(crate) fn is_challenge(claim_txid: Txid) -> TxPredicate {
     Arc::new(move |tx| {
         tx.input
             .first()
-            .map(|txin| txin.previous_output == OutPoint::new(claim_txid, 1))
+            .map(|txin| txin.previous_output == OutPoint::new(claim_txid, CHALLENGE_VOUT))
             .unwrap_or(false)
             && tx.output.len() == 1
     })
