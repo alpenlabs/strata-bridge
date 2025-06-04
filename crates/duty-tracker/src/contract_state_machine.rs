@@ -2211,7 +2211,7 @@ impl ContractSM {
                     let agg_sig = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {}",
+                            "could not find graph sigs for claim txid {} in claimed state after pre-assert timelock",
                             claim_txid
                         )))?
                         .pre_assert;
@@ -2234,7 +2234,7 @@ impl ContractSM {
                     let agg_sigs = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {}",
+                            "could not find graph sigs for claim txid {} in claimed state after payout optimistic timelock",
                             claim_txid
                         )))?
                         .payout_optimistic;
@@ -2272,7 +2272,7 @@ impl ContractSM {
                     let agg_sig = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {}",
+                            "could not find graph sigs for claim txid {} in challenged state",
                             claim_txid
                         )))?
                         .pre_assert;
@@ -2311,7 +2311,7 @@ impl ContractSM {
                         agg_sigs: graph_sigs
                             .get(&active_graph.1.claim_txid)
                             .ok_or(TransitionErr(format!(
-                                "could not find graph sigs for claim txid {}",
+                                "could not find graph sigs for claim txid {} in asserted state after payout timelock",
                                 active_graph.1.claim_txid
                             )))?
                             .payout
@@ -2705,7 +2705,8 @@ impl ContractSM {
                 withdrawal_fulfillment_commitment,
                 ..
             } => {
-                if !is_challenge(active_graph.1.claim_txid)(tx) {
+                let claim_txid = active_graph.1.claim_txid;
+                if !is_challenge(claim_txid)(tx) {
                     self.state.state = copy_of_current;
 
                     return Err(TransitionErr(format!(
@@ -2714,6 +2715,8 @@ impl ContractSM {
                     )));
                 }
 
+                let challenge_txid = tx.compute_txid();
+                info!(%claim_txid, %challenge_txid, "received challenge confirmation");
                 self.state.state = ContractState::Challenged {
                     peg_out_graphs,
                     claim_txids,
@@ -2885,7 +2888,7 @@ impl ContractSM {
                     let agg_sigs = graph_sigs
                         .get(&active_graph.1.claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {}",
+                            "could not find graph sigs for claim txid {} in assert data confirmed state",
                             active_graph.1.claim_txid
                         )))?
                         .post_assert;
