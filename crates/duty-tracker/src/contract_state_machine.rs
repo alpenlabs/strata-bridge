@@ -669,6 +669,11 @@ pub enum OperatorDuty {
         /// The set of taproot witnesses required to reconstruct the taproot control blocks for the
         /// outpoints.
         pog_witnesses: PogMusigF<TaprootWitness>,
+
+        /// Pre-generated nonces to publish.
+        ///
+        /// The duty executor will generate new nonces if [`None`] is passed.
+        nonces: Option<PogMusigF<PubNonce>>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -685,6 +690,11 @@ pub enum OperatorDuty {
 
         /// The set of sighashes that need to be signed.
         pog_sighashes: PogMusigF<Message>,
+
+        /// Pre-generated partial signatures to publish.
+        ///
+        /// The duty executor will generate new partial signatures if [`None`] is passed.
+        partial_signatures: Option<PogMusigF<PartialSignature>>,
     },
 
     /// Instructs us to commit the aggregated signatures to state.
@@ -709,6 +719,11 @@ pub enum OperatorDuty {
 
         /// The taproot witness required to reconstruct the taproot control block for the outpoint.
         witness: TaprootWitness,
+
+        /// Pre-generated nonce to publish.
+        ///
+        /// The duty executor will generate new nonce if [`None`] is passed.
+        nonce: Option<PubNonce>,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
@@ -721,6 +736,11 @@ pub enum OperatorDuty {
 
         /// The sighash that needs to be signed.
         sighash: Message,
+
+        /// Pre-generated partial signature to publish.
+        ///
+        /// The duty executor will generate new partial signature if [`None`] is passed.
+        partial_signature: Option<PartialSignature>,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -1431,6 +1451,7 @@ impl ContractSM {
                         claim_txid: graph.claim_tx.compute_txid(),
                         pog_prevouts: graph.musig_inpoints(),
                         pog_witnesses: graph.musig_witnesses(),
+                        nonces: None,
                     })
                     .collect::<Vec<_>>();
 
@@ -1484,8 +1505,7 @@ impl ContractSM {
                 // session nonces must be present for this claim_txid at this point
                 let Some(session_nonces) = graph_nonces.get_mut(&claim_txid) else {
                     return Err(TransitionErr(format!(
-                        "could not process graph nonces. claim_txid ({}) not found in nonce map",
-                        claim_txid
+                        "could not process graph nonces. claim_txid ({claim_txid}) not found in nonce map"
                     )));
                 };
 
@@ -1493,8 +1513,7 @@ impl ContractSM {
                     warn!(%claim_txid, %signer, "already received nonces for graph");
                     debug_assert_eq!(
                         &unpacked, existing,
-                        "conflicting graph nonces received from {} for claim {}",
-                        signer, claim_txid
+                        "conflicting graph nonces received from {signer} for claim {claim_txid}"
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
@@ -1526,8 +1545,7 @@ impl ContractSM {
 
                 let Some(pog_input) = peg_out_graph_inputs.get(&graph_owner) else {
                     return Err(TransitionErr(format!(
-                        "could not process graph nonces. claim_txid ({}) not found in peg out graph map" ,
-                        claim_txid
+                        "could not process graph nonces. claim_txid ({claim_txid}) not found in peg out graph map"
                     )));
                 };
                 let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
@@ -1563,6 +1581,7 @@ impl ContractSM {
                     pubnonces,
                     pog_prevouts: pog.musig_inpoints(),
                     pog_sighashes: pog.musig_sighashes(),
+                    partial_signatures: None,
                 }))
             }
             _ => Err(TransitionErr(format!(
@@ -1783,6 +1802,7 @@ impl ContractSM {
                                 .expect("received nonces from nonexistent operator"),
                             deposit_request_txid: self.deposit_request_txid(),
                             sighash,
+                            partial_signature: None,
                         })
                     } else {
                         None
