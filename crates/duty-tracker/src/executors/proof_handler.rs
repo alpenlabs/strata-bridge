@@ -4,7 +4,7 @@ use std::{fs, sync::Arc, time::Duration};
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::Proof;
-use bitcoin::{block::Header, Block, Transaction, Txid};
+use bitcoin::{block::Header, Block, Txid};
 use bitcoind_async_client::{traits::Reader, Client as BtcClient};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
@@ -14,9 +14,7 @@ use strata_bridge_proof_protocol::{
     REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
 };
 use strata_bridge_proof_snark::prover;
-use strata_l1tx::{envelope::parser::parse_envelope_payloads, TxFilterConfig};
-use strata_primitives::{buf::Buf64, params::RollupParams};
-use strata_state::batch::{Checkpoint, SignedCheckpoint};
+use strata_primitives::buf::Buf64;
 use tracing::info;
 
 use crate::{
@@ -124,42 +122,29 @@ async fn prepare_header_chain(
 
         // Only set `checkpoint` if it's currently `None` and we find a matching tx
         strata_checkpoint_tx = strata_checkpoint_tx.or_else(|| {
-            block
-                .txdata
-                .iter()
-                .enumerate()
-                .find(|(_, tx)| {
-                    checkpoint_last_verified_l1_height(tx, &cfg.sidesystem_params).is_some()
-                })
-                .map(|(idx, tx)| {
-                    let height = block.bip34_block_height().unwrap() as u32;
-                    info!(
-                        event = "found checkpoint",
-                        %height,
-                        checkpoint_txid = %tx.compute_txid()
-                    );
+            block.txdata.iter().enumerate().find_map(|(idx, tx)| {
+                let checkpoint = parse_strata_checkpoint(tx, &cfg.sidesystem_params)?;
 
-                    if should_dump_test_data() {
-                        if let Some(checkpoint) =
-                            parse_strata_checkpoint(tx, &cfg.sidesystem_params)
-                        {
-                            if let Err(e) =
-                                fs::write(CHAINSTATE_FILE, checkpoint.sidecar().chainstate())
-                            {
-                                info!(%e, "failed to dump chainstate to file");
-                            } else {
-                                info!("dumped chainstate to file");
-                            }
-                        } else {
-                            info!("could not parse checkpoint from inscribed tx");
-                        }
+                let height = block.bip34_block_height().unwrap() as u32;
+                info!(
+                    event = "found checkpoint",
+                    %height,
+                    checkpoint_txid = %tx.compute_txid()
+                );
+
+                if should_dump_test_data() {
+                    if let Err(e) = fs::write(CHAINSTATE_FILE, checkpoint.sidecar().chainstate()) {
+                        info!(%e, "failed to dump chainstate to file");
+                    } else {
+                        info!("dumped chainstate to file");
                     }
+                }
 
-                    (
-                        L1TxWithProofBundle::generate(&block.txdata, idx as u32),
-                        (height - start_height) as usize,
-                    )
-                })
+                Some((
+                    L1TxWithProofBundle::generate(&block.txdata, idx as u32),
+                    (height - start_height) as usize,
+                ))
+            })
         });
 
         // Only set `withdrawal_fulfillment` if it's currently `None` and we find a matching tx
@@ -236,29 +221,4 @@ pub(super) fn generate_proof(
             "could not generate proof due to {e:?}"
         )))
     })
-}
-
-fn checkpoint_last_verified_l1_height(
-    tx: &Transaction,
-    rollup_params: &RollupParams,
-) -> Option<u64> {
-    let filter_config =
-        TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
-
-    if let Some(script) = tx.input[0].witness.taproot_leaf_script() {
-        let script = script.script.to_bytes();
-        if let Ok(inscription) = parse_envelope_payloads(&script.into(), &filter_config) {
-            if inscription.is_empty() {
-                return None;
-            }
-            if let Ok(signed_checkpoint) =
-                borsh::from_slice::<SignedCheckpoint>(inscription[0].data())
-            {
-                let checkpoint: Checkpoint = signed_checkpoint.into();
-                return Some(checkpoint.batch_info().epoch());
-            }
-        }
-    }
-
-    None
 }
