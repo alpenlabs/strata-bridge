@@ -2256,6 +2256,7 @@ impl ContractSM {
                 claim_height,
                 fulfiller,
                 active_graph,
+                graph_sigs,
                 ..
             } => {
                 let pov_idx = self.cfg.operator_table.pov_idx();
@@ -2268,10 +2269,7 @@ impl ContractSM {
                     let deposit_txid = self.deposit_txid();
                     let claim_txid = active_graph.1.claim_txid;
 
-                    let agg_sig = self
-                        .state
-                        .state
-                        .graph_sigs()
+                    let agg_sig = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
                             "could not find graph sigs for claim txid {}",
