@@ -261,12 +261,7 @@ impl ConnectorA3Leaf {
 }
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
-///
-/// # Caution
-///
-/// As this connector holds all the wots keys, it should not be used liberally in memory-constrained
-/// environments, where possible this connector should be passed by reference to avoid cloning it.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ConnectorA3 {
     wots_public_keys: wots::PublicKeys,
 
@@ -277,6 +272,23 @@ pub struct ConnectorA3 {
     output_address: Address,
 
     spend_info: TaprootSpendInfo,
+}
+
+impl ConnectorA3 {
+    /// Clones this connector.
+    ///
+    /// This is an expensive operation as it holds all the WOTS public keys.
+    /// As such, this method should be used with caution, especially in memory-constrained
+    /// environments.
+    pub fn expensive_clone(&self) -> Self {
+        Self {
+            wots_public_keys: self.wots_public_keys.clone(),
+            n_of_n_agg_pubkey: self.n_of_n_agg_pubkey,
+            payout_timelock: self.payout_timelock,
+            output_address: self.output_address.clone(),
+            spend_info: self.spend_info.clone(),
+        }
+    }
 }
 
 impl ConnectorA3 {
