@@ -241,7 +241,7 @@ mod tests {
         let mut signed_claim_tx = claim_tx.finalize(*signature);
 
         let parsed_wots256 =
-            ClaimTx::parse_witness(&signed_claim_tx).expect("must be able to parse");
+            ClaimTx::parse_witness(&signed_claim_tx).expect("must be able to parse claim witness");
 
         let full_script = script! {
             for (sig, digit) in parsed_wots256 {
