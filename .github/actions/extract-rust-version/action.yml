@@ -1,0 +1,17 @@
+name: Extract Rust toolchain version
+description: "Extracts the Rust nightly version from rust-toolchain.toml file."
+inputs: {}
+outputs:
+  nightly-version:
+    description: "The extracted nightly version from rust-toolchain.toml"
+    value: ${{ steps.extract.outputs.nightly-version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Extract nightly version
+      id: extract
+      shell: bash
+      run: |
+        VERSION="$(grep '^channel = ' rust-toolchain.toml | sed 's/channel = "\(.*\)"/\1/')"
+        echo "nightly-version=$VERSION" >> "$GITHUB_OUTPUT" 

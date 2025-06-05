@@ -13,27 +13,47 @@ env:
 permissions: {}
 
 jobs:
-  crate-checks:
-    name: Check that crates compile on their own
+  extract-rust-version:
+    name: Extract toolchain version
     runs-on: ubuntu-latest
-    timeout-minutes: 90 # cold run takes a lot of time as each crate is compiled separately
+    outputs:
+      nightly-version: ${{ steps.extract-version.outputs.nightly-version }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           persist-credentials: false
 
-      - uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
+      - name: Extract Rust version
+        id: extract-version
+        uses: ./.github/actions/extract-rust-version
+
+  crate-checks:
+    name: Check that crates compile on their own
+    runs-on: ubuntu-latest
+    needs: extract-rust-version
+    timeout-minutes: 90 # cold run takes a lot of time as each crate is compiled separately
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
-          toolchain: nightly-2024-11-01
+          persist-credentials: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
+        with:
+          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: taiki-e/install-action@27d86b8f455f5faba378fdd55a1c18e1998b3633 # cargo-hack
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@27d86b8f455f5faba378fdd55a1c18e1998b3633 # cargo-hack
 
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
+      - name: Rust cache
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
           cache-on-failure: true
 
@@ -59,7 +79,8 @@ jobs:
       - name: Run db migrations
         run: make migrate
 
-      - run: cargo hack check
+      - name: Check crates compile
+        run: cargo hack check
         env:
           DATABASE_URL: sqlite://./operator.db
           SKIP_GUEST_BUILD: 1
