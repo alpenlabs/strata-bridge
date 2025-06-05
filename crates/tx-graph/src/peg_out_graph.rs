@@ -635,7 +635,7 @@ mod tests {
         build_context::TxBuildContext,
         constants::*,
         scripts::taproot::TaprootWitness,
-        wots::{Assertions, Wots256Signature},
+        wots::{Assertions, Wots256Sig},
     };
     use strata_bridge_stake_chain::{
         prelude::{StakeTx, OPERATOR_FUNDS, STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -743,7 +743,7 @@ mod tests {
         let claim_input_amount = claim_tx.input_amount();
         let claim_cpfp_vout = claim_tx.cpfp_vout();
 
-        let claim_sig = Wots256Signature::new(
+        let claim_sig = Wots256Sig::new(
             MSK,
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
@@ -1394,7 +1394,7 @@ mod tests {
         let claim_input_amount = claim_tx.input_amount();
         let claim_cpfp_vout = claim_tx.cpfp_vout();
 
-        let claim_sig = Wots256Signature::new(
+        let claim_sig = Wots256Sig::new(
             MSK,
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
@@ -1762,7 +1762,7 @@ mod tests {
         let claim_input_amount = ongoing_claim_tx.input_amount();
         let claim_cpfp_vout = ongoing_claim_tx.cpfp_vout();
 
-        let claim_sig = Wots256Signature::new(
+        let claim_sig = Wots256Sig::new(
             MSK,
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),

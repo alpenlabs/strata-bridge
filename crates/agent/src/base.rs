@@ -23,7 +23,7 @@ use secp256k1::{
 };
 use strata_bridge_primitives::{
     scripts::prelude::*,
-    wots::{Wots256PublicKey, Wots256Signature},
+    wots::{Wots256PublicKey, Wots256Sig},
 };
 use tracing::trace;
 
@@ -255,11 +255,11 @@ impl Agent {
         seed: &str,
         stake_index: u32,
         withdrawal_fulfillment_txid: Txid,
-    ) -> Wots256Signature {
+    ) -> Wots256Sig {
         let hash = hashes::sha256::Hash::hash(&stake_index.to_be_bytes());
         let hash = hash.as_byte_array();
         let txid = Txid::from_slice(hash).expect("should be able to create txid from hash");
 
-        Wots256Signature::new(seed, txid, withdrawal_fulfillment_txid.as_byte_array())
+        Wots256Sig::new(seed, txid, withdrawal_fulfillment_txid.as_byte_array())
     }
 }

@@ -371,9 +371,9 @@ impl Groth16PublicKeys {
 /// All the wots signatures defined here and used in this codebase have this structure i.e., each
 /// signature is an array of tuples of a 20-byte preimage and a digit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct WotsSignatureStub<const N: usize>([([u8; 20], u8); N]);
+struct WotsSigStub<const N: usize>([([u8; 20], u8); N]);
 
-impl<const N: usize> Serialize for WotsSignatureStub<N> {
+impl<const N: usize> Serialize for WotsSigStub<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
@@ -386,7 +386,7 @@ impl<const N: usize> Serialize for WotsSignatureStub<N> {
     }
 }
 
-impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
+impl<'de, const N: usize> Deserialize<'de> for WotsSigStub<N> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
@@ -396,7 +396,7 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
         }
 
         impl<'de, const N: usize> Visitor<'de> for ArrayVisitor<N> {
-            type Value = WotsSignatureStub<N>;
+            type Value = WotsSigStub<N>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(formatter, "an array of {N} ([u8; 20], u8) tuples")
@@ -417,7 +417,7 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
                     .try_into()
                     .map_err(|_| de::Error::custom("invalid array length"))?;
 
-                Ok(WotsSignatureStub(arr))
+                Ok(WotsSigStub(arr))
             }
         }
 
@@ -429,9 +429,9 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSignatureStub<N> {
 
 /// A 256-bit WOTS signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots256Signature(pub wots256::Signature);
+pub struct Wots256Sig(pub wots256::Signature);
 
-impl Wots256Signature {
+impl Wots256Sig {
     /// Creates a new 256-bit WOTS signature from a master secret key, a seed transaction ID, and
     /// data to sign.
     pub fn new(msk: &str, seed_txid: Txid, data: &[u8; 32]) -> Self {
@@ -444,7 +444,7 @@ impl Wots256Signature {
     }
 }
 
-impl Deref for Wots256Signature {
+impl Deref for Wots256Sig {
     type Target = wots256::Signature;
 
     fn deref(&self) -> &Self::Target {
@@ -453,39 +453,39 @@ impl Deref for Wots256Signature {
 }
 
 /// WOTS signatures used for Groth16 proofs.
-impl Serialize for Wots256Signature {
+impl Serialize for Wots256Sig {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        WotsSignatureStub(self.0).serialize(serializer)
+        WotsSigStub(self.0).serialize(serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for Wots256Signature {
+impl<'de> Deserialize<'de> for Wots256Sig {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wots_signature = WotsSignatureStub::deserialize(deserializer)?;
+        let wots_signature = WotsSigStub::deserialize(deserializer)?;
         Ok(Self(wots_signature.0))
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct WotsHashSignature(wots_hash::Signature);
+pub struct WotsHashSig(wots_hash::Signature);
 
-impl Serialize for WotsHashSignature {
+impl Serialize for WotsHashSig {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        WotsSignatureStub(self.0).serialize(serializer)
+        WotsSigStub(self.0).serialize(serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for WotsHashSignature {
+impl<'de> Deserialize<'de> for WotsHashSig {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wots_signature = WotsSignatureStub::deserialize(deserializer)?;
+        let wots_signature = WotsSigStub::deserialize(deserializer)?;
         Ok(Self(wots_signature.0))
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16Signatures(pub g16Signatures);
+pub struct Groth16Sigs(pub g16Signatures);
 
-impl Deref for Groth16Signatures {
+impl Deref for Groth16Sigs {
     type Target = g16Signatures;
 
     fn deref(&self) -> &Self::Target {
@@ -493,25 +493,25 @@ impl Deref for Groth16Signatures {
     }
 }
 
-impl Serialize for Groth16Signatures {
+impl Serialize for Groth16Sigs {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let (pub_inputs, field_elems, hashes) = &self.0;
 
-        let pub_inputs = pub_inputs.map(WotsSignatureStub);
-        let field_elems = field_elems.map(WotsSignatureStub);
-        let hashes = hashes.map(WotsSignatureStub);
+        let pub_inputs = pub_inputs.map(WotsSigStub);
+        let field_elems = field_elems.map(WotsSigStub);
+        let hashes = hashes.map(WotsSigStub);
 
         (pub_inputs, field_elems, &hashes[..]).serialize(serializer)
     }
 }
 
-impl<'de> Deserialize<'de> for Groth16Signatures {
+impl<'de> Deserialize<'de> for Groth16Sigs {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let (pub_inputs, field_elems, hashes): (
-            [Wots256Signature; NUM_PUBS],
-            [Wots256Signature; NUM_U256],
-            Vec<WotsHashSignature>, /* vec because its length is longer than what is supported
-                                     * by serde */
+            [Wots256Sig; NUM_PUBS],
+            [Wots256Sig; NUM_U256],
+            Vec<WotsHashSig>, /* vec because its length is longer than what is supported
+                               * by serde */
         ) = Deserialize::deserialize(deserializer)?;
 
         if hashes.len() != NUM_HASH {
@@ -533,7 +533,7 @@ impl<'de> Deserialize<'de> for Groth16Signatures {
     }
 }
 
-impl Groth16Signatures {
+impl Groth16Sigs {
     /// Creates a new set of Groth16 signatures from a master secret key, a deposit transaction
     /// ID, and assertions.
     pub fn new(msk: &str, deposit_txid: Txid, assertions: Assertions) -> Self {
@@ -633,10 +633,10 @@ impl From<PublicKeys> for strata_p2p_types::WotsPublicKeys {
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Signatures {
     /// The WOTS signature for the withdrawal fulfillment.
-    pub withdrawal_fulfillment: Wots256Signature,
+    pub withdrawal_fulfillment: Wots256Sig,
 
     /// The Groth16 signatures.
-    pub groth16: Groth16Signatures,
+    pub groth16: Groth16Sigs,
 }
 
 impl Signatures {
@@ -644,12 +644,12 @@ impl Signatures {
     /// and assertions.
     pub fn new(msk: &str, deposit_txid: Txid, assertions: Assertions) -> Self {
         Self {
-            withdrawal_fulfillment: Wots256Signature::new(
+            withdrawal_fulfillment: Wots256Sig::new(
                 msk,
                 deposit_txid,
                 &assertions.withdrawal_fulfillment,
             ),
-            groth16: Groth16Signatures::new(msk, deposit_txid, assertions),
+            groth16: Groth16Sigs::new(msk, deposit_txid, assertions),
         }
     }
 }
@@ -702,7 +702,7 @@ mod tests {
 
     #[test]
     fn test_generic_wots_sig_serde() {
-        let wots_signature = WotsSignatureStub::<4>([
+        let wots_signature = WotsSigStub::<4>([
             ([0u8; 20], 0),
             ([1u8; 20], 1),
             ([2u8; 20], 2),
@@ -710,7 +710,7 @@ mod tests {
         ]);
 
         let serialized = serde_json::to_string(&wots_signature).expect("must be able to serialize");
-        let deserialized: WotsSignatureStub<4> =
+        let deserialized: WotsSigStub<4> =
             serde_json::from_str(&serialized).expect("must be able to deserialize");
 
         assert_eq!(
@@ -725,11 +725,11 @@ mod tests {
         let seed_txid = Txid::from_raw_hash(hashes::sha256d::Hash::hash("txid".as_bytes()));
         let data = [0u8; 32];
 
-        let wots_256 = Wots256Signature::new(msk, seed_txid, &data);
+        let wots_256 = Wots256Sig::new(msk, seed_txid, &data);
 
         let serialized =
             serde_json::to_string(&wots_256).expect("must be able to serialize wots256");
-        let deserialized: Wots256Signature =
+        let deserialized: Wots256Sig =
             serde_json::from_str(&serialized).expect("must be able to deserialize wots256");
 
         assert_eq!(
@@ -751,11 +751,11 @@ mod tests {
             ),
         };
 
-        let groth_16 = Groth16Signatures::new(msk, seed_txid, assertions);
+        let groth_16 = Groth16Sigs::new(msk, seed_txid, assertions);
 
         let serialized =
             serde_json::to_string(&groth_16).expect("must be able to serialize groth16");
-        let deserialized: Groth16Signatures =
+        let deserialized: Groth16Sigs =
             serde_json::from_str(&serialized).expect("must be able to deserialize groth16");
 
         assert_eq!(

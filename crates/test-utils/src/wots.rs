@@ -8,7 +8,7 @@ use bitvm::{
     signatures::wots_api::{wots256, wots_hash},
 };
 use strata_bridge_primitives::wots::{
-    self, Groth16PublicKeys, Groth16Signatures, Wots256PublicKey, Wots256Signature,
+    self, Groth16PublicKeys, Groth16Sigs, Wots256PublicKey, Wots256Sig,
 };
 
 /// Generates a random WOTS signature.
@@ -17,8 +17,8 @@ pub fn generate_wots_signatures() -> wots::Signatures {
     let wots_hash_signature: wots_hash::Signature = generate_byte_tuple_array(&mut OsRng);
 
     wots::Signatures {
-        withdrawal_fulfillment: Wots256Signature(wots256_signature),
-        groth16: Groth16Signatures((
+        withdrawal_fulfillment: Wots256Sig(wots256_signature),
+        groth16: Groth16Sigs((
             [wots256_signature; NUM_PUBS].into(),
             [wots256_signature; NUM_U256].into(),
             [wots_hash_signature; NUM_HASH].into(),

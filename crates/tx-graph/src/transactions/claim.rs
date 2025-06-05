@@ -196,7 +196,7 @@ mod tests {
     use bitvm::treepp::*;
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
-        wots::{self, Wots256Signature},
+        wots::{self, Wots256Sig},
     };
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
@@ -233,7 +233,7 @@ mod tests {
 
         let withdrawal_fulfillment_txid = generate_txid();
 
-        let signature = Wots256Signature::new(
+        let signature = Wots256Sig::new(
             msk,
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),

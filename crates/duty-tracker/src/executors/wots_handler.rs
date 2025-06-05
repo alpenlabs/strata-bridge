@@ -184,8 +184,8 @@ pub(super) async fn sign_assertions(
         .expect("hash signatures must have the right size");
 
     let wots_sigs = wots::Signatures {
-        withdrawal_fulfillment: wots::Wots256Signature(withdrawal_fulfillment_sig),
-        groth16: wots::Groth16Signatures((
+        withdrawal_fulfillment: wots::Wots256Sig(withdrawal_fulfillment_sig),
+        groth16: wots::Groth16Sigs((
             Box::new(public_params_sigs),
             Box::new(field_elems_sigs),
             Box::new(hash_sigs),
