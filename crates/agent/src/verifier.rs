@@ -19,7 +19,7 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
     scripts::prelude::wots_to_byte_array,
-    wots::{self, Groth16Signatures, Wots256Signature},
+    wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
 use strata_bridge_proof_snark::bridge_vk;
@@ -126,8 +126,8 @@ where
                 info!(event = "parsed assert data", wots256_signature_size=%groth16.0.len(), groth16_signature_size=%groth16.1.len());
 
                 let signatures = wots::Signatures {
-                    withdrawal_fulfillment: Wots256Signature(withdrawal_fulfillment_txid),
-                    groth16: Groth16Signatures(groth16.clone()),
+                    withdrawal_fulfillment: Wots256Sig(withdrawal_fulfillment_txid),
+                    groth16: Groth16Sigs(groth16.clone()),
                 };
                 info!(event = "constructed signatures");
 

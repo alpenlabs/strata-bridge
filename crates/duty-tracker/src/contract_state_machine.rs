@@ -28,7 +28,7 @@ use strata_bridge_primitives::{
     operator_table::OperatorTable,
     scripts::taproot::{create_message_hash, TaprootWitness},
     types::{BitcoinBlockHeight, OperatorIdx},
-    wots::{self, Groth16Signatures, Wots256Signature},
+    wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_stake_chain::{
     prelude::{STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -445,7 +445,7 @@ pub enum ContractState {
 
         /// The commitment to the withdrawal fulfillment txid that was included in the claim
         /// transaction.
-        withdrawal_fulfillment_commitment: Wots256Signature,
+        withdrawal_fulfillment_commitment: Wots256Sig,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -481,7 +481,7 @@ pub enum ContractState {
 
         /// The commitment to the withdrawal fulfillment txid that was included in the claim
         /// transaction.
-        withdrawal_fulfillment_commitment: Wots256Signature,
+        withdrawal_fulfillment_commitment: Wots256Sig,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -517,7 +517,7 @@ pub enum ContractState {
 
         /// The commitment to the withdrawal fulfillment txid that was included in the claim
         /// transaction.
-        withdrawal_fulfillment_commitment: Wots256Signature,
+        withdrawal_fulfillment_commitment: Wots256Sig,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -550,7 +550,7 @@ pub enum ContractState {
 
         /// The commitment to the withdrawal fulfillment txid that was included in the claim
         /// transaction.
-        withdrawal_fulfillment_commitment: Wots256Signature,
+        withdrawal_fulfillment_commitment: Wots256Sig,
 
         /// The witnesses in each of the assert-data transactions that commit to the proof.
         signed_assert_data_txs: HashMap<Txid, Transaction>,
@@ -585,10 +585,10 @@ pub enum ContractState {
 
         /// The commitment to the withdrawal fulfillment txid that was included in the claim
         /// transaction.
-        withdrawal_fulfillment_commitment: Wots256Signature,
+        withdrawal_fulfillment_commitment: Wots256Sig,
 
         /// The commitment to the proof that was included in the assert-data transactions.
-        proof_commitment: Groth16Signatures,
+        proof_commitment: Groth16Sigs,
     },
 
     /// This state describes the state after the disprove transaction confirms.
@@ -2687,7 +2687,7 @@ impl ContractSM {
                     graph_partials,
                     l1_start_height,
                     withdrawal_fulfillment_txid,
-                    withdrawal_fulfillment_commitment: Wots256Signature(commitment),
+                    withdrawal_fulfillment_commitment: Wots256Sig(commitment),
                 };
 
                 Ok(duty)
@@ -3002,7 +3002,7 @@ impl ContractSM {
                     active_graph,
                     withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_commitment,
-                    proof_commitment: Groth16Signatures(proof_commitment),
+                    proof_commitment: Groth16Sigs(proof_commitment),
                 };
 
                 let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
