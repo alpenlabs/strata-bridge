@@ -12,7 +12,7 @@ use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
 };
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 pub use crate::{
     config::BtcZmqConfig,
@@ -192,7 +192,7 @@ impl BtcZmqClient {
                             trace!(?msg, "notifying subscriber");
 
                             if let Err(e) = sub.outbox.send(msg.clone()) {
-                                warn!(%e, "failed to notify subscriber");
+                                debug!(%e, "failed to notify subscriber");
                                 sm.rm_filter(&sub.predicate);
                                 return false;
                             }
