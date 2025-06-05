@@ -22,7 +22,7 @@ mod rpc_server;
 mod constants;
 
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
-/// deposits which led to out-of-memory issues. Mimalloc is a new allocator from Microsoft
+/// deposits which led to out-of-memory issues. [`MiMalloc`] is a new allocator from Microsoft
 /// that is much more modern, performant and doesn't show these issues. We have it configured in the
 /// secure mode which improves security against memory exploits. Even with mitigations, it is about
 /// as fast as jemalloc and far faster than the glibc malloc.
