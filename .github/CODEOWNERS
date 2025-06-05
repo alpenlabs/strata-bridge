@@ -1,0 +1,80 @@
+# CODEOWNERS file for strata-bridge
+# Based on git blame analysis of contributor patterns
+# and initial implementation contributions
+
+# Global fallback: core bridge team
+* @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+
+# Bookkeeping
+*.toml @storopoli
+*.md @storopoli
+/rust-toolchain.toml @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+**/Cargo.toml @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+**/Cargo.lock @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+**/Makefile @Rajil1213 @storopoli @Zk2u 
+**/LICENSE* @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+**/README.md @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+**/.gitignore @storopoli
+/migrations/ @Rajil1213
+/scripts/ @storopoli
+/zizmor.yml @storopoli
+/assets/ @Rajil1213
+
+# Primitives and common components
+/crates/primitives/ @Rajil1213 @ProofOfKeags @storopoli
+/crates/common/ @Rajil1213 @ProofOfKeags @storopoli
+/crates/wots/ @storopoli @ProofOfKeags
+/crates/params/ @Rajil1213 @storopoli
+
+# Secret service components
+/crates/secret-service-client/ @Zk2u
+/crates/secret-service-proto/ @Zk2u
+/crates/secret-service-server/ @Zk2u
+/bin/secret-service/ @Zk2u
+/**/secret-service/ @Zk2u
+
+# Duty tracker components
+/crates/btc-notify/ @ProofOfKeags
+/crates/duty-tracker/ @ProofOfKeags
+
+# Transaction graph components
+/crates/tx-graph/ @Rajil1213
+/crates/stake-chain/ @storopoli
+/crates/connectors/ @Rajil1213
+
+# Main binary
+/bin/alpen-bridge/ @storopoli @Rajil1213 @ProofOfKeags
+
+# Prover things
+/crates/bridge-proof/ @Rajil1213 @prajwolrg
+/bridge-guest-builder/ @Rajil1213 @prajwolrg
+
+# Other components
+/crates/agent/ @Rajil1213 @prajwolrg
+/crates/db/ @Rajil1213 @storopoli
+/crates/p2p-service/ @storopoli
+/crates/rpc/ @storopoli
+/crates/operator-wallet/ @Zk2u @storopoli
+
+# Test utilities
+/crates/test-utils/ @storopoli
+/bin/dev-cli/ @Rajil1213 @storopoli
+/bin/dev-bridge/ @Rajil1213
+/bin/assert-splitter/ @Rajil1213
+/test-data/ @Rajil1213
+
+# Configuration and infrastructure
+/rustfmt.toml @Rajil1213
+/.cargo/ @Rajil1213
+/.config/ @Rajil1213
+/.vscode/ @Rajil1213
+/docker/ @Rajil1213 @Zk2u
+/compose.yml @Rajil1213 @Zk2u 
+/.dockerignore @Rajil1213
+/.editorconfig @Rajil1213
+/.sample_env @Rajil1213
+/.codespellrc @Rajil1213
+
+# CI/CD
+/.github/ @storopoli
+/.codecov.yml @storopoli
