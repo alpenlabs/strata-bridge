@@ -751,9 +751,9 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
             | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
             | ContractState::Asserted { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Disproved { .. }
-            | ContractState::Resolved { .. }
-            | ContractState::Stub => vec![],
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => Vec::new(),
+
+            ContractState::Stub => unreachable!("contract must never be in stub state"),
         }
     }
 
@@ -770,9 +770,11 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { claim_txids, .. }
             | ContractState::AssertDataConfirmed { claim_txids, .. }
             | ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved { .. }
-            | ContractState::Resolved { .. }
-            | ContractState::Stub => &BTreeMap::new(),
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => &BTreeMap::new(),
+
+            ContractState::Stub => {
+                unreachable!("contract must never be in stub state")
+            }
         };
 
         claim_txids.values().copied().collect()
@@ -791,9 +793,11 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { graph_sigs, .. }
             | ContractState::AssertDataConfirmed { graph_sigs, .. }
             | ContractState::Asserted { graph_sigs, .. } => graph_sigs,
-            ContractState::Disproved { .. }
-            | ContractState::Resolved { .. }
-            | ContractState::Stub => &BTreeMap::new(),
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => &BTreeMap::new(),
+
+            ContractState::Stub => {
+                unreachable!("contract must never be in stub state")
+            }
         };
 
         graph_sigs.clone()
@@ -812,8 +816,10 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { claim_txids, .. }
             | ContractState::AssertDataConfirmed { claim_txids, .. } => claim_txids,
             ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved {} | ContractState::Resolved { .. } | ContractState::Stub => {
-                &BTreeMap::new()
+            ContractState::Disproved {} | ContractState::Resolved { .. } => &BTreeMap::new(),
+
+            ContractState::Stub => {
+                unreachable!("contract must never be in stub state")
             }
         };
 
@@ -846,8 +852,10 @@ impl ContractState {
             | ContractState::Asserted { peg_out_graphs, .. } => {
                 peg_out_graphs.get(&claim_txid).map(|(input, _)| input)
             }
-            ContractState::Disproved {} | ContractState::Resolved { .. } | ContractState::Stub => {
-                None
+            ContractState::Disproved {} | ContractState::Resolved { .. } => None,
+
+            ContractState::Stub => {
+                unreachable!("contract must never be in stub state")
             }
         }
     }
@@ -2242,8 +2250,7 @@ impl ContractSM {
             | ContractState::PreAssertConfirmed { .. }
             | ContractState::AssertDataConfirmed { .. }
             | ContractState::Disproved {}
-            | ContractState::Resolved { .. }
-            | ContractState::Stub => None,
+            | ContractState::Resolved { .. } => None,
 
             // the next states for the following states depend on a timelock
             // and therefore care about a new block event.
@@ -2357,6 +2364,8 @@ impl ContractSM {
                     None
                 }
             }
+
+            ContractState::Stub => unreachable!("contract must never be in stub state"),
         };
 
         // restore state
@@ -3171,8 +3180,10 @@ impl ContractSM {
             | ContractState::PreAssertConfirmed { claim_txids, .. }
             | ContractState::AssertDataConfirmed { claim_txids, .. }
             | ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved {} | ContractState::Resolved { .. } | ContractState::Stub => {
-                &dummy
+            ContractState::Disproved {} | ContractState::Resolved { .. } => &dummy,
+
+            ContractState::Stub => {
+                unreachable!("contract must never be in stub state")
             }
         }
         .values()
@@ -3184,7 +3195,7 @@ impl ContractSM {
     ///
     /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
     /// [`ContractState::StakeTxReady`] state.
-    pub const fn withdrawal_request_txid(&self) -> Option<Txid> {
+    pub fn withdrawal_request_txid(&self) -> Option<Txid> {
         match &self.state().state {
             ContractState::Assigned {
                 withdrawal_request_txid,
@@ -3204,23 +3215,23 @@ impl ContractSM {
             | ContractState::AssertDataConfirmed { .. }
             | ContractState::Asserted { .. }
             | ContractState::Disproved {}
-            | ContractState::Resolved { .. }
-            | ContractState::Stub => None,
+            | ContractState::Resolved { .. } => None,
+
+            ContractState::Stub => unreachable!("contract must never be in stub state"),
         }
     }
     /// The txid of the withdrawal fulfillment for this contract.
     ///
     /// Note that this is only available if the contract is in the [`ContractState::Fulfilled`]
     /// state.
-    pub const fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
+    pub fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
         match &self.state().state {
             ContractState::Requested { .. }
             | ContractState::Deposited { .. }
             | ContractState::Assigned { .. }
             | ContractState::StakeTxReady { .. }
             | ContractState::Disproved {}
-            | ContractState::Resolved { .. }
-            | ContractState::Stub => None,
+            | ContractState::Resolved { .. } => None,
 
             ContractState::Fulfilled {
                 withdrawal_fulfillment_txid,
@@ -3246,6 +3257,8 @@ impl ContractSM {
                 withdrawal_fulfillment_txid,
                 ..
             } => Some(*withdrawal_fulfillment_txid),
+
+            ContractState::Stub => unreachable!("contract must never be in stub state"),
         }
     }
 }

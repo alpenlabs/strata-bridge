@@ -630,8 +630,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 | ContractState::Deposited { .. }
                 | ContractState::Assigned { .. }
                 | ContractState::StakeTxReady { .. }
-                | ContractState::Fulfilled { .. }
-                | ContractState::Stub => RpcReimbursementStatus::NotStarted,
+                | ContractState::Fulfilled { .. } => RpcReimbursementStatus::NotStarted,
                 ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
                 ContractState::Challenged { .. }
                 | ContractState::PreAssertConfirmed { .. }
@@ -639,6 +638,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 | ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
                 ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
                 ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
+
+                ContractState::Stub => {
+                    unreachable!("cached state must never be in stub state")
+                }
             })
             .map(|status| RpcClaimInfo { claim_txid, status });
 
