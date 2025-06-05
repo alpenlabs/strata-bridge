@@ -25,9 +25,25 @@ concurrency:
 permissions: {}
 
 jobs:
+  extract-rust-version:
+    name: Extract toolchain version
+    runs-on: ubuntu-latest
+    outputs:
+      nightly-version: ${{ steps.extract-version.outputs.nightly-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+
+      - name: Extract Rust version
+        id: extract-version
+        uses: ./.github/actions/extract-rust-version
+
   test:
     name: Run unit tests and generate report
     runs-on: ubuntu-latest
+    needs: extract-rust-version
     timeout-minutes: 60 # better fail-safe than the default 360 in github actions
     steps:
       - name: Checkout repository
@@ -51,11 +67,11 @@ jobs:
           bitcoind --version
           rm -rf "bitcoin-${{ env.BITCOIND_VERSION }}" "bitcoin-${{ env.BITCOIND_VERSION }}-${{ env.BITCOIND_ARCH }}.tar.gz"
 
-      - name: Install llvm-tools-preview
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
         with:
           components: llvm-tools-preview
-          toolchain: nightly-2024-11-01
+          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install latest nextest release
         uses: taiki-e/install-action@ba0a04e0afd83836a25f30f6f33e6ebdd81a8ff1 # v2
@@ -78,7 +94,8 @@ jobs:
         with:
           tool: cargo-llvm-cov
 
-      - uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
+      - name: Rust cache
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
         with:
           cache-on-failure: true
 

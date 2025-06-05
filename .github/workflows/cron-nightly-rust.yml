@@ -18,10 +18,14 @@ jobs:
       contents: write # Needed to create commits
       pull-requests: write # Needed to create a PR
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
+
       - name: Update rust-toolchain.toml to use latest nightly
         run: |
           set -xe
@@ -50,6 +54,7 @@ jobs:
               echo "Attempted to update nightly but the latest-nightly date did not change. Not opening any PR."
               echo "changes_made=false" >> "$GITHUB_ENV"
           fi
+
       - name: Create Pull Request
         if: env.changes_made == 'true'
         uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
