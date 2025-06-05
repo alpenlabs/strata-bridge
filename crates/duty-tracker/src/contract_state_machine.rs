@@ -2259,36 +2259,9 @@ impl ContractSM {
             } => {
                 let pov_idx = self.cfg.operator_table.pov_idx();
 
-                if *fulfiller != pov_idx {
-                    // not our turn to assert or get a payout
-                    None
-                }
-                // TODO: (@Rajil1213) also check if an operator config is set that instructs the
-                // node to directly proceed to assertion after a claim.
-                else if self.state.block_height
-                    >= claim_height + self.cfg.connector_params.pre_assert_timelock as u64
-                {
-                    let claim_txid = active_graph.1.claim_txid;
-                    let deposit_txid = self.deposit_txid();
-                    let deposit_idx = self.cfg.deposit_idx;
-
-                    let agg_sig = graph_sigs
-                        .get(&claim_txid)
-                        .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {claim_txid} in claimed state after pre-assert timelock",
-                        )))?
-                        .pre_assert;
-
-                    Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishPreAssert {
-                            deposit_idx,
-                            deposit_txid,
-                            claim_txid,
-                            agg_sig,
-                        },
-                    ))
-                } else if self.state.block_height
+                if self.state.block_height
                     >= claim_height + self.cfg.connector_params.payout_optimistic_timelock as u64
+                    && *fulfiller == pov_idx
                 {
                     let deposit_txid = self.cfg().deposit_tx.compute_txid();
                     let stake_index = self.cfg().deposit_idx;
