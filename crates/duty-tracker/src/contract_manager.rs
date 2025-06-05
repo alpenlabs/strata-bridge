@@ -43,7 +43,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractCfg, ContractEvent, ContractSM, ContractState, DepositSetup, FulfillerDuty,
-        OperatorDuty, SyntheticEvent,
+        OperatorDuty, SyntheticEvent, TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -1395,7 +1395,6 @@ async fn execute_duty(
             handle_publish_stake_chain_exchange(cfg, &s2_session_manager.s2_client, db, msg_handler)
                 .await
         }
-
         OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
@@ -1410,7 +1409,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
             witness,
@@ -1425,7 +1423,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishGraphNonces {
             claim_txid,
             pog_prevouts: pog_inputs,
@@ -1442,7 +1439,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishGraphSignatures {
             claim_txid,
             pubnonces,
@@ -1461,7 +1457,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::CommitSig {
             deposit_txid,
             graph_partials,
@@ -1479,7 +1474,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishRootSignature {
             nonces,
             deposit_request_txid,
@@ -1497,7 +1491,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishDeposit {
             deposit_tx,
 
@@ -1514,7 +1507,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,
@@ -1643,13 +1635,20 @@ async fn execute_duty(
                 )
                 .await
             }
-            ignored_fulfiller_duty => {
-                warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
-                Ok(())
-            }
+            FulfillerDuty::InitStakeChain => Err(TransitionErr(
+                "received an InitStakeChain duty but it should only be invoked once at genesis"
+                    .to_string(),
+            )
+            .into()),
         },
-        ignored_duty => {
-            warn!(?ignored_duty, "ignoring duty");
+        OperatorDuty::Abort => {
+            warn!("received an Abort duty, this should not happen in normal operation");
+
+            unimplemented!("abort duty is not implemented yet");
+        }
+        OperatorDuty::VerifierDuty(verifier_duty) => {
+            warn!(%verifier_duty, "ignoring verifier duty");
+
             Ok(())
         }
     }
