@@ -221,7 +221,7 @@ impl PegOutGraph {
             assert_chain_data,
             connectors.claim_out_0,
             connectors.n_of_n,
-            connectors.post_assert_out_0.clone(),
+            connectors.post_assert_out_0.expensive_clone(),
             connectors.connector_cpfp,
             connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
@@ -274,7 +274,7 @@ impl PegOutGraph {
         let disprove_tx = DisproveTx::new(
             disprove_data,
             stake_chain_params,
-            connectors.post_assert_out_0.clone(),
+            connectors.post_assert_out_0.expensive_clone(),
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
@@ -476,7 +476,7 @@ impl PegOutGraph {
 ///
 /// Note that this does not include the stake chain connectors as those are shared at setup time at
 /// regular intervals and not during the peg-out graph generation.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PegOutGraphConnectors {
     /// The first output of the stake transaction that kicks off the peg out graph.
     pub kickoff: ConnectorK,
@@ -517,6 +517,27 @@ pub struct PegOutGraphConnectors {
 
     /// The connector for the hashlock payout.
     pub hashlock_payout: ConnectorP,
+}
+
+impl PegOutGraphConnectors {
+    /// Clones this set of connectors.
+    ///
+    /// This is an expensive operation as it clones the underlying connectors which hold the WOTS
+    /// public keys. This should be used cautiously in memory-constrained environments.
+    pub fn expensive_clone(&self) -> Self {
+        Self {
+            kickoff: self.kickoff.clone(),
+            claim_out_0: self.claim_out_0,
+            claim_out_1: self.claim_out_1,
+            n_of_n: self.n_of_n,
+            connector_cpfp: self.connector_cpfp,
+            post_assert_out_0: self.post_assert_out_0.expensive_clone(),
+            assert_data_hash_factory: self.assert_data_hash_factory,
+            assert_data256_factory: self.assert_data256_factory,
+            stake: self.stake,
+            hashlock_payout: self.hashlock_payout,
+        }
+    }
 }
 
 impl PegOutGraphConnectors {
