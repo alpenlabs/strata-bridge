@@ -452,7 +452,8 @@ pub enum ContractState {
         l1_start_height: BitcoinBlockHeight,
     },
 
-    /// This state describes everything till the challenge transaction is confirmed.
+    /// This state describes everything from the momemnt the challenge transaction is confirmed to
+    /// the pre-assert transaction is confirmed.
     Challenged {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -488,7 +489,8 @@ pub enum ContractState {
         l1_start_height: BitcoinBlockHeight,
     },
 
-    /// This state describes everything till the pre-assert transaction is confirmed.
+    /// This state describes everything from the moment the pre-assert transaction is confirmed to
+    /// the moment any of the assert-data transactions is confirmed.
     PreAssertConfirmed {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -524,7 +526,8 @@ pub enum ContractState {
         l1_start_height: BitcoinBlockHeight,
     },
 
-    /// This state describes everything till the assert-data transactions are confirmed.
+    /// This state describes everything from the moment any of the assert-data transactions is
+    /// confirmed to the moment the post-assert transaction is confirmed.
     AssertDataConfirmed {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -556,7 +559,8 @@ pub enum ContractState {
         signed_assert_data_txs: HashMap<Txid, Transaction>,
     },
 
-    /// This state describes everything till the post-assert transaction is confirmed.
+    /// This state describes everything from the moment the post-assert transaction is confirmed to
+    /// the moment either the payout or disprove transaction is confirmed.
     Asserted {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -1089,7 +1093,7 @@ pub enum FulfillerDuty {
         agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS]>,
     },
 
-    /// Originates once challenge is issued.
+    /// Originates once the challenge transaction is confirmed.
     PublishPreAssert {
         /// The index of the deposit being claimed.
         deposit_idx: u32,
