@@ -14,10 +14,14 @@ use std::{env::args, path::PathBuf, str::FromStr, sync::LazyLock};
 use bitcoin::Network;
 use colored::Colorize;
 use config::Config;
+use mimalloc::MiMalloc;
 use secret_service_server::{run_server, Config as ServerConfig};
 use seeded_impl::Service;
 use tls::load_tls;
 use tracing::{info, warn, Level};
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 /// Runs the Secret Service in development mode if the `SECRET_SERVICE_DEV` environment variable is
 /// set to `1`.

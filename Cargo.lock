@@ -873,6 +873,7 @@ dependencies = [
  "hex",
  "jsonrpsee",
  "libp2p",
+ "mimalloc",
  "musig2",
  "operator-wallet",
  "rustls-pemfile 2.2.0",
@@ -5347,6 +5348,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 
 [[package]]
+name = "libmimalloc-sys"
+version = "0.1.42"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec9d6fac27761dabcd4ee73571cdb06b7022dc99089acbe5435691edffaac0f4"
+dependencies = [
+ "cc",
+ "libc",
+]
+
+[[package]]
 name = "libp2p"
 version = "0.55.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5906,6 +5917,15 @@ dependencies = [
  "log",
  "objc",
  "paste",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.46"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "995942f432bbb4822a7e9c3faa87a695185b0d09273ba85f097b54f4e458f2af"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]
@@ -8581,6 +8601,7 @@ dependencies = [
  "colored 3.0.0",
  "hkdf",
  "make_buf",
+ "mimalloc",
  "musig2",
  "rand 0.8.5",
  "rcgen",
