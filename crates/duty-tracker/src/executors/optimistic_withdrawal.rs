@@ -10,6 +10,7 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
+use btc_notify::client::TxStatus;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,
@@ -71,7 +72,10 @@ pub(crate) async fn handle_publish_first_stake(
     let signed_stake_tx = stake_tx.finalize_unchecked(funds_signature, stake_signature);
 
     info!(txid=%signed_stake_tx.compute_txid(), "broadcasting first stake transaction");
-    output_handles.tx_driver.drive(signed_stake_tx).await?;
+    output_handles
+        .tx_driver
+        .drive(signed_stake_tx, TxStatus::is_buried)
+        .await?;
 
     Ok(())
 }
@@ -151,7 +155,10 @@ pub(crate) async fn handle_advance_stake_chain(
     );
 
     info!(txid=%signed_stake_tx.compute_txid(), %stake_index, "broadcasting stake transaction");
-    output_handles.tx_driver.drive(signed_stake_tx).await?;
+    output_handles
+        .tx_driver
+        .drive(signed_stake_tx, TxStatus::is_buried)
+        .await?;
 
     Ok(())
 }
@@ -237,7 +244,10 @@ pub(crate) async fn handle_withdrawal_fulfillment(
 
             info!(txid=%signed_wft.compute_txid(), "submitting withdrawal fulfillment tx to the tx driver");
 
-            output_handles.tx_driver.drive(signed_wft).await?;
+            output_handles
+                .tx_driver
+                .drive(signed_wft, TxStatus::is_buried)
+                .await?;
         }
         Err(err) => {
             // most of the time, this just means that the wallet does not have enough funds
@@ -316,7 +326,10 @@ pub(crate) async fn handle_publish_claim(
     let signed_claim_tx = claim_tx.finalize(wots_signature);
 
     info!(claim_txid=%signed_claim_tx.compute_txid(), %deposit_txid, "broadcasting claim transaction");
-    output_handles.tx_driver.drive(signed_claim_tx).await?;
+    output_handles
+        .tx_driver
+        .drive(signed_claim_tx, TxStatus::is_buried)
+        .await?;
 
     Ok(())
 }
@@ -401,7 +414,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
     info!(txid = %payout_optimistic_txid, "submitting payout optimistic tx to the tx driver");
     output_handles
         .tx_driver
-        .drive(signed_payout_optimistic_tx)
+        .drive(signed_payout_optimistic_tx, TxStatus::is_buried)
         .await?;
 
     Ok(())

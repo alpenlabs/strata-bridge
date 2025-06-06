@@ -2,5 +2,6 @@
 
 #![feature(coverage_attribute)]
 
+pub mod curry;
 pub mod monoid;
 pub mod semigroup;

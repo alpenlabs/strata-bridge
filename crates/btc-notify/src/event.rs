@@ -43,6 +43,17 @@ pub enum TxStatus {
         height: u64,
     },
 }
+impl TxStatus {
+    /// returns true if the status is some sort of [`TxStatus::Mined`] status.
+    pub const fn is_mined(&self) -> bool {
+        matches!(self, TxStatus::Mined { .. })
+    }
+
+    /// returns true if the status is some sort of [`TxStatus::Buried`] status.
+    pub const fn is_buried(&self) -> bool {
+        matches!(self, TxStatus::Buried { .. })
+    }
+}
 
 /// Type that is emitted to Subscriptions created with
 /// [`crate::client::BtcZmqClient::subscribe_transactions`].
