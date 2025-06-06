@@ -90,6 +90,11 @@ clean:
 clean-docker: build-base build-rt clean build-compose ## Builds the base image, runtime image and all images in the compose.yml
 	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE ========\033[0m\n"
 
+.PHONY: docker ## rebuilds and starts containers without cleaning data
+docker: build-base build-rt build-compose
+	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE_WITH_DATA ========\033[0m\n"
+
+
 .PHONY: gen-s2-tls-1
 gen-s2-tls-1:
 	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-1 docker/vol/secret-service-1
@@ -254,6 +259,18 @@ bridge-in: ## Run bridge-in
 		--btc-pass password \
 		--recovery-address bcrt1qsddjnk0u256809tepf8hf6fj90j0qfrgm5t7s8 \
 		--strata-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
+
+.PHONY: challenge
+challenge: ## Issue a challenge transaction, set CLAIM_TXID env var to use
+	RUST_LOG=info \
+	cargo r \
+		--bin dev-cli \
+		-- \
+		challenge \
+		--btc-url http://localhost:18443/wallet/default \
+		--btc-user user \
+		--btc-pass password \
+		--bridge-node-url http://localhost:15678/rpc
 
 .PHONY: bridge-out
 bridge-out: ## Run bridge-out

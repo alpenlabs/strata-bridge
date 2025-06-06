@@ -19,7 +19,7 @@ use strata_bridge_primitives::{
     build_context::{BuildContext, TxBuildContext},
     duties::VerifierDuty,
     scripts::prelude::wots_to_byte_array,
-    wots::{self, Groth16Signatures, Wots256Signature},
+    wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
 use strata_bridge_proof_snark::bridge_vk;
@@ -97,7 +97,7 @@ where
                 claim_tx,
             } => {
                 warn!("No challenging yet!");
-                if let Ok(Some(_bridge_out_txid)) = ClaimTx::parse_witness(&claim_tx) {
+                if let Ok(_bridge_out_txid) = ClaimTx::parse_witness(&claim_tx) {
                     info!(event = "parsed claim transaction");
                 }
 
@@ -118,19 +118,16 @@ where
             } => {
                 info!(event = "verifying assertion", by_operator=%operator_id, for_deposit=%deposit_txid);
 
-                let withdrawal_fulfillment_txid =
-                    ClaimTx::parse_witness(&claim_tx).unwrap().unwrap(); // FIXME: Handle me
+                let withdrawal_fulfillment_txid = ClaimTx::parse_witness(&claim_tx).unwrap(); // FIXME: Handle me
                 info!(event = "parsed claim transaction", bridge_out_txid_size = %withdrawal_fulfillment_txid.len());
 
-                let groth16 = AssertDataTxBatch::parse_witnesses(&assert_data_txs)
-                    .unwrap()
-                    .unwrap(); // FIXME:
-                               // Handle me
+                let groth16 = AssertDataTxBatch::parse_witnesses(&assert_data_txs).unwrap(); // FIXME:
+                                                                                             // Handle me
                 info!(event = "parsed assert data", wots256_signature_size=%groth16.0.len(), groth16_signature_size=%groth16.1.len());
 
                 let signatures = wots::Signatures {
-                    withdrawal_fulfillment: Wots256Signature(withdrawal_fulfillment_txid),
-                    groth16: Groth16Signatures(groth16.clone()),
+                    withdrawal_fulfillment: Wots256Sig(withdrawal_fulfillment_txid),
+                    groth16: Groth16Sigs(groth16.clone()),
                 };
                 info!(event = "constructed signatures");
 
