@@ -1,7 +1,7 @@
 //! Wallet utilities for the bridge-in command.
 
 use anyhow::{Context, Result};
-use bitcoin::{address::Address, Network};
+use bitcoin::{address::Address, Amount, Network};
 use bitcoincore_rpc::{
     json::{
         CreateRawTransactionInput, WalletCreateFundedPsbtOptions, WalletCreateFundedPsbtResult,
@@ -10,11 +10,10 @@ use bitcoincore_rpc::{
 };
 use tracing::{debug, info};
 
-use crate::constants::AMOUNT;
-
 pub(crate) trait PsbtWallet {
     fn create_drt_psbt(
         &self,
+        deposit_amount: Amount,
         destination_address: &Address,
         metadata: Vec<u8>,
         network: &Network,
@@ -36,6 +35,7 @@ impl BitcoinRpcWallet {
 impl PsbtWallet for BitcoinRpcWallet {
     fn create_drt_psbt(
         &self,
+        amount: Amount,
         destination_address: &Address,
         metadata: Vec<u8>,
         network: &Network,
@@ -51,7 +51,7 @@ impl PsbtWallet for BitcoinRpcWallet {
         let outputs = vec![
             serde_json::Map::from_iter(vec![(
                 destination_address.to_string(),
-                serde_json::to_value(AMOUNT.to_btc())?,
+                serde_json::to_value(amount.to_btc())?,
             )]),
             serde_json::Map::from_iter(vec![(
                 "data".to_string(),

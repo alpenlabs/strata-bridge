@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 use alloy::{
+    consensus::constants::ETH_TO_WEI,
     network::{EthereumWallet, TransactionBuilder},
     primitives::{Address as EvmAddress, Bytes, U256},
     providers::{Provider, ProviderBuilder},
@@ -12,36 +13,39 @@ use anyhow::{Context, Result};
 use bitcoin_bosd::Descriptor;
 use tracing::info;
 
-use crate::{
-    cli,
-    constants::{self, BRIDGE_OUT_AMOUNT, SATS_TO_WEI},
-};
+use crate::{cli::BridgeOutArgs, params::Params};
 
-pub(crate) async fn handle_bridge_out(args: cli::BridgeOutArgs) -> Result<()> {
-    let private_key_bytes = hex::decode(args.private_key).context("decode private key")?;
+pub(crate) const BTC_TO_WEI: u128 = ETH_TO_WEI;
+
+pub(crate) const SATS_TO_WEI: u128 = BTC_TO_WEI / 100_000_000;
+
+pub(crate) async fn handle_bridge_out(args: BridgeOutArgs) -> Result<()> {
+    let BridgeOutArgs {
+        destination_address_pubkey,
+        private_key,
+        ee_url,
+        params,
+    } = args;
+    let params = Params::from_path(params).context("failed to read params file")?;
+    let private_key_bytes = hex::decode(private_key).context("decode private key")?;
 
     let signing_key = SigningKey::from_slice(&private_key_bytes).context("signing key")?;
 
     let signer = PrivateKeySigner::from(signing_key);
     let wallet = EthereumWallet::new(signer);
 
-    let data: [u8; 32] = hex::decode(args.destination_address_pubkey)
+    let data: [u8; 32] = hex::decode(destination_address_pubkey)
         .context("decode address pubkey")?
         .try_into()
         .unwrap();
     let bosd_data = Descriptor::new_p2tr_unchecked(&data).to_bytes();
-    let amount = U256::from(BRIDGE_OUT_AMOUNT.to_sat() as u128 * SATS_TO_WEI);
-    let rollup_address =
-        EvmAddress::from_str(constants::ROLLUP_ADDRESS).context("precompile address")?;
 
-    create_withdrawal_transaction(
-        rollup_address,
-        constants::ETH_RPC_URL,
-        bosd_data,
-        &wallet,
-        amount,
-    )
-    .await?;
+    let amount = U256::from(params.deposit_amount.to_sat() as u128 * SATS_TO_WEI);
+    let rollup_address =
+        EvmAddress::from_str(&params.bridge_out_addr).context("precompile address")?;
+
+    create_withdrawal_transaction(rollup_address, ee_url.as_str(), bosd_data, &wallet, amount)
+        .await?;
 
     Ok(())
 }

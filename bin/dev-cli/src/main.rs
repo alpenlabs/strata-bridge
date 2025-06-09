@@ -1,7 +1,7 @@
 //! CLI for the alpen-bridge and dev-bridge.
 
-mod constants;
 mod handlers;
+mod params;
 
 use anyhow::{Error, Result};
 use clap::Parser;

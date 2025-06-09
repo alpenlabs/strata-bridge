@@ -1,19 +1,15 @@
 use anyhow::bail;
 use bitcoin::{consensus, Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, Witness};
-use bitcoincore_rpc::{Auth, Client, RpcApi};
+use bitcoincore_rpc::{Client, RpcApi};
 use strata_bridge_rpc::traits::StrataBridgeDaApiClient;
 use tracing::info;
 
-use crate::cli;
+use crate::{cli, handlers::rpc};
 
 pub(crate) async fn handle_challenge(args: cli::ChallengeArgs) -> anyhow::Result<()> {
-    let btc_auth = Auth::UserPass(args.btc_user, args.btc_pass);
-    let btc_client = Client::new(&args.btc_url, btc_auth)
-        .map_err(|e| anyhow::anyhow!("Failed to create RPC client: {}", e))?;
-
-    let bridge_rpc_client = jsonrpsee::http_client::HttpClient::builder()
-        .build(&args.bridge_node_url)
-        .map_err(|e| anyhow::anyhow!("Failed to create bridge RPC client: {}", e))?;
+    let btc_client =
+        rpc::get_btc_client(&args.btc_args.url, args.btc_args.user, args.btc_args.pass)?;
+    let bridge_rpc_client = rpc::get_bridge_client(&args.bridge_node_url)?;
 
     let claim_txid = args.claim_txid;
     info!(%claim_txid, "retrieving challenge transaction for claim");
