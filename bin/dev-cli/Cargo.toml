@@ -13,7 +13,12 @@ path = "src/main.rs"
 [dependencies]
 alpen-bridge-params.workspace = true
 strata-bridge-common.workspace = true
+strata-bridge-connectors.workspace = true
+strata-bridge-primitives.workspace = true
+strata-bridge-proof-protocol.workspace = true
+strata-bridge-proof-snark.workspace = true
 strata-bridge-rpc = { workspace = true, features = ["client"] }
+strata-bridge-tx-graph.workspace = true
 
 alloy.workspace = true
 alloy-signer.workspace = true
@@ -21,11 +26,17 @@ anyhow.workspace = true
 bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoincore-rpc.workspace = true
+bitvm.workspace = true
+borsh.workspace = true
 clap.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "macros"] }
 miniscript.workspace = true
+musig2.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand"] }
+serde.workspace = true
 serde_json.workspace = true
+sp1-verifier.workspace = true
 tokio.workspace = true
+toml.workspace = true
 tracing.workspace = true

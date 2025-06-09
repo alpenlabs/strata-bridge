@@ -3088,6 +3088,7 @@ impl ContractSM {
                     )));
                 }
 
+                info!(txid=%tx.compute_txid(), "processing disprove confirmation");
                 self.state.state = ContractState::Disproved {};
 
                 Ok(None)

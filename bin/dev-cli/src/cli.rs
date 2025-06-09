@@ -21,6 +21,8 @@ pub(crate) enum Commands {
     BridgeOut(BridgeOutArgs),
 
     Challenge(ChallengeArgs),
+
+    Disprove(DisproveArgs),
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -77,8 +79,30 @@ pub(crate) struct ChallengeArgs {
     pub(crate) bridge_node_url: String,
 }
 
+#[derive(Parser, Debug, Clone)]
+#[command(about = "Send challenge transaction", version)]
+pub(crate) struct DisproveArgs {
     #[arg(
         long,
+        env = "POST_ASSERT_TXID",
+        value_parser = clap::value_parser!(Txid),
+        help = "the txid of the claim being challenged"
+    )]
+    pub(crate) post_assert_txid: Txid,
+
+    #[clap(flatten)]
+    pub(crate) btc_args: BtcArgs,
+
+    #[arg(
+        long,
+        env = "BRIDGE_NODE_URL",
+        help = "the url of the bridge node to query for challenge signature"
+    )]
+    pub(crate) bridge_node_url: String,
+
+    #[arg(long, help = "the strata bridge params file")]
+    pub(crate) params: PathBuf,
+}
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct BtcArgs {
