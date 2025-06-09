@@ -230,7 +230,6 @@ impl PegOutGraph {
 
         let pre_assert_txid = assert_chain.pre_assert.compute_txid();
         let post_assert_txid = assert_chain.post_assert.compute_txid();
-        let post_assert_out_amt = assert_chain.post_assert.output_amount();
 
         debug!(event = "created assert chain", %pre_assert_txid, %post_assert_txid, ?time_taken);
 
@@ -266,15 +265,15 @@ impl PegOutGraph {
         let disprove_data = DisproveData {
             post_assert_txid,
             deposit_txid,
-            input_amount: post_assert_out_amt,
             stake_outpoint: input.stake_outpoint,
             network: context.network(),
         };
 
         let disprove_tx = DisproveTx::new(
             disprove_data,
-            stake_chain_params,
-            connectors.post_assert_out_0.expensive_clone(),
+            stake_chain_params.stake_amount,
+            stake_chain_params.burn_amount,
+            &connectors.post_assert_out_0,
             connectors.stake,
         );
         let disprove_txid = disprove_tx.compute_txid();
@@ -1064,7 +1063,6 @@ mod tests {
             signed_post_assert,
             post_assert_out_0,
             disprove_tx,
-            stake,
             ..
         } = submit_assertions(
             btc_client,
@@ -1149,7 +1147,6 @@ mod tests {
             reward,
             disprove_witness,
             input_disprove_leaf,
-            stake,
             post_assert_out_0,
         );
 
@@ -1365,7 +1362,6 @@ mod tests {
         payout_tx: PayoutTx,
         post_assert_out_0: ConnectorA3,
         disprove_tx: DisproveTx,
-        stake: ConnectorStake,
     }
 
     #[expect(clippy::too_many_arguments)]
@@ -1407,7 +1403,6 @@ mod tests {
             post_assert_out_0,
             assert_data_hash_factory,
             assert_data256_factory,
-            stake,
             ..
         } = connectors;
 
@@ -1668,7 +1663,6 @@ mod tests {
             payout_tx,
             post_assert_out_0,
             disprove_tx,
-            stake,
         }
     }
 

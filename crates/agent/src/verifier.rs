@@ -230,10 +230,6 @@ where
                             txid: stake_txid,
                             vout: STAKE_VOUT,
                         },
-                        input_amount: post_assert_tx
-                            .tx_out(0)
-                            .expect("first output must exist in post-assert tx")
-                            .value,
                         network: self.build_context.network(),
                     };
 
@@ -258,8 +254,9 @@ where
                     let stake_chain_params = StakeChainParams::default();
                     let disprove_tx = DisproveTx::new(
                         disprove_tx_data,
-                        stake_chain_params,
-                        connector_a3,
+                        stake_chain_params.stake_amount,
+                        stake_chain_params.burn_amount,
+                        &connector_a3,
                         connector_stake,
                     );
 
@@ -296,7 +293,6 @@ where
                         reward_out,
                         stake_spend_path,
                         disprove_leaf,
-                        connector_stake,
                         connector_a3,
                     );
 
