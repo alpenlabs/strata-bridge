@@ -31,10 +31,11 @@ use strata_bridge_rpc::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
     },
     types::{
-        RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus,
+        RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcDisproveData, RpcOperatorStatus,
         RpcReimbursementStatus, RpcWithdrawalInfo, RpcWithdrawalStatus,
     },
 };
+use strata_bridge_stake_chain::prelude::STAKE_VOUT;
 use strata_bridge_tx_graph::transactions::{
     claim::CHALLENGE_VOUT,
     deposit::DepositTx,
@@ -727,20 +728,33 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         }))
     }
 
-    async fn get_disprove_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
-        debug!(%claim_txid, "getting disprove signature");
+    async fn get_disprove_data(&self, claim_txid: Txid) -> RpcResult<Option<RpcDisproveData>> {
+        debug!(%claim_txid, "getting disprove data");
 
         let contracts = self.cached_contracts.read().await;
 
-        Ok(contracts.iter().find_map(|contract| {
-            contract
-                .0
-                .state
-                .state
-                .graph_sigs()
-                .get(&claim_txid)
-                .map(|sigs| sigs.disprove)
-        }))
+        let disprove_data = contracts
+            .iter()
+            .find(|contract| contract.0.state.state.claim_txids().contains(&claim_txid))
+            .iter()
+            .find_map(|contract| {
+                let state = &contract.0.state.state;
+                let graph_input = state.graph_input(claim_txid)?;
+                let graph_summary = state.graph_summary(claim_txid)?;
+                let n_of_n_sig = state.graph_sigs().get(&claim_txid)?.disprove;
+
+                Some(RpcDisproveData {
+                    post_assert_txid: graph_summary.post_assert_txid,
+                    deposit_txid: contract.0.deposit_txid,
+                    stake_outpoint: OutPoint::new(graph_summary.stake_txid, STAKE_VOUT),
+                    stake_hash: graph_input.stake_hash,
+                    operator_pubkey: graph_input.operator_pubkey,
+                    wots_public_keys: graph_input.wots_public_keys.clone(),
+                    n_of_n_sig,
+                })
+            });
+
+        Ok(disprove_data)
     }
 }
 
