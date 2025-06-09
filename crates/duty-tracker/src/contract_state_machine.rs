@@ -859,6 +859,32 @@ impl ContractState {
             }
         }
     }
+
+    /// Gets the graph summary for a particular claim transaction ID.
+    pub fn graph_summary(&self, claim_txid: Txid) -> Option<&PegOutGraphSummary> {
+        match self {
+            ContractState::Requested {
+                peg_out_graph_summaries,
+                ..
+            } => peg_out_graph_summaries.get(&claim_txid),
+            ContractState::Deposited { peg_out_graphs, .. }
+            | ContractState::Assigned { peg_out_graphs, .. }
+            | ContractState::StakeTxReady { peg_out_graphs, .. }
+            | ContractState::Fulfilled { peg_out_graphs, .. }
+            | ContractState::Claimed { peg_out_graphs, .. }
+            | ContractState::Challenged { peg_out_graphs, .. }
+            | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
+            | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
+            | ContractState::Asserted { peg_out_graphs, .. } => {
+                peg_out_graphs.get(&claim_txid).map(|(_, summary)| summary)
+            }
+            ContractState::Disproved {} | ContractState::Resolved { .. } => None,
+
+            ContractState::Stub => {
+                unreachable!("contract must never be in stub state")
+            }
+        }
+    }
 }
 
 /// This is the set of events that are not directly derived from the chain state or the p2p network
