@@ -74,6 +74,7 @@ impl ContractManager {
         stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
+        is_faulty: bool,
         // Genesis information
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
@@ -187,6 +188,7 @@ impl ContractManager {
                 operator_table,
                 pre_stake_pubkey: pre_stake_pubkey.clone(),
                 funding_address: funding_address.clone(),
+                is_faulty,
             });
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
@@ -441,6 +443,7 @@ pub(super) struct ExecutionConfig {
     pub(super) operator_table: OperatorTable,
     pub(super) pre_stake_pubkey: ScriptBuf,
     pub(super) funding_address: Address,
+    pub(super) is_faulty: bool,
 }
 
 struct ContractManagerCtx {

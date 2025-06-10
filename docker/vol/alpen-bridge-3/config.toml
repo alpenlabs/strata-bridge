@@ -1,5 +1,4 @@
 datadir = "/app/data"
-# stub option ftm
 is_faulty = false
 nag_interval = { secs = 60, nanos = 0 }
 

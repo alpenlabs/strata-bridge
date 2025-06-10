@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use bitcoin::{taproot, Network, OutPoint, Txid};
-use bitvm::chunk::api::generate_assertions;
+use bitvm::{chunk::api::generate_assertions, signatures::wots_api::HASH_LEN};
 use futures::future::join_all;
+use secp256k1::rand::{self, Rng};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorA256Factory, ConnectorA3, ConnectorAHashFactory, ConnectorC0, ConnectorCpfp,
@@ -21,7 +22,7 @@ use strata_bridge_tx_graph::transactions::{
     },
 };
 use strata_p2p_types::WotsPublicKeys;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
@@ -122,10 +123,23 @@ pub(crate) async fn handle_publish_assert_data(
     .map_err(|e| TransitionErr(format!("could not generate assertions due to {e:?}")))?;
     info!(%deposit_idx, %deposit_txid, elapsed_time=?start_time.elapsed(), "assertions generated successfully");
 
-    let assertions = Assertions {
+    let mut assertions = Assertions {
         withdrawal_fulfillment: public_params.withdrawal_fulfillment_txid.0,
         groth16: groth16_assertions,
     };
+
+    if cfg.is_faulty {
+        warn!(action = "making a faulty assertion");
+        for _ in 0..assertions.groth16.2.len() {
+            let proof_index_to_tweak = rand::thread_rng().gen_range(0..assertions.groth16.2.len());
+
+            warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
+            if assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN as usize] {
+                assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN as usize];
+                break;
+            }
+        }
+    }
 
     let agg_pubkey = cfg
         .operator_table
