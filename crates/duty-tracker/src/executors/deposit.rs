@@ -13,6 +13,7 @@ use bitcoin::{
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid,
 };
 use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
+use btc_notify::client::TxStatus;
 use futures::future::{join3, join_all};
 use musig2::{PartialSignature, PubNonce};
 use operator_wallet::FundingUtxo;
@@ -297,7 +298,7 @@ async fn finalize_claim_funding_tx(
         "submitting claim funding tx to the tx driver"
     );
     tx_driver
-        .drive(tx)
+        .drive(tx, TxStatus::is_buried)
         .await
         .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
 
@@ -699,7 +700,7 @@ pub(crate) async fn handle_publish_deposit(
 
     info!(txid = %tx.compute_txid(), "broadcasting deposit tx");
     tx_driver
-        .drive(tx)
+        .drive(tx, TxStatus::is_buried)
         .await
         .expect("deposit tx should get confirmed");
 
