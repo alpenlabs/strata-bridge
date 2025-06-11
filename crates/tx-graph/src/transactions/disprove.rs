@@ -14,6 +14,9 @@ use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use super::covenant_tx::CovenantTx;
 
+/// The index of the post-assert input in the disprove transaction.
+pub const POST_ASSERT_INPUT_INDEX: usize = 1;
+
 /// Data needed to construct a [`DisproveTx`].
 #[derive(Debug, Clone)]
 pub struct DisproveData {
