@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::wots_api::HASH_LEN};
+use btc_notify::client::TxStatus;
 use futures::future::join_all;
 use secp256k1::rand::{self, Rng};
 use secret_service_proto::v1::traits::*;
@@ -86,7 +87,10 @@ pub(crate) async fn handle_publish_pre_assert(
         "submitting pre-assert transaction to the tx-driver"
     );
 
-    output_handles.tx_driver.drive(signed_pre_assert_tx).await?;
+    output_handles
+        .tx_driver
+        .drive(signed_pre_assert_tx, TxStatus::is_buried)
+        .await?;
 
     Ok(())
 }
@@ -187,7 +191,9 @@ pub(crate) async fn handle_publish_assert_data(
                 let txid = signed_assert_data_tx.compute_txid();
                 info!(%txid, %index, "submitting assert-data transaction to the tx-driver");
 
-                output_handles.tx_driver.drive(signed_assert_data_tx)
+                output_handles
+                    .tx_driver
+                    .drive(signed_assert_data_tx, TxStatus::is_mined)
             });
 
     join_all(assert_data_batch_broadcast_job)
@@ -249,7 +255,7 @@ pub(crate) async fn handle_publish_post_assert(
     info!(%deposit_txid, %txid, "submitting post-assert transaction to the tx-driver");
     output_handles
         .tx_driver
-        .drive(signed_post_assert_tx)
+        .drive(signed_post_assert_tx, TxStatus::is_buried)
         .await?;
 
     Ok(())
@@ -325,7 +331,10 @@ pub(crate) async fn handle_publish_payout(
 
     let payout_txid = signed_payout_tx.compute_txid();
     info!(%deposit_idx, %deposit_txid, %payout_txid, "submitting payout transaction to the tx-driver");
-    output_handles.tx_driver.drive(signed_payout_tx).await?;
+    output_handles
+        .tx_driver
+        .drive(signed_payout_tx, TxStatus::is_buried)
+        .await?;
 
     Ok(())
 }
