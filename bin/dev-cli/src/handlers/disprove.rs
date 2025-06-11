@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, path::Path};
 
 use anyhow::{anyhow, bail};
 use bitcoin::{Transaction, TxOut};
@@ -20,7 +20,7 @@ use strata_bridge_primitives::{
     wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
-use strata_bridge_proof_snark::bridge_vk;
+use strata_bridge_proof_snark::bridge_vk::{self, fetch_groth16_vk};
 use strata_bridge_rpc::{traits::StrataBridgeDaApiClient, types::RpcDisproveData};
 use strata_bridge_tx_graph::transactions::{
     claim::ClaimTx,
@@ -104,7 +104,9 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
         n_of_n_sig,
     } = disprove_data;
 
-    let Some(disprove_leaf) = get_disprove_leaf(signatures, deposit_txid, &wots_public_keys) else {
+    let Some(disprove_leaf) =
+        get_disprove_leaf(args.vk_path, signatures, deposit_txid, &wots_public_keys)
+    else {
         info!("no disprove leaf found, nothing to do");
         return Ok(());
     };
@@ -178,6 +180,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
 }
 
 fn get_disprove_leaf(
+    groth16_vk_path: impl AsRef<Path>,
     signatures: wots::Signatures,
     deposit_txid: bitcoin::Txid,
     wots_public_keys: &wots::PublicKeys,
@@ -225,9 +228,16 @@ fn get_disprove_leaf(
     let complete_disprove_scripts =
         api_generate_full_tapscripts(*wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
 
+    info!("fetching groth16 verification key");
+    let vk = fetch_groth16_vk(groth16_vk_path.as_ref()).unwrap_or_else(|| {
+        warn!(path=%groth16_vk_path.as_ref().display(), "groth16 verification key not found or invalid, generating a new one");
+
+        bridge_vk::GROTH16_VERIFICATION_KEY.clone()
+    });
+
     info!("validating assertions");
     if let Some((tapleaf_index, witness_script)) = validate_assertions(
-        &bridge_vk::GROTH16_VERIFICATION_KEY,
+        &vk,
         groth16.deref().clone(),
         *wots_public_keys.groth16,
         &complete_disprove_scripts,

@@ -286,7 +286,7 @@ challenge: ## Issue a challenge transaction, set CLAIM_TXID env var to use
 		--bridge-node-url http://localhost:15678/rpc
 
 .PHONY: disprove
-disprove: ## Issue a disprove transaction, set `POST_ASSERT_TXID`, `SP1_PROVER`, `SP1_PROOF_STRATEGY`, `NETWORK_RPC_URL`, `NETWORK_PRIVATE_KEY` env vars to use
+disprove: ## Issue a disprove transaction, set `POST_ASSERT_TXID` env var to use and make sure `strata-bridge.sp1vk` file exists
 	RUST_LOG=info \
 	cargo r \
 		--bin dev-cli \
@@ -296,4 +296,5 @@ disprove: ## Issue a disprove transaction, set `POST_ASSERT_TXID`, `SP1_PROVER`,
 		--btc-user user \
 		--btc-pass password \
 		--params bin/dev-cli/params.toml \
+		--vk-path strata_bridge_groth16_vk.hex \
 		--bridge-node-url http://localhost:15678/rpc

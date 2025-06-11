@@ -10097,6 +10097,7 @@ dependencies = [
  "ark-ec",
  "ark-ff 0.5.0",
  "ark-groth16",
+ "ark-serialize 0.5.0",
  "bincode",
  "hex",
  "sp1-sdk",

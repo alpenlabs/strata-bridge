@@ -100,6 +100,13 @@ pub(crate) struct DisproveArgs {
     )]
     pub(crate) bridge_node_url: String,
 
+    #[arg(
+        long,
+        help = "the path to the hex-encoded groth16 verification key for the bridge",
+        default_value = "strata_bridge_groth16_vk.hex"
+    )]
+    pub(crate) vk_path: PathBuf,
+
     #[arg(long, help = "the strata bridge params file")]
     pub(crate) params: PathBuf,
 }
