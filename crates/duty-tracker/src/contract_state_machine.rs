@@ -3111,7 +3111,7 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match self.state.state.clone() {
+        match &mut self.state.state {
             ContractState::Asserted { active_graph, .. } => {
                 if !is_disprove(active_graph.1.post_assert_txid)(tx) {
                     return Err(TransitionErr(format!(
