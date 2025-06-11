@@ -1175,7 +1175,7 @@ mod tests {
         conf.args.push("-txindex=1");
         conf.args.push("-acceptnonstdtxn=1");
 
-        let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
+        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
         let btc_client = &bitcoind.client;
 
         let network = btc_client

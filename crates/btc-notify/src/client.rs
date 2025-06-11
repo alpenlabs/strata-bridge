@@ -308,7 +308,7 @@ mod e2e_tests {
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
 
-        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+        let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
@@ -336,7 +336,7 @@ mod e2e_tests {
             "-zmqpubsequence=tcp://127.0.0.1:23886",
             "-debug=zmq",
         ]);
-        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+        let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)

@@ -266,7 +266,7 @@ mod e2e_tests {
             format!("-zmqpubsequence={sequence_socket}"),
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
-        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+        let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
         info!("corepc_node::Node initialized");
 
         let cfg = BtcZmqConfig::default()
