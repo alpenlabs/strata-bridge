@@ -102,15 +102,12 @@ impl OperatorWallet {
         }
     }
 
-    /// Returns the list of known CPFP outputs that should only be spent when fee bumping
-    pub fn cpfp_utxos(&self) -> Vec<LocalOutput> {
-        let v = self
-            .general_wallet
+    /// Returns the list of known anchor outputs that should only be spent when fee bumping
+    pub fn anchor_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
+        self.general_wallet
             .list_unspent()
             .filter(|utxo| utxo.txout.value == self.config.cpfp_value)
-            .collect::<Vec<_>>();
-        debug!("found {} CPFP UTXOs", v.len());
-        v
+            .filter(|utxo| !utxo.chain_position.is_confirmed())
     }
 
     /// Returns a list of UTXOs from the general wallet that can be used for fronting withdrawals.
@@ -142,7 +139,7 @@ impl OperatorWallet {
             .extend_from_slice(op_return_data)
             .expect("op_return_data should be within limit");
         let cpfp_utxos = self
-            .cpfp_utxos()
+            .anchor_outputs()
             .into_iter()
             .map(|lo| lo.outpoint)
             .collect();
@@ -161,7 +158,7 @@ impl OperatorWallet {
     /// (excluding CPFP outputs). Needs signing by the general wallet.
     pub fn refill_claim_funding_utxos(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
         let cpfp_utxos = self
-            .cpfp_utxos()
+            .anchor_outputs()
             .into_iter()
             .map(|lo| lo.outpoint)
             .collect();
@@ -211,7 +208,7 @@ impl OperatorWallet {
     /// stakechain wallet (excludes CPFP outputs). This will create a [Self::s_utxo].
     pub fn create_prestake_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
         let cpfp_utxos = self
-            .cpfp_utxos()
+            .anchor_outputs()
             .into_iter()
             .map(|lo| lo.outpoint)
             .collect();
