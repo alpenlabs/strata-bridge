@@ -452,8 +452,8 @@ pub enum ContractState {
         l1_start_height: BitcoinBlockHeight,
     },
 
-    /// This state describes everything from the momemnt the challenge transaction is confirmed to
-    /// the pre-assert transaction is confirmed.
+    /// This state describes everything from the moment the challenge transaction is confirmed to
+    /// the moment the pre-assert transaction is confirmed.
     Challenged {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -490,7 +490,7 @@ pub enum ContractState {
     },
 
     /// This state describes everything from the moment the pre-assert transaction is confirmed to
-    /// the moment any of the assert-data transactions is confirmed.
+    /// the moment all of the assert-data transactions are confirmed.
     PreAssertConfirmed {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -524,9 +524,12 @@ pub enum ContractState {
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
         l1_start_height: BitcoinBlockHeight,
+
+        /// The witnesses in each of the assert-data transactions that commit to the proof.
+        signed_assert_data_txs: HashMap<Txid, Transaction>,
     },
 
-    /// This state describes everything from the moment any of the assert-data transactions is
+    /// This state describes everything from the moment all of the assert-data transactions are
     /// confirmed to the moment the post-assert transaction is confirmed.
     AssertDataConfirmed {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
@@ -1656,10 +1659,10 @@ impl ContractSM {
             }),
 
             ContractState::Challenged { .. } => self.process_pre_assert_confirmation(tx),
-            ContractState::PreAssertConfirmed { .. }
-            | ContractState::AssertDataConfirmed { .. } => self
-                .process_assert_data_confirmation(tx)
-                .or_else(|_e| self.process_post_assert_confirmation(tx, height)),
+            ContractState::PreAssertConfirmed { .. } => self.process_assert_data_confirmation(tx),
+            ContractState::AssertDataConfirmed { .. } => {
+                self.process_post_assert_confirmation(tx, height)
+            }
             ContractState::Asserted { .. } => self.process_disprove_confirmation(tx).or_else(|e| {
                 debug!(%e, "could not process disprove tx");
 
@@ -2872,6 +2875,7 @@ impl ContractSM {
                     l1_start_height,
                     withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_commitment,
+                    signed_assert_data_txs: HashMap::new(),
                 };
 
                 let pre_assert_locking_scripts = tx
@@ -2925,6 +2929,7 @@ impl ContractSM {
                 active_graph,
                 withdrawal_fulfillment_txid,
                 withdrawal_fulfillment_commitment,
+                signed_assert_data_txs,
                 ..
             } => {
                 if !active_graph.1.assert_data_txids.contains(&txid) {
@@ -2933,43 +2938,18 @@ impl ContractSM {
                     )));
                 }
 
-                // a lot of clone here but this is only going to be done once
-                // v/s the next match arm that is going to be called `NUM_ASSERT_DATA_TX` - 1 times
-                // where we want to mutate some part of the state (not to mention a copy of the
-                // entire state that will have to be maintained always in order to restore the state
-                // after a mem::replace in the event of an error)
-                self.state.state = ContractState::AssertDataConfirmed {
-                    peg_out_graphs: peg_out_graphs.clone(),
-                    claim_txids: claim_txids.clone(),
-                    graph_sigs: graph_sigs.clone(),
-                    fulfiller: *fulfiller,
-                    active_graph: active_graph.clone(),
-                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
-                    withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
-                    signed_assert_data_txs: HashMap::from([(txid, tx.clone())]),
-                };
-
-                Ok(None)
-            }
-            ContractState::AssertDataConfirmed {
-                active_graph,
-                signed_assert_data_txs,
-                graph_sigs,
-                fulfiller,
-                ..
-            } => {
-                if !active_graph.1.assert_data_txids.contains(&txid) {
-                    return Err(TransitionErr(format!(
-                        "non assert data tx ({txid}) received in process_assert_data_confirmation after {} assert-data confirmed",
-                        signed_assert_data_txs.keys().count()
-                    )));
+                signed_assert_data_txs.insert(txid, tx.clone());
+                if signed_assert_data_txs.len() < NUM_ASSERT_DATA_TX {
+                    // not enough assert data txs yet
+                    return Ok(None);
                 }
 
-                signed_assert_data_txs.insert(txid, tx.clone());
+                info!("all assert data transactions confirmed");
 
-                if signed_assert_data_txs.keys().count() == NUM_ASSERT_DATA_TX {
-                    info!("all assert data transactions confirmed");
+                let pov_idx = self.cfg.operator_table.pov_idx();
 
+                let duty = if *fulfiller == pov_idx {
+                    let assert_data_txids = active_graph.1.assert_data_txids;
                     let agg_sigs = graph_sigs
                         .get(&active_graph.1.claim_txid)
                         .ok_or(TransitionErr(format!(
@@ -2978,22 +2958,29 @@ impl ContractSM {
                         )))?
                         .post_assert;
 
-                    let pov_idx = self.cfg.operator_table.pov_idx();
-                    if *fulfiller != pov_idx {
-                        // not our turn to publish post-assert
-                        return Ok(None);
-                    }
-
-                    Ok(Some(OperatorDuty::FulfillerDuty(
+                    Some(OperatorDuty::FulfillerDuty(
                         FulfillerDuty::PublishPostAssertData {
                             deposit_txid,
-                            assert_data_txids: Box::new(active_graph.1.assert_data_txids),
+                            assert_data_txids: Box::new(assert_data_txids),
                             agg_sigs: Box::new(agg_sigs),
                         },
-                    )))
+                    ))
                 } else {
-                    Ok(None)
-                }
+                    None
+                };
+
+                self.state.state = ContractState::AssertDataConfirmed {
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
+                    signed_assert_data_txs: signed_assert_data_txs.clone(),
+                };
+
+                Ok(duty)
             }
             invalid_state => Err(TransitionErr(format!(
                 "unexpected state in process_assert_data_confirmation ({})",
