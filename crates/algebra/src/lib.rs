@@ -2,6 +2,7 @@
 
 #![feature(coverage_attribute)]
 
+pub mod category;
 pub mod curry;
 pub mod monoid;
 pub mod req;
