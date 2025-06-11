@@ -111,7 +111,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
         return Ok(());
     };
 
-    info!("construcing disprove transaction");
+    info!("constructing disprove transaction");
 
     let disprove_input = DisproveData {
         post_assert_txid,
