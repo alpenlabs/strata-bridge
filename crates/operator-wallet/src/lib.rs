@@ -10,7 +10,7 @@ use bdk_wallet::{
     KeychainKind, LocalOutput, TxOrdering, Wallet,
 };
 use sync::{Backend, SyncError};
-use tracing::{debug, info};
+use tracing::info;
 
 /// Config for [`OperatorWallet`]
 #[derive(Debug)]
@@ -102,24 +102,34 @@ impl OperatorWallet {
         }
     }
 
+    fn is_anchor(&self, txout: &LocalOutput) -> bool {
+        txout.txout.value == self.config.cpfp_value && !txout.chain_position.is_confirmed()
+    }
+
+    fn is_claim_funding_output(&self, txout: &LocalOutput) -> bool {
+        txout.txout.value == self.config.stake_funding_utxo_value
+    }
+
     /// Returns the list of known anchor outputs that should only be spent when fee bumping
     pub fn anchor_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
         self.general_wallet
             .list_unspent()
-            .filter(|utxo| utxo.txout.value == self.config.cpfp_value)
-            .filter(|utxo| !utxo.chain_position.is_confirmed())
+            .filter(|utxo| self.is_anchor(utxo))
+    }
+
+    /// Returns the list of outputs that match the criteria for claim funding.
+    pub fn claim_funding_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
+        self.stakechain_wallet
+            .list_unspent()
+            .filter(|txout| self.is_claim_funding_output(txout))
     }
 
     /// Returns a list of UTXOs from the general wallet that can be used for fronting withdrawals.
     /// Excludes CPFP outputs.
-    pub fn general_utxos(&self) -> Vec<LocalOutput> {
-        let v = self
-            .general_wallet
+    pub fn general_utxos(&self) -> impl Iterator<Item = LocalOutput> + '_ {
+        self.general_wallet
             .list_unspent()
-            .filter(|utxo| utxo.txout.value != self.config.cpfp_value)
-            .collect::<Vec<_>>();
-        debug!("found {} non-CPFP UTXOs", v.len());
-        v
+            .filter(|utxo| !self.is_anchor(utxo))
     }
 
     /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
@@ -138,11 +148,7 @@ impl OperatorWallet {
         push_data
             .extend_from_slice(op_return_data)
             .expect("op_return_data should be within limit");
-        let cpfp_utxos = self
-            .anchor_outputs()
-            .into_iter()
-            .map(|lo| lo.outpoint)
-            .collect();
+        let cpfp_utxos = self.anchor_outputs().map(|lo| lo.outpoint).collect();
 
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
@@ -157,11 +163,7 @@ impl OperatorWallet {
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
     /// (excluding CPFP outputs). Needs signing by the general wallet.
     pub fn refill_claim_funding_utxos(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
-        let cpfp_utxos = self
-            .anchor_outputs()
-            .into_iter()
-            .map(|lo| lo.outpoint)
-            .collect();
+        let cpfp_utxos = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
         tx_builder.unspendable(cpfp_utxos);
@@ -207,11 +209,7 @@ impl OperatorWallet {
     /// Creates a new prestake transaction by paying funds from the general wallet into the
     /// stakechain wallet (excludes CPFP outputs). This will create a [Self::s_utxo].
     pub fn create_prestake_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
-        let cpfp_utxos = self
-            .anchor_outputs()
-            .into_iter()
-            .map(|lo| lo.outpoint)
-            .collect();
+        let cpfp_utxos = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
         tx_builder.unspendable(cpfp_utxos);
