@@ -626,27 +626,28 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
                 claim_txids.contains(&claim_txid)
             })
-            .map(|entry| match &entry.0.state.state {
-                ContractState::Requested { .. }
-                | ContractState::Deposited { .. }
-                | ContractState::Assigned { .. }
-                | ContractState::StakeTxReady { .. }
-                | ContractState::Fulfilled { .. } => RpcReimbursementStatus::NotStarted,
-                ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
-                ContractState::Challenged { .. }
-                | ContractState::PreAssertConfirmed { .. }
-                | ContractState::AssertDataConfirmed { .. }
-                | ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
-                ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
-                ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
-
-                ContractState::Stub => {
-                    unreachable!("cached state must never be in stub state")
-                }
-            })
+            .map(|entry| map_state_to_reimbursement_status(&entry.0.state.state))
             .map(|status| RpcClaimInfo { claim_txid, status });
 
         Ok(claim_info)
+    }
+}
+
+fn map_state_to_reimbursement_status(state: &ContractState) -> RpcReimbursementStatus {
+    match state {
+        ContractState::Requested { .. }
+        | ContractState::Deposited { .. }
+        | ContractState::Assigned { .. }
+        | ContractState::StakeTxReady { .. }
+        | ContractState::Fulfilled { .. } => RpcReimbursementStatus::NotStarted,
+        ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress,
+        ContractState::Challenged { .. }
+        | ContractState::PreAssertConfirmed { .. }
+        | ContractState::AssertDataConfirmed { .. }
+        | ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
+        ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
+        ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
+        ContractState::Stub => unreachable!("cached state must never be in stub state"),
     }
 }
 
