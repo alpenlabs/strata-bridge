@@ -1642,12 +1642,12 @@ impl ContractSM {
             ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx, height),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
             ContractState::Claimed { .. } => self.process_challenge_confirmation(tx).or_else(|e| {
-                warn!(%e, "could not process challenge tx");
+                debug!(%e, "could not process challenge tx");
 
                 // maybe it's an optimistic payout tx
                 self.process_optimistic_payout_confirmation(tx)
                     .or_else(|e| {
-                        warn!(%e, "could not process optimistic payout confirmation");
+                        debug!(%e, "could not process optimistic payout confirmation");
 
                         // or maybe it's assert chain confirmation and some operator did not take
                         // the payout optimistic path
@@ -1661,7 +1661,7 @@ impl ContractSM {
                 .process_assert_data_confirmation(tx)
                 .or_else(|_e| self.process_post_assert_confirmation(tx, height)),
             ContractState::Asserted { .. } => self.process_disprove_confirmation(tx).or_else(|e| {
-                warn!(%e, "could not process disprove tx");
+                debug!(%e, "could not process disprove tx");
 
                 // maybe it's a defended payout tx
                 self.process_defended_payout_confirmation(tx)
@@ -2264,9 +2264,7 @@ impl ContractSM {
                 height
             )));
         }
-        let current = std::mem::replace(&mut self.state.state, ContractState::Stub);
-
-        let duty = match &current {
+        let duty = match &self.state.state {
             // the next states for the following states do not depend on a timelock
             // and so are agnostic to new block events.
             ContractState::Deposited { .. }
@@ -2394,9 +2392,6 @@ impl ContractSM {
             ContractState::Stub => unreachable!("contract must never be in stub state"),
         };
 
-        // restore state
-        self.state.state = current;
-
         Ok(duty)
     }
 
@@ -2434,6 +2429,7 @@ impl ContractSM {
                         {
                             Some(op_key) => op_key.clone(),
                             None => {
+                                self.state.state = copy_of_current;
                                 return Err(TransitionErr(format!(
                                     "could not convert operator index {} to operator key",
                                     fulfiller
@@ -2496,10 +2492,14 @@ impl ContractSM {
                         }
                     }
 
-                    _ => Err(TransitionErr(format!(
-                        "received a non-dispatched deposit entry as an assignment {:?}",
-                        assignment
-                    ))),
+                    _ => {
+                        self.state.state = copy_of_current;
+
+                        Err(TransitionErr(format!(
+                            "received a non-dispatched deposit entry as an assignment {:?}",
+                            assignment
+                        )))
+                    }
                 }
             }
             ContractState::Assigned { .. } => {
@@ -2588,10 +2588,14 @@ impl ContractSM {
                     },
                 )))
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_stake_chain_advancement ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+
+                Err(TransitionErr(format!(
+                    "unexpected state in process_stake_chain_advancement ({})",
+                    current
+                )))
+            }
         }
     }
 
@@ -2667,10 +2671,13 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_fulfillment_confirmation ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+                Err(TransitionErr(format!(
+                    "unexpected state in process_fulfillment_confirmation ({})",
+                    current
+                )))
+            }
         }
     }
 
@@ -2712,6 +2719,7 @@ impl ContractSM {
 
                 let commitment = ClaimTx::parse_witness(tx).map_err(|e| {
                     error!(%e, "could not parse witness from claim tx");
+                    self.state.state = copy_of_current;
 
                     TransitionErr(format!("could not parse claim tx witness: {e}"))
                 })?;
@@ -2731,10 +2739,13 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_claim_confirmation ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+                Err(TransitionErr(format!(
+                    "unexpected state in process_claim_confirmation ({})",
+                    current
+                )))
+            }
         }
     }
 
@@ -2798,10 +2809,14 @@ impl ContractSM {
 
                 Ok(None)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_challenge_confirmation ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+
+                Err(TransitionErr(format!(
+                    "unexpected state in process_challenge_confirmation ({})",
+                    current
+                )))
+            }
         }
     }
 
@@ -2884,10 +2899,13 @@ impl ContractSM {
                     },
                 )))
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_pre_assert_confirmation ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+                Err(TransitionErr(format!(
+                    "unexpected state in process_pre_assert_confirmation ({})",
+                    current
+                )))
+            }
         }
     }
 
@@ -2990,6 +3008,8 @@ impl ContractSM {
         post_assert_height: BitcoinBlockHeight,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let current = std::mem::replace(&mut self.state.state, ContractState::Stub);
+        let copy_of_current = current.clone();
+
         match current {
             ContractState::AssertDataConfirmed {
                 peg_out_graphs,
@@ -3002,6 +3022,8 @@ impl ContractSM {
                 signed_assert_data_txs,
             } if signed_assert_data_txs.keys().count() == NUM_ASSERT_DATA_TX => {
                 if tx.compute_txid() != active_graph.1.post_assert_txid {
+                    self.state.state = copy_of_current;
+
                     return Err(TransitionErr(format!(
                         "invalid post assert transaction ({}) in process_assert_chain_confirmation",
                         tx.compute_txid()
@@ -3052,10 +3074,14 @@ impl ContractSM {
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_post_assert_confirmation ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+
+                Err(TransitionErr(format!(
+                    "unexpected state in process_post_assert_confirmation ({})",
+                    current
+                )))
+            }
         }
     }
 
@@ -3064,14 +3090,20 @@ impl ContractSM {
         &mut self,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let current = std::mem::replace(&mut self.state.state, ContractState::Stub);
+        let copy_of_current = current.clone();
+
         match current {
             ContractState::Asserted { .. } => Ok(Some(OperatorDuty::VerifierDuty(
                 VerifierDuty::PublishDisprove,
             ))),
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_assert_verification_failure ({})",
-                current
-            ))),
+            _ => {
+                self.state.state = copy_of_current;
+
+                Err(TransitionErr(format!(
+                    "unexpected state in process_assert_verification_failure ({})",
+                    current
+                )))
+            }
         }
     }
 
