@@ -18,4 +18,3 @@ pub(crate) fn get_btc_client(
 
     Ok(btc_client)
 }
-
