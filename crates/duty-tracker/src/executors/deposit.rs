@@ -14,7 +14,6 @@ use bitcoin::{
 };
 use btc_notify::client::TxStatus;
 use musig2::{PartialSignature, PubNonce};
-use operator_wallet::FundingUtxo;
 use secp256k1::{schnorr, Message};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
@@ -164,24 +163,13 @@ pub(crate) async fn handle_publish_deposit_setup(
     }
 
     info!(?ignore, "claiming funding utxos");
-    let funding_op = wallet.claim_funding_utxo(|op| ignore.contains(&op));
+    let (funding_op, _) = wallet.claim_funding_utxo(|op| ignore.contains(op));
 
     let funding_utxo = match funding_op {
-        FundingUtxo::Available(outpoint) => outpoint,
-        FundingUtxo::ShouldRefill { op, left } => {
-            info!("refilling stakechain funding utxos, have {left} left");
-
-            let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
-            finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
-
-            op
-        }
-        FundingUtxo::Empty => {
+        Some(outpoint) => outpoint,
+        None => {
             // The first time we run the node, it may be the case that the wallet starts off
             // empty.
-            //
-            // For every case afterwards, we should receive a `ShouldRefill` message before
-            // the wallet is actually empty.
             let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
             finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
             wallet.sync().await.map_err(|e| {
@@ -191,12 +179,10 @@ pub(crate) async fn handle_publish_deposit_setup(
                 )
             })?;
 
-            let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
-
-            match funding_utxo {
-                FundingUtxo::Available(outpoint) => outpoint,
-                _ => panic!("aaaaa no funding utxos available even after refill"),
-            }
+            wallet
+                .claim_funding_utxo(|op| ignore.contains(op))
+                .0
+                .expect("no funding utxos available even after refill")
         }
     };
 
