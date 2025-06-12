@@ -33,6 +33,7 @@ static GLOBAL: Jemalloc = Jemalloc;
 
 #[cfg(feature = "memory_profiling")]
 #[allow(non_upper_case_globals)]
+#[expect(missing_docs)]
 #[export_name = "malloc_conf"]
 pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0";
 
