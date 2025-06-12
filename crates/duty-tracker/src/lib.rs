@@ -3,6 +3,7 @@
 //! rules.
 #![feature(result_flattening)]
 
+pub mod contract_actor;
 pub mod contract_manager;
 pub mod contract_persister;
 pub mod contract_state_machine;
