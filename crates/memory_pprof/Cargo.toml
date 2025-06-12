@@ -1,0 +1,13 @@
+[package]
+name = "memory_pprof"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+jemalloc_pprof = { version = "0.7", features = ["flamegraph"] }
+tokio.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true

@@ -39,6 +39,7 @@ clap.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p = { workspace = true, features = ["secp256k1"] }
+memory_pprof = { version = "0.1.0", path = "../../crates/memory_pprof", optional = true }
 musig2.workspace = true
 rustls-pemfile = "2.2.0"
 secp256k1.workspace = true
@@ -49,4 +50,15 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
-mimalloc.workspace = true
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.6"
+
+[features]
+default = []
+# not compatible with windows/msvc
+memory_profiling = [
+  "tikv-jemallocator/profiling",
+  "tikv-jemallocator/unprefixed_malloc_on_supported_platforms",
+  "dep:memory_pprof",
+]

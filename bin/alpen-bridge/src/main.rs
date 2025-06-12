@@ -6,7 +6,6 @@ use args::OperationMode;
 use clap::Parser;
 use config::Config;
 use constants::{DEFAULT_THREAD_COUNT, DEFAULT_THREAD_STACK_SIZE, STARTUP_DELAY};
-use mimalloc::MiMalloc;
 use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
@@ -22,12 +21,20 @@ mod rpc_server;
 mod constants;
 
 /// The default glibc malloc was observed to be responsible for bad memory fragmentation during
-/// deposits which led to out-of-memory issues. [`MiMalloc`] is a new allocator from Microsoft
-/// that is much more modern, performant and doesn't show these issues. We have it configured in the
-/// secure mode which improves security against memory exploits. Even with mitigations, it is about
-/// as fast as jemalloc and far faster than the glibc malloc.
+/// deposits which led to out-of-memory issues. [`Jemalloc`] is a general purpose malloc(3)
+/// implementation that emphasizes fragmentation avoidance and scalable concurrency support.
+/// It reduces the fragmentation so avoids overutilizing system memory
+#[cfg(not(target_env = "msvc"))]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(not(target_env = "msvc"))]
 #[global_allocator]
-static GLOBAL: MiMalloc = MiMalloc;
+static GLOBAL: Jemalloc = Jemalloc;
+
+#[cfg(feature = "memory_profiling")]
+#[allow(non_upper_case_globals)]
+#[export_name = "malloc_conf"]
+pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0";
 
 fn main() {
     logging::init(LoggerConfig::with_base_name("bridge-node"));
@@ -55,6 +62,8 @@ fn main() {
                 .expect("must be able to create runtime");
 
             runtime.block_on(async move {
+                #[cfg(feature = "memory_profiling")]
+                memory_pprof::setup_memory_profiling(3000);
                 operator::bootstrap(params, config)
                     .await
                     .unwrap_or_else(|e| {
@@ -74,6 +83,8 @@ fn main() {
                 .build()
                 .expect("must be able to create runtime");
             runtime.block_on(async move {
+                #[cfg(feature = "memory_profiling")]
+                memory_pprof::setup_memory_profiling(3000);
                 verifier::bootstrap(params, config)
                     .await
                     .unwrap_or_else(|e| {
