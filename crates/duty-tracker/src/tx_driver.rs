@@ -124,7 +124,7 @@ impl TxDriver {
                         active_jobs = active_jobs.merge(job.into());
 
                         if rpc_client.get_raw_transaction_verbosity_zero(&txid).await.is_ok() {
-                            debug!(%txid, "duplicate TxDriver::drive request. skipping resubmission.");
+                            debug!(%txid, "transaction already broadcasted, skipping resubmission.");
                             continue;
                         }
 
