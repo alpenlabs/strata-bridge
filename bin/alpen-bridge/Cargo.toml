@@ -49,4 +49,16 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
-mimalloc.workspace = true
+
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+memory_pprof = { path = "../../crates/memory_pprof", optional = true }
+tikv-jemallocator = "0.6"
+
+[features]
+default = []
+# not compatible with windows/msvc
+memory_profiling = [
+  "tikv-jemallocator/profiling",
+  "tikv-jemallocator/unprefixed_malloc_on_supported_platforms",
+  "dep:memory_pprof",
+]

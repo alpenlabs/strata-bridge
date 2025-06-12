@@ -12,7 +12,6 @@ bitvm.workspace = true
 colored = "3.0.0"
 hkdf = "0.12.4"
 make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
-mimalloc.workspace = true
 musig2.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"
@@ -23,13 +22,26 @@ serde.workspace = true
 sha2.workspace = true
 strata-bridge-primitives.workspace = true
 strata-key-derivation = { git = "https://github.com/alpenlabs/alpen", version = "0.3.0-alpha.1" }
-
 tokio.workspace = true
 toml = "0.8.19"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 wots = { version = "0.1.0", path = "../../crates/wots", features = ["signing"] }
 
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+memory_pprof = { path = "../../crates/memory_pprof", optional = true }
+tikv-jemallocator = "0.6"
+
+
 [dev-dependencies]
 rcgen = "0.13.2"
 secret-service-client = { path = "../../crates/secret-service-client" }
+
+[features]
+default = []
+# not compatible with windows/msvc
+memory_profiling = [
+  "tikv-jemallocator/profiling",
+  "tikv-jemallocator/unprefixed_malloc_on_supported_platforms",
+  "dep:memory_pprof",
+]
