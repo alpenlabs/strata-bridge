@@ -1,11 +1,11 @@
 x-base-secret-service: &base-secret-service
-    image: secret-service:latest
-    build:
-      context: .
-      dockerfile: ./docker/secret-service/Dockerfile
-    environment:
-      - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
-      - RUST_LOG=info
+  image: secret-service:latest
+  build:
+    context: .
+    dockerfile: ./docker/secret-service/Dockerfile
+  environment:
+    - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
+    - RUST_LOG=info
 
 x-base-bridge-node: &base-bridge-node
   image: strata-bridge:latest
@@ -28,6 +28,8 @@ x-base-bridge-node: &base-bridge-node
 services:
   secret-service-1:
     <<: *base-secret-service
+    ports:
+      - 11000:3000
     volumes:
       - ./docker/vol/secret-service-1:/app
     networks:
@@ -38,6 +40,7 @@ services:
     ports:
       - 15678:5678
       - 15679:5679
+      - 13000:3000
     volumes:
       - ./docker/vol/alpen-bridge-1:/app
       - ./migrations:/app/migrations
@@ -47,6 +50,8 @@ services:
 
   secret-service-2:
     <<: *base-secret-service
+    ports:
+      - 21000:3000
     volumes:
       - ./docker/vol/secret-service-2:/app
     networks:
@@ -57,6 +62,7 @@ services:
     ports:
       - 25678:5678
       - 25679:5679
+      - 23000:3000
     volumes:
       - ./docker/vol/alpen-bridge-2:/app
       - ./migrations:/app/migrations
@@ -66,6 +72,8 @@ services:
 
   secret-service-3:
     <<: *base-secret-service
+    ports:
+      - 31000:3000
     volumes:
       - ./docker/vol/secret-service-3:/app
     networks:
@@ -76,6 +84,7 @@ services:
     ports:
       - 35678:5678
       - 35679:5679
+      - 33000:3000
     volumes:
       - ./docker/vol/alpen-bridge-3:/app
       - ./migrations:/app/migrations

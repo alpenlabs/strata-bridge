@@ -8,7 +8,7 @@ COPY bin/alpen-bridge bin/alpen-bridge
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r -p alpen-bridge
+    cargo b -r -p alpen-bridge --features memory_profiling
 
 RUN --mount=type=cache,target=/app/target cp /app/target/release/alpen-bridge /app/alpen-bridge
 
@@ -20,5 +20,6 @@ COPY --from=builder /app/migrations /app/migrations
 COPY docker/alpen-bridge/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 EXPOSE 5678
+EXPOSE 3000
 
 ENTRYPOINT ["sh", "/usr/local/bin/entrypoint.sh"]
