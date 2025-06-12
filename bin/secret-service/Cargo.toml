@@ -12,7 +12,6 @@ bitvm.workspace = true
 colored = "3.0.0"
 hkdf = "0.12.4"
 make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
-memory_pprof = { workspace = true, optional = true }
 musig2.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"
@@ -30,6 +29,7 @@ tracing-subscriber.workspace = true
 wots = { version = "0.1.0", path = "../../crates/wots", features = ["signing"] }
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
+memory_pprof = { path = "../../crates/memory_pprof", optional = true }
 tikv-jemallocator = "0.6"
 
 

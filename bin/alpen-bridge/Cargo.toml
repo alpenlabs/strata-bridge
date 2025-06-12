@@ -39,7 +39,6 @@ clap.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p = { workspace = true, features = ["secp256k1"] }
-memory_pprof = {worskpace = true, optional = true }
 musig2.workspace = true
 rustls-pemfile = "2.2.0"
 secp256k1.workspace = true
@@ -52,6 +51,7 @@ toml.workspace = true
 tracing.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
+memory_pprof = { path = "../../crates/memory_pprof", optional = true }
 tikv-jemallocator = "0.6"
 
 [features]
