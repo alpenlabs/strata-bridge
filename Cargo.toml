@@ -25,6 +25,7 @@ members = [
   "crates/p2p-service",
   "crates/operator-wallet",
   "crates/wots",
+  "crates/memory_pprof",
 
   # binaries listed separately
   "bin/secret-service",
@@ -34,7 +35,7 @@ members = [
   "bin/alpen-bridge",
 
   # test utilities
-  "crates/test-utils", "crates/memory_pprof",
+  "crates/test-utils",
 ]
 
 default-members = [

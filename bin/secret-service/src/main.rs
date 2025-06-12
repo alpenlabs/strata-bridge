@@ -25,9 +25,13 @@ use tracing::{info, warn, Level};
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+/// Configures Jemalloc to support memory profiling when the feature is enabled.
+/// This allows us to build flamegraphs for memory usage.
+/// - `prof:true`: enables profiling for memory allocations
+/// - `prof_active:true`: activates the profiling that was enabled by prev option
+/// - `lg_prof_sample:19`: sampling interval of every 1 in 2^19 (~512kib) allocations
 #[cfg(feature = "memory_profiling")]
-#[allow(non_upper_case_globals)]
-#[expect(missing_docs)]
+#[expect(non_upper_case_globals)]
 #[export_name = "malloc_conf"]
 pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0";
 
@@ -39,7 +43,7 @@ pub static DEV_MODE: LazyLock<bool> =
 #[tokio::main]
 async fn main() {
     #[cfg(feature = "memory_profiling")]
-    memory_pprof::setup_memory_profiling(3000);
+    memory_pprof::setup_memory_profiling(3_000);
     tracing_subscriber::fmt().with_max_level(Level::INFO).init();
     if *DEV_MODE {
         warn!("⚠️ DEV_MODE active");
