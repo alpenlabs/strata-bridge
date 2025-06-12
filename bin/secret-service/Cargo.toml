@@ -12,7 +12,7 @@ bitvm.workspace = true
 colored = "3.0.0"
 hkdf = "0.12.4"
 make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
-memory_pprof = { version = "0.1.0", path = "../../crates/memory_pprof", optional = true }
+memory_pprof = { workspace = true, optional = true }
 musig2.workspace = true
 rand.workspace = true
 rcgen = "0.13.2"

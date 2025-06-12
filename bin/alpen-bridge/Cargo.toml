@@ -39,7 +39,7 @@ clap.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p = { workspace = true, features = ["secp256k1"] }
-memory_pprof = { version = "0.1.0", path = "../../crates/memory_pprof", optional = true }
+memory_pprof = {worskpace = true, optional = true }
 musig2.workspace = true
 rustls-pemfile = "2.2.0"
 secp256k1.workspace = true

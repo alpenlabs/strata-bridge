@@ -5,7 +5,9 @@ use std::net::{IpAddr, Ipv4Addr};
 
 use tracing::info;
 
-/// Main setup function. Must be called inside a tokio runtime with jemalloc set as the global
+/// Main function that sets up an http server for the memory profile.
+///
+/// Must be called inside a tokio runtime with jemalloc set as the global
 /// allocator with the cargo features `profiling` and `unprefixed_malloc_on_supported_platforms`. It
 /// also need to be configured as such:
 ///
