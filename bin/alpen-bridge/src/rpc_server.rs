@@ -633,7 +633,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 }
 
-fn map_state_to_reimbursement_status(state: &ContractState) -> RpcReimbursementStatus {
+const fn map_state_to_reimbursement_status(state: &ContractState) -> RpcReimbursementStatus {
     match state {
         ContractState::Requested { .. }
         | ContractState::Deposited { .. }
@@ -647,7 +647,6 @@ fn map_state_to_reimbursement_status(state: &ContractState) -> RpcReimbursementS
         | ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged,
         ContractState::Resolved { .. } => RpcReimbursementStatus::Complete,
         ContractState::Disproved { .. } => RpcReimbursementStatus::Cancelled,
-        ContractState::Stub => unreachable!("cached state must never be in stub state"),
     }
 }
 
