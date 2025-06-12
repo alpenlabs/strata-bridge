@@ -95,6 +95,34 @@ NETWORK_RPC_URL=https://rpc.production2.succinct.tools
 NETWORK_PRIVATE_KEY=
 ```
 
+### Memory Profiling
+
+The bridge operators and secret services are built with memory profiling enabled using `jemalloc`. This feature exposes HTTP endpoints for heap profiling on port `3000` for each service.
+
+The following ports are mapped for memory profiling:
+
+- Bridge node 1: `localhost:13000` → container port `3000`
+- Bridge node 2: `localhost:23000` → container port `3000`
+- Bridge node 3: `localhost:33000` → container port `3000`
+- Secret service 1: `localhost:11000` → container port `3000`
+- Secret service 2: `localhost:21000` → container port `3000`
+- Secret service 3: `localhost:31000` → container port `3000`
+
+Available endpoints:
+
+- `/debug/pprof/heap` - Raw heap profile data (`pprof` format)
+- `/debug/pprof/heap/flamegraph` - Heap profile as SVG flamegraph
+
+Example usage:
+
+```sh
+# Get heap profile for bridge node 1
+curl http://localhost:13000/debug/pprof/heap > bridge1-heap.pprof
+
+# View flamegraph for secret service 1 in browser
+open http://localhost:11000/debug/pprof/heap/flamegraph
+```
+
 ### Bridging in
 
 To bridge-in, you can run:
