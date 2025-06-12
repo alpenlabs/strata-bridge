@@ -4,6 +4,7 @@ use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::wots_api::HASH_LEN};
 use btc_notify::client::TxStatus;
 use futures::future::join_all;
+use rand::thread_rng;
 use secp256k1::rand::{self, Rng};
 use secret_service_proto::v1::traits::*;
 use strata_bridge_connectors::prelude::{
@@ -135,7 +136,7 @@ pub(crate) async fn handle_publish_assert_data(
     if cfg.is_faulty {
         warn!(action = "making a faulty assertion");
         for _ in 0..assertions.groth16.2.len() {
-            let proof_index_to_tweak = rand::thread_rng().gen_range(0..assertions.groth16.2.len());
+            let proof_index_to_tweak = thread_rng().gen_range(0..assertions.groth16.2.len());
 
             warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
             if assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN as usize] {

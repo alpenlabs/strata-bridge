@@ -59,7 +59,10 @@ impl DisproveTx {
         connector_a3: &ConnectorA3,
         connector_stake: ConnectorStake,
     ) -> Self {
-        // The dust inputs to the post-assert transaction minus the CPFP dust output.
+        // This transaction spends the first output from the `PostAssertTx`.
+        // The PostAssertTx has `NUM_ASSERT_DATA_TX` inputs each with `SEGWIT_MIN_AMOUNT`
+        // One of these inputs is used in the CPFP output of the `PostAssertTx` itself.
+        // So, the input (dust) amount for the `DisproveTx` is the following:
         let input_amount: Amount = SEGWIT_MIN_AMOUNT * (NUM_ASSERT_DATA_TX - 1) as u64;
         let utxos = [
             data.stake_outpoint,
