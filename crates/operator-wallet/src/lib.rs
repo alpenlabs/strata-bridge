@@ -1,6 +1,7 @@
 //! Operator wallet
 pub mod sync;
 
+use algebra::predicate;
 use bdk_wallet::{
     bitcoin::{
         script::PushBytesBuf, Amount, FeeRate, Network, OutPoint, Psbt, ScriptBuf, XOnlyPublicKey,
@@ -179,24 +180,17 @@ impl OperatorWallet {
 
     /// Attempts to find a funding UTXO for a stake, ignoring outpoints for which ignore returns
     /// `true`
-    pub fn claim_funding_utxo(&self, ignore: impl Fn(OutPoint) -> bool) -> FundingUtxo {
-        let mut utxos = self
-            .stakechain_wallet
-            .list_unspent()
-            .filter(|utxo| {
-                !ignore(utxo.outpoint) && utxo.txout.value == self.config.stake_funding_utxo_value
-            })
-            .collect::<Vec<_>>();
-        if utxos.is_empty() {
-            FundingUtxo::Empty
-        } else if utxos.len() < self.config.stake_funding_utxo_pool_size {
-            FundingUtxo::ShouldRefill {
-                op: utxos.pop().unwrap().outpoint,
-                left: utxos.len(),
-            }
-        } else {
-            FundingUtxo::Available(utxos.pop().unwrap().outpoint)
-        }
+    pub fn claim_funding_utxo(
+        &self,
+        ignore: impl Fn(&OutPoint) -> bool,
+    ) -> (Option<OutPoint>, u64) {
+        let ignore_local = predicate::contramap(|o: &LocalOutput| o.outpoint, ignore);
+        let consider = predicate::not(ignore_local);
+
+        let mut utxos: Vec<LocalOutput> = self.claim_funding_outputs().filter(consider).collect();
+
+        let remaining = utxos.len() as u64;
+        (utxos.pop().map(|utxo| utxo.outpoint), remaining)
     }
 
     /// Tries to find the `s` connector UTXO from the prestake transaction
@@ -251,21 +245,4 @@ impl OperatorWallet {
             .await?;
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-/// Represents the wallet suggesting a specific UTXO
-pub enum FundingUtxo {
-    /// The wallet found a UTXO that can be used for funding
-    Available(OutPoint),
-    /// The wallet found a UTXO that can be used for funding, but also needs you to perform a
-    /// refill
-    ShouldRefill {
-        /// Funding outpoint
-        op: OutPoint,
-        /// How many funding utxos we have left
-        left: usize,
-    },
-    /// Really bad if this happens because you should've refilled when we told you too.
-    Empty,
 }
