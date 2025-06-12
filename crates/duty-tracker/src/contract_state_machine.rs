@@ -163,6 +163,10 @@ pub enum ContractEvent {
         /// claim transactions can be settled.
         stake_tx: StakeTxKind,
 
+        /// The latest height of the bitcoin chain used to determine whether the fulfillment
+        /// deadline has exceeded.
+        cur_height: BitcoinBlockHeight,
+
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
         l1_start_height: BitcoinBlockHeight,
@@ -1479,9 +1483,10 @@ impl ContractSM {
             ContractEvent::Assignment {
                 deposit_entry,
                 stake_tx,
+                cur_height,
                 l1_start_height,
             } => self
-                .process_assignment(&deposit_entry, stake_tx, l1_start_height)
+                .process_assignment(&deposit_entry, stake_tx, cur_height, l1_start_height)
                 .map(|x| x.into_iter().collect()),
 
             ContractEvent::PegOutGraphConfirmation(tx, height) => self
@@ -2355,6 +2360,7 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
         stake_tx: StakeTxKind,
+        cur_height: BitcoinBlockHeight,
         height: BitcoinBlockHeight,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
@@ -2368,31 +2374,47 @@ impl ContractSM {
             )));
         }
 
-        match &mut self.state.state {
-            ContractState::Deposited {
-                peg_out_graphs,
-                claim_txids,
-                graph_sigs,
-            } => {
-                match assignment.deposit_state() {
-                    DepositState::Dispatched(dispatched_state) => {
-                        let fulfiller = dispatched_state.assignee();
-                        let fulfiller_key = match self.cfg.operator_table.idx_to_op_key(&fulfiller)
-                        {
-                            Some(op_key) => op_key.clone(),
-                            None => {
-                                return Err(TransitionErr(format!(
-                                    "could not convert operator index {} to operator key",
-                                    fulfiller
-                                )));
-                            }
-                        };
+        match assignment.deposit_state() {
+            DepositState::Dispatched(dispatched_state) => {
+                let assignee = dispatched_state.assignee();
+                let assignee_key = match self.cfg.operator_table.idx_to_op_key(&assignee) {
+                    Some(op_key) => op_key.clone(),
+                    None => {
+                        return Err(TransitionErr(format!(
+                            "could not convert operator index {} to operator key",
+                            assignee
+                        )));
+                    }
+                };
+                let pov_idx = self.cfg.operator_table.pov_idx();
+                let recipient = dispatched_state
+                    .cmd()
+                    .withdraw_outputs()
+                    .first()
+                    .map(|out| out.destination()).ok_or_else(|| {
+                        TransitionErr(format!(
+                            "assignment does not contain a recipient for deposit txid {deposit_txid}",
+                        ))
+                    })?;
 
+                let withdrawal_request_txid = assignment
+                    .withdrawal_request_txid()
+                    .ok_or_else(|| {
+                        TransitionErr(format!(
+                            "assignment does not contain a withdrawal request txid for deposit txid {deposit_txid}",
+                        ))
+                    })?;
+
+                match &mut self.state.state {
+                    ContractState::Deposited {
+                        peg_out_graphs,
+                        claim_txids,
+                        graph_sigs,
+                        ..
+                    } => {
                         let fulfiller_claim_txid =
-                            claim_txids
-                                .get(&fulfiller_key)
-                                .ok_or(TransitionErr(format!(
-                                "could not find claim_txid for operator {fulfiller_key} in csm {}",
+                            claim_txids.get(&assignee_key).ok_or(TransitionErr(format!(
+                                "could not find claim_txid for operator {assignee_key} in csm {}",
                                 deposit_txid,
                             )))?;
 
@@ -2405,60 +2427,109 @@ impl ContractSM {
                             )))?
                             .to_owned();
 
-                        let recipient = dispatched_state
-                            .cmd()
-                            .withdraw_outputs()
-                            .first()
-                            .map(|out| out.destination());
+                        self.state.state = ContractState::Assigned {
+                            peg_out_graphs: peg_out_graphs.clone(),
+                            claim_txids: claim_txids.clone(),
+                            graph_sigs: graph_sigs.clone(),
+                            fulfiller: assignee,
+                            deadline,
+                            active_graph,
+                            recipient: recipient.clone(),
+                            withdrawal_request_txid: withdrawal_request_txid.into(),
+                            l1_start_height: height,
+                        };
 
-                        if let (Some(recipient), Some(withdrawal_request_txid)) =
-                            (recipient, assignment.withdrawal_request_txid())
-                        {
-                            self.state.state = ContractState::Assigned {
-                                peg_out_graphs: peg_out_graphs.clone(),
-                                claim_txids: claim_txids.clone(),
-                                graph_sigs: graph_sigs.clone(),
-                                fulfiller,
-                                deadline,
-                                active_graph,
-                                recipient: recipient.clone(),
-                                withdrawal_request_txid: withdrawal_request_txid.into(),
-                                l1_start_height: height,
-                            };
-
-                            let stake_index = assignment.idx();
-
-                            Ok(Some(OperatorDuty::FulfillerDuty(
+                        let duty = if is_valid_assignment(pov_idx, assignee, deadline, cur_height) {
+                            Some(OperatorDuty::FulfillerDuty(
                                 FulfillerDuty::AdvanceStakeChain {
+                                    stake_index: assignment.idx(),
                                     stake_tx,
-                                    stake_index,
                                 },
-                            )))
+                            ))
                         } else {
-                            warn!(?assignment, "assignment does not contain a recipient or withdrawal request txid");
+                            None
+                        };
 
-                            Err(TransitionErr(format!("invalid assignment state, missing recipient or withdrawal request txid, {assignment:?}")))
-                        }
+                        Ok(duty)
                     }
 
-                    _ => Err(TransitionErr(format!(
-                        "received a non-dispatched deposit entry as an assignment {:?}",
-                        assignment
-                    ))),
+                    ContractState::Assigned {
+                        fulfiller,
+                        deadline,
+                        ..
+                    } => {
+                        if *fulfiller != assignee {
+                            info!(new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
+
+                            *fulfiller = assignee;
+                            *deadline = dispatched_state.exec_deadline();
+                        }
+
+                        let duty = if is_valid_assignment(pov_idx, assignee, *deadline, cur_height)
+                        {
+                            Some(OperatorDuty::FulfillerDuty(
+                                FulfillerDuty::AdvanceStakeChain {
+                                    stake_index: assignment.idx(),
+                                    stake_tx,
+                                },
+                            ))
+                        } else {
+                            None
+                        };
+
+                        Ok(duty)
+                    }
+
+                    ContractState::StakeTxReady {
+                        fulfiller,
+                        deadline,
+                        ..
+                    } => {
+                        if *fulfiller != assignee {
+                            info!(new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
+
+                            *fulfiller = assignee;
+                            *deadline = dispatched_state.exec_deadline();
+                        }
+
+                        let duty = if is_valid_assignment(pov_idx, assignee, *deadline, cur_height)
+                        {
+                            let withdrawal_metadata = WithdrawalMetadata {
+                                tag: self.cfg.peg_out_graph_params.tag,
+                                operator_idx: *fulfiller,
+                                deposit_idx: assignment.idx(),
+                                deposit_txid,
+                            };
+
+                            Some(OperatorDuty::FulfillerDuty(
+                                FulfillerDuty::PublishFulfillment {
+                                    withdrawal_metadata,
+                                    user_descriptor: recipient.clone(),
+                                },
+                            ))
+                        } else {
+                            None
+                        };
+
+                        Ok(duty)
+                    }
+
+                    cur_state => {
+                        warn!(?assignment, %cur_state, "received stale assignment, ignoring");
+
+                        Ok(None)
+                    }
                 }
             }
-            ContractState::Assigned { .. } => {
-                // TODO: (@Rajil1213) check if this is a new assignment i.e., the assignee is
-                // different
-
-                warn!("received assignment even though contract is already assigned");
-
-                Ok(None)
-            }
             _ => {
-                warn!(?assignment, "received stale assignment, ignoring...");
+                warn!(
+                    ?assignment,
+                    "received a non-dispatched deposit entry as an assignment"
+                );
 
-                Ok(None)
+                Err(TransitionErr(format!(
+                    "received a non-dispatched deposit entry as an assignment {assignment:?}",
+                )))
             }
         }
     }
@@ -3202,6 +3273,29 @@ impl ContractSM {
                 ..
             } => Some(*withdrawal_fulfillment_txid),
         }
+    }
+}
+
+fn is_valid_assignment(
+    pov_idx: OperatorIdx,
+    assignee: OperatorIdx,
+    deadline: BitcoinBlockHeight,
+    cur_height: BitcoinBlockHeight,
+) -> bool {
+    // TODO: (@Rajil1213) add some margin of error here.
+    let is_within_deadline = deadline > cur_height;
+    let is_assigned_to_me = pov_idx == assignee;
+
+    match (is_within_deadline, is_assigned_to_me) {
+        (false, _) => {
+            debug!("assignment is no longer valid, deadline has passed");
+            false
+        }
+        (true, false) => {
+            debug!("assignment is not for this operator, ignoring");
+            false
+        }
+        (true, true) => true,
     }
 }
 

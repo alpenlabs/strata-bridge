@@ -21,7 +21,7 @@ use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
@@ -476,7 +476,7 @@ impl ContractManagerCtx {
 
         for tx in block.txdata {
             // could be an assignment
-            let assignment_duties = self.process_assignments(&tx).await?;
+            let assignment_duties = self.process_assignments(&tx, height).await?;
             if !assignment_duties.is_empty() {
                 info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
                 duties.extend(assignment_duties);
@@ -627,6 +627,7 @@ impl ContractManagerCtx {
     async fn process_assignments(
         &mut self,
         tx: &Transaction,
+        cur_height: BitcoinBlockHeight,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
 
@@ -672,6 +673,7 @@ impl ContractManagerCtx {
                         match sm.process_contract_event(ContractEvent::Assignment {
                             deposit_entry: entry.clone(),
                             stake_tx,
+                            cur_height,
                             l1_start_height,
                         }) {
                             Ok(new_duties) if !new_duties.is_empty() => {
