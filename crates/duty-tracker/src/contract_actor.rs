@@ -9,6 +9,10 @@ use tokio::{
     sync::{mpsc, oneshot},
     task::JoinHandle,
 };
+
+/// Channel for sending duty responses from contract actors back to the main event loop.
+pub type DutyResponseSender =
+    mpsc::UnboundedSender<(Txid, Result<Vec<OperatorDuty>, TransitionErr>)>;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -28,8 +32,11 @@ pub enum ContractActorMessage {
         /// The [`ContractEvent`] to process.
         event: ContractEvent,
 
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<Result<Vec<OperatorDuty>, TransitionErr>>,
+        /// Channel to send the response back (for synchronous calls).
+        respond_to: Option<oneshot::Sender<Result<Vec<OperatorDuty>, TransitionErr>>>,
+
+        /// Channel to send [`OperatorDuty`]s to (for asynchronous processing).
+        duty_response_sender: Option<DutyResponseSender>,
     },
 
     /// Gets the current [`MachineState`] of the contract.
@@ -130,7 +137,11 @@ impl ContractActor {
 
             while let Some(message) = event_receiver.recv().await {
                 match message {
-                    ContractActorMessage::ProcessEvent { event, respond_to } => {
+                    ContractActorMessage::ProcessEvent {
+                        event,
+                        respond_to,
+                        duty_response_sender,
+                    } => {
                         debug!(%deposit_txid, ?event, "processing contract event");
 
                         let result = csm.process_contract_event(event);
@@ -147,7 +158,12 @@ impl ContractActor {
                             }
                         }
 
-                        let _ = respond_to.send(result);
+                        // Send response via appropriate channel
+                        if let Some(respond_to) = respond_to {
+                            let _ = respond_to.send(result);
+                        } else if let Some(duty_sender) = duty_response_sender {
+                            let _ = duty_sender.send((deposit_txid, result));
+                        }
                     }
                     ContractActorMessage::GetState { respond_to } => {
                         let _ = respond_to.send(csm.state().clone());
@@ -205,13 +221,31 @@ impl ContractActor {
         self.event_sender
             .send(ContractActorMessage::ProcessEvent {
                 event,
-                respond_to: sender,
+                respond_to: Some(sender),
+                duty_response_sender: None,
             })
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver
             .await
             .map_err(|_| TransitionErr("Failed to receive response from CSM actor".to_string()))?
+    }
+
+    /// Processes a contract event asynchronously, sending duties to the provided channel.
+    pub fn process_event_async(
+        &self,
+        event: ContractEvent,
+        duty_response_sender: DutyResponseSender,
+    ) -> Result<(), TransitionErr> {
+        self.event_sender
+            .send(ContractActorMessage::ProcessEvent {
+                event,
+                respond_to: None,
+                duty_response_sender: Some(duty_response_sender),
+            })
+            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+
+        Ok(())
     }
 
     /// Gets the current [`MachineState`] of the contract.

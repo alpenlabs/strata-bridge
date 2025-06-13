@@ -229,6 +229,12 @@ pub(crate) async fn handle_publish_deposit_setup(
             // the wallet is actually empty.
             let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
             finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
+            wallet.sync().await.map_err(|e| {
+                error!(?e, "could not sync wallet after refilling funding utxos");
+                ContractManagerErr::FatalErr(
+                    format!("could not sync wallet after refilling funding utxos: {e:?}").into(),
+                )
+            })?;
 
             let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
 
