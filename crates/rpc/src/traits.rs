@@ -1,10 +1,11 @@
 //! Traits for the RPC server.
 
-use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
+use bitcoin::{taproot::Signature, OutPoint, PublicKey, Transaction, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 
 use crate::types::{
-    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcOperatorStatus, RpcWithdrawalInfo,
+    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositStatus, RpcDisproveData, RpcOperatorStatus,
+    RpcWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -61,7 +62,7 @@ pub trait StrataBridgeMonitoringApi {
 
     /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
-    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<RpcClaimInfo>;
+    async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>>;
 }
 
 /// RPCs required for data availability.
@@ -70,11 +71,18 @@ pub trait StrataBridgeMonitoringApi {
 #[cfg_attr(not(feature = "client"), rpc(server, namespace = "stratabridge"))]
 #[cfg_attr(feature = "client", rpc(server, client, namespace = "stratabridge"))]
 pub trait StrataBridgeDaApi {
+    /// Query for the unfunded challenge transaction for a particular claim.
+    #[method(name = "challengeTransaction")]
+    async fn get_challenge_tx(&self, claim_txid: Txid) -> RpcResult<Option<Transaction>>;
+
     /// Query for challenge signature for a particular claim.
     #[method(name = "challengeSignature")]
     async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>>;
 
-    /// Query for disprove signature for a particular claim.
-    #[method(name = "disproveSignature")]
-    async fn get_disprove_signature(&self, deposit_txid: Txid) -> RpcResult<Option<Signature>>;
+    /// Query for the graph-setup data required to construct a disprove transaction for a particular
+    /// claim.
+    ///
+    /// This does not include the actual disprove script, which is only known at disprove time.
+    #[method(name = "disproveData")]
+    async fn get_disprove_data(&self, claim_txid: Txid) -> RpcResult<Option<RpcDisproveData>>;
 }

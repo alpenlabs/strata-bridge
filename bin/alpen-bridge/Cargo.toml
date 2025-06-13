@@ -16,6 +16,7 @@ btc-notify.workspace = true
 duty-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
+strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
 strata-bridge-primitives.workspace = true

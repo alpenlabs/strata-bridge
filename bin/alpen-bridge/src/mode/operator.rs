@@ -409,6 +409,7 @@ async fn init_duty_tracker(
         stake_chain_params,
         sidesystem_params,
         operator_table,
+        config.is_faulty,
         pre_stake_pubkey,
         zmq_client,
         rpc_client,

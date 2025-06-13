@@ -1,0 +1,16 @@
+network = "regtest"
+bridge_out_addr = "0x5400000000000000000000000000000000000001"
+deposit_amount = 1_000_000_000                                 # 10 BTC
+stake_amount = 100_000_000                                     # 1 BTC
+burn_amount = 10_000_000                                       # 0.1 BTC
+refund_delay = 1_008
+stake_chain_delta = { Blocks = 6 }
+payout_timelock = 1_008
+
+tag = "alpn"
+
+musig2_keys = [
+  "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
+  "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
+  "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba",
+]

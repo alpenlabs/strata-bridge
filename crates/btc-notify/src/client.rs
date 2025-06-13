@@ -129,6 +129,8 @@ impl BtcZmqClient {
                                 Message::Block(block, _) => {
                                     trace!(%topic, "received event");
                                     // First send the block to the block subscribers.
+                                    // if the receiver has been dropped, we remove it from the
+                                    // subscription list.
                                     block_subs_thread.lock().await.retain(|sub| {
                                         sub.send(BlockEvent {
                                             block: block.clone(),
@@ -142,6 +144,7 @@ impl BtcZmqClient {
                                     trace!(?block, "processing block");
                                     info!(block_hash=%block.block_hash(), "processing block");
                                     let (tx_events, block_event) = sm.process_block(block);
+
                                     if let Some(block_event) = block_event {
                                         block_subs_thread
                                             .lock()
@@ -186,8 +189,10 @@ impl BtcZmqClient {
                             // Now we send the diff to the relevant subscribers.
                             // If we ever encounter a send error,
                             // it means the receiver has been dropped.
-                            debug!(?msg, "notifying subscriber");
-                            if sub.outbox.send(msg.clone()).is_err() {
+                            trace!(?msg, "notifying subscriber");
+
+                            if let Err(e) = sub.outbox.send(msg.clone()) {
+                                debug!(%e, "failed to notify subscriber");
                                 sm.rm_filter(&sub.predicate);
                                 return false;
                             }
@@ -216,19 +221,28 @@ impl BtcZmqClient {
         f: impl Fn(&Transaction) -> bool + Sync + Send + 'static,
     ) -> Subscription<TxEvent> {
         let (send, recv) = mpsc::unbounded_channel();
+        let predicate = Arc::new(f);
+
+        {
+            trace!("locking state machine");
+            let mut sm = self.state_machine.lock().await;
+            sm.add_filter(predicate.clone());
+            trace!("added filter to state machine");
+        }
 
         let details = TxSubscriptionDetails {
-            predicate: Arc::new(f),
+            predicate,
             outbox: send,
         };
+
         trace!(?details, "subscribing to transactions");
 
-        let mut subs = self.tx_subs.lock().await;
-        let mut sm = self.state_machine.lock().await;
-        sm.add_filter(details.predicate.clone());
-        drop(sm); // dropped eagerly to allow other threads to progress immediately.
-        subs.push(details);
-        drop(subs); // dropped eagerly to allow other threads to progress immediately.
+        {
+            trace!("locking subscriptions");
+            let mut subs = self.tx_subs.lock().await;
+            subs.push(details);
+            trace!("added subscription");
+        }
 
         Subscription::from_receiver(recv)
     }
@@ -294,7 +308,7 @@ mod e2e_tests {
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
 
-        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+        let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
@@ -322,7 +336,7 @@ mod e2e_tests {
             "-zmqpubsequence=tcp://127.0.0.1:23886",
             "-debug=zmq",
         ]);
-        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+        let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
