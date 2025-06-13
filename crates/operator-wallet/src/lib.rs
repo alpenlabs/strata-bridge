@@ -187,10 +187,11 @@ impl OperatorWallet {
         let ignore_local = predicate::contramap(|o: &LocalOutput| o.outpoint, ignore);
         let consider = predicate::not(ignore_local);
 
-        let mut utxos: Vec<LocalOutput> = self.claim_funding_outputs().filter(consider).collect();
+        let mut considered = self.claim_funding_outputs().filter(consider);
+        let claim_funding_output = considered.next().map(|utxo| utxo.outpoint);
 
-        let remaining = utxos.len() as u64;
-        (utxos.pop().map(|utxo| utxo.outpoint), remaining)
+        let remaining = considered.count() as u64;
+        (claim_funding_output, remaining)
     }
 
     /// Tries to find the `s` connector UTXO from the prestake transaction
