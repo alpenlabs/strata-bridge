@@ -3071,23 +3071,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "deadpool"
-version = "0.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ed5957ff93768adf7a65ab167a17835c3d2c3c50d084fe305174c112f468e2f"
-dependencies = [
- "deadpool-runtime",
- "num_cpus",
- "tokio",
-]
-
-[[package]]
-name = "deadpool-runtime"
-version = "0.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
-
-[[package]]
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3183,32 +3166,6 @@ dependencies = [
  "quote",
  "syn 2.0.101",
  "unicode-xid",
-]
-
-[[package]]
-name = "dev-bridge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "bitcoind-async-client",
- "chrono",
- "clap",
- "jsonrpsee",
- "rand 0.8.5",
- "secp256k1",
- "serde_json",
- "sqlx",
- "strata-bridge-agent",
- "strata-bridge-common",
- "strata-bridge-db",
- "strata-bridge-primitives",
- "strata-bridge-rpc",
- "strata-primitives",
- "strata-rpc-api",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -6634,20 +6591,6 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "570074cc999d1a58184080966e5bd3bf3a9a4af650c3b05047c2621e7405cd17"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "once_cell",
- "pin-project-lite",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "opentelemetry"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e87237e2775f74896f9ad219d26a2081751187eb7c9f5c58dde20a23b95d16c"
@@ -6669,27 +6612,9 @@ dependencies = [
  "async-trait",
  "bytes",
  "http 1.3.1",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "reqwest 0.12.18",
  "tracing",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29e1f9c8b032d4f635c730c0efcf731d5e2530ea13fa8bef7939ddc8420696bd"
-dependencies = [
- "async-trait",
- "futures-core",
- "http 1.3.1",
- "opentelemetry 0.26.0",
- "opentelemetry-proto 0.26.1",
- "opentelemetry_sdk 0.26.0",
- "prost",
- "thiserror 1.0.69",
- "tokio",
- "tonic",
 ]
 
 [[package]]
@@ -6700,10 +6625,10 @@ checksum = "d899720fe06916ccba71c01d04ecd77312734e2de3467fd30d9d580c8ce85656"
 dependencies = [
  "futures-core",
  "http 1.3.1",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "opentelemetry-http",
- "opentelemetry-proto 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
  "prost",
  "reqwest 0.12.18",
  "thiserror 2.0.12",
@@ -6714,47 +6639,14 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-proto"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9d3968ce3aefdcca5c27e3c4ea4391b37547726a70893aab52d3de95d5f8b34"
-dependencies = [
- "opentelemetry 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "prost",
- "tonic",
-]
-
-[[package]]
-name = "opentelemetry-proto"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c40da242381435e18570d5b9d50aca2a4f4f4d8e146231adb4e7768023309b3"
 dependencies = [
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "prost",
  "tonic",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2c627d9f4c9cdc1f21a29ee4bfbd6028fcb8bcf2a857b43f3abdf72c9c862f3"
-dependencies = [
- "async-trait",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "once_cell",
- "opentelemetry 0.26.0",
- "percent-encoding",
- "rand 0.8.5",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -6767,7 +6659,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "glob",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "percent-encoding",
  "rand 0.9.1",
  "serde_json",
@@ -9871,51 +9763,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 
 [[package]]
-name = "strata-bridge-agent"
-version = "0.1.0"
-dependencies = [
- "alpen-bridge-params",
- "anyhow",
- "ark-serialize 0.5.0",
- "bincode",
- "bitcoin",
- "bitcoin-bosd",
- "bitcoind-async-client",
- "bitvm",
- "borsh",
- "jsonrpsee",
- "musig2",
- "rand 0.8.5",
- "rkyv",
- "secp256k1",
- "serde",
- "serde_json",
- "sp1-verifier",
- "strata-bridge-connectors",
- "strata-bridge-db",
- "strata-bridge-primitives",
- "strata-bridge-proof-primitives",
- "strata-bridge-proof-protocol",
- "strata-bridge-proof-snark",
- "strata-bridge-stake-chain",
- "strata-bridge-tx-graph",
- "strata-l1tx",
- "strata-primitives",
- "strata-rpc-api",
- "strata-state",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "strata-bridge-common"
 version = "0.1.0"
 dependencies = [
- "opentelemetry 0.29.1",
- "opentelemetry-otlp 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "tracing",
- "tracing-opentelemetry 0.30.0",
+ "tracing-opentelemetry",
  "tracing-subscriber 0.3.19",
 ]
 
@@ -9951,7 +9806,6 @@ dependencies = [
  "rkyv",
  "secp256k1",
  "serde",
- "serde_json",
  "sqlx",
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
@@ -9996,7 +9850,6 @@ dependencies = [
  "anyhow",
  "arbitrary",
  "bitcoin",
- "bitcoin-bosd",
  "bitcoin-script",
  "bitvm",
  "miniscript",
@@ -10145,109 +9998,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-btcio"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "bitcoin",
- "bitcoind-async-client",
- "borsh",
- "hex",
- "musig2",
- "rand 0.8.5",
- "reqwest 0.12.18",
- "secp256k1",
- "strata-config",
- "strata-db",
- "strata-l1tx",
- "strata-primitives",
- "strata-state",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "thiserror 2.0.12",
- "threadpool",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "strata-chaintsn"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "bitcoin",
- "rand_chacha 0.3.1",
- "rand_core 0.6.4",
- "strata-crypto",
- "strata-eectl",
- "strata-primitives",
- "strata-state",
- "thiserror 2.0.12",
- "tracing",
-]
-
-[[package]]
-name = "strata-common"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "bitcoin",
- "deadpool",
- "jsonrpsee",
- "opentelemetry 0.26.0",
- "opentelemetry-otlp 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "serde",
- "strata-primitives",
- "tracing",
- "tracing-opentelemetry 0.27.0",
- "tracing-subscriber 0.3.19",
-]
-
-[[package]]
-name = "strata-config"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "bitcoin",
- "serde",
-]
-
-[[package]]
-name = "strata-consensus-logic"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "borsh",
- "futures",
- "secp256k1",
- "strata-btcio",
- "strata-chaintsn",
- "strata-common",
- "strata-crypto",
- "strata-db",
- "strata-eectl",
- "strata-l1tx",
- "strata-primitives",
- "strata-rpc-types",
- "strata-state",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "thiserror 2.0.12",
- "threadpool",
- "tokio",
- "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9)",
-]
-
-[[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
@@ -10258,37 +10008,6 @@ dependencies = [
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9)",
  "zkaleido-risc0-groth16-verifier",
  "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9)",
-]
-
-[[package]]
-name = "strata-db"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "arbitrary",
- "bitcoin",
- "borsh",
- "hex",
- "musig2",
- "parking_lot",
- "serde",
- "strata-mmr",
- "strata-primitives",
- "strata-state",
- "thiserror 2.0.12",
- "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9)",
-]
-
-[[package]]
-name = "strata-eectl"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "strata-primitives",
- "strata-state",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -10317,19 +10036,6 @@ dependencies = [
  "strata-state",
  "thiserror 2.0.12",
  "tracing",
-]
-
-[[package]]
-name = "strata-mmr"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "arbitrary",
- "borsh",
- "digest 0.10.7",
- "hex",
- "sha2",
- "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -10423,68 +10129,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-rpc-api"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "bitcoin",
- "hex",
- "jsonrpsee",
- "serde",
- "serde_with",
- "strata-common",
- "strata-db",
- "strata-primitives",
- "strata-rpc-types",
- "strata-sequencer",
- "strata-state",
- "thiserror 2.0.12",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9)",
-]
-
-[[package]]
-name = "strata-rpc-types"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "bitcoin",
- "hex",
- "jsonrpsee",
- "serde",
- "serde_json",
- "serde_with",
- "strata-db",
- "strata-primitives",
- "strata-state",
- "thiserror 2.0.12",
-]
-
-[[package]]
-name = "strata-sequencer"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "borsh",
- "serde",
- "strata-chaintsn",
- "strata-common",
- "strata-consensus-logic",
- "strata-db",
- "strata-eectl",
- "strata-l1tx",
- "strata-primitives",
- "strata-state",
- "strata-status",
- "strata-storage",
- "strata-tasks",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "zeroize",
-]
-
-[[package]]
 name = "strata-state"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
@@ -10503,50 +10147,6 @@ dependencies = [
  "strata-primitives",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9)",
-]
-
-[[package]]
-name = "strata-status"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "strata-primitives",
- "strata-rpc-types",
- "strata-state",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "strata-storage"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "async-trait",
- "bitcoin",
- "lru 0.12.5",
- "parking_lot",
- "paste",
- "strata-db",
- "strata-primitives",
- "strata-state",
- "threadpool",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "strata-tasks"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#b3ccdda83e7788d0849a397cd2b61097b0a13f30"
-dependencies = [
- "anyhow",
- "futures-util",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -11327,32 +10927,14 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc58af5d3f6c5811462cabb3289aec0093f7338e367e5a33d28c0433b3c7360b"
-dependencies = [
- "js-sys",
- "once_cell",
- "opentelemetry 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "smallvec",
- "tracing",
- "tracing-core",
- "tracing-log",
- "tracing-subscriber 0.3.19",
- "web-time",
-]
-
-[[package]]
-name = "tracing-opentelemetry"
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd8e764bd6f5813fd8bebc3117875190c5b0415be8f7f8059bffb6ecd979c444"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "smallvec",
  "tracing",
  "tracing-core",

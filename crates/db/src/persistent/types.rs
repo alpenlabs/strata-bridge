@@ -11,7 +11,6 @@ use rkyv::rancor::Error as RkyvError;
 use secp256k1::schnorr::Signature;
 use sqlx::{sqlite::SqliteValueRef, Sqlite};
 use strata_bridge_primitives::{
-    duties::BridgeDutyStatus,
     scripts::taproot::TaprootWitness,
     types::OperatorIdx,
     wots::{self, Wots256PublicKey},
@@ -329,50 +328,6 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbSignature {
     ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
         let signature_str = self.0.to_string();
         sqlx::Encode::<'q, Sqlite>::encode_by_ref(&signature_str, buf)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct DbDutyStatus(BridgeDutyStatus);
-
-impl Deref for DbDutyStatus {
-    type Target = BridgeDutyStatus;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl From<BridgeDutyStatus> for DbDutyStatus {
-    fn from(value: BridgeDutyStatus) -> Self {
-        Self(value)
-    }
-}
-
-impl sqlx::Type<Sqlite> for DbDutyStatus {
-    fn type_info() -> <Sqlite as sqlx::Database>::TypeInfo {
-        <String as sqlx::Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'r> sqlx::Decode<'r, Sqlite> for DbDutyStatus {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let status_json: String = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
-        let status = serde_json::from_str(&status_json)
-            .map_err(|_| sqlx::Error::Decode("Failed to decode BridgeDutyStatus".into()))?;
-        Ok(DbDutyStatus(status))
-    }
-}
-
-impl<'q> sqlx::Encode<'q, Sqlite> for DbDutyStatus {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <Sqlite as sqlx::Database>::ArgumentBuffer<'q>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        let status_json = serde_json::to_string(&self.0).map_err(|e| {
-            sqlx::Error::Encode(format!("Failed to serialize BridgeDutyStatus: {e:?}").into())
-        })?;
-        sqlx::Encode::<'q, Sqlite>::encode_by_ref(&status_json, buf)
     }
 }
 

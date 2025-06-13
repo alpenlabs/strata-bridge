@@ -214,31 +214,6 @@ pr: lint rustdocs test-doc test-unit ## Runs lints (without fixing), audit, docs
 	@test -z "$$(git status --porcelain)" || echo "WARNNG: You have uncommitted changes"
 	@echo "All good to create a PR!"
 
-
-.PHONY: run
-run:
-	SKIP_VALIDATION=1 \
-	RUST_LOG=info,sp1_start=info,sqlx=info,soketto=error,bitvm=info,strata_bridge_db=warn,strata_bridge_tx_graph=warn,strata_btcio=info,strata_bridge_agent=info,hyper_util=error,jsonrpsee=error \
-		cargo r \
-		--bin dev-bridge \
-		--profile "$(PROFILE)" \
-		-- \
-		--rpc-port 4782 \
-		--strata-url ws://localhost:8432 \
-		--btc-url http://localhost:18443 \
-		--btc-user rpcuser \
-		--btc-pass rpcpassword \
-		--btc-genesis-height 300 \
-		--btc-scan-interval 100 \
-		--wallet-prefix bridge \
-		--fault-tolerance 100 \
-		--duty-interval 20000 \
-		--rollup-params-file test-data/rollup_params.json \
-		--num-threads 4 \
-		--stack-size 512 \
-		--xpriv-file .secrets/xprivs.bin \
-		--msks-file .secrets/msks.bin 2>&1 | tee run.log.$(TIMESTAMP)
-
 .PHONY: migrate
 migrate: ## Run migrations
 	export DATABASE_URL="sqlite://./operator.db" && \

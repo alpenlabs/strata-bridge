@@ -2,7 +2,6 @@
 resolver = "2"
 
 members = [
-  "crates/agent",
   "crates/algebra",
   "crates/db",
   "crates/params",
@@ -29,7 +28,6 @@ members = [
 
   # binaries listed separately
   "bin/secret-service",
-  "bin/dev-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
@@ -38,12 +36,7 @@ members = [
   "crates/test-utils",
 ]
 
-default-members = [
-  "bin/alpen-bridge",
-  "bin/dev-bridge",
-  "bin/dev-cli",
-  "bin/assert-splitter",
-]
+default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -67,7 +60,6 @@ prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
-strata-bridge-agent = { path = "crates/agent" }
 strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
