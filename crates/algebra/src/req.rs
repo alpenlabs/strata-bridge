@@ -92,6 +92,44 @@ impl<In, Out> Req<In, Out> {
         &self.input
     }
 
+    /// Consumes the request and returns the input data by value.
+    ///
+    /// This is useful when you need to take ownership of the input data
+    /// without requiring it to implement [`Clone`].
+    ///
+    /// Note: This consumes the request, so you cannot call [`Req::resolve`] after this.
+    /// Use this method when you need to extract the input and handle the response
+    /// separately.
+    pub fn into_input(self) -> In {
+        self.input
+    }
+
+    /// Consumes the request and returns both the input and response sender.
+    ///
+    /// This is useful when you need to take ownership of the input data without
+    /// requiring it to implement [`Clone`], while still being able to send a response
+    /// manually through the returned sender.
+    ///
+    /// # Returns
+    ///
+    /// A tuple containing:
+    /// - The input data by value
+    /// - The response sender for manually sending the response
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use algebra::req::Req;
+    ///
+    /// let (req, _receiver) = Req::new(String::from("hello"));
+    /// let (input, response_sender) = req.into_parts();
+    /// let output = format!("{input} world");
+    /// let _ = response_sender.send(output);
+    /// ```
+    pub fn into_parts(self) -> (In, oneshot::Sender<Out>) {
+        (self.input, self.response_sender)
+    }
+
     /// Convenience method that applies a function to the input and resolves with the result.
     ///
     /// This is a shorthand for calling a function with the input and then resolving
@@ -112,6 +150,30 @@ impl<In, Out> Req<In, Out> {
     pub fn dispatch(self, f: impl FnOnce(&In) -> Out) {
         let output = f(&self.input);
         self.resolve(output);
+    }
+
+    /// Consumes the request, extracts the input by value, processes it with a function,
+    /// and resolves the request with the result.
+    ///
+    /// This is useful when you need to take ownership of the input data without
+    /// requiring it to implement [`Clone`]. The function receives the input by value
+    /// and its return value is used as the response.
+    ///
+    /// # Arguments
+    ///
+    /// * `f` - A function that takes the input by value and returns the output
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use algebra::req::Req;
+    ///
+    /// let (req, _receiver) = Req::new(String::from("hello"));
+    /// req.resolve_with(|input| format!("{input} world")); // Resolves with "hello world"
+    /// ```
+    pub fn resolve_with(self, f: impl FnOnce(In) -> Out) {
+        let output = f(self.input);
+        let _ = self.response_sender.send(output);
     }
 }
 
@@ -212,5 +274,60 @@ mod tests {
 
         // Resolving should not panic
         req.resolve("response".to_string());
+    }
+
+    #[test]
+    fn test_req_into_input() {
+        // Test that into_input works without requiring Clone
+        // Using a type that doesn't implement Clone to verify this
+        struct NonClonableData {
+            value: i32,
+            name: String,
+        }
+
+        let input_data = NonClonableData {
+            value: 42,
+            name: "test".to_string(),
+        };
+
+        let (req, _receiver): (Req<NonClonableData, String>, _) = Req::new(input_data);
+
+        // Extract the input without cloning
+        let extracted = req.into_input();
+
+        assert_eq!(extracted.value, 42);
+        assert_eq!(extracted.name, "test");
+    }
+
+    #[tokio::test]
+    async fn test_req_into_parts() {
+        // Test that into_parts works without requiring Clone
+        // Using a type that doesn't implement Clone to verify this
+        struct NonClonableData {
+            value: i32,
+            name: String,
+        }
+
+        let input_data = NonClonableData {
+            value: 123,
+            name: "into_parts_test".to_string(),
+        };
+
+        let (req, receiver): (Req<NonClonableData, String>, _) = Req::new(input_data);
+
+        // Extract both input and response sender without cloning
+        let (extracted_input, response_sender) = req.into_parts();
+
+        // Verify the input data is correct
+        assert_eq!(extracted_input.value, 123);
+        assert_eq!(extracted_input.name, "into_parts_test");
+
+        // Send a response through the response sender
+        let response = format!("processed: {}", extracted_input.value);
+        let _ = response_sender.send(response);
+
+        // Verify the response is received
+        let result = receiver.await.unwrap();
+        assert_eq!(result, "processed: 123");
     }
 }
