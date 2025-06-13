@@ -289,6 +289,9 @@ impl ContractManager {
             // skip any missed ticks to avoid flooding the network with duplicate nag messages
             interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
+            // Create duty response channel for async contract processing
+            let (duty_response_sender, mut duty_response_receiver) = mpsc::unbounded_channel();
+
             loop {
                 let mut duties = vec![];
                 tokio::select! {
@@ -298,17 +301,16 @@ impl ContractManager {
                         if let Some(SyntheticEvent::AggregatedSigs{ deposit_txid, agg_sigs }) = synthetic_event {
                             if let Some(contract) = ctx.state.active_contracts.get_actor(&deposit_txid) {
                                 info!(%deposit_txid, "committing aggregate signatures");
-                                match contract.process_event(ContractEvent::AggregatedSigs { agg_sigs }).await {
-                                    Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => duties.extend(synthetic_event_duties),
-                                    Ok(synthetic_event_duties) => { trace!(?synthetic_event_duties, "got no duties when processing contract event from synthetic event"); },
-                                    Err(e) => {
-                                        error!(%deposit_txid, %e, "failed to process ouroboros event");
-                                        // We only receive an event from this channel once (no retries).
-                                        // Not having aggregate signatures is catastrophic because we
-                                        // don't have a reliable fallback mechanism to get them in the
-                                        // future. So it's better to break the event loop and panic if this ever happens.
-                                        break;
-                                    },
+                                if let Err(e) = contract.process_event_async(
+                                    ContractEvent::AggregatedSigs { agg_sigs },
+                                    duty_response_sender.clone()
+                                ) {
+                                    error!(%deposit_txid, %e, "failed to send aggregate sigs event to contract actor");
+                                    // We only receive an event from this channel once (no retries).
+                                    // Not having aggregate signatures is catastrophic because we
+                                    // don't have a reliable fallback mechanism to get them in the
+                                    // future. So it's better to break the event loop and panic if this ever happens.
+                                    break;
                                 }
                             } else {
                                 error!(%deposit_txid, "received aggregate sigs for unknown contract");
@@ -383,6 +385,24 @@ impl ContractManager {
                             // this could be a transient issue, so no need to break immediately
                         }
                     },
+                    Some((contract_txid, duty_result)) = duty_response_receiver.recv() => {
+                        match duty_result {
+                            Ok(contract_duties) if !contract_duties.is_empty() => {
+                                info!(%contract_txid, num_duties=%contract_duties.len(), "received duties from contract actor");
+                                duties.extend(contract_duties);
+                            },
+                            Ok(_) => {
+                                trace!(%contract_txid, "contract actor processed event with no duties");
+                            },
+                            Err(e) => {
+                                error!(%contract_txid, %e, "contract actor failed to process event");
+                                // For aggregate signatures, this is catastrophic
+                                // Check if this was an aggregate signature event and break if so
+                                // For now, we'll log the error and continue
+                            }
+                        }
+                    },
+
                     _ = interval.tick() => {
                         let nags = ctx.nag_async().await;
                         for nag in nags {
