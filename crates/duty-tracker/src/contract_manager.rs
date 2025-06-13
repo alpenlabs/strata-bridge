@@ -41,8 +41,8 @@ use crate::{
     contract_actor::{ContractActor, ContractActorManager, ContractActorStateHandles},
     contract_persister::ContractPersister,
     contract_state_machine::{
-        ContractCfg, ContractEvent, ContractState, DepositSetup, FulfillerDuty, OperatorDuty,
-        SyntheticEvent,
+        ContractCfg, ContractEvent, ContractState, DepositSetup, FulfillerDuty, MachineState,
+        OperatorDuty, SyntheticEvent,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -404,7 +404,7 @@ impl ContractManager {
                     },
 
                     _ = interval.tick() => {
-                        let nags = ctx.nag_async().await;
+                        let nags = ctx.nag().await;
                         for nag in nags {
                             p2p_handle.send_command(nag).await;
                         }
@@ -526,10 +526,20 @@ impl ContractManagerCtx {
         block: Block,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let height = block.bip34_block_height().unwrap_or(0);
+        // TODO(proofofkeags): persist entire block worth of states at once. Ensure all the state
+        // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
+        // this is to aggregate and commit new contracts separately so that the block event that
+        // advances the cursor does not advance the cursor on the newly created contracts.
         let mut new_contracts = Vec::new();
 
         let pov_key = self.cfg.operator_table.pov_op_key().clone();
+        // TODO(proofofkeags): prune the active contract set and still preserve the ability
+        // to recover this value.
+        //
+        // Since new contracts are added after all the transactions are processed, we can
+        // assume that the stake/deposit index is the same as the number of active contracts
+        // throughout the processing of this block.
         let stake_index = self.state.active_contracts.len() as u32;
 
         for tx in block.txdata {
@@ -603,7 +613,7 @@ impl ContractManagerCtx {
                     stake_chain_inputs,
                 };
 
-                let initial_state = crate::contract_state_machine::MachineState {
+                let initial_state = MachineState {
                     block_height: height,
                     state: ContractState::new(
                         cfg.deposit_request_txid(),
@@ -695,6 +705,9 @@ impl ContractManagerCtx {
         Ok(duties)
     }
 
+    /// Validates whether a transaction is a valid Strata checkpoint transaction, extracts any valid
+    /// assigned deposit entries and produces the `Assignment` [`ContractEvent`] so that it can
+    /// be processed further.
     async fn process_assignments(
         &mut self,
         tx: &Transaction,
@@ -894,14 +907,18 @@ impl ContractManagerCtx {
                         .await?
                         .into_iter()
                         .map(|duty| {
+                            // we need a way to feed the claim txids back into the manager's index
+                            // so we skim it off of the publish graph nonces duty.
                             if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
                                 self.state.claim_txids.insert(claim_txid, deposit_txid);
                             }
+
                             duty
                         });
 
                     duties.extend(deposit_setup_duties);
                 } else {
+                    // One of the other operators may have seen a DRT that we have not yet seen
                     warn!(
                         "Received a P2P message about an unknown contract: {}",
                         deposit_txid
@@ -1018,6 +1035,8 @@ impl ContractManagerCtx {
         Ok(match req {
             GetMessageRequest::StakeChainExchange { .. } => {
                 info!("received request for stake chain exchange");
+                // TODO(proofofkeags): actually choose the correct stake chain
+                // inputs based off the stake chain id we receive.
                 Some(OperatorDuty::PublishStakeChainExchange)
             }
             GetMessageRequest::DepositSetup { scope, .. } => {
@@ -1244,7 +1263,15 @@ impl ContractManagerCtx {
         })
     }
 
-    async fn nag_async(&self) -> Vec<Command> {
+    /// Generates a list of all of the commands needed to acquire P2P messages needed to move a
+    /// deposit from the requested to deposited states.
+    ///
+    /// Note that the node does not nag itself as it will add to much noise to the p2p messages. The
+    /// ouroboros mechanism should ensure that any message sent to the network by the current node
+    /// will always be received by it as well. If the message is not sent to the network, the
+    /// other peers will nag the current node and so the message will be produced and consumed
+    /// in response to these nags.
+    async fn nag(&self) -> Vec<Command> {
         let pov_idx = self.cfg.operator_table.pov_idx();
         let want = self.cfg.operator_table.p2p_keys();
 
@@ -1332,6 +1359,11 @@ impl ContractManagerCtx {
                 return commands;
             }
 
+            // If all the deposit setup data are present, we continue nagging for graph nonces.
+            // We can also do this simultaneously with the nags for deposit setup messages.
+            // However, this can be a bit wasteful during race conditions where we query for
+            // both deposit setup and nonces even though one or both of them may be en-route
+            // or being processed.
             for (claim_txid, nonces) in graph_nonces {
                 let have = nonces
                     .keys()
@@ -1358,6 +1390,7 @@ impl ContractManagerCtx {
                 return commands;
             }
 
+            // Otherwise we can move onto the graph signatures.
             for (claim_txid, partials) in graph_partials {
                 let have = partials
                     .keys()
@@ -1379,10 +1412,12 @@ impl ContractManagerCtx {
                 }));
             }
 
+            // If this is not empty then we can't yet nag for the root nonces.
             if !commands.is_empty() {
                 return commands;
             }
 
+            // Otherwise we can.
             let have = root_nonces
                 .keys()
                 .cloned()
@@ -1406,6 +1441,7 @@ impl ContractManagerCtx {
                 return commands;
             }
 
+            // Finally we can nag for the root sigs.
             let have = root_partials
                 .keys()
                 .cloned()
