@@ -3,17 +3,15 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
+use algebra::req::Req;
 use bitcoin::{Transaction, Txid};
 use strata_bridge_tx_graph::transactions::covenant_tx::CovenantTx;
-use tokio::{
-    sync::{mpsc, oneshot},
-    task::JoinHandle,
-};
+use tokio::{sync::mpsc, task::JoinHandle};
+use tracing::{debug, error, info, warn};
 
 /// Channel for sending duty responses from contract actors back to the main event loop.
 pub type DutyResponseSender =
     mpsc::UnboundedSender<(Txid, Result<Vec<OperatorDuty>, TransitionErr>)>;
-use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
@@ -29,66 +27,39 @@ use crate::{
 pub enum ContractActorMessage {
     /// Process a [`ContractEvent`] and return resulting [`OperatorDuty`]s.
     ProcessEvent {
-        /// The [`ContractEvent`] to process.
-        event: ContractEvent,
-
-        /// Channel to send the response back (for synchronous calls).
-        respond_to: Option<oneshot::Sender<Result<Vec<OperatorDuty>, TransitionErr>>>,
+        /// The request containing the event to process.
+        req: Option<Req<ContractEvent, Result<Vec<OperatorDuty>, TransitionErr>>>,
 
         /// Channel to send [`OperatorDuty`]s to (for asynchronous processing).
         duty_response_sender: Option<DutyResponseSender>,
+
+        /// The event to process (for async case).
+        event: Option<ContractEvent>,
     },
 
     /// Gets the current [`MachineState`] of the contract.
-    GetState {
-        /// Channel to send the response back
-        respond_to: oneshot::Sender<MachineState>,
-    },
+    GetState(Req<(), MachineState>),
 
     /// Gets the [`ContractCfg`] of the contract.
-    GetConfig {
-        /// Channel to send the response back
-        respond_to: oneshot::Sender<ContractCfg>,
-    },
+    GetConfig(Req<(), ContractCfg>),
 
     /// Checks if the contract handles a specific bitcoin [`Transaction`].
-    TransactionFilter {
-        /// The bitcoin [`Transaction`] to check.
-        tx: Transaction,
-
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<bool>,
-    },
+    TransactionFilter(Req<Transaction, bool>),
 
     /// Gets claim transaction IDs for this contract.
-    GetClaimTxids {
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<Vec<Txid>>,
-    },
+    GetClaimTxids(Req<(), Vec<Txid>>),
 
     /// Gets the deposit transaction ID.
-    GetDepositTxid {
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<Txid>,
-    },
+    GetDepositTxid(Req<(), Txid>),
 
     /// Gets the deposit request transaction ID.
-    GetDepositRequestTxid {
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<Txid>,
-    },
+    GetDepositRequestTxid(Req<(), Txid>),
 
     /// Gets the withdrawal request transaction ID (if any).
-    GetWithdrawalRequestTxid {
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<Option<Txid>>,
-    },
+    GetWithdrawalRequestTxid(Req<(), Option<Txid>>),
 
     /// Gets the withdrawal fulfillment transaction ID (if any).
-    GetWithdrawalFulfillmentTxid {
-        /// Channel to send the response back.
-        respond_to: oneshot::Sender<Option<Txid>>,
-    },
+    GetWithdrawalFulfillmentTxid(Req<(), Option<Txid>>),
 
     /// Clears the peg-out-graph cache.
     ClearPogCache,
@@ -138,58 +109,81 @@ impl ContractActor {
             while let Some(message) = event_receiver.recv().await {
                 match message {
                     ContractActorMessage::ProcessEvent {
-                        event,
-                        respond_to,
+                        req,
                         duty_response_sender,
+                        event,
                     } => {
-                        debug!(%deposit_txid, ?event, "processing contract event");
+                        if let Some(req) = req {
+                            // Synchronous processing with direct response
+                            let (event, response_sender) = req.into_parts();
+                            debug!(%deposit_txid, ?event, "processing contract event (sync)");
 
-                        let result = csm.process_contract_event(event);
+                            let result = csm.process_contract_event(event);
 
-                        // Persist state after successful processing
-                        if result.is_ok() {
-                            if let Err(e) =
-                                Self::persist_state(&csm, &state_handles.contract_persister).await
-                            {
-                                error!(%deposit_txid, %e, "failed to persist CSM state after event processing");
-                                // Don't fail the event processing due to persistence errors
-                                // The state is still updated in memory
-                                warn!(%deposit_txid, "continuing with in-memory state despite persistence failure");
+                            // Persist state after successful processing
+                            if result.is_ok() {
+                                if let Err(e) =
+                                    Self::persist_state(&csm, &state_handles.contract_persister)
+                                        .await
+                                {
+                                    error!(%deposit_txid, %e, "failed to persist CSM state after event processing");
+                                    // Don't fail the event processing due to persistence errors
+                                    // The state is still updated in memory
+                                    warn!(%deposit_txid, "continuing with in-memory state despite persistence failure");
+                                }
                             }
-                        }
 
-                        // Send response via appropriate channel
-                        if let Some(respond_to) = respond_to {
-                            let _ = respond_to.send(result);
-                        } else if let Some(duty_sender) = duty_response_sender {
-                            let _ = duty_sender.send((deposit_txid, result));
+                            let _ = response_sender.send(result);
+                        } else if let Some(event) = event {
+                            // Asynchronous processing with duty response channel
+                            debug!(%deposit_txid, ?event, "processing contract event (async)");
+
+                            let result = csm.process_contract_event(event);
+
+                            // Persist state after successful processing
+                            if result.is_ok() {
+                                if let Err(e) =
+                                    Self::persist_state(&csm, &state_handles.contract_persister)
+                                        .await
+                                {
+                                    error!(%deposit_txid, %e, "failed to persist CSM state after event processing");
+                                    // Don't fail the event processing due to persistence errors
+                                    // The state is still updated in memory
+                                    warn!(%deposit_txid, "continuing with in-memory state despite persistence failure");
+                                }
+                            }
+
+                            // Send response via duty channel for async processing
+                            if let Some(duty_sender) = duty_response_sender {
+                                let _ = duty_sender.send((deposit_txid, result));
+                            }
+                        } else {
+                            error!(%deposit_txid, "ProcessEvent message missing both req and event");
                         }
                     }
-                    ContractActorMessage::GetState { respond_to } => {
-                        let _ = respond_to.send(csm.state().clone());
+                    ContractActorMessage::GetState(req) => {
+                        req.resolve(csm.state().clone());
                     }
-                    ContractActorMessage::GetConfig { respond_to } => {
-                        let _ = respond_to.send(csm.cfg().clone());
+                    ContractActorMessage::GetConfig(req) => {
+                        req.resolve(csm.cfg().clone());
                     }
-                    ContractActorMessage::TransactionFilter { tx, respond_to } => {
-                        let result = csm.transaction_filter(&tx);
-                        let _ = respond_to.send(result);
+                    ContractActorMessage::TransactionFilter(req) => {
+                        req.dispatch(|tx| csm.transaction_filter(tx));
                     }
-                    ContractActorMessage::GetClaimTxids { respond_to } => {
-                        let claim_txids = csm.claim_txids();
-                        let _ = respond_to.send(claim_txids);
+                    ContractActorMessage::GetClaimTxids(req) => {
+                        req.resolve(csm.claim_txids());
                     }
-                    ContractActorMessage::GetDepositTxid { respond_to } => {
-                        let _ = respond_to.send(csm.deposit_txid());
+                    ContractActorMessage::GetDepositTxid(req) => {
+                        req.resolve(csm.deposit_txid());
                     }
-                    ContractActorMessage::GetDepositRequestTxid { respond_to } => {
-                        let _ = respond_to.send(csm.deposit_request_txid());
+                    ContractActorMessage::GetDepositRequestTxid(req) => {
+                        req.resolve(csm.deposit_request_txid());
                     }
-                    ContractActorMessage::GetWithdrawalRequestTxid { respond_to } => {
-                        let _ = respond_to.send(csm.withdrawal_request_txid());
+                    ContractActorMessage::GetWithdrawalRequestTxid(req) => {
+                        req.resolve(csm.withdrawal_request_txid());
                     }
-                    ContractActorMessage::GetWithdrawalFulfillmentTxid { respond_to } => {
-                        let _ = respond_to.send(csm.withdrawal_fulfillment_txid());
+                    ContractActorMessage::GetWithdrawalFulfillmentTxid(req) => {
+                        req.resolve(csm.withdrawal_fulfillment_txid());
                     }
                     ContractActorMessage::ClearPogCache => {
                         csm.clear_pog_cache();
@@ -217,12 +211,12 @@ impl ContractActor {
         &self,
         event: ContractEvent,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(event);
         self.event_sender
             .send(ContractActorMessage::ProcessEvent {
-                event,
-                respond_to: Some(sender),
+                req: Some(req),
                 duty_response_sender: None,
+                event: None,
             })
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
@@ -239,9 +233,9 @@ impl ContractActor {
     ) -> Result<(), TransitionErr> {
         self.event_sender
             .send(ContractActorMessage::ProcessEvent {
-                event,
-                respond_to: None,
+                req: None,
                 duty_response_sender: Some(duty_response_sender),
+                event: Some(event),
             })
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
@@ -250,9 +244,9 @@ impl ContractActor {
 
     /// Gets the current [`MachineState`] of the contract.
     pub async fn get_state(&self) -> Result<MachineState, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(());
         self.event_sender
-            .send(ContractActorMessage::GetState { respond_to: sender })
+            .send(ContractActorMessage::GetState(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver
@@ -262,9 +256,9 @@ impl ContractActor {
 
     /// Gets the contract [`ContractCfg`].
     pub async fn get_config(&self) -> Result<ContractCfg, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(());
         self.event_sender
-            .send(ContractActorMessage::GetConfig { respond_to: sender })
+            .send(ContractActorMessage::GetConfig(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver
@@ -277,12 +271,9 @@ impl ContractActor {
         &self,
         tx: &bitcoin::Transaction,
     ) -> Result<bool, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(tx.clone());
         self.event_sender
-            .send(ContractActorMessage::TransactionFilter {
-                tx: tx.clone(),
-                respond_to: sender,
-            })
+            .send(ContractActorMessage::TransactionFilter(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
@@ -292,9 +283,9 @@ impl ContractActor {
 
     /// Gets claim transaction IDs for this contract.
     pub async fn claim_txids(&self) -> Result<Vec<Txid>, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(());
         self.event_sender
-            .send(ContractActorMessage::GetClaimTxids { respond_to: sender })
+            .send(ContractActorMessage::GetClaimTxids(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver
@@ -304,9 +295,9 @@ impl ContractActor {
 
     /// Gets the deposit request transaction ID.
     pub async fn deposit_request_txid(&self) -> Result<Txid, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(());
         self.event_sender
-            .send(ContractActorMessage::GetDepositRequestTxid { respond_to: sender })
+            .send(ContractActorMessage::GetDepositRequestTxid(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
@@ -316,9 +307,9 @@ impl ContractActor {
 
     /// Gets the withdrawal request transaction ID (if any).
     pub async fn withdrawal_request_txid(&self) -> Result<Option<Txid>, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(());
         self.event_sender
-            .send(ContractActorMessage::GetWithdrawalRequestTxid { respond_to: sender })
+            .send(ContractActorMessage::GetWithdrawalRequestTxid(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
@@ -328,9 +319,9 @@ impl ContractActor {
 
     /// Get the withdrawal fulfillment transaction ID (if any).
     pub async fn withdrawal_fulfillment_txid(&self) -> Result<Option<Txid>, TransitionErr> {
-        let (sender, receiver) = oneshot::channel();
+        let (req, receiver) = Req::new(());
         self.event_sender
-            .send(ContractActorMessage::GetWithdrawalFulfillmentTxid { respond_to: sender })
+            .send(ContractActorMessage::GetWithdrawalFulfillmentTxid(req))
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
