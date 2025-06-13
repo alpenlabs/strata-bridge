@@ -4,4 +4,5 @@
 
 pub mod curry;
 pub mod monoid;
+pub mod req;
 pub mod semigroup;
