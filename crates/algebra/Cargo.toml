@@ -8,3 +8,4 @@ workspace = true
 
 [dependencies]
 proptest.workspace = true
+tokio.workspace = true
