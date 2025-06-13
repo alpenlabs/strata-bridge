@@ -626,14 +626,14 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
                 claim_txids.contains(&claim_txid)
             })
-            .map(|entry| map_state_to_reimbursement_status(&entry.0.state.state))
+            .map(|entry| contract_state_to_reimbursement_status(&entry.0.state.state))
             .map(|status| RpcClaimInfo { claim_txid, status });
 
         Ok(claim_info)
     }
 }
 
-const fn map_state_to_reimbursement_status(state: &ContractState) -> RpcReimbursementStatus {
+const fn contract_state_to_reimbursement_status(state: &ContractState) -> RpcReimbursementStatus {
     match state {
         ContractState::Requested { .. }
         | ContractState::Deposited { .. }

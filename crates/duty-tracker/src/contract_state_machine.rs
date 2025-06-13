@@ -2439,16 +2439,17 @@ impl ContractSM {
                             l1_start_height: height,
                         };
 
-                        let duty = if is_valid_assignment(pov_idx, assignee, deadline, cur_height) {
-                            Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::AdvanceStakeChain {
-                                    stake_index: assignment.idx(),
-                                    stake_tx,
-                                },
-                            ))
-                        } else {
-                            None
-                        };
+                        let duty =
+                            if should_fulfill_assignment(pov_idx, assignee, deadline, cur_height) {
+                                Some(OperatorDuty::FulfillerDuty(
+                                    FulfillerDuty::AdvanceStakeChain {
+                                        stake_index: assignment.idx(),
+                                        stake_tx,
+                                    },
+                                ))
+                            } else {
+                                None
+                            };
 
                         Ok(duty)
                     }
@@ -2465,8 +2466,9 @@ impl ContractSM {
                             *deadline = dispatched_state.exec_deadline();
                         }
 
-                        let duty = if is_valid_assignment(pov_idx, assignee, *deadline, cur_height)
-                        {
+                        let duty = if should_fulfill_assignment(
+                            pov_idx, assignee, *deadline, cur_height,
+                        ) {
                             Some(OperatorDuty::FulfillerDuty(
                                 FulfillerDuty::AdvanceStakeChain {
                                     stake_index: assignment.idx(),
@@ -2492,8 +2494,9 @@ impl ContractSM {
                             *deadline = dispatched_state.exec_deadline();
                         }
 
-                        let duty = if is_valid_assignment(pov_idx, assignee, *deadline, cur_height)
-                        {
+                        let duty = if should_fulfill_assignment(
+                            pov_idx, assignee, *deadline, cur_height,
+                        ) {
                             let withdrawal_metadata = WithdrawalMetadata {
                                 tag: self.cfg.peg_out_graph_params.tag,
                                 operator_idx: *fulfiller,
@@ -3276,7 +3279,7 @@ impl ContractSM {
     }
 }
 
-fn is_valid_assignment(
+fn should_fulfill_assignment(
     pov_idx: OperatorIdx,
     assignee: OperatorIdx,
     deadline: BitcoinBlockHeight,
