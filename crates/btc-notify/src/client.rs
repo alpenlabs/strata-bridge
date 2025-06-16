@@ -142,7 +142,7 @@ impl BtcZmqClient {
                                     // Now we process the block to understand what the relevant
                                     // transaction diff is.
                                     trace!(?block, "processing block");
-                                    info!(block_hash=%block.block_hash(), "processing block");
+                                    info!(block_height=%block.bip34_block_height().unwrap(), block_hash=%block.block_hash(), "processing block");
                                     let (tx_events, block_event) = sm.process_block(block);
 
                                     if let Some(block_event) = block_event {
