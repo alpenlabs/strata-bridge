@@ -26,6 +26,7 @@ use duty_tracker::{
 };
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
+    multiaddr::Protocol,
     PeerId,
 };
 use musig2::KeyAggContext;
@@ -53,7 +54,13 @@ use strata_bridge_primitives::{
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
-use tokio::{net::lookup_host, spawn, sync::broadcast, task::JoinHandle, try_join};
+use tokio::{
+    net::{lookup_host, TcpListener},
+    spawn,
+    sync::broadcast,
+    task::JoinHandle,
+    try_join,
+};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -66,6 +73,9 @@ use crate::{
 /// including database, rpc server, etc.
 pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<()> {
     info!("bootstrapping operator node");
+
+    // Validate network configuration before starting services
+    validate_network_config(&config).await?;
 
     // Secret Service stuff.
     info!("initializing the secret service client");
@@ -436,6 +446,57 @@ async fn start_rpc_server(
         }
     });
     Ok(handle)
+}
+
+/// Validates network configuration by checking port availability.
+async fn validate_network_config(config: &Config) -> anyhow::Result<()> {
+    info!("validating network configuration");
+
+    // Check RPC server port availability
+    let rpc_addr = &config.rpc.rpc_addr;
+    match TcpListener::bind(rpc_addr).await {
+        Ok(_) => {
+            info!("RPC server port {} is available", rpc_addr);
+            info!(%rpc_addr, "RPC server is available");
+        }
+        Err(e) => {
+            return Err(anyhow!(
+                "RPC server at {rpc_addr} is not available: {e}. \
+                 This may indicate another bridge instance is running or a previous instance didn't shut down cleanly. \
+                 Please check for conflicting processes on this port.",
+            ));
+        }
+    }
+
+    // Check P2P port availability (extract port from Multiaddr)
+    let p2p_addr = &config.p2p.listening_addr;
+    if let Some(tcp_component) = p2p_addr.iter().find_map(|component| {
+        if let Protocol::Tcp(port) = component {
+            Some(port)
+        } else {
+            None
+        }
+    }) {
+        // Try to bind to the P2P port to check availability
+        let p2p_bind_addr = format!("127.0.0.1:{tcp_component}");
+        match TcpListener::bind(&p2p_bind_addr).await {
+            Ok(_) => {
+                info!(%tcp_component, "P2P server is available");
+            }
+            Err(e) => {
+                return Err(anyhow!(
+                    "P2P server port {tcp_component} is not available: {e}. \
+                     This may indicate another bridge instance is running or a previous instance didn't shut down cleanly. \
+                     Please check for conflicting processes on this port.",
+                ));
+            }
+        }
+    } else {
+        info!("P2P listening address doesn't contain TCP port, skipping port validation");
+    }
+
+    info!("network configuration validation completed successfully");
+    Ok(())
 }
 
 /// Initializes the operator wallet

@@ -9,6 +9,7 @@ use chrono::{DateTime, Utc};
 use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{
     core::RpcResult,
+    server::{Server, ServerBuilder},
     types::{ErrorCode, ErrorObjectOwned},
     RpcModule,
 };
@@ -35,8 +36,12 @@ use strata_bridge_rpc::{
 };
 use strata_bridge_tx_graph::transactions::deposit::DepositTx;
 use strata_p2p::swarm::handle::P2PHandle;
-use tokio::{sync::RwLock, time::interval};
-use tracing::{debug, error, info};
+use tokio::{
+    net::TcpListener,
+    sync::RwLock,
+    time::{interval, sleep, Duration},
+};
+use tracing::{debug, error, info, warn};
 
 use crate::{config::RpcConfig, constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL, params::Params};
 
@@ -63,10 +68,9 @@ where
     rpc_module.merge(da_api).context("merge da api")?;
 
     info!("Starting bridge RPC server at: {rpc_addr}");
-    let rpc_server = jsonrpsee::server::ServerBuilder::new()
-        .build(&rpc_addr)
-        .await
-        .expect("build bridge rpc server");
+
+    // Check port availability and retry with backoff if needed
+    let rpc_server = build_rpc_server_with_retry(rpc_addr).await?;
 
     let rpc_handle = rpc_server.start(rpc_module);
     info!("bridge RPC server started at: {rpc_addr}");
@@ -76,6 +80,80 @@ where
     info!("RPC server stopped");
 
     Ok(())
+}
+
+/// Checks if a port is available by attempting to bind to it.
+async fn is_port_available(addr: &str) -> bool {
+    TcpListener::bind(addr).await.is_ok()
+}
+
+/// Builds RPC server with retry logic for port binding failures.
+async fn build_rpc_server_with_retry(rpc_addr: &str) -> anyhow::Result<Server> {
+    // TODO(@storopoli): move these constants to a config file or environment variables.
+    const MAX_RETRIES: u32 = 5;
+    const INITIAL_DELAY: Duration = Duration::from_millis(500);
+
+    let mut delay = INITIAL_DELAY;
+
+    for attempt in 1..=MAX_RETRIES {
+        // Check if port is available first
+        if !is_port_available(rpc_addr).await {
+            warn!(
+                attempt,
+                max_retries = MAX_RETRIES,
+                ?delay,
+                rpc_addr,
+                ?delay,
+                "RPC server port not available, retrying",
+            );
+
+            if attempt < MAX_RETRIES {
+                sleep(delay).await;
+                delay = delay.saturating_mul(2); // Exponential backoff
+                continue;
+            } else {
+                return Err(anyhow::anyhow!(
+                    "RPC server {rpc_addr} still not available after {MAX_RETRIES} attempts. \
+                     This may indicate a previous instance didn't shut down cleanly. \
+                     Please check for running processes on this port.",
+                ));
+            }
+        }
+
+        // Attempt to build the server
+        match ServerBuilder::new().build(rpc_addr).await {
+            Ok(server) => {
+                if attempt > 1 {
+                    info!(
+                        "RPC server successfully bound to {} after {} attempts",
+                        rpc_addr, attempt
+                    );
+                }
+                return Ok(server);
+            }
+            Err(e) => {
+                warn!(
+                    attempt,
+                    max_retries = MAX_RETRIES,
+                    error = %e,
+                    "Failed to build RPC server on attempt {}: {}",
+                    attempt,
+                    e
+                );
+
+                if attempt < MAX_RETRIES {
+                    sleep(delay).await;
+                    delay = delay.saturating_mul(2);
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Failed to build RPC server after {MAX_RETRIES} attempts. Last error: {e}",
+                    ));
+                }
+            }
+        }
+    }
+
+    unreachable!("Loop should always return or error")
 }
 
 /// In-memory representation of contract records from the database.
