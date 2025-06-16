@@ -16,7 +16,8 @@ pub type DutyResponseSender =
 use crate::{
     contract_persister::{ContractPersistErr, ContractPersister},
     contract_state_machine::{
-        ContractCfg, ContractEvent, ContractSM, MachineState, OperatorDuty, TransitionErr,
+        ContractCfg, ContractEvent, ContractSM, ContractState, MachineState, OperatorDuty,
+        TransitionErr,
     },
     stake_chain_persister::StakeChainPersister,
 };
@@ -450,12 +451,8 @@ impl ContractActorManager {
 
         for (deposit_txid, actor) in &self.actors {
             if let Ok(state) = actor.get_state().await {
-                use crate::contract_state_machine::ContractState;
-                match state.state {
-                    ContractState::Resolved { .. } | ContractState::Disproved { .. } => {
-                        to_remove.push(*deposit_txid);
-                    }
-                    _ => {}
+                if let ContractState::Resolved { .. } = state.state {
+                    to_remove.push(*deposit_txid);
                 }
             }
         }
