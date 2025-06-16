@@ -16,7 +16,7 @@ use bitcoin::{
 };
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
-use futures::{future, StreamExt};
+use futures::StreamExt;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
@@ -173,10 +173,7 @@ impl ContractManager {
                     return;
                 }
             };
-            let mut block_sub = zmq_client
-                .subscribe_blocks()
-                .await
-                .filter(|evt| future::ready(evt.status == BlockStatus::Buried));
+            let mut block_sub = zmq_client.subscribe_blocks().await;
 
             // It's extremely unlikely that these will ever differ at all but it's possible for
             // them to differ by at most 1 in the scenario where we crash mid-batch when committing
@@ -357,9 +354,17 @@ impl ContractManager {
 
                     // Then prioritize processing the backlog of chain state.
                     Some(block) = block_sub.next() => {
+                        if block.status != BlockStatus::Buried {
+                            continue;
+                        }
+
                         let blockhash = block.block.block_hash();
                         let block_height = block.block.bip34_block_height().expect("must have valid height");
                         info!(%blockhash, %block_height, "processing block");
+
+                        let num_blocks_remaining = block_sub.backlog();
+                        debug!(%num_blocks_remaining);
+
                         match ctx.process_block(block.block).await {
                             Ok(block_duties) if !block_duties.is_empty() => {
                                 let num_duties = block_duties.len();
