@@ -54,7 +54,7 @@ use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
 use tokio::{net::lookup_host, spawn, sync::broadcast, task::JoinHandle, try_join};
-use tracing::{debug, info};
+use tracing::{debug, error, info};
 
 use crate::{
     config::{Config, P2PConfig, RpcConfig, SecretServiceConfig},
@@ -431,9 +431,9 @@ async fn start_rpc_server(
     let rpc_addr = config.rpc_addr.clone();
     let rpc_client = BridgeRpc::new(db, p2p_handle, params, config);
     let handle = spawn(async move {
-        start_rpc(&rpc_client, rpc_addr.as_str())
-            .await
-            .expect("failed to start RPC server");
+        if let Err(e) = start_rpc(&rpc_client, rpc_addr.as_str()).await {
+            error!(?e, "RPC server failed");
+        }
     });
     Ok(handle)
 }

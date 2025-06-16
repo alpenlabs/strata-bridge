@@ -35,11 +35,8 @@ use strata_bridge_rpc::{
 };
 use strata_bridge_tx_graph::transactions::deposit::DepositTx;
 use strata_p2p::swarm::handle::P2PHandle;
-use tokio::{
-    sync::{oneshot, RwLock},
-    time::interval,
-};
-use tracing::{debug, error, info, warn};
+use tokio::{sync::RwLock, time::interval};
+use tracing::{debug, error, info};
 
 use crate::{config::RpcConfig, constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL, params::Params};
 
@@ -72,19 +69,11 @@ where
         .expect("build bridge rpc server");
 
     let rpc_handle = rpc_server.start(rpc_module);
-    // Using `_` for `_stop_tx` as the variable causes it to be dropped immediately!
-    // NOTE: The `_stop_tx` should be used by the shutdown manager (see the `strata-tasks` crate).
-    // At the moment, the impl below just stops the client from stopping.
-    let (_stop_tx, stop_rx): (oneshot::Sender<bool>, oneshot::Receiver<bool>) = oneshot::channel();
-
     info!("bridge RPC server started at: {rpc_addr}");
 
-    let _ = stop_rx.await;
-    info!("stopping RPC server");
-
-    if rpc_handle.stop().is_err() {
-        warn!("rpc server already stopped");
-    }
+    // Wait for the server to be stopped (either by cancellation or natural completion)
+    rpc_handle.stopped().await;
+    info!("RPC server stopped");
 
     Ok(())
 }
