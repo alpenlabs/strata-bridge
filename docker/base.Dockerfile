@@ -30,4 +30,4 @@ RUN --mount=type=cache,target=/root/.cargo/registry \
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r --workspace $(ls bin | grep -v / | xargs -I{} echo "--exclude {}") --features alpen-bridge/memory_profiling --features secret-service/memory_profiling
+    cargo b -r --workspace $(ls bin | grep -v / | xargs -I{} echo "--exclude {}")
