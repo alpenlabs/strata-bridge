@@ -182,10 +182,13 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let rpc_task = start_rpc_server(db_rpc, p2p_handle_rpc, rpc_params, rpc_config).await?;
     info!("started the RPC server");
 
-    // Wait for all tasks to run
-    // They are supposed to run indefinitely in most cases
-    try_join!(rpc_task, p2p_task, contract_manager_task)?;
+    // Wait for all tasks to run - they will be cancelled if the main function receives a signal
+    let result = try_join!(rpc_task, p2p_task, contract_manager_task);
 
+    // Resources will be automatically cleaned up when variables go out of scope
+    info!("all tasks completed, cleaning up resources");
+
+    result?;
     Ok(())
 }
 
@@ -456,7 +459,6 @@ async fn validate_network_config(config: &Config) -> anyhow::Result<()> {
     let rpc_addr = &config.rpc.rpc_addr;
     match TcpListener::bind(rpc_addr).await {
         Ok(_) => {
-            info!("RPC server port {} is available", rpc_addr);
             info!(%rpc_addr, "RPC server is available");
         }
         Err(e) => {
