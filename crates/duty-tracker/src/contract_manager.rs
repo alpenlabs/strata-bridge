@@ -1070,195 +1070,200 @@ impl ContractManagerCtx {
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
                 let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
+                // First try to find by claim_txid
                 if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
-                    if let Some(contract) = self.state.active_contracts.get_actor(deposit_txid) {
-                        let claim_txid = session_id_as_txid;
-                        info!(%claim_txid, "received request for graph nonces");
+                    let Some(contract) = self.state.active_contracts.get_actor(deposit_txid) else {
+                        return Ok(None);
+                    };
 
-                        if let Ok(state) = contract.get_state().await {
-                            if let ContractState::Requested {
-                                peg_out_graph_inputs,
-                                graph_nonces,
-                                ..
-                            } = &state.state
-                            {
-                                let graph_owner =
-                                    state.state.claim_to_operator(&claim_txid).expect(
-                                        "claim_txid must exist as it is part of the claim_txids",
-                                    );
+                    let claim_txid = session_id_as_txid;
+                    info!(%claim_txid, "received request for graph nonces");
 
-                                let input = peg_out_graph_inputs
-                                    .get(&graph_owner)
-                                    .expect("graph input must exist if claim_txid exists");
+                    let Ok(state) = contract.get_state().await else {
+                        return Ok(None);
+                    };
 
-                                if let Ok(cfg) = contract.get_config().await {
-                                    let (pog_prevouts, pog_witnesses) = {
-                                        let pog = cfg.build_graph(input);
-                                        (pog.musig_inpoints(), pog.musig_witnesses())
-                                    };
+                    let ContractState::Requested {
+                        peg_out_graph_inputs,
+                        graph_nonces,
+                        ..
+                    } = &state.state
+                    else {
+                        return Ok(None);
+                    };
 
-                                    let existing_nonces = graph_nonces
-                                        .get(&claim_txid)
-                                        .and_then(|session_nonces| {
-                                            session_nonces.get(cfg.operator_table.pov_op_key())
-                                        })
-                                        .cloned();
+                    let graph_owner = state
+                        .state
+                        .claim_to_operator(&claim_txid)
+                        .expect("claim_txid must exist as it is part of the claim_txids");
 
-                                    Some(OperatorDuty::PublishGraphNonces {
-                                        claim_txid,
-                                        pog_prevouts,
-                                        pog_witnesses,
-                                        nonces: existing_nonces,
-                                    })
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    let mut found_contract = None;
-                    for (_, contract) in self.state.active_contracts.actors() {
-                        if let Ok(deposit_request_txid) = contract.deposit_request_txid().await {
-                            if deposit_request_txid == session_id_as_txid {
-                                found_contract = Some(contract);
-                                break;
-                            }
-                        }
-                    }
+                    let input = peg_out_graph_inputs
+                        .get(&graph_owner)
+                        .expect("graph input must exist if claim_txid exists");
 
-                    if let Some(contract) = found_contract {
-                        if let (Ok(state), Ok(cfg)) =
-                            (contract.get_state().await, contract.get_config().await)
-                        {
-                            if let ContractState::Requested { root_nonces, .. } = &state.state {
-                                let witness = cfg.deposit_tx.witnesses()[0].clone();
-                                let existing_nonce =
-                                    root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
+                    let Ok(cfg) = contract.get_config().await else {
+                        return Ok(None);
+                    };
 
-                                Some(OperatorDuty::PublishRootNonce {
-                                    deposit_request_txid: session_id_as_txid,
-                                    witness,
-                                    nonce: existing_nonce,
-                                })
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
+                    let (pog_prevouts, pog_witnesses) = {
+                        let pog = cfg.build_graph(input);
+                        (pog.musig_inpoints(), pog.musig_witnesses())
+                    };
+
+                    let existing_nonces = graph_nonces
+                        .get(&claim_txid)
+                        .and_then(|session_nonces| {
+                            session_nonces.get(cfg.operator_table.pov_op_key())
+                        })
+                        .cloned();
+
+                    return Ok(Some(OperatorDuty::PublishGraphNonces {
+                        claim_txid,
+                        pog_prevouts,
+                        pog_witnesses,
+                        nonces: existing_nonces,
+                    }));
+                }
+
+                // Fallback: search through all actors for deposit_request_txid
+                let mut found_contract = None;
+                for (_, contract) in self.state.active_contracts.actors() {
+                    let Ok(deposit_request_txid) = contract.deposit_request_txid().await else {
+                        continue;
+                    };
+                    if deposit_request_txid == session_id_as_txid {
+                        found_contract = Some(contract);
+                        break;
                     }
                 }
+
+                let Some(contract) = found_contract else {
+                    return Ok(None);
+                };
+
+                let (Ok(state), Ok(cfg)) =
+                    (contract.get_state().await, contract.get_config().await)
+                else {
+                    return Ok(None);
+                };
+
+                let ContractState::Requested { root_nonces, .. } = &state.state else {
+                    return Ok(None);
+                };
+
+                let witness = cfg.deposit_tx.witnesses()[0].clone();
+                let existing_nonce = root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
+
+                Some(OperatorDuty::PublishRootNonce {
+                    deposit_request_txid: session_id_as_txid,
+                    witness,
+                    nonce: existing_nonce,
+                })
             }
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
                 let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
+                // First try to find by claim_txid
                 if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
-                    if let Some(contract) = self.state.active_contracts.get_actor(deposit_txid) {
-                        if let (Ok(state), Ok(cfg)) =
-                            (contract.get_state().await, contract.get_config().await)
-                        {
-                            if let ContractState::Requested {
-                                peg_out_graph_inputs,
-                                graph_nonces,
-                                graph_partials,
-                                ..
-                            } = &state.state
-                            {
-                                let claim_txid = session_id_as_txid;
-                                let our_p2p_key = self.cfg.operator_table.pov_op_key();
-                                let existing_partials = graph_partials
-                                    .get(&claim_txid)
-                                    .and_then(|session_partials| session_partials.get(our_p2p_key))
-                                    .cloned();
+                    let Some(contract) = self.state.active_contracts.get_actor(deposit_txid) else {
+                        return Ok(None);
+                    };
 
-                                let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
-                                let graph_owner =
-                                    state.state.claim_to_operator(&claim_txid).expect(
-                                        "claim_txid must exist as it is part of the claim_txids",
-                                    );
+                    let (Ok(state), Ok(cfg)) =
+                        (contract.get_state().await, contract.get_config().await)
+                    else {
+                        return Ok(None);
+                    };
 
-                                let input = &peg_out_graph_inputs
-                                    .get(&graph_owner)
-                                    .expect("graph input must exist if claim_txid exists");
+                    let ContractState::Requested {
+                        peg_out_graph_inputs,
+                        graph_nonces,
+                        graph_partials,
+                        ..
+                    } = &state.state
+                    else {
+                        return Ok(None);
+                    };
 
-                                let (pog_prevouts, pog_sighashes) = {
-                                    let pog = cfg.build_graph(input);
-                                    (pog.musig_inpoints(), pog.musig_sighashes())
-                                };
+                    let claim_txid = session_id_as_txid;
+                    let our_p2p_key = self.cfg.operator_table.pov_op_key();
+                    let existing_partials = graph_partials
+                        .get(&claim_txid)
+                        .and_then(|session_partials| session_partials.get(our_p2p_key))
+                        .cloned();
 
-                                Some(OperatorDuty::PublishGraphSignatures {
-                                    claim_txid,
-                                    pubnonces: cfg
-                                        .operator_table
-                                        .convert_map_op_to_btc(graph_nonces)
-                                        .unwrap(),
-                                    pog_prevouts,
-                                    pog_sighashes,
-                                    partial_signatures: existing_partials,
-                                })
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    let mut found_contract = None;
-                    for (_, contract) in self.state.active_contracts.actors() {
-                        if let Ok(deposit_request_txid) = contract.deposit_request_txid().await {
-                            if deposit_request_txid == session_id_as_txid {
-                                found_contract = Some(contract);
-                                break;
-                            }
-                        }
-                    }
+                    let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
+                    let graph_owner = state
+                        .state
+                        .claim_to_operator(&claim_txid)
+                        .expect("claim_txid must exist as it is part of the claim_txids");
 
-                    if let Some(contract) = found_contract {
-                        if let (Ok(state), Ok(cfg)) =
-                            (contract.get_state().await, contract.get_config().await)
-                        {
-                            if let ContractState::Requested {
-                                root_nonces,
-                                root_partials,
-                                ..
-                            } = &state.state
-                            {
-                                let our_p2p_key = self.cfg.operator_table.pov_op_key();
-                                let existing_partial = root_partials.get(our_p2p_key).copied();
-                                let deposit_tx = &cfg.deposit_tx;
-                                let sighash = deposit_tx.sighashes()[0];
+                    let input = &peg_out_graph_inputs
+                        .get(&graph_owner)
+                        .expect("graph input must exist if claim_txid exists");
 
-                                Some(OperatorDuty::PublishRootSignature {
-                                    deposit_request_txid: session_id_as_txid,
-                                    nonces: cfg
-                                        .operator_table
-                                        .convert_map_op_to_btc(root_nonces.clone())
-                                        .expect("received nonces from non-existent operator"),
-                                    sighash,
-                                    partial_signature: existing_partial,
-                                })
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
+                    let (pog_prevouts, pog_sighashes) = {
+                        let pog = cfg.build_graph(input);
+                        (pog.musig_inpoints(), pog.musig_sighashes())
+                    };
+
+                    return Ok(Some(OperatorDuty::PublishGraphSignatures {
+                        claim_txid,
+                        pubnonces: cfg
+                            .operator_table
+                            .convert_map_op_to_btc(graph_nonces)
+                            .unwrap(),
+                        pog_prevouts,
+                        pog_sighashes,
+                        partial_signatures: existing_partials,
+                    }));
+                }
+
+                // Fallback: search through all actors for deposit_request_txid
+                let mut found_contract = None;
+                for (_, contract) in self.state.active_contracts.actors() {
+                    let Ok(deposit_request_txid) = contract.deposit_request_txid().await else {
+                        continue;
+                    };
+                    if deposit_request_txid == session_id_as_txid {
+                        found_contract = Some(contract);
+                        break;
                     }
                 }
+
+                let Some(contract) = found_contract else {
+                    return Ok(None);
+                };
+
+                let (Ok(state), Ok(cfg)) =
+                    (contract.get_state().await, contract.get_config().await)
+                else {
+                    return Ok(None);
+                };
+
+                let ContractState::Requested {
+                    root_nonces,
+                    root_partials,
+                    ..
+                } = &state.state
+                else {
+                    return Ok(None);
+                };
+
+                let our_p2p_key = self.cfg.operator_table.pov_op_key();
+                let existing_partial = root_partials.get(our_p2p_key).copied();
+                let deposit_tx = &cfg.deposit_tx;
+                let sighash = deposit_tx.sighashes()[0];
+
+                Some(OperatorDuty::PublishRootSignature {
+                    deposit_request_txid: session_id_as_txid,
+                    nonces: cfg
+                        .operator_table
+                        .convert_map_op_to_btc(root_nonces.clone())
+                        .expect("received nonces from non-existent operator"),
+                    sighash,
+                    partial_signature: existing_partial,
+                })
             }
         })
     }
