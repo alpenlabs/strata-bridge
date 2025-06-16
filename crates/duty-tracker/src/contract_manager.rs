@@ -360,7 +360,7 @@ impl ContractManager {
 
                         let blockhash = block.block.block_hash();
                         let block_height = block.block.bip34_block_height().expect("must have valid height");
-                        info!(%blockhash, %block_height, "processing block");
+                        info!(%block_height, %blockhash, "processing block");
 
                         let num_blocks_remaining = block_sub.backlog();
                         debug!(%num_blocks_remaining);
