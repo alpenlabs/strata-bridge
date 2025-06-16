@@ -1,6 +1,8 @@
 //! The Alpen Bridge is a bridge node for the Alpen BitVM rollup.
 
-use std::{fs, path::Path, thread::sleep};
+#[cfg(not(unix))]
+use std::future::pending;
+use std::{fmt, fs, path::Path, process, thread::sleep};
 
 use args::OperationMode;
 use clap::Parser;
@@ -10,7 +12,10 @@ use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
-use tracing::{debug, info};
+#[cfg(unix)]
+use tokio::signal::unix::{signal, SignalKind};
+use tokio::{select, signal::ctrl_c};
+use tracing::{debug, error, info};
 
 mod args;
 mod config;
@@ -53,51 +58,70 @@ fn main() {
     let params = parse_toml::<Params>(cli.params);
     let config = parse_toml::<Config>(cli.config);
 
-    match cli.mode {
-        OperationMode::Operator => {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
-                .thread_stack_size(
-                    config
-                        .thread_stack_size
-                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
-                )
-                .enable_all()
-                .build()
-                .expect("must be able to create runtime");
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
+        .thread_stack_size(
+            config
+                .thread_stack_size
+                .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
+        )
+        .enable_all()
+        .build()
+        .expect("must be able to create runtime");
 
-            runtime.block_on(async move {
-                #[cfg(feature = "memory_profiling")]
-                memory_pprof::setup_memory_profiling(3_000);
-                operator::bootstrap(params, config)
-                    .await
-                    .unwrap_or_else(|e| {
-                        panic!("operator loop crashed: {:?}", e);
-                    });
-            });
+    let exit_code = runtime.block_on(async move {
+        #[cfg(feature = "memory_profiling")]
+        memory_pprof::setup_memory_profiling(3_000);
+
+        let bootstrap_task = async {
+            match cli.mode {
+                OperationMode::Operator => operator::bootstrap(params, config).await,
+                OperationMode::Verifier => verifier::bootstrap(params, config).await,
+            }
+        };
+
+        select! {
+            result = bootstrap_task => {
+                match result {
+                    Ok(()) => {
+                        info!("bridge node completed successfully");
+                        0
+                    }
+                    Err(e) => {
+                        error!(?e, "bridge node failed");
+                        1
+                    }
+                }
+            }
+            _ = ctrl_c() => {
+                info!("received CTRL+C signal, initiating graceful shutdown");
+                0
+            }
+            _ = setup_sigterm_handler() => {
+                info!("received SIGTERM signal, initiating graceful shutdown");
+                0
+            }
         }
-        OperationMode::Verifier => {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
-                .thread_stack_size(
-                    config
-                        .thread_stack_size
-                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
-                )
-                .enable_all()
-                .build()
-                .expect("must be able to create runtime");
-            runtime.block_on(async move {
-                #[cfg(feature = "memory_profiling")]
-                memory_pprof::setup_memory_profiling(3000);
-                verifier::bootstrap(params, config)
-                    .await
-                    .unwrap_or_else(|e| {
-                        panic!("verifier loop crashed: {:?}", e);
-                    });
-            });
-        }
+    });
+
+    if exit_code != 0 {
+        process::exit(exit_code);
     }
+}
+
+/// Sets up SIGTERM signal handler for Unix systems.
+#[cfg(unix)]
+async fn setup_sigterm_handler() {
+    let mut sigterm = signal(SignalKind::terminate()).expect("failed to install SIGTERM handler");
+    sigterm.recv().await;
+}
+
+/// No-op SIGTERM handler for non-Unix systems.
+#[cfg(not(unix))]
+async fn setup_sigterm_handler() {
+    // On non-Unix systems, just wait indefinitely (this branch will never be taken due to
+    // tokio::select!)
+    pending::<()>().await;
 }
 
 /// Reads and parses a TOML file from the given path into the given type `T`.
@@ -108,7 +132,7 @@ fn main() {
 /// 2. If the contents of the file cannot be deserialized into the given type `T`.
 fn parse_toml<T>(path: impl AsRef<Path>) -> T
 where
-    T: std::fmt::Debug + DeserializeOwned,
+    T: fmt::Debug + DeserializeOwned,
 {
     fs::read_to_string(path)
         .map(|p| {
