@@ -163,10 +163,6 @@ pub enum ContractEvent {
         /// claim transactions can be settled.
         stake_tx: StakeTxKind,
 
-        /// The latest height of the bitcoin chain used to determine whether the fulfillment
-        /// deadline has exceeded.
-        cur_height: BitcoinBlockHeight,
-
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
         l1_start_height: BitcoinBlockHeight,
@@ -1055,6 +1051,9 @@ pub enum FulfillerDuty {
 
         /// The BOSD Descriptor of the user.
         user_descriptor: Descriptor,
+
+        /// The block height by which the fulfillment must be confirmed.
+        deadline: BitcoinBlockHeight,
     },
 
     /// Originates when Fulfillment confirms (is buried?)
@@ -1483,10 +1482,9 @@ impl ContractSM {
             ContractEvent::Assignment {
                 deposit_entry,
                 stake_tx,
-                cur_height,
                 l1_start_height,
             } => self
-                .process_assignment(&deposit_entry, stake_tx, cur_height, l1_start_height)
+                .process_assignment(&deposit_entry, stake_tx, l1_start_height)
                 .map(|x| x.into_iter().collect()),
 
             ContractEvent::PegOutGraphConfirmation(tx, height) => self
@@ -2360,7 +2358,6 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
         stake_tx: StakeTxKind,
-        cur_height: BitcoinBlockHeight,
         height: BitcoinBlockHeight,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
@@ -2439,19 +2436,12 @@ impl ContractSM {
                             l1_start_height: height,
                         };
 
-                        let duty =
-                            if should_fulfill_assignment(pov_idx, assignee, deadline, cur_height) {
-                                Some(OperatorDuty::FulfillerDuty(
-                                    FulfillerDuty::AdvanceStakeChain {
-                                        stake_index: assignment.idx(),
-                                        stake_tx,
-                                    },
-                                ))
-                            } else {
-                                None
-                            };
-
-                        Ok(duty)
+                        Ok(Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::AdvanceStakeChain {
+                                stake_index: assignment.idx(),
+                                stake_tx,
+                            },
+                        )))
                     }
 
                     ContractState::Assigned {
@@ -2466,20 +2456,12 @@ impl ContractSM {
                             *deadline = dispatched_state.exec_deadline();
                         }
 
-                        let duty = if should_fulfill_assignment(
-                            pov_idx, assignee, *deadline, cur_height,
-                        ) {
-                            Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::AdvanceStakeChain {
-                                    stake_index: assignment.idx(),
-                                    stake_tx,
-                                },
-                            ))
-                        } else {
-                            None
-                        };
-
-                        Ok(duty)
+                        Ok(Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::AdvanceStakeChain {
+                                stake_index: assignment.idx(),
+                                stake_tx,
+                            },
+                        )))
                     }
 
                     ContractState::StakeTxReady {
@@ -2494,9 +2476,8 @@ impl ContractSM {
                             *deadline = dispatched_state.exec_deadline();
                         }
 
-                        let duty = if should_fulfill_assignment(
-                            pov_idx, assignee, *deadline, cur_height,
-                        ) {
+                        let is_assigned_to_me = *fulfiller == pov_idx;
+                        let duty = if is_assigned_to_me {
                             let withdrawal_metadata = WithdrawalMetadata {
                                 tag: self.cfg.peg_out_graph_params.tag,
                                 operator_idx: *fulfiller,
@@ -2508,6 +2489,7 @@ impl ContractSM {
                                 FulfillerDuty::PublishFulfillment {
                                     withdrawal_metadata,
                                     user_descriptor: recipient.clone(),
+                                    deadline: *deadline,
                                 },
                             ))
                         } else {
@@ -2581,6 +2563,7 @@ impl ContractSM {
                         FulfillerDuty::PublishFulfillment {
                             withdrawal_metadata,
                             user_descriptor: recipient.clone(),
+                            deadline: *deadline,
                         },
                     ))
                 } else {
@@ -3276,29 +3259,6 @@ impl ContractSM {
                 ..
             } => Some(*withdrawal_fulfillment_txid),
         }
-    }
-}
-
-fn should_fulfill_assignment(
-    pov_idx: OperatorIdx,
-    assignee: OperatorIdx,
-    deadline: BitcoinBlockHeight,
-    cur_height: BitcoinBlockHeight,
-) -> bool {
-    // TODO: (@Rajil1213) add some margin of error here.
-    let is_within_deadline = deadline > cur_height;
-    let is_assigned_to_me = pov_idx == assignee;
-
-    match (is_within_deadline, is_assigned_to_me) {
-        (false, _) => {
-            debug!("assignment is no longer valid, deadline has passed");
-            false
-        }
-        (true, false) => {
-            debug!("assignment is not for this operator, ignoring");
-            false
-        }
-        (true, true) => true,
     }
 }
 

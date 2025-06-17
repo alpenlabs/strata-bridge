@@ -19,6 +19,7 @@ use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     scripts::taproot::{create_message_hash, TaprootWitness},
+    types::BitcoinBlockHeight,
 };
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, PAYOUT_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -171,8 +172,21 @@ pub(crate) async fn handle_withdrawal_fulfillment(
     output_handles: Arc<OutputHandles>,
     withdrawal_metadata: WithdrawalMetadata,
     user_descriptor: Descriptor,
+    deadline: BitcoinBlockHeight,
 ) -> Result<(), ContractManagerErr> {
-    info!(dest=%user_descriptor, deposit_idx=%withdrawal_metadata.deposit_idx, "fulfilling withdrawal");
+    let deposit_idx = withdrawal_metadata.deposit_idx;
+    info!(dest=%user_descriptor, %deposit_idx, %deadline, "handling duty to fulfill withdrawal");
+
+    let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
+    let reached_deadline = output_handles
+        .bitcoind_rpc_client
+        .get_block_at(deadline.saturating_sub(fulfillment_window))
+        .await;
+
+    if reached_deadline.is_ok() {
+        warn!(%deadline, %fulfillment_window, %deposit_idx, "deadline reached or exceeded, skipping withdrawal fulfillment");
+        return Ok(());
+    }
 
     let amount = cfg
         .pegout_graph_params

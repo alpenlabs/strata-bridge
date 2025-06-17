@@ -22,6 +22,21 @@ pub(crate) struct Config {
     /// Per-thread stack size to use (in bytes) for the runtime.
     pub thread_stack_size: Option<usize>,
 
+    /// Nag interval for the contract manager in the duty tracker.
+    pub nag_interval: Duration,
+
+    /// Whether the bridge node is faulty.
+    ///
+    /// Here, faulty behavior means that the bridge node will post invalid proofs during assertion
+    /// and can thus, be disproved and slashed.
+    ///
+    /// NOTE: This is only for testing purposes and *must* not be used in production.
+    pub is_faulty: bool,
+
+    /// The minimum number of blocks required between the current block height and the withdrawwal
+    /// fulfillment deadline in order to perform a fulfillment.
+    pub min_withdrawal_fulfillment_window: u64,
+
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
@@ -37,22 +52,11 @@ pub(crate) struct Config {
     /// Configuration for the RPC server.
     pub rpc: RpcConfig,
 
-    /// Whether the bridge node is faulty.
-    ///
-    /// Here, faulty behavior means that the bridge node will post invalid proofs during assertion
-    /// and can thus, be disproved and slashed.
-    ///
-    /// NOTE: This is only for testing purposes and *must* not be used in production.
-    pub is_faulty: bool,
-
     /// Configuration for the operator wallet.
     pub operator_wallet: OperatorWalletConfig,
 
     /// Configuration for the Bitcoin ZMQ client.
     pub btc_zmq: BtcZmqConfig,
-
-    /// Nag interval for the contract manager in the duty tracker.
-    pub nag_interval: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,6 +167,7 @@ mod tests {
             thread_stack_size = 8_388_608 # 8 * 1024 * 1024
             is_faulty = false
             nag_interval = { secs = 60, nanos = 0 }
+            min_withdrawal_fulfillment_window = 144
 
             [secret_service_client]
             server_addr = "localhost:1234"

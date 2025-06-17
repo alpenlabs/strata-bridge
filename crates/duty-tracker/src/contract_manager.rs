@@ -21,7 +21,7 @@ use secret_service_client::SecretServiceClient;
 use secret_service_proto::v1::traits::*;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::{operator_table::OperatorTable, types::BitcoinBlockHeight};
+use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
@@ -75,6 +75,7 @@ impl ContractManager {
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
         is_faulty: bool,
+        min_withdrawal_fulfillment_window: u64,
         // Genesis information
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
@@ -189,6 +190,7 @@ impl ContractManager {
                 pre_stake_pubkey: pre_stake_pubkey.clone(),
                 funding_address: funding_address.clone(),
                 is_faulty,
+                min_withdrawal_fulfillment_window,
             });
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
@@ -444,6 +446,7 @@ pub(super) struct ExecutionConfig {
     pub(super) pre_stake_pubkey: ScriptBuf,
     pub(super) funding_address: Address,
     pub(super) is_faulty: bool,
+    pub(super) min_withdrawal_fulfillment_window: u64,
 }
 
 struct ContractManagerCtx {
@@ -476,7 +479,7 @@ impl ContractManagerCtx {
 
         for tx in block.txdata {
             // could be an assignment
-            let assignment_duties = self.process_assignments(&tx, height).await?;
+            let assignment_duties = self.process_assignments(&tx).await?;
             if !assignment_duties.is_empty() {
                 info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
                 duties.extend(assignment_duties);
@@ -627,7 +630,6 @@ impl ContractManagerCtx {
     async fn process_assignments(
         &mut self,
         tx: &Transaction,
-        cur_height: BitcoinBlockHeight,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
 
@@ -673,7 +675,6 @@ impl ContractManagerCtx {
                         match sm.process_contract_event(ContractEvent::Assignment {
                             deposit_entry: entry.clone(),
                             stake_tx,
-                            cur_height,
                             l1_start_height,
                         }) {
                             Ok(new_duties) if !new_duties.is_empty() => {
@@ -1527,12 +1528,14 @@ async fn execute_duty(
             FulfillerDuty::PublishFulfillment {
                 withdrawal_metadata,
                 user_descriptor,
+                deadline,
             } => {
                 handle_withdrawal_fulfillment(
                     cfg,
                     output_handles,
                     withdrawal_metadata,
                     user_descriptor,
+                    deadline,
                 )
                 .await
             }
