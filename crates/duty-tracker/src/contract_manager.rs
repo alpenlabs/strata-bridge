@@ -31,6 +31,7 @@ use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsu
 use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
+    select,
     sync::{broadcast, mpsc, RwLock},
     task::{self, JoinHandle},
     time,
@@ -294,7 +295,7 @@ impl ContractManager {
 
             loop {
                 let mut duties = vec![];
-                tokio::select! {
+                select! {
                     biased; // follow the same order as specified below
 
                     synthetic_event = synthetic_event_receiver.recv() => {
@@ -1073,6 +1074,7 @@ impl ContractManagerCtx {
                 // First try to find by claim_txid
                 if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
                     let Some(contract) = self.state.active_contracts.get_actor(deposit_txid) else {
+                        warn!(%deposit_txid, "received musig2 nonces exchange request for unknown contract");
                         return Ok(None);
                     };
 
@@ -1080,6 +1082,7 @@ impl ContractManagerCtx {
                     info!(%claim_txid, "received request for graph nonces");
 
                     let Ok(state) = contract.get_state().await else {
+                        warn!(%deposit_txid, "failed to get contract state");
                         return Ok(None);
                     };
 
@@ -1089,6 +1092,7 @@ impl ContractManagerCtx {
                         ..
                     } = &state.state
                     else {
+                        warn!(%deposit_txid, "could not find requested contract state");
                         return Ok(None);
                     };
 
@@ -1102,6 +1106,7 @@ impl ContractManagerCtx {
                         .expect("graph input must exist if claim_txid exists");
 
                     let Ok(cfg) = contract.get_config().await else {
+                        warn!(%deposit_txid, "could not fetch contract config");
                         return Ok(None);
                     };
 
@@ -1129,25 +1134,44 @@ impl ContractManagerCtx {
                 let mut found_contract = None;
                 for (_, contract) in self.state.active_contracts.actors() {
                     let Ok(deposit_request_txid) = contract.deposit_request_txid().await else {
+                        error!(
+                            ?contract,
+                            deposit_txid = %contract.deposit_txid,
+                            "Failed to get deposit request txid for contract, this is unexpected"
+                        );
                         continue;
                     };
                     if deposit_request_txid == session_id_as_txid {
+                        debug!(
+                            %deposit_request_txid,
+                            deposit_txid = %contract.deposit_txid,
+                            "Found contract with matching deposit request txid"
+                        );
                         found_contract = Some(contract);
                         break;
                     }
                 }
 
                 let Some(contract) = found_contract else {
+                    warn!("No contract found with matching deposit request txid");
                     return Ok(None);
                 };
 
                 let (Ok(state), Ok(cfg)) =
                     (contract.get_state().await, contract.get_config().await)
                 else {
+                    warn!(
+                        deposit_txid = %contract.deposit_txid,
+                        "Failed to fetch contract state or config"
+                    );
                     return Ok(None);
                 };
 
                 let ContractState::Requested { root_nonces, .. } = &state.state else {
+                    warn!(
+                        deposit_txid = %contract.deposit_txid,
+                        "Unexpected contract state"
+                    );
                     return Ok(None);
                 };
 
@@ -1166,12 +1190,14 @@ impl ContractManagerCtx {
                 // First try to find by claim_txid
                 if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
                     let Some(contract) = self.state.active_contracts.get_actor(deposit_txid) else {
+                        warn!(%deposit_txid, "received musig2 signatures exchange request for unknown contract");
                         return Ok(None);
                     };
 
                     let (Ok(state), Ok(cfg)) =
                         (contract.get_state().await, contract.get_config().await)
                     else {
+                        warn!(%deposit_txid, "failed to get contract state");
                         return Ok(None);
                     };
 
@@ -1182,6 +1208,7 @@ impl ContractManagerCtx {
                         ..
                     } = &state.state
                     else {
+                        warn!(%deposit_txid, "could not find requested contract state");
                         return Ok(None);
                     };
 
@@ -1223,21 +1250,36 @@ impl ContractManagerCtx {
                 let mut found_contract = None;
                 for (_, contract) in self.state.active_contracts.actors() {
                     let Ok(deposit_request_txid) = contract.deposit_request_txid().await else {
+                        error!(
+                            ?contract,
+                            deposit_txid = %contract.deposit_txid,
+                            "Failed to get deposit request txid for contract, this is unexpected"
+                        );
                         continue;
                     };
                     if deposit_request_txid == session_id_as_txid {
+                        debug!(
+                            %deposit_request_txid,
+                            deposit_txid = %contract.deposit_txid,
+                            "Found contract with matching deposit request txid"
+                        );
                         found_contract = Some(contract);
                         break;
                     }
                 }
 
                 let Some(contract) = found_contract else {
+                    warn!("No contract found with matching deposit request txid");
                     return Ok(None);
                 };
 
                 let (Ok(state), Ok(cfg)) =
                     (contract.get_state().await, contract.get_config().await)
                 else {
+                    warn!(
+                        deposit_txid = %contract.deposit_txid,
+                        "Failed to fetch contract state or config"
+                    );
                     return Ok(None);
                 };
 
@@ -1247,6 +1289,10 @@ impl ContractManagerCtx {
                     ..
                 } = &state.state
                 else {
+                    warn!(
+                        deposit_txid = %contract.deposit_txid,
+                        "Unexpected contract state"
+                    );
                     return Ok(None);
                 };
 
