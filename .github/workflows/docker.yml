@@ -33,13 +33,28 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@18ce135bb5112fa8ce4ed6c17ab05699d7f3a5e0 # v3.11.0
 
+      - name: Cache Docker layers
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ matrix.dockerfile }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-${{ matrix.dockerfile }}-
+            ${{ runner.os }}-buildx-
+
       - name: Test Docker build
         run: |
           docker buildx build \
             --file ${{ matrix.dockerfile }} \
             --tag test-image:latest \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
             --load \
             .
+
+          # Move cache to avoid ever-growing cache
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
   docker-success:
     name: Check that Docker builds pass
