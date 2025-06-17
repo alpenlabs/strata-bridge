@@ -74,11 +74,11 @@ impl Backend {
         let handle = match self {
             Backend::Esplora(esplora_client) => {
                 let client = esplora_client.clone();
-                tokio::spawn(async move { client.sync_wallet(req, last_cp, tx).await })
+                tokio::spawn(async move { client.sync_wallet(req, tx).await })
             }
             Backend::BitcoinCore(arc) => {
                 let client = arc.clone();
-                tokio::spawn(async move { client.sync_wallet(req, last_cp, tx).await })
+                tokio::spawn(async move { sync_wallet_bitcoin_core(client, last_cp, tx).await })
             }
         };
 
@@ -102,15 +102,6 @@ impl Backend {
 
         Ok(())
     }
-}
-
-trait SyncBackend: Debug + Send + Sync {
-    async fn sync_wallet(
-        &self,
-        req: SyncRequestBuilder<(KeychainKind, u32)>,
-        last_cp: CheckPoint,
-        send_update: UpdateSender,
-    ) -> Result<(), SyncError>;
 }
 
 type BoxedErrInner = dyn Debug + Send + Sync;
@@ -146,13 +137,10 @@ impl EsploraClient {
             esplora_client::Builder::new(esplora_url).build_async()?,
         ))
     }
-}
 
-impl SyncBackend for EsploraClient {
     async fn sync_wallet(
         &self,
         req: SyncRequestBuilder<(KeychainKind, u32)>,
-        _last_cp: CheckPoint,
         send_update: UpdateSender,
     ) -> Result<(), SyncError> {
         let update = self
@@ -164,38 +152,35 @@ impl SyncBackend for EsploraClient {
     }
 }
 
-impl SyncBackend for Arc<bitcoincore_rpc::Client> {
-    async fn sync_wallet(
-        &self,
-        _req: SyncRequestBuilder<(KeychainKind, u32)>,
-        last_cp: CheckPoint,
-        send_update: UpdateSender,
-    ) -> Result<(), SyncError> {
-        {
-            let client = self.clone();
-            async move {
-                let start_height = match false {
-                    true => 0,
-                    false => last_cp.height(),
-                };
-                spawn_bitcoin_core(client.clone(), move |client| {
-                    let mut emitter = Emitter::new(client, last_cp, start_height);
-                    while let Some(ev) = emitter.next_block().unwrap() {
-                        send_update.send(WalletUpdate::NewBlock(ev)).unwrap();
-                    }
-                    let mempool = emitter.mempool().unwrap();
-                    send_update.send(WalletUpdate::MempoolTxs(mempool)).unwrap();
-                    Ok(())
-                })
-                .await
-            }
+async fn sync_wallet_bitcoin_core(
+    client: Arc<bitcoincore_rpc::Client>,
+    last_cp: CheckPoint,
+    send_update: UpdateSender,
+) -> Result<(), SyncError> {
+    {
+        let client = client.clone();
+        async move {
+            let start_height = match false {
+                true => 0,
+                false => last_cp.height(),
+            };
+            with_bitcoin_core(client, move |client| {
+                let mut emitter = Emitter::new(client, last_cp, start_height);
+                while let Some(ev) = emitter.next_block().unwrap() {
+                    send_update.send(WalletUpdate::NewBlock(ev)).unwrap();
+                }
+                let mempool = emitter.mempool().unwrap();
+                send_update.send(WalletUpdate::MempoolTxs(mempool)).unwrap();
+                Ok(())
+            })
+            .await
         }
-        .await
-        .map_err(|e| (Box::new(e) as BoxedErr).into())
     }
+    .await
+    .map_err(|e| (Box::new(e) as BoxedErr).into())
 }
 
-async fn spawn_bitcoin_core<T, F>(
+async fn with_bitcoin_core<T, F>(
     client: Arc<bitcoincore_rpc::Client>,
     func: F,
 ) -> Result<T, bitcoincore_rpc::Error>
