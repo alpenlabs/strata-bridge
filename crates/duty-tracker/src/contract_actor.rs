@@ -7,7 +7,7 @@ use algebra::req::Req;
 use bitcoin::{Transaction, Txid};
 use strata_bridge_tx_graph::transactions::covenant_tx::CovenantTx;
 use tokio::{sync::mpsc, task::JoinHandle};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info, trace, warn};
 
 /// Channel for sending duty responses from contract actors back to the main event loop.
 pub type DutyResponseSender =
@@ -117,7 +117,8 @@ impl ContractActor {
                         if let Some(req) = req {
                             // Synchronous processing with direct response
                             let (event, response_sender) = req.into_parts();
-                            debug!(%deposit_txid, ?event, "processing contract event (sync)");
+                            debug!(%deposit_txid, "processing contract event (sync)");
+                            trace!(%deposit_txid, ?event, "processing contract event (sync)");
 
                             let result = csm.process_contract_event(event);
 
@@ -137,7 +138,8 @@ impl ContractActor {
                             let _ = response_sender.send(result);
                         } else if let Some(event) = event {
                             // Asynchronous processing with duty response channel
-                            debug!(%deposit_txid, ?event, "processing contract event (async)");
+                            debug!(%deposit_txid, "processing contract event (async)");
+                            trace!(%deposit_txid, ?event, "processing contract event (sync)");
 
                             let result = csm.process_contract_event(event);
 
