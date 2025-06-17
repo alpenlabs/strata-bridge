@@ -6,7 +6,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
     vec,
 };
 
@@ -555,6 +555,7 @@ impl ContractManagerCtx {
         &mut self,
         block: Block,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
+        let block_process_start_time = Instant::now();
         let height = block.bip34_block_height().unwrap_or(0);
         // TODO(proofofkeags): persist entire block worth of states at once. Ensure all the state
         // transitions succeed before committing them to disk.
@@ -574,14 +575,21 @@ impl ContractManagerCtx {
         let stake_index = self.state.active_contracts.len() as u32;
 
         for tx in block.txdata {
+            let txid = tx.compute_txid();
+
+            let tx_process_start_time = Instant::now();
             // could be an assignment
             let assignment_duties = self.process_assignments(&tx).await?;
             if !assignment_duties.is_empty() {
                 info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
                 duties.extend(assignment_duties);
+                trace!(time_taken=?tx_process_start_time.elapsed(), "processed assignments for {txid}");
+
+                // It's impossible for a transaction to contain assignments and otherwise have any
+                // effect on existing or new contracts, so we move on.
+                continue;
             }
 
-            let txid = tx.compute_txid();
             // or a deposit request
             if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
@@ -661,6 +669,7 @@ impl ContractManagerCtx {
                 info!(%deposit_request_txid, %deposit_txid, "created new contract from DRT in block");
                 new_contracts.push((actor, deposit_request_txid));
                 duties.push(duty);
+                trace!(time_taken=?tx_process_start_time.elapsed(), "processed {txid} as DRT");
 
                 continue;
             }
@@ -680,6 +689,7 @@ impl ContractManagerCtx {
                     Ok(new_duties) => duties.extend(new_duties),
                     Err(e) => error!(%e, "failed to process deposit confirmation"),
                 }
+                trace!(time_taken=?tx_process_start_time.elapsed(), "processed {txid} as DT");
 
                 continue;
             }
@@ -708,10 +718,12 @@ impl ContractManagerCtx {
                             return Err(e.into());
                         }
                     }
+                    trace!(time_taken=?tx_process_start_time.elapsed(), "processed {txid} as POG tx confirmation");
                 }
             }
             duties.extend(transaction_duties);
         }
+        trace!(%height, time_taken=?block_process_start_time.elapsed(), "processed all transaction-level contract events for block");
 
         // Now that we've handled all the transaction level events, we should inform all the
         // CSMs that a new block has arrived - we can do this in parallel.
@@ -720,6 +732,7 @@ impl ContractManagerCtx {
             let future = contract.process_event(ContractEvent::Block(height));
             block_event_futures.push(async move { (*deposit_txid, future.await) });
         }
+        trace!(%height, time_taken=?block_process_start_time.elapsed(), "processed all transaction-level contract events for block");
 
         let block_results = futures::future::join_all(block_event_futures).await;
         for (deposit_txid, result) in block_results {
