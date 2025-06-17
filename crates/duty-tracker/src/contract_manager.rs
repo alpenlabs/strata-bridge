@@ -921,7 +921,7 @@ impl ContractManagerCtx {
                 } else {
                     // One of the other operators may have seen a DRT that we have not yet seen
                     warn!(
-                        "Received a P2P message about an unknown contract: {}",
+                        "received a P2P message about an unknown contract: {}",
                         deposit_txid
                     );
                 }
@@ -1137,7 +1137,7 @@ impl ContractManagerCtx {
                         error!(
                             ?contract,
                             deposit_txid = %contract.deposit_txid,
-                            "Failed to get deposit request txid for contract, this is unexpected"
+                            "failed to get deposit request txid for contract, this is unexpected"
                         );
                         continue;
                     };
@@ -1145,7 +1145,7 @@ impl ContractManagerCtx {
                         debug!(
                             %deposit_request_txid,
                             deposit_txid = %contract.deposit_txid,
-                            "Found contract with matching deposit request txid"
+                            "found contract with matching deposit request txid"
                         );
                         found_contract = Some(contract);
                         break;
@@ -1153,7 +1153,7 @@ impl ContractManagerCtx {
                 }
 
                 let Some(contract) = found_contract else {
-                    warn!("No contract found with matching deposit request txid");
+                    warn!("no contract found with matching deposit request txid");
                     return Ok(None);
                 };
 
@@ -1162,7 +1162,7 @@ impl ContractManagerCtx {
                 else {
                     warn!(
                         deposit_txid = %contract.deposit_txid,
-                        "Failed to fetch contract state or config"
+                        "failed to fetch contract state or config"
                     );
                     return Ok(None);
                 };
@@ -1170,7 +1170,7 @@ impl ContractManagerCtx {
                 let ContractState::Requested { root_nonces, .. } = &state.state else {
                     warn!(
                         deposit_txid = %contract.deposit_txid,
-                        "Unexpected contract state"
+                        "unexpected contract state"
                     );
                     return Ok(None);
                 };
@@ -1253,7 +1253,7 @@ impl ContractManagerCtx {
                         error!(
                             ?contract,
                             deposit_txid = %contract.deposit_txid,
-                            "Failed to get deposit request txid for contract, this is unexpected"
+                            "failed to get deposit request txid for contract, this is unexpected"
                         );
                         continue;
                     };
@@ -1261,7 +1261,7 @@ impl ContractManagerCtx {
                         debug!(
                             %deposit_request_txid,
                             deposit_txid = %contract.deposit_txid,
-                            "Found contract with matching deposit request txid"
+                            "found contract with matching deposit request txid"
                         );
                         found_contract = Some(contract);
                         break;
@@ -1269,7 +1269,7 @@ impl ContractManagerCtx {
                 }
 
                 let Some(contract) = found_contract else {
-                    warn!("No contract found with matching deposit request txid");
+                    warn!("no contract found with matching deposit request txid");
                     return Ok(None);
                 };
 
@@ -1278,7 +1278,7 @@ impl ContractManagerCtx {
                 else {
                     warn!(
                         deposit_txid = %contract.deposit_txid,
-                        "Failed to fetch contract state or config"
+                        "failed to fetch contract state or config"
                     );
                     return Ok(None);
                 };
@@ -1291,7 +1291,7 @@ impl ContractManagerCtx {
                 else {
                     warn!(
                         deposit_txid = %contract.deposit_txid,
-                        "Unexpected contract state"
+                        "unexpected contract state"
                     );
                     return Ok(None);
                 };

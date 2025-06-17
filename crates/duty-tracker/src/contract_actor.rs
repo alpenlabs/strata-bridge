@@ -160,7 +160,7 @@ impl ContractActor {
                                 let _ = duty_sender.send((deposit_txid, result));
                             }
                         } else {
-                            error!(%deposit_txid, "ProcessEvent message missing both req and event");
+                            error!(%deposit_txid, "processEvent message missing both req and event");
                         }
                     }
                     ContractActorMessage::GetState(req) => {
@@ -224,7 +224,7 @@ impl ContractActor {
 
         receiver
             .await
-            .map_err(|_| TransitionErr("Failed to receive response from CSM actor".to_string()))?
+            .map_err(|_| TransitionErr("failed to receive response from CSM actor".to_string()))?
     }
 
     /// Processes a contract event asynchronously, sending duties to the provided channel.
@@ -253,7 +253,7 @@ impl ContractActor {
 
         receiver
             .await
-            .map_err(|_| TransitionErr("Failed to receive state from CSM actor".to_string()))
+            .map_err(|_| TransitionErr("failed to receive state from CSM actor".to_string()))
     }
 
     /// Gets the contract [`ContractCfg`].
@@ -265,7 +265,7 @@ impl ContractActor {
 
         receiver
             .await
-            .map_err(|_| TransitionErr("Failed to receive config from CSM actor".to_string()))
+            .map_err(|_| TransitionErr("failed to receive config from CSM actor".to_string()))
     }
 
     /// Checks if the contract handles a specific transaction.
@@ -279,7 +279,7 @@ impl ContractActor {
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
-            TransitionErr("Failed to receive filter result from CSM actor".to_string())
+            TransitionErr("failed to receive filter result from CSM actor".to_string())
         })
     }
 
@@ -292,7 +292,7 @@ impl ContractActor {
 
         receiver
             .await
-            .map_err(|_| TransitionErr("Failed to receive claim txids from CSM actor".to_string()))
+            .map_err(|_| TransitionErr("failed to receive claim txids from CSM actor".to_string()))
     }
 
     /// Gets the deposit request transaction ID.
@@ -303,7 +303,7 @@ impl ContractActor {
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
-            TransitionErr("Failed to receive deposit request txid from CSM actor".to_string())
+            TransitionErr("failed to receive deposit request txid from CSM actor".to_string())
         })
     }
 
@@ -315,7 +315,7 @@ impl ContractActor {
             .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
 
         receiver.await.map_err(|_| {
-            TransitionErr("Failed to receive withdrawal request txid from CSM actor".to_string())
+            TransitionErr("failed to receive withdrawal request txid from CSM actor".to_string())
         })
     }
 
@@ -328,7 +328,7 @@ impl ContractActor {
 
         receiver.await.map_err(|_| {
             TransitionErr(
-                "Failed to receive withdrawal fulfillment txid from CSM actor".to_string(),
+                "failed to receive withdrawal fulfillment txid from CSM actor".to_string(),
             )
         })
     }
@@ -349,14 +349,14 @@ impl ContractActor {
         let handle = self.handle;
         match tokio::time::timeout(std::time::Duration::from_secs(30), handle).await {
             Ok(result) => {
-                result.map_err(|e| TransitionErr(format!("Actor task panicked: {}", e)))?;
+                result.map_err(|e| TransitionErr(format!("actor task panicked: {e}")))?;
                 Ok(())
             }
             Err(_) => {
                 warn!(deposit_txid=%self.deposit_txid, "Actor shutdown timed out, aborting");
                 // Handle was moved into timeout, so we need to create a new abort mechanism
                 // In this case, the timeout already happened, so the task should be dropped
-                Err(TransitionErr("Actor shutdown timed out".to_string()))
+                Err(TransitionErr("actor shutdown timed out".to_string()))
             }
         }
     }

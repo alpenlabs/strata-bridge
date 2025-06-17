@@ -453,7 +453,7 @@ impl Display for ContractState {
             ContractState::Requested {
                 deposit_request_txid,
                 ..
-            } => format!("Requested ({})", deposit_request_txid),
+            } => format!("requested ({deposit_request_txid})"),
             ContractState::Deposited { .. } => "Deposited".to_string(),
             ContractState::Assigned {
                 fulfiller,
@@ -461,19 +461,18 @@ impl Display for ContractState {
                 deadline,
                 ..
             } => format!(
-                "Assigned to {} with recipient: {} and deadline {}",
-                fulfiller, recipient, deadline
+                "assigned to {fulfiller} with recipient: {recipient} and deadline {deadline}",
             ),
             ContractState::StakeTxReady {
                 active_graph,
                 fulfiller,
                 ..
             } => format!(
-                "StakeTxReady ({}) for operator {}",
-                active_graph.1.stake_txid, fulfiller
+                "StakeTxReady ({}) for operator {fulfiller}",
+                active_graph.1.stake_txid
             ),
             ContractState::Fulfilled { fulfiller, .. } => {
-                format!("Fulfilled by operator {}", fulfiller)
+                format!("fulfilled by operator {fulfiller}")
             }
             ContractState::Claimed {
                 claim_height,
@@ -481,16 +480,16 @@ impl Display for ContractState {
                 active_graph,
                 ..
             } => format!(
-                "Claimed by operator {} at height {} ({})",
-                fulfiller, claim_height, active_graph.1.claim_txid
+                "claimed by operator {fulfiller} at height {claim_height} ({})",
+                active_graph.1.claim_txid
             ),
             ContractState::Challenged {
                 fulfiller,
                 active_graph,
                 ..
             } => format!(
-                "Challenged operator {}'s claim ({})",
-                fulfiller, active_graph.1.claim_txid
+                "challenged operator {fulfiller}'s claim ({})",
+                active_graph.1.claim_txid
             ),
             ContractState::Asserted {
                 post_assert_height,
@@ -498,14 +497,14 @@ impl Display for ContractState {
                 active_graph,
                 ..
             } => format!(
-                "Asserted by operator {} at height {} ({})",
-                fulfiller, post_assert_height, active_graph.1.post_assert_txid
+                "asserted by operator {fulfiller} at height {post_assert_height} ({})",
+                active_graph.1.post_assert_txid
             ),
             ContractState::Disproved { .. } => "Disproved".to_string(),
             ContractState::Resolved { .. } => "Resolved".to_string(),
         };
 
-        write!(f, "ContractState: {}", display_str)
+        write!(f, "ContractState: {display_str}")
     }
 }
 
@@ -3030,15 +3029,15 @@ mod prop_tests {
                         }
                         Err(e) => {
                             let msg = format!("MachineState could not be serialized: {e}");
-                            error!("{}", &msg);
-                            prop_assert!(false, "{}", &msg);
+                            error!("{msg}");
+                            prop_assert!(false, "{msg}");
                         }
                     }
                 }
                 Err(e) => {
                     let msg = format!("MachineState could not be serialized: {e}");
-                    error!("{}", &msg);
-                    prop_assert!(false, "{}", &msg);
+                    error!("{msg}");
+                    prop_assert!(false, "{msg}");
 
                 }
             };
