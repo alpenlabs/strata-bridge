@@ -124,7 +124,7 @@ impl TxDriver {
                         active_jobs = active_jobs.merge(job.into());
 
                         if rpc_client.get_raw_transaction_verbosity_zero(&txid).await.is_ok() {
-                            debug!(%txid, "duplicate TxDriver::drive request. skipping resubmission.");
+                            debug!(%txid, "transaction already broadcasted, skipping resubmission.");
                             continue;
                         }
 
@@ -145,8 +145,12 @@ impl TxDriver {
                             btc_notify::client::TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
                                 match rpc_client.send_raw_transaction(&event.rawtx).await {
-                                    Ok(_txid) => { /* NOOP, we good fam */ }
-                                    Err(_err) => {
+                                    Ok(txid) => {
+                                        /* NOOP, we good fam */
+                                        info!(%txid, "resubmitted transaction successfully");
+                                    }
+                                    Err(err) => {
+                                        error!(txid=%event.rawtx.compute_txid(), %err, "could not resubmit transaction");
                                         // TODO(proofofkeags): in this case we need to analyze the
                                         // reported error. There are a few scenarios that can play
                                         // out here.
@@ -262,7 +266,7 @@ mod e2e_tests {
             format!("-zmqpubsequence={sequence_socket}"),
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
-        let bitcoind = corepc_node::Node::from_downloaded_with_conf(&bitcoin_conf)?;
+        let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
         info!("corepc_node::Node initialized");
 
         let cfg = BtcZmqConfig::default()

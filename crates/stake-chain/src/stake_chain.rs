@@ -393,7 +393,7 @@ mod tests {
         conf.args.push("-minrelaytxfee=0.0");
         conf.args.push("-blockmintxfee=0.0");
         conf.args.push("-dustrelayfee=0.0");
-        let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
+        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
         let btc_client = &bitcoind.client;
 
         // Get network

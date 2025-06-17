@@ -12,9 +12,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid,
 };
-use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::TxStatus;
-use futures::future::{join3, join_all};
 use musig2::{PartialSignature, PubNonce};
 use operator_wallet::FundingUtxo;
 use secp256k1::{schnorr, Message};
@@ -28,10 +26,7 @@ use strata_bridge_tx_graph::{
     pog_musig_functor::PogMusigF,
     transactions::{deposit::DepositTx, prelude::CovenantTx},
 };
-use strata_p2p_types::{
-    P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
-    WotsPublicKeys,
-};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 
@@ -39,7 +34,7 @@ use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     contract_state_machine::{SyntheticEvent, TransitionErr},
     errors::ContractManagerErr,
-    executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
+    executors::wots_handler::get_wots_pks,
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
     tx_driver::TxDriver,
 };
@@ -106,47 +101,7 @@ pub(crate) async fn handle_publish_deposit_setup(
     let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
     let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
 
-    let wots_client = s2_client.wots_signer();
-    let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-        &wots_client
-            .get_256_public_key(deposit_txid, DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
-            .await?,
-    );
-    const NUM_FQS: usize = NUM_U256;
-    const NUM_PUB_INPUTS: usize = NUM_PUBS;
-    const NUM_HASHES: usize = NUM_HASH;
-    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
-    });
-    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, (i + NUM_PUB_INPUTS) as u32)
-    });
-    let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
-        wots_client.get_128_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
-    });
-
-    let (public_inputs, fqs, hashes) = join3(
-        join_all(public_inputs_ftrs),
-        join_all(fqs_ftrs),
-        join_all(hashes_ftrs),
-    )
-    .await;
-
-    info!(%deposit_txid, %deposit_idx, "constructing wots keys");
-    let public_inputs = public_inputs
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-    let fqs = fqs
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-    let hashes = hashes
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-
-    let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
+    let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
 
     // this duty is generated not only when a deposit request is observed
     // but also when nagged by other operators.
@@ -229,6 +184,12 @@ pub(crate) async fn handle_publish_deposit_setup(
             // the wallet is actually empty.
             let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
             finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
+            wallet.sync().await.map_err(|e| {
+                error!(?e, "could not sync wallet after refilling funding utxos");
+                ContractManagerErr::FatalErr(
+                    format!("could not sync wallet after refilling funding utxos: {e:?}").into(),
+                )
+            })?;
 
             let funding_utxo = wallet.claim_funding_utxo(|op| ignore.contains(&op));
 

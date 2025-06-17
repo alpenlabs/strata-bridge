@@ -38,6 +38,7 @@ The following is the system diagram for this repository:
 -   Credentials to connect to SP1's [infra](https://explorer.succinct.xyz).
 -   [Docker](https://docs.docker.com/get-docker/).
 -   [`sqlx-cli`](https://lib.rs/crates/sqlx-cli) to run database migrations.
+-   [`bitcoind`](https://bitcoin.org/en/download) to run the unit tests.
 
 ### Running
 

@@ -30,6 +30,15 @@ pub struct ClaimTx {
     connector_k: ConnectorK,
 }
 
+/// The vout used in the challenge/pre-assert transactions.
+pub const CHALLENGE_VOUT: u32 = 1;
+
+/// The vout used in the payout transaction to reimburse the operator.
+pub const PAYOUT_VOUT: u32 = 2;
+
+/// The vout that is spent by the slash stake transaction.
+pub const SLASH_STAKE_VOUT: u32 = 2;
+
 impl ClaimTx {
     /// Creates a new claim transaction.
     pub fn new(
@@ -126,7 +135,7 @@ impl ClaimTx {
 
     /// The vout for the slash stake output.
     pub const fn slash_stake_vout(&self) -> u32 {
-        2
+        SLASH_STAKE_VOUT
     }
 
     /// Finalizes the transaction with the signature.
@@ -139,8 +148,12 @@ impl ClaimTx {
             .expect("should be able to extract signed tx")
     }
 
-    /// Parses the witness from the transaction.
-    pub fn parse_witness(tx: &Transaction) -> TxResult<Option<wots256::Signature>> {
+    /// Parses the witness from the transaction and returns the WOTS256 signature.
+    ///
+    /// # Errors
+    ///
+    /// If the structure of the transaction witness does not match that of the claim transaction.
+    pub fn parse_witness(tx: &Transaction) -> TxResult<wots256::Signature> {
         let witness = &tx
             .input
             .first()
@@ -148,7 +161,9 @@ impl ClaimTx {
             .witness;
 
         if witness.is_empty() {
-            return Ok(None);
+            return Err(TxError::Witness(
+                "witness is empty, tx is not signed".to_string(),
+            ));
         }
 
         let witness_txid = witness.to_vec();
@@ -169,7 +184,7 @@ impl ClaimTx {
 
         let wots256_signature = wots256_signature?;
 
-        Ok(Some(wots256_signature))
+        Ok(wots256_signature)
     }
 }
 
@@ -181,7 +196,7 @@ mod tests {
     use bitvm::treepp::*;
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
-        wots::{self, Wots256Signature},
+        wots::{self, Wots256Sig},
     };
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
@@ -218,16 +233,15 @@ mod tests {
 
         let withdrawal_fulfillment_txid = generate_txid();
 
-        let signature = Wots256Signature::new(
+        let signature = Wots256Sig::new(
             msk,
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
         let mut signed_claim_tx = claim_tx.finalize(*signature);
 
-        let parsed_wots256 = ClaimTx::parse_witness(&signed_claim_tx)
-            .expect("must be able to parse")
-            .expect("must have witness");
+        let parsed_wots256 =
+            ClaimTx::parse_witness(&signed_claim_tx).expect("must be able to parse claim witness");
 
         let full_script = script! {
             for (sig, digit) in parsed_wots256 {
@@ -251,12 +265,6 @@ mod tests {
             ClaimTx::parse_witness(&signed_claim_tx)
                 .is_err_and(|e| e.to_string().contains("size invalid")),
             "must not be able to parse"
-        );
-
-        signed_claim_tx.input[0].witness = Witness::new();
-        assert!(
-            ClaimTx::parse_witness(&signed_claim_tx).is_ok_and(|v| v.is_none()),
-            "must not have witness"
         );
     }
 }
