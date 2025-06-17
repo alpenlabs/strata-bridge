@@ -9896,8 +9896,8 @@ dependencies = [
  "strata-state",
  "thiserror 2.0.12",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
- "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+ "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
@@ -9917,7 +9917,7 @@ dependencies = [
  "strata-bridge-guest-builder",
  "strata-bridge-proof-protocol",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
  "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
  "zkaleido-sp1-host",
 ]
@@ -12229,6 +12229,19 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
+dependencies = [
+ "arbitrary",
+ "async-trait",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido"
+version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc9#ad17688ad160efda2bd135ed0548d2652374e72d"
 dependencies = [
  "arbitrary",
@@ -12242,12 +12255,12 @@ dependencies = [
 [[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10#efec0f317ed1b747cc8f49284165e70fa7b31306"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
 dependencies = [
  "bincode",
  "borsh",
  "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc10)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
