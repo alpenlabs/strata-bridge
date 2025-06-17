@@ -178,13 +178,22 @@ pub(crate) async fn handle_withdrawal_fulfillment(
     info!(dest=%user_descriptor, %deposit_idx, %deadline, "handling duty to fulfill withdrawal");
 
     let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
-    let reached_deadline = output_handles
+    let cur_height = output_handles
         .bitcoind_rpc_client
-        .get_block_at(deadline.saturating_sub(fulfillment_window))
-        .await;
+        .get_blockchain_info()
+        .await
+        .map_err(|e| {
+            // this means we cannot be sure whether the deadline has been reached or not
+            // so we do not proceed with the duty execution to be on the safe side.
+            error!(?e, "failed to get current blockchain height");
 
-    if reached_deadline.is_ok() {
-        warn!(%deadline, %fulfillment_window, %deposit_idx, "deadline reached or exceeded, skipping withdrawal fulfillment");
+            ContractManagerErr::BitcoinCoreRPCErr(e)
+        })?
+        .blocks;
+
+    let reached_deadline = cur_height >= deadline.saturating_sub(fulfillment_window);
+    if reached_deadline {
+        warn!(%cur_height, %deadline, %fulfillment_window, "current height is more than the deadline minus the fulfillment window, skipping withdrawal fulfillment");
         return Ok(());
     }
 
