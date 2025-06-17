@@ -85,35 +85,35 @@ jobs:
             --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
             --load \
             .
+          docker save bridge-base:latest -o /tmp/bridge-base.tar
 
       - name: Build rt image
         run: |
           docker buildx build \
             --file docker/rt.Dockerfile \
             --tag bridge-rt:latest \
-            --cache-from type=local,src=/tmp/.buildx-cache-new \
+            --cache-from type=local,src=/tmp/.buildx-cache \
             --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
             --load \
             .
+          docker save bridge-rt:latest -o /tmp/bridge-rt.tar
 
       - name: Build alpen-bridge image
         run: |
-          docker buildx build \
+          docker load -i /tmp/bridge-base.tar
+          docker load -i /tmp/bridge-rt.tar
+          docker build \
             --file docker/alpen-bridge/Dockerfile \
             --tag alpen-bridge:latest \
-            --cache-from type=local,src=/tmp/.buildx-cache-new \
-            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            --load \
             .
 
       - name: Build secret-service image
         run: |
-          docker buildx build \
+          docker load -i /tmp/bridge-base.tar
+          docker load -i /tmp/bridge-rt.tar
+          docker build \
             --file docker/secret-service/Dockerfile \
             --tag secret-service:latest \
-            --cache-from type=local,src=/tmp/.buildx-cache-new \
-            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
-            --load \
             .
 
       - name: Move cache
