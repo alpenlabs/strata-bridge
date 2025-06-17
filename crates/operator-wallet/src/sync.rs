@@ -23,24 +23,6 @@ use bdk_wallet::{
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 
-macro_rules! boxed_err {
-    ($name:ident) => {
-        impl std::ops::Deref for $name {
-            type Target = BoxedErrInner;
-
-            fn deref(&self) -> &Self::Target {
-                self.0.as_ref()
-            }
-        }
-
-        impl From<BoxedErr> for $name {
-            fn from(err: BoxedErr) -> Self {
-                Self(err)
-            }
-        }
-    };
-}
-
 /// A message sent from a sync task to the syncer
 #[derive(Debug)]
 pub enum WalletUpdate {
@@ -110,7 +92,18 @@ type BoxedErr = Box<BoxedErrInner>;
 /// A generic error that happened during sync
 #[derive(Debug)]
 pub struct SyncError(BoxedErr);
-boxed_err!(SyncError);
+impl std::ops::Deref for SyncError {
+    type Target = BoxedErrInner;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}
+impl From<BoxedErr> for SyncError {
+    fn from(err: BoxedErr) -> Self {
+        Self(err)
+    }
+}
 
 /// An async, rustls & tokio powered esplora client
 #[derive(Clone, Debug)]
