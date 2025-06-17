@@ -5,7 +5,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
     vec,
 };
 
@@ -467,6 +467,7 @@ impl ContractManagerCtx {
         &mut self,
         block: Block,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
+        let block_process_start_time = Instant::now();
         let height = block.bip34_block_height().unwrap_or(0);
         // TODO(proofofkeags): persist entire block worth of states at once. Ensure all the state
         // transitions succeed before committing them to disk.
@@ -485,14 +486,21 @@ impl ContractManagerCtx {
         let stake_index = self.state.active_contracts.len() as u32;
 
         for tx in block.txdata {
+            let txid = tx.compute_txid();
+
+            let tx_process_start_time = Instant::now();
             // could be an assignment
             let assignment_duties = self.process_assignments(&tx).await?;
             if !assignment_duties.is_empty() {
                 info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
                 duties.extend(assignment_duties);
+                trace!(time_taken=?tx_process_start_time.elapsed(), "processed assignments for {txid}");
+
+                // It's impossible for a transaction to contain assignments and otherwise have any
+                // effect on existing or new contracts, so we move on.
+                continue;
             }
 
-            let txid = tx.compute_txid();
             // or a deposit request
             if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
@@ -563,6 +571,7 @@ impl ContractManagerCtx {
 
                 new_contracts.push(sm);
                 duties.push(duty);
+                trace!(time_taken=?tx_process_start_time.elapsed(), "processed {txid} as DRT");
 
                 // It's impossible for this transaction to be routable to another CSM so we move on
                 continue;
@@ -579,6 +588,7 @@ impl ContractManagerCtx {
                     Ok(new_duties) => duties.extend(new_duties),
                     Err(e) => error!(%e, "failed to process deposit confirmation"),
                 }
+                trace!(time_taken=?tx_process_start_time.elapsed(), "processed {txid} as DT");
 
                 continue;
             }
@@ -601,24 +611,30 @@ impl ContractManagerCtx {
                             return Err(e)?;
                         }
                     }
+                    trace!(time_taken=?tx_process_start_time.elapsed(), "processed {txid} as POG tx confirmation");
                 }
             }
         }
+        trace!(%height, time_taken=?block_process_start_time.elapsed(), "processed all transaction-level contract events for block");
 
         // Now that we've handled all the transaction level events, we should inform all the
         // CSMs that a new block has arrived
         for (_, contract) in self.state.active_contracts.iter_mut() {
             duties.extend(contract.process_contract_event(ContractEvent::Block(height))?)
         }
+        trace!(%height, time_taken=?block_process_start_time.elapsed(), "processed all transaction-level contract events for block");
 
+        let persist_start_time = Instant::now();
         self.state_handles
             .contract_persister
             .commit_all(self.state.active_contracts.iter())
             .await?;
+        trace!(time_taken=?persist_start_time.elapsed(), "committed all updated contracts to persistence");
 
         // Now that we've processed all the events related to the old contracts and dispatched the
         // corresponding events to them, we can add the new contracts which will receive relevant
         // events from subsequent blocks.
+        let persist_start_time = Instant::now();
         for sm in new_contracts {
             self.state_handles
                 .contract_persister
@@ -627,6 +643,7 @@ impl ContractManagerCtx {
 
             self.state.active_contracts.insert(sm.deposit_txid(), sm);
         }
+        trace!(time_taken=?persist_start_time.elapsed(), "committed all updated contracts to persistence");
 
         Ok(duties)
     }
