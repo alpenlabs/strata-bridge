@@ -8,7 +8,7 @@ COPY bin/alpen-bridge bin/alpen-bridge
 RUN --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/app/target \
-    cargo b -r -p alpen-bridge --features memory_profiling
+    cargo b -r -p alpen-bridge
 
 RUN --mount=type=cache,target=/app/target cp /app/target/release/alpen-bridge /app/alpen-bridge
 

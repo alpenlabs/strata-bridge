@@ -296,3 +296,8 @@ certs
 
 # certificates and private keys in pem format
 *.pem
+
+# vk files
+*.vk
+*.sp1vk
+*.hex

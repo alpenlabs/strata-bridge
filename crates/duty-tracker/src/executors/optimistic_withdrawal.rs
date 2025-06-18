@@ -19,6 +19,7 @@ use strata_bridge_db::public::PublicDb;
 use strata_bridge_primitives::{
     build_context::BuildContext,
     scripts::taproot::{create_message_hash, TaprootWitness},
+    types::BitcoinBlockHeight,
 };
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, PAYOUT_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -31,13 +32,15 @@ use strata_bridge_tx_graph::transactions::{
         NUM_PAYOUT_OPTIMISTIC_INPUTS,
     },
 };
-use strata_p2p_types::Wots256PublicKey;
 use tracing::{error, info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     errors::{ContractManagerErr, StakeChainErr},
-    executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
+    executors::{
+        constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
+        wots_handler::get_withdrawal_fulfillment_wots_pk,
+    },
     s2_session_manager::MusigSessionManager,
 };
 
@@ -169,8 +172,30 @@ pub(crate) async fn handle_withdrawal_fulfillment(
     output_handles: Arc<OutputHandles>,
     withdrawal_metadata: WithdrawalMetadata,
     user_descriptor: Descriptor,
+    deadline: BitcoinBlockHeight,
 ) -> Result<(), ContractManagerErr> {
-    info!(dest=%user_descriptor, deposit_idx=%withdrawal_metadata.deposit_idx, "fulfilling withdrawal");
+    let deposit_idx = withdrawal_metadata.deposit_idx;
+    info!(dest=%user_descriptor, %deposit_idx, %deadline, "handling duty to fulfill withdrawal");
+
+    let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
+    let cur_height = output_handles
+        .bitcoind_rpc_client
+        .get_blockchain_info()
+        .await
+        .map_err(|e| {
+            // this means we cannot be sure whether the deadline has been reached or not
+            // so we do not proceed with the duty execution to be on the safe side.
+            error!(?e, "failed to get current blockchain height");
+
+            ContractManagerErr::BitcoinCoreRPCErr(e)
+        })?
+        .blocks;
+
+    let reached_deadline = cur_height >= deadline.saturating_sub(fulfillment_window);
+    if reached_deadline {
+        warn!(%cur_height, %deadline, %fulfillment_window, "current height is more than the deadline minus the fulfillment window, skipping withdrawal fulfillment");
+        return Ok(());
+    }
 
     let amount = cfg
         .pegout_graph_params
@@ -276,12 +301,8 @@ pub(crate) async fn handle_publish_claim(
     let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
     let wots_client = s2_client.wots_signer();
-
-    let withdrawal_fulfillment_pk = wots_client
-        .get_256_public_key(deposit_txid, DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
-        .await?;
     let withdrawal_fulfillment_pk =
-        Wots256PublicKey::from_flattened_bytes(&withdrawal_fulfillment_pk).into();
+        get_withdrawal_fulfillment_wots_pk(deposit_txid, &wots_client).await?;
 
     let network = cfg.network;
     let n_of_n_agg_pubkey = cfg
@@ -291,7 +312,7 @@ pub(crate) async fn handle_publish_claim(
 
     let cpfp_key = s2_client.general_wallet_signer().pubkey().await?;
 
-    let connector_k = ConnectorK::new(network, withdrawal_fulfillment_pk);
+    let connector_k = ConnectorK::new(network, withdrawal_fulfillment_pk.into());
     let connector_c0 = ConnectorC0::new(
         n_of_n_agg_pubkey,
         network,

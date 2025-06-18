@@ -7,7 +7,7 @@ COPY bin/secret-service bin/secret-service
 RUN --mount=type=cache,target=/root/.cargo/git \
     --mount=type=cache,target=/root/.cargo/registry \
     --mount=type=cache,target=/app/target \
-    cargo b -r -p secret-service --features memory_profiling
+    cargo b -r -p secret-service
 
 RUN --mount=type=cache,target=/app/target cp /app/target/release/secret-service /app/secret-service
 

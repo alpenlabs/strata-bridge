@@ -1,16 +1,21 @@
 //! Constructs the disprove transaction.
 
-use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{
     psbt::{ExtractTxError, PsbtSighashType},
     sighash::Prevouts,
     Amount, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
 };
 use strata_bridge_connectors::prelude::*;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{
+    constants::{NUM_ASSERT_DATA_TX, SEGWIT_MIN_AMOUNT},
+    scripts::prelude::*,
+};
 use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use super::covenant_tx::CovenantTx;
+
+/// The index of the post-assert input in the disprove transaction.
+pub const POST_ASSERT_INPUT_INDEX: usize = 1;
 
 /// Data needed to construct a [`DisproveTx`].
 #[derive(Debug, Clone)]
@@ -20,10 +25,6 @@ pub struct DisproveData {
 
     /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
-
-    /// The stake that remains after deducting all the CPFP dust fees in the preceding
-    /// transactions.
-    pub input_amount: Amount,
 
     /// The [`OutPoint`] of the stake transaction that is being spent.
     pub stake_outpoint: OutPoint,
@@ -45,16 +46,24 @@ pub struct DisproveTx {
     prevouts: [TxOut; 2],
 
     witnesses: [TaprootWitness; NUM_DISPROVE_INPUTS],
+
+    connector_stake: ConnectorStake,
 }
 
 impl DisproveTx {
     /// Constructs a new instance of the disprove transaction.
     pub fn new(
         data: DisproveData,
-        stake_chain_params: StakeChainParams,
-        connector_a3: ConnectorA3,
+        stake_amount: Amount,
+        burn_amount: Amount,
+        connector_a3: &ConnectorA3,
         connector_stake: ConnectorStake,
     ) -> Self {
+        // This transaction spends the first output from the `PostAssertTx`.
+        // The PostAssertTx has `NUM_ASSERT_DATA_TX` inputs each with `SEGWIT_MIN_AMOUNT`
+        // One of these inputs is used in the CPFP output of the `PostAssertTx` itself.
+        // So, the input (dust) amount for the `DisproveTx` is the following:
+        let input_amount: Amount = SEGWIT_MIN_AMOUNT * (NUM_ASSERT_DATA_TX - 1) as u64;
         let utxos = [
             data.stake_outpoint,
             OutPoint {
@@ -73,7 +82,6 @@ impl DisproveTx {
         )
         .expect("should be able to create taproot address");
         let burn_script = burn_address.script_pubkey();
-        let burn_amount = stake_chain_params.burn_amount;
 
         let tx_outs = create_tx_outs([(burn_script, burn_amount)]);
 
@@ -85,11 +93,11 @@ impl DisproveTx {
 
         let prevouts = [
             TxOut {
-                value: stake_chain_params.stake_amount,
+                value: stake_amount,
                 script_pubkey: connector_stake.generate_address().script_pubkey(),
             },
             TxOut {
-                value: data.input_amount,
+                value: input_amount,
                 script_pubkey: connector_a3_script,
             },
         ];
@@ -111,6 +119,8 @@ impl DisproveTx {
 
             prevouts,
             witnesses,
+
+            connector_stake,
         }
     }
 
@@ -120,10 +130,10 @@ impl DisproveTx {
         reward: TxOut,
         stake_path: StakeSpendPath,
         disprove_leaf: ConnectorA3Leaf,
-        connector_s: ConnectorStake,
         connector_a3: ConnectorA3,
     ) -> Transaction {
-        connector_s.finalize_input(&mut self.psbt.inputs[0], stake_path);
+        self.connector_stake
+            .finalize_input(&mut self.psbt.inputs[0], stake_path);
         connector_a3.finalize_input(&mut self.psbt.inputs[1], disprove_leaf);
 
         let tx = self.psbt.extract_tx();

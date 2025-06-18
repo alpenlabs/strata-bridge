@@ -3,7 +3,7 @@
 use core::fmt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
-use bitcoin::{Amount, Txid};
+use bitcoin::Txid;
 use serde::{
     de::{SeqAccess, Visitor},
     ser::SerializeTuple,
@@ -72,9 +72,18 @@ impl AssertChain {
         let pre_assert_txid = pre_assert.compute_txid();
         trace!(event = "created pre-assert tx", %pre_assert_txid);
 
+        let pre_assert_locking_scripts = pre_assert
+            .tx_outs()
+            .into_iter()
+            .map(|txout| txout.script_pubkey)
+            .take(NUM_ASSERT_DATA_TX)
+            .collect::<Vec<_>>()
+            .try_into()
+            .expect("pre-assert transaction must have the right number of outputs");
+
         let assert_data_input = AssertDataTxInput {
             pre_assert_txid,
-            pre_assert_txouts: pre_assert.tx_outs(),
+            pre_assert_locking_scripts,
         };
 
         trace!(event = "constructed assert data input", ?assert_data_input);
@@ -83,17 +92,8 @@ impl AssertChain {
         let assert_data_txids = assert_data.compute_txids().to_vec();
         trace!(event = "created assert_data tx batch", ?assert_data_txids);
 
-        let input_amount = assert_data
-            .psbts()
-            .iter()
-            .fold(Amount::from_sat(0), |acc, psbt| {
-                acc + psbt.unsigned_tx.output[0].value
-            });
-
         let post_assert_data = PostAssertTxData {
             assert_data_txids,
-            pre_assert_txid,
-            input_amount,
             deposit_txid: data.deposit_txid,
         };
 

@@ -18,12 +18,6 @@ pub struct PostAssertTxData {
     /// The transaction IDs of the assert data transactions in order.
     pub assert_data_txids: Vec<Txid>,
 
-    /// The transaction ID of the pre-assert transaction used to carry the stake over.
-    pub pre_assert_txid: Txid,
-
-    /// The amount of the stake that was carried over after paying transaction fees.
-    pub input_amount: Amount,
-
     /// The transaction ID of the deposit transaction.
     pub deposit_txid: Txid,
 }
@@ -54,6 +48,9 @@ impl PostAssertTx {
         connector_a3: ConnectorA3,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        // all the dust outputs from assert-data transactions
+        let input_amount: Amount = SEGWIT_MIN_AMOUNT * NUM_ASSERT_DATA_TX as u64;
+
         let mut utxos = Vec::with_capacity(NUM_ASSERT_DATA_TX);
         utxos.extend(data.assert_data_txids.iter().map(|txid| OutPoint {
             txid: *txid,
@@ -73,7 +70,7 @@ impl PostAssertTx {
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
-        let net_amount = data.input_amount - cpfp_amount;
+        let net_amount = input_amount - cpfp_amount;
         let scripts_and_amounts = [
             (connector_a31_script.clone(), net_amount),
             (cpfp_script, cpfp_amount),

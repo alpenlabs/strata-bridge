@@ -1,7 +1,7 @@
 datadir = "/app/data"
-# stub option ftm
 is_faulty = false
 nag_interval = { secs = 60, nanos = 0 }
+min_withdrawal_fulfillment_window = 144
 
 [secret_service_client]
 server_addr = "172.28.1.7:69"
@@ -35,7 +35,7 @@ connection_check_interval = { secs = 0, nanos = 500_000_000 }
 stake_funding_pool_size = 32
 
 [rpc]
-rpc_addr = "localhost:5678"
+rpc_addr = "0.0.0.0:5678"
 refresh_interval = { secs = 600, nanos = 0 }
 
 [btc_zmq]
