@@ -384,6 +384,9 @@ impl ContractActor {
 pub struct ContractActorManager {
     /// Active [`ContractActor`]s indexed by deposit transaction ID.
     actors: BTreeMap<Txid, ContractActor>,
+
+    /// Index from deposit request transaction ID to deposit transaction ID for fast lookup.
+    deposit_request_to_deposit: BTreeMap<Txid, Txid>,
 }
 
 impl ContractActorManager {
@@ -391,17 +394,38 @@ impl ContractActorManager {
     pub const fn new() -> Self {
         Self {
             actors: BTreeMap::new(),
+            deposit_request_to_deposit: BTreeMap::new(),
         }
     }
 
-    /// Adds a new [`ContractActor`].
-    pub fn add_actor(&mut self, actor: ContractActor) {
-        self.actors.insert(actor.deposit_txid, actor);
+    /// Adds a new [`ContractActor`] given a deposit request transaction ID.
+    pub fn add_actor(&mut self, actor: ContractActor, deposit_request_txid: Txid) {
+        let deposit_txid = actor.deposit_txid;
+        self.deposit_request_to_deposit
+            .insert(deposit_request_txid, deposit_txid);
+        self.actors.insert(deposit_txid, actor);
     }
 
     /// Removes a [`ContractActor`] by deposit transaction ID.
     pub async fn remove_actor(&mut self, deposit_txid: &Txid) -> Option<ContractActor> {
         if let Some(actor) = self.actors.remove(deposit_txid) {
+            // Clean up the deposit_request_txid index.
+            // Find and remove the entry that maps to this deposit_txid.
+            let deposit_request_txid_to_remove = self.deposit_request_to_deposit.iter().find_map(
+                |(deposit_request_txid, mapped_deposit_txid)| {
+                    if mapped_deposit_txid == deposit_txid {
+                        Some(*deposit_request_txid)
+                    } else {
+                        None
+                    }
+                },
+            );
+
+            if let Some(deposit_request_txid) = deposit_request_txid_to_remove {
+                self.deposit_request_to_deposit
+                    .remove(&deposit_request_txid);
+            }
+
             info!(%deposit_txid, "removing contract actor");
             Some(actor)
         } else {
@@ -412,6 +436,16 @@ impl ContractActorManager {
     /// Gets a reference to a [`ContractActor`].
     pub fn get_actor(&self, deposit_txid: &Txid) -> Option<&ContractActor> {
         self.actors.get(deposit_txid)
+    }
+
+    /// Gets a reference to a [`ContractActor`] by deposit request transaction ID.
+    pub fn get_actor_by_deposit_request_txid(
+        &self,
+        deposit_request_txid: &Txid,
+    ) -> Option<&ContractActor> {
+        self.deposit_request_to_deposit
+            .get(deposit_request_txid)
+            .and_then(|deposit_txid| self.actors.get(deposit_txid))
     }
 
     /// Gets an [`Iterator`] over all [`ContractActor`]s.
