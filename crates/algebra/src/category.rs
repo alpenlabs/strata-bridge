@@ -23,3 +23,21 @@ pub fn comp<A, B, C>(f: impl Fn(A) -> B, g: impl Fn(B) -> C) -> impl Fn(A) -> C 
 pub const fn iden<A>(a: A) -> A {
     a
 }
+
+/// Lifts an `FnOnce` that takes a borrowed argument into one that consumes that argument. This is
+/// useful because there is no way to build a function of type `f : A -> &A`
+pub fn moved_once<A, B>(f: impl FnOnce(&A) -> B) -> impl FnOnce(A) -> B {
+    move |a| f(&a)
+}
+
+/// Lifts an `FnMut` that takes a borrowed argument into one that consumes that argument. This is
+/// useful because there is no way to build a function of type `f : A -> &A`
+pub fn moved_mut<A, B>(mut f: impl FnMut(&A) -> B) -> impl FnMut(A) -> B {
+    move |a| f(&a)
+}
+
+/// Lifts an `Fn` that takes a borrowed argument into one that consumes that argument. This is
+/// useful because there is no way to build a function of type `f : A -> &A`
+pub fn moved<A, B>(f: impl Fn(&A) -> B) -> impl Fn(A) -> B {
+    move |a| f(&a)
+}
