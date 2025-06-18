@@ -1,6 +1,7 @@
 datadir = "/app/data"
 is_faulty = false
 nag_interval = { secs = 60, nanos = 0 }
+min_withdrawal_fulfillment_window = 144
 
 [secret_service_client]
 server_addr = "172.28.1.5:69"
