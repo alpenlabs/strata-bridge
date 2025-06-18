@@ -116,8 +116,9 @@ impl ContractManager {
                     };
 
                     for (cfg, state) in contract_data {
+                        let deposit_request_txid = cfg.deposit_request_txid();
                         let actor = ContractActor::spawn(cfg, state, state_handles.clone());
-                        active_contracts.add_actor(actor);
+                        active_contracts.add_actor(actor, deposit_request_txid);
                     }
                 }
                 Err(e) => crash(e.into()),
@@ -234,6 +235,8 @@ impl ContractManager {
                     for claim_txid in actor_claim_txids {
                         claim_txids.insert(claim_txid, *deposit_txid);
                     }
+                } else {
+                    warn!(%deposit_txid, "failed to get claim_txids for contract during loading");
                 }
             }
 
@@ -530,9 +533,10 @@ impl ContractManagerCtx {
         // TODO(proofofkeags): persist entire block worth of states at once. Ensure all the state
         // transitions succeed before committing them to disk.
         let mut duties = Vec::new();
+
         // this is to aggregate and commit new contracts separately so that the block event that
         // advances the cursor does not advance the cursor on the newly created contracts.
-        let mut new_contracts = Vec::new();
+        let mut new_contracts: Vec<(ContractActor, Txid)> = Vec::new();
 
         let pov_key = self.cfg.operator_table.pov_op_key().clone();
         // TODO(proofofkeags): prune the active contract set and still preserve the ability
@@ -628,7 +632,8 @@ impl ContractManagerCtx {
                 };
 
                 let actor = ContractActor::spawn(cfg, initial_state, actor_state_handles);
-                new_contracts.push(actor);
+                info!(%deposit_request_txid, %deposit_txid, "created new contract from DRT in block");
+                new_contracts.push((actor, deposit_request_txid));
                 duties.push(duty);
 
                 continue;
@@ -683,7 +688,7 @@ impl ContractManagerCtx {
         }
 
         // Now that we've handled all the transaction level events, we should inform all the
-        // CSMs that a new block has arrived - we can do this in parallel
+        // CSMs that a new block has arrived - we can do this in parallel.
         let mut block_event_futures = Vec::new();
         for (deposit_txid, contract) in self.state.active_contracts.actors() {
             let future = contract.process_event(ContractEvent::Block(height));
@@ -698,9 +703,13 @@ impl ContractManagerCtx {
             }
         }
 
-        // Add new contracts
-        for actor in new_contracts {
-            self.state.active_contracts.add_actor(actor);
+        // Add new contracts to index immediately after block processing, before returning duties.
+        for (actor, deposit_request_txid) in new_contracts {
+            let deposit_txid = actor.deposit_txid;
+            info!(%deposit_request_txid, %deposit_txid, "adding new contract to active_contracts index");
+            self.state
+                .active_contracts
+                .add_actor(actor, deposit_request_txid);
         }
 
         Ok(duties)
@@ -858,7 +867,14 @@ impl ContractManagerCtx {
                     };
 
                     info!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
-                    self.state.stake_chains.process_setup(key.clone(), &setup)?;
+                    let Some(_stake_txid) =
+                        self.state.stake_chains.process_setup(key.clone(), &setup)?
+                    else {
+                        // if the stake txid cannot be generated it means that the chain is broken,
+                        // this can happen if the deposit setup messages are received out of order,
+                        // when there are multiple deposits being processed concurrently.
+                        return Ok(vec![]);
+                    };
 
                     info!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
                     self.state_handles
@@ -944,32 +960,25 @@ impl ContractManagerCtx {
                         );
                     }
                 } else {
-                    let mut found = false;
-                    for (_, contract) in self.state.active_contracts.actors() {
-                        if let Ok(deposit_request_txid) = contract.deposit_request_txid().await {
-                            if deposit_request_txid == txid {
-                                if nonces.len() != 1 {
-                                    return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
-                                        UnsignedGossipsubMsg::Musig2NoncesExchange {
-                                            session_id,
-                                            nonces,
-                                        },
-                                    )));
-                                }
-                                let nonce = nonces.into_iter().next().unwrap();
-                                duties.extend(
-                                    contract
-                                        .process_event(ContractEvent::RootNonce(key.clone(), nonce))
-                                        .await?,
-                                );
-                                found = true;
-                                break;
-                            }
+                    // Use synchronous index-based lookup to avoid deadlock.
+                    if let Some(contract) = self
+                        .state
+                        .active_contracts
+                        .get_actor_by_deposit_request_txid(&txid)
+                    {
+                        if nonces.len() != 1 {
+                            return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
+                                UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces },
+                            )));
                         }
-                    }
-
-                    if !found {
-                        warn!(txid=%txid, "received nonces exchange for unknown session");
+                        let nonce = nonces.into_iter().next().unwrap();
+                        duties.extend(
+                            contract
+                                .process_event(ContractEvent::RootNonce(key.clone(), nonce))
+                                .await?,
+                        );
+                    } else {
+                        warn!(txid=%txid, "received nonces exchange for unknown session - contract may not be indexed yet");
                     }
                 }
 
@@ -994,33 +1003,27 @@ impl ContractManagerCtx {
                         );
                     }
                 } else {
-                    let mut found = false;
-                    for (_, contract) in self.state.active_contracts.actors() {
-                        if let Ok(deposit_request_txid) = contract.deposit_request_txid().await {
-                            if deposit_request_txid == txid {
-                                if signatures.len() != 1 {
-                                    return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
-                                        msg,
-                                    )));
-                                }
-
-                                let sig = signatures
-                                    .first()
-                                    .expect("must exist due to the length check above");
-
-                                duties.extend(
-                                    contract
-                                        .process_event(ContractEvent::RootSig(key.clone(), *sig))
-                                        .await?,
-                                );
-                                found = true;
-                                break;
-                            }
+                    // Use synchronous index-based lookup to avoid deadlock.
+                    if let Some(contract) = self
+                        .state
+                        .active_contracts
+                        .get_actor_by_deposit_request_txid(&txid)
+                    {
+                        if signatures.len() != 1 {
+                            return Err(ContractManagerErr::InvalidP2PMessage(Box::new(msg)));
                         }
-                    }
 
-                    if !found {
-                        warn!(txid=%txid, "received signatures exchange for unknown session");
+                        let sig = signatures
+                            .first()
+                            .expect("must exist due to the length check above");
+
+                        duties.extend(
+                            contract
+                                .process_event(ContractEvent::RootSig(key.clone(), *sig))
+                                .await?,
+                        );
+                    } else {
+                        warn!(txid=%txid, "received signatures exchange for unknown session - contract may not be indexed yet");
                     }
                 }
 
@@ -1130,30 +1133,13 @@ impl ContractManagerCtx {
                     }));
                 }
 
-                // Fallback: search through all actors for deposit_request_txid
-                let mut found_contract = None;
-                for (_, contract) in self.state.active_contracts.actors() {
-                    let Ok(deposit_request_txid) = contract.deposit_request_txid().await else {
-                        error!(
-                            ?contract,
-                            deposit_txid = %contract.deposit_txid,
-                            "failed to get deposit request txid for contract, this is unexpected"
-                        );
-                        continue;
-                    };
-                    if deposit_request_txid == session_id_as_txid {
-                        debug!(
-                            %deposit_request_txid,
-                            deposit_txid = %contract.deposit_txid,
-                            "found contract with matching deposit request txid"
-                        );
-                        found_contract = Some(contract);
-                        break;
-                    }
-                }
-
-                let Some(contract) = found_contract else {
-                    warn!("no contract found with matching deposit request txid");
+                // Use synchronous index-based lookup to avoid deadlock
+                let Some(contract) = self
+                    .state
+                    .active_contracts
+                    .get_actor_by_deposit_request_txid(&session_id_as_txid)
+                else {
+                    warn!(%session_id_as_txid, "no contract found with matching deposit request txid - may not be indexed yet");
                     return Ok(None);
                 };
 
@@ -1246,29 +1232,12 @@ impl ContractManagerCtx {
                     }));
                 }
 
-                // Fallback: search through all actors for deposit_request_txid
-                let mut found_contract = None;
-                for (_, contract) in self.state.active_contracts.actors() {
-                    let Ok(deposit_request_txid) = contract.deposit_request_txid().await else {
-                        error!(
-                            ?contract,
-                            deposit_txid = %contract.deposit_txid,
-                            "failed to get deposit request txid for contract, this is unexpected"
-                        );
-                        continue;
-                    };
-                    if deposit_request_txid == session_id_as_txid {
-                        debug!(
-                            %deposit_request_txid,
-                            deposit_txid = %contract.deposit_txid,
-                            "found contract with matching deposit request txid"
-                        );
-                        found_contract = Some(contract);
-                        break;
-                    }
-                }
-
-                let Some(contract) = found_contract else {
+                // Use synchronous index-based lookup to avoid deadlock.
+                let Some(contract) = self
+                    .state
+                    .active_contracts
+                    .get_actor_by_deposit_request_txid(&session_id_as_txid)
+                else {
                     warn!("no contract found with matching deposit request txid");
                     return Ok(None);
                 };
