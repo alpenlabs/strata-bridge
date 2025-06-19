@@ -12,7 +12,7 @@ regtest=1
 [regtest]
 rpcuser=${BTC_USER}
 rpcpassword=${BTC_PASS}
-rpcbind=172.28.1.8:18443
+rpcbind=0.0.0.0:18443
 rpcallowip=0.0.0.0/0
 fallbackfee=0.00001
 server=1
@@ -24,11 +24,11 @@ blockmintxfee=0.0
 dustRelayFee=0.0
 debug=zmq
 debuglogfile=/home/bitcoin/daemon.log
-zmqpubhashblock=tcp://172.28.1.8:28332
-zmqpubhashtx=tcp://172.28.1.8:28333
-zmqpubrawblock=tcp://172.28.1.8:28334
-zmqpubrawtx=tcp://172.28.1.8:28335
-zmqpubsequence=tcp://172.28.1.8:28336
+zmqpubhashblock=tcp://0.0.0.0:28332
+zmqpubhashtx=tcp://0.0.0.0:28333
+zmqpubrawblock=tcp://0.0.0.0:28334
+zmqpubrawtx=tcp://0.0.0.0:28335
+zmqpubsequence=tcp://0.0.0.0:28336
 EOF
 
 bitcoind -daemon -conf=${BITCOIND_CONF_FILE}
@@ -44,7 +44,7 @@ STAKE_CHAIN_WALLET_2=${STAKE_CHAIN_WALLET_2}
 GENERAL_WALLET_3=${GENERAL_WALLET_3}
 STAKE_CHAIN_WALLET_3=${STAKE_CHAIN_WALLET_3}
 
-bcli="bitcoin-cli -rpcuser=${BTC_USER} -rpcpassword=${BTC_PASS} -regtest -rpcconnect=172.28.1.8 -rpcport=18443"
+bcli="bitcoin-cli -rpcuser=${BTC_USER} -rpcpassword=${BTC_PASS} -regtest -rpcconnect=127.0.0.1 -rpcport=18443"
 
 # Generate a block to the address of the operator's general wallet
 $bcli generatetoaddress 1 ${GENERAL_WALLET_1}
