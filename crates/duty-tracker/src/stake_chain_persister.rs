@@ -80,7 +80,6 @@ impl StakeChainPersister {
                     stake_chain_inputs.insert(
                         p2p_key.clone(),
                         StakeChainInputs {
-                            operator_pubkey,
                             pre_stake_outpoint,
                             stake_inputs: stake_data
                                 .into_iter()

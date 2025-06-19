@@ -38,6 +38,10 @@ pub struct StakeTxData {
     /// by the Claim transaction to bitcommit to the [`Txid`] of the Withdrawal Fulfilllment
     /// Transaction.
     pub withdrawal_fulfillment_pk: Wots256PublicKey,
+
+    /// The [`XOnlyPublicKey`] of the operator that is used to lock the stake (along with the
+    /// hashlock).
+    pub operator_pubkey: XOnlyPublicKey,
 }
 
 impl std::hash::Hash for StakeTxData {
@@ -167,8 +171,6 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         context: &impl BuildContext,
         params: &StakeChainParams,
         input: StakeTxData,
-        operator_pubkey: XOnlyPublicKey,
-        connector_cpfp: ConnectorCpfp,
     ) -> StakeTx<Tail> {
         let prev_stake = OutPoint::new(self.compute_txid(), STAKE_VOUT);
 
@@ -181,11 +183,12 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_pubkey,
+            input.operator_pubkey,
             input.hash,
             params.delta,
             context.network(),
         );
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey, context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -223,7 +226,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_pubkey,
+            input.operator_pubkey,
             self.hash,
             params.delta,
             context.network(),
@@ -307,8 +310,6 @@ impl StakeTx<Head> {
     ///   tx-graph as well as those in the state transaction.
     /// - `operator_pubkey`: The operator's public key used to create the [`ConnectorStake`] output
     ///   that is spent by the next stake transaction in the chain.
-    /// - `connector_cpfp`: The [`ConnectorCpfp`] used to create the dust output for the CPFP.
-    #[expect(clippy::too_many_arguments)]
     pub fn new(
         context: &impl BuildContext,
         params: &StakeChainParams,
@@ -317,7 +318,6 @@ impl StakeTx<Head> {
         pre_stake: OutPoint,
         operator_funds: OutPoint,
         operator_pubkey: XOnlyPublicKey,
-        connector_cpfp: ConnectorCpfp,
     ) -> StakeTx<Head> {
         // The first input is the operator's funds.
         let utxos = [operator_funds, pre_stake];
@@ -334,6 +334,8 @@ impl StakeTx<Head> {
             params.delta,
             context.network(),
         );
+
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let connector_p_addr = connector_p.generate_address();
@@ -433,8 +435,6 @@ impl StakeTx<Tail> {
         input: StakeTxData,
         prev_hash: sha256::Hash,
         prev_stake: OutPoint,
-        operator_pubkey: XOnlyPublicKey,
-        connector_cpfp: ConnectorCpfp,
     ) -> StakeTx<Tail> {
         // The first input is the operator's funds.
         let utxos = [input.operator_funds, prev_stake];
@@ -445,11 +445,12 @@ impl StakeTx<Tail> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_pubkey,
+            input.operator_pubkey,
             input.hash,
             params.delta,
             context.network(),
         );
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey, context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -487,7 +488,7 @@ impl StakeTx<Tail> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_pubkey,
+            input.operator_pubkey,
             prev_hash,
             params.delta,
             context.network(),

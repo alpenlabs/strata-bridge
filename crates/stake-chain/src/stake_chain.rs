@@ -4,8 +4,7 @@
 use std::collections::BTreeMap;
 
 use alpen_bridge_params::stake_chain::StakeChainParams;
-use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
-use strata_bridge_connectors::prelude::ConnectorCpfp;
+use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, OutPoint};
 use strata_bridge_primitives::build_context::BuildContext;
 
 use crate::{
@@ -56,12 +55,10 @@ impl StakeChain {
     /// - `stake_chain_inputs`: The inputs to use for creating the stake chain.
     /// - `stake_chain_params`: The parameters to used for creating the stake chain dictated by the
     ///   protocol.
-    /// - `connector_cpfp`: The connector to use for CPFP.
     pub fn new(
         context: &impl BuildContext,
         stake_chain_inputs: &StakeChainInputs,
         stake_chain_params: &StakeChainParams,
-        connector_cpfp: ConnectorCpfp,
     ) -> Self {
         // Instantiate a vector with the length `M`.
         let stake_inputs = &stake_chain_inputs.stake_inputs;
@@ -87,8 +84,7 @@ impl StakeChain {
             first_stake_inputs.withdrawal_fulfillment_pk.clone(),
             stake_chain_inputs.pre_stake_outpoint,
             first_stake_inputs.operator_funds,
-            stake_chain_inputs.operator_pubkey,
-            connector_cpfp,
+            first_stake_inputs.operator_pubkey,
         );
 
         if num_inputs == 1 {
@@ -106,8 +102,6 @@ impl StakeChain {
                 .nth(1)
                 .cloned()
                 .expect("must have at least two stake inputs"),
-            stake_chain_inputs.operator_pubkey,
-            connector_cpfp,
         );
 
         let tail = stake_inputs
@@ -121,8 +115,6 @@ impl StakeChain {
                         context,
                         stake_chain_params,
                         stake_input.clone(),
-                        stake_chain_inputs.operator_pubkey,
-                        connector_cpfp,
                     );
 
                 tail.push(new_stake_tx);
@@ -173,9 +165,6 @@ impl StakeChain {
 /// advancing the [`StakeChain`].
 #[derive(Debug, Clone)]
 pub struct StakeChainInputs {
-    /// Operator's public key.
-    pub operator_pubkey: XOnlyPublicKey,
-
     /// Inputs required for individual stake transactions.
     pub stake_inputs: BTreeMap<u32, StakeTxData>,
 
@@ -234,6 +223,14 @@ impl StakeChainInputs {
             .map(|v| v.operator_funds)
     }
 
+    /// Operator's [`XOnlyPublicKey`] use to lock the stake.
+    pub fn operator_pubkey(&self) -> Option<XOnlyPublicKey> {
+        self.stake_inputs
+            .values()
+            .next()
+            .map(|input| input.operator_pubkey)
+    }
+
     /// Prevout of the first stake transaction.
     pub const fn pre_stake_prevout(&self) -> OutPoint {
         self.pre_stake_outpoint
@@ -250,6 +247,7 @@ mod tests {
         hashes::{sha256d, Hash},
         key::{Keypair, TapTweak},
         relative,
+        secp256k1::XOnlyPublicKey,
         sighash::{self, Prevouts, SighashCache},
         transaction, Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
     };
@@ -679,24 +677,18 @@ mod tests {
                         operator_funds: operator_funds[i].previous_output,
                         hash: stake_hashes[i],
                         withdrawal_fulfillment_pk: wots_public_keys[i].clone(),
+                        operator_pubkey,
                     },
                 )
             })
             .collect();
 
         let stake_chain_inputs = StakeChainInputs {
-            operator_pubkey,
             stake_inputs,
             pre_stake_outpoint: pre_stake_prevout.previous_output,
         };
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
-        let stake_chain = StakeChain::new(
-            &tx_build_context,
-            &stake_chain_inputs,
-            &params,
-            connector_cpfp,
-        );
+        let stake_chain = StakeChain::new(&tx_build_context, &stake_chain_inputs, &params);
 
         // Sign the StakeTx 0
         let prevouts = [
@@ -853,9 +845,7 @@ mod tests {
             let pubkeys = BTreeMap::from([(0, pk)]);
 
             let build_context = TxBuildContext::new(Network::Regtest, pubkeys.into(), 0);
-            let connector_cpfp = ConnectorCpfp::new(pk.x_only_public_key().0, Network::Regtest);
             let stake_chain_inputs = StakeChainInputs {
-                operator_pubkey: pk.x_only_public_key().0,
                 stake_inputs: (0..STAKE_CHAIN_SIZE)
                     .map(|i| {
                         (
@@ -867,6 +857,7 @@ mod tests {
                                     "0",
                                     Txid::from_raw_hash(sha256d::Hash::hash(&[0; 32])),
                                 ),
+                                operator_pubkey: pk.x_only_public_key().0,
                             },
                         )
                     })
@@ -881,7 +872,6 @@ mod tests {
                 &build_context,
                 &stake_chain_inputs,
                 &StakeChainParams::default(),
-                connector_cpfp,
             );
             let stop_time = std::time::Instant::now();
 

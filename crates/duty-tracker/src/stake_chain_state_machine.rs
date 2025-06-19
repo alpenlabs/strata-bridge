@@ -2,8 +2,7 @@
 use std::collections::BTreeMap;
 
 use alpen_bridge_params::prelude::StakeChainParams;
-use bitcoin::{secp256k1::XOnlyPublicKey, Network, OutPoint, Txid};
-use strata_bridge_connectors::prelude::ConnectorCpfp;
+use bitcoin::{Network, OutPoint, Txid};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT},
@@ -56,12 +55,7 @@ impl StakeChainSM {
             .iter()
             .filter_map(|p2p_key| stake_chains.get(p2p_key))
             .map(|inputs| {
-                StakeChain::new(
-                    &operator_table.tx_build_context(network),
-                    inputs,
-                    &params,
-                    ConnectorCpfp::new(inputs.operator_pubkey, network),
-                )
+                StakeChain::new(&operator_table.tx_build_context(network), inputs, &params)
             })
             .map(|chain| {
                 let mut txids = BTreeMap::new();
@@ -103,11 +97,9 @@ impl StakeChainSM {
     pub fn process_exchange(
         &mut self,
         operator: P2POperatorPubKey,
-        operator_pubkey: XOnlyPublicKey,
         pre_stake_outpoint: OutPoint,
     ) -> Result<(), StakeChainErr> {
         let inputs = StakeChainInputs {
-            operator_pubkey,
             stake_inputs: BTreeMap::new(),
             pre_stake_outpoint,
         };
@@ -134,7 +126,7 @@ impl StakeChainSM {
         info!(%operator, "processing deposit setup");
 
         let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
-            warn!(%operator, "tried to process deposit setup for non-existent stake chain");
+            warn!(%operator, "tried to process deposit setup for unknown operator");
 
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
@@ -198,8 +190,6 @@ impl StakeChainSM {
                 let pre_stake = stake_chain_inputs.pre_stake_outpoint;
 
                 let context = self.operator_table.tx_build_context(self.network);
-                let operator_pubkey = stake_chain_inputs.operator_pubkey;
-                let connector_cpfp = ConnectorCpfp::new(operator_pubkey, self.network);
 
                 // handle the first stake tx differently as it spends a pre-stake and not the stake
                 // tx.
@@ -211,6 +201,7 @@ impl StakeChainSM {
                 let stake_hash = first_input.hash;
                 let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
                 let operator_funds = first_input.operator_funds;
+                let operator_pubkey = first_input.operator_pubkey;
 
                 let first_stake = StakeTx::<Head>::new(
                     &context,
@@ -220,7 +211,6 @@ impl StakeChainSM {
                     pre_stake,
                     operator_funds,
                     operator_pubkey,
-                    connector_cpfp,
                 );
 
                 if nth == 0 {
@@ -255,8 +245,6 @@ impl StakeChainSM {
                     input.clone(),
                     prev_input.hash,
                     prev_stake,
-                    operator_pubkey,
-                    connector_cpfp,
                 );
 
                 Ok(Some(StakeTxKind::Tail(stake_tx)))
