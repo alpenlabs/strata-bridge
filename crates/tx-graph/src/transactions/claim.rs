@@ -100,7 +100,7 @@ impl ClaimTx {
     }
 
     /// A mutable reference to the underlying PSBT.
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
+    pub const fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }
 
@@ -129,7 +129,7 @@ impl ClaimTx {
     }
 
     /// The vout for the CPFP output.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
 

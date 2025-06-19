@@ -674,7 +674,7 @@ impl ContractManagerCtx {
                         let l1_start_height = checkpoint.batch_info().l1_range.1.height() + 1;
                         match sm.process_contract_event(ContractEvent::Assignment {
                             deposit_entry: entry.clone(),
-                            stake_tx,
+                            stake_tx: stake_tx.into(),
                             l1_start_height,
                         }) {
                             Ok(new_duties) if !new_duties.is_empty() => {
@@ -1518,7 +1518,7 @@ async fn execute_duty(
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,
                 stake_tx,
-            } => match stake_tx {
+            } => match *stake_tx {
                 StakeTxKind::Head(stake_tx) => {
                     handle_publish_first_stake(cfg, output_handles, stake_tx).await
                 }

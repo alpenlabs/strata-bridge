@@ -6,7 +6,6 @@ use bitcoin::{
     transaction, Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid,
 };
 use bitvm::{
-    chunk::api::Signatures as g16Signatures,
     signatures::{Wots, Wots32 as wots256},
     treepp::*,
 };
@@ -14,7 +13,7 @@ use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     constants::*,
     scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
-    wots,
+    wots::{self, BitVmG16Sigs},
 };
 
 use super::errors::{TxError, TxResult};
@@ -110,7 +109,7 @@ impl AssertDataTxBatch {
     }
 
     /// Gets the vout for CPFP in each PSBT in the batch.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.0[0].outputs.len() as u32 - 1
     }
 
@@ -256,7 +255,7 @@ impl AssertDataTxBatch {
     /// Parse the assertion data from the signed transactions in the batch.
     pub fn parse_witnesses(
         assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
-    ) -> TxResult<g16Signatures> {
+    ) -> TxResult<BitVmG16Sigs> {
         let witnesses: [_; TOTAL_CONNECTORS] = assert_data_txs
             .iter()
             .flat_map(|tx| {

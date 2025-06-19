@@ -341,7 +341,7 @@ mod tests {
             let (_address, spend_info) = create_taproot_addr(
                 &Network::Regtest,
                 SpendPath::ScriptSpend {
-                    scripts: &[locking_script.clone()],
+                    scripts: std::slice::from_ref(&locking_script),
                 },
             )
             .expect("must be able to construct taproot address");

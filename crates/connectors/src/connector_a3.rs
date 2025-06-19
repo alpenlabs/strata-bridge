@@ -303,7 +303,7 @@ impl ConnectorA3 {
         let start_time = Instant::now();
 
         let disprove_scripts =
-            api_generate_full_tapscripts(*wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
+            api_generate_full_tapscripts(**wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
 
         let elapsed = start_time.elapsed();
         debug!(time_taken=?elapsed, "loaded full scripts");

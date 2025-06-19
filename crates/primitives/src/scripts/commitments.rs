@@ -6,7 +6,7 @@ use sha2::Digest;
 
 /// Returns the master secret key for a deposit.
 pub fn get_deposit_master_secret_key(msk: &str, deposit_txid: Txid) -> String {
-    format!("{}:{}", msk, deposit_txid)
+    format!("{msk}:{deposit_txid}")
 }
 
 /// Returns the secret key for a variable from the master secret key.
@@ -31,7 +31,7 @@ pub fn secret_key_for_public_inputs_hash(msk: &str) -> Vec<u8> {
 
 /// Returns the secret key for a proof element.
 pub fn secret_key_for_proof_element(msk: &str, id: usize) -> Vec<u8> {
-    let var = &format!("proof_element_{}", id);
+    let var = &format!("proof_element_{id}");
     secret_key_from_msk(msk, var)
 }
 

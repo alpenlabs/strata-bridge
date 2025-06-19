@@ -25,7 +25,7 @@ pub struct ConnectorA256Factory<
     const N_BATCH_2: usize,
     const N_FIELD_ELEMS_BATCH_2: usize,
 > where
-    [(); N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2]:,
+    [(); N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2]: Copy,
 {
     /// The bitcoin network for which to generate output addresses.
     pub network: Network,
@@ -42,7 +42,7 @@ impl<
         const N_FIELD_ELEMS_BATCH_2: usize,
     > ConnectorA256Factory<N_BATCH_1, N_FIELD_ELEMS_BATCH_1, N_BATCH_2, N_FIELD_ELEMS_BATCH_2>
 where
-    [(); N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2]:,
+    [(); N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2]: Copy,
 {
     /// Constructs connectors from the public keys.
     ///
@@ -123,7 +123,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: &[script.clone()],
+                scripts: std::slice::from_ref(&script),
             },
         )
         .expect("should be able to create the taproot");
@@ -164,7 +164,7 @@ pub struct ConnectorAHashFactory<
     const N_BATCH_2: usize,
     const N_HASHES_BATCH_2: usize,
 > where
-    [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]:,
+    [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]: Copy,
 {
     /// The bitcoin network for which to generate output addresses.
     pub network: Network,
@@ -181,7 +181,7 @@ impl<
         const N_HASHES_BATCH_2: usize,
     > ConnectorAHashFactory<N_BATCH_1, N_HASHES_BATCH_1, N_BATCH_2, N_HASHES_BATCH_2>
 where
-    [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]:,
+    [(); N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2]: Copy,
 {
     /// Constructs connectors from the public keys.
     ///
@@ -259,7 +259,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorAHash<N_PUBLIC_KEYS> {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: &[script.clone()],
+                scripts: std::slice::from_ref(&script),
             },
         )
         .expect("should be able to add script");

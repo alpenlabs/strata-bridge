@@ -125,7 +125,7 @@ impl ConnectorP {
             &self.network,
             SpendPath::Both {
                 internal_key: self.n_of_n_agg_pubkey,
-                scripts: &[script.clone()],
+                scripts: std::slice::from_ref(&script),
             },
         )
         .expect("should be able to create taproot address");

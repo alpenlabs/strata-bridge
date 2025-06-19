@@ -97,7 +97,7 @@ impl Parameters {
 
     /// Number of bytes that can be represented at maximum with the parameters
     pub const fn byte_message_length(&self) -> u32 {
-        (self.message_length * self.digit_width + 7) / 8
+        (self.message_length * self.digit_width).div_ceil(8)
     }
 
     /// Total number of digits, i.e. sum of the number of digits in the actual message and the

@@ -149,7 +149,7 @@ impl DisproveTx {
             // include the actual transaction which in the case of `DisproveTx` is too big.
             Err(e) => match e {
                 ExtractTxError::AbsurdFeeRate { fee_rate, .. } => {
-                    panic!("absured fee rate: {}", fee_rate);
+                    panic!("absured fee rate: {fee_rate}");
                 }
                 ExtractTxError::MissingInputValue { .. } => {
                     panic!("missing input value");
@@ -166,13 +166,10 @@ impl DisproveTx {
                         .iter()
                         .map(|o| o.value)
                         .sum::<Amount>();
-                    panic!(
-                        "sending too much: input({}) < output({})",
-                        input_amount, output_amount
-                    );
+                    panic!("sending too much: input({input_amount}) < output({output_amount})",);
                 }
                 unexpected_err => {
-                    panic!("unexpected error: {:?}", unexpected_err);
+                    panic!("unexpected error: {unexpected_err:?}");
                 }
             },
         }

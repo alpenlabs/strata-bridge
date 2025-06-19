@@ -3,7 +3,10 @@ use std::{ops::Deref, path::Path};
 use anyhow::{anyhow, bail};
 use bitcoin::{Transaction, TxOut};
 use bitcoincore_rpc::{json::AddressType, RpcApi};
-use bitvm::chunk::api::{api_generate_full_tapscripts, validate_assertions};
+use bitvm::{
+    chunk::api::{api_generate_full_tapscripts, validate_assertions},
+    signatures::{Wots, Wots32},
+};
 use musig2::KeyAggContext;
 use secp256k1::Parity;
 use sp1_verifier::{blake3_hash, hash_public_inputs_with_fn};
@@ -16,7 +19,6 @@ use strata_bridge_connectors::{
 };
 use strata_bridge_primitives::{
     constants::NUM_ASSERT_DATA_TX,
-    scripts::prelude::wots_to_byte_array,
     wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
@@ -192,7 +194,8 @@ fn get_disprove_leaf(
         groth16,
     } = signatures;
 
-    let withdrawal_txid: [u8; 32] = wots_to_byte_array(*withdrawal_fulfillment_txid).into();
+    let withdrawal_txid: [u8; 32] =
+        <Wots32 as Wots>::signature_to_message(&withdrawal_fulfillment_txid);
     let public_inputs = BridgeProofPublicOutput {
         deposit_txid: deposit_txid.into(),
         withdrawal_fulfillment_txid: withdrawal_txid.into(),
@@ -202,7 +205,7 @@ fn get_disprove_leaf(
     let serialized_public_inputs = borsh::to_vec(&public_inputs).unwrap();
     let public_inputs_hash = hash_public_inputs_with_fn(&serialized_public_inputs, blake3_hash);
 
-    let committed_public_inputs_hash = wots_to_byte_array((*groth16).0[0]);
+    let committed_public_inputs_hash = <Wots32 as Wots>::signature_to_message(&(*groth16).0[0]);
 
     // flip nibbles to comply with the expected format
     let committed_public_inputs_hash =
@@ -226,7 +229,7 @@ fn get_disprove_leaf(
 
     info!("generating complete disprove scripts");
     let complete_disprove_scripts =
-        api_generate_full_tapscripts(*wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
+        api_generate_full_tapscripts(**wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
 
     info!("fetching groth16 verification key");
     let vk = fetch_groth16_vk(groth16_vk_path.as_ref()).unwrap_or_else(|| {
@@ -239,7 +242,7 @@ fn get_disprove_leaf(
     if let Some((tapleaf_index, witness_script)) = validate_assertions(
         &vk,
         groth16.deref().clone(),
-        *wots_public_keys.groth16,
+        **wots_public_keys.groth16,
         &complete_disprove_scripts,
     ) {
         warn!(disprove_leaf=%tapleaf_index, "groth16 assertion invalid");

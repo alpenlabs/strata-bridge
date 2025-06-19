@@ -1,7 +1,6 @@
 //! Scripts for parsing witness stacks.
 
 use bitvm::{
-    chunk::api::Signatures as g16Signatures,
     signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256},
     treepp::*,
 };
@@ -9,6 +8,7 @@ use bitvm::{
 use crate::{
     constants::*,
     errors::{ParseError, ParseResult},
+    wots::BitVmG16Sigs,
 };
 
 /// Parses a set of WOTS hash signatures from a script.
@@ -61,7 +61,7 @@ pub fn parse_assertion_witnesses(
     witness256_batch2: [Script; NUM_FIELD_CONNECTORS_BATCH_2],
     witness_hash_batch1: [Script; NUM_HASH_CONNECTORS_BATCH_1],
     witness_hash_batch2: [Script; NUM_HASH_CONNECTORS_BATCH_2],
-) -> ParseResult<g16Signatures> {
+) -> ParseResult<BitVmG16Sigs> {
     let mut w256 = Vec::with_capacity(NUM_FIELD_CONNECTORS_BATCH_1);
     for witness in witness256_batch1.into_iter() {
         w256.push(parse_wots256_signatures::<

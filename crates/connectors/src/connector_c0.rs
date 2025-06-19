@@ -252,7 +252,7 @@ mod tests {
 
                 let tx_hash = create_message_hash(
                     &mut SighashCache::new(&spend_connector_tx),
-                    Prevouts::All(&[prevout.clone()]),
+                    Prevouts::All(std::slice::from_ref(&prevout)),
                     &witness,
                     bitcoin::TapSighashType::Default,
                     0,

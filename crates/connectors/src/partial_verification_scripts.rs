@@ -56,10 +56,7 @@ pub fn load_or_create_verifier_scripts() -> [ScriptBuf; NUM_TAPS] {
         warn!(event = "loaded verifier scripts", %num_scripts, time_taken = ?loading_time.elapsed());
 
         verifier_scripts.try_into().unwrap_or_else(|_| {
-            panic!(
-                "number of scripts should be: {} not {num_scripts}",
-                NUM_TAPS
-            )
+            panic!("number of scripts should be: {NUM_TAPS} not {num_scripts}",)
         })
     } else {
         warn!(

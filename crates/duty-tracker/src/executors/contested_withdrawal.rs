@@ -349,8 +349,8 @@ fn create_assert_data_connectors(
     ConnectorAHashFactory<33, 10, 3, 11>,
 ) {
     let public_keys_256 = std::array::from_fn(|i| match i {
-        0 => *wots_pks.groth16.public_inputs[0],
-        i => *wots_pks.groth16.fqs[i - 1],
+        0 => wots_pks.groth16.public_inputs[0].0,
+        i => wots_pks.groth16.fqs[i - 1].0,
     });
 
     let connector_a256_factory = ConnectorA256Factory {
@@ -364,7 +364,7 @@ fn create_assert_data_connectors(
             .groth16
             .hashes
             .into_iter()
-            .map(|g16_hash| *g16_hash)
+            .map(|h| h.0)
             .collect::<Vec<_>>()
             .try_into()
             .expect("must have the right size"),

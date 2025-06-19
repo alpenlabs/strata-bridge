@@ -64,7 +64,7 @@ impl ConnectorK {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: &[script.clone()],
+                scripts: std::slice::from_ref(&script),
             },
         )
         .expect("should be able to create taproot address");

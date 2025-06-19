@@ -6,10 +6,7 @@ use std::{fmt, marker::PhantomData, ops::Deref, sync::Arc};
 
 use bitcoin::Txid;
 use bitvm::{
-    chunk::api::{
-        Assertions as g16Assertions, PublicKeys as g16PublicKeys, Signatures as g16Signatures,
-        NUM_HASH, NUM_PUBS, NUM_U256,
-    },
+    chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256},
     signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256},
 };
 use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
@@ -27,6 +24,24 @@ use crate::scripts::{
     },
     prelude::secret_key_for_public_inputs_hash,
 };
+
+pub type BitVmG16PublicKeys = (
+    [<wots256 as Wots>::PublicKey; NUM_PUBS],
+    [<wots256 as Wots>::PublicKey; NUM_U256],
+    [<wots_hash as Wots>::PublicKey; NUM_HASH],
+);
+
+pub type BitVmG16Sigs = (
+    Box<[<wots256 as Wots>::Signature; 1]>,
+    Box<[<wots256 as Wots>::Signature; 14]>,
+    Box<[<wots_hash as Wots>::Signature; 363]>,
+);
+
+pub type BitVmG16Assertions = (
+    [[u8; 32]; NUM_PUBS],
+    [[u8; 32]; NUM_U256],
+    [[u8; 16]; NUM_HASH],
+);
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct Wots256PublicKey(pub Arc<<wots256 as Wots>::PublicKey>);
@@ -144,12 +159,12 @@ impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16PublicKeys(pub Arc<g16PublicKeys>);
+pub struct Groth16PublicKeys(pub Arc<BitVmG16PublicKeys>);
 
-// should probably not do this but `g16PublicKeys` is already a tuple, so these impls make the
+// should probably not do this but `G16PublicKeys` is already a tuple, so these impls make the
 // tuple access more ergonomic.
 impl Deref for Groth16PublicKeys {
-    type Target = g16PublicKeys;
+    type Target = Arc<BitVmG16PublicKeys>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -483,10 +498,10 @@ impl<'de> Deserialize<'de> for WotsHashSig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16Sigs(pub g16Signatures);
+pub struct Groth16Sigs(pub BitVmG16Sigs);
 
 impl Deref for Groth16Sigs {
-    type Target = g16Signatures;
+    type Target = BitVmG16Sigs;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -661,7 +676,7 @@ pub struct Assertions {
     pub withdrawal_fulfillment: [u8; 32],
 
     /// The assertions for the Groth16 proof.
-    pub groth16: g16Assertions,
+    pub groth16: BitVmG16Assertions,
 }
 
 // FIXME: (@Rajil1213) replace these with counterparts from the `wots` crate.
