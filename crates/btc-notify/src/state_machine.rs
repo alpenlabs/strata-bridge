@@ -142,8 +142,8 @@ impl BtcZmqSM {
                     // stream processing would cause this to fire during a
                     // reorg. Race conditions MUST NOT cause this to fire. This MUST
                     // be fixed.
-                    trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
-                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
+                    trace!(?block, tip=?tip, "block's previous block hash does not match the tip");
+                    warn!(block_hash=%block.block_hash(), tip_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
                     debug_assert!(false, "block's previous block hash does not match the tip");
                 }
             }
