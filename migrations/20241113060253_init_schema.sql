@@ -68,13 +68,14 @@ CREATE TABLE IF NOT EXISTS operator_pre_stake_data (
 -- Table to store the stake chain txids for each operator id and deposit index in deposits table
 CREATE TABLE IF NOT EXISTS operator_stake_data (
     operator_idx INTEGER NOT NULL,
-    deposit_id INTEGER NOT NULL,               -- Foreign key to deposits table
+    deposit_idx INTEGER NOT NULL,               -- Foreign key to deposits table
     funding_txid TEXT NOT NULL,                -- Store as hex string
     funding_vout INTEGER NOT NULL,
     hash TEXT NOT NULL,                        -- Store as hex string
+    operator_pubkey TEXT NOT NULL,             -- Store as hex string
     withdrawal_fulfillment_pk BLOB NOT NULL,   -- Serialized with rkyv
 
-    PRIMARY KEY (operator_idx, deposit_id)      -- Compound primary key
+    PRIMARY KEY (operator_idx, deposit_idx)     -- Compound primary key
 );
 
 -- Table to store the index of the last published stake transaction.
