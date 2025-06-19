@@ -2,7 +2,7 @@
 
 use bitvm::{
     chunk::api::Signatures as g16Signatures,
-    signatures::wots_api::{wots256, wots_hash},
+    signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256},
     treepp::*,
 };
 
@@ -14,20 +14,21 @@ use crate::{
 /// Parses a set of WOTS hash signatures from a script.
 pub fn parse_wots_hash_signatures<const N_SIGS: usize>(
     script: Script,
-) -> ParseResult<[wots_hash::Signature; N_SIGS]> {
+) -> ParseResult<[<wots_hash as Wots>::Signature; N_SIGS]> {
     let res = execute_script(script.clone());
     std::array::try_from_fn(|i| {
         std::array::try_from_fn(|j| {
-            let k = 2 * j + i * 2 * wots_hash::N_DIGITS as usize;
+            let k = 2 * j + i * 2 * wots_hash::TOTAL_DIGIT_LEN as usize;
             let preimage = res.final_stack.get(k);
             let digit = res.final_stack.get(k + 1);
             let digit = if digit.is_empty() { 0u8 } else { digit[0] };
-            Ok::<_, ParseError>((
-                preimage
-                    .try_into()
-                    .map_err(|_| ParseError::InvalidWitness("wots_hash".to_string()))?,
-                digit,
-            ))
+
+            let mut sig = Vec::new();
+            sig.extend_from_slice(&preimage);
+            sig.push(digit);
+
+            sig.try_into()
+                .map_err(|_| ParseError::InvalidWitness("wots_hash".to_string()))
         })
     })
 }
@@ -35,20 +36,21 @@ pub fn parse_wots_hash_signatures<const N_SIGS: usize>(
 /// Parses a set of WOTS 256-bit signatures from a script.
 pub fn parse_wots256_signatures<const N_SIGS: usize>(
     script: Script,
-) -> ParseResult<[wots256::Signature; N_SIGS]> {
+) -> ParseResult<[<wots256 as Wots>::Signature; N_SIGS]> {
     let res = execute_script(script.clone());
     std::array::try_from_fn(|i| {
         std::array::try_from_fn(|j| {
-            let k = 2 * j + i * 2 * wots256::N_DIGITS as usize;
+            let k = 2 * j + i * 2 * wots256::TOTAL_DIGIT_LEN as usize;
             let preimage = res.final_stack.get(k);
             let digit = res.final_stack.get(k + 1);
             let digit = if digit.is_empty() { 0u8 } else { digit[0] };
-            Ok::<_, ParseError>((
-                preimage
-                    .try_into()
-                    .map_err(|_| ParseError::InvalidWitness("wots256".to_string()))?,
-                digit,
-            ))
+
+            let mut sig = Vec::new();
+            sig.extend_from_slice(&preimage);
+            sig.push(digit);
+
+            sig.try_into()
+                .map_err(|_| ParseError::InvalidWitness("wots256".to_string()))
         })
     })
 }
@@ -100,10 +102,7 @@ pub fn parse_assertion_witnesses(
 #[cfg(test)]
 mod tests {
     use bitvm::{
-        signatures::wots_api::{
-            wots256::{self, MSG_LEN},
-            wots_hash, SignatureImpl, HASH_LEN,
-        },
+        signatures::{Wots16 as wots_hash, Wots32 as wots256, HASH_LEN},
         treepp::*,
     };
 
@@ -117,15 +116,15 @@ mod tests {
     fn test_wots256_signatures_from_witness() {
         const N_SIGS: usize = 5;
 
-        let secrets: [String; N_SIGS] = std::array::from_fn(|i| format!("{:04x}", i));
+        let secrets: [Vec<u8>; N_SIGS] = std::array::from_fn(|i| i.to_be_bytes().to_vec());
+        const MSG_LEN: usize = wots256::MSG_BYTE_LEN as usize;
 
-        let signatures: [_; N_SIGS] = std::array::from_fn(|i| {
-            wots256::get_signature(&secrets[i], &create_message::<{ MSG_LEN as usize }>(i))
-        });
+        let signatures: [_; N_SIGS] =
+            std::array::from_fn(|i| wots256::sign(&secrets[i], &create_message::<{ MSG_LEN }>(i)));
 
         let signatures_script = script! {
             for i in 0..N_SIGS {
-                { wots256::get_signature(&secrets[i], &create_message::<{ MSG_LEN as usize }>(i)).to_script() }
+                { wots256::signature_to_raw_witness(&signatures[i]) }
             }
         };
         let parsed_signatures = parse_wots256_signatures::<N_SIGS>(signatures_script);
@@ -137,15 +136,14 @@ mod tests {
     fn test_wots_hash_signatures_from_witness() {
         const N_SIGS: usize = 11;
 
-        let secrets: [String; N_SIGS] = std::array::from_fn(|i| format!("{:04x}", i));
+        let secrets: [Vec<u8>; N_SIGS] = std::array::from_fn(|i| i.to_be_bytes().to_vec());
 
-        let signatures: [_; N_SIGS] = std::array::from_fn(|i| {
-            wots_hash::get_signature(&secrets[i], &create_message::<{ HASH_LEN as usize }>(i))
-        });
+        let signatures: [_; N_SIGS] =
+            std::array::from_fn(|i| wots_hash::sign(&secrets[i], &create_message::<HASH_LEN>(i)));
 
         let signatures_script = script! {
             for i in 0..N_SIGS {
-                { wots_hash::get_signature(&secrets[i], &create_message::<{ HASH_LEN as usize }>(i)).to_script() }
+                { wots_hash::signature_to_raw_witness(&signatures[i]) }
             }
         };
         let parsed_signatures = parse_wots_hash_signatures::<N_SIGS>(signatures_script);

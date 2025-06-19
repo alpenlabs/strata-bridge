@@ -5,13 +5,10 @@ mod chunker_primitives;
 use std::fmt::Display;
 
 use ark_ff::UniformRand;
-use bitcoin::{hex::DisplayHex, taproot::TAPROOT_CONTROL_BASE_SIZE, VarInt, Weight};
+use bitcoin::{taproot::TAPROOT_CONTROL_BASE_SIZE, VarInt, Weight};
 use bitvm::{
     execute_script_without_stack_limit,
-    signatures::wots_api::{
-        wots256::{self, MSG_LEN},
-        wots_hash, HASH_LEN,
-    },
+    signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256, HASH_LEN},
     treepp::*,
 };
 use chunker_primitives::*;
@@ -154,25 +151,25 @@ pub fn average_size(
 /// inputs and field elements to commit.
 pub fn field_elements_witness_size(num_inputs: usize, num_elements: usize) -> SizeData {
     let secret: [u8; 32] = OsRng.gen();
-    let secret = secret.to_lower_hex_string();
+    let secret = secret.to_vec();
 
-    let pubkey = wots256::generate_public_key(&secret);
+    let pubkey = <wots256 as Wots>::generate_public_key(&secret);
     let fq = ark_bn254::Fq::rand(&mut OsRng);
     let fq_nibs = extern_fq_to_nibbles(fq);
     let fq_bytes = nib_to_byte_array(&fq_nibs);
     assert_eq!(fq_bytes.len(), 32);
 
-    let fq_sig = wots256::get_signature(&secret, &fq_bytes);
+    let fq_sig = wots256::sign(&secret, &fq_bytes.try_into().unwrap());
     let fq_lock_script = script! {
-        { wots256::checksig_verify(pubkey) }
+        { wots256::checksig_verify(&pubkey) }
 
-        for _ in 0..(MSG_LEN * 8)/4 { OP_DROP } // drop the nibbles
+        for _ in 0..(wots256::MSG_BYTE_LEN * 8)/4 { OP_DROP } // drop the nibbles
     };
 
     let witness_script = script! {
-        for (sig, digit) in fq_sig {
-            { sig.to_vec() }
-            { digit }
+        for sig_with_digit in fq_sig {
+            { sig_with_digit[..20].to_vec() }
+            { sig_with_digit[20] }
         }
     };
 
@@ -207,7 +204,7 @@ pub fn field_elements_witness_size(num_inputs: usize, num_elements: usize) -> Si
 /// inputs and hash elements to commit.
 pub fn hash_witness_size(num_inputs: usize, num_elements: usize) -> SizeData {
     let secret: [u8; 32] = OsRng.gen();
-    let secret = secret.to_lower_hex_string();
+    let secret = secret.to_vec();
 
     let pubkey = wots_hash::generate_public_key(&secret);
     let fq = ark_bn254::Fq::rand(&mut OsRng);
@@ -215,19 +212,18 @@ pub fn hash_witness_size(num_inputs: usize, num_elements: usize) -> SizeData {
     let fq_bytes: [u8; 32] = nib_to_byte_array(&fq_nibs).try_into().unwrap();
     assert_eq!(fq_bytes.len(), 32);
 
-    let fq_bytes: [u8; HASH_LEN as usize] =
-        fq_bytes[(32 - HASH_LEN as usize)..32].try_into().unwrap();
-    let fq_sig = wots_hash::get_signature(&secret, &fq_bytes);
+    let fq_bytes: [u8; HASH_LEN] = fq_bytes[(32 - HASH_LEN)..32].try_into().unwrap();
+    let fq_sig = wots_hash::sign(&secret, &fq_bytes);
     let fq_lock_script = script! {
-        { wots_hash::checksig_verify(pubkey) }
+        { wots_hash::checksig_verify(&pubkey) }
 
         for _ in 0..(HASH_LEN * 8)/4 { OP_DROP } // drop the nibbles
     };
 
     let witness_script = script! {
-        for (sig, digit) in fq_sig {
-            { sig.to_vec() }
-            { digit }
+        for sig_with_digit in fq_sig {
+            { sig_with_digit[..20].to_vec() }
+            { sig_with_digit[20] }
         }
     };
 

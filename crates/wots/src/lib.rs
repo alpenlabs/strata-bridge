@@ -5,7 +5,7 @@
 
 use bitcoin::hashes::{hash160, Hash};
 #[cfg(feature = "signing")]
-use bitvm::signatures::wots_api::{wots256, wots_hash};
+use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 
 /// The digit width for the WOTS algorithm.
 ///
@@ -136,15 +136,15 @@ where
 pub fn wots_sign_128_bitvm(
     msg: &[u8; 16],
     secret_key: &[u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)],
-) -> wots_hash::Signature {
-    let split_secret_key: [[u8; 20]; key_width(128, WINTERNITZ_DIGIT_WIDTH)] =
+) -> <wots_hash as Wots>::Signature {
+    let split_secret_key: [Vec<u8>; key_width(128, WINTERNITZ_DIGIT_WIDTH)] =
         std::array::from_fn(|i| {
             let mut key = [0; 20];
             key.copy_from_slice(&secret_key[20 * i..20 * (i + 1)]);
-            key
+            key.to_vec()
         });
 
-    wots_hash::get_signature_with_secrets(split_secret_key, msg)
+    <wots_hash as Wots>::sign_with_secrets(&split_secret_key[..], msg)
 }
 
 /// Signs a 256 bit message with the given secret key.
@@ -152,15 +152,15 @@ pub fn wots_sign_128_bitvm(
 pub fn wots_sign_256_bitvm(
     msg: &[u8; 32],
     secret_key: &[u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)],
-) -> wots256::Signature {
-    let split_secret_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
+) -> <wots256 as Wots>::Signature {
+    let split_secret_key: [Vec<u8>; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
         std::array::from_fn(|i| {
             let mut key = [0; 20];
             key.copy_from_slice(&secret_key[20 * i..20 * (i + 1)]);
-            key
+            key.to_vec()
         });
 
-    wots256::get_signature_with_secrets(split_secret_key, msg)
+    wots256::sign_with_secrets(&split_secret_key[..], msg)
 }
 
 /// This function was an attempt at implementing WOTS signing from scratch. However during some
@@ -309,7 +309,7 @@ pub const PARAMS_128_TOTAL_LEN: usize = PARAMS_128.total_length() as usize;
 #[cfg(test)]
 #[cfg(feature = "signing")]
 mod tests {
-    use bitvm::{execute_script, signatures::wots_api::SignatureImpl, treepp::script};
+    use bitvm::{execute_script, treepp::script};
 
     use super::*;
 
@@ -330,15 +330,15 @@ mod tests {
             });
 
         // Split that secret key so we can feed it to the bitvm implementation
-        let split_secret_key: [[u8; 20]; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
+        let split_secret_key: [Vec<u8>; key_width(256, WINTERNITZ_DIGIT_WIDTH)] =
             std::array::from_fn(|i| {
                 let mut key = [0; 20];
                 key.copy_from_slice(&sk[20 * i..20 * (i + 1)]);
-                key
+                key.to_vec()
             });
 
         // Generate the public key with bitvm.
-        let pk_bitvm = wots256::generate_public_key_with_secrets(split_secret_key);
+        let pk_bitvm = wots256::generate_public_key_with_secrets(&split_secret_key[..]);
 
         // Compare them.
         assert_eq!(pk_bitvm, split_public_key);
@@ -367,8 +367,8 @@ mod tests {
         }
 
         let scr = script! {
-            { sig.to_script() }
-            { wots256::checksig_verify(pk_grouped) }
+            { wots256::signature_to_raw_witness(&sig) }
+            { wots256::checksig_verify(&pk_grouped) }
             for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };
@@ -394,8 +394,8 @@ mod tests {
         }
 
         let scr = script! {
-            { sig.to_script() }
-            { wots_hash::checksig_verify(pk_grouped) }
+            { wots_hash::signature_to_raw_witness(&sig) }
+            { wots_hash::checksig_verify(&pk_grouped) }
             for _ in 0..128/4 { OP_DROP } // drop data (in nibbles) from stack
             OP_TRUE
         };

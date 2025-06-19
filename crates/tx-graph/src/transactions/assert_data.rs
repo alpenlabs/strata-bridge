@@ -5,7 +5,11 @@ use std::array;
 use bitcoin::{
     transaction, Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid,
 };
-use bitvm::{chunk::api::Signatures as g16Signatures, signatures::wots_api::wots256, treepp::*};
+use bitvm::{
+    chunk::api::Signatures as g16Signatures,
+    signatures::{Wots, Wots32 as wots256},
+    treepp::*,
+};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     constants::*,
@@ -159,10 +163,11 @@ impl AssertDataTxBatch {
             [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_FIELD_CONNECTORS_BATCH_2],
         ) = connector_a256_factory.create_connectors();
 
-        let signatures_256: [wots256::Signature; NUM_PKS_A256] = array::from_fn(|i| match i {
-            0 => wots_signatures.groth16.0 .0[0],
-            _ => wots_signatures.groth16.1[i - 1],
-        });
+        let signatures_256: [<wots256 as Wots>::Signature; NUM_PKS_A256] =
+            array::from_fn(|i| match i {
+                0 => wots_signatures.groth16.0 .0[0],
+                _ => wots_signatures.groth16.1[i - 1],
+            });
 
         connector256_batch1
             .iter()

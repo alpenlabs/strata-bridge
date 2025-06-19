@@ -7,10 +7,7 @@ use bitcoin::{
     Address, Network, ScriptBuf,
 };
 use bitvm::{
-    signatures::wots_api::{
-        wots256::{self, MSG_LEN},
-        wots_hash, SignatureImpl, HASH_LEN,
-    },
+    signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256, HASH_LEN},
     treepp::*,
 };
 use strata_bridge_primitives::scripts::prelude::*;
@@ -34,8 +31,8 @@ pub struct ConnectorA256Factory<
     pub network: Network,
 
     /// The 256-bit WOTS public keys used for bitcommitments.
-    pub public_keys:
-        [wots256::PublicKey; N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2],
+    pub public_keys: [<wots256 as Wots>::PublicKey;
+        N_BATCH_1 * N_FIELD_ELEMS_BATCH_1 + N_BATCH_2 * N_FIELD_ELEMS_BATCH_2],
 }
 
 impl<
@@ -87,7 +84,7 @@ pub struct ConnectorA256<const N_PUBLIC_KEYS: usize> {
     pub network: Network,
 
     /// The 256-bit WOTS public keys used for bitcommitments.
-    pub public_keys: [wots256::PublicKey; N_PUBLIC_KEYS],
+    pub public_keys: [<wots256 as Wots>::PublicKey; N_PUBLIC_KEYS],
 }
 
 impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
@@ -95,9 +92,10 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     ///
     /// This script verifies the WOTS signatures for the public keys and returns `OP_TRUE`.
     pub fn create_locking_script(&self) -> ScriptBuf {
+        const MSG_LEN: usize = wots256::MSG_BYTE_LEN as usize;
         script! {
             for &public_key in self.public_keys.iter().rev() {
-                { wots256::checksig_verify(public_key) }
+                { wots256::checksig_verify(&public_key) }
 
                 for _ in 0..(MSG_LEN * 8)/4 { OP_DROP } // drop the nibbles
             }
@@ -141,10 +139,10 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
     pub fn finalize_input(
         &self,
         input: &mut Input,
-        signatures: [wots256::Signature; N_PUBLIC_KEYS],
+        signatures: [<wots256 as Wots>::Signature; N_PUBLIC_KEYS],
     ) {
         let witness = script! {
-            for sig in signatures { { sig.to_script() } }
+            for sig in signatures { { wots256::signature_to_raw_witness(&sig) } }
         };
 
         let mut witness_stack = taproot_witness_signatures(witness);
@@ -172,8 +170,8 @@ pub struct ConnectorAHashFactory<
     pub network: Network,
 
     /// The WOTS public keys used for bitcommiting hashes.
-    pub public_keys:
-        [wots_hash::PublicKey; N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2],
+    pub public_keys: [<wots_hash as Wots>::PublicKey;
+        N_BATCH_1 * N_HASHES_BATCH_1 + N_BATCH_2 * N_HASHES_BATCH_2],
 }
 
 impl<
@@ -224,7 +222,7 @@ pub struct ConnectorAHash<const N_PUBLIC_KEYS: usize> {
     pub network: Network,
 
     /// The 160-bit WOTS public keys used for bitcommitments.
-    pub public_keys: [wots_hash::PublicKey; N_PUBLIC_KEYS],
+    pub public_keys: [<wots_hash as Wots>::PublicKey; N_PUBLIC_KEYS],
 }
 
 impl<const N_PUBLIC_KEYS: usize> ConnectorAHash<N_PUBLIC_KEYS> {
@@ -234,7 +232,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorAHash<N_PUBLIC_KEYS> {
     pub fn create_locking_script(&self) -> ScriptBuf {
         script! {
             for &public_key in self.public_keys.iter().rev() {
-                { wots_hash::checksig_verify(public_key) }
+                { wots_hash::checksig_verify(&public_key) }
 
                 for _ in 0..(HASH_LEN * 8)/4 { OP_DROP } // drop the nibbles
             }
@@ -277,10 +275,10 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorAHash<N_PUBLIC_KEYS> {
     pub fn finalize_input(
         &self,
         input: &mut Input,
-        signatures: [wots_hash::Signature; N_PUBLIC_KEYS],
+        signatures: [<wots_hash as Wots>::Signature; N_PUBLIC_KEYS],
     ) {
         let witness = script! {
-            for sig in signatures { { sig.to_script() } }
+            for sig in signatures { { wots_hash::signature_to_raw_witness(&sig) } }
         };
 
         let mut witness_stack = taproot_witness_signatures(witness);
