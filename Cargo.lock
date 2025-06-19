@@ -10040,7 +10040,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#8cb5707510db0c48c154e2d82dc73f835ff41d54"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=chore%2Fupdate-rust-toolchain#cc271cc7d07b342b4af591470c41d5a8b7c283f1"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10059,7 +10059,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#8cb5707510db0c48c154e2d82dc73f835ff41d54"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=chore%2Fupdate-rust-toolchain#cc271cc7d07b342b4af591470c41d5a8b7c283f1"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10072,7 +10072,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git#8cb5707510db0c48c154e2d82dc73f835ff41d54"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=chore%2Fupdate-rust-toolchain#cc271cc7d07b342b4af591470c41d5a8b7c283f1"
 dependencies = [
  "bitcoin",
  "libp2p",
