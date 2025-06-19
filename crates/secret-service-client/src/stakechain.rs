@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use bitcoin::{hashes::Hash, Txid};
 use quinn::Connection;
-use secret_service_proto::v1::{
+use secret_service_proto::v2::{
     traits::{Client, ClientError, Origin, StakeChainPreimages},
     wire::{ClientMessage, ServerMessage},
 };
 
-use crate::{make_v1_req, Config};
+use crate::{make_v2_req, Config};
 
 /// Stake Chain preimages client.
 #[derive(Debug, Clone)]
@@ -41,7 +41,7 @@ impl StakeChainPreimages<Client> for StakeChainPreimgClient {
             prestake_vout,
             stake_index,
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::StakeChainGetPreimage { preimg } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };

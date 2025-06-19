@@ -1,6 +1,6 @@
 use std::{
+    borrow::Borrow,
     cell::RefCell,
-    collections::HashMap,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4},
     ops::Deref,
     sync::Arc,
@@ -10,15 +10,15 @@ use std::{
 use bitcoin::{
     hashes::Hash,
     key::{Parity, Secp256k1, TapTweak},
-    Network, Txid, XOnlyPublicKey,
+    Network, OutPoint, Txid, XOnlyPublicKey,
 };
 use musig2::{
     secp256k1::{Message, SecretKey, SECP256K1},
-    FirstRound, KeyAggContext, PartialSignature, SecNonceSpices,
+    AggNonce, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices,
 };
 use rand::{thread_rng, Rng};
 use secret_service_client::SecretServiceClient;
-use secret_service_proto::v1::traits::*;
+use secret_service_proto::v2::traits::*;
 use secret_service_server::{
     run_server,
     rustls::{
@@ -31,9 +31,9 @@ use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecre
 
 use crate::seeded_impl::Service;
 
-#[tokio::test]
-async fn e2e() {
-    let server_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), 20_000).into();
+async fn setup() -> SecretServiceClient {
+    let port = thread_rng().gen_range(20_000..30_000);
+    let server_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into();
     let server_host = "localhost".to_string();
 
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
@@ -69,8 +69,50 @@ async fn e2e() {
     let client = SecretServiceClient::new(client_config)
         .await
         .expect("good conn");
+    client
+}
 
-    // wallet signers
+#[tokio::test]
+async fn wots() {
+    let client = setup().await;
+    let wots = client.wots_signer();
+    let txid = Txid::all_zeros();
+    wots.get_128_secret_key(txid, 0, 0)
+        .await
+        .expect("good response");
+    wots.get_128_public_key(txid, 0, 0)
+        .await
+        .expect("good response");
+    wots.get_256_secret_key(txid, 0, 0)
+        .await
+        .expect("good response");
+    wots.get_256_public_key(txid, 0, 0)
+        .await
+        .expect("good response");
+}
+
+#[tokio::test]
+async fn p2p() {
+    let client = setup().await;
+    let p2p_signer = client.p2p_signer();
+    p2p_signer.secret_key().await.expect("good response");
+}
+
+#[tokio::test]
+async fn stakechain_preimg() {
+    let client = setup().await;
+
+    let sc_preimg = client.stake_chain_preimages();
+    sc_preimg
+        .get_preimg(Txid::all_zeros(), 0, 0)
+        .await
+        .expect("good response");
+}
+
+#[tokio::test]
+async fn schnorr_signers() {
+    let client = setup().await;
+
     let general_wallet_signer = client.general_wallet_signer();
     let stakechain_wallet_signer = client.stakechain_wallet_signer();
     let musig2_signer = client.musig2_signer();
@@ -154,36 +196,12 @@ async fn e2e() {
     for handle in handles {
         handle.await.unwrap();
     }
+}
 
-    // p2p signer
-    let p2p_signer = client.p2p_signer();
-    p2p_signer.secret_key().await.expect("good response");
+#[tokio::test]
+async fn musig2() {
+    let client = setup().await;
 
-    let txid = Txid::from_slice(&[0; 32]).unwrap();
-
-    // Stakechain preimages
-    let sc_preimg = client.stake_chain_preimages();
-    sc_preimg
-        .get_preimg(txid, 0, 0)
-        .await
-        .expect("good response");
-
-    // WOTS
-    let wots = client.wots_signer();
-    wots.get_128_secret_key(txid, 0, 0)
-        .await
-        .expect("good response");
-    wots.get_128_public_key(txid, 0, 0)
-        .await
-        .expect("good response");
-    wots.get_256_secret_key(txid, 0, 0)
-        .await
-        .expect("good response");
-    wots.get_256_public_key(txid, 0, 0)
-        .await
-        .expect("good response");
-
-    // Musig2
     let ms2_signer = client.musig2_signer();
 
     let local_signers = (0..2)
@@ -194,23 +212,32 @@ async fn e2e() {
         })
         .collect::<Vec<_>>();
     let witness = TaprootWitness::Key;
-    let mut pubkeys = local_signers
-        .iter()
-        .map(|kp| kp.x_only_public_key().0)
-        .collect::<Vec<_>>();
+
     let remote_public_key = ms2_signer.pubkey().await.expect("good response");
-    pubkeys.push(remote_public_key);
-    pubkeys.sort();
-    let session_id = Musig2SessionId::null();
-    let mut remote_first_round = ms2_signer
-        .new_session(session_id, pubkeys.clone(), witness.clone(), txid, 0)
-        .await
-        .expect("good response")
-        .expect("valid keys");
+    let params = Musig2Params {
+        ordered_pubkeys: {
+            let mut pubkeys = local_signers
+                .iter()
+                .map(|kp| kp.x_only_public_key().0)
+                .collect::<Vec<_>>();
+            pubkeys.push(remote_public_key);
+            pubkeys.sort();
+            pubkeys
+        },
+        witness,
+        input: OutPoint::new(Txid::all_zeros(), 0),
+    };
+
     println!("remote pubkey: {remote_public_key:?}");
 
-    let mut ctx = KeyAggContext::new(pubkeys.iter().map(|pk| pk.public_key(Parity::Even))).unwrap();
-    match witness {
+    let mut ctx = KeyAggContext::new(
+        params
+            .ordered_pubkeys
+            .iter()
+            .map(|pk| pk.public_key(Parity::Even)),
+    )
+    .unwrap();
+    match params.witness {
         TaprootWitness::Key => {
             ctx = ctx
                 .with_unspendable_taproot_tweak()
@@ -229,7 +256,9 @@ async fn e2e() {
         .iter()
         .enumerate()
         .map(|(i, kp)| {
-            let signer_index = pubkeys.binary_search(&kp.x_only_public_key().0).unwrap();
+            let signer_index = ctx
+                .pubkey_index(kp.public_key())
+                .expect("must be able to find the signer index");
             println!("local signer {i} has signer idx {signer_index}");
             let spices = SecNonceSpices::new().with_seckey(kp.secret_key());
             println!("local signer {i} has seckey {:?}", kp.secret_key());
@@ -239,22 +268,38 @@ async fn e2e() {
         })
         .collect::<Vec<RefCell<_>>>();
 
-    let remote_pub_nonce = remote_first_round.our_nonce().await.expect("good response");
-    let remote_signer_index = pubkeys.binary_search(&remote_public_key).unwrap();
-    let total_local_signers = local_first_rounds.len();
-
-    let mut pub_nonces_to_send = HashMap::with_capacity(local_first_rounds.len());
-
-    for (i, local_fr) in local_first_rounds.iter().enumerate() {
-        let our_pub_nonce = local_fr.borrow().our_public_nonce();
-        pub_nonces_to_send.insert(local_signers[i].x_only_public_key().0, our_pub_nonce);
-    }
-    // send this signer's public nonce to secret service
-    remote_first_round
-        .receive_pub_nonces(pub_nonces_to_send.into_iter())
+    let remote_pub_nonce = ms2_signer
+        .get_pub_nonce(params.clone())
         .await
         .expect("good response")
-        .expect("good nonce");
+        .expect("our pubkey is in params");
+    let remote_signer_index = ctx
+        .pubkey_index(remote_public_key.public_key(Parity::Even))
+        .unwrap();
+    let total_local_signers = local_first_rounds.len();
+
+    let mut pubnonces = Vec::with_capacity(3);
+    unsafe {
+        pubnonces.set_len(3);
+    }
+    for (i, local_fr) in local_first_rounds.iter().enumerate() {
+        let idx = ctx.pubkey_index(local_signers[i].public_key()).unwrap();
+        pubnonces[idx] = local_fr.borrow().our_public_nonce();
+    }
+    pubnonces[ctx
+        .pubkey_index(remote_public_key.borrow().public_key(Parity::Even))
+        .unwrap()] = remote_pub_nonce.clone();
+
+    let aggnonce = AggNonce::sum(&pubnonces);
+
+    let digest_to_sign = thread_rng().gen();
+
+    // send this signer's public nonce to secret service
+    let remote_partial_sig = ms2_signer
+        .get_our_partial_sig(params.clone(), aggnonce.clone(), &digest_to_sign)
+        .await
+        .expect("good response")
+        .expect("partial sig");
 
     for i in 0..total_local_signers {
         let local_fr = &local_first_rounds[i];
@@ -270,31 +315,16 @@ async fn e2e() {
             }
             println!("sharing pubnonce {j} -> {i}");
             let other = &local_first_rounds[j].borrow();
+            let other_index = ctx
+                .pubkey_index(local_signers[j].public_key())
+                .expect("must be able to find the other index");
             local_fr
                 .borrow_mut()
-                .receive_nonce(
-                    pubkeys
-                        .binary_search(&local_signers[j].x_only_public_key().0)
-                        .unwrap(),
-                    other.our_public_nonce(),
-                )
+                .receive_nonce(other_index, other.our_public_nonce())
                 .expect("other nonce to be good");
         }
     }
-    assert!(remote_first_round
-        .is_complete()
-        .await
-        .expect("good response"));
-    let digest = thread_rng().gen();
-    let mut remote_second_round = remote_first_round
-        .finalize(digest)
-        .await
-        .expect("good response")
-        .expect("good finalize");
-    let remote_partial_sig = remote_second_round
-        .our_signature()
-        .await
-        .expect("good response");
+
     println!("{remote_partial_sig:?}");
     assert_eq!(local_signers.len(), local_first_rounds.len());
     let local_second_rounds = local_first_rounds
@@ -304,25 +334,31 @@ async fn e2e() {
             println!("i: {i}: {:?}", local_signers[i].secret_key());
             let fr = fr.into_inner();
             assert!(fr.is_complete());
-            fr.finalize(local_signers[i].secret_key(), digest)
+            fr.finalize(local_signers[i].secret_key(), digest_to_sign)
                 .unwrap()
                 .into()
         })
         .collect::<Vec<RefCell<_>>>();
-    println!("pubkeys: {pubkeys:?}");
+    println!("pubkeys: {:?}", ctx.pubkeys());
 
-    let mut partial_sigs_to_send = HashMap::with_capacity(local_second_rounds.len());
-
+    let mut partial_sigs = Vec::with_capacity(3);
+    unsafe {
+        partial_sigs.set_len(3);
+    }
     for (i, local_sr) in local_second_rounds.iter().enumerate() {
         let our_sig = local_sr.borrow().our_signature();
-        partial_sigs_to_send.insert(local_signers[i].x_only_public_key().0, our_sig);
+        partial_sigs[ctx
+            .pubkey_index(
+                local_signers[i]
+                    .x_only_public_key()
+                    .0
+                    .public_key(Parity::Even),
+            )
+            .unwrap()] = our_sig;
     }
-    // send secret service this signer's partial sig
-    remote_second_round
-        .receive_signatures(partial_sigs_to_send.into_iter())
-        .await
-        .expect("good response")
-        .expect("good sig");
+    partial_sigs[ctx
+        .pubkey_index(remote_public_key.public_key(Parity::Even))
+        .unwrap()] = remote_partial_sig;
 
     for i in 0..total_local_signers {
         let sr = &local_second_rounds[i];
@@ -336,28 +372,24 @@ async fn e2e() {
                 continue;
             }
             let other = &local_second_rounds[j].borrow();
+            let other_index = ctx.pubkey_index(local_signers[j].public_key()).unwrap();
             sr.borrow_mut()
-                .receive_signature(
-                    pubkeys
-                        .binary_search(&local_signers[j].x_only_public_key().0)
-                        .unwrap(),
-                    other.our_signature::<PartialSignature>(),
-                )
+                .receive_signature(other_index, other.our_signature::<PartialSignature>())
                 .expect("other sig to be good");
         }
     }
-    assert!(remote_second_round
-        .is_complete()
-        .await
-        .expect("good response"));
 
-    let sig = remote_second_round
-        .finalize()
+    let sig = ms2_signer
+        .create_signature(params, pubnonces, &digest_to_sign, partial_sigs)
         .await
         .expect("good response")
         .expect("good sig");
     assert!(agg_pubkey
-        .verify(SECP256K1, &Message::from_digest(digest), &sig.into())
+        .verify(
+            SECP256K1,
+            &Message::from_digest(digest_to_sign),
+            &sig.into()
+        )
         .is_ok());
 }
 

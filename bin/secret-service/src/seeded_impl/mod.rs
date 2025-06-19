@@ -4,10 +4,10 @@ use std::path::Path;
 
 use bitcoin::{bip32::Xpriv, Network};
 use colored::Colorize;
-use musig2::{Ms2Signer, ServerFirstRound, ServerSecondRound};
+use musig2::Ms2Signer;
 use p2p::ServerP2PSigner;
 use rand::Rng;
-use secret_service_proto::v1::traits::{SecretService, Server};
+use secret_service_proto::v2::traits::{SecretService, Server};
 use stakechain::StakeChain;
 use strata_key_derivation::operator::OperatorKeys;
 use tokio::{fs, io};
@@ -73,7 +73,7 @@ impl Service {
     }
 }
 
-impl SecretService<Server, ServerFirstRound, ServerSecondRound> for Service {
+impl SecretService<Server> for Service {
     type GeneralWalletSigner = GeneralWalletSigner;
 
     type StakechainWalletSigner = StakechainWalletSigner;

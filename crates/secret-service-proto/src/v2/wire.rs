@@ -1,25 +1,18 @@
 //! V1 wire protocol
 // TODO: change all the hardcoded lengths in here to be calculated at compile time when we upgrade
 // our compiler
-use std::collections::BTreeMap;
 
 use bitcoin::{
     hashes::Hash,
     taproot::{ControlBlock, TaprootError},
-    ScriptBuf, TapNodeHash,
+    OutPoint, ScriptBuf, TapNodeHash, XOnlyPublicKey,
 };
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
-use musig2::errors::{RoundContributionError, RoundFinalizeError};
-use rkyv::{
-    with::{Identity, Map, MapKV},
-    Archive, Deserialize, Serialize,
-};
+use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use terrors::OneOf;
 
-use super::{
-    rkyv_wrappers,
-    traits::{Musig2SessionId, SignerIdxOutOfBounds},
-};
+use super::traits::{BadFinalSignature, Musig2Params, OurPubKeyIsNotInParams, SelfVerifyFailed, RoundContributionError};
 
 /// Various messages the server can send to the client.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -59,88 +52,26 @@ pub enum ServerMessage {
         key: [u8; 32],
     },
 
-    /// Response for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
-    Musig2NewSession(Result<(), Musig2NewSessionError>),
+    /// Response for [`Musig2Signer::get_pub_nonce`](super::traits::Musig2Signer::get_pub_nonce).
+    Musig2GetPubNonce(Result<[u8; 66], OurPubKeyIsNotInParams>),
 
     /// Response for
-    /// [`Musig2SignerFirstRound::our_nonce`](super::traits::Musig2SignerFirstRound::our_nonce).
-    Musig2FirstRoundOurNonce {
-        /// Our serialized MuSig2 public nonce for the requested signing session.
-        our_nonce: [u8; 66],
-    },
+    /// [`Musig2Signer::get_our_partial_sig`](super::traits::Musig2Signer::get_our_partial_sig).
+    Musig2GetOurPartialSig(Result<[u8; 32], OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>),
 
     /// Response for
-    /// [`Musig2SignerFirstRound::holdouts`](super::traits::Musig2SignerFirstRound::holdouts).
-    Musig2FirstRoundHoldouts {
-        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of signers whose public
-        /// nonces we do not have.
-        pubkeys: Vec<[u8; 32]>,
-    },
-    /// Response for
-    /// [`Musig2SignerFirstRound::is_complete`](super::traits::Musig2SignerFirstRound::is_complete).
-    Musig2FirstRoundIsComplete {
-        /// Flag indicating whether the MuSig2 first round is complete.
-        complete: bool,
-    },
-
-    /// Response for
-    /// [`Musig2SignerFirstRound::receive_pub_nonces`](super::traits::Musig2SignerFirstRound::receive_pub_nonces).
-    Musig2FirstRoundReceivePubNonce(
-        /// Errors indicating whether the server was unable to process the request, indexed by the
-        /// pubnonce's signer's xonly pubkey. If empty, should be returned as a Ok(())
-        #[rkyv(with = MapKV<Identity, rkyv_wrappers::RoundContributionError>)]
-        BTreeMap<[u8; 32], RoundContributionError>,
+    /// [`Musig2Signer::create_signature`](super::traits::Musig2Signer::create_signature).
+    Musig2CreateSignature(
+        Result<
+            [u8; 64],
+            OneOf<(
+                OurPubKeyIsNotInParams,
+                SelfVerifyFailed,
+                RoundContributionError,
+                BadFinalSignature,
+            )>,
+        >,
     ),
-
-    /// Response for
-    /// [`Musig2SignerFirstRound::finalize`](super::traits::Musig2SignerFirstRound::finalize).
-    Musig2FirstRoundFinalize(
-        /// Error indicating whether the server was unable to process the request.
-        #[rkyv(with = Map<rkyv_wrappers::RoundFinalizeError>)]
-        Option<RoundFinalizeError>,
-    ),
-
-    /// Response for
-    /// [`Musig2SignerSecondRound::agg_nonce`](super::traits::Musig2SignerSecondRound::agg_nonce).
-    Musig2SecondRoundAggNonce {
-        /// Serialized aggregated public nonce of the signing session's first round.
-        nonce: [u8; 66],
-    },
-
-    /// Response for
-    /// [`Musig2SignerSecondRound::holdouts`](super::traits::Musig2SignerSecondRound::holdouts).
-    Musig2SecondRoundHoldouts {
-        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) of signers whose partial
-        /// signatures we do not have for this signing session.
-        pubkeys: Vec<[u8; 32]>,
-    },
-
-    /// Response for
-    /// [`Musig2SignerSecondRound::our_signature`](super::traits::Musig2SignerSecondRound::our_signature).
-    Musig2SecondRoundOurSignature {
-        /// This server's serialized partial signature of the signing session.
-        sig: [u8; 32],
-    },
-
-    /// Response for
-    /// [`Musig2SignerSecondRound::is_complete`](super::traits::Musig2SignerSecondRound::is_complete).
-    Musig2SecondRoundIsComplete {
-        /// Flag indicating whether the MuSig2 second round is complete.
-        complete: bool,
-    },
-
-    /// Response for
-    /// [`Musig2SignerSecondRound::receive_signatures`](super::traits::Musig2SignerSecondRound::receive_signatures).
-    Musig2SecondRoundReceiveSignature(
-        /// Any errors that occurred during signature reception, keyed by the partial signature's
-        /// signer's xonly pubkey If empty, should be returned as a Ok(())
-        #[rkyv(with = MapKV<Identity, rkyv_wrappers::RoundContributionError>)]
-        BTreeMap<[u8; 32], RoundContributionError>,
-    ),
-
-    /// Response for
-    /// [`Musig2SignerSecondRound::finalize`](super::traits::Musig2SignerSecondRound::finalize).
-    Musig2SecondRoundFinalize(Musig2SessionResult),
 
     /// Response for
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
@@ -186,36 +117,6 @@ pub enum ServerMessage {
     },
 }
 
-/// Helper type for serialization.
-// TODO: Maybe replaced with a future rkyv::with::MapRes or smth?
-#[allow(missing_docs)]
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-pub enum Musig2SessionResult {
-    /// The result of a MuSig2 session.
-    Ok([u8; 64]),
-
-    /// The error that occurred during a MuSig2 session.
-    Err(#[rkyv(with = rkyv_wrappers::RoundFinalizeError)] RoundFinalizeError),
-}
-
-impl From<Result<[u8; 64], RoundFinalizeError>> for Musig2SessionResult {
-    fn from(value: Result<[u8; 64], RoundFinalizeError>) -> Self {
-        match value {
-            Ok(v) => Self::Ok(v),
-            Err(v) => Self::Err(v),
-        }
-    }
-}
-
-impl From<Musig2SessionResult> for Result<[u8; 64], RoundFinalizeError> {
-    fn from(value: Musig2SessionResult) -> Self {
-        match value {
-            Musig2SessionResult::Ok(v) => Ok(v),
-            Musig2SessionResult::Err(v) => Err(v),
-        }
-    }
-}
-
 /// Various messages the client can send to the server.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -249,120 +150,34 @@ pub enum ClientMessage {
         target: SignerTarget,
     },
 
-    /// Request for [`Musig2Signer::new_session`](super::traits::Musig2Signer::new_session).
-    Musig2NewSession {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-
-        /// Public keys for the signing session. May or may not include our own
-        /// public key. If not present, it should be added. May or may not be sorted.
-        pubkeys: Vec<[u8; 32]>,
-
-        /// The taproot witness of the input
-        witness: SerializableTaprootWitness,
-
-        /// Serialized [`Txid`](bitcoin::Txid) of the input transaction ID.
-        input_txid: [u8; 32],
-
-        /// The vout of the input transaction the client is signing for.
-        input_vout: u32,
+    /// Request for [`Musig2Signer::get_pub_nonce`](super::traits::Musig2Signer::get_pub_nonce).
+    Musig2GetPubNonce {
+        /// Params for the musig2 session
+        params: SerializableMusig2Params,
     },
 
     /// Request for
-    /// [`Musig2SignerFirstRound::our_nonce`](super::traits::Musig2SignerFirstRound::our_nonce).
-    Musig2FirstRoundOurNonce {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
+    /// [`Musig2Signer::get_our_partial_sig`](super::traits::Musig2Signer::get_our_partial_sig).
+    Musig2GetOurPartialSig {
+        /// Params for the musig2 session
+        params: SerializableMusig2Params,
+        /// Aggregated nonce from round 1
+        aggnonce: [u8; 66],
+        /// Message to be signed
+        message: [u8; 32],
     },
 
     /// Request for
-    /// [`Musig2SignerFirstRound::holdouts`](super::traits::Musig2SignerFirstRound::holdouts)
-    Musig2FirstRoundHoldouts {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-    },
-
-    /// Request for
-    /// [`Musig2SignerFirstRound::is_complete`](super::traits::Musig2SignerFirstRound::is_complete).
-    Musig2FirstRoundIsComplete {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-    },
-
-    /// Request for
-    /// [`Musig2SignerFirstRound::receive_pub_nonces`](super::traits::Musig2SignerFirstRound::receive_pub_nonces).
-    Musig2FirstRoundReceivePubNonce {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-
-        /// Public nonces keyed by the signer's xonly public key
-        nonces: BTreeMap<[u8; 32], [u8; 66]>,
-    },
-
-    /// Request for
-    /// [`Musig2SignerFirstRound::finalize`](super::traits::Musig2SignerFirstRound::finalize).
-    Musig2FirstRoundFinalize {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-
-        /// Digest of message the client is signing.
-        digest: [u8; 32],
-    },
-
-    /// Request for
-    /// [`Musig2SignerSecondRound::agg_nonce`](super::traits::Musig2SignerSecondRound::agg_nonce).
-    Musig2SecondRoundAggNonce {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-    },
-
-    /// Request for
-    /// [`Musig2SignerSecondRound::holdouts`](super::traits::Musig2SignerSecondRound::holdouts).
-    Musig2SecondRoundHoldouts {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-    },
-
-    /// Request for
-    /// [`Musig2SignerSecondRound::our_signature`](super::traits::Musig2SignerSecondRound::our_signature).
-    Musig2SecondRoundOurSignature {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-    },
-
-    /// Request for
-    /// [`Musig2SignerSecondRound::is_complete`](super::traits::Musig2SignerSecondRound::is_complete).
-    Musig2SecondRoundIsComplete {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-    },
-
-    /// Request for
-    /// [`Musig2SignerSecondRound::receive_signatures`](super::traits::Musig2SignerSecondRound::receive_signatures).
-    Musig2SecondRoundReceiveSignature {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
-        /// Partial signatures, keyed by the signer's xonly public key
-        sigs: BTreeMap<[u8; 32], [u8; 32]>,
-    },
-
-    /// Request for
-    /// [`Musig2SignerSecondRound::finalize`](super::traits::Musig2SignerSecondRound::finalize).
-    Musig2SecondRoundFinalize {
-        /// Session that this server is requesting for.
-        #[rkyv(with = rkyv_wrappers::OutPoint)]
-        session_id: Musig2SessionId,
+    /// [`Musig2Signer::create_signature`](super::traits::Musig2Signer::create_signature).
+    Musig2CreateSignature {
+        /// Params for the musig2 session
+        params: SerializableMusig2Params,
+        /// Nonces from round 1
+        pubnonces: Vec<[u8; 66]>,
+        /// Message to be signed
+        message: [u8; 32],
+        /// Partial signatures from round 2
+        partial_sigs: Vec<[u8; 32]>,
     },
 
     /// Request for
@@ -425,13 +240,6 @@ pub enum ClientMessage {
         /// Stake index that this Stake Chain preimage is derived from.
         stake_index: u32,
     },
-}
-
-/// Error enum around the musig2 new session errors
-#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
-pub enum Musig2NewSessionError {
-    SignerIdxOutOfBounds(SignerIdxOutOfBounds),
-    SessionAlreadyPresent,
 }
 
 /// Serializable version of [`TaprootWitness`].
@@ -521,4 +329,50 @@ pub struct WotsKeySpecifier {
     /// Some inputs ([`Txid`](bitcoin::Txid) and vout) need more than one WOTS signature,
     /// hence to resolve the ambiguity, the index is needed.
     pub index: u32,
+}
+
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub struct SerializableMusig2Params {
+    pub ordered_pubkeys: Vec<[u8; 32]>,
+    pub witness: SerializableTaprootWitness,
+    #[rkyv(with = super::rkyv_wrappers::OutPoint)]
+    pub input: OutPoint,
+}
+
+impl From<Musig2Params> for SerializableMusig2Params {
+    fn from(value: Musig2Params) -> Self {
+        Self {
+            ordered_pubkeys: value
+                .ordered_pubkeys
+                .iter()
+                .map(|pk| pk.serialize())
+                .collect(),
+            witness: From::from(value.witness),
+            input: value.input,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Archive, Serialize, Deserialize)]
+pub struct InvalidPublicKey;
+
+impl TryFrom<SerializableMusig2Params> for Musig2Params {
+    type Error = OneOf<(InvalidPublicKey, TaprootError)>;
+
+    fn try_from(value: SerializableMusig2Params) -> Result<Self, Self::Error> {
+        let ordered_pubkeys = value
+            .ordered_pubkeys
+            .into_iter()
+            .map(|pk| XOnlyPublicKey::from_slice(&pk))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| OneOf::new(InvalidPublicKey))?;
+
+        let witness = value.witness.try_into().map_err(OneOf::new)?;
+
+        Ok(Self {
+            ordered_pubkeys,
+            witness,
+            input: value.input,
+        })
+    }
 }

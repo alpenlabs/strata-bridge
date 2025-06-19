@@ -6,7 +6,7 @@ use bitcoin::{
     TapNodeHash, XOnlyPublicKey,
 };
 use musig2::secp256k1::{schnorr::Signature, Message, SECP256K1};
-use secret_service_proto::v1::traits::{Origin, SchnorrSigner, Server};
+use secret_service_proto::v2::traits::{Origin, SchnorrSigner, Server};
 use strata_bridge_primitives::secp::EvenSecretKey;
 
 use super::paths::{GENERAL_WALLET_KEY_PATH, STAKECHAIN_WALLET_KEY_PATH};

@@ -5,13 +5,10 @@
 //! This handles networking and communication with clients, but does not implement the traits
 //! for the secret service protocol.
 
-pub mod musig2_session_mgr;
+use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
-use std::{collections::BTreeMap, io, marker::Sync, net::SocketAddr, sync::Arc};
-
-use bitcoin::{hashes::Hash, TapNodeHash, Txid, XOnlyPublicKey};
-use musig2::{errors::RoundFinalizeError, PartialSignature, PubNonce};
-use musig2_session_mgr::{Musig2SessionManager, SessionAlreadyPresent};
+use bitcoin::{hashes::Hash, TapNodeHash, Txid};
+use musig2::{AggNonce, PartialSignature, PubNonce};
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
@@ -20,18 +17,17 @@ use quinn::{
 };
 use rkyv::{rancor::Error, util::AlignedVec};
 use secret_service_proto::{
-    v1::{
+    v2::{
         traits::{
-            Musig2Signer, Musig2SignerFirstRound, Musig2SignerSecondRound, P2PSigner,
-            SchnorrSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
+            Musig2Signer, P2PSigner, SchnorrSigner, SecretService, Server, StakeChainPreimages,
+            WotsSigner,
         },
-        wire::{ClientMessage, Musig2NewSessionError, ServerMessage, SignerTarget},
+        wire::{ClientMessage, ServerMessage, SignerTarget},
     },
     wire::{LengthUint, VersionedClientMessage, VersionedServerMessage, WireMessage},
 };
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-use terrors::{OneOf, E3};
-use tokio::{sync::Mutex, task::JoinHandle};
+use terrors::OneOf;
+use tokio::task::JoinHandle;
 use tracing::{error, span, warn, Instrument, Level};
 
 /// Configuration for the secret service server.
@@ -48,22 +44,17 @@ pub struct Config {
 }
 
 /// Runs the secret service server given the service and a server configuration.
-pub async fn run_server<FirstRound, SecondRound, Service>(
+pub async fn run_server<Service>(
     c: Config,
     service: Arc<Service>,
 ) -> Result<(), OneOf<(NoInitialCipherSuite, io::Error)>>
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
-    SecondRound: Musig2SignerSecondRound<Server> + 'static,
-    Service: SecretService<Server, FirstRound, SecondRound> + Sync + 'static,
+    Service: SecretService<Server> + Sync + 'static,
 {
     let quic_server_config = ServerConfig::with_crypto(Arc::new(
         QuicServerConfig::try_from(c.tls_config).map_err(OneOf::new)?,
     ));
     let endpoint = Endpoint::server(quic_server_config, c.addr).map_err(OneOf::new)?;
-    let musig2_sm = Arc::new(Mutex::new(
-        Musig2SessionManager::<FirstRound, SecondRound>::default(),
-    ));
     while let Some(incoming) = endpoint.accept().await {
         let span = span!(Level::INFO,
             "connection",
@@ -74,23 +65,16 @@ where
         if matches!(c.connection_limit, Some(n) if endpoint.open_connections() >= n) {
             incoming.refuse();
         } else {
-            tokio::spawn(
-                conn_handler(incoming, service.clone(), musig2_sm.clone()).instrument(span),
-            );
+            tokio::spawn(conn_handler(incoming, service.clone()).instrument(span));
         }
     }
     Ok(())
 }
 
 /// Handles a single incoming connection.
-async fn conn_handler<FirstRound, SecondRound, Service>(
-    incoming: Incoming,
-    service: Arc<Service>,
-    musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
-) where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound> + 'static,
-    SecondRound: Musig2SignerSecondRound<Server> + 'static,
-    Service: SecretService<Server, FirstRound, SecondRound> + Sync + 'static,
+async fn conn_handler<Service>(incoming: Incoming, service: Arc<Service>)
+where
+    Service: SecretService<Server> + Sync + 'static,
 {
     let conn = match incoming.await {
         Ok(conn) => conn,
@@ -118,10 +102,7 @@ async fn conn_handler<FirstRound, SecondRound, Service>(
         tokio::spawn(
             request_manager(
                 tx,
-                tokio::spawn(
-                    request_handler(rx, service.clone(), musig2_sm.clone())
-                        .instrument(handler_span),
-                ),
+                tokio::spawn(request_handler(rx, service.clone()).instrument(handler_span)),
             )
             .instrument(manager_span),
         );
@@ -143,7 +124,7 @@ async fn request_manager(
 
     match handler_res {
         Ok(msg) => {
-            let (len_bytes, msg_bytes) = match VersionedServerMessage::V1(msg).serialize() {
+            let (len_bytes, msg_bytes) = match VersionedServerMessage::V2(msg).serialize() {
                 Ok(r) => r,
                 Err(e) => {
                     error!("failed to serialize response: {e:?}");
@@ -164,15 +145,12 @@ async fn request_manager(
 }
 
 /// Manages the stream of requests.
-async fn request_handler<Service, FirstRound, SecondRound>(
+async fn request_handler<Service>(
     mut rx: RecvStream,
     service: Arc<Service>,
-    musig2_sm: Arc<Mutex<Musig2SessionManager<FirstRound, SecondRound>>>,
 ) -> Result<ServerMessage, ReadExactError>
 where
-    FirstRound: Musig2SignerFirstRound<Server, SecondRound>,
-    SecondRound: Musig2SignerSecondRound<Server>,
-    Service: SecretService<Server, FirstRound, SecondRound>,
+    Service: SecretService<Server>,
 {
     let len_to_read = {
         let mut buf = [0; size_of::<LengthUint>()];
@@ -187,7 +165,7 @@ where
     let msg = rkyv::from_bytes::<VersionedClientMessage, Error>(&buf).unwrap();
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
-        VersionedClientMessage::V1(msg) => match msg {
+        VersionedClientMessage::V2(msg) => match msg {
             ClientMessage::P2PSecretKey => {
                 let key = service.p2p_signer().secret_key().await;
                 ServerMessage::P2PSecretKey {
@@ -195,60 +173,97 @@ where
                 }
             }
 
-            ClientMessage::Musig2NewSession {
-                pubkeys,
-                witness,
-                input_txid,
-                input_vout,
-                session_id,
-            } => 'block: {
-                let signer = service.musig2_signer();
-
-                let witness = match TaprootWitness::try_from(witness) {
-                    Ok(w) => w,
+            ClientMessage::Musig2GetPubNonce { params } => {
+                let params = match params.try_into() {
+                    Ok(params) => params,
                     Err(e) => {
-                        break 'block ServerMessage::InvalidClientMessage(format!(
-                            "invalid taproot witness: {e}"
-                        ))
+                        return Ok(ServerMessage::InvalidClientMessage(format!(
+                            "invalid params: {e:?}"
+                        )));
                     }
                 };
-                let pubkeys = match pubkeys
-                    .iter()
-                    .map(|data| XOnlyPublicKey::from_slice(data))
+                let res = service
+                    .musig2_signer()
+                    .get_pub_nonce(params)
+                    .await
+                    .map(|pn| pn.serialize());
+                ServerMessage::Musig2GetPubNonce(res)
+            }
+
+            ClientMessage::Musig2GetOurPartialSig {
+                params,
+                aggnonce,
+                message,
+            } => {
+                let params = match params.try_into() {
+                    Ok(params) => params,
+                    Err(e) => {
+                        return Ok(ServerMessage::InvalidClientMessage(format!(
+                            "invalid params: {e:?}"
+                        )));
+                    }
+                };
+                let aggnonce = match AggNonce::from_bytes(&aggnonce) {
+                    Ok(aggnonce) => aggnonce,
+                    Err(e) => {
+                        return Ok(ServerMessage::InvalidClientMessage(format!(
+                            "invalid aggnonce: {e:?}"
+                        )));
+                    }
+                };
+                let res = service
+                    .musig2_signer()
+                    .get_our_partial_sig(params, aggnonce, &message)
+                    .await
+                    .map(|ps| ps.serialize());
+                ServerMessage::Musig2GetOurPartialSig(res)
+            }
+
+            ClientMessage::Musig2CreateSignature {
+                params,
+                pubnonces,
+                message,
+                partial_sigs,
+            } => {
+                let params = match params.try_into() {
+                    Ok(params) => params,
+                    Err(e) => {
+                        return Ok(ServerMessage::InvalidClientMessage(format!(
+                            "invalid params: {e:?}"
+                        )));
+                    }
+                };
+                let pubnonces = match pubnonces
+                    .into_iter()
+                    .map(|bs| PubNonce::from_bytes(&bs))
                     .collect::<Result<Vec<_>, _>>()
                 {
-                    Ok(pks) => pks,
+                    Ok(pubnonces) => pubnonces,
                     Err(e) => {
-                        break 'block ServerMessage::InvalidClientMessage(format!(
-                            "invalid public key: {e}"
-                        ))
+                        return Ok(ServerMessage::InvalidClientMessage(format!(
+                            "invalid pubnonces: {e:?}"
+                        )));
                     }
                 };
 
-                let first_round = match signer
-                    .new_session(
-                        session_id,
-                        pubkeys,
-                        witness,
-                        Txid::from_byte_array(input_txid),
-                        input_vout,
-                    )
-                    .await
+                let partial_sigs = match partial_sigs
+                    .into_iter()
+                    .map(|bs| PartialSignature::from_slice(&bs))
+                    .collect::<Result<Vec<_>, _>>()
                 {
-                    Ok(r1) => r1,
+                    Ok(partial_sigs) => partial_sigs,
                     Err(e) => {
-                        break 'block ServerMessage::Musig2NewSession(Err(
-                            Musig2NewSessionError::SignerIdxOutOfBounds(e),
-                        ))
+                        return Ok(ServerMessage::InvalidClientMessage(format!(
+                            "invalid partial sigs: {e:?}"
+                        )));
                     }
                 };
-                let mut sm = musig2_sm.lock().await;
-                if let Err(SessionAlreadyPresent) = sm.new_session(session_id, first_round) {
-                    break 'block ServerMessage::Musig2NewSession(Err(
-                        Musig2NewSessionError::SessionAlreadyPresent,
-                    ));
-                }
-                ServerMessage::Musig2NewSession(Ok(()))
+                let res = service
+                    .musig2_signer()
+                    .create_signature(params, pubnonces, &message, partial_sigs)
+                    .await
+                    .map(|sig| sig.serialize());
+                ServerMessage::Musig2CreateSignature(res)
             }
 
             ClientMessage::SchnorrSignerSign {
@@ -306,210 +321,6 @@ where
                     SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
                 },
             },
-
-            ClientMessage::Musig2FirstRoundOurNonce { session_id } => {
-                match musig2_sm.lock().await.first_round(&session_id) {
-                    Some(first_round) => {
-                        let our_nonce = first_round.lock().await.our_nonce().await.serialize();
-                        ServerMessage::Musig2FirstRoundOurNonce { our_nonce }
-                    }
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-
-            ClientMessage::Musig2FirstRoundHoldouts { session_id } => {
-                match musig2_sm.lock().await.first_round(&session_id) {
-                    Some(first_round) => ServerMessage::Musig2FirstRoundHoldouts {
-                        pubkeys: first_round
-                            .lock()
-                            .await
-                            .holdouts()
-                            .await
-                            .iter()
-                            .map(XOnlyPublicKey::serialize)
-                            .collect(),
-                    },
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-
-            ClientMessage::Musig2FirstRoundIsComplete { session_id } => {
-                match musig2_sm.lock().await.first_round(&session_id) {
-                    Some(r1) => ServerMessage::Musig2FirstRoundIsComplete {
-                        complete: r1.lock().await.is_complete().await,
-                    },
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-
-            ClientMessage::Musig2FirstRoundReceivePubNonce { session_id, nonces } => {
-                let session_id = &session_id;
-                let r1 = match musig2_sm.lock().await.first_round(session_id) {
-                    Some(r1) => r1,
-                    None => return Ok(ServerMessage::ProtocolError("no round present".to_owned())),
-                };
-                let nonces = match nonces
-                    .iter()
-                    .map(|(pk, nonce)| {
-                        let pk = match XOnlyPublicKey::from_slice(pk) {
-                            Ok(pk) => pk,
-                            Err(e) => {
-                                return Err(ServerMessage::InvalidClientMessage(format!(
-                                    "invalid pubkey: {e}"
-                                )))
-                            }
-                        };
-                        let pubnonce = match PubNonce::from_bytes(nonce) {
-                            Ok(nonce) => nonce,
-                            Err(e) => {
-                                return Err(ServerMessage::InvalidClientMessage(format!(
-                                    "invalid pubnonce: {e:}"
-                                )))
-                            }
-                        };
-                        Ok((pk, pubnonce))
-                    })
-                    .collect::<Result<BTreeMap<XOnlyPublicKey, PubNonce>, ServerMessage>>()
-                {
-                    Ok(nonces) => nonces,
-                    Err(e) => return Ok(e),
-                };
-
-                let result = r1.lock().await.receive_pub_nonces(nonces.into_iter()).await;
-                ServerMessage::Musig2FirstRoundReceivePubNonce(match result {
-                    Ok(()) => BTreeMap::new(),
-                    Err(e) => e
-                        .into_iter()
-                        .map(|(pk, err)| (pk.serialize(), err))
-                        .collect(),
-                })
-            }
-
-            ClientMessage::Musig2FirstRoundFinalize { session_id, digest } => {
-                let mut sm = musig2_sm.lock().await;
-                let r = sm
-                    .transition_first_to_second_round(session_id, digest)
-                    .await;
-
-                if let Err(e) = r {
-                    use terrors::E2::*;
-                    match e.narrow::<RoundFinalizeError, _>() {
-                        Ok(e) => ServerMessage::Musig2FirstRoundFinalize(Some(e)),
-                        Err(e) => match e.as_enum() {
-                            A(not_in_correct_round) => {
-                                ServerMessage::ProtocolError(format!("{not_in_correct_round:?}"))
-                            }
-                            B(_other_refs_active) => ServerMessage::TryAgain,
-                        },
-                    }
-                } else {
-                    ServerMessage::Musig2FirstRoundFinalize(None)
-                }
-            }
-
-            ClientMessage::Musig2SecondRoundAggNonce { session_id } => {
-                match musig2_sm.lock().await.second_round(&session_id) {
-                    Some(r2) => ServerMessage::Musig2SecondRoundAggNonce {
-                        nonce: r2.lock().await.agg_nonce().await.serialize(),
-                    },
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-            ClientMessage::Musig2SecondRoundHoldouts { session_id } => {
-                match musig2_sm.lock().await.second_round(&session_id) {
-                    Some(r2) => ServerMessage::Musig2SecondRoundHoldouts {
-                        pubkeys: r2
-                            .lock()
-                            .await
-                            .holdouts()
-                            .await
-                            .iter()
-                            .map(XOnlyPublicKey::serialize)
-                            .collect(),
-                    },
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-
-            ClientMessage::Musig2SecondRoundOurSignature { session_id } => {
-                match musig2_sm.lock().await.second_round(&session_id) {
-                    Some(r2) => ServerMessage::Musig2SecondRoundOurSignature {
-                        sig: r2.lock().await.our_signature().await.serialize(),
-                    },
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-
-            ClientMessage::Musig2SecondRoundIsComplete { session_id } => {
-                match musig2_sm.lock().await.second_round(&session_id) {
-                    Some(r2) => ServerMessage::Musig2SecondRoundIsComplete {
-                        complete: r2.lock().await.is_complete().await,
-                    },
-                    None => ServerMessage::ProtocolError("no round present".to_owned()),
-                }
-            }
-
-            ClientMessage::Musig2SecondRoundReceiveSignature { session_id, sigs } => {
-                let session_id = &session_id;
-                let r2 = match musig2_sm.lock().await.second_round(session_id) {
-                    Some(r2) => r2,
-                    None => return Ok(ServerMessage::ProtocolError("no round present".to_owned())),
-                };
-
-                let sigs = match sigs
-                    .iter()
-                    .map(|(pk, sig)| {
-                        let pk = match XOnlyPublicKey::from_slice(pk) {
-                            Ok(pk) => pk,
-                            Err(e) => {
-                                return Err(ServerMessage::InvalidClientMessage(format!(
-                                    "invalid pubkey: {e}"
-                                )))
-                            }
-                        };
-                        let partial_sig = match PartialSignature::from_slice(sig) {
-                            Ok(partial_sig) => partial_sig,
-                            Err(e) => {
-                                return Err(ServerMessage::InvalidClientMessage(format!(
-                                    "invalid partial sig: {e}"
-                                )))
-                            }
-                        };
-                        Ok((pk, partial_sig))
-                    })
-                    .collect::<Result<BTreeMap<XOnlyPublicKey, PartialSignature>, ServerMessage>>()
-                {
-                    Ok(nonces) => nonces,
-                    Err(e) => return Ok(e),
-                };
-
-                let result = r2.lock().await.receive_signatures(sigs.into_iter()).await;
-                ServerMessage::Musig2SecondRoundReceiveSignature(match result {
-                    Ok(()) => BTreeMap::new(),
-                    Err(e) => e
-                        .into_iter()
-                        .map(|(pk, err)| (pk.serialize(), err))
-                        .collect(),
-                })
-            }
-
-            ClientMessage::Musig2SecondRoundFinalize { session_id } => {
-                let r = musig2_sm
-                    .lock()
-                    .await
-                    .finalize_second_round(session_id)
-                    .await;
-                match r {
-                    Ok(sig) => ServerMessage::Musig2SecondRoundFinalize(Ok(sig.serialize()).into()),
-                    Err(e) => match e.as_enum() {
-                        E3::A(e) => ServerMessage::ProtocolError(format!("{e:?}")),
-                        E3::B(_other_refs_active) => ServerMessage::TryAgain,
-                        E3::C(round_finalize_err) => ServerMessage::Musig2SecondRoundFinalize(
-                            Err(round_finalize_err.to_owned()).into(),
-                        ),
-                    },
-                }
-            }
 
             ClientMessage::WotsGet128SecretKey { specifier } => {
                 let txid = Txid::from_slice(&specifier.txid).expect("correct length");

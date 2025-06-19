@@ -2308,6 +2308,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cache-advisor"
+version = "1.0.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f89ab55ca4e6a46a0740a1c5346db1ad66e4a76598bbfa060dc3259935a7450"
+dependencies = [
+ "crossbeam-queue",
+]
+
+[[package]]
 name = "camino"
 version = "1.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8384,6 +8393,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "bitvm",
+ "cache-advisor",
  "colored 3.0.0",
  "hkdf",
  "make_buf",
@@ -8399,6 +8409,7 @@ dependencies = [
  "sha2",
  "strata-bridge-primitives",
  "strata-key-derivation",
+ "terrors",
  "tikv-jemallocator",
  "tokio",
  "toml",
@@ -8417,7 +8428,6 @@ dependencies = [
  "quinn",
  "rkyv",
  "secret-service-proto",
- "strata-bridge-primitives",
  "terrors",
  "tokio",
 ]
@@ -8432,6 +8442,7 @@ dependencies = [
  "quinn",
  "rkyv",
  "strata-bridge-primitives",
+ "terrors",
 ]
 
 [[package]]
@@ -8439,12 +8450,10 @@ name = "secret-service-server"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "hashbrown 0.15.3",
  "musig2",
  "quinn",
  "rkyv",
  "secret-service-proto",
- "strata-bridge-primitives",
  "terrors",
  "tokio",
  "tracing",
@@ -10210,8 +10219,10 @@ dependencies = [
 [[package]]
 name = "terrors"
 version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "987fd8c678ca950df2a18b2c6e9da6ca511d449278fab3565efe0d49c0c07a5d"
+source = "git+https://github.com/alpenlabs/terrors#a387ade7e3ced85e7421afd495e5d6c7ab87a0f4"
+dependencies = [
+ "rkyv",
+]
 
 [[package]]
 name = "thiserror"
