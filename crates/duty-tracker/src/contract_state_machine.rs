@@ -1996,7 +1996,7 @@ impl ContractSM {
                     .cloned()
                     .unwrap_or_else(|| cfg.build_graph(graph_input));
 
-                verify_partials_from_peer(
+                if !verify_partials_from_peer(
                     &cfg,
                     &signer,
                     &claim_txid,
@@ -2004,7 +2004,12 @@ impl ContractSM {
                     graph_nonces,
                     agg_nonces,
                     &partial_sigs,
-                )?;
+                )? {
+                    warn!(%claim_txid, %signer, "partials verification failed");
+
+                    // not a cause for error, can happen due to nodes restarting
+                    return Ok(None);
+                };
 
                 info!("partials verified successfully, adding to collection");
                 session_partials.insert(signer, unpacked);
@@ -3315,7 +3320,7 @@ fn verify_partials_from_peer(
     graph_nonces: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
     agg_nonces: &BTreeMap<Txid, Vec<AggNonce>>,
     partial_sigs: &[PartialSignature],
-) -> Result<(), TransitionErr> {
+) -> Result<bool, TransitionErr> {
     let individual_pubkey = cfg
         .operator_table
         .op_key_to_btc_key(signer)
@@ -3323,11 +3328,22 @@ fn verify_partials_from_peer(
 
     let individual_pubnonces = graph_nonces
         .get(claim_txid)
-        .map(|v| {
-            v.get(signer)
-                .expect("individual pubnonce must be present in unpacked")
-        })
         .expect("claim txid must be present in graph nonces")
+        .clone();
+
+    let expected_pubnonce_count = cfg.operator_table.cardinality();
+    let available_pubnonce_count = individual_pubnonces.len();
+    if available_pubnonce_count != expected_pubnonce_count {
+        // this can happen if a peer crashes right after broadcasting their own pubnonce,
+        // but before they commit their own or before they receive the pubnonces from others.
+        warn!(%available_pubnonce_count, %expected_pubnonce_count, "received partials too early, ignoring");
+
+        return Ok(false);
+    }
+
+    let individual_pubnonces = individual_pubnonces
+        .get(signer)
+        .expect("signer must have pubnonces in graph nonces")
         .clone()
         .pack();
 
@@ -3383,7 +3399,7 @@ fn verify_partials_from_peer(
         return Err(TransitionErr(format!("partial signature verification failed for claim txid ({}) from signer ({})", claim_txid, signer)));
     }
 
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]
