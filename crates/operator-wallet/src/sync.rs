@@ -1,16 +1,17 @@
 //! Operator wallet chain data sync module
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::BTreeSet, fmt::Debug, sync::Arc};
 
 use bdk_bitcoind_rpc::{
     bitcoincore_rpc::{self},
     BlockEvent, Emitter,
 };
 use bdk_wallet::{
-    bitcoin::{Block, Transaction},
+    bitcoin::{Block, OutPoint, Transaction},
     chain::CheckPoint,
     Wallet,
 };
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
+use tracing::debug;
 
 /// A message sent from a sync task to the syncer
 #[derive(Debug)]
@@ -33,7 +34,11 @@ pub enum Backend {
 
 impl Backend {
     /// Syncs a wallet using the internal update
-    pub async fn sync_wallet(&self, wallet: &mut Wallet) -> Result<(), SyncError> {
+    pub async fn sync_wallet(
+        &self,
+        wallet: &mut Wallet,
+        leases: &mut BTreeSet<OutPoint>,
+    ) -> Result<(), SyncError> {
         let last_cp = wallet.latest_checkpoint();
         let (tx, mut rx) = unbounded_channel();
 
@@ -51,13 +56,33 @@ impl Backend {
                     let connected_to = ev.connected_to();
                     wallet
                         .apply_block_connected_to(&ev.block, height, connected_to)
-                        .expect("block to be added")
+                        .expect("block to be added");
+                    let spent_outpoints = ev
+                        .block
+                        .txdata
+                        .iter()
+                        .flat_map(|tx| tx.input.iter())
+                        .map(|txin| txin.previous_output);
+                    for outpoint in spent_outpoints {
+                        leases.remove(&outpoint);
+                    }
                 }
-                WalletUpdate::MempoolTxs(txs) => wallet.apply_unconfirmed_txs(txs),
+                WalletUpdate::MempoolTxs(txs) => {
+                    let spent_outpoints = txs
+                        .iter()
+                        .flat_map(|a| a.0.input.iter())
+                        .map(|txin| txin.previous_output);
+                    for outpoint in spent_outpoints {
+                        leases.remove(&outpoint);
+                    }
+                    wallet.apply_unconfirmed_txs(txs);
+                }
             }
         }
 
         handle.await.expect("thread to be fine")?;
+
+        debug!(utxo_leases=?leases, "finished operator wallet sync");
 
         Ok(())
     }
