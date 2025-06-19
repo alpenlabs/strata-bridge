@@ -20,6 +20,7 @@ x-base-bridge-node: &base-bridge-node
     - RUST_BACKTRACE=full
     - MULTI_THREAD_GRAPH_GEN=0 # 1 in order to use an OS thread per graph generation
     - SP1_PROVER=$SP1_PROVER
+    - SP1_PROOF_STRATEGY=$SP1_PROOF_STRATEGY
     - NETWORK_RPC_URL=$NETWORK_RPC_URL
     - NETWORK_PRIVATE_KEY=$NETWORK_PRIVATE_KEY
   depends_on:
