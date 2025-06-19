@@ -4,7 +4,7 @@ use bitcoin::{bip32::Xpriv, hashes::Hash, Txid};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
-use secret_service_proto::v1::traits::{Server, StakeChainPreimages};
+use secret_service_proto::v2::traits::{Server, StakeChainPreimages};
 use sha2::Sha256;
 
 use super::paths::STAKECHAIN_PREIMG_IKM_PATH;
