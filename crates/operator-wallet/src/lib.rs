@@ -1,6 +1,8 @@
 //! Operator wallet
 pub mod sync;
 
+use std::collections::BTreeSet;
+
 use algebra::predicate;
 use bdk_wallet::{
     bitcoin::{
@@ -65,6 +67,7 @@ pub struct OperatorWallet {
     stakechain_addr_script_buf: ScriptBuf,
     general_addr_script_buf: ScriptBuf,
     sync_backend: Backend,
+    leased_outpoints: BTreeSet<OutPoint>,
 }
 
 impl OperatorWallet {
@@ -100,6 +103,7 @@ impl OperatorWallet {
             general_wallet,
             stakechain_wallet,
             sync_backend,
+            leased_outpoints: BTreeSet::new(),
         }
     }
 
@@ -131,6 +135,15 @@ impl OperatorWallet {
         self.general_wallet
             .list_unspent()
             .filter(|utxo| !self.is_anchor(utxo))
+    }
+
+    fn lease(&mut self, outpoint: OutPoint) -> Result<(), CreateTxError> {
+        if self.leased_outpoints.contains(&outpoint) {
+            Err(CreateTxError::UnknownUtxo)
+        } else {
+            self.leased_outpoints.insert(outpoint);
+            Ok(())
+        }
     }
 
     /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
@@ -181,16 +194,24 @@ impl OperatorWallet {
     /// Attempts to find a funding UTXO for a stake, ignoring outpoints for which ignore returns
     /// `true`
     pub fn claim_funding_utxo(
-        &self,
+        &mut self,
         ignore: impl Fn(&OutPoint) -> bool,
     ) -> (Option<OutPoint>, u64) {
-        let ignore_local = predicate::contramap(|o: &LocalOutput| o.outpoint, ignore);
-        let consider = predicate::not(ignore_local);
+        let ignore_leased = |o: &OutPoint| self.leased_outpoints.contains(o);
+        let consider = predicate::contramap(
+            |o: &LocalOutput| o.outpoint,
+            predicate::nor(ignore, ignore_leased),
+        );
 
         let mut considered = self.claim_funding_outputs().filter(consider);
         let claim_funding_output = considered.next().map(|utxo| utxo.outpoint);
-
         let remaining = considered.count() as u64;
+
+        if let Some(o) = &claim_funding_output {
+            self.lease(*o)
+                .expect("must be able to lease claim funding output");
+        }
+
         (claim_funding_output, remaining)
     }
 
@@ -239,10 +260,10 @@ impl OperatorWallet {
     /// Syncs the wallet using the backend provided on construction
     pub async fn sync(&mut self) -> Result<(), SyncError> {
         self.sync_backend
-            .sync_wallet(&mut self.general_wallet)
+            .sync_wallet(&mut self.general_wallet, &mut self.leased_outpoints)
             .await?;
         self.sync_backend
-            .sync_wallet(&mut self.stakechain_wallet)
+            .sync_wallet(&mut self.stakechain_wallet, &mut self.leased_outpoints)
             .await?;
         Ok(())
     }
