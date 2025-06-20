@@ -618,7 +618,7 @@ dependencies = [
  "alloy-rlp",
  "alloy-serde",
  "alloy-sol-types",
- "itertools 0.14.0",
+ "itertools 0.13.0",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -1855,7 +1855,7 @@ dependencies = [
  "bitflags 2.9.1",
  "cexpr",
  "clang-sys",
- "itertools 0.10.5",
+ "itertools 0.12.1",
  "log",
  "prettyplease",
  "proc-macro2",
@@ -4780,7 +4780,7 @@ dependencies = [
  "rtnetlink",
  "system-configuration 0.6.1",
  "tokio",
- "windows 0.53.0",
+ "windows 0.52.0",
 ]
 
 [[package]]
@@ -4986,15 +4986,6 @@ name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
-dependencies = [
- "either",
-]
-
-[[package]]
-name = "itertools"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b192c782037fadd9cfa75548310488aabdbf3d2da73885b31bd0abd03351285"
 dependencies = [
  "either",
 ]
@@ -7444,7 +7435,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be769465445e8c1474e9c5dac2018218498557af32d9ed057325ec9a41ae81bf"
 dependencies = [
  "heck 0.4.1",
- "itertools 0.14.0",
+ "itertools 0.12.1",
  "log",
  "multimap",
  "once_cell",
@@ -7464,7 +7455,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8a56d757972c98b346a9b766e3f02746cde6dd1cd1d1d563472929fdd74bec4d"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.101",
@@ -9777,6 +9768,7 @@ dependencies = [
 name = "strata-bridge-connectors"
 version = "0.1.0"
 dependencies = [
+ "ark-serialize 0.5.0",
  "bincode",
  "bitcoin",
  "bitcoin-script",
@@ -10040,7 +10032,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=chore%2Fupdate-rust-toolchain#cc271cc7d07b342b4af591470c41d5a8b7c283f1"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#6cbebacfc094ddf3a1df305a0a2082a713ed76d0"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10059,7 +10051,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=chore%2Fupdate-rust-toolchain#cc271cc7d07b342b4af591470c41d5a8b7c283f1"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#6cbebacfc094ddf3a1df305a0a2082a713ed76d0"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10072,7 +10064,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?branch=chore%2Fupdate-rust-toolchain#cc271cc7d07b342b4af591470c41d5a8b7c283f1"
+source = "git+https://github.com/alpenlabs/strata-p2p.git#6cbebacfc094ddf3a1df305a0a2082a713ed76d0"
 dependencies = [
  "bitcoin",
  "libp2p",
@@ -11485,16 +11477,6 @@ dependencies = [
 
 [[package]]
 name = "windows"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "efc5cf48f83140dcaab716eeaea345f9e93d0018fb81162753a3f76c3397b538"
-dependencies = [
- "windows-core 0.53.0",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows"
 version = "0.61.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5ee8f3d025738cb02bad7868bbb5f8a6327501e870bf51f1b455b0a2454a419"
@@ -11526,16 +11508,6 @@ dependencies = [
 
 [[package]]
 name = "windows-core"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9dcc5b895a6377f1ab9fa55acedab1fd5ac0db66ad1e6c7f47e28a22e446a5dd"
-dependencies = [
- "windows-result 0.1.2",
- "windows-targets 0.52.6",
-]
-
-[[package]]
-name = "windows-core"
 version = "0.61.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c0fdd3ddb90610c7638aa2b3a3ab2904fb9e5cdbecc643ddb3647212781c4ae3"
@@ -11543,7 +11515,7 @@ dependencies = [
  "windows-implement",
  "windows-interface",
  "windows-link",
- "windows-result 0.3.4",
+ "windows-result",
  "windows-strings",
 ]
 
@@ -11594,15 +11566,6 @@ checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
  "windows-core 0.61.2",
  "windows-link",
-]
-
-[[package]]
-name = "windows-result"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e383302e8ec8515204254685643de10811af0ed97ea37210dc26fb0032647f8"
-dependencies = [
- "windows-targets 0.52.6",
 ]
 
 [[package]]
