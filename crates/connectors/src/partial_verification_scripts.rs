@@ -2,11 +2,13 @@
 //! program.
 use std::{fs, sync::LazyLock, time};
 
-use bitcoin::ScriptBuf;
+use ark_serialize::CanonicalSerialize;
+use bitcoin::{hex::DisplayHex, ScriptBuf};
 use bitvm::chunk::api::{api_generate_partial_script, NUM_TAPS};
-use strata_bridge_proof_snark::bridge_vk;
-use tracing::warn;
+use strata_bridge_proof_snark::bridge_vk::{self, fetch_groth16_vk};
+use tracing::{info, warn};
 
+const VK_PATH: &str = "strata-bridge-groth16-vk.hex";
 const PARTIAL_VERIFIER_SCRIPTS_PATH: &str = "strata-bridge-vk.scripts";
 
 /// The verifier scripts for the groth16 verifier program.
@@ -66,7 +68,24 @@ pub fn load_or_create_verifier_scripts() -> [ScriptBuf; NUM_TAPS] {
 
         let compilation_start_time = time::Instant::now();
 
-        let verifier_scripts = api_generate_partial_script(&bridge_vk::GROTH16_VERIFICATION_KEY);
+        info!(vk_path=%VK_PATH, "trying to fetch verification key from file");
+        let bridge_g16_vk = fetch_groth16_vk(VK_PATH).unwrap_or_else(|| {
+            warn!(vk_path=%VK_PATH, "could not find verification key, generating a new one");
+            let vk = bridge_vk::GROTH16_VERIFICATION_KEY.clone();
+
+            info!(vk_path=%VK_PATH, "dumping verification key to file");
+
+            let mut vk_serialized = Vec::new();
+            vk.serialize_compressed(&mut vk_serialized)
+                .expect("should be able to serialize verification key");
+
+            let vk_hex = vk_serialized.to_lower_hex_string();
+
+            fs::write(VK_PATH, vk_hex).expect("should be able to write verification key to file");
+            vk
+        });
+
+        let verifier_scripts = api_generate_partial_script(&bridge_g16_vk);
 
         warn!(action = "caching verifier scripts for later", cache_file=%PARTIAL_VERIFIER_SCRIPTS_PATH);
         let serialized: Vec<Vec<u8>> = verifier_scripts
