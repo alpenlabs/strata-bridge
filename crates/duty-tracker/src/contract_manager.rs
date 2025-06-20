@@ -742,16 +742,14 @@ impl ContractManagerCtx {
 
         match msg {
             UnsignedGossipsubMsg::StakeChainExchange {
-                operator_pk,
+                operator_pk: _,
                 pre_stake_txid,
                 pre_stake_vout,
                 stake_chain_id: _,
             } => {
-                self.state.stake_chains.process_exchange(
-                    key,
-                    operator_pk,
-                    OutPoint::new(pre_stake_txid, pre_stake_vout),
-                )?;
+                self.state
+                    .stake_chains
+                    .process_exchange(key, OutPoint::new(pre_stake_txid, pre_stake_vout))?;
 
                 self.state_handles
                     .stake_chain_persister
@@ -799,7 +797,10 @@ impl ContractManagerCtx {
                             &self.cfg.operator_table,
                             self.state.stake_chains.state().clone(),
                         )
-                        .await?;
+                        .await
+                        .inspect_err(|e| {
+                            error!(%e, "could not persist stake chain data to disk");
+                        })?;
 
                     let deposit_idx = contract.cfg().deposit_idx;
                     let stake_tx = self

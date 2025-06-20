@@ -85,6 +85,11 @@ pub trait PublicDb {
         stake_id: u32,
     ) -> DbResult<Option<Txid>>;
 
+    /// Adds all [`StakeTxData`] for a given [`OperatorIdx`] and stake index (`u32`).
+    ///
+    /// This is used to dump all stake-chain related data at once.
+    async fn add_all_stake_data(&self, data: Vec<(OperatorIdx, u32, StakeTxData)>) -> DbResult<()>;
+
     /// Gets all [`StakeTxData`] for a given [`OperatorIdx`].
     async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>>;
 

@@ -36,28 +36,31 @@ impl StakeChainPersister {
         cfg: &OperatorTable,
         state: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<(), DbError> {
-        let op_id_and_chain_inputs = state.iter().filter_map(|(p2p_key, chain_inputs)| {
+        let op_id_and_chain_inputs = state.into_iter().filter_map(|(p2p_key, chain_inputs)| {
             // extract only those with valid operator ids
-            cfg.op_key_to_idx(p2p_key)
+            cfg.op_key_to_idx(&p2p_key)
                 .map(|op_id| (op_id, chain_inputs))
         });
 
         info!("committing all stake chain data to disk");
+        let mut stake_chain_data = Vec::new();
         for (operator_id, chain_inputs) in op_id_and_chain_inputs {
-            for (stake_index, stake_input) in chain_inputs.stake_inputs.iter() {
+            for (stake_index, stake_input) in chain_inputs.stake_inputs.into_iter() {
                 trace!(
                     %operator_id,
                     %stake_index,
                     ?stake_input,
-                    "committing stake data to disk"
+                    "constructing stake data to commit to disk"
                 );
-                debug!(%operator_id, %stake_index, hash=%stake_input.hash, "committing stake data to disk");
+                debug!(%operator_id, %stake_index, hash=%stake_input.hash, "constructing stake data to commit to disk");
 
-                self.db
-                    .add_stake_data(operator_id, *stake_index, stake_input.to_owned())
-                    .await?;
+                stake_chain_data.push((operator_id, stake_index, stake_input));
             }
         }
+
+        info!("committing all stake chain data to disk");
+        self.db.add_all_stake_data(stake_chain_data).await?;
+
         Ok(())
     }
 
@@ -80,7 +83,6 @@ impl StakeChainPersister {
                     stake_chain_inputs.insert(
                         p2p_key.clone(),
                         StakeChainInputs {
-                            operator_pubkey,
                             pre_stake_outpoint,
                             stake_inputs: stake_data
                                 .into_iter()

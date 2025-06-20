@@ -19,7 +19,7 @@ use super::{
     models::DbStakeTxData,
     types::{
         DbAggNonce, DbHash, DbInputIndex, DbPartialSig, DbSignature, DbTaprootWitness, DbTxid,
-        DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures,
+        DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures, DbXOnlyPublicKey,
     },
 };
 use crate::{
@@ -401,13 +401,14 @@ impl PublicDb for SqliteDb {
 
                 sqlx::query!(
                     "INSERT OR IGNORE INTO operator_stake_data
-                        (operator_idx, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
-                        VALUES ($1, $2, $3, $4, $5, $6)",
+                        (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)",
                     operator_idx,
                     stake_index,
                     stake_data.funding_txid,
                     stake_data.funding_vout,
                     stake_data.hash,
+                    stake_data.operator_pubkey,
                     stake_data.withdrawal_fulfillment_pk,
                 )
                 .execute(&mut *tx)
@@ -433,9 +434,10 @@ impl PublicDb for SqliteDb {
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
+                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
-                    WHERE operator_idx = $1 AND deposit_id = $2"#,
+                    WHERE operator_idx = $1 AND deposit_idx = $2"#,
                 operator_idx,
                 deposit_id
             )
@@ -447,6 +449,39 @@ impl PublicDb for SqliteDb {
         .await
     }
 
+    async fn add_all_stake_data(&self, data: Vec<(OperatorIdx, u32, StakeTxData)>) -> DbResult<()> {
+        execute_with_retries(&self.config, || {
+            let pool = self.pool.to_owned();
+            let data = data.clone();
+            async move {
+                let mut tx = pool.begin().await.map_err(StorageError::from)?;
+
+                for (operator_idx, deposit_id, stake_data) in data {
+                    let stake_data = DbStakeTxData::from(stake_data);
+                    sqlx::query!(
+                        "INSERT OR IGNORE INTO operator_stake_data
+                            (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        operator_idx,
+                        deposit_id,
+                        stake_data.funding_txid,
+                        stake_data.funding_vout,
+                        stake_data.hash,
+                        stake_data.operator_pubkey,
+                        stake_data.withdrawal_fulfillment_pk,
+                    )
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(StorageError::from)?;
+                }
+
+                tx.commit().await.map_err(StorageError::from)?;
+
+                Ok(())
+            }
+        }).await
+    }
+
     async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
         execute_with_retries(self.config(), || async {
             Ok(sqlx::query_as!(
@@ -455,10 +490,11 @@ impl PublicDb for SqliteDb {
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
-                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
+                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey",
+                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey"
                     FROM operator_stake_data
                     WHERE operator_idx = $1
-                    ORDER BY deposit_id ASC"#,
+                    ORDER BY deposit_idx ASC"#,
                 operator_idx,
             )
             .fetch_all(&self.pool)
@@ -1213,6 +1249,7 @@ mod tests {
                 },
                 hash: stake_hash,
                 withdrawal_fulfillment_pk: withdrawal_fulfillment_pk.clone(),
+                operator_pubkey: generate_xonly_pubkey(),
             };
 
             assert!(

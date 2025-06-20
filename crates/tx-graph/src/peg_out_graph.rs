@@ -1291,7 +1291,6 @@ mod tests {
             pre_stake,
             operator_funds,
             operator_pubkey,
-            connector_cpfp,
         );
 
         info!("signing and broadcasting the first stake tx");
@@ -1860,15 +1859,10 @@ mod tests {
             operator_funds: funding_outpoint,
             hash: new_hash,
             withdrawal_fulfillment_pk: new_withdrawal_fulfillment_pk,
+            operator_pubkey,
         };
 
-        let new_stake_tx = first_stake_tx.advance(
-            &context,
-            &stake_chain_params,
-            stake_data,
-            operator_pubkey,
-            connector_cpfp,
-        );
+        let new_stake_tx = first_stake_tx.advance(&context, &stake_chain_params, stake_data);
 
         let new_stake_txid = new_stake_tx.compute_txid();
         let input = PegOutGraphInput {

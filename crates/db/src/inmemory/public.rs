@@ -217,6 +217,23 @@ impl PublicDb for PublicDbInMemory {
             .copied())
     }
 
+    async fn add_all_stake_data(&self, data: Vec<(OperatorIdx, u32, StakeTxData)>) -> DbResult<()> {
+        let mut operator_stake_data = self.stake_data.write().await;
+
+        for (operator_idx, stake_index, stake_data) in data {
+            if let Some(data) = operator_stake_data.get_mut(&operator_idx) {
+                data.insert(stake_index, stake_data);
+            } else {
+                let mut data = HashMap::new();
+                data.insert(stake_index, stake_data);
+
+                operator_stake_data.insert(operator_idx, data);
+            }
+        }
+
+        Ok(())
+    }
+
     async fn set_pre_stake(&self, operator_idx: OperatorIdx, pre_stake: OutPoint) -> DbResult<()> {
         let mut pre_stake_table = self.pre_stake_table.write().await;
         pre_stake_table.insert(operator_idx, pre_stake);

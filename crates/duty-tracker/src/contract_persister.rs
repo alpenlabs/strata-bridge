@@ -177,7 +177,7 @@ impl ContractPersister {
 
             let _: SqliteQueryResult = sqlx::query(
                 r#"
-                INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) 
+                INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state)
                 VALUES (?, ?, ?, ?, ?)
                 "#,
             )
@@ -252,7 +252,7 @@ impl ContractPersister {
             for (deposit_txid, deposit_idx, deposit_tx_bytes, operator_table_bytes, state_json) in &contracts_data {
                 let _: SqliteQueryResult = sqlx::query(
                     r#"
-                    INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state) 
+                    INSERT OR REPLACE INTO contracts (deposit_txid, deposit_idx, deposit_tx, operator_table, state)
                     VALUES (?, ?, ?, ?, ?)
                     "#,
                 )
