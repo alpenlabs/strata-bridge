@@ -101,7 +101,7 @@ pub fn add_bincode_padding_bytes32() -> Script {
     }
 }
 
-/// Extracts the committed adta from a WOTS signature.
+/// Extracts the committed data from a WOTS signature.
 ///
 /// It assumes that that the signature consists of a 4-byte checksum that is removed.
 /// The remaining data is assumed to be in the form of nibbles in little-endian order (i.e., the MSB
