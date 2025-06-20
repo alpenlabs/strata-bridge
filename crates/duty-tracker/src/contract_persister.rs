@@ -23,7 +23,7 @@ use crate::contract_state_machine::{ContractCfg, ContractSM, MachineState};
 #[derive(Debug, Clone, Error)]
 pub enum ContractPersistErr {
     /// Unexpected error.
-    #[error("Unexpected error: {0}")]
+    #[error("unexpected error: {0}")]
     Unexpected(String),
 }
 
