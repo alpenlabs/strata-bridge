@@ -689,7 +689,7 @@ mod prop_tests {
             let pred = move |tx: &Transaction| tx.compute_txid().to_raw_hash().to_byte_array()[31] % modsize == 0;
             DebuggablePredicate {
                 pred: std::sync::Arc::new(pred),
-                description: format!("txid mod {} == 0", modsize),
+                description: format!("txid mod {modsize} == 0"),
             }
         }
     }

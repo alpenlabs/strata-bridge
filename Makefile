@@ -271,5 +271,5 @@ disprove: ## Issue a disprove transaction, set `POST_ASSERT_TXID` env var to use
 		--btc-user user \
 		--btc-pass password \
 		--params bin/dev-cli/params.toml \
-		--vk-path strata_bridge_groth16_vk.hex \
+		--vk-path strata-bridge-groth16-vk.hex \
 		--bridge-node-url http://localhost:15678/rpc

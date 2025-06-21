@@ -6,11 +6,8 @@ use std::{fmt, marker::PhantomData, ops::Deref, sync::Arc};
 
 use bitcoin::Txid;
 use bitvm::{
-    chunk::api::{
-        Assertions as g16Assertions, PublicKeys as g16PublicKeys, Signatures as g16Signatures,
-        NUM_HASH, NUM_PUBS, NUM_U256,
-    },
-    signatures::wots_api::{wots256, wots_hash},
+    chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256},
+    signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256},
 };
 use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 use proptest_derive::Arbitrary;
@@ -28,15 +25,33 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
+pub type BitVmG16PublicKeys = (
+    [<wots256 as Wots>::PublicKey; NUM_PUBS],
+    [<wots256 as Wots>::PublicKey; NUM_U256],
+    [<wots_hash as Wots>::PublicKey; NUM_HASH],
+);
+
+pub type BitVmG16Sigs = (
+    Box<[<wots256 as Wots>::Signature; 1]>,
+    Box<[<wots256 as Wots>::Signature; 14]>,
+    Box<[<wots_hash as Wots>::Signature; 363]>,
+);
+
+pub type BitVmG16Assertions = (
+    [[u8; 32]; NUM_PUBS],
+    [[u8; 32]; NUM_U256],
+    [[u8; 16]; NUM_HASH],
+);
+
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots256PublicKey(pub Arc<wots256::PublicKey>);
+pub struct Wots256PublicKey(pub Arc<<wots256 as Wots>::PublicKey>);
 
 impl Wots256PublicKey {
     /// Creates a new 256-bit WOTS public key from a secret key string.
     pub fn new(msk: &str, txid: Txid) -> Self {
         let sk = get_deposit_master_secret_key(msk, txid);
 
-        Self(Arc::new(wots256::generate_public_key(
+        Self(Arc::new(<wots256 as Wots>::generate_public_key(
             &secret_key_for_bridge_out_txid(&sk),
         )))
     }
@@ -129,7 +144,7 @@ impl Arbitrary for Wots256PublicKey {
 
 /// A 128-bit WOTS public key used for hashing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct WotsHashPublicKey(pub wots_hash::PublicKey);
+pub struct WotsHashPublicKey(pub <wots_hash as Wots>::PublicKey);
 
 impl From<strata_p2p_types::Wots128PublicKey> for WotsHashPublicKey {
     fn from(value: strata_p2p_types::Wots128PublicKey) -> Self {
@@ -144,12 +159,12 @@ impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16PublicKeys(pub Arc<g16PublicKeys>);
+pub struct Groth16PublicKeys(pub Arc<BitVmG16PublicKeys>);
 
-// should probably not do this but `g16PublicKeys` is already a tuple, so these impls make the
+// should probably not do this but `G16PublicKeys` is already a tuple, so these impls make the
 // tuple access more ergonomic.
 impl Deref for Groth16PublicKeys {
-    type Target = g16PublicKeys;
+    type Target = Arc<BitVmG16PublicKeys>;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -371,7 +386,7 @@ impl Groth16PublicKeys {
 /// All the wots signatures defined here and used in this codebase have this structure i.e., each
 /// signature is an array of tuples of a 20-byte preimage and a digit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct WotsSigStub<const N: usize>([([u8; 20], u8); N]);
+struct WotsSigStub<const N: usize>([[u8; 21]; N]);
 
 impl<const N: usize> Serialize for WotsSigStub<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -399,7 +414,7 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSigStub<N> {
             type Value = WotsSigStub<N>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(formatter, "an array of {N} ([u8; 20], u8) tuples")
+                write!(formatter, "an array of {N} [u8; 21] arrays")
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -408,12 +423,12 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSigStub<N> {
             {
                 let mut items = Vec::with_capacity(N);
                 for _ in 0..N {
-                    let item: ([u8; 20], u8) = seq
+                    let item: [u8; 21] = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(items.len(), &self))?;
                     items.push(item);
                 }
-                let arr: [([u8; 20], u8); N] = items
+                let arr: [[u8; 21]; N] = items
                     .try_into()
                     .map_err(|_| de::Error::custom("invalid array length"))?;
 
@@ -429,7 +444,7 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSigStub<N> {
 
 /// A 256-bit WOTS signature.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Wots256Sig(pub wots256::Signature);
+pub struct Wots256Sig(pub <wots256 as Wots>::Signature);
 
 impl Wots256Sig {
     /// Creates a new 256-bit WOTS signature from a master secret key, a seed transaction ID, and
@@ -437,7 +452,7 @@ impl Wots256Sig {
     pub fn new(msk: &str, seed_txid: Txid, data: &[u8; 32]) -> Self {
         let sk = get_deposit_master_secret_key(msk, seed_txid);
 
-        Self(wots256::get_signature(
+        Self(<wots256 as Wots>::sign(
             &secret_key_for_bridge_out_txid(&sk),
             data,
         ))
@@ -445,7 +460,7 @@ impl Wots256Sig {
 }
 
 impl Deref for Wots256Sig {
-    type Target = wots256::Signature;
+    type Target = <wots256 as Wots>::Signature;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -467,7 +482,7 @@ impl<'de> Deserialize<'de> for Wots256Sig {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub struct WotsHashSig(wots_hash::Signature);
+pub struct WotsHashSig(<wots_hash as Wots>::Signature);
 
 impl Serialize for WotsHashSig {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
@@ -483,10 +498,10 @@ impl<'de> Deserialize<'de> for WotsHashSig {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
-pub struct Groth16Sigs(pub g16Signatures);
+pub struct Groth16Sigs(pub BitVmG16Sigs);
 
 impl Deref for Groth16Sigs {
-    type Target = g16Signatures;
+    type Target = BitVmG16Sigs;
 
     fn deref(&self) -> &Self::Target {
         &self.0
@@ -540,20 +555,20 @@ impl Groth16Sigs {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
         Self((
-            [wots256::get_signature(
+            [wots256::sign(
                 &secret_key_for_public_inputs_hash(&deposit_msk),
                 &assertions.groth16.0[0],
             )]
             .into(),
             std::array::from_fn(|i| {
-                wots256::get_signature(
+                wots256::sign(
                     &secret_key_for_proof_element(&deposit_msk, i),
                     &assertions.groth16.1[i],
                 )
             })
             .into(),
             std::array::from_fn(|i| {
-                wots_hash::get_signature(
+                wots_hash::sign(
                     &secret_key_for_proof_element(&deposit_msk, i + 40),
                     &assertions.groth16.2[i],
                 )
@@ -661,7 +676,7 @@ pub struct Assertions {
     pub withdrawal_fulfillment: [u8; 32],
 
     /// The assertions for the Groth16 proof.
-    pub groth16: g16Assertions,
+    pub groth16: BitVmG16Assertions,
 }
 
 // FIXME: (@Rajil1213) replace these with counterparts from the `wots` crate.
@@ -702,12 +717,7 @@ mod tests {
 
     #[test]
     fn test_generic_wots_sig_serde() {
-        let wots_signature = WotsSigStub::<4>([
-            ([0u8; 20], 0),
-            ([1u8; 20], 1),
-            ([2u8; 20], 2),
-            ([3u8; 20], 3),
-        ]);
+        let wots_signature = WotsSigStub::<4>([[0u8; 21], [1u8; 21], [2u8; 21], [3u8; 21]]);
 
         let serialized = serde_json::to_string(&wots_signature).expect("must be able to serialize");
         let deserialized: WotsSigStub<4> =

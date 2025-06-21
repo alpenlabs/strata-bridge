@@ -1,7 +1,7 @@
 //! In-memory persistence for the Winternitz One-Time Signature (WOTS) keys.
 
 use bitcoin::{bip32::Xpriv, hashes::Hash, Txid};
-use bitvm::signatures::wots_api::{wots256, wots_hash};
+use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
@@ -106,7 +106,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         vout: u32,
         index: u32,
         msg: &[u8; 16],
-    ) -> wots_hash::Signature {
+    ) -> <wots_hash as Wots>::Signature {
         let sk = self.get_128_secret_key(txid, vout, index).await;
         wots_sign_128_bitvm(msg, &sk)
     }
@@ -117,7 +117,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         vout: u32,
         index: u32,
         msg: &[u8; 32],
-    ) -> wots256::Signature {
+    ) -> <wots256 as Wots>::Signature {
         let sk = self.get_256_secret_key(txid, vout, index).await;
         wots_sign_256_bitvm(msg, &sk)
     }

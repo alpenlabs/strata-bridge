@@ -642,7 +642,7 @@ mod tests {
         Transaction, TxOut,
     };
     use bitcoind_async_client::types::GetTxOut;
-    use bitvm::signatures::wots_api::HASH_LEN;
+    use bitvm::signatures::HASH_LEN;
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
     use secp256k1::{
@@ -789,8 +789,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission but got: {:?}",
-            result
+            "must have successful package submission but got: {result:?}",
         );
         assert_eq!(
             result.tx_results.len(),
@@ -866,8 +865,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "submit package message must be success but got: {:?}",
-            result
+            "submit package message must be success but got: {result:?}",
         );
         assert_eq!(result.tx_results.len(), 2, "must have two tx results");
 
@@ -999,8 +997,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "submit package message must be success but got: {:?}",
-            result
+            "submit package message must be success but got: {result:?}",
         );
         assert_eq!(result.tx_results.len(), 2, "must have two tx results");
 
@@ -1049,8 +1046,8 @@ mod tests {
         for _ in 0..faulty_assertions.groth16.2.len() {
             let proof_index_to_tweak = OsRng.gen_range(0..faulty_assertions.groth16.2.len());
             warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
-            if faulty_assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN as usize] {
-                faulty_assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN as usize];
+            if faulty_assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN] {
+                faulty_assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN];
                 break;
             }
         }
@@ -1330,8 +1327,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must be able to submit first stake package but got: {:?}",
-            result
+            "must be able to submit first stake package but got: {result:?}",
         );
 
         btc_client.generate_to_address(1, &wallet_addr).unwrap();
@@ -1432,8 +1428,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission for claim but got: {:?}",
-            result
+            "must have successful package submission for claim but got: {result:?}",
         );
         assert_eq!(
             result.tx_results.len(),
@@ -1528,8 +1523,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission but got: {:?}",
-            result
+            "must have successful package submission but got: {result:?}",
         );
         assert_eq!(
             result.tx_results.len(),
@@ -1643,8 +1637,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission but got: {:?}",
-            result
+            "must have successful package submission but got: {result:?}",
         );
         assert_eq!(
             result.tx_results.len(),
@@ -1807,8 +1800,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission for claim but got: {:?}",
-            result
+            "must have successful package submission for claim but got: {result:?}",
         );
         assert_eq!(
             result.tx_results.len(),
@@ -1934,8 +1926,7 @@ mod tests {
 
         assert_eq!(
             result.package_msg, "success",
-            "must have successful package submission for new stake but got: {:?}",
-            result
+            "must have successful package submission for new stake but got: {result:?}",
         );
         assert_eq!(
             result.tx_results.len(),

@@ -135,7 +135,7 @@ mod tests {
 
             [tx_graph]
             tag = "alpn"
-            deposit_amount = {0}
+            deposit_amount = {deposit_amount}
             operator_fee = 1_000_000
             challenge_cost = 10_000_000
             refund_delay = 1_008
@@ -165,14 +165,13 @@ mod tests {
             l1_reorg_safe_depth = 1_000
             target_l2_batch_size = 1_000
             address_length = 20
-            deposit_amount = {0}
+            deposit_amount = {deposit_amount}
             rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000000000"
             dispatch_assignment_dur = 1000
             proof_publish_mode = "strict"
             max_deposits_in_block = 20
             network = "signet"
         "#,
-            deposit_amount
         );
 
         let deserialized = toml::from_str::<Params>(&params);

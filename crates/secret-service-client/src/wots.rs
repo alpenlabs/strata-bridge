@@ -2,7 +2,7 @@
 use std::sync::Arc;
 
 use bitcoin::{hashes::Hash, Txid};
-use bitvm::signatures::wots_api::{wots256, wots_hash};
+use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use quinn::Connection;
 use secret_service_proto::v1::{
     traits::{Client, ClientError, Origin, WotsSigner},
@@ -115,7 +115,7 @@ impl WotsSigner<Client> for WotsClient {
         vout: u32,
         index: u32,
         msg: &[u8; 16],
-    ) -> <Client as Origin>::Container<wots_hash::Signature> {
+    ) -> <Client as Origin>::Container<<wots_hash as Wots>::Signature> {
         let wire_msg = ClientMessage::WotsGet128Signature {
             specifier: WotsKeySpecifier {
                 txid: txid.as_raw_hash().to_byte_array(),
@@ -137,7 +137,7 @@ impl WotsSigner<Client> for WotsClient {
         vout: u32,
         index: u32,
         msg: &[u8; 32],
-    ) -> <Client as Origin>::Container<wots256::Signature> {
+    ) -> <Client as Origin>::Container<<wots256 as Wots>::Signature> {
         let wire_msg = ClientMessage::WotsGet256Signature {
             specifier: WotsKeySpecifier {
                 txid: txid.as_raw_hash().to_byte_array(),

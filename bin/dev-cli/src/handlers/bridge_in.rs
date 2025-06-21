@@ -78,10 +78,7 @@ fn build_timelock_miniscript(
     refund_delay: u16,
     recovery_xonly_pubkey: XOnlyPublicKey,
 ) -> ScriptBuf {
-    let script = format!(
-        "and_v(v:pk({}),older({}))",
-        recovery_xonly_pubkey, refund_delay
-    );
+    let script = format!("and_v(v:pk({recovery_xonly_pubkey}),older({refund_delay}))");
     let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
     miniscript.encode()
 }

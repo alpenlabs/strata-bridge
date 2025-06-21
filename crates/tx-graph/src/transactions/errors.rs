@@ -13,7 +13,7 @@ pub enum TxError {
 
     /// Failed to finalize a psbt.
     #[error("could not finalize psbt: {0}")]
-    FinalizationFailed(#[from] ExtractTxError),
+    FinalizationFailed(#[from] Box<ExtractTxError>),
 
     /// Insufficient input amount.
     #[error("insufficient input amount, input: {0}, output: {0}")]

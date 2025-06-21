@@ -35,10 +35,7 @@ pub fn n_of_n_script(aggregated_pubkey: &XOnlyPublicKey) -> Script {
 ///
 /// TLDR: use the `refund_delay` in the `PegOutGraphParams` inside the `Params`.
 pub fn drt_take_back(recovery_xonly_pubkey: XOnlyPublicKey, refund_delay: u16) -> ScriptBuf {
-    let script = format!(
-        "and_v(v:pk({}),older({}))",
-        recovery_xonly_pubkey, refund_delay
-    );
+    let script = format!("and_v(v:pk({recovery_xonly_pubkey}),older({refund_delay}))",);
     let miniscript = Miniscript::<XOnlyPublicKey, miniscript::Tap>::from_str(&script).unwrap();
     miniscript.encode()
 }

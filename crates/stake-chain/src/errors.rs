@@ -8,7 +8,7 @@ use thiserror::Error;
 pub enum StakeChainError {
     /// Cannot extract a signed transaction from a [`Psbt`](bitcoin::Psbt).
     #[error("cannot extract a signed transaction from a PSBT: {0}")]
-    CannotExtractTx(#[from] ExtractTxError),
+    CannotExtractTx(#[from] Box<ExtractTxError>),
 
     /// Ways that a [`Psbt`](bitcoin::Psbt) might fail.
     #[error("PSBT error: {0}")]

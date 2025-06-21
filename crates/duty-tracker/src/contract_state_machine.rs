@@ -162,7 +162,7 @@ pub enum ContractEvent {
 
         /// The stake transaction that needs to be settled before the withdrawal fulfillment and
         /// claim transactions can be settled.
-        stake_tx: StakeTxKind,
+        stake_tx: Box<StakeTxKind>,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -608,7 +608,7 @@ impl Display for ContractState {
             ContractState::Requested {
                 deposit_request_txid,
                 ..
-            } => format!("Requested ({})", deposit_request_txid),
+            } => format!("Requested ({deposit_request_txid})"),
             ContractState::Deposited { .. } => "Deposited".to_string(),
             ContractState::Assigned {
                 fulfiller,
@@ -616,8 +616,7 @@ impl Display for ContractState {
                 deadline,
                 ..
             } => format!(
-                "Assigned to {} with recipient: {} and deadline {}",
-                fulfiller, recipient, deadline
+                "Assigned to {fulfiller} with recipient: {recipient} and deadline {deadline}"
             ),
             ContractState::StakeTxReady {
                 active_graph,
@@ -628,7 +627,7 @@ impl Display for ContractState {
                 active_graph.1.stake_txid, fulfiller
             ),
             ContractState::Fulfilled { fulfiller, .. } => {
-                format!("Fulfilled by operator {}", fulfiller)
+                format!("Fulfilled by operator {fulfiller}")
             }
             ContractState::Claimed {
                 claim_height,
@@ -688,7 +687,7 @@ impl Display for ContractState {
             }
         };
 
-        write!(f, "ContractState: {}", display_str)
+        write!(f, "ContractState: {display_str}")
     }
 }
 
@@ -1042,7 +1041,7 @@ pub enum FulfillerDuty {
         stake_index: u32,
 
         /// The stake transaction to advance corresponding to the stake index.
-        stake_tx: StakeTxKind,
+        stake_tx: Box<StakeTxKind>,
     },
 
     /// Originates when strata state on L1 is published and assignment is self.
@@ -1485,7 +1484,7 @@ impl ContractSM {
                 stake_tx,
                 l1_start_height,
             } => self
-                .process_assignment(&deposit_entry, stake_tx, l1_start_height)
+                .process_assignment(&deposit_entry, *stake_tx, l1_start_height)
                 .map(|x| x.into_iter().collect()),
 
             ContractEvent::PegOutGraphConfirmation(tx, height) => self
@@ -1529,8 +1528,7 @@ impl ContractSM {
             error!(txid=%deposit_txid, %expected_txid, "deposit confirmation delivered to the wrong CSM");
 
             return Err(TransitionErr(format!(
-                "deposit confirmation for ({}) delivered to wrong CSM ({})",
-                deposit_txid, expected_txid,
+                "deposit confirmation for ({deposit_txid}) delivered to wrong CSM ({expected_txid})",
             )));
         }
 
@@ -1822,8 +1820,7 @@ impl ContractSM {
             .state
             .claim_to_operator(&claim_txid)
             .ok_or(TransitionErr(format!(
-                "claim txid ({}) not found in claim txids map",
-                claim_txid
+                "claim txid ({claim_txid}) not found in claim txids map"
             )))?;
 
         match &mut self.state.state {
@@ -1954,8 +1951,7 @@ impl ContractSM {
                 // session partials must be present for this claim_txid at this point
                 let Some(session_partials) = graph_partials.get_mut(&claim_txid) else {
                     return Err(TransitionErr(format!(
-                        "could not process graph partials. claim_txid ({}) not found in partials map",
-                        claim_txid
+                        "could not process graph partials. claim_txid ({claim_txid}) not found in partials map"
                     )));
                 };
 
@@ -2102,8 +2098,7 @@ impl ContractSM {
                     warn!(%signer, "already received nonce for root");
                     debug_assert_eq!(
                         &nonce, existing,
-                        "conflicting root nonce received from {} for contract {}",
-                        signer, deposit_txid,
+                        "conflicting root nonce received from {signer} for contract {deposit_txid}",
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
@@ -2179,8 +2174,7 @@ impl ContractSM {
                     warn!(%signer, "already received signature for root");
                     debug_assert_eq!(
                         &sig, existing,
-                        "conflicting root signature received from {} for contract {}",
-                        signer, deposit_txid
+                        "conflicting root signature received from {signer} for contract {deposit_txid}"
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
@@ -2384,8 +2378,7 @@ impl ContractSM {
                     Some(op_key) => op_key.clone(),
                     None => {
                         return Err(TransitionErr(format!(
-                            "could not convert operator index {} to operator key",
-                            assignee
+                            "could not convert operator index {assignee} to operator key"
                         )));
                     }
                 };
@@ -2417,16 +2410,14 @@ impl ContractSM {
                     } => {
                         let fulfiller_claim_txid =
                             claim_txids.get(&assignee_key).ok_or(TransitionErr(format!(
-                                "could not find claim_txid for operator {assignee_key} in csm {}",
-                                deposit_txid,
+                                "could not find claim_txid for operator {assignee_key} in csm {deposit_txid}",
                             )))?;
 
                         let deadline = dispatched_state.exec_deadline();
                         let active_graph = peg_out_graphs
                             .get(fulfiller_claim_txid)
                             .ok_or(TransitionErr(format!(
-                                "could not find peg out graph {fulfiller_claim_txid} in csm {}",
-                                deposit_txid,
+                                "could not find peg out graph {fulfiller_claim_txid} in csm {deposit_txid}",
                             )))?
                             .to_owned();
 
@@ -2445,7 +2436,7 @@ impl ContractSM {
                         Ok(Some(OperatorDuty::FulfillerDuty(
                             FulfillerDuty::AdvanceStakeChain {
                                 stake_index: assignment.idx(),
-                                stake_tx,
+                                stake_tx: stake_tx.into(),
                             },
                         )))
                     }
@@ -2465,7 +2456,7 @@ impl ContractSM {
                         Ok(Some(OperatorDuty::FulfillerDuty(
                             FulfillerDuty::AdvanceStakeChain {
                                 stake_index: assignment.idx(),
-                                stake_tx,
+                                stake_tx: stake_tx.into(),
                             },
                         )))
                     }
@@ -2591,8 +2582,7 @@ impl ContractSM {
                 Ok(duty)
             }
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_stake_chain_advancement ({})",
-                cur_state
+                "unexpected state in process_stake_chain_advancement ({cur_state})"
             ))),
         }
     }
@@ -2665,8 +2655,7 @@ impl ContractSM {
                 Ok(duty)
             }
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_fulfillment_confirmation ({})",
-                cur_state
+                "unexpected state in process_fulfillment_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2724,8 +2713,7 @@ impl ContractSM {
                 Ok(duty)
             }
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_claim_confirmation ({})",
-                cur_state
+                "unexpected state in process_claim_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2787,8 +2775,7 @@ impl ContractSM {
                 Ok(None)
             }
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_challenge_confirmation ({})",
-                cur_state
+                "unexpected state in process_challenge_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2874,8 +2861,7 @@ impl ContractSM {
                 Ok(duty)
             }
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_pre_assert_confirmation ({})",
-                cur_state
+                "unexpected state in process_pre_assert_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2950,8 +2936,7 @@ impl ContractSM {
                 Ok(duty)
             }
             invalid_state => Err(TransitionErr(format!(
-                "unexpected state in process_assert_data_confirmation ({})",
-                invalid_state
+                "unexpected state in process_assert_data_confirmation ({invalid_state})"
             ))),
         }
     }
@@ -2990,8 +2975,7 @@ impl ContractSM {
                         signed_assert_data_txs
                             .get(txid)
                             .ok_or(TransitionErr(format!(
-                                "could not find assert data tx {txid} in csm {}",
-                                deposit_txid,
+                                "could not find assert data tx {txid} in csm {deposit_txid}",
                             )))
                             .cloned()
                     })
@@ -3028,8 +3012,7 @@ impl ContractSM {
                 Ok(duty)
             }
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_post_assert_confirmation ({})",
-                cur_state
+                "unexpected state in process_post_assert_confirmation ({cur_state})"
             ))),
         }
     }
@@ -3046,8 +3029,7 @@ impl ContractSM {
                 VerifierDuty::PublishDisprove,
             ))),
             cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_assert_verification_failure ({})",
-                cur_state
+                "unexpected state in process_assert_verification_failure ({cur_state})"
             ))),
         }
     }
@@ -3396,7 +3378,7 @@ fn verify_partials_from_peer(
             },
         )
     {
-        return Err(TransitionErr(format!("partial signature verification failed for claim txid ({}) from signer ({})", claim_txid, signer)));
+        return Err(TransitionErr(format!("partial signature verification failed for claim txid ({claim_txid}) from signer ({signer})")));
     }
 
     Ok(true)

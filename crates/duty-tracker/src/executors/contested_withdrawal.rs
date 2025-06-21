@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bitcoin::{taproot, Network, OutPoint, Txid};
-use bitvm::{chunk::api::generate_assertions, signatures::wots_api::HASH_LEN};
+use bitvm::{chunk::api::generate_assertions, signatures::HASH_LEN};
 use btc_notify::client::TxStatus;
 use futures::future::join_all;
 use rand::thread_rng;
@@ -139,8 +139,8 @@ pub(crate) async fn handle_publish_assert_data(
             let proof_index_to_tweak = thread_rng().gen_range(0..assertions.groth16.2.len());
 
             warn!(action = "introducing faulty assertion", index=%proof_index_to_tweak);
-            if assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN as usize] {
-                assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN as usize];
+            if assertions.groth16.2[proof_index_to_tweak] != [0u8; HASH_LEN] {
+                assertions.groth16.2[proof_index_to_tweak] = [0u8; HASH_LEN];
                 break;
             }
         }
@@ -349,8 +349,8 @@ fn create_assert_data_connectors(
     ConnectorAHashFactory<33, 10, 3, 11>,
 ) {
     let public_keys_256 = std::array::from_fn(|i| match i {
-        0 => *wots_pks.groth16.public_inputs[0],
-        i => *wots_pks.groth16.fqs[i - 1],
+        0 => wots_pks.groth16.public_inputs[0].0,
+        i => wots_pks.groth16.fqs[i - 1].0,
     });
 
     let connector_a256_factory = ConnectorA256Factory {
@@ -364,7 +364,7 @@ fn create_assert_data_connectors(
             .groth16
             .hashes
             .into_iter()
-            .map(|g16_hash| *g16_hash)
+            .map(|h| h.0)
             .collect::<Vec<_>>()
             .try_into()
             .expect("must have the right size"),
