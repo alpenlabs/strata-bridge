@@ -194,7 +194,7 @@ where
 /// If a script-path path is being used, the witness stack needs the script being spent and the
 /// control block in addition to the signature.
 /// See [BIP 341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki#constructing-and-spending-taproot-outputs).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TaprootWitness {
     /// Use the keypath spend.
     ///

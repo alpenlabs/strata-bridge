@@ -5,12 +5,12 @@ use std::sync::Arc;
 use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
 use musig2::secp256k1::schnorr::Signature;
 use quinn::Connection;
-use secret_service_proto::v1::{
+use secret_service_proto::v2::{
     traits::{Client, ClientError, Origin, SchnorrSigner},
     wire::{ClientMessage, ServerMessage, SignerTarget},
 };
 
-use crate::{make_v1_req, Config};
+use crate::{make_v2_req, Config};
 
 /// General wallet signer client.
 #[derive(Debug, Clone)]
@@ -40,7 +40,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -54,7 +54,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
             target: SignerTarget::General,
             digest: *digest,
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -67,7 +67,7 @@ impl SchnorrSigner<Client> for GeneralWalletClient {
         let msg = ClientMessage::SchnorrSignerPubkey {
             target: SignerTarget::General,
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::SchnorrSignerPubkey { pubkey } => {
                 XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
@@ -105,7 +105,7 @@ impl SchnorrSigner<Client> for StakechainWalletClient {
             digest: *digest,
             tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -119,7 +119,7 @@ impl SchnorrSigner<Client> for StakechainWalletClient {
             target: SignerTarget::Stakechain,
             digest: *digest,
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::SchnorrSignerSign { sig } => {
                 Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
@@ -132,7 +132,7 @@ impl SchnorrSigner<Client> for StakechainWalletClient {
         let msg = ClientMessage::SchnorrSignerPubkey {
             target: SignerTarget::Stakechain,
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         match res {
             ServerMessage::SchnorrSignerPubkey { pubkey } => {
                 XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::BadData)
