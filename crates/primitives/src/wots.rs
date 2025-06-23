@@ -28,8 +28,8 @@ use crate::scripts::{
 /// The length of the hash output used in the WOTS.
 pub const WOTS_HASH_DIGEST_SIZE: usize = 20;
 
-/// The length of the signature used in WOTS, where the first [`HASH_DIGEST_SIZE`] is the message
-/// hash and the final one is the message.
+/// The length of the signature used in WOTS, where the first [`WOTS_HASH_DIGEST_SIZE`] is the
+/// message hash and the final one is the message.
 pub const WOTS_SIGNATURE_SIZE: usize = WOTS_HASH_DIGEST_SIZE + 1;
 
 /// The index of the message byte in WOTS.
