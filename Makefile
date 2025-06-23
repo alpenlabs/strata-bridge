@@ -90,6 +90,11 @@ clean:
 clean-docker: build-base build-rt clean build-compose ## Builds the base image, runtime image and all images in the compose.yml
 	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE ========\033[0m\n"
 
+.PHONY: docker ## rebuilds and starts containers without cleaning data
+docker: build-base build-rt build-compose
+	@echo "\n\033[36m======== DOCKER_BUILD_COMPLETE_WITH_DATA ========\033[0m\n"
+
+
 .PHONY: gen-s2-tls-1
 gen-s2-tls-1:
 	./docker/gen_s2_tls.sh docker/vol/alpen-bridge-1 docker/vol/secret-service-1
@@ -209,31 +214,6 @@ pr: lint rustdocs test-doc test-unit ## Runs lints (without fixing), audit, docs
 	@test -z "$$(git status --porcelain)" || echo "WARNNG: You have uncommitted changes"
 	@echo "All good to create a PR!"
 
-
-.PHONY: run
-run:
-	SKIP_VALIDATION=1 \
-	RUST_LOG=info,sp1_start=info,sqlx=info,soketto=error,bitvm=info,strata_bridge_db=warn,strata_bridge_tx_graph=warn,strata_btcio=info,strata_bridge_agent=info,hyper_util=error,jsonrpsee=error \
-		cargo r \
-		--bin dev-bridge \
-		--profile "$(PROFILE)" \
-		-- \
-		--rpc-port 4782 \
-		--strata-url ws://localhost:8432 \
-		--btc-url http://localhost:18443 \
-		--btc-user rpcuser \
-		--btc-pass rpcpassword \
-		--btc-genesis-height 300 \
-		--btc-scan-interval 100 \
-		--wallet-prefix bridge \
-		--fault-tolerance 100 \
-		--duty-interval 20000 \
-		--rollup-params-file test-data/rollup_params.json \
-		--num-threads 4 \
-		--stack-size 512 \
-		--xpriv-file .secrets/xprivs.bin \
-		--msks-file .secrets/msks.bin 2>&1 | tee run.log.$(TIMESTAMP)
-
 .PHONY: migrate
 migrate: ## Run migrations
 	export DATABASE_URL="sqlite://./operator.db" && \
@@ -252,8 +232,8 @@ bridge-in: ## Run bridge-in
 		--btc-url http://localhost:18443/wallet/default \
 		--btc-user user \
 		--btc-pass password \
-		--recovery-address bcrt1qsddjnk0u256809tepf8hf6fj90j0qfrgm5t7s8 \
-		--strata-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
+		--params bin/dev-cli/params.toml \
+		--ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
 .PHONY: bridge-out
 bridge-out: ## Run bridge-out
@@ -262,5 +242,34 @@ bridge-out: ## Run bridge-out
 		--bin dev-cli \
 		-- \
 		bridge-out \
+		--params bin/dev-cli/params.toml \
+		--ee-url http://localhost:8545 \
 		--destination-address-pubkey 94b25feb390fbefadd68f7c1eee7e0c475fea0d1fdde59ba66ab6ca819fce47c \
 		--private-key 59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d # from anvil #2
+
+.PHONY: challenge
+challenge: ## Issue a challenge transaction, set CLAIM_TXID env var to use
+	RUST_LOG=info \
+	cargo r \
+		--bin dev-cli \
+		-- \
+		challenge \
+		--btc-url http://localhost:18443/wallet/default \
+		--btc-user user \
+		--btc-pass password \
+		--params bin/dev-cli/params.toml \
+		--bridge-node-url http://localhost:15678/rpc
+
+.PHONY: disprove
+disprove: ## Issue a disprove transaction, set `POST_ASSERT_TXID` env var to use and make sure `strata-bridge.sp1vk` file exists
+	RUST_LOG=info \
+	cargo r \
+		--bin dev-cli \
+		-- \
+		disprove \
+		--btc-url http://localhost:18443/wallet/default \
+		--btc-user user \
+		--btc-pass password \
+		--params bin/dev-cli/params.toml \
+		--vk-path strata-bridge-groth16-vk.hex \
+		--bridge-node-url http://localhost:15678/rpc

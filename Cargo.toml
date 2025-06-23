@@ -2,7 +2,6 @@
 resolver = "2"
 
 members = [
-  "crates/agent",
   "crates/algebra",
   "crates/db",
   "crates/params",
@@ -29,7 +28,6 @@ members = [
 
   # binaries listed separately
   "bin/secret-service",
-  "bin/dev-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
@@ -38,12 +36,7 @@ members = [
   "crates/test-utils",
 ]
 
-default-members = [
-  "bin/alpen-bridge",
-  "bin/dev-bridge",
-  "bin/dev-cli",
-  "bin/assert-splitter",
-]
+default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -67,7 +60,6 @@ prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
-strata-bridge-agent = { path = "crates/agent" }
 strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
@@ -103,6 +95,8 @@ zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido",
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc10" }
 
 # external deps
+alloy = { version = "0.14", features = ["full", "node-bindings"] }
+alloy-signer = "0.14"
 anyhow = "1.0.95"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 ark-bn254 = "0.5.0"
@@ -125,12 +119,13 @@ blake3 = "1.6.1"
 bitcoin = { version = "0.32.6", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
+bitcoincore-rpc = "0.19.0"
 bitcoind-async-client = "0.1.1"
-bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "testnet-i-final" }
+bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "release/0.1.0-rc.1" }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
-corepc-node = { version = "0.7.1", features = ["28_0", "download"] }
+corepc-node = { version = "0.7.1", features = ["28_0"] }
 dotenvy = "0.15.7"
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
@@ -200,6 +195,7 @@ terrors = "0.3.2"
 thiserror = "2.0.3"
 tokio = { version = "1.37", features = ["full"] }
 tokio-util = { version = "0.7.13", default-features = false, features = ["rt"] }
+
 toml = "0.8.20"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.30.0"

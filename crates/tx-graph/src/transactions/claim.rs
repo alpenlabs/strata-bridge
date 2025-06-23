@@ -1,7 +1,7 @@
 //! Constructs the claim transaction.
 
 use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
-use bitvm::signatures::wots_api::wots256;
+use bitvm::signatures::{Wots, Wots32 as wots256};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{constants::FUNDING_AMOUNT, scripts::prelude::*};
 
@@ -29,6 +29,15 @@ pub struct ClaimTx {
     /// The connector for the kickoff and claim transactions.
     connector_k: ConnectorK,
 }
+
+/// The vout used in the challenge/pre-assert transactions.
+pub const CHALLENGE_VOUT: u32 = 1;
+
+/// The vout used in the payout transaction to reimburse the operator.
+pub const PAYOUT_VOUT: u32 = 2;
+
+/// The vout that is spent by the slash stake transaction.
+pub const SLASH_STAKE_VOUT: u32 = 2;
 
 impl ClaimTx {
     /// Creates a new claim transaction.
@@ -91,7 +100,7 @@ impl ClaimTx {
     }
 
     /// A mutable reference to the underlying PSBT.
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
+    pub const fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }
 
@@ -120,17 +129,17 @@ impl ClaimTx {
     }
 
     /// The vout for the CPFP output.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
 
     /// The vout for the slash stake output.
     pub const fn slash_stake_vout(&self) -> u32 {
-        2
+        SLASH_STAKE_VOUT
     }
 
     /// Finalizes the transaction with the signature.
-    pub fn finalize(mut self, signature: wots256::Signature) -> Transaction {
+    pub fn finalize(mut self, signature: <wots256 as Wots>::Signature) -> Transaction {
         self.connector_k
             .finalize_input(&mut self.psbt.inputs[0], signature);
 
@@ -139,8 +148,12 @@ impl ClaimTx {
             .expect("should be able to extract signed tx")
     }
 
-    /// Parses the witness from the transaction.
-    pub fn parse_witness(tx: &Transaction) -> TxResult<Option<wots256::Signature>> {
+    /// Parses the witness from the transaction and returns the WOTS256 signature.
+    ///
+    /// # Errors
+    ///
+    /// If the structure of the transaction witness does not match that of the claim transaction.
+    pub fn parse_witness(tx: &Transaction) -> TxResult<<wots256 as Wots>::Signature> {
         let witness = &tx
             .input
             .first()
@@ -148,28 +161,36 @@ impl ClaimTx {
             .witness;
 
         if witness.is_empty() {
-            return Ok(None);
+            return Err(TxError::Witness(
+                "witness is empty, tx is not signed".to_string(),
+            ));
         }
 
         let witness_txid = witness.to_vec();
 
-        let wots256_signature: Result<wots256::Signature, TxError> = std::array::try_from_fn(|i| {
-            let (i, j) = (2 * i, 2 * i + 1);
-            let preimage = witness_txid[i].clone().try_into().map_err(|_e| {
-                TxError::Witness(format!("txid size invalid: {}", witness_txid[i].len()))
-            })?;
-            let digit = if witness_txid[j].is_empty() {
-                0
-            } else {
-                witness_txid[j][0]
-            };
+        let wots256_signature: Result<<wots256 as Wots>::Signature, TxError> =
+            std::array::try_from_fn(|i| {
+                let (i, j) = (2 * i, 2 * i + 1);
+                let preimage: [u8; 20] = witness_txid[i].clone().try_into().map_err(|_e| {
+                    TxError::Witness(format!("txid size invalid: {}", witness_txid[i].len()))
+                })?;
+                let digit = if witness_txid[j].is_empty() {
+                    0
+                } else {
+                    witness_txid[j][0]
+                };
 
-            Ok((preimage, digit))
-        });
+                let mut sig = Vec::with_capacity(wots256::TOTAL_DIGIT_LEN as usize);
+                sig.extend_from_slice(&preimage);
+                sig.push(digit);
+
+                sig.try_into()
+                    .map_err(|_| TxError::Witness("wots256 signature size invalid".to_string()))
+            });
 
         let wots256_signature = wots256_signature?;
 
-        Ok(Some(wots256_signature))
+        Ok(wots256_signature)
     }
 }
 
@@ -181,7 +202,7 @@ mod tests {
     use bitvm::treepp::*;
     use strata_bridge_primitives::{
         build_context::{BuildContext, TxBuildContext},
-        wots::{self, Wots256Signature},
+        wots::{self, Wots256Sig},
     };
     use strata_bridge_test_utils::prelude::{generate_keypair, generate_txid};
 
@@ -218,23 +239,22 @@ mod tests {
 
         let withdrawal_fulfillment_txid = generate_txid();
 
-        let signature = Wots256Signature::new(
+        let signature = Wots256Sig::new(
             msk,
             deposit_txid,
             withdrawal_fulfillment_txid.as_byte_array(),
         );
         let mut signed_claim_tx = claim_tx.finalize(*signature);
 
-        let parsed_wots256 = ClaimTx::parse_witness(&signed_claim_tx)
-            .expect("must be able to parse")
-            .expect("must have witness");
+        let parsed_wots256 =
+            ClaimTx::parse_witness(&signed_claim_tx).expect("must be able to parse claim witness");
 
         let full_script = script! {
-            for (sig, digit) in parsed_wots256 {
-                { sig.to_vec() }
-                { digit }
+            for sig_with_digit in parsed_wots256 {
+                { sig_with_digit[..20].to_vec() }
+                { sig_with_digit[20] }
             }
-            { wots256::checksig_verify(*wots_public_key.0) }
+            { wots256::checksig_verify(&wots_public_key.0) }
             for _ in 0..256/4 { OP_DROP } // drop all nibbles
 
             OP_TRUE
@@ -246,17 +266,11 @@ mod tests {
         );
 
         signed_claim_tx.input[0].witness =
-            Witness::from_slice(&[[0u8; 32]; 4 * wots256::N_DIGITS as usize]);
+            Witness::from_slice(&[[0u8; 32]; 4 * wots256::TOTAL_DIGIT_LEN as usize]);
         assert!(
             ClaimTx::parse_witness(&signed_claim_tx)
                 .is_err_and(|e| e.to_string().contains("size invalid")),
             "must not be able to parse"
-        );
-
-        signed_claim_tx.input[0].witness = Witness::new();
-        assert!(
-            ClaimTx::parse_witness(&signed_claim_tx).is_ok_and(|v| v.is_none()),
-            "must not have witness"
         );
     }
 }

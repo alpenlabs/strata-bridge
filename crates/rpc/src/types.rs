@@ -1,8 +1,8 @@
 //! Types for the RPC server.
 
-use bitcoin::Txid;
+use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, taproot, OutPoint, Txid};
 use serde::{Deserialize, Serialize};
-use strata_bridge_primitives::types::OperatorIdx;
+use strata_bridge_primitives::{types::OperatorIdx, wots};
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,6 +77,9 @@ pub enum RpcWithdrawalStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RpcReimbursementStatus {
+    /// Claim does not exist.
+    NotStarted,
+
     /// Claim exists, challenge step is "Claim", no payout.
     InProgress,
 
@@ -131,4 +134,30 @@ pub enum RpcBridgeDutyStatus {
         /// Assigned operator index.
         assigned_operator_idx: OperatorIdx,
     },
+}
+
+/// The data shared during deposit setup required to construct a disprove transaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcDisproveData {
+    /// The transaction ID of the post-assert transaction.
+    pub post_assert_txid: Txid,
+
+    /// The transaction ID of the deposit transaction.
+    pub deposit_txid: Txid,
+
+    /// The outpoint of the stake transaction that is being spent.
+    pub stake_outpoint: OutPoint,
+
+    /// The hash for the hashlock in the stake transaction.
+    pub stake_hash: sha256::Hash,
+
+    /// The operator key that locks the stake transaction.
+    pub operator_pubkey: XOnlyPublicKey,
+
+    /// The WOTS public keys whose private keys were used by the operator to sign their proof
+    /// assertions.
+    pub wots_public_keys: wots::PublicKeys,
+
+    /// The N-of-N signature used to finalize the first input in the disprove transaction.
+    pub n_of_n_sig: taproot::Signature,
 }

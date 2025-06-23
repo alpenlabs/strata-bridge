@@ -17,9 +17,6 @@ use super::covenant_tx::CovenantTx;
 pub struct PreAssertData {
     /// The transaction ID of the claim transaction.
     pub claim_txid: Txid,
-
-    /// The stake that remains after paying off the transaction fees in the preceding transactions.
-    pub input_amount: Amount,
 }
 
 pub(super) const PRE_ASSERT_OUTS: usize = TOTAL_CONNECTORS + 1; // +1 for cpfp
@@ -39,6 +36,10 @@ pub struct PreAssertTx {
     tx_outs: [TxOut; PRE_ASSERT_OUTS],
 
     witnesses: [TaprootWitness; NUM_PRE_ASSERT_INPUTS],
+
+    // The connector used to create the input for the pre-assert transaction which spends the first
+    // output of the claim transaction.
+    connector_c0: ConnectorC0,
 }
 
 impl PreAssertTx {
@@ -74,6 +75,13 @@ impl PreAssertTx {
             NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
         >,
     ) -> Self {
+        const NUM_DUST_OUTPUTS_IN_CLAIM: u64 = 3;
+        let input_amount: Amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_DUST_OUTPUTS_IN_CLAIM;
+        assert!(
+            input_amount.gt(&Amount::from_int_btc(0)),
+            "pre-assert transaction's input amount must be > 0"
+        );
+
         let outpoints = [OutPoint {
             txid: data.claim_txid,
             vout: 0,
@@ -138,7 +146,7 @@ impl PreAssertTx {
         let total_assertion_amount = scripts_and_amounts.iter().map(|(_, amt)| *amt).sum();
         // No additional transaction fees are deducted from the stake.
         // Transaction fees are expected to come via CPFP.
-        let net_stake = data.input_amount - total_assertion_amount;
+        let net_stake = input_amount - total_assertion_amount;
 
         trace!(event = "calculated net remaining stake", %net_stake);
 
@@ -152,7 +160,7 @@ impl PreAssertTx {
             Psbt::from_unsigned_tx(tx).expect("input should have an empty witness field");
 
         let prevouts = [TxOut {
-            value: data.input_amount,
+            value: input_amount,
             script_pubkey: connector_c0.generate_locking_script(),
         }];
 
@@ -184,6 +192,8 @@ impl PreAssertTx {
                 .try_into()
                 .expect("cannot fail due to the assertion above"),
             witnesses: witness,
+
+            connector_c0,
         }
     }
 
@@ -193,16 +203,14 @@ impl PreAssertTx {
     }
 
     /// Gets the CPFP output index.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
 
     /// Finalizes the transaction by adding the n-of-n signature to the [`ConnectorC0`] witness.
-    pub fn finalize(
-        mut self,
-        connector_c0: ConnectorC0,
-        n_of_n_sig: schnorr::Signature,
-    ) -> Transaction {
+    pub fn finalize(mut self, n_of_n_sig: schnorr::Signature) -> Transaction {
+        let connector_c0 = self.connector_c0.to_owned();
+
         connector_c0.finalize_input(
             &mut self.psbt_mut().inputs[0],
             ConnectorC0Path::Assert(n_of_n_sig),

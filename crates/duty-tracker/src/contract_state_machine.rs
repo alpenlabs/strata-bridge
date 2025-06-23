@@ -2,7 +2,7 @@
 //! events and transition rules are encoded in this structure. When the ContractSM accepts an event
 //! it may or may not give back an OperatorDuty to execute as a result of this state transition.
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     fmt::Display,
     sync::Arc,
     thread,
@@ -15,7 +15,7 @@ use bitcoin::{
         sha256,
     },
     sighash::{Prevouts, SighashCache},
-    taproot, Network, OutPoint, TapSighashType, Transaction, Txid, XOnlyPublicKey,
+    taproot, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
 use musig2::{
@@ -24,10 +24,11 @@ use musig2::{
 };
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
+    constants::NUM_ASSERT_DATA_TX,
     operator_table::OperatorTable,
     scripts::taproot::{create_message_hash, TaprootWitness},
     types::{BitcoinBlockHeight, OperatorIdx},
-    wots,
+    wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_stake_chain::{
     prelude::{STAKE_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
@@ -38,8 +39,12 @@ use strata_bridge_tx_graph::{
     peg_out_graph::{PegOutGraph, PegOutGraphInput, PegOutGraphSummary},
     pog_musig_functor::PogMusigF,
     transactions::{
+        claim::ClaimTx,
         deposit::DepositTx,
-        prelude::{CovenantTx, WithdrawalMetadata, NUM_PAYOUT_OPTIMISTIC_INPUTS},
+        payout::NUM_PAYOUT_INPUTS,
+        prelude::{
+            AssertDataTxBatch, CovenantTx, WithdrawalMetadata, NUM_PAYOUT_OPTIMISTIC_INPUTS,
+        },
     },
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
@@ -81,6 +86,7 @@ impl DepositSetup {
             withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(Arc::new(
                 self.wots_pks.withdrawal_fulfillment.0,
             )),
+            operator_pubkey: self.operator_pk,
         }
     }
 }
@@ -89,6 +95,7 @@ impl DepositSetup {
 ///
 /// Events of this type will be repeatedly fed to the state machine until it terminates.
 #[derive(Debug)]
+#[expect(clippy::large_enum_variant)]
 pub enum ContractEvent {
     /// Signifies that we have a new set of WOTS keys from one of our peers.
     DepositSetup {
@@ -150,7 +157,18 @@ pub enum ContractEvent {
     RootSig(P2POperatorPubKey, PartialSignature),
 
     /// Signifies that this withdrawal has been assigned.
-    Assignment(DepositEntry, StakeTxKind),
+    Assignment {
+        /// The deposit entry that contains a valid assignment.
+        deposit_entry: DepositEntry,
+
+        /// The stake transaction that needs to be settled before the withdrawal fulfillment and
+        /// claim transactions can be settled.
+        stake_tx: StakeTxKind,
+
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
+    },
 
     /// Signifies that the deposit transaction has been confirmed, the second value is the global
     /// deposit index.
@@ -167,6 +185,32 @@ pub enum ContractEvent {
 
     /// Signifies that the assertion chain for this contract is invalid.
     AssertionFailure,
+}
+
+/// Ways in which a contract can be resolved.
+///
+/// It may be resolved optimistically -- meaning that no challenges occur.
+/// Or it may be resolved after the operator posts a valid proof on chain if their claim is
+/// challenged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionPath {
+    /// The optimistic resolution path is the one where the operator's claim is unchallenged and
+    /// they are able to submit the Payout Optimistic transaction.
+    Optimistic,
+
+    /// The contested resolution path is the one where the operator's claim is challenged but they
+    /// are able to post a valid proof on chain and subsequently submit the Payout transaction.
+    Contested,
+}
+
+impl Display for ResolutionPath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ResolutionPath::Optimistic => write!(f, "optimistic"),
+            ResolutionPath::Contested => write!(f, "contested"),
+        }
+    }
 }
 
 /// This type contains all of the relevant state for the [`ContractSM`] on a per phase basis.
@@ -241,9 +285,6 @@ pub enum ContractState {
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
         peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
-
         /// This is an index so we can look up the claim txid that is owned by the specified key.
         /// This is primarily used to process assignments.
         claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
@@ -285,8 +326,9 @@ pub enum ContractState {
         /// The transaction ID of the withdrawal request transaction in the execution environment.
         withdrawal_request_txid: Txid,
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
     },
 
     /// This state describes everything from the moment stake transaction corresponding to this
@@ -321,8 +363,9 @@ pub enum ContractState {
         /// The transaction ID of the withdrawal request transaction in the execution environment.
         withdrawal_request_txid: Txid,
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
     },
 
     /// This state describes everything from the moment the fulfillment transaction confirms, to
@@ -350,8 +393,12 @@ pub enum ContractState {
         /// The withdrawal fulfillment transaction ID.
         withdrawal_fulfillment_txid: Txid,
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The bitcoin block height at which the withdrawal fulfillment transaction was confirmed.
+        withdrawal_fulfillment_height: BitcoinBlockHeight,
+
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
     },
 
     /// This state describes everything from the moment the claim transaction confirms, to the
@@ -380,12 +427,20 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The commitment to the withdrawal fulfillment txid that was included in the claim
+        /// transaction.
+        withdrawal_fulfillment_commitment: Wots256Sig,
+
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
     },
 
-    /// This state describes everything from the moment the challenge transaction confirms, to the
-    /// moment the post-assert transaction confirms.
+    /// This state describes everything from the moment the challenge transaction is confirmed to
+    /// the moment the pre-assert transaction is confirmed.
     Challenged {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -406,12 +461,96 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The height at which the claim transaction was confirmed.
+        claim_height: BitcoinBlockHeight,
+
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The commitment to the withdrawal fulfillment txid that was included in the claim
+        /// transaction.
+        withdrawal_fulfillment_commitment: Wots256Sig,
+
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
     },
 
-    /// This state describes everything from the moment the post-assert transaction confirms, to
-    /// the moment either the disprove transaction confirms or the payout transaction confirms.
+    /// This state describes everything from the moment the pre-assert transaction is confirmed to
+    /// the moment all of the assert-data transactions are confirmed.
+    PreAssertConfirmed {
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
+        peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
+
+        /// This is an index so we can look up the claim txid that is owned by the specified key.
+        /// This is primarily used to process assignments.
+        claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
+
+        /// This is a collection of aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+
+        /// The operator responsible for fulfilling the withdrawal.
+        fulfiller: OperatorIdx,
+
+        /// The graph that belongs to the assigned operator.
+        active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The height at which the claim transaction was confirmed.
+        claim_height: BitcoinBlockHeight,
+
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The commitment to the withdrawal fulfillment txid that was included in the claim
+        /// transaction.
+        withdrawal_fulfillment_commitment: Wots256Sig,
+
+        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
+        /// the assignment.
+        l1_start_height: BitcoinBlockHeight,
+
+        /// The witnesses in each of the assert-data transactions that commit to the proof.
+        signed_assert_data_txs: HashMap<Txid, Transaction>,
+    },
+
+    /// This state describes everything from the moment all of the assert-data transactions are
+    /// confirmed to the moment the post-assert transaction is confirmed.
+    AssertDataConfirmed {
+        /// These are the actual peg-out-graph input parameters and summaries for each operator.
+        /// This will be stored so we can monitor the transactions relevant to advancing the
+        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
+        peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
+
+        /// This is an index so we can look up the claim txid that is owned by the specified key.
+        /// This is primarily used to process assignments.
+        claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
+
+        /// This is a collection of aggregated signatures per graph that can be used to settle
+        /// transactions in the peg out graph at withdrawal time.
+        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
+
+        /// The operator responsible for fulfilling the withdrawal.
+        fulfiller: OperatorIdx,
+
+        /// The graph that belongs to the assigned operator.
+        active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The commitment to the withdrawal fulfillment txid that was included in the claim
+        /// transaction.
+        withdrawal_fulfillment_commitment: Wots256Sig,
+
+        /// The witnesses in each of the assert-data transactions that commit to the proof.
+        signed_assert_data_txs: HashMap<Txid, Transaction>,
+    },
+
+    /// This state describes everything from the moment the post-assert transaction is confirmed to
+    /// the moment either the payout or disprove transaction is confirmed.
     Asserted {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
@@ -426,17 +565,24 @@ pub enum ContractState {
         /// transactions in the peg out graph at withdrawal time.
         graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
 
-        /// The height at which the post-assert transaction was confirmed.
-        post_assert_height: BitcoinBlockHeight,
-
         /// The operator responsible for fulfilling the withdrawal.
         fulfiller: OperatorIdx,
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
-        /// This is a collection of all partial signatures for all graphs and for all operators.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+        /// The height at which the post-assert transaction was confirmed.
+        post_assert_height: BitcoinBlockHeight,
+
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The commitment to the withdrawal fulfillment txid that was included in the claim
+        /// transaction.
+        withdrawal_fulfillment_commitment: Wots256Sig,
+
+        /// The commitment to the proof that was included in the assert-data transactions.
+        proof_commitment: Groth16Sigs,
     },
 
     /// This state describes the state after the disprove transaction confirms.
@@ -444,7 +590,17 @@ pub enum ContractState {
 
     /// This state describes the state after either the optimistic or defended payout transactions
     /// confirm.
-    Resolved {},
+    Resolved {
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// The transaction ID of either the optimistic payout transaction or the contested payout
+        /// transaction.
+        payout_txid: Txid,
+
+        /// The nature of the resolution.
+        path: ResolutionPath,
+    },
 }
 
 impl Display for ContractState {
@@ -461,7 +617,7 @@ impl Display for ContractState {
                 deadline,
                 ..
             } => format!(
-                "assigned to {fulfiller} with recipient: {recipient} and deadline {deadline}",
+                "Assigned to {fulfiller} with recipient: {recipient} and deadline {deadline}"
             ),
             ContractState::StakeTxReady {
                 active_graph,
@@ -472,7 +628,7 @@ impl Display for ContractState {
                 active_graph.1.stake_txid
             ),
             ContractState::Fulfilled { fulfiller, .. } => {
-                format!("fulfilled by operator {fulfiller}")
+                format!("Fulfilled by operator {fulfiller}")
             }
             ContractState::Claimed {
                 claim_height,
@@ -491,17 +647,45 @@ impl Display for ContractState {
                 "challenged operator {fulfiller}'s claim ({})",
                 active_graph.1.claim_txid
             ),
+            ContractState::PreAssertConfirmed {
+                fulfiller,
+                active_graph,
+                ..
+            } => {
+                format!(
+                    "PreAssertConfirmed by operator {} for claim ({})",
+                    fulfiller, active_graph.1.claim_txid
+                )
+            }
+            ContractState::AssertDataConfirmed {
+                fulfiller,
+                active_graph,
+                signed_assert_data_txs,
+                ..
+            } => {
+                format!(
+                    "AssertDataConfirmed by operator {} for claim ({}) - {}/{NUM_ASSERT_DATA_TX}",
+                    fulfiller,
+                    active_graph.1.claim_txid,
+                    signed_assert_data_txs.len(),
+                )
+            }
             ContractState::Asserted {
-                post_assert_height,
                 fulfiller,
                 active_graph,
                 ..
             } => format!(
-                "asserted by operator {fulfiller} at height {post_assert_height} ({})",
-                active_graph.1.post_assert_txid
+                "Asserted by operator {} ({})",
+                fulfiller, active_graph.1.post_assert_txid
             ),
             ContractState::Disproved { .. } => "Disproved".to_string(),
-            ContractState::Resolved { .. } => "Resolved".to_string(),
+            ContractState::Resolved {
+                withdrawal_fulfillment_txid,
+                payout_txid,
+                path,
+            } => {
+                format!("Resolved via {path} path with withdrawal fulfillment ({withdrawal_fulfillment_txid}) and payout ({payout_txid})")
+            }
         };
 
         write!(f, "ContractState: {display_str}")
@@ -542,31 +726,33 @@ impl ContractState {
                 peg_out_graph_summaries: peg_out_graphs,
                 ..
             } => peg_out_graphs.values().cloned().collect(),
-            ContractState::Deposited { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Assigned { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::StakeTxReady { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Fulfilled { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Claimed { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Challenged { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Asserted { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Disproved { .. } => vec![],
-            ContractState::Resolved { .. } => vec![],
+            ContractState::Deposited { peg_out_graphs, .. }
+            | ContractState::Assigned { peg_out_graphs, .. }
+            | ContractState::StakeTxReady { peg_out_graphs, .. }
+            | ContractState::Fulfilled { peg_out_graphs, .. }
+            | ContractState::Claimed { peg_out_graphs, .. }
+            | ContractState::Challenged { peg_out_graphs, .. }
+            | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
+            | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
+            | ContractState::Asserted { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => Vec::new(),
         }
     }
 
     /// Gets the transaction IDs of the claim transactions for this contract.
     pub fn claim_txids(&self) -> HashSet<Txid> {
         let claim_txids = match &self {
-            ContractState::Requested { claim_txids, .. } => claim_txids,
-            ContractState::Deposited { claim_txids, .. } => claim_txids,
-            ContractState::Assigned { claim_txids, .. } => claim_txids,
-            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
-            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
-            ContractState::Claimed { claim_txids, .. } => claim_txids,
-            ContractState::Challenged { claim_txids, .. } => claim_txids,
-            ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved { .. } => &BTreeMap::new(),
-            ContractState::Resolved { .. } => &BTreeMap::new(),
+            ContractState::Requested { claim_txids, .. }
+            | ContractState::Deposited { claim_txids, .. }
+            | ContractState::Assigned { claim_txids, .. }
+            | ContractState::StakeTxReady { claim_txids, .. }
+            | ContractState::Fulfilled { claim_txids, .. }
+            | ContractState::Claimed { claim_txids, .. }
+            | ContractState::Challenged { claim_txids, .. }
+            | ContractState::PreAssertConfirmed { claim_txids, .. }
+            | ContractState::AssertDataConfirmed { claim_txids, .. }
+            | ContractState::Asserted { claim_txids, .. } => claim_txids,
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => &BTreeMap::new(),
         };
 
         claim_txids.values().copied().collect()
@@ -575,16 +761,17 @@ impl ContractState {
     /// Gets the musig2-aggregated graph signatures for this contract.
     pub fn graph_sigs(&self) -> BTreeMap<Txid, PogMusigF<taproot::Signature>> {
         let graph_sigs = match &self {
-            ContractState::Requested { graph_sigs, .. } => graph_sigs,
-            ContractState::Deposited { graph_sigs, .. } => graph_sigs,
-            ContractState::Assigned { graph_sigs, .. } => graph_sigs,
-            ContractState::StakeTxReady { graph_sigs, .. } => graph_sigs,
-            ContractState::Fulfilled { graph_sigs, .. } => graph_sigs,
-            ContractState::Claimed { graph_sigs, .. } => graph_sigs,
-            ContractState::Challenged { graph_sigs, .. } => graph_sigs,
-            ContractState::Asserted { graph_sigs, .. } => graph_sigs,
-            ContractState::Disproved { .. } => &BTreeMap::new(),
-            ContractState::Resolved { .. } => &BTreeMap::new(),
+            ContractState::Requested { graph_sigs, .. }
+            | ContractState::Deposited { graph_sigs, .. }
+            | ContractState::Assigned { graph_sigs, .. }
+            | ContractState::StakeTxReady { graph_sigs, .. }
+            | ContractState::Fulfilled { graph_sigs, .. }
+            | ContractState::Claimed { graph_sigs, .. }
+            | ContractState::Challenged { graph_sigs, .. }
+            | ContractState::PreAssertConfirmed { graph_sigs, .. }
+            | ContractState::AssertDataConfirmed { graph_sigs, .. }
+            | ContractState::Asserted { graph_sigs, .. } => graph_sigs,
+            ContractState::Disproved { .. } | ContractState::Resolved { .. } => &BTreeMap::new(),
         };
 
         graph_sigs.clone()
@@ -593,16 +780,17 @@ impl ContractState {
     /// Maps the claim_txid to the operator's p2p key.
     pub fn claim_to_operator(&self, claim_txid: &Txid) -> Option<P2POperatorPubKey> {
         let claim_txids = match self {
-            ContractState::Requested { claim_txids, .. } => claim_txids,
-            ContractState::Deposited { claim_txids, .. } => claim_txids,
-            ContractState::Assigned { claim_txids, .. } => claim_txids,
-            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
-            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
-            ContractState::Claimed { claim_txids, .. } => claim_txids,
-            ContractState::Challenged { claim_txids, .. } => claim_txids,
+            ContractState::Requested { claim_txids, .. }
+            | ContractState::Deposited { claim_txids, .. }
+            | ContractState::Assigned { claim_txids, .. }
+            | ContractState::StakeTxReady { claim_txids, .. }
+            | ContractState::Fulfilled { claim_txids, .. }
+            | ContractState::Claimed { claim_txids, .. }
+            | ContractState::Challenged { claim_txids, .. }
+            | ContractState::PreAssertConfirmed { claim_txids, .. }
+            | ContractState::AssertDataConfirmed { claim_txids, .. } => claim_txids,
             ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved {} => &BTreeMap::new(),
-            ContractState::Resolved {} => &BTreeMap::new(),
+            ContractState::Disproved {} | ContractState::Resolved { .. } => &BTreeMap::new(),
         };
 
         claim_txids.iter().find_map(|(op_key, claim)| {
@@ -612,6 +800,52 @@ impl ContractState {
                 None
             }
         })
+    }
+
+    /// Gets the graph input for a particular claim transaction ID.
+    pub fn graph_input(&self, claim_txid: Txid) -> Option<&PegOutGraphInput> {
+        match self {
+            ContractState::Requested {
+                peg_out_graph_inputs,
+                ..
+            } => self
+                .claim_to_operator(&claim_txid)
+                .and_then(|op_key| peg_out_graph_inputs.get(&op_key)),
+            ContractState::Deposited { peg_out_graphs, .. }
+            | ContractState::Assigned { peg_out_graphs, .. }
+            | ContractState::StakeTxReady { peg_out_graphs, .. }
+            | ContractState::Fulfilled { peg_out_graphs, .. }
+            | ContractState::Claimed { peg_out_graphs, .. }
+            | ContractState::Challenged { peg_out_graphs, .. }
+            | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
+            | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
+            | ContractState::Asserted { peg_out_graphs, .. } => {
+                peg_out_graphs.get(&claim_txid).map(|(input, _)| input)
+            }
+            ContractState::Disproved {} | ContractState::Resolved { .. } => None,
+        }
+    }
+
+    /// Gets the graph summary for a particular claim transaction ID.
+    pub fn graph_summary(&self, claim_txid: Txid) -> Option<&PegOutGraphSummary> {
+        match self {
+            ContractState::Requested {
+                peg_out_graph_summaries,
+                ..
+            } => peg_out_graph_summaries.get(&claim_txid),
+            ContractState::Deposited { peg_out_graphs, .. }
+            | ContractState::Assigned { peg_out_graphs, .. }
+            | ContractState::StakeTxReady { peg_out_graphs, .. }
+            | ContractState::Fulfilled { peg_out_graphs, .. }
+            | ContractState::Claimed { peg_out_graphs, .. }
+            | ContractState::Challenged { peg_out_graphs, .. }
+            | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
+            | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
+            | ContractState::Asserted { peg_out_graphs, .. } => {
+                peg_out_graphs.get(&claim_txid).map(|(_, summary)| summary)
+            }
+            ContractState::Disproved {} | ContractState::Resolved { .. } => None,
+        }
     }
 }
 
@@ -798,6 +1032,7 @@ impl Display for OperatorDuty {
 
 /// This is a duty that has to be carried out if we are the assigned operator.
 #[derive(Debug, Clone)]
+#[expect(clippy::large_enum_variant)]
 pub enum FulfillerDuty {
     /// Instructs us to send our initial StakeChainExchange message.
     InitStakeChain,
@@ -818,6 +1053,9 @@ pub enum FulfillerDuty {
 
         /// The BOSD Descriptor of the user.
         user_descriptor: Descriptor,
+
+        /// The block height by which the fulfillment must be confirmed.
+        deadline: BitcoinBlockHeight,
     },
 
     /// Originates when Fulfillment confirms (is buried?)
@@ -855,11 +1093,80 @@ pub enum FulfillerDuty {
         agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS]>,
     },
 
-    /// Originates once challenge transaction is issued
-    PublishAssertChain,
+    /// Originates once the challenge transaction is confirmed.
+    PublishPreAssert {
+        /// The index of the deposit being claimed.
+        deposit_idx: u32,
+
+        /// The transaction ID of the deposit being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the claim transaction in the peg-out graph.
+        claim_txid: Txid,
+
+        /// The aggregate signature required to settle the pre-assert transaction.
+        agg_sig: taproot::Signature,
+    },
+
+    /// Originates once the pre-assert transaction is confirmed.
+    PublishAssertData {
+        /// The transaction ID of the withdrawal fulfillment transaction.
+        withdrawal_fulfillment_txid: Txid,
+
+        /// Start height of the bitcoin chain fragment that is part of the proof being asserted.
+        start_height: BitcoinBlockHeight,
+
+        /// The index of the deposit being claimed.
+        deposit_idx: u32,
+
+        /// The transaction ID of the deposit being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the pre-assert transaction.
+        pre_assert_txid: Txid,
+
+        /// The locking scripts in the output of the pre-assert transaction.
+        pre_assert_locking_scripts: Box<[ScriptBuf; NUM_ASSERT_DATA_TX]>,
+    },
+
+    /// Originates once all the assert-data transactions have been confirmed.
+    PublishPostAssertData {
+        /// The transaction ID of the deposit transaction whose output is being claimed.
+        deposit_txid: Txid,
+
+        /// The transaction IDs of all the assert-data transactions whose outputs are spent by the
+        /// post-assert transaction, in order.
+        assert_data_txids: Box<[Txid; NUM_ASSERT_DATA_TX]>,
+
+        /// The MuSig2 aggregated signatures required to settle the post-assert transaction.
+        agg_sigs: Box<[taproot::Signature; NUM_ASSERT_DATA_TX]>,
+    },
 
     /// Originates after post-assert timelock expires
-    PublishPayout,
+    PublishPayout {
+        /// The index of the deposit transaction whose output is being used to reimburse the
+        /// operator.
+        deposit_idx: u32,
+
+        /// The transaction ID of the deposit transaction whose output is being used to reimburse
+        /// the operator.
+        deposit_txid: Txid,
+
+        /// The transaction ID of the post-assert transaction whose output is being spent by the
+        /// payout transaction.
+        post_assert_txid: Txid,
+
+        /// The transaction ID of the claim transaction whose output is being spent by the payout
+        /// transaction.
+        claim_txid: Txid,
+
+        /// The transaction ID of the stake transaction whose output is spent by the payout
+        /// transaction.
+        stake_txid: Txid,
+
+        /// The MuSig2 aggregated signatures required to settle the payout transaction.
+        agg_sigs: Box<[taproot::Signature; NUM_PAYOUT_INPUTS]>,
+    },
 }
 
 impl Display for FulfillerDuty {
@@ -884,8 +1191,24 @@ impl Display for FulfillerDuty {
             FulfillerDuty::PublishPayoutOptimistic { deposit_txid, .. } => {
                 write!(f, "PublishPayoutOptimistic for {deposit_txid}")
             }
-            FulfillerDuty::PublishAssertChain => write!(f, "PublishAssertChain"),
-            FulfillerDuty::PublishPayout => write!(f, "PublishPayout"),
+            FulfillerDuty::PublishPreAssert {
+                deposit_idx,
+                deposit_txid,
+                claim_txid,
+                ..
+            } => write!(
+                f,
+                "PublishPreAssert for deposit {deposit_idx} ({deposit_txid} and claim ({claim_txid}))"
+            ),
+            FulfillerDuty::PublishAssertData {
+                withdrawal_fulfillment_txid,
+                deposit_idx,
+                ..
+            } => write!(f, "PublishAssertData for {withdrawal_fulfillment_txid} and deposit {deposit_idx}"),
+            FulfillerDuty::PublishPostAssertData { .. } => {
+                write!(f, "PublishPostAssertData")
+            }
+            FulfillerDuty::PublishPayout { deposit_idx, deposit_txid, .. } => write!(f, "PublishPayout for deposit {deposit_idx} ({deposit_txid})"),
         }
     }
 }
@@ -1078,6 +1401,8 @@ impl ContractSM {
                 || g.stake_txid == txid
                 || g.claim_txid == txid
                 || g.payout_optimistic_txid == txid
+                || g.pre_assert_txid == txid
+                || g.assert_data_txids.contains(&txid)
                 || g.post_assert_txid == txid
                 || g.payout_txid == txid
                 || is_challenge(g.claim_txid)(tx)
@@ -1156,8 +1481,12 @@ impl ContractSM {
                 .process_deposit_confirmation(tx)
                 .map(|x| x.into_iter().collect()),
 
-            ContractEvent::Assignment(deposit_entry, stake_tx) => self
-                .process_assignment(&deposit_entry, stake_tx)
+            ContractEvent::Assignment {
+                deposit_entry,
+                stake_tx,
+                l1_start_height,
+            } => self
+                .process_assignment(&deposit_entry, stake_tx, l1_start_height)
                 .map(|x| x.into_iter().collect()),
 
             ContractEvent::PegOutGraphConfirmation(tx, height) => self
@@ -1201,26 +1530,18 @@ impl ContractSM {
             error!(txid=%deposit_txid, %expected_txid, "deposit confirmation delivered to the wrong CSM");
 
             return Err(TransitionErr(format!(
-                "deposit confirmation for ({}) delivered to wrong CSM ({})",
-                deposit_txid, expected_txid,
+                "deposit confirmation for ({deposit_txid}) delivered to wrong CSM ({expected_txid})",
             )));
         }
 
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        match current {
+        match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
                 peg_out_graph_summaries,
                 claim_txids,
                 graph_sigs,
-                graph_partials,
                 ..
             } => {
-                debug!(%deposit_txid, "clearing peg out graph cache");
-                self.clear_pog_cache();
-                let mut peg_out_graph_inputs = peg_out_graph_inputs;
-                let mut peg_out_graph_summaries = peg_out_graph_summaries;
-
                 info!(%deposit_txid, "updating contract state to deposited");
                 let peg_out_graphs = claim_txids
                     .iter()
@@ -1239,13 +1560,11 @@ impl ContractSM {
 
                 self.state.state = ContractState::Deposited {
                     peg_out_graphs,
-                    claim_txids,
-                    graph_sigs,
-                    graph_partials,
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
                 }
             }
-            invalid_state => {
-                self.state.state = invalid_state;
+            _ => {
                 error!(txid=%deposit_txid, state=%self.state.state, "deposit confirmation delivered to CSM not in Requested state");
 
                 return Err(TransitionErr(format!(
@@ -1254,6 +1573,9 @@ impl ContractSM {
                 )));
             }
         }
+
+        debug!(%deposit_txid, "clearing peg out graph cache");
+        self.clear_pog_cache();
 
         Ok(None)
     }
@@ -1276,18 +1598,29 @@ impl ContractSM {
                 self.state.state
             ))),
             ContractState::Assigned { .. } => self.process_stake_chain_advancement(tx),
-            ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx),
+            ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx, height),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
             ContractState::Claimed { .. } => self.process_challenge_confirmation(tx).or_else(|e| {
-                warn!(%e, "could not process challenge tx");
+                debug!(%e, "could not process challenge tx");
 
                 // maybe it's an optimistic payout tx
                 self.process_optimistic_payout_confirmation(tx)
+                    .or_else(|e| {
+                        debug!(%e, "could not process optimistic payout confirmation");
+
+                        // or maybe it's assert chain confirmation and some operator did not take
+                        // the payout optimistic path
+                        self.process_pre_assert_confirmation(tx)
+                    })
             }),
 
-            ContractState::Challenged { .. } => self.process_assert_chain_confirmation(height, tx),
+            ContractState::Challenged { .. } => self.process_pre_assert_confirmation(tx),
+            ContractState::PreAssertConfirmed { .. } => self.process_assert_data_confirmation(tx),
+            ContractState::AssertDataConfirmed { .. } => {
+                self.process_post_assert_confirmation(tx, height)
+            }
             ContractState::Asserted { .. } => self.process_disprove_confirmation(tx).or_else(|e| {
-                warn!(%e, "could not process disprove tx");
+                debug!(%e, "could not process disprove tx");
 
                 // maybe it's a defended payout tx
                 self.process_defended_payout_confirmation(tx)
@@ -1329,10 +1662,13 @@ impl ContractSM {
         new_stake_txid: Txid,
         new_wots_keys: wots::PublicKeys,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
-        // TODO(proofofkeags): thoroughly review this code it is ALMOST CERTAINLY WRONG IN SOME
-        // SUBTLE WAY.
-
         let deposit_txid = self.deposit_txid();
+        info!(
+            %deposit_txid,
+            %signer,
+            "processing deposit setup for contract"
+        );
+
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
@@ -1486,8 +1822,7 @@ impl ContractSM {
             .state
             .claim_to_operator(&claim_txid)
             .ok_or(TransitionErr(format!(
-                "claim txid ({}) not found in claim txids map",
-                claim_txid
+                "claim txid ({claim_txid}) not found in claim txids map"
             )))?;
 
         match &mut self.state.state {
@@ -1597,7 +1932,8 @@ impl ContractSM {
         claim_txid: Txid,
         partial_sigs: Vec<PartialSignature>,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        debug!(%claim_txid, %signer, "processing graph signatures");
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, %claim_txid, %signer, "processing graph signatures");
 
         let unpacked = PogMusigF::unpack(partial_sigs.clone()).ok_or(TransitionErr(
             "could not unpack sig vector into PogMusigF".to_string(),
@@ -1605,7 +1941,6 @@ impl ContractSM {
 
         let cfg = self.cfg().clone();
         let pog_cache = self.pog.clone();
-        let deposit_txid = self.deposit_txid();
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
@@ -1618,8 +1953,7 @@ impl ContractSM {
                 // session partials must be present for this claim_txid at this point
                 let Some(session_partials) = graph_partials.get_mut(&claim_txid) else {
                     return Err(TransitionErr(format!(
-                        "could not process graph partials. claim_txid ({}) not found in partials map",
-                        claim_txid
+                        "could not process graph partials. claim_txid ({claim_txid}) not found in partials map"
                     )));
                 };
 
@@ -1660,7 +1994,7 @@ impl ContractSM {
                     .cloned()
                     .unwrap_or_else(|| cfg.build_graph(graph_input));
 
-                verify_partials_from_peer(
+                if !verify_partials_from_peer(
                     &cfg,
                     &signer,
                     &claim_txid,
@@ -1668,7 +2002,12 @@ impl ContractSM {
                     graph_nonces,
                     agg_nonces,
                     &partial_sigs,
-                )?;
+                )? {
+                    warn!(%claim_txid, %signer, "partials verification failed");
+
+                    // not a cause for error, can happen due to nodes restarting
+                    return Ok(None);
+                };
 
                 info!("partials verified successfully, adding to collection");
                 session_partials.insert(signer, unpacked);
@@ -1753,14 +2092,15 @@ impl ContractSM {
         nonce: PubNonce,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, %signer, "processing root nonce");
+
         match &mut self.state.state {
             ContractState::Requested { root_nonces, .. } => {
                 if let Some(existing) = root_nonces.get(&signer) {
                     warn!(%signer, "already received nonce for root");
                     debug_assert_eq!(
                         &nonce, existing,
-                        "conflicting root nonce received from {} for contract {}",
-                        signer, deposit_txid,
+                        "conflicting root nonce received from {signer} for contract {deposit_txid}",
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
@@ -1828,14 +2168,15 @@ impl ContractSM {
         sig: PartialSignature,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, %signer, "processing root signature");
+
         match &mut self.state.state {
             ContractState::Requested { root_partials, .. } => {
                 if let Some(existing) = root_partials.get(&signer) {
                     warn!(%signer, "already received signature for root");
                     debug_assert_eq!(
                         &sig, existing,
-                        "conflicting root signature received from {} for contract {}",
-                        signer, deposit_txid
+                        "conflicting root signature received from {signer} for contract {deposit_txid}"
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
@@ -1885,9 +2226,20 @@ impl ContractSM {
                 height
             )));
         }
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
+        let duty = match &self.state.state {
+            // the next states for the following states do not depend on a timelock
+            // and so are agnostic to new block events.
+            ContractState::Deposited { .. }
+            | ContractState::Assigned { .. }
+            | ContractState::StakeTxReady { .. }
+            | ContractState::Fulfilled { .. }
+            | ContractState::PreAssertConfirmed { .. }
+            | ContractState::AssertDataConfirmed { .. }
+            | ContractState::Disproved {}
+            | ContractState::Resolved { .. } => None,
 
-        let duty = match &current {
+            // the next states for the following states depend on a timelock
+            // and therefore care about a new block event.
             ContractState::Requested { abort_deadline, .. } => {
                 if self.state.block_height >= *abort_deadline {
                     Some(OperatorDuty::Abort)
@@ -1895,12 +2247,6 @@ impl ContractSM {
                     None
                 }
             }
-            ContractState::Deposited { .. } => None,
-            // handled in `process_peg_out_graph_tx_confirmation`
-            ContractState::Assigned { .. } => None,
-            // handled in `process_peg_out_graph_tx_confirmation`
-            ContractState::StakeTxReady { .. } => None,
-            ContractState::Fulfilled { .. } => None,
             ContractState::Claimed {
                 fulfiller,
                 claim_height,
@@ -1909,6 +2255,7 @@ impl ContractSM {
                 ..
             } => {
                 let pov_idx = self.cfg.operator_table.pov_idx();
+
                 if self.state.block_height
                     >= claim_height + self.cfg.connector_params.payout_optimistic_timelock as u64
                     && *fulfiller == pov_idx
@@ -1920,8 +2267,7 @@ impl ContractSM {
                     let agg_sigs = graph_sigs
                         .get(&claim_txid)
                         .ok_or(TransitionErr(format!(
-                            "could not find graph sigs for claim txid {}",
-                            claim_txid
+                            "could not find graph sigs for claim txid {claim_txid} in claimed state after payout optimistic timelock",
                         )))?
                         .payout_optimistic;
 
@@ -1938,27 +2284,73 @@ impl ContractSM {
                     None
                 }
             }
-            ContractState::Challenged { .. } => None,
+            ContractState::Challenged {
+                claim_height,
+                fulfiller,
+                active_graph,
+                graph_sigs,
+                ..
+            } => {
+                let pov_idx = self.cfg.operator_table.pov_idx();
+
+                if self.state.block_height
+                    >= claim_height + self.cfg.connector_params.pre_assert_timelock as u64
+                    && *fulfiller == pov_idx
+                {
+                    let deposit_idx = self.cfg.deposit_idx;
+                    let deposit_txid = self.deposit_txid();
+                    let claim_txid = active_graph.1.claim_txid;
+
+                    let agg_sig = graph_sigs
+                        .get(&claim_txid)
+                        .ok_or(TransitionErr(format!(
+                            "could not find graph sigs for claim txid {claim_txid} in challenged state",
+                        )))?
+                        .pre_assert;
+
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishPreAssert {
+                            deposit_idx,
+                            deposit_txid,
+                            claim_txid,
+                            agg_sig,
+                        },
+                    ))
+                } else {
+                    None
+                }
+            }
             ContractState::Asserted {
                 post_assert_height,
                 fulfiller,
+                active_graph,
+                graph_sigs,
                 ..
             } => {
                 if self.state.block_height
                     >= post_assert_height + self.cfg.connector_params.payout_timelock as u64
                     && *fulfiller == self.cfg.operator_table.pov_idx()
                 {
-                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout))
+                    Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishPayout {
+                        deposit_idx: self.cfg.deposit_idx,
+                        deposit_txid: self.deposit_txid(),
+                        post_assert_txid: active_graph.1.post_assert_txid,
+                        claim_txid: active_graph.1.claim_txid,
+                        stake_txid: active_graph.0.stake_outpoint.txid,
+                        agg_sigs: graph_sigs
+                            .get(&active_graph.1.claim_txid)
+                            .ok_or(TransitionErr(format!(
+                                "could not find graph sigs for claim txid {} in asserted state after payout timelock",
+                                active_graph.1.claim_txid
+                            )))?
+                            .payout
+                            .into(),
+                    }))
                 } else {
                     None
                 }
             }
-            ContractState::Disproved {} => None,
-            ContractState::Resolved {} => None,
         };
-
-        // restore state
-        self.state.state = current;
 
         Ok(duty)
     }
@@ -1968,8 +2360,10 @@ impl ContractSM {
         &mut self,
         assignment: &DepositEntry,
         stake_tx: StakeTxKind,
+        height: BitcoinBlockHeight,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        info!(?assignment, current_state=%self.state().state, "processing assignment");
+        let deposit_txid = self.deposit_txid();
+        info!(%deposit_txid, ?assignment, current_state=%self.state().state, "processing assignment");
 
         if assignment.idx() != self.cfg.deposit_idx {
             return Err(TransitionErr(format!(
@@ -1979,106 +2373,147 @@ impl ContractSM {
             )));
         }
 
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        let copy_of_current = current.clone();
+        match assignment.deposit_state() {
+            DepositState::Dispatched(dispatched_state) => {
+                let assignee = dispatched_state.assignee();
+                let assignee_key = match self.cfg.operator_table.idx_to_op_key(&assignee) {
+                    Some(op_key) => op_key.clone(),
+                    None => {
+                        return Err(TransitionErr(format!(
+                            "could not convert operator index {assignee} to operator key"
+                        )));
+                    }
+                };
+                let pov_idx = self.cfg.operator_table.pov_idx();
+                let recipient = dispatched_state
+                    .cmd()
+                    .withdraw_outputs()
+                    .first()
+                    .map(|out| out.destination()).ok_or_else(|| {
+                        TransitionErr(format!(
+                            "assignment does not contain a recipient for deposit txid {deposit_txid}",
+                        ))
+                    })?;
 
-        match current {
-            ContractState::Deposited {
-                peg_out_graphs,
-                claim_txids,
-                graph_sigs,
-                graph_partials,
-            } => {
-                match assignment.deposit_state() {
-                    DepositState::Dispatched(dispatched_state) => {
-                        let fulfiller = dispatched_state.assignee();
-                        let fulfiller_key = match self.cfg.operator_table.idx_to_op_key(&fulfiller)
-                        {
-                            Some(op_key) => op_key.clone(),
-                            None => {
-                                return Err(TransitionErr(format!(
-                                    "could not convert operator index {} to operator key",
-                                    fulfiller
-                                )));
-                            }
-                        };
+                let withdrawal_request_txid = assignment
+                    .withdrawal_request_txid()
+                    .ok_or_else(|| {
+                        TransitionErr(format!(
+                            "assignment does not contain a withdrawal request txid for deposit txid {deposit_txid}",
+                        ))
+                    })?;
 
+                match &mut self.state.state {
+                    ContractState::Deposited {
+                        peg_out_graphs,
+                        claim_txids,
+                        graph_sigs,
+                        ..
+                    } => {
                         let fulfiller_claim_txid =
-                            claim_txids
-                                .get(&fulfiller_key)
-                                .ok_or(TransitionErr(format!(
-                                    "could not find claim_txid for operator {} in csm {}",
-                                    fulfiller_key,
-                                    self.deposit_txid()
-                                )))?;
+                            claim_txids.get(&assignee_key).ok_or(TransitionErr(format!(
+                                "could not find claim_txid for operator {assignee_key} in csm {deposit_txid}",
+                            )))?;
 
                         let deadline = dispatched_state.exec_deadline();
                         let active_graph = peg_out_graphs
                             .get(fulfiller_claim_txid)
                             .ok_or(TransitionErr(format!(
-                                "could not find peg out graph {} in csm {}",
-                                fulfiller_claim_txid,
-                                self.deposit_txid()
+                                "could not find peg out graph {fulfiller_claim_txid} in csm {deposit_txid}",
                             )))?
                             .to_owned();
 
-                        let recipient = dispatched_state
-                            .cmd()
-                            .withdraw_outputs()
-                            .first()
-                            .map(|out| out.destination());
+                        self.state.state = ContractState::Assigned {
+                            peg_out_graphs: peg_out_graphs.clone(),
+                            claim_txids: claim_txids.clone(),
+                            graph_sigs: graph_sigs.clone(),
+                            fulfiller: assignee,
+                            deadline,
+                            active_graph,
+                            recipient: recipient.clone(),
+                            withdrawal_request_txid: withdrawal_request_txid.into(),
+                            l1_start_height: height,
+                        };
 
-                        if let (Some(recipient), Some(withdrawal_request_txid)) =
-                            (recipient, assignment.withdrawal_request_txid())
-                        {
-                            self.state.state = ContractState::Assigned {
-                                peg_out_graphs: peg_out_graphs.clone(),
-                                claim_txids: claim_txids.clone(),
-                                graph_sigs,
-                                fulfiller,
-                                deadline,
-                                active_graph,
-                                recipient: recipient.clone(),
-                                withdrawal_request_txid: withdrawal_request_txid.into(),
-                                graph_partials: graph_partials.clone(),
-                            };
-
-                            let stake_index = assignment.idx();
-
-                            Ok(Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::AdvanceStakeChain {
-                                    stake_tx,
-                                    stake_index,
-                                },
-                            )))
-                        } else {
-                            warn!(?assignment, "assignment does not contain a recipient or withdrawal request txid");
-                            self.state.state = copy_of_current.clone();
-
-                            Err(TransitionErr(format!("invalid assignment state, missing recipient or withdrawal request txid, {assignment:?}")))
-                        }
+                        Ok(Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::AdvanceStakeChain {
+                                stake_index: assignment.idx(),
+                                stake_tx,
+                            },
+                        )))
                     }
 
-                    _ => Err(TransitionErr(format!(
-                        "received a non-dispatched deposit entry as an assignment {:?}",
-                        assignment
-                    ))),
+                    ContractState::Assigned {
+                        fulfiller,
+                        deadline,
+                        ..
+                    } => {
+                        if *fulfiller != assignee {
+                            info!(new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
+
+                            *fulfiller = assignee;
+                            *deadline = dispatched_state.exec_deadline();
+                        }
+
+                        Ok(Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::AdvanceStakeChain {
+                                stake_index: assignment.idx(),
+                                stake_tx,
+                            },
+                        )))
+                    }
+
+                    ContractState::StakeTxReady {
+                        fulfiller,
+                        deadline,
+                        ..
+                    } => {
+                        if *fulfiller != assignee {
+                            info!(new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
+
+                            *fulfiller = assignee;
+                            *deadline = dispatched_state.exec_deadline();
+                        }
+
+                        let is_assigned_to_me = *fulfiller == pov_idx;
+                        let duty = if is_assigned_to_me {
+                            let withdrawal_metadata = WithdrawalMetadata {
+                                tag: self.cfg.peg_out_graph_params.tag,
+                                operator_idx: *fulfiller,
+                                deposit_idx: assignment.idx(),
+                                deposit_txid,
+                            };
+
+                            Some(OperatorDuty::FulfillerDuty(
+                                FulfillerDuty::PublishFulfillment {
+                                    withdrawal_metadata,
+                                    user_descriptor: recipient.clone(),
+                                    deadline: *deadline,
+                                },
+                            ))
+                        } else {
+                            None
+                        };
+
+                        Ok(duty)
+                    }
+
+                    cur_state => {
+                        warn!(?assignment, %cur_state, "received stale assignment, ignoring");
+
+                        Ok(None)
+                    }
                 }
             }
-            ContractState::Assigned { .. } => {
-                // TODO: (@Rajil1213) check if this is a new assignment i.e., the assignee is
-                // different
-
-                warn!("received assignment even though contract is already assigned");
-                self.state.state = current;
-
-                Ok(None)
-            }
             _ => {
-                warn!(?assignment, %current, "received stale assignment, ignoring...");
-                self.state.state = current;
+                warn!(
+                    ?assignment,
+                    "received a non-dispatched deposit entry as an assignment"
+                );
 
-                Ok(None)
+                Err(TransitionErr(format!(
+                    "received a non-dispatched deposit entry as an assignment {assignment:?}",
+                )))
             }
         }
     }
@@ -2087,12 +2522,10 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        info!("processing stake chain advancement");
+        let deposit_txid = self.deposit_txid();
+        info!(%deposit_txid, "processing stake chain advancement");
 
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        let copy_of_current = current.clone();
-
-        match current {
+        match &mut self.state.state {
             ContractState::Assigned {
                 peg_out_graphs,
                 claim_txids,
@@ -2102,11 +2535,11 @@ impl ContractSM {
                 deadline,
                 active_graph,
                 withdrawal_request_txid,
-                graph_partials,
+                l1_start_height,
+                ..
             } => {
                 if tx.compute_txid() != active_graph.1.stake_txid {
                     // might be somebody else's stake txid
-                    self.state.state = copy_of_current;
 
                     // FIXME: (@Rajil1213) This should be an error variant that the upstream code
                     // can handle. Most likely, the upstream code will just
@@ -2114,44 +2547,44 @@ impl ContractSM {
                     return Ok(None);
                 }
 
+                let is_assigned_to_me = *fulfiller == self.cfg.operator_table.pov_idx();
+                let duty = if is_assigned_to_me {
+                    // if this withdrawal is assigned to this operator, then it needs to fulfill
+                    // it.
+                    let withdrawal_metadata = WithdrawalMetadata {
+                        tag: self.cfg.peg_out_graph_params.tag,
+                        operator_idx: *fulfiller,
+                        deposit_idx: self.cfg.deposit_idx,
+                        deposit_txid,
+                    };
+
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishFulfillment {
+                            withdrawal_metadata,
+                            user_descriptor: recipient.clone(),
+                            deadline: *deadline,
+                        },
+                    ))
+                } else {
+                    None
+                };
+
                 self.state.state = ContractState::StakeTxReady {
-                    peg_out_graphs,
-                    graph_sigs,
-                    claim_txids,
-                    fulfiller,
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    graph_sigs: graph_sigs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    fulfiller: *fulfiller,
                     recipient: recipient.clone(),
-                    deadline,
-                    active_graph,
-                    withdrawal_request_txid,
-                    graph_partials,
-                };
-                let is_assigned_to_me = fulfiller == self.cfg.operator_table.pov_idx();
-
-                if !is_assigned_to_me {
-                    // FIXME: (@Rajil1213) this should be an error case (all cases that don't update
-                    // the state are error cases).
-                    return Ok(None);
-                }
-
-                // if this withdrawal is assigned to this operator, then it needs to fulfill
-                // it.
-                let withdrawal_metadata = WithdrawalMetadata {
-                    tag: self.cfg.peg_out_graph_params.tag,
-                    operator_idx: fulfiller,
-                    deposit_idx: self.cfg.deposit_idx,
-                    deposit_txid: self.deposit_txid(),
+                    deadline: *deadline,
+                    active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
+                    l1_start_height: *l1_start_height,
                 };
 
-                Ok(Some(OperatorDuty::FulfillerDuty(
-                    FulfillerDuty::PublishFulfillment {
-                        withdrawal_metadata,
-                        user_descriptor: recipient,
-                    },
-                )))
+                Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_stake_chain_advancement ({})",
-                current
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_stake_chain_advancement ({cur_state})"
             ))),
         }
     }
@@ -2160,11 +2593,16 @@ impl ContractSM {
         // Analyze fulfillment transaction to determine
         &mut self,
         tx: &Transaction,
+        height: BitcoinBlockHeight,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        let copy_of_current = current.clone();
+        let deposit_txid = self.deposit_txid();
+        let deposit_idx = self.cfg.deposit_idx;
+        let withdrawal_fulfillment_txid = tx.compute_txid();
+        debug!(%deposit_txid, %deposit_idx, %height, txid=%withdrawal_fulfillment_txid, "processing fulfillment confirmation");
 
-        match current {
+        let peg_out_graph_params = self.cfg.peg_out_graph_params;
+        let network = self.cfg.network;
+        match &mut self.state.state {
             ContractState::StakeTxReady {
                 peg_out_graphs,
                 claim_txids,
@@ -2172,47 +2610,30 @@ impl ContractSM {
                 fulfiller,
                 active_graph,
                 recipient,
-                graph_partials,
+                l1_start_height,
                 ..
             } => {
-                // TODO(proofofkeags): we need to verify that this is bound properly to the correct
-                // operator.
-                let cfg = self.cfg();
-                let deposit_txid = cfg.deposit_tx.compute_txid();
-                let stake_txid = active_graph.1.stake_txid;
-
                 if !is_fulfillment_tx(
-                    cfg.network,
-                    &cfg.peg_out_graph_params,
-                    fulfiller,
-                    cfg.deposit_idx,
-                    cfg.deposit_tx.compute_txid(),
+                    network,
+                    &peg_out_graph_params,
+                    *fulfiller,
+                    deposit_idx,
+                    deposit_txid,
                     recipient.clone(),
                 )(tx)
                 {
                     // might get somebody else's stake transaction here.
                     // this can happen if this node's stake transaction is settled before other
                     // nodes'.
-                    self.state.state = copy_of_current;
 
                     // FIXME: (@Rajil1213) this should be an error case.
-
                     return Ok(None);
                 }
 
-                let withdrawal_fulfillment_txid = tx.compute_txid();
-                debug!(%withdrawal_fulfillment_txid, "discovered withdrawal fulfillment");
-                self.state.state = ContractState::Fulfilled {
-                    peg_out_graphs,
-                    claim_txids,
-                    graph_sigs,
-                    fulfiller,
-                    active_graph,
-                    graph_partials,
-                    withdrawal_fulfillment_txid,
-                };
+                let is_assigned_to_me = *fulfiller == self.cfg.operator_table.pov_idx();
+                let duty = if is_assigned_to_me {
+                    let stake_txid = active_graph.1.stake_txid;
 
-                let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim {
                         withdrawal_fulfillment_txid: tx.compute_txid(),
                         stake_txid,
@@ -2222,11 +2643,21 @@ impl ContractSM {
                     None
                 };
 
+                self.state.state = ContractState::Fulfilled {
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_height: height,
+                    l1_start_height: *l1_start_height,
+                };
+
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_fulfillment_confirmation ({})",
-                current
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_fulfillment_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2238,48 +2669,53 @@ impl ContractSM {
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         debug!(txid=%tx.compute_txid(), %height, "processing confirmation of claim tx");
 
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        let copy_of_current = current.clone();
-        match current {
+        match &mut self.state.state {
             ContractState::Fulfilled {
                 peg_out_graphs,
                 claim_txids,
                 graph_sigs,
                 fulfiller,
                 active_graph,
-                graph_partials,
+                withdrawal_fulfillment_txid,
+                l1_start_height,
                 ..
             } => {
                 if tx.compute_txid() != active_graph.1.claim_txid {
-                    self.state.state = copy_of_current;
-
                     return Err(TransitionErr(format!(
                         "invalid claim confirmation ({})",
                         tx.compute_txid()
                     )));
                 }
 
-                let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
+                let is_assigned_to_me = *fulfiller != self.cfg.operator_table.pov_idx();
+                let duty = if is_assigned_to_me {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyClaim))
                 } else {
                     None
                 };
 
+                let commitment = ClaimTx::parse_witness(tx).map_err(|e| {
+                    error!(%e, "could not parse witness from claim tx");
+
+                    TransitionErr(format!("could not parse claim tx witness: {e}"))
+                })?;
+
                 self.state.state = ContractState::Claimed {
-                    peg_out_graphs,
-                    claim_txids,
-                    graph_sigs,
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
                     claim_height: height,
-                    fulfiller,
-                    active_graph,
-                    graph_partials,
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    l1_start_height: *l1_start_height,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_commitment: Wots256Sig(commitment),
                 };
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_claim_confirmation ({})",
-                current
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_claim_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2303,69 +2739,229 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        let copy_of_current = current.clone();
-        match current {
+        match &mut self.state.state {
             ContractState::Claimed {
                 peg_out_graphs,
                 claim_txids,
                 graph_sigs,
                 fulfiller,
                 active_graph,
-                graph_partials,
+                claim_height,
+                l1_start_height,
+                withdrawal_fulfillment_txid,
+                withdrawal_fulfillment_commitment,
                 ..
             } => {
-                if !is_challenge(active_graph.1.claim_txid)(tx) {
-                    self.state.state = copy_of_current;
-
+                let claim_txid = active_graph.1.claim_txid;
+                if !is_challenge(claim_txid)(tx) {
                     return Err(TransitionErr(format!(
                         "received non-challenge tx in process_challenge_confirmation: {}",
                         tx.compute_txid()
                     )));
                 }
 
-                let duty = if fulfiller == self.cfg.operator_table.pov_idx() {
+                let challenge_txid = tx.compute_txid();
+                info!(%claim_txid, %challenge_txid, "received challenge confirmation");
+                self.state.state = ContractState::Challenged {
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    claim_height: *claim_height,
+                    l1_start_height: *l1_start_height,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
+                };
+
+                Ok(None)
+            }
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_challenge_confirmation ({cur_state})"
+            ))),
+        }
+    }
+
+    fn process_pre_assert_confirmation(
+        &mut self,
+        tx: &Transaction,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        let txid = tx.compute_txid();
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, %txid, "processing pre assert confirmation");
+
+        match &mut self.state.state {
+            ContractState::Challenged {
+                peg_out_graphs,
+                claim_txids,
+                active_graph,
+                graph_sigs,
+                fulfiller,
+                claim_height,
+                l1_start_height,
+                withdrawal_fulfillment_txid,
+                withdrawal_fulfillment_commitment,
+                ..
+            }
+            | ContractState::Claimed {
+                peg_out_graphs,
+                claim_txids,
+                graph_sigs,
+                claim_height,
+                fulfiller,
+                active_graph,
+                withdrawal_fulfillment_txid,
+                withdrawal_fulfillment_commitment,
+                l1_start_height,
+                ..
+            } => {
+                if txid != active_graph.1.pre_assert_txid {
+                    return Err(TransitionErr(format!(
+                        "invalid pre assert transaction ({}) in process_pre_assert_confirmation",
+                        tx.compute_txid()
+                    )));
+                }
+
+                let is_assigned_to_me = *fulfiller == self.cfg.operator_table.pov_idx();
+                let duty = if is_assigned_to_me {
+                    let pre_assert_locking_scripts = tx
+                        .output
+                        .iter()
+                        .map(|out| out.script_pubkey.clone())
+                        .take(NUM_ASSERT_DATA_TX)
+                        .collect::<Vec<_>>()
+                        .try_into()
+                        .expect("pre-assert tx must have the right number of outputs");
+
                     Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishAssertChain,
+                        FulfillerDuty::PublishAssertData {
+                            withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                            start_height: *l1_start_height,
+                            deposit_idx: self.cfg.deposit_idx,
+                            deposit_txid,
+                            pre_assert_txid: txid,
+                            pre_assert_locking_scripts,
+                        },
                     ))
                 } else {
                     None
                 };
 
-                self.state.state = ContractState::Challenged {
-                    peg_out_graphs,
-                    claim_txids,
-                    graph_sigs,
-                    fulfiller,
-                    active_graph,
-                    graph_partials,
+                self.state.state = ContractState::PreAssertConfirmed {
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    claim_height: *claim_height,
+                    l1_start_height: *l1_start_height,
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
+                    signed_assert_data_txs: HashMap::new(),
                 };
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_challenge_confirmation ({})",
-                current
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_pre_assert_confirmation ({cur_state})"
             ))),
         }
     }
 
-    fn process_assert_chain_confirmation(
+    fn process_assert_data_confirmation(
         &mut self,
-        post_assert_height: BitcoinBlockHeight,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        match current {
-            ContractState::Challenged {
+        let txid = tx.compute_txid();
+        let deposit_txid = self.deposit_txid();
+
+        match &mut self.state.state {
+            ContractState::PreAssertConfirmed {
                 peg_out_graphs,
                 claim_txids,
                 graph_sigs,
                 fulfiller,
                 active_graph,
-                graph_partials,
+                withdrawal_fulfillment_txid,
+                withdrawal_fulfillment_commitment,
+                signed_assert_data_txs,
                 ..
             } => {
+                if !active_graph.1.assert_data_txids.contains(&txid) {
+                    return Err(TransitionErr(format!(
+                        "non assert data tx ({txid}) received in process_assert_data_confirmation when pre-assert confirmed"
+                    )));
+                }
+
+                signed_assert_data_txs.insert(txid, tx.clone());
+                if signed_assert_data_txs.len() < NUM_ASSERT_DATA_TX {
+                    // not enough assert data txs yet
+                    return Ok(None);
+                }
+
+                info!("all assert data transactions confirmed");
+
+                let is_assigned_to_me = *fulfiller == self.cfg.operator_table.pov_idx();
+
+                let duty = if is_assigned_to_me {
+                    let assert_data_txids = active_graph.1.assert_data_txids;
+                    let agg_sigs = graph_sigs
+                        .get(&active_graph.1.claim_txid)
+                        .ok_or(TransitionErr(format!(
+                            "could not find graph sigs for claim txid {} in assert data confirmed state",
+                            active_graph.1.claim_txid
+                        )))?
+                        .post_assert;
+
+                    Some(OperatorDuty::FulfillerDuty(
+                        FulfillerDuty::PublishPostAssertData {
+                            deposit_txid,
+                            assert_data_txids: Box::new(assert_data_txids),
+                            agg_sigs: Box::new(agg_sigs),
+                        },
+                    ))
+                } else {
+                    None
+                };
+
+                self.state.state = ContractState::AssertDataConfirmed {
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
+                    signed_assert_data_txs: signed_assert_data_txs.clone(),
+                };
+
+                Ok(duty)
+            }
+            invalid_state => Err(TransitionErr(format!(
+                "unexpected state in process_assert_data_confirmation ({invalid_state})"
+            ))),
+        }
+    }
+
+    fn process_post_assert_confirmation(
+        &mut self,
+        tx: &Transaction,
+        post_assert_height: BitcoinBlockHeight,
+    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, %post_assert_height, "processing post assert confirmation");
+
+        match &mut self.state.state {
+            ContractState::AssertDataConfirmed {
+                peg_out_graphs,
+                claim_txids,
+                graph_sigs,
+                fulfiller,
+                active_graph,
+                withdrawal_fulfillment_txid,
+                withdrawal_fulfillment_commitment,
+                signed_assert_data_txs,
+            } if signed_assert_data_txs.keys().count() == NUM_ASSERT_DATA_TX => {
                 if tx.compute_txid() != active_graph.1.post_assert_txid {
                     return Err(TransitionErr(format!(
                         "invalid post assert transaction ({}) in process_assert_chain_confirmation",
@@ -2373,27 +2969,52 @@ impl ContractSM {
                     )));
                 }
 
-                let duty = if fulfiller != self.cfg.operator_table.pov_idx() {
+                let assert_data_txs = active_graph
+                    .1
+                    .assert_data_txids
+                    .iter()
+                    .map(|txid| {
+                        signed_assert_data_txs
+                            .get(txid)
+                            .ok_or(TransitionErr(format!(
+                                "could not find assert data tx {txid} in csm {deposit_txid}",
+                            )))
+                            .cloned()
+                    })
+                    .collect::<Result<Vec<_>, _>>()?
+                    .try_into()
+                    .expect("must have right number of assert data transactions");
+
+                let proof_commitment = AssertDataTxBatch::parse_witnesses(&assert_data_txs)
+                    .map_err(|e| {
+                        error!(%e, "could not parse witness from assert data txs");
+
+                        TransitionErr(format!("could not parse assert data tx witness: {e}"))
+                    })?;
+
+                let is_assigned_to_me = *fulfiller == self.cfg.operator_table.pov_idx();
+                let duty = if is_assigned_to_me {
                     Some(OperatorDuty::VerifierDuty(VerifierDuty::VerifyAssertion))
                 } else {
                     None
                 };
 
                 self.state.state = ContractState::Asserted {
-                    peg_out_graphs,
-                    claim_txids,
-                    graph_sigs,
+                    peg_out_graphs: peg_out_graphs.clone(),
+                    claim_txids: claim_txids.clone(),
+                    graph_sigs: graph_sigs.clone(),
                     post_assert_height,
-                    fulfiller,
-                    active_graph,
-                    graph_partials,
+                    fulfiller: *fulfiller,
+                    active_graph: active_graph.clone(),
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
+                    proof_commitment: Groth16Sigs(proof_commitment),
                 };
 
                 Ok(duty)
             }
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_assert_chain_confirmation ({})",
-                current
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_post_assert_confirmation ({cur_state})"
             ))),
         }
     }
@@ -2402,14 +3023,15 @@ impl ContractSM {
     fn process_assertion_verification_failure(
         &mut self,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        let current = std::mem::replace(&mut self.state.state, ContractState::Resolved {});
-        match current {
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, "processing assertion verification failure");
+
+        match &mut self.state.state {
             ContractState::Asserted { .. } => Ok(Some(OperatorDuty::VerifierDuty(
                 VerifierDuty::PublishDisprove,
             ))),
-            _ => Err(TransitionErr(format!(
-                "unexpected state in process_assert_verification_failure ({})",
-                current
+            cur_state => Err(TransitionErr(format!(
+                "unexpected state in process_assert_verification_failure ({cur_state})"
             ))),
         }
     }
@@ -2418,7 +3040,10 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match self.state.state.clone() {
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, "processing disprove confirmation");
+
+        match &mut self.state.state {
             ContractState::Asserted { active_graph, .. } => {
                 if !is_disprove(active_graph.1.post_assert_txid)(tx) {
                     return Err(TransitionErr(format!(
@@ -2427,6 +3052,7 @@ impl ContractSM {
                     )));
                 }
 
+                info!(txid=%tx.compute_txid(), "processing disprove confirmation");
                 self.state.state = ContractState::Disproved {};
 
                 Ok(None)
@@ -2442,13 +3068,26 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match self.state.state.clone() {
-            ContractState::Claimed { active_graph, .. } => {
-                if tx.compute_txid() != active_graph.1.payout_optimistic_txid {
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, "processing optimistic payout confirmation");
+
+        match &mut self.state.state {
+            ContractState::Claimed {
+                active_graph,
+                withdrawal_fulfillment_txid,
+                ..
+            } => {
+                let payout_optimistic_txid = tx.compute_txid();
+                if payout_optimistic_txid != active_graph.1.payout_optimistic_txid {
                     return Err(TransitionErr(format!("invalid optimistic payout transaction ({}) in process_optimistic_payout_confirmation", tx.compute_txid())));
                 }
 
-                self.state.state = ContractState::Resolved {};
+                info!(txid=%payout_optimistic_txid, "processing optimistic payout confirmation");
+                self.state.state = ContractState::Resolved {
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    payout_txid: payout_optimistic_txid,
+                    path: ResolutionPath::Optimistic,
+                };
 
                 Ok(None)
             }
@@ -2463,15 +3102,27 @@ impl ContractSM {
         &mut self,
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        match self.state.state.clone() {
-            ContractState::Asserted { active_graph, .. } => {
-                if tx.compute_txid() != active_graph.1.payout_txid {
+        let deposit_txid = self.deposit_txid();
+        debug!(%deposit_txid, "processing defended payout confirmation");
+
+        match &mut self.state.state {
+            ContractState::Asserted {
+                active_graph,
+                withdrawal_fulfillment_txid,
+                ..
+            } => {
+                let defended_payout_txid = tx.compute_txid();
+                if defended_payout_txid != active_graph.1.payout_txid {
                     return Err(TransitionErr(format!(
                         "invalid defended payout transaction ({}) in process_defended_payout_confirmation", tx.compute_txid()
                     )));
                 }
 
-                self.state.state = ContractState::Resolved {};
+                self.state.state = ContractState::Resolved {
+                    withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
+                    payout_txid: defended_payout_txid,
+                    path: ResolutionPath::Contested,
+                };
 
                 Ok(None)
             }
@@ -2516,16 +3167,17 @@ impl ContractSM {
     pub fn claim_txids(&self) -> Vec<Txid> {
         let dummy = BTreeMap::new();
         match &self.state().state {
-            ContractState::Requested { claim_txids, .. } => claim_txids,
-            ContractState::Deposited { claim_txids, .. } => claim_txids,
-            ContractState::Assigned { claim_txids, .. } => claim_txids,
-            ContractState::StakeTxReady { claim_txids, .. } => claim_txids,
-            ContractState::Fulfilled { claim_txids, .. } => claim_txids,
-            ContractState::Claimed { claim_txids, .. } => claim_txids,
-            ContractState::Challenged { claim_txids, .. } => claim_txids,
-            ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved {} => &dummy,
-            ContractState::Resolved {} => &dummy,
+            ContractState::Requested { claim_txids, .. }
+            | ContractState::Deposited { claim_txids, .. }
+            | ContractState::Assigned { claim_txids, .. }
+            | ContractState::StakeTxReady { claim_txids, .. }
+            | ContractState::Fulfilled { claim_txids, .. }
+            | ContractState::Claimed { claim_txids, .. }
+            | ContractState::Challenged { claim_txids, .. }
+            | ContractState::PreAssertConfirmed { claim_txids, .. }
+            | ContractState::AssertDataConfirmed { claim_txids, .. }
+            | ContractState::Asserted { claim_txids, .. } => claim_txids,
+            ContractState::Disproved {} | ContractState::Resolved { .. } => &dummy,
         }
         .values()
         .copied()
@@ -2538,22 +3190,25 @@ impl ContractSM {
     /// [`ContractState::StakeTxReady`] state.
     pub const fn withdrawal_request_txid(&self) -> Option<Txid> {
         match &self.state().state {
-            ContractState::Requested { .. } => None,
-            ContractState::Deposited { .. } => None,
             ContractState::Assigned {
-                withdrawal_request_txid: assignment_txid,
+                withdrawal_request_txid,
                 ..
-            } => Some(*assignment_txid),
-            ContractState::StakeTxReady {
+            }
+            | ContractState::StakeTxReady {
                 withdrawal_request_txid,
                 ..
             } => Some(*withdrawal_request_txid),
-            ContractState::Fulfilled { .. } => None,
-            ContractState::Claimed { .. } => None,
-            ContractState::Challenged { .. } => None,
-            ContractState::Asserted { .. } => None,
-            ContractState::Disproved {} => None,
-            ContractState::Resolved {} => None,
+
+            ContractState::Requested { .. }
+            | ContractState::Deposited { .. }
+            | ContractState::Fulfilled { .. }
+            | ContractState::Claimed { .. }
+            | ContractState::Challenged { .. }
+            | ContractState::PreAssertConfirmed { .. }
+            | ContractState::AssertDataConfirmed { .. }
+            | ContractState::Asserted { .. }
+            | ContractState::Disproved {}
+            | ContractState::Resolved { .. } => None,
         }
     }
     /// The txid of the withdrawal fulfillment for this contract.
@@ -2562,19 +3217,37 @@ impl ContractSM {
     /// state.
     pub const fn withdrawal_fulfillment_txid(&self) -> Option<Txid> {
         match &self.state().state {
-            ContractState::Requested { .. } => None,
-            ContractState::Deposited { .. } => None,
-            ContractState::Assigned { .. } => None,
-            ContractState::StakeTxReady { .. } => None,
+            ContractState::Requested { .. }
+            | ContractState::Deposited { .. }
+            | ContractState::Assigned { .. }
+            | ContractState::StakeTxReady { .. }
+            | ContractState::Disproved {}
+            | ContractState::Resolved { .. } => None,
+
             ContractState::Fulfilled {
                 withdrawal_fulfillment_txid,
                 ..
+            }
+            | ContractState::Claimed {
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::Challenged {
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::PreAssertConfirmed {
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::AssertDataConfirmed {
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::Asserted {
+                withdrawal_fulfillment_txid,
+                ..
             } => Some(*withdrawal_fulfillment_txid),
-            ContractState::Claimed { .. } => None,
-            ContractState::Challenged { .. } => None,
-            ContractState::Asserted { .. } => None,
-            ContractState::Disproved {} => None,
-            ContractState::Resolved {} => None,
         }
     }
 }
@@ -2631,7 +3304,7 @@ fn verify_partials_from_peer(
     graph_nonces: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
     agg_nonces: &BTreeMap<Txid, Vec<AggNonce>>,
     partial_sigs: &[PartialSignature],
-) -> Result<(), TransitionErr> {
+) -> Result<bool, TransitionErr> {
     let individual_pubkey = cfg
         .operator_table
         .op_key_to_btc_key(signer)
@@ -2639,11 +3312,22 @@ fn verify_partials_from_peer(
 
     let individual_pubnonces = graph_nonces
         .get(claim_txid)
-        .map(|v| {
-            v.get(signer)
-                .expect("individual pubnonce must be present in unpacked")
-        })
         .expect("claim txid must be present in graph nonces")
+        .clone();
+
+    let expected_pubnonce_count = cfg.operator_table.cardinality();
+    let available_pubnonce_count = individual_pubnonces.len();
+    if available_pubnonce_count != expected_pubnonce_count {
+        // this can happen if a peer crashes right after broadcasting their own pubnonce,
+        // but before they commit their own or before they receive the pubnonces from others.
+        warn!(%available_pubnonce_count, %expected_pubnonce_count, "received partials too early, ignoring");
+
+        return Ok(false);
+    }
+
+    let individual_pubnonces = individual_pubnonces
+        .get(signer)
+        .expect("signer must have pubnonces in graph nonces")
         .clone()
         .pack();
 
@@ -2696,10 +3380,10 @@ fn verify_partials_from_peer(
             },
         )
     {
-        return Err(TransitionErr(format!("partial signature verification failed for claim txid ({}) from signer ({})", claim_txid, signer)));
+        return Err(TransitionErr(format!("partial signature verification failed for claim txid ({claim_txid}) from signer ({signer})")));
     }
 
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ use bitvm::{
     chunk::api::{api_generate_full_tapscripts, NUM_TAPS},
     hash::blake3::blake3_compute_script,
     pseudo::NMUL,
-    signatures::wots_api::{wots256, SignatureImpl},
+    signatures::{CompactWots, Wots, Wots32 as wots256},
     treepp::*,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
@@ -58,10 +58,10 @@ pub enum ConnectorA3Leaf {
 pub struct DisprovePublicInputsCommitmentWitness {
     /// The WOTS value for the withdrawal fulfillment txid committed by the assigned operator in
     /// the Claim Transaction.
-    pub sig_withdrawal_fulfillment_txid: wots256::Signature,
+    pub sig_withdrawal_fulfillment_txid: <wots256 as Wots>::Signature,
     /// The WOTS value for the public inputs hash committed by the assigned operator in one of the
     /// AssertData transactions.
-    pub sig_public_inputs_hash: wots256::Signature,
+    pub sig_public_inputs_hash: <wots256 as Wots>::Signature,
 }
 
 impl ConnectorA3Leaf {
@@ -108,7 +108,7 @@ impl ConnectorA3Leaf {
                     // first, verify that the WOTS for withdrawal fulfillment txid is correct.
                     // `checksig_verify` pushes the committed data onto the stack as nibbles in big-endian form.
                     // Assuming front as the top of stack we get Stack : [a,b,...,1,2] ; Alt-stack : []
-                    { wots256::compact::checksig_verify(*withdrawal_fulfillment.0) }
+                    { wots256::compact_checksig_verify(&withdrawal_fulfillment.0) }
 
                     // send the 64 nibbles to altstack
                     // Stack : [] ; Alt-Stack : [2,1,...,b,a]
@@ -116,7 +116,7 @@ impl ConnectorA3Leaf {
 
                     // second, verify that the WOTS for public inputs hash is correct.
                     // Stack : [c,d,...,3,4] Alt-stack : [2,1,...,b,a]
-                    { wots256::compact::checksig_verify(public_inputs_hash_public_key) }
+                    { wots256::compact_checksig_verify(&public_inputs_hash_public_key) }
 
                     // multiply each nibble by 16 and add them to together to get the byte.
                     // finally, push the byte to the ALTSTACK.
@@ -239,8 +239,8 @@ impl ConnectorA3Leaf {
                 ..
             } => {
                 script! {
-                    { sig_public_inputs_hash.to_compact_script() }
-                    { sig_withdrawal_fulfillment_txid.to_compact_script() }
+                    { wots256::compact_signature_to_raw_witness(&wots256::signature_to_compact_signature(sig_public_inputs_hash)) }
+                    { wots256::compact_signature_to_raw_witness(&wots256::signature_to_compact_signature(sig_withdrawal_fulfillment_txid)) }
                 }
             }
             ConnectorA3Leaf::DisproveProof {
@@ -261,7 +261,7 @@ impl ConnectorA3Leaf {
 }
 
 /// Connector from the PostAssert transaction to the Disprove transaction.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ConnectorA3 {
     wots_public_keys: wots::PublicKeys,
 
@@ -272,6 +272,23 @@ pub struct ConnectorA3 {
     output_address: Address,
 
     spend_info: TaprootSpendInfo,
+}
+
+impl ConnectorA3 {
+    /// Clones this connector.
+    ///
+    /// This is an expensive operation as it holds all the WOTS public keys.
+    /// As such, this method should be used with caution, especially in memory-constrained
+    /// environments.
+    pub fn expensive_clone(&self) -> Self {
+        Self {
+            wots_public_keys: self.wots_public_keys.clone(),
+            n_of_n_agg_pubkey: self.n_of_n_agg_pubkey,
+            payout_timelock: self.payout_timelock,
+            output_address: self.output_address.clone(),
+            spend_info: self.spend_info.clone(),
+        }
+    }
 }
 
 impl ConnectorA3 {
@@ -286,7 +303,7 @@ impl ConnectorA3 {
         let start_time = Instant::now();
 
         let disprove_scripts =
-            api_generate_full_tapscripts(*wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
+            api_generate_full_tapscripts(**wots_public_keys.groth16, &PARTIAL_VERIFIER_SCRIPTS);
 
         let elapsed = start_time.elapsed();
         debug!(time_taken=?elapsed, "loaded full scripts");
@@ -533,11 +550,16 @@ mod tests {
         let deposit_msk = get_deposit_master_secret_key(msk, deposit_txid);
 
         let withdrawal_fulfillment_txid_sk = secret_key_for_bridge_out_txid(&deposit_msk);
-        let sig_withdrawal_fulfillment_txid = wots256::get_signature(
+        let sig_withdrawal_fulfillment_txid = wots256::sign(
             &withdrawal_fulfillment_txid_sk,
-            &withdrawal_fulfillment_txid.to_byte_array()[..],
-        )
-        .to_script();
+            &withdrawal_fulfillment_txid.to_byte_array(),
+        );
+        let sig_withdrawal_fulfillment_txid =
+            wots256::signature_to_raw_witness(&sig_withdrawal_fulfillment_txid);
+        let sig_withdrawal_fulfillment_txid = script! {
+            { sig_withdrawal_fulfillment_txid }
+        };
+
         let sig_withdrawal_fulfillment_txid =
             parse_wots256_signatures::<1>(sig_withdrawal_fulfillment_txid).unwrap()[0];
 
@@ -547,8 +569,13 @@ mod tests {
             committed_public_inputs_hash.map(|b| ((b & 0xf0) >> 4) | ((b & 0x0f) << 4));
 
         let sig_public_inputs_hash =
-            wots256::get_signature(&public_inputs_hash_sk, &committed_public_inputs_hash[..])
-                .to_script();
+            wots256::sign(&public_inputs_hash_sk, &committed_public_inputs_hash);
+        let sig_public_inputs_hash = wots256::signature_to_raw_witness(&sig_public_inputs_hash);
+
+        let sig_public_inputs_hash = script! {
+            {sig_public_inputs_hash}
+        };
+
         let sig_public_inputs_hash =
             parse_wots256_signatures::<1>(sig_public_inputs_hash).unwrap()[0];
 

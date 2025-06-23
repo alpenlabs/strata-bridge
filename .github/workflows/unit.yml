@@ -56,16 +56,16 @@ jobs:
 
       - name: Install bitcoind
         env:
-          BITCOIND_VERSION: "28.0"
+          BITCOIND_VERSION: "29.0"
           BITCOIND_ARCH: "x86_64-linux-gnu"
-          SHASUM: "7fe294b02b25b51acb8e8e0a0eb5af6bbafa7cd0c5b0e5fcbb61263104a82fbc"
         run: |
-          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-${{ env.BITCOIND_VERSION }}/bitcoin-${{ env.BITCOIND_VERSION }}-${{ env.BITCOIND_ARCH }}.tar.gz"
-          sha256sum -c <<< "$SHASUM bitcoin-${{ env.BITCOIND_VERSION }}-${{ env.BITCOIND_ARCH }}.tar.gz"
-          tar xzf "bitcoin-${{ env.BITCOIND_VERSION }}-${{ env.BITCOIND_ARCH }}.tar.gz"
-          sudo install -m 0755 -t /usr/local/bin bitcoin-${{ env.BITCOIND_VERSION }}/bin/*
+          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
+          curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/SHA256SUMS"
+          sha256sum --ignore-missing --check SHA256SUMS
+          tar xzf "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
+          sudo install -m 0755 -t /usr/local/bin bitcoin-"$BITCOIND_VERSION"/bin/*
           bitcoind --version
-          rm -rf "bitcoin-${{ env.BITCOIND_VERSION }}" "bitcoin-${{ env.BITCOIND_VERSION }}-${{ env.BITCOIND_ARCH }}.tar.gz"
+          rm -rf SHA256SUMS "bitcoin-$BITCOIND_VERSION" "bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
@@ -76,7 +76,7 @@ jobs:
       - name: Install latest nextest release
         uses: taiki-e/install-action@ba0a04e0afd83836a25f30f6f33e6ebdd81a8ff1 # v2
         with:
-          tool: nextest
+          tool: nextest@0.9.98 # TODO: (@Rajil1213) update after `https://github.com/taiki-e/install-action/issues/1005`
 
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3

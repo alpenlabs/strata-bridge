@@ -53,14 +53,14 @@ async fn all_to_all_multiple_ids() -> anyhow::Result<()> {
     } = Setup::all_to_all(OPERATORS_NUM).await?;
 
     let stake_chain_ids = (0..OPERATORS_NUM)
-        .map(|i| StakeChainId::hash(format!("stake_chain_id_{}", i).as_bytes()))
+        .map(|i| StakeChainId::hash(format!("stake_chain_id_{i}").as_bytes()))
         .collect::<Vec<_>>();
     let scopes = (0..OPERATORS_NUM)
-        .map(|i| Scope::hash(format!("scope_{}", i).as_bytes()))
+        .map(|i| Scope::hash(format!("scope_{i}").as_bytes()))
         .collect::<Vec<_>>();
 
     let session_ids = (0..OPERATORS_NUM)
-        .map(|i| SessionId::hash(format!("session_{}", i).as_bytes()))
+        .map(|i| SessionId::hash(format!("session_{i}").as_bytes()))
         .collect::<Vec<_>>();
 
     for stake_chain_id in &stake_chain_ids {

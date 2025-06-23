@@ -1,5 +1,7 @@
 //! This module contains a generic connector for all outputs locked in a taproot address
 //! spendable by a single key path with N-of-N musig2-aggregated signatures.
+use std::slice;
+
 use bitcoin::{
     hashes::{sha256, Hash},
     opcodes::all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
@@ -146,7 +148,7 @@ impl ConnectorStake {
             &self.network,
             SpendPath::Both {
                 internal_key: self.n_of_n_agg_pubkey,
-                scripts: &[script.clone()],
+                scripts: slice::from_ref(&script),
             },
         )
         .expect("should be able to create taproot address");
@@ -235,7 +237,7 @@ mod tests {
         // Setup Bitcoin node
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
-        let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
+        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
         let btc_client = &bitcoind.client;
 
         // Get network

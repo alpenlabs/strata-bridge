@@ -1,0 +1,123 @@
+name: Docker
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions: {}
+
+jobs:
+  extract-rust-version:
+    name: Extract toolchain version
+    runs-on: ubuntu-latest
+    outputs:
+      nightly-version: ${{ steps.extract-version.outputs.nightly-version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+
+      - name: Extract Rust version
+        id: extract-version
+        uses: ./.github/actions/extract-rust-version
+
+  docker-build:
+    name: Test Docker builds
+    runs-on: ubuntu-latest
+    needs: extract-rust-version
+    timeout-minutes: 150 # 2.5h hours is enough for most builds
+    env:
+      DATABASE_URL: sqlite://./operator.db
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          persist-credentials: false
+
+      - name: Cleanup space
+        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@18ce135bb5112fa8ce4ed6c17ab05699d7f3a5e0 # v3.11.0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
+        with:
+          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@9d47c6ad4b02e050fd481d890b2ea34778fd09d6 # v2
+        with:
+          cache-on-failure: true
+
+      - name: Install sqlx-cli
+        run: cargo install sqlx-cli --locked
+
+      - name: Run db migrations
+        run: make migrate
+
+      - name: Cache Docker layers
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Build base image
+        run: |
+          docker buildx build \
+            --file docker/base.Dockerfile \
+            --tag bridge-base:latest \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --load \
+            .
+          docker save bridge-base:latest -o /tmp/bridge-base.tar
+
+      - name: Build rt image
+        run: |
+          docker buildx build \
+            --file docker/rt.Dockerfile \
+            --tag bridge-rt:latest \
+            --cache-from type=local,src=/tmp/.buildx-cache \
+            --cache-to type=local,dest=/tmp/.buildx-cache-new,mode=max \
+            --load \
+            .
+          docker save bridge-rt:latest -o /tmp/bridge-rt.tar
+
+      - name: Build alpen-bridge image
+        run: |
+          docker load -i /tmp/bridge-base.tar
+          docker load -i /tmp/bridge-rt.tar
+          docker build \
+            --file docker/alpen-bridge/Dockerfile \
+            --tag alpen-bridge:latest \
+            .
+
+      - name: Build secret-service image
+        run: |
+          docker load -i /tmp/bridge-base.tar
+          docker load -i /tmp/bridge-rt.tar
+          docker build \
+            --file docker/secret-service/Dockerfile \
+            --tag secret-service:latest \
+            .
+
+      - name: Move cache
+        run: |
+          # Move cache to avoid ever-growing cache
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache

@@ -3,19 +3,12 @@
 use std::ops::Deref;
 
 use async_trait::async_trait;
-use bitcoin::{OutPoint, PublicKey, Transaction, Txid};
+use bitcoin::{OutPoint, Txid};
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use secp256k1::schnorr::Signature;
 use sqlx::SqlitePool;
 use strata_bridge_primitives::{
-    constants::NUM_ASSERT_DATA_TX,
-    duties::{
-        BridgeDuty, BridgeDutyStatus, ClaimStatus, DepositRequestStatus, DepositStatus,
-        WithdrawalStatus,
-    },
-    scripts::taproot::TaprootWitness,
-    types::OperatorIdx,
-    wots,
+    constants::NUM_ASSERT_DATA_TX, scripts::taproot::TaprootWitness, types::OperatorIdx, wots,
 };
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 use tracing::{error, warn};
@@ -25,9 +18,8 @@ use super::{
     errors::StorageError,
     models::DbStakeTxData,
     types::{
-        DbAggNonce, DbDutyStatus, DbHash, DbInputIndex, DbPartialSig, DbSignature,
-        DbTaprootWitness, DbTransaction, DbTxid, DbWots256PublicKey, DbWotsPublicKeys,
-        DbWotsSignatures,
+        DbAggNonce, DbHash, DbInputIndex, DbPartialSig, DbSignature, DbTaprootWitness, DbTxid,
+        DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures, DbXOnlyPublicKey,
     },
 };
 use crate::{
@@ -35,7 +27,6 @@ use crate::{
     operator::OperatorDb,
     persistent::{models, types::DbPubNonce},
     public::PublicDb,
-    tracker::{BitcoinBlockTrackerDb, DutyTrackerDb},
 };
 
 /// A SQLite database connection pool.
@@ -410,13 +401,14 @@ impl PublicDb for SqliteDb {
 
                 sqlx::query!(
                     "INSERT OR IGNORE INTO operator_stake_data
-                        (operator_idx, deposit_id, funding_txid, funding_vout, hash, withdrawal_fulfillment_pk)
-                        VALUES ($1, $2, $3, $4, $5, $6)",
+                        (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7)",
                     operator_idx,
                     stake_index,
                     stake_data.funding_txid,
                     stake_data.funding_vout,
                     stake_data.hash,
+                    stake_data.operator_pubkey,
                     stake_data.withdrawal_fulfillment_pk,
                 )
                 .execute(&mut *tx)
@@ -442,9 +434,10 @@ impl PublicDb for SqliteDb {
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
+                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
-                    WHERE operator_idx = $1 AND deposit_id = $2"#,
+                    WHERE operator_idx = $1 AND deposit_idx = $2"#,
                 operator_idx,
                 deposit_id
             )
@@ -456,6 +449,39 @@ impl PublicDb for SqliteDb {
         .await
     }
 
+    async fn add_all_stake_data(&self, data: Vec<(OperatorIdx, u32, StakeTxData)>) -> DbResult<()> {
+        execute_with_retries(&self.config, || {
+            let pool = self.pool.to_owned();
+            let data = data.clone();
+            async move {
+                let mut tx = pool.begin().await.map_err(StorageError::from)?;
+
+                for (operator_idx, deposit_id, stake_data) in data {
+                    let stake_data = DbStakeTxData::from(stake_data);
+                    sqlx::query!(
+                        "INSERT OR IGNORE INTO operator_stake_data
+                            (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        operator_idx,
+                        deposit_id,
+                        stake_data.funding_txid,
+                        stake_data.funding_vout,
+                        stake_data.hash,
+                        stake_data.operator_pubkey,
+                        stake_data.withdrawal_fulfillment_pk,
+                    )
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(StorageError::from)?;
+                }
+
+                tx.commit().await.map_err(StorageError::from)?;
+
+                Ok(())
+            }
+        }).await
+    }
+
     async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
         execute_with_retries(self.config(), || async {
             Ok(sqlx::query_as!(
@@ -464,10 +490,11 @@ impl PublicDb for SqliteDb {
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
-                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
+                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey",
+                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey"
                     FROM operator_stake_data
                     WHERE operator_idx = $1
-                    ORDER BY deposit_id ASC"#,
+                    ORDER BY deposit_idx ASC"#,
                 operator_idx,
             )
             .fetch_all(&self.pool)
@@ -716,7 +743,7 @@ impl OperatorDb for SqliteDb {
                     pubnonce AS "pubnonce: DbPubNonce",
                     txid AS "txid: DbTxid",
                     input_index AS "input_index: DbInputIndex"
-                    FROM pub_nonces 
+                    FROM pub_nonces
                     WHERE operator_idx = $1 AND txid = $2 AND input_index = $3"#,
                 operator_idx,
                 txid,
@@ -951,235 +978,6 @@ impl OperatorDb for SqliteDb {
     }
 }
 
-#[async_trait]
-impl DutyTrackerDb for SqliteDb {
-    async fn get_last_fetched_duty_index(&self) -> DbResult<u64> {
-        execute_with_retries(self.config(), || async {
-            // Retrieve last fetched duty index from duty_index_tracker table
-            let row =
-                sqlx::query!("SELECT last_fetched_duty_index FROM duty_index_tracker WHERE id = 1")
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(StorageError::from)?;
-
-            Ok(row.map(|r| r.last_fetched_duty_index as u64).unwrap_or(0)) // Default to 0 if no
-                                                                           // record
-        })
-        .await
-    }
-
-    async fn set_last_fetched_duty_index(&self, duty_index: u64) -> DbResult<()> {
-        execute_with_retries(self.config(), || async {
-            let duty_index = duty_index as i64;
-
-            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
-
-            sqlx::query!(
-                "INSERT OR REPLACE INTO duty_index_tracker
-                    (id, last_fetched_duty_index)
-                    VALUES (1, $1)",
-                duty_index
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(StorageError::from)?;
-
-            tx.commit().await.map_err(StorageError::from)?;
-
-            Ok(())
-        })
-        .await
-    }
-
-    async fn fetch_duty_status(&self, duty_id: Txid) -> DbResult<Option<BridgeDutyStatus>> {
-        execute_with_retries(self.config(), || async {
-            let duty_id = DbTxid::from(duty_id);
-
-            Ok(sqlx::query_as!(
-                models::DutyTracker,
-                r#"SELECT
-                    duty_id AS "duty_id!: DbTxid",
-                    status AS "status!: DbDutyStatus"
-                    FROM duty_tracker WHERE duty_id = $1"#,
-                duty_id
-            )
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .map(|r| r.status.deref().clone()))
-        })
-        .await
-    }
-
-    async fn update_duty_status(&self, duty_id: Txid, status: BridgeDutyStatus) -> DbResult<()> {
-        execute_with_retries(self.config(), || {
-            let status = status.to_owned();
-
-            async move {
-                let duty_id = DbTxid::from(duty_id);
-                let status = DbDutyStatus::from(status);
-
-                let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
-
-                sqlx::query!(
-                    "INSERT OR REPLACE INTO duty_tracker (duty_id, status) VALUES ($1, $2)",
-                    duty_id,
-                    status,
-                )
-                .execute(&mut *tx)
-                .await
-                .map_err(StorageError::from)?;
-
-                tx.commit().await.map_err(StorageError::from)?;
-
-                Ok(())
-            }
-        })
-        .await
-    }
-
-    async fn get_all_duties(&self) -> DbResult<Vec<BridgeDuty>> {
-        // TODO: this is not possible with the current schema now.
-        //       Check the `BridgeDuty` struct for more information.
-        unimplemented!("@rajil")
-    }
-
-    async fn get_duties_by_operator_pk(&self, operator_pk: PublicKey) -> DbResult<Vec<BridgeDuty>> {
-        // TODO: this is not possible with the current schema now.
-        //       Check the `BridgeDuty` struct for more information.
-        let _ = operator_pk;
-        unimplemented!("@rajil")
-    }
-
-    async fn get_all_claims(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
-    }
-
-    async fn get_claim_by_txid(&self, txid: Txid) -> DbResult<Option<ClaimStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
-    }
-
-    async fn get_all_deposits(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
-    }
-
-    async fn get_deposit_by_txid(&self, txid: Txid) -> DbResult<Option<DepositStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
-    }
-
-    async fn get_all_deposit_requests(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
-    }
-
-    async fn get_deposit_request_by_txid(
-        &self,
-        txid: Txid,
-    ) -> DbResult<Option<DepositRequestStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
-    }
-
-    async fn get_all_withdrawals(&self) -> DbResult<Vec<Txid>> {
-        unimplemented!("@rajil")
-    }
-
-    async fn get_withdrawal_by_txid(&self, txid: Txid) -> DbResult<Option<WithdrawalStatus>> {
-        let _ = txid;
-        unimplemented!("@rajil")
-    }
-}
-
-#[async_trait]
-impl BitcoinBlockTrackerDb for SqliteDb {
-    async fn get_last_scanned_block_height(&self) -> DbResult<u64> {
-        execute_with_retries(self.config(), || async {
-            let row =
-                sqlx::query!("SELECT block_height FROM bitcoin_block_index_tracker WHERE id = 1")
-                    .fetch_optional(&self.pool)
-                    .await
-                    .expect("Failed to fetch last scanned block height");
-
-            Ok(row.map(|r| r.block_height as u64).unwrap_or(0)) // Default to 0 if no record
-        })
-        .await
-    }
-
-    async fn set_last_scanned_block_height(&self, block_height: u64) -> DbResult<()> {
-        execute_with_retries(self.config(), || async {
-            let block_height = block_height as i64;
-
-            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
-
-            sqlx::query!(
-                "INSERT OR REPLACE INTO bitcoin_block_index_tracker
-                    (id, block_height)
-                    VALUES (1, $1)",
-                block_height
-            )
-            .execute(&mut *tx)
-            .await
-            .map_err(StorageError::from)?;
-
-            tx.commit().await.map_err(StorageError::from)?;
-
-            Ok(())
-        })
-        .await
-    }
-
-    async fn get_relevant_tx(&self, txid: Txid) -> DbResult<Option<Transaction>> {
-        execute_with_retries(self.config(), || async {
-            let txid = DbTxid::from(txid);
-
-            Ok(sqlx::query_as!(
-                models::RelevantTxIndex,
-                r#"SELECT
-                tx as "tx!: DbTransaction",
-                txid as "txid!: DbTxid"
-                FROM bitcoin_tx_index
-                WHERE txid = $1"#,
-                txid
-            )
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(StorageError::from)?
-            .map(|row| row.tx.deref().clone()))
-        })
-        .await
-    }
-
-    async fn add_relevant_tx(&self, tx: Transaction) -> DbResult<()> {
-        execute_with_retries(self.config(), || {
-            let tx = tx.to_owned();
-
-            async move {
-                let txid = DbTxid::from(tx.compute_txid());
-                let tx = DbTransaction::from(tx);
-
-                let mut sqlx_tx = self.pool.begin().await.map_err(StorageError::from)?;
-
-                sqlx::query!(
-                    "INSERT OR REPLACE INTO bitcoin_tx_index
-                        (txid, tx)
-                        VALUES ($1, $2)",
-                    txid,
-                    tx
-                )
-                .execute(&mut *sqlx_tx)
-                .await
-                .map_err(StorageError::from)?;
-
-                sqlx_tx.commit().await.map_err(StorageError::from)?;
-
-                Ok(())
-            }
-        })
-        .await
-    }
-}
-
 /// Executes an operation for a given number of retries with a backoff period before erroring out.
 ///
 /// This is useful for retrying transactions that may fail when another thread is holding the lock.
@@ -1216,7 +1014,6 @@ mod tests {
         key::rand::{self, Rng},
     };
     use secp256k1::rand::rngs::OsRng;
-    use strata_bridge_primitives::duties::WithdrawalStatus;
     use strata_bridge_test_utils::prelude::*;
 
     use super::*;
@@ -1452,6 +1249,7 @@ mod tests {
                 },
                 hash: stake_hash,
                 withdrawal_fulfillment_pk: withdrawal_fulfillment_pk.clone(),
+                operator_pubkey: generate_xonly_pubkey(),
             };
 
             assert!(
@@ -1532,108 +1330,6 @@ mod tests {
                 .await
                 .is_ok_and(|v| v == Some(partial_signature)),
             "partial signature must exist after setting"
-        );
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    async fn test_duty_tracker_db(pool: SqlitePool) {
-        let db = SqliteDb::new(pool);
-
-        let duty_id = generate_txid();
-        let block_height: u64 = rand::thread_rng().gen();
-
-        let withdrawal_fulfillment_txid = generate_txid();
-        let claim_txid = generate_txid();
-        let bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
-            withdrawal_fulfillment_txid,
-            claim_txid,
-        });
-
-        assert!(
-            db.fetch_duty_status(duty_id)
-                .await
-                .is_ok_and(|v| v.is_none()),
-            "duty status must not exist initially"
-        );
-        db.update_duty_status(duty_id, bridge_duty_status.clone())
-            .await
-            .expect("must be able to update duty status");
-        assert!(
-            db.fetch_duty_status(duty_id)
-                .await
-                .is_ok_and(|v| v == Some(bridge_duty_status)),
-            "duty status must exist after updating"
-        );
-
-        let new_bridge_duty_status = BridgeDutyStatus::Withdrawal(WithdrawalStatus::Claim {
-            withdrawal_fulfillment_txid: generate_txid(),
-            claim_txid: generate_txid(),
-        });
-        assert!(
-            db.update_duty_status(duty_id, new_bridge_duty_status.clone())
-                .await
-                .is_ok(),
-            "should be able to update duty status"
-        );
-        assert!(
-            db.fetch_duty_status(duty_id)
-                .await
-                .is_ok_and(|v| v == Some(new_bridge_duty_status)),
-            "duty status must change after updating"
-        );
-
-        assert!(
-            db.get_last_fetched_duty_index().await.is_ok_and(|v| v == 0),
-            "last fetched duty index must not exist initially"
-        );
-        db.set_last_fetched_duty_index(block_height)
-            .await
-            .expect("must be able to set last fetched duty index");
-        assert!(
-            db.get_last_fetched_duty_index()
-                .await
-                .is_ok_and(|v| v == block_height),
-            "last fetched duty index must exist after setting"
-        );
-    }
-
-    #[sqlx::test(migrations = "../../migrations")]
-    fn test_bitcoin_block_tracker_db(pool: SqlitePool) {
-        let db = SqliteDb::new(pool);
-
-        let tx = generate_tx(2, 1);
-        let block_height: u64 = OsRng.gen();
-
-        assert!(
-            db.get_last_scanned_block_height()
-                .await
-                .is_ok_and(|v| v == 0),
-            "last scanned block height must not exist initially"
-        );
-        db.set_last_scanned_block_height(block_height)
-            .await
-            .expect("must be able to set last scanned block height");
-        assert!(
-            db.get_last_scanned_block_height()
-                .await
-                .is_ok_and(|v| v == block_height),
-            "last scanned block height must exist after setting"
-        );
-
-        assert!(
-            db.get_relevant_tx(tx.compute_txid())
-                .await
-                .is_ok_and(|v| v.is_none()),
-            "relevant tx must not exist initially"
-        );
-        db.add_relevant_tx(tx.clone())
-            .await
-            .expect("must be able to add relevant tx");
-        assert!(
-            db.get_relevant_tx(tx.compute_txid())
-                .await
-                .is_ok_and(|v| v == Some(tx)),
-            "relevant tx must exist after adding"
         );
     }
 }

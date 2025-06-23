@@ -12,9 +12,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid,
 };
-use bitvm::chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256};
 use btc_notify::client::TxStatus;
-use futures::future::{join3, join_all};
 use musig2::{PartialSignature, PubNonce};
 use operator_wallet::FundingUtxo;
 use secp256k1::{schnorr, Message};
@@ -23,15 +21,12 @@ use secret_service_proto::v1::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
-use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
+use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
 use strata_bridge_tx_graph::{
     pog_musig_functor::PogMusigF,
     transactions::{deposit::DepositTx, prelude::CovenantTx},
 };
-use strata_p2p_types::{
-    P2POperatorPubKey, Scope, SessionId, StakeChainId, Wots128PublicKey, Wots256PublicKey,
-    WotsPublicKeys,
-};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace, warn};
 
@@ -39,7 +34,7 @@ use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     contract_state_machine::{SyntheticEvent, TransitionErr},
     errors::ContractManagerErr,
-    executors::constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
+    executors::wots_handler::get_wots_pks,
     s2_session_manager::{MusigSessionErr, MusigSessionManager},
     tx_driver::TxDriver,
 };
@@ -106,47 +101,7 @@ pub(crate) async fn handle_publish_deposit_setup(
     let scope = Scope::from_bytes(deposit_txid.as_raw_hash().to_byte_array());
     let operator_pk = s2_client.general_wallet_signer().pubkey().await?;
 
-    let wots_client = s2_client.wots_signer();
-    let withdrawal_fulfillment = Wots256PublicKey::from_flattened_bytes(
-        &wots_client
-            .get_256_public_key(deposit_txid, DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX)
-            .await?,
-    );
-    const NUM_FQS: usize = NUM_U256;
-    const NUM_PUB_INPUTS: usize = NUM_PUBS;
-    const NUM_HASHES: usize = NUM_HASH;
-    let public_inputs_ftrs: [_; NUM_PUB_INPUTS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
-    });
-    let fqs_ftrs: [_; NUM_FQS] = std::array::from_fn(|i| {
-        wots_client.get_256_public_key(deposit_txid, DEPOSIT_VOUT, (i + NUM_PUB_INPUTS) as u32)
-    });
-    let hashes_ftrs: [_; NUM_HASHES] = std::array::from_fn(|i| {
-        wots_client.get_128_public_key(deposit_txid, DEPOSIT_VOUT, i as u32)
-    });
-
-    let (public_inputs, fqs, hashes) = join3(
-        join_all(public_inputs_ftrs),
-        join_all(fqs_ftrs),
-        join_all(hashes_ftrs),
-    )
-    .await;
-
-    info!(%deposit_txid, %deposit_idx, "constructing wots keys");
-    let public_inputs = public_inputs
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-    let fqs = fqs
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots256PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-    let hashes = hashes
-        .into_iter()
-        .map(|result| result.map(|bytes| Wots128PublicKey::from_flattened_bytes(&bytes)))
-        .collect::<Result<_, _>>()?;
-
-    let wots_pks = WotsPublicKeys::new(withdrawal_fulfillment, public_inputs, fqs, hashes);
+    let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
 
     // this duty is generated not only when a deposit request is observed
     // but also when nagged by other operators.
@@ -244,6 +199,27 @@ pub(crate) async fn handle_publish_deposit_setup(
             }
         }
     };
+
+    // store the stake data eagerly to the database so that we minimize the risk of losing our own
+    // data _after_ sending it out to peers.
+    info!(%deposit_txid, %deposit_idx, "storing stake data in the database");
+    let stake_data = StakeTxData {
+        operator_funds: funding_utxo,
+        hash: stakechain_preimg_hash,
+        withdrawal_fulfillment_pk: wots_pks.withdrawal_fulfillment.into(),
+        operator_pubkey: operator_pk,
+    };
+
+    output_handles
+        .db
+        .add_stake_data(pov_idx, deposit_idx, stake_data)
+        .await
+        .inspect_err(|e| {
+            error!(
+                ?e,
+                "could not store this operator's stake data in the database"
+            );
+        })?;
 
     info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
     msg_handler

@@ -9,9 +9,9 @@ use sqlx::{self};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use super::types::{
-    DbAggNonce, DbAmount, DbDutyStatus, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig,
-    DbPubNonce, DbScriptBuf, DbSecNonce, DbSignature, DbTaprootWitness, DbTransaction, DbTxid,
-    DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures,
+    DbAggNonce, DbAmount, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig, DbPubNonce,
+    DbScriptBuf, DbSecNonce, DbSignature, DbTaprootWitness, DbTxid, DbWots256PublicKey,
+    DbWotsPublicKeys, DbWotsSignatures, DbXOnlyPublicKey,
 };
 
 /// The model for WOTS public keys stored in the database.
@@ -76,6 +76,9 @@ pub(super) struct DbStakeTxData {
 
     /// The WOTS public key used to commit to the withdrawal fulfillment transaction.
     pub(super) withdrawal_fulfillment_pk: DbWots256PublicKey,
+
+    /// The public key of the operator that is used to lock the stake.
+    pub(super) operator_pubkey: DbXOnlyPublicKey,
 }
 
 impl From<StakeTxData> for DbStakeTxData {
@@ -85,6 +88,7 @@ impl From<StakeTxData> for DbStakeTxData {
             funding_vout: stake_tx_data.operator_funds.vout.into(),
             hash: stake_tx_data.hash.into(),
             withdrawal_fulfillment_pk: stake_tx_data.withdrawal_fulfillment_pk.into(),
+            operator_pubkey: stake_tx_data.operator_pubkey.into(),
         }
     }
 }
@@ -98,30 +102,9 @@ impl From<DbStakeTxData> for StakeTxData {
             },
             hash: *db_stake_tx_data.hash,
             withdrawal_fulfillment_pk: db_stake_tx_data.withdrawal_fulfillment_pk.deref().clone(),
+            operator_pubkey: *db_stake_tx_data.operator_pubkey,
         }
     }
-}
-
-/// The model for tracking duty statuses.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub(super) struct DutyTracker {
-    /// The ID of the duty stored as `TEXT`.
-    #[expect(dead_code)]
-    pub(super) duty_id: DbTxid,
-
-    /// The status of the duty stored as a JSON string.
-    pub(super) status: DbDutyStatus,
-}
-
-/// The model to track relevant transactions.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub(super) struct RelevantTxIndex {
-    /// The hex-serialized transaction ID.
-    #[expect(dead_code)]
-    pub(super) txid: DbTxid,
-
-    /// The hex-serialized block hash.
-    pub(super) tx: DbTransaction,
 }
 
 /// The model to map claims to operators and deposit.

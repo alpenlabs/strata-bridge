@@ -200,7 +200,7 @@ impl Cpfp<Unfunded> {
     }
 
     /// A mutable reference to the underlying PSBT.
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
+    pub const fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }
 
@@ -302,8 +302,7 @@ mod tests {
 
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
-        let bitcoind =
-            Node::from_downloaded_with_conf(&conf).expect("must be able to start bitcoind");
+        let bitcoind = Node::with_conf("bitcoind", &conf).expect("must be able to start bitcoind");
         let btc_client = &bitcoind.client;
 
         let network = btc_client

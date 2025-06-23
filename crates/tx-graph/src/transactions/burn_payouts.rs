@@ -75,7 +75,7 @@ impl BurnPayoutsTx {
     }
 
     /// A mutable reference to the underlying PSBT.
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
+    pub const fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }
 
@@ -123,7 +123,7 @@ mod tests {
     fn test_burn_payouts_tx() {
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
-        let bitcoind = Node::from_downloaded_with_conf(&conf).unwrap();
+        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
         let btc_client = &bitcoind.client;
 
         let network = btc_client.get_blockchain_info().unwrap().chain;

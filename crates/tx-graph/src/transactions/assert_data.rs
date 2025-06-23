@@ -2,19 +2,21 @@
 
 use std::array;
 
-use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
-use bitvm::{chunk::api::Signatures as g16Signatures, signatures::wots_api::wots256, treepp::*};
+use bitcoin::{
+    transaction, Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid,
+};
+use bitvm::{
+    signatures::{Wots, Wots32 as wots256},
+    treepp::*,
+};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     constants::*,
     scripts::{parse_witness::parse_assertion_witnesses, prelude::*},
-    wots,
+    wots::{self, BitVmG16Sigs},
 };
 
-use super::{
-    errors::{TxError, TxResult},
-    pre_assert::PRE_ASSERT_OUTS,
-};
+use super::errors::{TxError, TxResult};
 
 /// Data needed to construct a [`AssertDataTxBatch`].
 #[derive(Debug, Clone)]
@@ -22,8 +24,8 @@ pub struct AssertDataTxInput {
     /// The txid of the pre-assert transaction.
     pub pre_assert_txid: Txid,
 
-    /// The txouts of the pre-assert transaction.
-    pub pre_assert_txouts: [TxOut; PRE_ASSERT_OUTS],
+    /// The locking scripts of the outputs of the pre-assert transaction that will be spent.
+    pub pre_assert_locking_scripts: [ScriptBuf; NUM_ASSERT_DATA_TX],
 }
 
 /// A batch of transactions in the Assert chain that spend outputs of the pre-assert transaction by
@@ -41,17 +43,22 @@ impl AssertDataTxBatch {
         connector_a2: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
     ) -> Self {
+        let input_amount = SEGWIT_MIN_AMOUNT * 2;
+
         Self(array::from_fn(|i| {
             let (outpoint, prevout) = input
-                .pre_assert_txouts
+                .pre_assert_locking_scripts
                 .get(i)
-                .map(|txout| {
+                .map(|locking_script| {
                     (
                         OutPoint {
                             txid: input.pre_assert_txid,
                             vout: (i) as u32,
                         },
-                        txout.clone(),
+                        TxOut {
+                            value: input_amount,
+                            script_pubkey: locking_script.clone(),
+                        },
                     )
                 })
                 .expect("must have enough prevouts");
@@ -102,7 +109,7 @@ impl AssertDataTxBatch {
     }
 
     /// Gets the vout for CPFP in each PSBT in the batch.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.0[0].outputs.len() as u32 - 1
     }
 
@@ -155,10 +162,11 @@ impl AssertDataTxBatch {
             [ConnectorA256<NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2>; NUM_FIELD_CONNECTORS_BATCH_2],
         ) = connector_a256_factory.create_connectors();
 
-        let signatures_256: [wots256::Signature; NUM_PKS_A256] = array::from_fn(|i| match i {
-            0 => wots_signatures.groth16.0 .0[0],
-            _ => wots_signatures.groth16.1[i - 1],
-        });
+        let signatures_256: [<wots256 as Wots>::Signature; NUM_PKS_A256] =
+            array::from_fn(|i| match i {
+                0 => wots_signatures.groth16.0 .0[0],
+                _ => wots_signatures.groth16.1[i - 1],
+            });
 
         connector256_batch1
             .iter()
@@ -247,7 +255,7 @@ impl AssertDataTxBatch {
     /// Parse the assertion data from the signed transactions in the batch.
     pub fn parse_witnesses(
         assert_data_txs: &[Transaction; NUM_ASSERT_DATA_TX],
-    ) -> TxResult<Option<g16Signatures>> {
+    ) -> TxResult<BitVmG16Sigs> {
         let witnesses: [_; TOTAL_CONNECTORS] = assert_data_txs
             .iter()
             .flat_map(|tx| {
@@ -296,15 +304,13 @@ impl AssertDataTxBatch {
                 "invalid hash witness size in batch 2".to_string(),
             )))?;
 
-        Ok(Some(
-            parse_assertion_witnesses(
-                witness256_batch1,
-                witness256_batch2,
-                witness_hash_batch1,
-                witness_hash_batch2,
-            )
-            .map_err(|e| TxError::Witness(e.to_string()))?,
-        ))
+        parse_assertion_witnesses(
+            witness256_batch1,
+            witness256_batch2,
+            witness_hash_batch1,
+            witness_hash_batch2,
+        )
+        .map_err(|e| TxError::Witness(e.to_string()))
     }
 }
 
@@ -337,7 +343,9 @@ mod tests {
 
         let input = AssertDataTxInput {
             pre_assert_txid: generate_txid(),
-            pre_assert_txouts: std::array::from_fn(|_| pre_assert_txout.clone()),
+            pre_assert_locking_scripts: std::array::from_fn(|_| {
+                pre_assert_txout.script_pubkey.clone()
+            }),
         };
 
         let connector_a2 = ConnectorNOfN::new(generate_keypair().x_only_public_key().0, network);
@@ -377,9 +385,7 @@ mod tests {
             wots_signatures,
         );
 
-        AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs)
-            .expect("must parse witnesses")
-            .expect("must have witnesses");
+        AssertDataTxBatch::parse_witnesses(&signed_assert_data_txs).expect("must parse witnesses");
 
         signed_assert_data_txs[0].input[0].witness =
             Witness::from_slice(&[[0u8; 32]; NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_1]);

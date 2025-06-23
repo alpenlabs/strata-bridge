@@ -24,7 +24,10 @@ use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
-use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
+use strata_bridge_tx_graph::transactions::{
+    deposit::DepositTx,
+    prelude::{AssertDataTxInput, CovenantTx},
+};
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
@@ -43,7 +46,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractCfg, ContractEvent, ContractState, DepositSetup, FulfillerDuty, MachineState,
-        OperatorDuty, SyntheticEvent,
+        OperatorDuty, SyntheticEvent, TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -74,6 +77,8 @@ impl ContractManager {
         stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
         operator_table: OperatorTable,
+        is_faulty: bool,
+        min_withdrawal_fulfillment_window: u64,
         // Genesis information
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
@@ -200,6 +205,8 @@ impl ContractManager {
                 operator_table,
                 pre_stake_pubkey: pre_stake_pubkey.clone(),
                 funding_address: funding_address.clone(),
+                is_faulty,
+                min_withdrawal_fulfillment_window,
             });
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
@@ -407,7 +414,8 @@ impl ContractManager {
                         }
                     },
 
-                    _ = interval.tick() => {
+                    instant = interval.tick() => {
+                        debug!(?instant, "constructing nags");
                         let nags = ctx.nag().await;
                         for nag in nags {
                             p2p_handle.send_command(nag).await;
@@ -419,7 +427,7 @@ impl ContractManager {
                 }
 
                 duties.into_iter().for_each(|duty| {
-                    debug!(%duty, "starting duty execution from new blocks");
+                    debug!(%duty, "starting duty execution from new events");
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
@@ -510,6 +518,8 @@ pub(super) struct ExecutionConfig {
     pub(super) operator_table: OperatorTable,
     pub(super) pre_stake_pubkey: ScriptBuf,
     pub(super) funding_address: Address,
+    pub(super) is_faulty: bool,
+    pub(super) min_withdrawal_fulfillment_window: u64,
 }
 
 /// The contract manager context.
@@ -725,6 +735,11 @@ impl ContractManagerCtx {
         let mut duties = Vec::new();
 
         if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
+            debug!(
+                epoch = %checkpoint.batch_info().epoch(),
+                "found valid strata checkpoint"
+            );
+
             let chain_state = checkpoint.sidecar().chainstate();
 
             match borsh::from_slice::<Chainstate>(chain_state) {
@@ -757,8 +772,13 @@ impl ContractManagerCtx {
                             continue;
                         };
 
+                        let l1_start_height = checkpoint.batch_info().l1_range.1.height() + 1;
                         match contract
-                            .process_event(ContractEvent::Assignment(entry.clone(), stake_tx))
+                            .process_event(ContractEvent::Assignment {
+                                deposit_entry: entry.clone(),
+                                stake_tx,
+                                l1_start_height,
+                            })
                             .await
                         {
                             Ok(new_duties) if !new_duties.is_empty() => {
@@ -826,16 +846,14 @@ impl ContractManagerCtx {
 
         match msg {
             UnsignedGossipsubMsg::StakeChainExchange {
-                operator_pk,
+                operator_pk: _,
                 pre_stake_txid,
                 pre_stake_vout,
                 stake_chain_id: _,
             } => {
-                self.state.stake_chains.process_exchange(
-                    key,
-                    operator_pk,
-                    OutPoint::new(pre_stake_txid, pre_stake_vout),
-                )?;
+                self.state
+                    .stake_chains
+                    .process_exchange(key, OutPoint::new(pre_stake_txid, pre_stake_vout))?;
 
                 self.state_handles
                     .stake_chain_persister
@@ -883,7 +901,10 @@ impl ContractManagerCtx {
                             &self.cfg.operator_table,
                             self.state.stake_chains.state().clone(),
                         )
-                        .await?;
+                        .await
+                        .inspect_err(|e| {
+                            error!(%e, "could not persist stake chain data to disk");
+                        })?;
 
                     let deposit_idx = if let Ok(cfg) = contract.get_config().await {
                         cfg.deposit_idx
@@ -1323,6 +1344,7 @@ impl ContractManagerCtx {
             }),
         );
 
+        debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
         let mut contract_futures = Vec::new();
         for (txid, contract) in self.state.active_contracts.actors() {
             let future = self.nag_contract(*txid, contract);
@@ -1507,7 +1529,6 @@ async fn execute_duty(
             handle_publish_stake_chain_exchange(cfg, &s2_session_manager.s2_client, db, msg_handler)
                 .await
         }
-
         OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
@@ -1522,7 +1543,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
             witness,
@@ -1537,7 +1557,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishGraphNonces {
             claim_txid,
             pog_prevouts: pog_inputs,
@@ -1554,7 +1573,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishGraphSignatures {
             claim_txid,
             pubnonces,
@@ -1573,7 +1591,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::CommitSig {
             deposit_txid,
             graph_partials,
@@ -1591,7 +1608,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishRootSignature {
             nonces,
             deposit_request_txid,
@@ -1609,7 +1625,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::PublishDeposit {
             deposit_tx,
             partial_sigs,
@@ -1625,7 +1640,6 @@ async fn execute_duty(
             )
             .await
         }
-
         OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,
@@ -1641,12 +1655,14 @@ async fn execute_duty(
             FulfillerDuty::PublishFulfillment {
                 withdrawal_metadata,
                 user_descriptor,
+                deadline,
             } => {
                 handle_withdrawal_fulfillment(
                     cfg,
                     output_handles,
                     withdrawal_metadata,
                     user_descriptor,
+                    deadline,
                 )
                 .await
             }
@@ -1682,13 +1698,92 @@ async fn execute_duty(
                 )
                 .await
             }
-            ignored_fulfiller_duty => {
-                warn!(?ignored_fulfiller_duty, "ignoring fulfiller duty");
-                Ok(())
+            FulfillerDuty::PublishPreAssert {
+                deposit_idx,
+                deposit_txid,
+                claim_txid,
+                agg_sig,
+            } => {
+                handle_publish_pre_assert(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    claim_txid,
+                    agg_sig,
+                )
+                .await
             }
+            FulfillerDuty::PublishAssertData {
+                start_height,
+                withdrawal_fulfillment_txid,
+                deposit_idx,
+                deposit_txid,
+                pre_assert_txid,
+                pre_assert_locking_scripts,
+            } => {
+                handle_publish_assert_data(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    AssertDataTxInput {
+                        pre_assert_txid,
+                        pre_assert_locking_scripts: *pre_assert_locking_scripts,
+                    },
+                    withdrawal_fulfillment_txid,
+                    start_height,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPostAssertData {
+                deposit_txid,
+                assert_data_txids,
+                agg_sigs,
+            } => {
+                handle_publish_post_assert(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_txid,
+                    *assert_data_txids,
+                    *agg_sigs,
+                )
+                .await
+            }
+            FulfillerDuty::PublishPayout {
+                deposit_idx,
+                deposit_txid,
+                stake_txid,
+                claim_txid,
+                post_assert_txid,
+                agg_sigs,
+            } => {
+                handle_publish_payout(
+                    cfg,
+                    output_handles.clone(),
+                    deposit_idx,
+                    deposit_txid,
+                    stake_txid,
+                    claim_txid,
+                    post_assert_txid,
+                    *agg_sigs,
+                )
+                .await
+            }
+            FulfillerDuty::InitStakeChain => Err(TransitionErr(
+                "received an InitStakeChain duty but it should only be invoked once at genesis"
+                    .to_string(),
+            )
+            .into()),
         },
-        ignored_duty => {
-            warn!(?ignored_duty, "ignoring duty");
+        OperatorDuty::Abort => {
+            warn!("received an Abort duty, this should not happen in normal operation");
+
+            unimplemented!("abort duty is not implemented yet");
+        }
+        OperatorDuty::VerifierDuty(verifier_duty) => {
+            warn!(%verifier_duty, "ignoring verifier duty");
+
             Ok(())
         }
     }

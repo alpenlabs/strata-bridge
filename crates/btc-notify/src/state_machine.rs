@@ -238,7 +238,6 @@ impl BtcZmqSM {
                     let buried_txid = buried_tx.compute_txid();
 
                     trace!(?buried_tx, %buried_txid, %blockhash, %height, "processing buried transaction");
-                    debug!(%buried_txid, %blockhash, %height, "processing buried transaction");
 
                     self.tx_lifecycles.remove(&buried_txid);
                     if self.tx_filters.iter().any(|f| f(buried_tx)) {
@@ -260,7 +259,7 @@ impl BtcZmqSM {
             None
         };
 
-        debug!(?diff, "processed block");
+        trace!(?diff, "processed block");
         (diff, block_event)
     }
 
@@ -316,7 +315,6 @@ impl BtcZmqSM {
             // probably a rawtx event that accompanies an upcoming new block event.
             Some(Some(_)) => {
                 trace!(?tx, %txid, ?lifecycle, "received duplicate transaction event");
-                debug!(%txid, ?lifecycle, "received duplicate transaction event");
                 Vec::new()
             }
         }
@@ -691,7 +689,7 @@ mod prop_tests {
             let pred = move |tx: &Transaction| tx.compute_txid().to_raw_hash().to_byte_array()[31] % modsize == 0;
             DebuggablePredicate {
                 pred: std::sync::Arc::new(pred),
-                description: format!("txid mod {} == 0", modsize),
+                description: format!("txid mod {modsize} == 0"),
             }
         }
     }
