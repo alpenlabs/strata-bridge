@@ -25,6 +25,16 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
+/// The length of the hash output used in the WOTS.
+pub const WOTS_HASH_DIGEST_SIZE: usize = 20;
+
+/// The length of the signature used in WOTS, where the first [`HASH_DIGEST_SIZE`] is the message
+/// hash and the final one is the message.
+pub const WOTS_SIGNATURE_SIZE: usize = WOTS_HASH_DIGEST_SIZE + 1;
+
+/// The index of the message byte in WOTS.
+pub const WOTS_MSG_INDEX: usize = 20;
+
 // NOTE: (@Rajil1213) the following types have been copied over from the `bitvm` repo as the
 // constants used here result in an ICE with the current nightly version of the rust compiler
 // (2025-06-01).
@@ -105,7 +115,7 @@ impl<'de> Deserialize<'de> for Wots256PublicKey {
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str(&format!(
-                    "a flattened structure of type [[u8; 20]; {}]",
+                    "a flattened structure of type [[u8; {WOTS_HASH_DIGEST_SIZE}]; {}]",
                     wots_key_width(256)
                 ))
             }
@@ -291,7 +301,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
                 let wots_256_key_width = wots_key_width(256);
                 let wots_128_key_width = wots_key_width(128);
                 formatter.write_str(&format!(
-                    "a flattened structure of type ([[[u8; 20]; {wots_256_key_width}]; NUM_PUBS], [[[u8; 20]; {wots_256_key_width}]; NUM_U256], [[[u8; 20]; {wots_128_key_width}]; NUM_HASHES])"
+                    "a flattened structure of type ([[[u8; {WOTS_HASH_DIGEST_SIZE}]; {wots_256_key_width}]; NUM_PUBS], [[[u8; {WOTS_HASH_DIGEST_SIZE}]; {wots_256_key_width}]; NUM_U256], [[[u8; {WOTS_HASH_DIGEST_SIZE}]; {wots_128_key_width}]; NUM_HASHES])"
                 ))
             }
 
@@ -332,7 +342,7 @@ impl<'de> Deserialize<'de> for Groth16PublicKeys {
                     }
                 }
 
-                let mut hashes = [[[0u8; 20]; wots_key_width(128)]; NUM_HASH];
+                let mut hashes = [[[0u8; WOTS_HASH_DIGEST_SIZE]; wots_key_width(128)]; NUM_HASH];
                 for (hash_idx, hash) in hashes.iter_mut().enumerate() {
                     for (key_idx, key) in hash.iter_mut().enumerate() {
                         for (byte_idx, byte) in key.iter_mut().enumerate() {
@@ -394,7 +404,7 @@ impl Groth16PublicKeys {
 /// All the wots signatures defined here and used in this codebase have this structure i.e., each
 /// signature is an array of tuples of a 20-byte preimage and a digit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct WotsSigStub<const N: usize>([[u8; 21]; N]);
+struct WotsSigStub<const N: usize>([[u8; WOTS_SIGNATURE_SIZE]; N]);
 
 impl<const N: usize> Serialize for WotsSigStub<N> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -422,7 +432,10 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSigStub<N> {
             type Value = WotsSigStub<N>;
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(formatter, "an array of {N} [u8; 21] arrays")
+                write!(
+                    formatter,
+                    "an array of {N} [u8; {WOTS_SIGNATURE_SIZE}] arrays"
+                )
             }
 
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
@@ -431,12 +444,12 @@ impl<'de, const N: usize> Deserialize<'de> for WotsSigStub<N> {
             {
                 let mut items = Vec::with_capacity(N);
                 for _ in 0..N {
-                    let item: [u8; 21] = seq
+                    let item: [u8; WOTS_SIGNATURE_SIZE] = seq
                         .next_element()?
                         .ok_or_else(|| de::Error::invalid_length(items.len(), &self))?;
                     items.push(item);
                 }
-                let arr: [[u8; 21]; N] = items
+                let arr: [[u8; WOTS_SIGNATURE_SIZE]; N] = items
                     .try_into()
                     .map_err(|_| de::Error::custom("invalid array length"))?;
 
@@ -725,7 +738,12 @@ mod tests {
 
     #[test]
     fn test_generic_wots_sig_serde() {
-        let wots_signature = WotsSigStub::<4>([[0u8; 21], [1u8; 21], [2u8; 21], [3u8; 21]]);
+        let wots_signature = WotsSigStub::<4>([
+            [0u8; WOTS_SIGNATURE_SIZE],
+            [1u8; WOTS_SIGNATURE_SIZE],
+            [2u8; WOTS_SIGNATURE_SIZE],
+            [3u8; WOTS_SIGNATURE_SIZE],
+        ]);
 
         let serialized = serde_json::to_string(&wots_signature).expect("must be able to serialize");
         let deserialized: WotsSigStub<4> =

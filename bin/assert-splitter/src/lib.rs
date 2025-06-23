@@ -13,6 +13,7 @@ use bitvm::{
 };
 use chunker_primitives::*;
 use secp256k1::rand::{rngs::OsRng, Rng};
+use strata_bridge_primitives::wots::WOTS_MSG_INDEX;
 
 const MAX_STACK_ELEMS: usize = 1000;
 const MAX_TX_V3_SIZE: Weight = Weight::from_wu(40000);
@@ -168,8 +169,8 @@ pub fn field_elements_witness_size(num_inputs: usize, num_elements: usize) -> Si
 
     let witness_script = script! {
         for sig_with_digit in fq_sig {
-            { sig_with_digit[..20].to_vec() }
-            { sig_with_digit[20] }
+            { sig_with_digit[..WOTS_MSG_INDEX].to_vec() }
+            { sig_with_digit[WOTS_MSG_INDEX] }
         }
     };
 

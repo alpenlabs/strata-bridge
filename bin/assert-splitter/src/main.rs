@@ -11,6 +11,7 @@ use blake3 as _;
 #[cfg(test)]
 use proptest as _;
 use secp256k1 as _;
+use strata_bridge_primitives as _;
 #[cfg(test)]
 use strata_bridge_primitives as _;
 #[cfg(test)]
