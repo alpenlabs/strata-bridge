@@ -120,7 +120,7 @@ impl PostAssertTx {
     }
 
     /// Returns the output index of the CPFP output.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
 

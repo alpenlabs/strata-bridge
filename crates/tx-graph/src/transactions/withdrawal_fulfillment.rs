@@ -214,7 +214,7 @@ mod tests {
             second_output.value == op_return_amount
                 && second_output.script_pubkey.is_op_return()
                 && second_output.script_pubkey[2..].to_hex_string()
-                    == format!("{}{}{}{}", tag, operator_idx, deposit_idx, deposit_txid),
+                    == format!("{tag}{operator_idx}{deposit_idx}{deposit_txid}"),
             "OP_RETURN output is missing or invalid"
         );
     }

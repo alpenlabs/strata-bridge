@@ -71,9 +71,7 @@ fn main() {
                 memory_pprof::setup_memory_profiling(3_000);
                 operator::bootstrap(params, config)
                     .await
-                    .unwrap_or_else(|e| {
-                        panic!("operator loop crashed: {:?}", e);
-                    });
+                    .unwrap_or_else(|e| panic!("operator loop crashed: {e:?}"));
             });
         }
         OperationMode::Verifier => {
@@ -93,7 +91,7 @@ fn main() {
                 verifier::bootstrap(params, config)
                     .await
                     .unwrap_or_else(|e| {
-                        panic!("verifier loop crashed: {:?}", e);
+                        panic!("verifier loop crashed: {e:?}");
                     });
             });
         }
@@ -115,7 +113,7 @@ where
             debug!(?p, "read file");
 
             let parsed = toml::from_str::<T>(&p).unwrap_or_else(|e| {
-                panic!("failed to parse TOML file: {:?}", e);
+                panic!("failed to parse TOML file: {e:?}");
             });
             debug!(?parsed, "parsed TOML file");
 

@@ -121,7 +121,7 @@ bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }
 bitcoincore-rpc = "0.19.0"
 bitcoind-async-client = "0.1.1"
-bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "testnet-i-final" }
+bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "release/0.1.0-rc.1" }
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }

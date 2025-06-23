@@ -203,7 +203,7 @@ impl PreAssertTx {
     }
 
     /// Gets the CPFP output index.
-    pub fn cpfp_vout(&self) -> u32 {
+    pub const fn cpfp_vout(&self) -> u32 {
         self.psbt.outputs.len() as u32 - 1
     }
 

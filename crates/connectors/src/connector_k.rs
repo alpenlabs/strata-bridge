@@ -1,12 +1,14 @@
 //! This connector is used to connect the Kickoff and Claim transactions.
 // FIXME: remove this once the stake chain is integrated.
+use std::slice;
+
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf,
 };
 use bitvm::{
-    signatures::wots_api::{wots256, SignatureImpl},
+    signatures::{Wots, Wots32 as wots256},
     treepp::*,
 };
 use strata_bridge_primitives::{scripts::prelude::*, wots};
@@ -37,7 +39,7 @@ impl ConnectorK {
 
         script! {
             // bridge_out_tx_id
-            { wots256::checksig_verify(**withdrawal_fulfillment_pk) }
+            { wots256::checksig_verify(withdrawal_fulfillment_pk) }
 
             for _ in 0..256/4 { OP_DROP } // drop data (in nibbles) from stack
 
@@ -64,7 +66,7 @@ impl ConnectorK {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: &[script.clone()],
+                scripts: slice::from_ref(&script),
             },
         )
         .expect("should be able to create taproot address");
@@ -77,9 +79,9 @@ impl ConnectorK {
     }
 
     /// Finalizes the input to the transaction that spends this connector.
-    pub fn finalize_input(&self, input: &mut Input, signature: wots256::Signature) {
+    pub fn finalize_input(&self, input: &mut Input, signature: <wots256 as Wots>::Signature) {
         let witness = script! {
-            { signature.to_script() }
+            { wots256::signature_to_raw_witness(&signature) }
         };
 
         let result = execute_script(witness.clone());

@@ -200,7 +200,7 @@ impl Cpfp<Unfunded> {
     }
 
     /// A mutable reference to the underlying PSBT.
-    pub fn psbt_mut(&mut self) -> &mut Psbt {
+    pub const fn psbt_mut(&mut self) -> &mut Psbt {
         &mut self.psbt
     }
 
