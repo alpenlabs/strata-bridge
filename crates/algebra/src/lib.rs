@@ -5,7 +5,6 @@
 
 pub mod boolean;
 pub mod category;
-pub mod curry;
 pub mod monoid;
 pub mod predicate;
 pub mod req;

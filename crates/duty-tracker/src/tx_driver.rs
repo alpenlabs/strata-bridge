@@ -236,7 +236,7 @@ mod e2e_tests {
         sync::Arc,
     };
 
-    use algebra::curry;
+    use algebra::predicate;
     use bitcoind_async_client::Client as BitcoinClient;
     use btc_notify::client::{BtcZmqClient, BtcZmqConfig, TxStatus};
     use corepc_node::CookieValues;
@@ -401,7 +401,7 @@ mod e2e_tests {
 
         info!("driving to mempool");
         driver
-            .drive(signed.clone(), curry::eq(TxStatus::Mempool))
+            .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
             .await?;
         info!("transaction appeared in mempool");
 
