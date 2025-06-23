@@ -3,7 +3,7 @@
 use std::borrow::Borrow;
 
 /// Curried version of the Eq::eq function.
-pub fn eq<A: Eq, R: Borrow<A>>(a: R) -> impl Fn(&A) -> bool {
+pub fn eq<A: Eq + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| a.borrow() == b
 }
 
