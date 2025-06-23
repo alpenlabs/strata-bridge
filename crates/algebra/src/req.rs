@@ -137,7 +137,7 @@ impl<In, Out> Req<In, Out> {
     ///
     /// # Arguments
     ///
-    /// * `f` - A function that transforms the input to the output
+    /// * `f` - A function that takes the input by value and returns the output
     ///
     /// # Example
     ///
@@ -147,32 +147,9 @@ impl<In, Out> Req<In, Out> {
     /// let (req, _receiver) = Req::new(42u32);
     /// req.dispatch(|input| input * 2); // Resolves with 84
     /// ```
-    pub fn dispatch(self, f: impl FnOnce(&In) -> Out) {
-        let output = f(&self.input);
-        self.resolve(output);
-    }
-
-    /// Consumes the request, extracts the input by value, processes it with a function,
-    /// and resolves the request with the result.
-    ///
-    /// This is useful when you need to take ownership of the input data without
-    /// requiring it to implement [`Clone`]. The function receives the input by value
-    /// and its return value is used as the response.
-    ///
-    /// # Arguments
-    ///
-    /// * `f` - A function that takes the input by value and returns the output
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// use algebra::req::Req;
-    ///
-    /// let (req, _receiver) = Req::new(String::from("hello"));
-    /// req.resolve_with(|input| format!("{input} world")); // Resolves with "hello world"
-    /// ```
-    pub fn resolve_with(self, f: impl FnOnce(In) -> Out) {
+    pub fn dispatch(self, f: impl FnOnce(In) -> Out) {
         let output = f(self.input);
+        // Ignore errors - if the receiver was dropped, there's nothing we can do
         let _ = self.response_sender.send(output);
     }
 }

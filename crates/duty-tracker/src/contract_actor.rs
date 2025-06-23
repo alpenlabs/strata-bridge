@@ -171,7 +171,7 @@ impl ContractActor {
                         req.resolve(csm.cfg().clone());
                     }
                     ContractActorMessage::TransactionFilter(req) => {
-                        req.dispatch(|tx| csm.transaction_filter(tx));
+                        req.dispatch(|tx| csm.transaction_filter(&tx));
                     }
                     ContractActorMessage::GetClaimTxids(req) => {
                         req.resolve(csm.claim_txids());
