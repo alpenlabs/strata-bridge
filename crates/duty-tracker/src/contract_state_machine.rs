@@ -95,6 +95,7 @@ impl DepositSetup {
 ///
 /// Events of this type will be repeatedly fed to the state machine until it terminates.
 #[derive(Debug)]
+#[expect(clippy::large_enum_variant)]
 pub enum ContractEvent {
     /// Signifies that we have a new set of WOTS keys from one of our peers.
     DepositSetup {
@@ -162,7 +163,7 @@ pub enum ContractEvent {
 
         /// The stake transaction that needs to be settled before the withdrawal fulfillment and
         /// claim transactions can be settled.
-        stake_tx: Box<StakeTxKind>,
+        stake_tx: StakeTxKind,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -1031,6 +1032,7 @@ impl Display for OperatorDuty {
 
 /// This is a duty that has to be carried out if we are the assigned operator.
 #[derive(Debug, Clone)]
+#[expect(clippy::large_enum_variant)]
 pub enum FulfillerDuty {
     /// Instructs us to send our initial StakeChainExchange message.
     InitStakeChain,
@@ -1041,7 +1043,7 @@ pub enum FulfillerDuty {
         stake_index: u32,
 
         /// The stake transaction to advance corresponding to the stake index.
-        stake_tx: Box<StakeTxKind>,
+        stake_tx: StakeTxKind,
     },
 
     /// Originates when strata state on L1 is published and assignment is self.
@@ -1484,7 +1486,7 @@ impl ContractSM {
                 stake_tx,
                 l1_start_height,
             } => self
-                .process_assignment(&deposit_entry, *stake_tx, l1_start_height)
+                .process_assignment(&deposit_entry, stake_tx, l1_start_height)
                 .map(|x| x.into_iter().collect()),
 
             ContractEvent::PegOutGraphConfirmation(tx, height) => self
@@ -2436,7 +2438,7 @@ impl ContractSM {
                         Ok(Some(OperatorDuty::FulfillerDuty(
                             FulfillerDuty::AdvanceStakeChain {
                                 stake_index: assignment.idx(),
-                                stake_tx: stake_tx.into(),
+                                stake_tx,
                             },
                         )))
                     }
@@ -2456,7 +2458,7 @@ impl ContractSM {
                         Ok(Some(OperatorDuty::FulfillerDuty(
                             FulfillerDuty::AdvanceStakeChain {
                                 stake_index: assignment.idx(),
-                                stake_tx: stake_tx.into(),
+                                stake_tx,
                             },
                         )))
                     }
