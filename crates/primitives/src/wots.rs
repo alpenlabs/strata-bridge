@@ -25,18 +25,26 @@ use crate::scripts::{
     prelude::secret_key_for_public_inputs_hash,
 };
 
+// NOTE: (@Rajil1213) the following types have been copied over from the `bitvm` repo as the
+// constants used here result in an ICE with the current nightly version of the rust compiler
+// (2025-06-01).
+
+/// Groth16 public keys as defined in [`bitvm::chunk::api::PublicKeys`].
 pub type BitVmG16PublicKeys = (
     [<wots256 as Wots>::PublicKey; NUM_PUBS],
     [<wots256 as Wots>::PublicKey; NUM_U256],
     [<wots_hash as Wots>::PublicKey; NUM_HASH],
 );
 
+/// Groth16 Wots Signatures as defined in [`bitvm::chunk::api::Signatures`].
+// NOTE: (@Rajil1213) using consts instead of the following literals results in a compiler panic.
 pub type BitVmG16Sigs = (
     Box<[<wots256 as Wots>::Signature; 1]>,
     Box<[<wots256 as Wots>::Signature; 14]>,
     Box<[<wots_hash as Wots>::Signature; 363]>,
 );
 
+/// Groth16 Proof Assertions as defined in [`bitvm::chunk::api::Assertions`].
 pub type BitVmG16Assertions = (
     [[u8; 32]; NUM_PUBS],
     [[u8; 32]; NUM_U256],
