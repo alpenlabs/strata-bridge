@@ -1,5 +1,5 @@
 //! This module contains the generators for connectors used in the Assert Chain.
-use std::array;
+use std::{array, slice};
 
 use bitcoin::{
     psbt::Input,
@@ -123,7 +123,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorA256<N_PUBLIC_KEYS> {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: std::slice::from_ref(&script),
+                scripts: slice::from_ref(&script),
             },
         )
         .expect("should be able to create the taproot");
@@ -259,7 +259,7 @@ impl<const N_PUBLIC_KEYS: usize> ConnectorAHash<N_PUBLIC_KEYS> {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: std::slice::from_ref(&script),
+                scripts: slice::from_ref(&script),
             },
         )
         .expect("should be able to add script");

@@ -1,5 +1,7 @@
 //! This connector is used to connect the Kickoff and Claim transactions.
 // FIXME: remove this once the stake chain is integrated.
+use std::slice;
+
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion},
@@ -64,7 +66,7 @@ impl ConnectorK {
         let (_, spend_info) = create_taproot_addr(
             &self.network,
             SpendPath::ScriptSpend {
-                scripts: std::slice::from_ref(&script),
+                scripts: slice::from_ref(&script),
             },
         )
         .expect("should be able to create taproot address");

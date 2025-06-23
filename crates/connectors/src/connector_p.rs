@@ -1,6 +1,8 @@
 //! This module contains the connector for the second output of the Stake transaction.
 //!
 //! This connector is used to either settle the payout transactions or to burn them.
+use std::slice;
+
 use bitcoin::{
     hashes::{sha256, Hash},
     opcodes::all::{OP_EQUAL, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
@@ -125,7 +127,7 @@ impl ConnectorP {
             &self.network,
             SpendPath::Both {
                 internal_key: self.n_of_n_agg_pubkey,
-                scripts: std::slice::from_ref(&script),
+                scripts: slice::from_ref(&script),
             },
         )
         .expect("should be able to create taproot address");

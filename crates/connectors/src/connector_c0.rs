@@ -2,6 +2,7 @@
 //!
 //! This connector is spent by either the Pre-Assert transaction if challenged or the
 //! PayoutOptimistic transaction if unchallenged.
+
 use bitcoin::{
     psbt::Input,
     taproot::{ControlBlock, LeafVersion, TaprootSpendInfo},
@@ -159,7 +160,7 @@ impl ConnectorC0 {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
+    use std::{slice, str::FromStr};
 
     use bitcoin::{
         key::TapTweak,
@@ -252,7 +253,7 @@ mod tests {
 
                 let tx_hash = create_message_hash(
                     &mut SighashCache::new(&spend_connector_tx),
-                    Prevouts::All(std::slice::from_ref(&prevout)),
+                    Prevouts::All(slice::from_ref(&prevout)),
                     &witness,
                     bitcoin::TapSighashType::Default,
                     0,
