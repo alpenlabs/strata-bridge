@@ -122,11 +122,11 @@ impl<In, Out> Req<In, Out> {
     /// use algebra::req::Req;
     ///
     /// let (req, _receiver) = Req::new(String::from("hello"));
-    /// let (input, response_sender) = req.into_parts();
+    /// let (input, response_sender) = req.into_input_output();
     /// let output = format!("{input} world");
     /// let _ = response_sender.send(output);
     /// ```
-    pub fn into_parts(self) -> (In, oneshot::Sender<Out>) {
+    pub fn into_input_output(self) -> (In, oneshot::Sender<Out>) {
         (self.input, self.response_sender)
     }
 
@@ -277,8 +277,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_req_into_parts() {
-        // Test that into_parts works without requiring Clone
+    async fn test_req_into_input_output() {
+        // Test that into_input_output works without requiring Clone
         // Using a type that doesn't implement Clone to verify this
         struct NonClonableData {
             value: i32,
@@ -287,17 +287,17 @@ mod tests {
 
         let input_data = NonClonableData {
             value: 123,
-            name: "into_parts_test".to_string(),
+            name: "into_input_output_test".to_string(),
         };
 
         let (req, receiver): (Req<NonClonableData, String>, _) = Req::new(input_data);
 
         // Extract both input and response sender without cloning
-        let (extracted_input, response_sender) = req.into_parts();
+        let (extracted_input, response_sender) = req.into_input_output();
 
         // Verify the input data is correct
         assert_eq!(extracted_input.value, 123);
-        assert_eq!(extracted_input.name, "into_parts_test");
+        assert_eq!(extracted_input.name, "into_input_output_test");
 
         // Send a response through the response sender
         let response = format!("processed: {}", extracted_input.value);

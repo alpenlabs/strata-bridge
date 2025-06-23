@@ -116,7 +116,7 @@ impl ContractActor {
                     } => {
                         if let Some(req) = req {
                             // Synchronous processing with direct response
-                            let (event, response_sender) = req.into_parts();
+                            let (event, response_sender) = req.into_input_output();
                             debug!(%deposit_txid, "processing contract event (sync)");
                             trace!(%deposit_txid, ?event, "processing contract event (sync)");
 
