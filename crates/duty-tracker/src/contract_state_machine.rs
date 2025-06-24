@@ -609,7 +609,7 @@ impl Display for ContractState {
             ContractState::Requested {
                 deposit_request_txid,
                 ..
-            } => format!("Requested ({deposit_request_txid})"),
+            } => format!("requested ({deposit_request_txid})"),
             ContractState::Deposited { .. } => "Deposited".to_string(),
             ContractState::Assigned {
                 fulfiller,
@@ -624,8 +624,8 @@ impl Display for ContractState {
                 fulfiller,
                 ..
             } => format!(
-                "StakeTxReady ({}) for operator {}",
-                active_graph.1.stake_txid, fulfiller
+                "StakeTxReady ({}) for operator {fulfiller}",
+                active_graph.1.stake_txid
             ),
             ContractState::Fulfilled { fulfiller, .. } => {
                 format!("Fulfilled by operator {fulfiller}")
@@ -636,16 +636,16 @@ impl Display for ContractState {
                 active_graph,
                 ..
             } => format!(
-                "Claimed by operator {} at height {} ({})",
-                fulfiller, claim_height, active_graph.1.claim_txid
+                "claimed by operator {fulfiller} at height {claim_height} ({})",
+                active_graph.1.claim_txid
             ),
             ContractState::Challenged {
                 fulfiller,
                 active_graph,
                 ..
             } => format!(
-                "Challenged operator {}'s claim ({})",
-                fulfiller, active_graph.1.claim_txid
+                "challenged operator {fulfiller}'s claim ({})",
+                active_graph.1.claim_txid
             ),
             ContractState::PreAssertConfirmed {
                 fulfiller,
@@ -3713,15 +3713,15 @@ mod prop_tests {
                         }
                         Err(e) => {
                             let msg = format!("MachineState could not be serialized: {e}");
-                            error!("{}", &msg);
-                            prop_assert!(false, "{}", &msg);
+                            error!("{msg}");
+                            prop_assert!(false, "{msg}");
                         }
                     }
                 }
                 Err(e) => {
                     let msg = format!("MachineState could not be serialized: {e}");
-                    error!("{}", &msg);
-                    prop_assert!(false, "{}", &msg);
+                    error!("{msg}");
+                    prop_assert!(false, "{msg}");
 
                 }
             };

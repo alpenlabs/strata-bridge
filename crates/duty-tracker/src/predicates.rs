@@ -67,7 +67,7 @@ pub(crate) fn deposit_request_info(
             let recovery_x_only_pk = meta.get(..SCHNORR_PUBLIC_KEY_SIZE)?;
             // TODO: handle error variant and get rid of expect.
             let recovery_x_only_pk = XOnlyPublicKey::from_slice(recovery_x_only_pk)
-                .expect("Failed to parse XOnlyPublicKey");
+                .expect("failed to parse XOnlyPublicKey");
             let el_addr =
                 meta.get(SCHNORR_PUBLIC_KEY_SIZE..SCHNORR_PUBLIC_KEY_SIZE + ee_address_size)?;
             Some((recovery_x_only_pk, el_addr))
