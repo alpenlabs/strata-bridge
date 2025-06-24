@@ -115,11 +115,11 @@ pub struct RpcWithdrawalInfo {
     /// Status of the withdrawal.
     pub status: RpcWithdrawalStatus,
 
-    /// Outpoint of the withdrawal request transaction (WRT).
+    /// Transaction ID of the withdrawal request transaction (WRT).
     ///
     /// NOTE: This outpoint is the on-chain strata checkpoint that assigned operators to fulfill a
     /// withdraw.
-    pub withdrawal_request_outpoint: OutPoint,
+    pub withdrawal_request_txid: Txid,
 }
 
 /// Represents reimbursement transaction details

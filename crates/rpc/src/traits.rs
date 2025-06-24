@@ -1,6 +1,6 @@
 //! Traits for the RPC server.
 
-use bitcoin::{taproot::Signature, OutPoint, PublicKey, Transaction, Txid};
+use bitcoin::{taproot::Signature, PublicKey, Transaction, Txid};
 use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 
 use crate::types::{
@@ -33,13 +33,13 @@ pub trait StrataBridgeMonitoringApi {
 
     /// Get all deposit request outpoints.
     #[method(name = "depositRequests")]
-    async fn get_deposit_requests(&self) -> RpcResult<Vec<OutPoint>>;
+    async fn get_deposit_requests(&self) -> RpcResult<Vec<Txid>>;
 
     /// Get deposit details using the deposit request outpoint.
     #[method(name = "depositInfo")]
     async fn get_deposit_request_info(
         &self,
-        deposit_request_outpoint: OutPoint,
+        deposit_request_txid: Txid,
     ) -> RpcResult<RpcDepositInfo>;
 
     /// Get bridge duties.
@@ -62,7 +62,7 @@ pub trait StrataBridgeMonitoringApi {
     /// NOTE: This outpoint is the on-chain strata checkpoint that assigned operators to fulfill a
     /// withdraw.
     #[method(name = "withdrawals")]
-    async fn get_withdrawals(&self) -> RpcResult<Vec<OutPoint>>;
+    async fn get_withdrawals(&self) -> RpcResult<Vec<Txid>>;
 
     /// Get withdrawal details using withdrawal request outpoint.
     ///
@@ -71,7 +71,7 @@ pub trait StrataBridgeMonitoringApi {
     #[method(name = "withdrawalInfo")]
     async fn get_withdrawal_info(
         &self,
-        withdrawal_outpoint: OutPoint,
+        withdrawal_request_txid: Txid,
     ) -> RpcResult<RpcWithdrawalInfo>;
 
     /// Get all claim transaction IDs.

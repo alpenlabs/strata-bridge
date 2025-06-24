@@ -437,12 +437,12 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         }
     }
 
-    async fn get_deposit_requests(&self) -> RpcResult<Vec<OutPoint>> {
+    async fn get_deposit_requests(&self) -> RpcResult<Vec<Txid>> {
         let all_entries = self.cached_contracts.read().await.clone();
 
         let deposit_requests = all_entries
             .iter()
-            .map(|entry| OutPoint::new(entry.1.deposit_request_txid(), 0))
+            .map(|entry| entry.1.deposit_request_txid())
             .collect();
 
         Ok(deposit_requests)
@@ -450,9 +450,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_deposit_request_info(
         &self,
-        deposit_request_outpoint: OutPoint,
+        deposit_request_txid: Txid,
     ) -> RpcResult<RpcDepositInfo> {
-        let deposit_request_txid = deposit_request_outpoint.txid;
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
@@ -475,8 +474,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         Err(rpc_error(
             ErrorCode::InvalidRequest,
-            "Deposit request outpoint not found",
-            deposit_request_outpoint,
+            "Deposit request transaction ID not found",
+            deposit_request_txid,
         ))
     }
 
@@ -570,9 +569,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         Ok(duties)
     }
 
-    async fn get_withdrawals(&self) -> RpcResult<Vec<OutPoint>> {
+    async fn get_withdrawals(&self) -> RpcResult<Vec<Txid>> {
         let all_entries = self.cached_contracts.read().await.clone();
-        const WITHDRAWAL_REQUEST_VOUT: u32 = 0; // all withdrawals are the first output
 
         let mut withdrawals = Vec::new();
         for entry in all_entries {
@@ -581,19 +579,13 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                     withdrawal_request_txid,
                     ..
                 } => {
-                    withdrawals.push(OutPoint::new(
-                        *withdrawal_request_txid,
-                        WITHDRAWAL_REQUEST_VOUT,
-                    ));
+                    withdrawals.push(*withdrawal_request_txid);
                 }
                 ContractState::StakeTxReady {
                     withdrawal_request_txid,
                     ..
                 } => {
-                    withdrawals.push(OutPoint::new(
-                        *withdrawal_request_txid,
-                        WITHDRAWAL_REQUEST_VOUT,
-                    ));
+                    withdrawals.push(*withdrawal_request_txid);
                 }
                 _ => {}
             }
@@ -604,10 +596,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_withdrawal_info(
         &self,
-        withdrawal_outpoint: OutPoint,
+        withdrawal_request_txid: Txid,
     ) -> RpcResult<RpcWithdrawalInfo> {
-        let withdrawal_request_txid = withdrawal_outpoint.txid;
-
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
@@ -640,7 +630,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
                     return Ok(RpcWithdrawalInfo {
                         status,
-                        withdrawal_request_outpoint: withdrawal_outpoint,
+                        withdrawal_request_txid,
                     });
                 }
             }
@@ -648,8 +638,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         Err(rpc_error(
             ErrorCode::InvalidRequest,
-            "Withdrawal outpoint not found",
-            withdrawal_outpoint,
+            "Withdrawal request transaction ID not found",
+            withdrawal_request_txid,
         ))
     }
 
