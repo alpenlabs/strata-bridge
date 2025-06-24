@@ -15,7 +15,7 @@ use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 mod args;
 mod config;
@@ -49,7 +49,7 @@ pub static malloc_conf: &[u8] = b"prof:true,prof_active:true,lg_prof_sample:19\0
 fn main() {
     logging::init(LoggerConfig::with_base_name("bridge-node"));
 
-    info!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
+    debug!(?STARTUP_DELAY, "waiting for bitcoind setup phase");
     sleep(constants::STARTUP_DELAY);
 
     let cli = args::Cli::parse();
@@ -115,7 +115,7 @@ where
 {
     fs::read_to_string(path)
         .map(|p| {
-            debug!(?p, "read file");
+            trace!(?p, "read file");
 
             let parsed = toml::from_str::<T>(&p).unwrap_or_else(|e| {
                 panic!("failed to parse TOML file: {e:?}");

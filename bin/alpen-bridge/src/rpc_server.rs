@@ -74,22 +74,22 @@ where
         .context("merge monitoring api")?;
     rpc_module.merge(da_api).context("merge da api")?;
 
-    info!("Starting bridge RPC server at: {rpc_addr}");
+    info!("starting bridge rpc server at {rpc_addr}");
     let rpc_server = jsonrpsee::server::ServerBuilder::new()
         .build(&rpc_addr)
         .await
         .expect("build bridge rpc server");
 
     let rpc_handle = rpc_server.start(rpc_module);
+
     // Using `_` for `_stop_tx` as the variable causes it to be dropped immediately!
     // NOTE: The `_stop_tx` should be used by the shutdown manager (see the `strata-tasks` crate).
     // At the moment, the impl below just stops the client from stopping.
     let (_stop_tx, stop_rx): (oneshot::Sender<bool>, oneshot::Receiver<bool>) = oneshot::channel();
-
-    info!("bridge RPC server started at: {rpc_addr}");
+    debug!("bridge rpc server started");
 
     let _ = stop_rx.await;
-    info!("stopping RPC server");
+    info!("stopping rpc server");
 
     if rpc_handle.stop().is_err() {
         warn!("rpc server already stopped");
@@ -254,10 +254,7 @@ impl BridgeRpc {
 
         // Spawn a background task to refresh the cache
         tokio::spawn(async move {
-            info!(
-                ?period,
-                "initializing the background task for refreshing the RPC server cache"
-            );
+            info!(?period, "initializing rpc server cache refresh task");
 
             // Initial cache fill
             let contracts = match execute_with_retries(&db_config, || async {
@@ -282,14 +279,12 @@ impl BridgeRpc {
             {
                 Ok(contracts) => contracts,
                 Err(err) => {
-                    error!(?err, "Failed to initialize contracts cache");
+                    error!(?err, "failed to initialize contracts cache");
                     Vec::new() // Return empty vector on error
                 }
             };
 
-            let before_num_contracts = contracts.len();
-            info!(%before_num_contracts, "initializing the RPC server initial contract cache fill");
-
+            info!("initializing rpc server contract cache");
             // Convert raw records to typed records
             let refreshed_contracts: Vec<_> = contracts
                 .into_iter()
@@ -308,15 +303,14 @@ impl BridgeRpc {
                     (record, config)
                 })
                 .collect();
-            let after_num_contracts = refreshed_contracts.len();
+            let num_contracts = refreshed_contracts.len();
 
             let mut cache_lock = cached_contracts.write().await;
             *cache_lock = refreshed_contracts;
             // Strive to always drop the lock as soon as possible to avoid blocking other
             // tasks.
             drop(cache_lock);
-
-            info!(%after_num_contracts, "RPC server Contracts cache initialized");
+            debug!(%num_contracts, "rpc server contracts cache initialized");
 
             // Periodic refresh in a separate loop outside the closure
             let mut refresh_interval = interval(period);
@@ -346,13 +340,13 @@ impl BridgeRpc {
                 {
                     Ok(contracts) => contracts,
                     Err(err) => {
-                        error!(?err, "Failed to refresh contracts cache");
+                        error!(?err, "failed to refresh contracts cache");
                         Vec::new() // Return empty vector on error
                     }
                 };
 
-                let before_num_contracts = contracts.len();
-                debug!(%before_num_contracts, "refreshing RPC server contract cache");
+                let num_contracts_before = contracts.len();
+                info!(%num_contracts_before, "refreshing rpc server contract cache");
 
                 // Convert raw records to typed records
                 let refreshed_contracts: Vec<_> = contracts
@@ -372,15 +366,14 @@ impl BridgeRpc {
                         (record, config)
                     })
                     .collect();
-                let after_num_contracts = refreshed_contracts.len();
+                let num_contracts_after = refreshed_contracts.len();
 
                 let mut cache_lock = cached_contracts.write().await;
                 *cache_lock = refreshed_contracts;
                 // Strive to always drop the lock as soon as possible to avoid blocking
                 // other tasks.
                 drop(cache_lock);
-
-                debug!(%after_num_contracts, "Contracts cache refreshed");
+                debug!(%num_contracts_after, "contracts cache refreshed");
             }
         });
     }

@@ -100,7 +100,7 @@ impl StakeChainPersister {
                     warn!(
                         ?stake_data,
                         ?pre_stake_outpoint,
-                        ?p2p_key,
+                        p2p_key = ?p2p_key.map(|k| format!("{k}")),
                         ?operator_pubkey,
                         "ignoring incomplete data"
                     );

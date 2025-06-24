@@ -11,9 +11,7 @@ use std::{
 };
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bitcoin::{
-    hashes::Hash, hex::DisplayHex, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid,
-};
+use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
 use futures::StreamExt;
@@ -128,7 +126,7 @@ impl ContractManager {
                 }
                 Err(e) => crash(e.into()),
             };
-            info!(num_contracts=%active_contracts.len(), "loaded all active contracts");
+            debug!(num_contracts=%active_contracts.len(), "loaded all active contracts");
 
             let operator_pubkey = s2_client
                 .general_wallet_signer()
@@ -145,8 +143,6 @@ impl ContractManager {
                 .await
             {
                 Ok(stake_chains) => {
-                    info!("restoring stake chain data");
-
                     match StakeChainSM::restore(
                         network,
                         operator_table.clone(),
@@ -165,6 +161,7 @@ impl ContractManager {
                     return;
                 }
             };
+            debug!("restored stake chain data");
 
             let current = match rpc_client.get_block_count().await {
                 Ok(a) => a - (zmq_client.bury_depth() as u64),
@@ -335,7 +332,9 @@ impl ContractManager {
                             match ctx.process_p2p_message(msg).await {
                                 Ok(ouroboros_duties) if !ouroboros_duties.is_empty() => {
                                     info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
-                                    debug!(?ouroboros_duties, "queueing duties generated via ouroboros");
+                                    for duty in ouroboros_duties.iter() {
+                                        debug!(?duty);
+                                    }
 
                                     duties.extend(ouroboros_duties);
                                 },
@@ -432,6 +431,7 @@ impl ContractManager {
                     },
 
                     _instant = interval.tick() => {
+                        info!("nagging peers for necessary p2p messages");
                         let nags = ctx.nag().await;
                         for nag in nags {
                             p2p_handle.send_command(nag).await;
@@ -838,14 +838,19 @@ impl ContractManagerCtx {
             .operator_table
             .op_key_to_idx(&msg.key)
             .expect("sender must be in the operator table");
-        let message_signature = msg.signature.to_lower_hex_string();
         let msg_kind = match msg.unsigned {
-            UnsignedGossipsubMsg::StakeChainExchange { .. } => "stake_chain_exchange",
-            UnsignedGossipsubMsg::DepositSetup { .. } => "deposit_setup",
-            UnsignedGossipsubMsg::Musig2NoncesExchange { .. } => "musig2_nonces_exchange",
-            UnsignedGossipsubMsg::Musig2SignaturesExchange { .. } => "musig2_signatures_exchange",
+            UnsignedGossipsubMsg::StakeChainExchange { .. } => "stake_chain_exchange".to_string(),
+            UnsignedGossipsubMsg::DepositSetup { scope, index, .. } => {
+                format!("deposit_setup({scope}/{index})")
+            }
+            UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, .. } => {
+                format!("musig2_nonces_exchange({session_id})")
+            }
+            UnsignedGossipsubMsg::Musig2SignaturesExchange { session_id, .. } => {
+                format!("musig2_signatures_exchange({session_id})")
+            }
         };
-        info!(sender=%sender_id, %message_signature, %msg_kind, "received p2p message");
+        info!(sender=%msg.key, %msg_kind, "processing p2p message");
 
         match self
             .process_unsigned_gossip_msg(msg.unsigned, msg.key, sender_id)
@@ -897,7 +902,6 @@ impl ContractManagerCtx {
                 wots_pks,
             } => {
                 let deposit_txid = Txid::from_byte_array(*scope.as_ref());
-
                 info!(%sender_id, %index, %deposit_txid, %operator_pk, "received deposit setup message");
 
                 if let Some(contract) = self.state.active_contracts.get_actor(&deposit_txid) {
@@ -909,7 +913,7 @@ impl ContractManagerCtx {
                         wots_pks: wots_pks.clone(),
                     };
 
-                    info!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
+                    debug!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
                     let Some(_stake_txid) =
                         self.state.stake_chains.process_setup(key.clone(), &setup)?
                     else {
@@ -919,7 +923,7 @@ impl ContractManagerCtx {
                         return Ok(vec![]);
                     };
 
-                    info!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
+                    debug!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
                     self.state_handles
                         .stake_chain_persister
                         .commit_stake_data(
@@ -983,7 +987,7 @@ impl ContractManagerCtx {
                 } else {
                     // One of the other operators may have seen a DRT that we have not yet seen
                     warn!(
-                        "received a P2P message about an unknown contract: {}",
+                        "received a p2p message about an unknown contract: {}",
                         deposit_txid
                     );
                 }
@@ -1380,6 +1384,8 @@ impl ContractManagerCtx {
                 }
 
                 let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
+
+                debug!(peer=%operator_pk, "nagging peer for stake chain exchange");
                 Some(Command::RequestMessage(
                     GetMessageRequest::StakeChainExchange {
                         stake_chain_id,
@@ -1389,7 +1395,6 @@ impl ContractManagerCtx {
             }),
         );
 
-        debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
         let mut contract_futures = Vec::new();
         for (txid, contract) in self.state.active_contracts.actors() {
             let future = self.nag_contract(*txid, contract);

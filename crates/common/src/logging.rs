@@ -99,7 +99,7 @@ pub fn init(config: LoggerConfig) {
         tracing_subscriber::registry().with(stdout_sub).init();
     }
 
-    info!(whoami = %config.whoami, "logging started");
+    debug!(whoami = %config.whoami, "logging started");
 }
 
 /// Gets the OTLP URL from the standard envvar.
