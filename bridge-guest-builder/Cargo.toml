@@ -7,11 +7,11 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-sp1-sdk = "4.2.0"
+sp1-sdk = "5.0.0"
 
 [build-dependencies]
-sp1-helper = "4.2.0"
-sp1-sdk = "4.2.0"
+sp1-helper = "5.0.0"
+sp1-sdk = "5.0.0"
 
 [features]
 prover = []
