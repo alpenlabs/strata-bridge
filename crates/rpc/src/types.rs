@@ -3,6 +3,7 @@
 use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, taproot, OutPoint, Txid};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{types::OperatorIdx, wots};
+use strata_primitives::buf::Buf32;
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,9 +118,9 @@ pub struct RpcWithdrawalInfo {
 
     /// Transaction ID of the withdrawal request transaction (WRT).
     ///
-    /// NOTE: This outpoint is the on-chain strata checkpoint that assigned operators to fulfill a
-    /// withdraw.
-    pub withdrawal_request_txid: Txid,
+    /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of the
+    /// withdrawal transaction in the sidesystem's execution environment.
+    pub withdrawal_request_txid: Buf32,
 }
 
 /// Represents reimbursement transaction details
@@ -144,7 +145,10 @@ pub enum RpcBridgeDutyStatus {
     /// Withdrawal duty
     Withdrawal {
         /// Transaction ID of the withdrawal request transaction (WRT).
-        withdrawal_request_txid: Txid,
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// Assigned operator index.
         assigned_operator_idx: OperatorIdx,

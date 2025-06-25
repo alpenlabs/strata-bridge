@@ -324,7 +324,10 @@ pub enum ContractState {
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
         /// The transaction ID of the withdrawal request transaction in the execution environment.
-        withdrawal_request_txid: Txid,
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -361,7 +364,10 @@ pub enum ContractState {
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
         /// The transaction ID of the withdrawal request transaction in the execution environment.
-        withdrawal_request_txid: Txid,
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -3197,7 +3203,10 @@ impl ContractSM {
     ///
     /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
     /// [`ContractState::StakeTxReady`] state.
-    pub const fn withdrawal_request_txid(&self) -> Option<Txid> {
+    ///
+    /// This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of the
+    /// withdrawal transaction in the sidesystem's execution environment.
+    pub const fn withdrawal_request_txid(&self) -> Option<Buf32> {
         match &self.state().state {
             ContractState::Assigned {
                 withdrawal_request_txid,

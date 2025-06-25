@@ -7,6 +7,7 @@ use algebra::req::Req;
 use bitcoin::{Transaction, Txid};
 use futures::future::join_all;
 use strata_bridge_tx_graph::{peg_out_graph::PegOutGraph, transactions::covenant_tx::CovenantTx};
+use strata_primitives::buf::Buf32;
 use tokio::{sync::mpsc, task::JoinHandle, time::timeout};
 use tracing::{debug, error, info, trace, warn};
 
@@ -58,7 +59,10 @@ pub enum ContractActorMessage {
     GetDepositRequestTxid(Req<(), Txid>),
 
     /// Gets the withdrawal request transaction ID (if any).
-    GetWithdrawalRequestTxid(Req<(), Option<Txid>>),
+    ///
+    /// NOTE: These are not Bitcoin [`Txid`]s but [`Buf32`] representing the transaction IDs of the
+    /// withdrawal transactions in the sidesystem's execution environment.
+    GetWithdrawalRequestTxid(Req<(), Option<Buf32>>),
 
     /// Gets the withdrawal fulfillment transaction ID (if any).
     GetWithdrawalFulfillmentTxid(Req<(), Option<Txid>>),

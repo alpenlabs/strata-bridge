@@ -5,6 +5,7 @@ use std::{fmt, sync::Arc};
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
+use strata_primitives::buf::Buf32;
 use chrono::{DateTime, Utc};
 use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{
@@ -495,7 +496,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         fulfiller,
                         ..
                     } => Some(RpcBridgeDutyStatus::Withdrawal {
-                        withdrawal_request_txid,
+                        withdrawal_request_txid: Buf32::from(withdrawal_request_txid),
                         assigned_operator_idx: fulfiller,
                     }),
                     ContractState::StakeTxReady {
@@ -503,7 +504,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         fulfiller,
                         ..
                     } => Some(RpcBridgeDutyStatus::Withdrawal {
-                        withdrawal_request_txid,
+                        withdrawal_request_txid: Buf32::from(withdrawal_request_txid),
                         assigned_operator_idx: fulfiller,
                     }),
                     // Anything else is not a duty for the bridge operator
@@ -545,7 +546,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         ..
                     } if claim_txids.contains_key(operator_p2p_pk) => {
                         Some(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *withdrawal_request_txid,
+                            withdrawal_request_txid: Buf32::from(*withdrawal_request_txid),
                             assigned_operator_idx: *fulfiller,
                         })
                     }
@@ -557,7 +558,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         ..
                     } if claim_txids.contains_key(operator_p2p_pk) => {
                         Some(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *withdrawal_request_txid,
+                            withdrawal_request_txid: Buf32::from(*withdrawal_request_txid),
                             assigned_operator_idx: *fulfiller,
                         })
                     }
@@ -569,7 +570,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         Ok(duties)
     }
 
-    async fn get_withdrawals(&self) -> RpcResult<Vec<Txid>> {
+    async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>> {
         let all_entries = self.cached_contracts.read().await.clone();
 
         let mut withdrawals = Vec::new();
@@ -579,13 +580,13 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                     withdrawal_request_txid,
                     ..
                 } => {
-                    withdrawals.push(*withdrawal_request_txid);
+                    withdrawals.push(Buf32::from(*withdrawal_request_txid));
                 }
                 ContractState::StakeTxReady {
                     withdrawal_request_txid,
                     ..
                 } => {
-                    withdrawals.push(*withdrawal_request_txid);
+                    withdrawals.push(Buf32::from(*withdrawal_request_txid));
                 }
                 _ => {}
             }
@@ -596,7 +597,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_withdrawal_info(
         &self,
-        withdrawal_request_txid: Txid,
+        withdrawal_request_txid: Buf32,
     ) -> RpcResult<RpcWithdrawalInfo> {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
@@ -617,7 +618,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             };
 
             if let Some(entry_withdrawal_request_txid) = entry_withdrawal_request_txid {
-                if withdrawal_request_txid == entry_withdrawal_request_txid {
+                if withdrawal_request_txid == Buf32::from(entry_withdrawal_request_txid) {
                     let status = match &entry.0.state.state {
                         ContractState::Fulfilled {
                             withdrawal_fulfillment_txid,
