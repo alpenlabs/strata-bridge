@@ -75,12 +75,18 @@ pub enum RpcReimbursementStatus {
     InProgress {
         /// Challenge step.
         challenge_step: ChallengeStep,
+
+        /// Transaction ID of the claim transaction.
+        claim_txid: Txid,
     },
 
     /// Claim exists, challenge step is "Challenge" or "Assert", no payout.
     Challenged {
         /// Challenge step.
         challenge_step: ChallengeStep,
+
+        /// Transaction ID of the claim transaction.
+        claim_txid: Txid,
     },
 
     /// Operator was slashed, claim is no longer valid.
