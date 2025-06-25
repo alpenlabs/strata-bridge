@@ -330,7 +330,7 @@ impl ContractActor {
     }
 
     /// Gets the withdrawal request transaction ID (if any).
-    pub async fn withdrawal_request_txid(&self) -> Result<Option<Txid>, TransitionErr> {
+    pub async fn withdrawal_request_txid(&self) -> Result<Option<Buf32>, TransitionErr> {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetWithdrawalRequestTxid(req))

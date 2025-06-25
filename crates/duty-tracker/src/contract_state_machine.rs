@@ -48,7 +48,7 @@ use strata_bridge_tx_graph::{
     },
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -2443,7 +2443,7 @@ impl ContractSM {
                             deadline,
                             active_graph,
                             recipient: recipient.clone(),
-                            withdrawal_request_txid: withdrawal_request_txid.into(),
+                            withdrawal_request_txid,
                             l1_start_height: height,
                         };
 
@@ -3199,9 +3199,9 @@ impl ContractSM {
         .collect()
     }
 
-    /// The txid of the assignment transaction for this contract.
+    /// The transaction ID of the assignment transaction for this contract.
     ///
-    /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
+    /// NOTE: that this is only available if the contract is in the [`ContractState::Assigned`] or
     /// [`ContractState::StakeTxReady`] state.
     ///
     /// This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of the
