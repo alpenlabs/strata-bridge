@@ -42,7 +42,9 @@ impl StakeChainPersister {
                 .map(|op_id| (op_id, chain_inputs))
         });
 
-        info!("committing all stake chain data to disk");
+        info!(
+            "preparing the required information to commit all operator's stake chain data to disk"
+        );
         let mut stake_chain_data = Vec::new();
         for (operator_id, chain_inputs) in op_id_and_chain_inputs {
             for (stake_index, stake_input) in chain_inputs.stake_inputs.into_iter() {
@@ -58,8 +60,9 @@ impl StakeChainPersister {
             }
         }
 
-        info!("committing all stake chain data to disk");
+        info!("committing all operator's stake chain data to disk");
         self.db.add_all_stake_data(stake_chain_data).await?;
+        info!("all operator's stake chain data committed to disk");
 
         Ok(())
     }
