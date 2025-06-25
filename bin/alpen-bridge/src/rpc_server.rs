@@ -5,7 +5,6 @@ use std::{fmt, sync::Arc};
 use anyhow::{bail, Context};
 use async_trait::async_trait;
 use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
-use strata_primitives::buf::Buf32;
 use chrono::{DateTime, Utc};
 use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{
@@ -44,6 +43,7 @@ use strata_bridge_tx_graph::transactions::{
     prelude::{ChallengeTx, ChallengeTxInput},
 };
 use strata_p2p::swarm::handle::P2PHandle;
+use strata_primitives::buf::Buf32;
 use tokio::{
     sync::{oneshot, RwLock},
     time::interval,
@@ -598,50 +598,52 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     async fn get_withdrawal_info(
         &self,
         withdrawal_request_txid: Buf32,
-    ) -> RpcResult<RpcWithdrawalInfo> {
+    ) -> RpcResult<Option<RpcWithdrawalInfo>> {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
-        // Iterate over all contract states to find the matching withdrawal
-        for entry in all_entries {
-            let entry_withdrawal_request_txid = match &entry.0.state.state {
-                ContractState::Assigned {
-                    withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::StakeTxReady {
-                    withdrawal_request_txid,
-                    ..
-                } => Some(*withdrawal_request_txid),
-                // Other states don't have withdrawal_request_txid field
-                _ => None,
-            };
-
-            if let Some(entry_withdrawal_request_txid) = entry_withdrawal_request_txid {
-                if withdrawal_request_txid == Buf32::from(entry_withdrawal_request_txid) {
-                    let status = match &entry.0.state.state {
-                        ContractState::Fulfilled {
-                            withdrawal_fulfillment_txid,
-                            ..
-                        } => RpcWithdrawalStatus::Complete {
-                            fulfillment_txid: *withdrawal_fulfillment_txid,
-                        },
-                        _ => RpcWithdrawalStatus::InProgress,
-                    };
-
-                    return Ok(RpcWithdrawalInfo {
-                        status,
+        // Find the contract with the matching withdrawal_request_txid using filter_map
+        let withdrawal_info = all_entries
+            .iter()
+            .filter_map(|entry| {
+                // Check if this entry has the withdrawal_request_txid we're looking for
+                let entry_withdrawal_request_txid = match &entry.0.state.state {
+                    ContractState::Assigned {
                         withdrawal_request_txid,
-                    });
-                }
-            }
-        }
+                        ..
+                    }
+                    | ContractState::StakeTxReady {
+                        withdrawal_request_txid,
+                        ..
+                    } => Some(*withdrawal_request_txid),
+                    // Other states don't have withdrawal_request_txid field
+                    _ => None,
+                };
 
-        Err(rpc_error(
-            ErrorCode::InvalidRequest,
-            "Withdrawal request transaction ID not found",
-            withdrawal_request_txid,
-        ))
+                if let Some(entry_withdrawal_request_txid) = entry_withdrawal_request_txid {
+                    if withdrawal_request_txid == Buf32::from(entry_withdrawal_request_txid) {
+                        // Determine the status based on the current state
+                        let status = match &entry.0.state.state {
+                            ContractState::Fulfilled {
+                                withdrawal_fulfillment_txid,
+                                ..
+                            } => RpcWithdrawalStatus::Complete {
+                                fulfillment_txid: *withdrawal_fulfillment_txid,
+                            },
+                            _ => RpcWithdrawalStatus::InProgress,
+                        };
+
+                        return Some(RpcWithdrawalInfo {
+                            status,
+                            withdrawal_request_txid,
+                        });
+                    }
+                }
+                None
+            })
+            .next();
+
+        Ok(withdrawal_info)
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {

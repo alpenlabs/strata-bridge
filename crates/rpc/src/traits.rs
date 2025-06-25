@@ -73,7 +73,7 @@ pub trait StrataBridgeMonitoringApi {
     async fn get_withdrawal_info(
         &self,
         withdrawal_request_txid: Buf32,
-    ) -> RpcResult<RpcWithdrawalInfo>;
+    ) -> RpcResult<Option<RpcWithdrawalInfo>>;
 
     /// Get all claim transaction IDs.
     #[method(name = "claims")]
