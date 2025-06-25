@@ -1,8 +1,6 @@
 //! This module provides function definitions for all of the canonical predicate combinators.
 use std::borrow::Borrow;
 
-use crate::boolean;
-
 /// Predicate combinator for the ! operation.
 pub fn not<A>(f: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
     move |a| !f(a)
@@ -25,12 +23,12 @@ pub fn xor<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn
 
 /// Predicate combinator for the nand operation.
 pub fn nand<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
-    move |a| boolean::nand(f(a), g(a))
+    move |a| !(f(a) & g(a))
 }
 
 /// Predicate combinator for the nor operation.
 pub fn nor<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
-    move |a| boolean::nor(f(a), g(a))
+    move |a| !(f(a) | g(a))
 }
 
 /// Contravariant functor map over predicates.
