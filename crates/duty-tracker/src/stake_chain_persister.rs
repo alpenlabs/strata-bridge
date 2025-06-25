@@ -61,8 +61,9 @@ impl StakeChainPersister {
         }
 
         info!("committing all operator's stake chain data to disk");
+        let num_inputs = stake_chain_data.len();
         self.db.add_all_stake_data(stake_chain_data).await?;
-        info!("all operator's stake chain data committed to disk");
+        debug!(%num_inputs, "all operator's stake chain data committed to disk");
 
         Ok(())
     }
