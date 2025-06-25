@@ -1,8 +1,6 @@
 //! Handles the withdrawal duty as it pertains to the optimistic case i.e., when no challenges
 //! occur.
 
-use std::sync::Arc;
-
 use bitcoin::{
     hashes::{sha256, Hash},
     sighash::{Prevouts, SighashCache},
@@ -46,7 +44,7 @@ use crate::{
 
 pub(crate) async fn handle_publish_first_stake(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     stake_tx: StakeTx<Head>,
 ) -> Result<(), ContractManagerErr> {
     info!("starting to publish first stake tx");
@@ -89,7 +87,7 @@ pub(crate) async fn handle_publish_first_stake(
 /// the provided `stake_tx`.
 pub(crate) async fn handle_advance_stake_chain(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     stake_index: u32,
     stake_tx: StakeTx<Tail>,
 ) -> Result<(), ContractManagerErr> {
@@ -169,7 +167,7 @@ pub(crate) async fn handle_advance_stake_chain(
 /// Constructs, finalizes and broadcasts the Withdrawal Fulfillment Transaction.
 pub(crate) async fn handle_withdrawal_fulfillment(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     withdrawal_metadata: WithdrawalMetadata,
     user_descriptor: Descriptor,
     deadline: BitcoinBlockHeight,
@@ -286,7 +284,7 @@ pub(crate) async fn handle_withdrawal_fulfillment(
 /// Constructs, finalizes and broadcasts the Claim Transaction.
 pub(crate) async fn handle_publish_claim(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     stake_txid: Txid,
     deposit_txid: Txid,
     withdrawal_fulfillment_txid: Txid,
@@ -358,7 +356,7 @@ pub(crate) async fn handle_publish_claim(
 /// Constructs, finalizes and broadcasts the Payout Optimistic Transaction.
 pub(crate) async fn handle_publish_payout_optimistic(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     deposit_txid: Txid,
     claim_txid: Txid,
     stake_txid: Txid,

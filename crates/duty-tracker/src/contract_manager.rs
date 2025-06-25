@@ -267,19 +267,15 @@ impl ContractManager {
                 match res {
                     Ok(duties) => {
                         info!(%next, "successfully rpc sync'ed block");
-                        let cfg = Arc::new(ctx.cfg.clone());
-                        duties.into_iter().for_each(|duty| {
+                        for duty in duties {
                             info!(%duty, "starting duty execution from lagging blocks");
-                            let cfg = cfg.clone();
-                            let output_handles = output_handles.clone();
-                            tokio::task::spawn(async move {
-                                if let Err(e) =
-                                    execute_duty(&cfg, output_handles, duty.clone()).await
-                                {
-                                    error!(%e, %duty, "failed to execute duty");
-                                }
-                            });
-                        });
+                            if let Err(e) =
+                                execute_duty(ctx.cfg.clone(), output_handles.clone(), duty.clone())
+                                    .await
+                            {
+                                error!(%e, "failed to execute duty")
+                            };
+                        }
                     }
                     Err(e) => {
                         error!(%blockhash, %cursor, %e, "failed to process block");
@@ -442,17 +438,16 @@ impl ContractManager {
                     }
                 }
 
-                duties.into_iter().for_each(|duty| {
-                    debug!(%duty, "starting duty execution from new events");
+                for duty in duties {
+                    info!(%duty, "starting duty execution from new events");
 
-                    let cfg = ctx.cfg.clone();
-                    let output_handles = output_handles.clone();
-                    tokio::task::spawn(async move {
-                        if let Err(e) = execute_duty(&cfg, output_handles, duty.clone()).await {
-                            error!(%e, %duty, "failed to execute duty");
-                        }
-                    });
-                });
+                    if let Err(e) =
+                        execute_duty(ctx.cfg.clone(), output_handles.clone(), duty.clone()).await
+                    {
+                        error!(%e, %duty, "failed to execute duty");
+                        break;
+                    }
+                }
             }
 
             info!("event loop ended, terminating contract actors");
@@ -631,7 +626,7 @@ impl ContractManagerCtx {
                     .expect("this operator's p2p key must exist in the operator table")
                     .clone();
 
-                debug!(%deposit_idx, %deposit_request_txid, "creating a new contract");
+                debug!(%deposit_idx, %deposit_request_txid, "creating new contract");
                 let cfg = ContractCfg {
                     network: self.cfg.network,
                     operator_table: self.cfg.operator_table.clone(),
@@ -1561,37 +1556,29 @@ impl ContractManagerCtx {
 }
 
 async fn execute_duty(
-    cfg: &ExecutionConfig,
+    cfg: Arc<ExecutionConfig>,
     output_handles: Arc<OutputHandles>,
     duty: OperatorDuty,
 ) -> Result<(), ContractManagerErr> {
-    let OutputHandles {
-        msg_handler,
-        synthetic_event_sender,
-        s2_session_manager,
-        db,
-        tx_driver,
-        ..
-    } = &*output_handles;
+    let outs = output_handles;
 
     match duty {
         OperatorDuty::PublishStakeChainExchange => {
-            handle_publish_stake_chain_exchange(cfg, &s2_session_manager.s2_client, db, msg_handler)
-                .await
+            handle_publish_stake_chain_exchange(
+                &cfg,
+                &outs.s2_session_manager.s2_client,
+                &outs.db,
+                &outs.msg_handler,
+            )
+            .await
         }
         OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
             stake_chain_inputs,
         } => {
-            handle_publish_deposit_setup(
-                cfg,
-                output_handles.clone(),
-                deposit_txid,
-                deposit_idx,
-                stake_chain_inputs,
-            )
-            .await
+            handle_publish_deposit_setup(&cfg, &outs, deposit_txid, deposit_idx, stake_chain_inputs)
+                .await
         }
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
@@ -1599,8 +1586,8 @@ async fn execute_duty(
             nonce,
         } => {
             handle_publish_root_nonce(
-                &output_handles.s2_session_manager,
-                &output_handles.msg_handler,
+                &outs.s2_session_manager,
+                &outs.msg_handler,
                 OutPoint::new(deposit_request_txid, 0),
                 witness,
                 nonce,
@@ -1614,8 +1601,8 @@ async fn execute_duty(
             nonces,
         } => {
             handle_publish_graph_nonces(
-                s2_session_manager,
-                msg_handler,
+                &outs.s2_session_manager,
+                &outs.msg_handler,
                 claim_txid,
                 pog_inputs,
                 pog_witnesses,
@@ -1631,8 +1618,8 @@ async fn execute_duty(
             partial_signatures,
         } => {
             handle_publish_graph_sigs(
-                s2_session_manager,
-                msg_handler,
+                &outs.s2_session_manager,
+                &outs.msg_handler,
                 claim_txid,
                 pubnonces,
                 pog_outpoints,
@@ -1648,10 +1635,10 @@ async fn execute_duty(
             pog_sighash_types,
         } => {
             handle_commit_sig(
-                cfg,
+                &cfg,
                 deposit_txid,
-                s2_session_manager,
-                synthetic_event_sender,
+                &outs.s2_session_manager,
+                &outs.synthetic_event_sender,
                 pog_inpoints,
                 pog_sighash_types,
                 graph_partials,
@@ -1665,9 +1652,9 @@ async fn execute_duty(
             partial_signature,
         } => {
             handle_publish_root_signature(
-                cfg,
-                s2_session_manager,
-                msg_handler,
+                &cfg,
+                &outs.s2_session_manager,
+                &outs.msg_handler,
                 nonces,
                 OutPoint::new(deposit_request_txid, 0),
                 sighash,
@@ -1679,56 +1666,72 @@ async fn execute_duty(
             deposit_tx,
             partial_sigs,
         } => {
-            handle_publish_deposit(
-                s2_session_manager,
-                tx_driver,
-                deposit_tx,
-                partial_sigs
-                    .into_iter()
-                    .map(|(k, v)| (cfg.operator_table.op_key_to_btc_key(&k).unwrap(), v))
-                    .collect(),
-            )
-            .await
+            let partials = cfg
+                .operator_table
+                .convert_map_op_to_btc(partial_sigs)
+                .expect("convert partial sig map to btc key index");
+            tokio::spawn(async move {
+                handle_publish_deposit(
+                    &outs.s2_session_manager,
+                    &outs.tx_driver,
+                    deposit_tx,
+                    partials,
+                )
+                .await
+            });
+            Ok(())
         }
         OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,
                 stake_tx,
-            } => match stake_tx {
-                StakeTxKind::Head(stake_tx) => {
-                    handle_publish_first_stake(cfg, output_handles, stake_tx).await
-                }
-                StakeTxKind::Tail(stake_tx) => {
-                    handle_advance_stake_chain(cfg, output_handles, stake_index, stake_tx).await
-                }
-            },
+            } => {
+                let outs = outs.clone();
+                tokio::spawn(async move {
+                    match stake_tx {
+                        StakeTxKind::Head(stake_tx) => {
+                            handle_publish_first_stake(&cfg, &outs, stake_tx).await
+                        }
+                        StakeTxKind::Tail(stake_tx) => {
+                            handle_advance_stake_chain(&cfg, &outs, stake_index, stake_tx).await
+                        }
+                    }
+                });
+                Ok(())
+            }
             FulfillerDuty::PublishFulfillment {
                 withdrawal_metadata,
                 user_descriptor,
                 deadline,
             } => {
-                handle_withdrawal_fulfillment(
-                    cfg,
-                    output_handles,
-                    withdrawal_metadata,
-                    user_descriptor,
-                    deadline,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_withdrawal_fulfillment(
+                        &cfg,
+                        &outs,
+                        withdrawal_metadata,
+                        user_descriptor,
+                        deadline,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::PublishClaim {
                 withdrawal_fulfillment_txid,
                 stake_txid,
                 deposit_txid,
             } => {
-                handle_publish_claim(
-                    cfg,
-                    output_handles.clone(),
-                    stake_txid,
-                    deposit_txid,
-                    withdrawal_fulfillment_txid,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_publish_claim(
+                        &cfg,
+                        &outs,
+                        stake_txid,
+                        deposit_txid,
+                        withdrawal_fulfillment_txid,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::PublishPayoutOptimistic {
                 deposit_txid,
@@ -1737,16 +1740,19 @@ async fn execute_duty(
                 stake_index,
                 agg_sigs,
             } => {
-                handle_publish_payout_optimistic(
-                    cfg,
-                    output_handles.clone(),
-                    deposit_txid,
-                    claim_txid,
-                    stake_txid,
-                    stake_index,
-                    *agg_sigs,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_publish_payout_optimistic(
+                        &cfg,
+                        &outs,
+                        deposit_txid,
+                        claim_txid,
+                        stake_txid,
+                        stake_index,
+                        *agg_sigs,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::PublishPreAssert {
                 deposit_idx,
@@ -1754,15 +1760,18 @@ async fn execute_duty(
                 claim_txid,
                 agg_sig,
             } => {
-                handle_publish_pre_assert(
-                    cfg,
-                    output_handles.clone(),
-                    deposit_idx,
-                    deposit_txid,
-                    claim_txid,
-                    agg_sig,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_publish_pre_assert(
+                        &cfg,
+                        &outs,
+                        deposit_idx,
+                        deposit_txid,
+                        claim_txid,
+                        agg_sig,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::PublishAssertData {
                 start_height,
@@ -1772,33 +1781,39 @@ async fn execute_duty(
                 pre_assert_txid,
                 pre_assert_locking_scripts,
             } => {
-                handle_publish_assert_data(
-                    cfg,
-                    output_handles.clone(),
-                    deposit_idx,
-                    deposit_txid,
-                    AssertDataTxInput {
-                        pre_assert_txid,
-                        pre_assert_locking_scripts: *pre_assert_locking_scripts,
-                    },
-                    withdrawal_fulfillment_txid,
-                    start_height,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_publish_assert_data(
+                        &cfg,
+                        &outs,
+                        deposit_idx,
+                        deposit_txid,
+                        AssertDataTxInput {
+                            pre_assert_txid,
+                            pre_assert_locking_scripts: *pre_assert_locking_scripts,
+                        },
+                        withdrawal_fulfillment_txid,
+                        start_height,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::PublishPostAssertData {
                 deposit_txid,
                 assert_data_txids,
                 agg_sigs,
             } => {
-                handle_publish_post_assert(
-                    cfg,
-                    output_handles.clone(),
-                    deposit_txid,
-                    *assert_data_txids,
-                    *agg_sigs,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_publish_post_assert(
+                        &cfg,
+                        &outs,
+                        deposit_txid,
+                        *assert_data_txids,
+                        *agg_sigs,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::PublishPayout {
                 deposit_idx,
@@ -1808,17 +1823,20 @@ async fn execute_duty(
                 post_assert_txid,
                 agg_sigs,
             } => {
-                handle_publish_payout(
-                    cfg,
-                    output_handles.clone(),
-                    deposit_idx,
-                    deposit_txid,
-                    stake_txid,
-                    claim_txid,
-                    post_assert_txid,
-                    *agg_sigs,
-                )
-                .await
+                tokio::spawn(async move {
+                    handle_publish_payout(
+                        &cfg,
+                        &outs,
+                        deposit_idx,
+                        deposit_txid,
+                        stake_txid,
+                        claim_txid,
+                        post_assert_txid,
+                        *agg_sigs,
+                    )
+                    .await
+                });
+                Ok(())
             }
             FulfillerDuty::InitStakeChain => Err(TransitionErr(
                 "received an InitStakeChain duty but it should only be invoked once at genesis"
