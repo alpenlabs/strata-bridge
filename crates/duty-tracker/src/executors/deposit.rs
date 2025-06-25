@@ -1,10 +1,7 @@
 //! Handles duties related to presigning of the
 //! [`strata_bridge_tx_graph::peg_out_graph::PegOutGraph`] and the broadcasting of the [`Deposit
 //! Transaction`](strata_bridge_tx_graph::transactions::deposit::DepositTx).
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::collections::{BTreeMap, HashSet};
 
 use bdk_wallet::{miniscript::ToPublicKey, Wallet};
 use bitcoin::{
@@ -79,7 +76,7 @@ pub(crate) async fn handle_publish_stake_chain_exchange(
 /// [`PegOutGraph`](strata_bridge_tx_graph::peg_out_graph::PegOutGraph) to the p2p network.
 pub(crate) async fn handle_publish_deposit_setup(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     deposit_txid: Txid,
     deposit_idx: u32,
     stake_chain_inputs: StakeChainInputs,
@@ -93,7 +90,7 @@ pub(crate) async fn handle_publish_deposit_setup(
         tx_driver,
         db,
         ..
-    } = output_handles.as_ref();
+    } = output_handles;
     let MusigSessionManager { s2_client, .. } = &s2_session_manager;
 
     let pov_idx = cfg.operator_table.pov_idx();

@@ -60,7 +60,7 @@ pub enum ContractManagerErr {
 
     /// General catch-all for errors.
     #[error("error: {0}")]
-    FatalErr(#[from] Box<dyn Error + 'static>),
+    FatalErr(#[from] Box<dyn Error + Sync + Send + 'static>),
 
     /// Error from the tx driver while submitting/tracking transaction on chain.
     #[error("failed to submit or track transaction: {0:?}")]

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::HASH_LEN};
 use btc_notify::client::TxStatus;
@@ -39,7 +37,7 @@ use crate::{
 
 pub(crate) async fn handle_publish_pre_assert(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     deposit_idx: u32,
     deposit_txid: Txid,
     claim_txid: Txid,
@@ -98,7 +96,7 @@ pub(crate) async fn handle_publish_pre_assert(
 
 pub(crate) async fn handle_publish_assert_data(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     deposit_idx: u32,
     deposit_txid: Txid,
     assert_data_input: AssertDataTxInput,
@@ -109,7 +107,7 @@ pub(crate) async fn handle_publish_assert_data(
     let input = prepare_proof_input(
         cfg,
         deposit_idx,
-        output_handles.clone(),
+        output_handles,
         withdrawal_fulfillment_txid,
         start_height,
     )
@@ -209,7 +207,7 @@ pub(crate) async fn handle_publish_assert_data(
 
 pub(crate) async fn handle_publish_post_assert(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     deposit_txid: Txid,
     assert_data_txids: [Txid; NUM_ASSERT_DATA_TX],
     agg_sigs: [taproot::Signature; NUM_ASSERT_DATA_TX],
@@ -265,7 +263,7 @@ pub(crate) async fn handle_publish_post_assert(
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn handle_publish_payout(
     cfg: &ExecutionConfig,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     deposit_idx: u32,
     deposit_txid: Txid,
     stake_txid: Txid,
