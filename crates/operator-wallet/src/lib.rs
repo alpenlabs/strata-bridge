@@ -164,11 +164,11 @@ impl OperatorWallet {
         push_data
             .extend_from_slice(op_return_data)
             .expect("op_return_data should be within limit");
-        let cpfp_utxos = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
 
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
-        tx_builder.unspendable(cpfp_utxos);
+        tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(user_script_pubkey, amount);
         tx_builder.add_data(&push_data);
@@ -179,10 +179,10 @@ impl OperatorWallet {
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
     /// (excluding CPFP outputs). Needs signing by the general wallet.
     pub fn refill_claim_funding_utxos(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
-        let cpfp_utxos = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
-        tx_builder.unspendable(cpfp_utxos);
+        tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
         for _ in 0..self.config.stake_funding_utxo_pool_size {
             tx_builder.add_recipient(
@@ -227,10 +227,10 @@ impl OperatorWallet {
     /// Creates a new prestake transaction by paying funds from the general wallet into the
     /// stakechain wallet (excludes CPFP outputs). This will create a [Self::s_utxo].
     pub fn create_prestake_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
-        let cpfp_utxos = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the cpfp outputs
-        tx_builder.unspendable(cpfp_utxos);
+        tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), self.config.s_value);
         tx_builder.ordering(TxOrdering::Untouched);
