@@ -68,7 +68,7 @@ mod category_tests {
     /// This is a compile time test that asserts that we can ergonomically and sensibly compose all
     /// of the fundamentally possible composition patterns without violating compilation or
     /// ownership issues.
-    #[allow(dead_code)]
+    #[allow(dead_code, reason = "This is a compile time test that takes arguments")]
     fn test_comp_combinators<A, B: 'static, C>(
         converter_ab: impl Fn(A) -> B,
         converter_bc: impl Fn(B) -> C,
