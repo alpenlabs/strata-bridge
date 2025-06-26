@@ -39,32 +39,32 @@ pub fn contramap<A, B>(
     move |a| p(&f(a))
 }
 
-/// Curried version of the Eq::eq function that can be used to construct a predicate.
+/// Curried version of the [`PartialEq::eq`] function that can be used to construct a predicate.
 pub fn eq<A: Eq + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b == a.borrow()
 }
 
-/// Curried version of the negated Eq::eq function that can be used to construct a predicate.
+/// Curried version of the [`PartialEq::ne`] function that can be used to construct a predicate.
 pub fn ne<A: Eq + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b != a.borrow()
 }
 
-/// Curried version of the Ord::gt function that can be used to construct a predicate.
+/// Curried version of the [`PartialOrd::gt`] function that can be used to construct a predicate.
 pub fn gt<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b > a.borrow()
 }
 
-/// Curried version of the Ord::ge function that can be used to construct a predicate.
+/// Curried version of the [`PartialOrd::ge`] function that can be used to construct a predicate.
 pub fn ge<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b >= a.borrow()
 }
 
-/// Curried version of the Ord::lt function that can be used to construct a predicate.
+/// Curried version of the [`PartialOrd::lt`] function that can be used to construct a predicate.
 pub fn lt<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b < a.borrow()
 }
 
-/// Curried version of the Ord::le function that can be used to construct a predicate.
+/// Curried version of the [`PartialOrd::le`] function that can be used to construct a predicate.
 pub fn le<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b <= a.borrow()
 }
