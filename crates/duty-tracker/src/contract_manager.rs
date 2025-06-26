@@ -1527,11 +1527,9 @@ impl ContractManagerCtx {
 
 async fn execute_duty(
     cfg: Arc<ExecutionConfig>,
-    output_handles: Arc<OutputHandles>,
+    outs: Arc<OutputHandles>,
     duty: OperatorDuty,
 ) -> Result<(), ContractManagerErr> {
-    let outs = output_handles;
-
     match duty {
         OperatorDuty::PublishStakeChainExchange => {
             handle_publish_stake_chain_exchange(
