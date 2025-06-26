@@ -2,7 +2,7 @@
 //! retrieving it when needed.
 use std::collections::BTreeMap;
 
-use bitcoin::{OutPoint, XOnlyPublicKey};
+use bitcoin::{hex::DisplayHex, OutPoint, XOnlyPublicKey};
 use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
@@ -100,7 +100,7 @@ impl StakeChainPersister {
                     warn!(
                         ?stake_data,
                         ?pre_stake_outpoint,
-                        p2p_key = ?p2p_key.map(|k| format!("{k}")),
+                        p2p_key = ?p2p_key.map(|k| Vec::<u8>::from(k.clone()).to_lower_hex_string()),
                         ?operator_pubkey,
                         "ignoring incomplete data"
                     );
