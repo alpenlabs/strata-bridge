@@ -107,6 +107,8 @@ impl OperatorWallet {
         }
     }
 
+    /// Predicate for determining whether a utxo can be used as an anchor. This will only select
+    /// unconfirmed minimum value outputs.
     fn is_anchor(&self, txout: &LocalOutput) -> bool {
         txout.txout.value == self.config.cpfp_value && !txout.chain_position.is_confirmed()
     }
