@@ -115,10 +115,7 @@ async fn sync_wallet_bitcoin_core(
     {
         let client = client.clone();
         async move {
-            let start_height = match false {
-                true => 0,
-                false => last_cp.height(),
-            };
+            let start_height = last_cp.height();
             with_bitcoin_core(client, move |client| {
                 let mut emitter = Emitter::new(client, last_cp, start_height);
                 while let Some(ev) = emitter.next_block().unwrap() {
