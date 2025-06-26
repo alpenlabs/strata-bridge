@@ -159,12 +159,14 @@ pub(crate) async fn handle_publish_deposit_setup(
         Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
     }
 
-    info!(?ignore, "claiming funding utxos");
-    let (funding_op, _) = wallet.claim_funding_utxo(|op| ignore.contains(op));
+    info!(?ignore, "acquiring claim funding utxo");
+    let (funding_op, remaining) = wallet.claim_funding_utxo(|op| ignore.contains(op));
+    info!("operator wallet has {remaining} unassigned claim funding utxos remaining");
 
     let funding_utxo = match funding_op {
         Some(outpoint) => outpoint,
         None => {
+            warn!("could not acquire claim funding utxo. attempting refill...");
             // The first time we run the node, it may be the case that the wallet starts off
             // empty.
             let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
