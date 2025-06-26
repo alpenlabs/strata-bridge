@@ -15,10 +15,10 @@ pub fn comp_mut<A, B, C>(
 }
 
 /// Performs left-to-right composition for any functions operating over owned values.
-pub fn comp<'h, A, B, C>(
-    f: impl Fn(A) -> B + 'h,
-    g: impl Fn(B) -> C + 'h,
-) -> impl for<'a> Fn(A) -> C + 'h {
+pub fn comp<'composed, A, B, C>(
+    f: impl Fn(A) -> B + 'composed,
+    g: impl Fn(B) -> C + 'composed,
+) -> impl for<'a> Fn(A) -> C + 'composed {
     move |a| g(f(a))
 }
 
