@@ -834,15 +834,15 @@ impl ContractManagerCtx {
             .op_key_to_idx(&msg.key)
             .expect("sender must be in the operator table");
         let msg_kind = match msg.unsigned {
-            UnsignedGossipsubMsg::StakeChainExchange { .. } => "stake_chain_exchange".to_string(),
+            UnsignedGossipsubMsg::StakeChainExchange { .. } => "StakeChainExchange".to_string(),
             UnsignedGossipsubMsg::DepositSetup { scope, index, .. } => {
-                format!("deposit_setup({scope}/{index})")
+                format!("DepositSetup({scope}/{index})")
             }
             UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, .. } => {
-                format!("musig2_nonces_exchange({session_id})")
+                format!("Musig2NoncesExchange({session_id})")
             }
             UnsignedGossipsubMsg::Musig2SignaturesExchange { session_id, .. } => {
-                format!("musig2_signatures_exchange({session_id})")
+                format!("Musig2SignaturesExchange({session_id})")
             }
         };
         info!(sender=%msg.key, %msg_kind, "processing p2p message");
