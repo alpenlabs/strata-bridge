@@ -194,7 +194,9 @@ impl OperatorWallet {
     }
 
     /// Attempts to find a funding UTXO for a stake, ignoring outpoints for which ignore returns
-    /// `true`
+    /// `true`. The first value returned is the assigned claim funding output if one is found. The
+    /// second value returned is the remaining number of claim funding outputs excluding the one
+    /// in the first return value.
     pub fn claim_funding_utxo(
         &mut self,
         ignore: impl Fn(&OutPoint) -> bool,
