@@ -94,6 +94,7 @@ type BoxedErr = Box<BoxedErrInner>;
 /// A generic error that happened during sync
 #[derive(Debug)]
 pub struct SyncError(BoxedErr);
+
 impl std::ops::Deref for SyncError {
     type Target = BoxedErrInner;
 
@@ -101,6 +102,7 @@ impl std::ops::Deref for SyncError {
         self.0.as_ref()
     }
 }
+
 impl From<BoxedErr> for SyncError {
     fn from(err: BoxedErr) -> Self {
         Self(err)
