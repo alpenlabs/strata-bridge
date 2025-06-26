@@ -1,12 +1,13 @@
 //! Actor-based wrapper around [`ContractSM`] that allows each contract to run in its own task,
 //! enabling parallel processing of independent contracts.
 
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use algebra::req::Req;
 use bitcoin::{Transaction, Txid};
+use futures::future::join_all;
 use strata_bridge_tx_graph::transactions::covenant_tx::CovenantTx;
-use tokio::{sync::mpsc, task::JoinHandle};
+use tokio::{sync::mpsc, task::JoinHandle, time::timeout};
 use tracing::{debug, error, info, trace, warn};
 
 /// Channel for sending duty responses from contract actors back to the main event loop.
@@ -117,7 +118,6 @@ impl ContractActor {
                         if let Some(req) = req {
                             // Synchronous processing with direct response
                             let (event, response_sender) = req.into_input_output();
-                            debug!(%deposit_txid, "processing contract event (sync)");
                             trace!(%deposit_txid, ?event, "processing contract event (sync)");
 
                             let result = csm.process_contract_event(event);
@@ -138,7 +138,6 @@ impl ContractActor {
                             let _ = response_sender.send(result);
                         } else if let Some(event) = event {
                             // Asynchronous processing with duty response channel
-                            debug!(%deposit_txid, "processing contract event (async)");
                             trace!(%deposit_txid, ?event, "processing contract event (sync)");
 
                             let result = csm.process_contract_event(event);
@@ -348,7 +347,7 @@ impl ContractActor {
 
         // Wait for the actor to finish with a timeout
         let handle = self.handle;
-        match tokio::time::timeout(std::time::Duration::from_secs(30), handle).await {
+        match timeout(Duration::from_secs(30), handle).await {
             Ok(result) => {
                 result.map_err(|e| TransitionErr(format!("actor task panicked: {e}")))?;
                 Ok(())
@@ -477,7 +476,7 @@ impl ContractActorManager {
             })
             .collect();
 
-        futures::future::join_all(shutdown_futures).await;
+        join_all(shutdown_futures).await;
         info!("all contract actors shutdown complete");
     }
 
