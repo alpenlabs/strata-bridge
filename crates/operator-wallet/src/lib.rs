@@ -132,7 +132,7 @@ impl OperatorWallet {
     }
 
     /// Returns a list of UTXOs from the general wallet that can be used for fronting withdrawals.
-    /// Excludes CPFP outputs.
+    /// Excludes anchor outputs.
     pub fn general_utxos(&self) -> impl Iterator<Item = LocalOutput> + '_ {
         self.general_wallet
             .list_unspent()
@@ -149,7 +149,7 @@ impl OperatorWallet {
     }
 
     /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
-    /// address. (excluding CPFP outputs). Needs signing by the general wallet.
+    /// address. (excluding anchor outputs). Needs signing by the general wallet.
     ///
     /// The caller is responsible of assuring that the `OP_RETURN` data is within standard limits,
     /// i.e. `<= 80` bytes.
@@ -167,7 +167,7 @@ impl OperatorWallet {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
 
         let mut tx_builder = self.general_wallet.build_tx();
-        // DON'T spend any of the cpfp outputs
+        // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(user_script_pubkey, amount);
@@ -177,11 +177,11 @@ impl OperatorWallet {
     }
 
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
-    /// (excluding CPFP outputs). Needs signing by the general wallet.
+    /// (excluding anchor outputs). Needs signing by the general wallet.
     pub fn refill_claim_funding_utxos(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
-        // DON'T spend any of the cpfp outputs
+        // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
         for _ in 0..self.config.stake_funding_utxo_pool_size {
@@ -227,11 +227,11 @@ impl OperatorWallet {
     }
 
     /// Creates a new prestake transaction by paying funds from the general wallet into the
-    /// stakechain wallet (excludes CPFP outputs). This will create a [Self::s_utxo].
+    /// stakechain wallet (excludes anchor outputs). This will create a [Self::s_utxo].
     pub fn create_prestake_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
-        // DON'T spend any of the cpfp outputs
+        // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(self.stakechain_addr_script_buf.clone(), self.config.s_value);
