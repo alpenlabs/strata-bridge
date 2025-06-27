@@ -140,13 +140,8 @@ impl OperatorWallet {
             .filter(|utxo| !self.is_anchor(utxo))
     }
 
-    fn lease(&mut self, outpoint: OutPoint) -> Result<(), CreateTxError> {
-        if self.leased_outpoints.contains(&outpoint) {
-            Err(CreateTxError::UnknownUtxo)
-        } else {
-            self.leased_outpoints.insert(outpoint);
-            Ok(())
-        }
+    fn lease(&mut self, outpoint: OutPoint) -> bool {
+        self.leased_outpoints.insert(outpoint)
     }
 
     fn is_leased_pred<'a>(&'a self) -> impl Fn(&OutPoint) -> bool + 'a {
@@ -241,12 +236,9 @@ impl OperatorWallet {
         let claim_funding_output = considered.next().map(|utxo| utxo.outpoint);
         let remaining = considered.count() as u64;
 
-        if let Some(o) = &claim_funding_output {
-            self.lease(*o)
-                .expect("must be able to lease claim funding output");
-        }
+        let leased = claim_funding_output.and_then(predicate::guard_mut(|o| self.lease(*o)));
 
-        (claim_funding_output, remaining)
+        (leased, remaining)
     }
 
     /// Tries to find the `s` connector UTXO from the prestake transaction
