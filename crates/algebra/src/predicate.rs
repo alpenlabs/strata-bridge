@@ -69,6 +69,18 @@ pub fn le<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool
     move |b| b <= a.borrow()
 }
 
+/// Eliminates values that don't pass the predicate.
+pub fn guard<A>(pred: impl Fn(&A) -> bool) -> impl Fn(A) -> Option<A> {
+    move |a| pred(&a).then_some(a)
+}
+
+/// Eliminates values that don't pass the state-changing predicate.
+pub fn guard_mut<'pred, A>(
+    mut pred: impl FnMut(&A) -> bool + 'pred,
+) -> impl FnMut(A) -> Option<A> + 'pred {
+    move |a| pred(&a).then_some(a)
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
