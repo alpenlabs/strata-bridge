@@ -9,3 +9,4 @@ pub mod predicate;
 pub mod req;
 pub mod retry;
 pub mod semigroup;
+pub mod state_machine;
