@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use algebra::req::Req;
 use bitcoin::{Transaction, Txid};
 use futures::future::join_all;
-use strata_bridge_tx_graph::transactions::covenant_tx::CovenantTx;
+use strata_bridge_tx_graph::{peg_out_graph::PegOutGraph, transactions::covenant_tx::CovenantTx};
 use tokio::{sync::mpsc, task::JoinHandle, time::timeout};
 use tracing::{debug, error, info, trace, warn};
 
@@ -63,7 +63,10 @@ pub enum ContractActorMessage {
     /// Gets the withdrawal fulfillment transaction ID (if any).
     GetWithdrawalFulfillmentTxid(Req<(), Option<Txid>>),
 
-    /// Clears the peg-out-graph cache.
+    /// Gets the [`PegOutGraph`] cache indexed by the corresponding stake [`Txid`].
+    GetPogCache(Req<(), BTreeMap<Txid, PegOutGraph>>),
+
+    /// Clears the [`PegOutGraph`] cache.
     ClearPogCache,
 
     /// Gracefully shutdowns the actor.
@@ -169,6 +172,9 @@ impl ContractActor {
                     ContractActorMessage::GetConfig(req) => {
                         req.resolve(csm.cfg().clone());
                     }
+                    ContractActorMessage::GetPogCache(req) => {
+                        req.resolve(csm.pog().clone());
+                    }
                     ContractActorMessage::TransactionFilter(req) => {
                         req.dispatch(|tx| csm.transaction_filter(&tx));
                     }
@@ -266,6 +272,18 @@ impl ContractActor {
         receiver
             .await
             .map_err(|_| TransitionErr("failed to receive config from CSM actor".to_string()))
+    }
+
+    /// Gets the [`PegOutGraph`] cache indexed by the corresponding stake [`Txid`].
+    pub async fn get_pog_cache(&self) -> Result<BTreeMap<Txid, PegOutGraph>, TransitionErr> {
+        let (req, receiver) = Req::new(());
+        self.event_sender
+            .send(ContractActorMessage::GetPogCache(req))
+            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+
+        receiver.await.map_err(|_| {
+            TransitionErr("failed to receive peg-out-graph cache from CSM actor".to_string())
+        })
     }
 
     /// Checks if the contract handles a specific transaction.

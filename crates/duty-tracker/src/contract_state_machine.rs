@@ -3143,7 +3143,8 @@ impl ContractSM {
         &self.state
     }
 
-    /// Returns an immutable copy of the peg out graph.
+    /// Returns an immutable copy of the [`PegOutGraph`] cache indexed by the corresponding stake
+    /// [`Txid`].
     pub const fn pog(&self) -> &BTreeMap<Txid, PegOutGraph> {
         &self.pog
     }
