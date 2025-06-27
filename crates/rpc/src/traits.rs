@@ -32,11 +32,11 @@ pub trait StrataBridgeMonitoringApi {
     #[method(name = "operatorStatus")]
     async fn get_operator_status(&self, operator_pk: PublicKey) -> RpcResult<RpcOperatorStatus>;
 
-    /// Get all deposit request outpoints.
+    /// Get all deposit request [`Txid`]s.
     #[method(name = "depositRequests")]
     async fn get_deposit_requests(&self) -> RpcResult<Vec<Txid>>;
 
-    /// Get deposit details using the deposit request outpoint.
+    /// Get deposit details using the deposit request [`Txid`].
     #[method(name = "depositInfo")]
     async fn get_deposit_request_info(
         &self,
