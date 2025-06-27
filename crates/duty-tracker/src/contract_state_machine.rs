@@ -390,6 +390,12 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
+
         /// The withdrawal fulfillment transaction ID.
         withdrawal_fulfillment_txid: Txid,
 
@@ -2609,6 +2615,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 recipient,
                 l1_start_height,
                 ..
@@ -2649,6 +2656,7 @@ impl ContractSM {
                     graph_sigs: graph_sigs.clone(),
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_height: height,
                     l1_start_height: *l1_start_height,
