@@ -69,8 +69,8 @@ pub enum ContractActorMessage {
     /// Clears the [`PegOutGraph`] cache.
     ClearPogCache,
 
-    /// Gracefully shutdowns the actor.
-    Shutdown,
+    /// Gracefully terminates the actor.
+    Terminate,
 }
 
 /// Handles required by the contract actor for state persistence.
@@ -197,8 +197,8 @@ impl ContractActor {
                         csm.clear_pog_cache();
                         debug!(%deposit_txid, "cleared peg-out-graph cache");
                     }
-                    ContractActorMessage::Shutdown => {
-                        info!(%deposit_txid, "contract actor shutting down");
+                    ContractActorMessage::Terminate => {
+                        info!(%deposit_txid, "terminating contract actor");
                         break;
                     }
                 }
@@ -226,7 +226,7 @@ impl ContractActor {
                 duty_response_sender: None,
                 event: None,
             })
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver
             .await
@@ -245,7 +245,7 @@ impl ContractActor {
                 duty_response_sender: Some(duty_response_sender),
                 event: Some(event),
             })
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         Ok(())
     }
@@ -255,7 +255,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetState(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver
             .await
@@ -267,7 +267,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetConfig(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver
             .await
@@ -279,7 +279,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetPogCache(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver.await.map_err(|_| {
             TransitionErr("failed to receive peg-out-graph cache from CSM actor".to_string())
@@ -294,7 +294,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(tx.clone());
         self.event_sender
             .send(ContractActorMessage::TransactionFilter(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver.await.map_err(|_| {
             TransitionErr("failed to receive filter result from CSM actor".to_string())
@@ -306,7 +306,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetClaimTxids(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver
             .await
@@ -318,7 +318,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetDepositRequestTxid(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver.await.map_err(|_| {
             TransitionErr("failed to receive deposit request txid from CSM actor".to_string())
@@ -330,7 +330,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetWithdrawalRequestTxid(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver.await.map_err(|_| {
             TransitionErr("failed to receive withdrawal request txid from CSM actor".to_string())
@@ -342,7 +342,7 @@ impl ContractActor {
         let (req, receiver) = Req::new(());
         self.event_sender
             .send(ContractActorMessage::GetWithdrawalFulfillmentTxid(req))
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
 
         receiver.await.map_err(|_| {
             TransitionErr(
@@ -355,13 +355,13 @@ impl ContractActor {
     pub async fn clear_pog_cache(&self) -> Result<(), TransitionErr> {
         self.event_sender
             .send(ContractActorMessage::ClearPogCache)
-            .map_err(|_| TransitionErr("CSM actor has shut down".to_string()))?;
+            .map_err(|_| TransitionErr("CSM actor has terminated".to_string()))?;
         Ok(())
     }
 
-    /// Gracefully shutdowns the actor.
-    pub async fn shutdown(self) -> Result<(), TransitionErr> {
-        let _ = self.event_sender.send(ContractActorMessage::Shutdown);
+    /// Gracefully terminates the actor.
+    pub async fn terminate(self) -> Result<(), TransitionErr> {
+        let _ = self.event_sender.send(ContractActorMessage::Terminate);
 
         // Wait for the actor to finish with a timeout
         let handle = self.handle;
@@ -371,10 +371,10 @@ impl ContractActor {
                 Ok(())
             }
             Err(_) => {
-                warn!(deposit_txid=%self.deposit_txid, "Actor shutdown timed out, aborting");
+                warn!(deposit_txid=%self.deposit_txid, "actor termination timed out, aborting");
                 // Handle was moved into timeout, so we need to create a new abort mechanism
                 // In this case, the timeout already happened, so the task should be dropped
-                Err(TransitionErr("actor shutdown timed out".to_string()))
+                Err(TransitionErr("actor termination timed out".to_string()))
             }
         }
     }
@@ -480,22 +480,22 @@ impl ContractActorManager {
         self.actors.is_empty()
     }
 
-    /// Gracefully shutdowns all [`ContractActor`]s.
-    pub async fn shutdown_all(self) {
-        info!(num_actors=%self.actors.len(), "shutting down all contract actors");
+    /// Gracefully terminates all [`ContractActor`]s.
+    pub async fn terminate_all(self) {
+        info!(num_actors=%self.actors.len(), "terminating down all contract actors");
 
-        let shutdown_futures: Vec<_> = self
+        let terminate_futures: Vec<_> = self
             .actors
             .into_iter()
             .map(|(deposit_txid, actor)| async move {
-                if let Err(e) = actor.shutdown().await {
-                    error!(%deposit_txid, %e, "failed to shutdown contract actor");
+                if let Err(e) = actor.terminate().await {
+                    error!(%deposit_txid, %e, "failed to terminate contract actor");
                 }
             })
             .collect();
 
-        join_all(shutdown_futures).await;
-        info!("all contract actors shutdown complete");
+        join_all(terminate_futures).await;
+        info!("all contract actors terminated");
     }
 
     /// Removes [`ContractActor`]s for completed contracts.
@@ -517,8 +517,8 @@ impl ContractActorManager {
         for deposit_txid in to_remove {
             if let Some(actor) = self.remove_actor(&deposit_txid).await {
                 info!(%deposit_txid, "cleaning up completed contract");
-                if let Err(e) = actor.shutdown().await {
-                    error!(%deposit_txid, %e, "failed to shutdown completed contract actor");
+                if let Err(e) = actor.terminate().await {
+                    error!(%deposit_txid, %e, "failed to terminate completed contract actor");
                 }
             }
         }

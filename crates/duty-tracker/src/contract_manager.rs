@@ -439,8 +439,8 @@ impl ContractManager {
                 });
             }
 
-            info!("event loop ended, shutting down contract actors");
-            ctx.state.active_contracts.shutdown_all().await;
+            info!("event loop ended, terminating contract actors");
+            ctx.state.active_contracts.terminate_all().await;
         })
     }
 }
