@@ -37,6 +37,9 @@ pub(crate) struct Config {
     /// fulfillment deadline in order to perform a fulfillment.
     pub min_withdrawal_fulfillment_window: u64,
 
+    /// The target pool size for claim funding transactions.
+    pub stake_funding_pool_size: usize,
+
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
@@ -51,9 +54,6 @@ pub(crate) struct Config {
 
     /// Configuration for the RPC server.
     pub rpc: RpcConfig,
-
-    /// Configuration for the operator wallet.
-    pub operator_wallet: OperatorWalletConfig,
 
     /// Configuration for the Bitcoin ZMQ client.
     pub btc_zmq: BtcZmqConfig,
@@ -131,15 +131,6 @@ pub(crate) struct P2PConfig {
     /// Default is
     /// [`DEFAULT_CONNECTION_CHECK_INTERVAL`](strata_p2p::swarm::DEFAULT_CONNECTION_CHECK_INTERVAL).
     pub connection_check_interval: Option<Duration>,
-}
-
-/// Operator wallet configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct OperatorWalletConfig {
-    /// Stake funding UTXO pool size.
-    ///
-    /// These will be refreshed in the background by the operator wallet.
-    pub stake_funding_pool_size: usize,
 }
 
 /// RPC server configuration.

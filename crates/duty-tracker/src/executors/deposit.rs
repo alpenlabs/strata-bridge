@@ -1,8 +1,12 @@
 //! Handles duties related to presigning of the
 //! [`strata_bridge_tx_graph::peg_out_graph::PegOutGraph`] and the broadcasting of the [`Deposit
 //! Transaction`](strata_bridge_tx_graph::transactions::deposit::DepositTx).
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 
+use algebra::predicate;
 use bdk_wallet::{miniscript::ToPublicKey, Wallet};
 use bitcoin::{
     hashes::{sha256, Hash},
@@ -76,7 +80,7 @@ pub(crate) async fn handle_publish_stake_chain_exchange(
 /// [`PegOutGraph`](strata_bridge_tx_graph::peg_out_graph::PegOutGraph) to the p2p network.
 pub(crate) async fn handle_publish_deposit_setup(
     cfg: &ExecutionConfig,
-    output_handles: &OutputHandles,
+    output_handles: Arc<OutputHandles>,
     deposit_txid: Txid,
     deposit_idx: u32,
     stake_chain_inputs: StakeChainInputs,
@@ -90,7 +94,7 @@ pub(crate) async fn handle_publish_deposit_setup(
         tx_driver,
         db,
         ..
-    } = output_handles;
+    } = &*output_handles;
     let MusigSessionManager { s2_client, .. } = &s2_session_manager;
 
     let pov_idx = cfg.operator_table.pov_idx();
@@ -169,7 +173,8 @@ pub(crate) async fn handle_publish_deposit_setup(
             warn!("could not acquire claim funding utxo. attempting refill...");
             // The first time we run the node, it may be the case that the wallet starts off
             // empty.
-            let psbt = wallet.refill_claim_funding_utxos(FeeRate::BROADCAST_MIN)?;
+            let psbt = wallet
+                .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN, cfg.stake_funding_pool_size)?;
             finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
             wallet.sync().await.map_err(|e| {
                 error!(?e, "could not sync wallet after refilling funding utxos");
@@ -184,6 +189,27 @@ pub(crate) async fn handle_publish_deposit_setup(
                 .expect("no funding utxos available even after refill")
         }
     };
+
+    if remaining <= cfg.stake_funding_pool_size as u64 / 2 {
+        let pool_size = cfg.stake_funding_pool_size;
+        let outs = output_handles.clone();
+        tokio::spawn(async move {
+            info!("refilling claim funding utxo pool to size of {pool_size}");
+            let mut wallet = outs.wallet.write().await;
+            let psbt = wallet
+                .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN, pool_size)
+                .expect("could not construct claim funding tx");
+            finalize_claim_funding_tx(
+                &outs.s2_session_manager.s2_client,
+                &outs.tx_driver,
+                wallet.general_wallet(),
+                psbt,
+            )
+            .await
+            .expect("could not finalize claim funding tx");
+            debug!("claim funding utxo pool refilled");
+        });
+    }
 
     // store the stake data eagerly to the database so that we minimize the risk of losing our own
     // data _after_ sending it out to peers.
@@ -260,14 +286,13 @@ async fn finalize_claim_funding_tx(
             .push(signature.to_vec());
     }
 
-    info!(
-        txid = %tx.compute_txid(),
-        "submitting claim funding tx to the tx driver"
-    );
+    let txid = tx.compute_txid();
+    info!(%txid, "submitting claim funding tx to the tx driver");
     tx_driver
-        .drive(tx, TxStatus::is_buried)
+        .drive(tx, predicate::eq(TxStatus::Mempool)) // It's our tx, we won't double spend
         .await
         .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+    info!(%txid, "claim funding tx detected in mempool");
 
     Ok(())
 }

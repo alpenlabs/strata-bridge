@@ -20,8 +20,6 @@ use tracing::info;
 pub struct OperatorWalletConfig {
     /// Value of the funding UTXO for stakes. Not the `s` connector value.
     stake_funding_utxo_value: Amount,
-    /// Number of UTXOs of amount claim_funding_utxo_value sat to keep on hand at minimum
-    stake_funding_utxo_pool_size: usize,
     /// Value of CPFP UTXOs to identify them
     cpfp_value: Amount,
     /// Value of the `s` connector, the stake amount, to identify the UTXO
@@ -38,7 +36,6 @@ impl OperatorWalletConfig {
     /// Panics if `cpfp_value` == `s_value`
     pub fn new(
         stake_funding_utxo_value: Amount,
-        stake_funding_utxo_pool_size: usize,
         cpfp_value: Amount,
         s_value: Amount,
         network: Network,
@@ -49,7 +46,6 @@ impl OperatorWalletConfig {
         );
         Self {
             stake_funding_utxo_value,
-            stake_funding_utxo_pool_size,
             cpfp_value,
             s_value,
             network,
@@ -131,6 +127,11 @@ impl OperatorWallet {
             .filter(|txout| self.is_claim_funding_output(txout))
     }
 
+    /// Returns the list of [`OutPoint`]s that are currently being leased by the system.
+    pub fn leased_outpoints(&self) -> impl Iterator<Item = OutPoint> + '_ {
+        self.leased_outpoints.iter().copied()
+    }
+
     /// Returns a list of UTXOs from the general wallet that can be used for fronting withdrawals.
     /// Excludes anchor outputs.
     pub fn general_utxos(&self) -> impl Iterator<Item = LocalOutput> + '_ {
@@ -146,6 +147,10 @@ impl OperatorWallet {
             self.leased_outpoints.insert(outpoint);
             Ok(())
         }
+    }
+
+    fn is_leased_pred<'a>(&'a self) -> impl Fn(&OutPoint) -> bool + 'a {
+        |outpoint| self.leased_outpoints.contains(outpoint)
     }
 
     /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
@@ -178,18 +183,43 @@ impl OperatorWallet {
 
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
     /// (excluding anchor outputs). Needs signing by the general wallet.
-    pub fn refill_claim_funding_utxos(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
-        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
+    pub fn refill_claim_funding_utxos(
+        &mut self,
+        fee_rate: FeeRate,
+        target_size: usize,
+    ) -> Result<Psbt, CreateTxError> {
+        let current_claim_funding_outpoints: Vec<OutPoint> = self
+            .claim_funding_outputs()
+            .map(|o| o.outpoint)
+            .filter(predicate::not(self.is_leased_pred()))
+            .collect();
+
+        let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint);
+        let leased_outpoints = self.leased_outpoints();
+
+        // DON'T spend any of the anchor outputs or the existing claim funding utxos or
+        // anything leased.
+        let excluded = current_claim_funding_outpoints
+            .iter()
+            .copied()
+            .chain(anchor_outpoints)
+            .chain(leased_outpoints)
+            .collect();
+
         let mut tx_builder = self.general_wallet.build_tx();
-        // DON'T spend any of the anchor outputs
-        tx_builder.unspendable(anchor_outpoints);
-        tx_builder.fee_rate(fee_rate);
-        for _ in 0..self.config.stake_funding_utxo_pool_size {
+        tx_builder.unspendable(excluded);
+
+        let current_size = current_claim_funding_outpoints.len();
+        let batch_size = target_size - current_size;
+        for _ in 0..batch_size {
             tx_builder.add_recipient(
                 self.stakechain_addr_script_buf.clone(),
                 self.config.stake_funding_utxo_value,
             );
         }
+
+        tx_builder.fee_rate(fee_rate);
+
         tx_builder.finish()
     }
 
