@@ -498,7 +498,11 @@ impl ContractActorManager {
         info!("all contract actors shutdown complete");
     }
 
-    /// Removes [`ContractActor`]s for completed contracts (resolved or disproved).
+    /// Removes [`ContractActor`]s for completed contracts.
+    ///
+    /// NOTE: Only [`ContractState::Resolved`] is accounted as completed contracts.
+    /// [`ContractState::Disproved`] can still be assigned and fulfilled by another operator,
+    /// apart from the disproved operator(s).
     pub async fn cleanup_completed_contracts(&mut self) {
         let mut to_remove = Vec::new();
 
