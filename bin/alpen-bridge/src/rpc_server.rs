@@ -579,10 +579,12 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 ContractState::Assigned {
                     withdrawal_request_txid,
                     ..
-                } => {
-                    withdrawals.push(*withdrawal_request_txid);
                 }
-                ContractState::StakeTxReady {
+                | ContractState::StakeTxReady {
+                    withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::Fulfilled {
                     withdrawal_request_txid,
                     ..
                 } => {
@@ -602,46 +604,45 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
-        // Find the contract with the matching withdrawal_request_txid using filter_map
+        // Find the contract with the matching withdrawal_request_txid
         let withdrawal_info = all_entries
             .iter()
-            .filter_map(|entry| {
-                // Check if this entry has the withdrawal_request_txid we're looking for
-                let entry_withdrawal_request_txid = match &entry.0.state.state {
-                    ContractState::Assigned {
-                        withdrawal_request_txid,
-                        ..
-                    }
-                    | ContractState::StakeTxReady {
-                        withdrawal_request_txid,
-                        ..
-                    } => Some(*withdrawal_request_txid),
-                    // Other states don't have withdrawal_request_txid field
-                    _ => None,
-                };
-
-                if let Some(entry_withdrawal_request_txid) = entry_withdrawal_request_txid {
-                    if withdrawal_request_txid == entry_withdrawal_request_txid {
-                        // Determine the status based on the current state
-                        let status = match &entry.0.state.state {
-                            ContractState::Fulfilled {
-                                withdrawal_fulfillment_txid,
-                                ..
-                            } => RpcWithdrawalStatus::Complete {
-                                fulfillment_txid: *withdrawal_fulfillment_txid,
-                            },
-                            _ => RpcWithdrawalStatus::InProgress,
-                        };
-
-                        return Some(RpcWithdrawalInfo {
-                            status,
+            .find_map(|entry| match &entry.0.state.state {
+                ContractState::Assigned {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::StakeTxReady {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                } => {
+                    if withdrawal_request_txid == *entry_withdrawal_request_txid {
+                        Some(RpcWithdrawalInfo {
+                            status: RpcWithdrawalStatus::InProgress,
                             withdrawal_request_txid,
-                        });
+                        })
+                    } else {
+                        None
                     }
                 }
-                None
-            })
-            .next();
+                ContractState::Fulfilled {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                } => {
+                    if withdrawal_request_txid == *entry_withdrawal_request_txid {
+                        Some(RpcWithdrawalInfo {
+                            status: RpcWithdrawalStatus::Complete {
+                                fulfillment_txid: *withdrawal_fulfillment_txid,
+                            },
+                            withdrawal_request_txid,
+                        })
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            });
 
         Ok(withdrawal_info)
     }
