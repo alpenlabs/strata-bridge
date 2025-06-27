@@ -113,7 +113,7 @@ impl OperatorWallet {
         txout.txout.value == self.config.stake_funding_utxo_value
     }
 
-    /// Returns the list of known anchor outputs that should only be spent when fee bumping
+    /// Returns the list of known anchor outputs that should only be spent when fee bumping.
     pub fn anchor_outputs(&self) -> impl Iterator<Item = LocalOutput> + '_ {
         self.general_wallet
             .list_unspent()
