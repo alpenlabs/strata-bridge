@@ -1134,10 +1134,20 @@ impl ContractManagerCtx {
                         return Ok(None);
                     };
 
-                    let (pog_prevouts, pog_witnesses) = {
-                        let pog = cfg.build_graph(input);
-                        (pog.musig_inpoints(), pog.musig_witnesses())
-                    };
+                    let (pog_prevouts, pog_witnesses) = contract
+                        .get_pog_cache()
+                        .await?
+                        .get(&input.stake_outpoint.txid)
+                        .map(|cached_graph| {
+                            (
+                                cached_graph.musig_inpoints(),
+                                cached_graph.musig_witnesses(),
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            let pog = cfg.build_graph(input);
+                            (pog.musig_inpoints(), pog.musig_witnesses())
+                        });
 
                     let existing_nonces = graph_nonces
                         .get(&claim_txid)
@@ -1236,10 +1246,20 @@ impl ContractManagerCtx {
                         .get(&graph_owner)
                         .expect("graph input must exist if claim_txid exists");
 
-                    let (pog_prevouts, pog_sighashes) = {
-                        let pog = cfg.build_graph(input);
-                        (pog.musig_inpoints(), pog.musig_sighashes())
-                    };
+                    let (pog_prevouts, pog_sighashes) = contract
+                        .get_pog_cache()
+                        .await?
+                        .get(&input.stake_outpoint.txid)
+                        .map(|cached_graph| {
+                            (
+                                cached_graph.musig_inpoints(),
+                                cached_graph.musig_sighashes(),
+                            )
+                        })
+                        .unwrap_or_else(|| {
+                            let pog = cfg.build_graph(input);
+                            (pog.musig_inpoints(), pog.musig_sighashes())
+                        });
 
                     return Ok(Some(OperatorDuty::PublishGraphSignatures {
                         claim_txid,
