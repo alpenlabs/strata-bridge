@@ -7,5 +7,6 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+futures.workspace = true
 proptest.workspace = true
 tokio.workspace = true

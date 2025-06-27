@@ -8,3 +8,4 @@ pub mod monoid;
 pub mod predicate;
 pub mod req;
 pub mod semigroup;
+pub mod state_machine;
