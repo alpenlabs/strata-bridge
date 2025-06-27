@@ -9,7 +9,7 @@ use bitcoin::{
         OP_TRUE,
     },
     psbt::Input,
-    relative::{self, LockTime},
+    relative,
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, TapNodeHash,
 };
@@ -121,7 +121,7 @@ impl ConnectorStake {
 
         // handle `0`-locktime differently as pushing `0` sequence means no element is pushed which
         // results in the stack being empty when it is executed when spending.
-        if self.delta != LockTime::ZERO {
+        if self.delta != relative::LockTime::ZERO {
             locking_script = locking_script
                 .push_sequence(self.delta.into())
                 .push_opcode(OP_CSV)
