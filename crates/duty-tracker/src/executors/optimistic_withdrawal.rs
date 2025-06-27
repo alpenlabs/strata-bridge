@@ -42,7 +42,7 @@ use crate::{
         wots_handler::get_withdrawal_fulfillment_wots_pk,
     },
     s2_session_manager::MusigSessionManager,
-    tx_driver::TxDriver,
+    tx_driver::{DriveErr, TxDriver},
 };
 
 pub(crate) async fn handle_publish_first_stake(
@@ -199,22 +199,32 @@ async fn try_publish_stake_tx(
                 debug!(%stake_txid, %stake_index, "successfully broadcasted stake transaction");
                 return Ok(());
             }
-            Err(e) => {
-                if num_retries >= MAX_RETRIES {
-                    error!(?e, %stake_txid, %stake_index, %num_retries, "failed to broadcast stake transaction after max retries");
-                    return Err(ContractManagerErr::TxDriverErr(e));
+            Err(tx_driver_err) => match tx_driver_err {
+                DriveErr::DriverAborted => {
+                    // this means that the transaction was rejected by the driver
+                    // this is fatal
+                    error!(?tx_driver_err, %stake_txid, %stake_index, "failed to broadcast stake transaction");
+                    return Err(ContractManagerErr::TxDriverErr(tx_driver_err));
                 }
+                DriveErr::PublishFailed(ref err) => {
+                    // this means that the transaction was not accepted into the mempool, we can
+                    // retry
+                    if num_retries >= MAX_RETRIES {
+                        error!(last_err=%err, %stake_txid, %stake_index, %num_retries, "failed to broadcast stake transaction after max retries");
+                        return Err(ContractManagerErr::TxDriverErr(tx_driver_err));
+                    }
 
-                warn!(
-                    ?e,
-                    %stake_txid,
-                    %stake_index,
-                    %num_retries,
-                    "failed to broadcast first stake transaction, retrying..."
-                );
+                    warn!(
+                        %err,
+                        %stake_txid,
+                        %stake_index,
+                        %num_retries,
+                        "failed to broadcast stake transaction, retrying..."
+                    );
 
-                num_retries += 1;
-            }
+                    num_retries += 1;
+                }
+            },
         }
 
         debug!(%stake_txid, %stake_index, %num_retries, "waiting for {} seconds before retrying", RETRY_DELAY.as_secs());
