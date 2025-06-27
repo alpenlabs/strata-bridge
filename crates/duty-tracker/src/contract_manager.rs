@@ -439,8 +439,8 @@ impl ContractManager {
                 });
             }
 
-            info!("event loop ended, shutting down contract actors");
-            ctx.state.active_contracts.shutdown_all().await;
+            info!("event loop ended, terminating contract actors");
+            ctx.state.active_contracts.terminate_all().await;
         })
     }
 }
@@ -549,13 +549,8 @@ impl ContractManagerCtx {
         let mut new_contracts: Vec<(ContractActor, Txid)> = Vec::new();
 
         let pov_key = self.cfg.operator_table.pov_op_key().clone();
-        // TODO(proofofkeags): prune the active contract set and still preserve the ability
-        // to recover this value.
-        //
-        // Since new contracts are added after all the transactions are processed, we can
-        // assume that the stake/deposit index is the same as the number of active contracts
-        // throughout the processing of this block.
-        let stake_index = self.state.active_contracts.len() as u32;
+        // The next contract will have its index at the tip of the current stake chain.
+        let deposit_idx_offset = self.state.stake_chains.height();
 
         for tx in block.txdata {
             // could be an assignment
@@ -566,13 +561,14 @@ impl ContractManagerCtx {
             }
 
             let txid = tx.compute_txid();
+            let deposit_idx = deposit_idx_offset + new_contracts.len() as u32;
             // or a deposit request
             if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
                 &self.cfg.sidesystem_params,
                 &self.cfg.pegout_graph_params,
                 &self.cfg.operator_table.tx_build_context(self.cfg.network),
-                stake_index,
+                deposit_idx,
             ) {
                 let deposit_request_txid = txid;
                 let deposit_tx = match DepositTx::new(
@@ -610,7 +606,7 @@ impl ContractManagerCtx {
                     .expect("this operator's p2p key must exist in the operator table")
                     .clone();
 
-                debug!(%stake_index, %deposit_request_txid, "creating a new contract");
+                debug!(%deposit_idx, %deposit_request_txid, "creating a new contract");
                 let cfg = ContractCfg {
                     network: self.cfg.network,
                     operator_table: self.cfg.operator_table.clone(),
@@ -618,7 +614,7 @@ impl ContractManagerCtx {
                     peg_out_graph_params: self.cfg.pegout_graph_params,
                     sidesystem_params: self.cfg.sidesystem_params.clone(),
                     stake_chain_params: self.cfg.stake_chain_params,
-                    deposit_idx: stake_index + new_contracts.len() as u32,
+                    deposit_idx,
                     deposit_tx,
                 };
 
