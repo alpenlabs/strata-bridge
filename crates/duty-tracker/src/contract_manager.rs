@@ -77,6 +77,7 @@ impl ContractManager {
         operator_table: OperatorTable,
         is_faulty: bool,
         min_withdrawal_fulfillment_window: u64,
+        stake_funding_pool_size: usize,
         // Genesis information
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
@@ -201,6 +202,7 @@ impl ContractManager {
                 funding_address: funding_address.clone(),
                 is_faulty,
                 min_withdrawal_fulfillment_window,
+                stake_funding_pool_size,
             });
 
             // TODO: (@Rajil1213) at this point, it may or may not be necessary to make this
@@ -531,6 +533,7 @@ pub(super) struct ExecutionConfig {
     pub(super) funding_address: Address,
     pub(super) is_faulty: bool,
     pub(super) min_withdrawal_fulfillment_window: u64,
+    pub(super) stake_funding_pool_size: usize,
 }
 
 /// The contract manager context.
@@ -1575,7 +1578,7 @@ async fn execute_duty(
             deposit_txid,
             stake_chain_inputs,
         } => {
-            handle_publish_deposit_setup(&cfg, &outs, deposit_txid, deposit_idx, stake_chain_inputs)
+            handle_publish_deposit_setup(&cfg, outs, deposit_txid, deposit_idx, stake_chain_inputs)
                 .await
         }
         OperatorDuty::PublishRootNonce {

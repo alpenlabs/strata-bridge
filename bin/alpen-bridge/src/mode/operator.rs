@@ -411,6 +411,7 @@ async fn init_duty_tracker(
         operator_table,
         config.is_faulty,
         config.min_withdrawal_fulfillment_window,
+        config.stake_funding_pool_size,
         pre_stake_pubkey,
         zmq_client,
         rpc_client,
@@ -466,7 +467,6 @@ async fn init_operator_wallet(
     info!(%stakechain_key, "operator wallet stakechain key");
     let operator_wallet_config = OperatorWalletConfig::new(
         OPERATOR_FUNDS,
-        config.operator_wallet.stake_funding_pool_size,
         SEGWIT_MIN_AMOUNT,
         params.stake_chain.stake_amount,
         params.network,

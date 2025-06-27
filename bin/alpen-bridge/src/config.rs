@@ -37,6 +37,9 @@ pub(crate) struct Config {
     /// fulfillment deadline in order to perform a fulfillment.
     pub min_withdrawal_fulfillment_window: u64,
 
+    /// The target pool size for claim funding transactions.
+    pub stake_funding_pool_size: usize,
+
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
@@ -51,9 +54,6 @@ pub(crate) struct Config {
 
     /// Configuration for the RPC server.
     pub rpc: RpcConfig,
-
-    /// Configuration for the operator wallet.
-    pub operator_wallet: OperatorWalletConfig,
 
     /// Configuration for the Bitcoin ZMQ client.
     pub btc_zmq: BtcZmqConfig,
@@ -133,15 +133,6 @@ pub(crate) struct P2PConfig {
     pub connection_check_interval: Option<Duration>,
 }
 
-/// Operator wallet configuration.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct OperatorWalletConfig {
-    /// Stake funding UTXO pool size.
-    ///
-    /// These will be refreshed in the background by the operator wallet.
-    pub stake_funding_pool_size: usize,
-}
-
 /// RPC server configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct RpcConfig {
@@ -168,6 +159,7 @@ mod tests {
             is_faulty = false
             nag_interval = { secs = 60, nanos = 0 }
             min_withdrawal_fulfillment_window = 144
+            stake_funding_pool_size = 32
 
             [secret_service_client]
             server_addr = "localhost:1234"
