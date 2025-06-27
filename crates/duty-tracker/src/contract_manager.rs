@@ -359,7 +359,7 @@ impl ContractManager {
                         }
 
                         let blockhash = block_event.block.block_hash();
-                        let block_height = block_event.block.bip34_block_height().expect("must have valid height");
+                        let block_height = block_event.block.bip34_block_height().expect("block header version will always be >= 2");
                         info!(%block_height, %blockhash, "processing block");
 
                         let num_blocks_remaining = block_sub.backlog();
