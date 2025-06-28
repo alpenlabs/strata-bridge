@@ -73,6 +73,7 @@ impl OperatorWallet {
         stakechain: XOnlyPublicKey,
         config: OperatorWalletConfig,
         sync_backend: Backend,
+        leased_outpoints: BTreeSet<OutPoint>,
     ) -> Self {
         let (general_desc, ..) = descriptor!(tr(general)).unwrap();
         let (stakechain_desc, ..) = descriptor!(tr(stakechain)).unwrap();
@@ -99,7 +100,7 @@ impl OperatorWallet {
             general_wallet,
             stakechain_wallet,
             sync_backend,
-            leased_outpoints: BTreeSet::new(),
+            leased_outpoints,
         }
     }
 

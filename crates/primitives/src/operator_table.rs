@@ -1,14 +1,20 @@
 //! Operator table for the bridge.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Deref,
+};
 
-use bitcoin::Network;
+use algebra::category;
+use bitcoin::{Network, XOnlyPublicKey};
 use musig2::KeyAggContext;
 use serde::{Deserialize, Serialize};
 use strata_p2p_types::P2POperatorPubKey;
 use strata_primitives::bridge::PublickeyTable;
 
 use crate::{build_context::TxBuildContext, types::OperatorIdx};
+
+type OperatorTableEntry = (OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey);
 
 /// A table that maps operator indices to their P2P public keys and bitcoin public keys.
 // TODO(proofofkeags): the derived serialization of this data structure is 3x more expensive than
@@ -30,12 +36,18 @@ pub struct OperatorTable {
 impl OperatorTable {
     /// Creates a new operator table from a list of entries.
     pub fn new(
-        entries: Vec<(OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey)>,
-        pov: OperatorIdx,
+        entries: Vec<OperatorTableEntry>,
+        is_us: impl for<'a> FnMut(&'a OperatorTableEntry) -> bool + 'static,
     ) -> Option<Self> {
         let mut idx_key = BTreeMap::new();
         let mut op_key = BTreeMap::new();
         let mut btc_key = BTreeMap::new();
+
+        let pov = entries
+            .iter()
+            .find(category::comp_as_ref_mut(Deref::deref, is_us))
+            .map(|entry| entry.0)?;
+
         for entry in entries {
             if idx_key
                 .insert(entry.0, (entry.1.clone(), entry.2))
@@ -46,12 +58,6 @@ impl OperatorTable {
                 // This means we have a duplicate value which indicates a problem.
                 return None;
             }
-        }
-
-        // NOTE(proofofkeags): do not remove this without removing unwraps in pov_* functions.
-        if !idx_key.contains_key(&pov) {
-            // This means that the pov is invalid wrt the table entries.
-            return None;
         }
 
         Some(OperatorTable {
@@ -165,6 +171,30 @@ impl OperatorTable {
             })
             .collect()
     }
+
+    /// Returns a predicate capable of identifying a particular operator index. This is useful to
+    /// use in the constructor.
+    pub fn select_idx(idx: OperatorIdx) -> impl Fn(&OperatorTableEntry) -> bool {
+        move |(i, _, _)| *i == idx
+    }
+
+    /// Returns a predicate capable of identifying a particular operator pubkey. This is useful to
+    /// use in the constructor.
+    pub fn select_op(op: P2POperatorPubKey) -> impl Fn(&OperatorTableEntry) -> bool {
+        move |(_, o, _)| *o == op
+    }
+
+    /// Returns a predicate capable of identifying a particular operator btc key. This is useful to
+    /// use in the constructor.
+    pub fn select_btc(btc: secp256k1::PublicKey) -> impl Fn(&OperatorTableEntry) -> bool {
+        move |(_, _, b)| *b == btc
+    }
+
+    /// Returns a predicate capable of identifying a particular operator btc x-only key. This is
+    /// useful to use in the constructor.
+    pub fn select_btc_x_only(btc: XOnlyPublicKey) -> impl Fn(&OperatorTableEntry) -> bool {
+        move |(_, _, b)| b.x_only_public_key().0 == btc
+    }
 }
 
 /// Proptest generators for the operator table.
@@ -209,7 +239,7 @@ pub mod prop_test_generators {
                 .enumerate()
                 .map(|(idx, (p2p, btc))| (idx as u32, p2p, btc))
                 .collect();
-            OperatorTable::new(indexed, pov % size)
+            OperatorTable::new(indexed, OperatorTable::select_idx(pov % size))
         }
     }
 
