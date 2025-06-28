@@ -7,10 +7,19 @@ pub fn comp_once<A, B, C>(f: impl FnOnce(A) -> B, g: impl FnOnce(B) -> C) -> imp
 }
 
 /// Performs left-to-right composition for closures that only implement [`FnMut`].
-pub fn comp_mut<A, B, C>(
-    mut f: impl FnMut(A) -> B,
-    mut g: impl FnMut(B) -> C,
-) -> impl FnMut(A) -> C {
+pub fn comp_mut<'composed, A, B, C>(
+    mut f: impl FnMut(A) -> B + 'composed,
+    mut g: impl FnMut(B) -> C + 'composed,
+) -> impl FnMut(A) -> C + 'composed {
+    move |a| g(f(a))
+}
+
+/// Performs left-to-right composition for functions where there is a lifetime dependency in the
+/// first argument, and the second closure operates over the output reference of the first argument.
+pub fn comp_as_ref_mut<A, B: ?Sized, C>(
+    mut f: impl FnMut(&A) -> &B,
+    mut g: impl FnMut(&B) -> C,
+) -> impl for<'a> FnMut(&'a A) -> C {
     move |a| g(f(a))
 }
 
