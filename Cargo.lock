@@ -9666,6 +9666,7 @@ dependencies = [
 name = "strata-bridge-primitives"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "alpen-bridge-params",
  "anyhow",
  "arbitrary",

@@ -1,6 +1,6 @@
 //! Defines the main loop for the bridge-client in operator mode.
 use std::{
-    collections::VecDeque,
+    collections::{BTreeSet, VecDeque},
     env, fs, io,
     path::{Path, PathBuf},
     sync::Arc,
@@ -107,7 +107,35 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     )?;
 
     // Initialize the operator wallet.
-    let mut operator_wallet = init_operator_wallet(&config, &params, s2_client.clone()).await?;
+    let p2p_keys = params.keys.p2p.iter().cloned().map(P2POperatorPubKey::from);
+    let musig_keys = params
+        .keys
+        .musig2
+        .iter()
+        .cloned()
+        .map(|x| x.public_key(Parity::Even));
+    let zipped = p2p_keys.zip(musig_keys);
+    let indexed = zipped.enumerate().map(|(i, (op, btc))| (i as u32, op, btc));
+    let operator_table = OperatorTable::new(
+        indexed.collect(),
+        OperatorTable::select_btc_x_only(my_btc_pk),
+    )
+    .ok_or_else(|| anyhow!("could not build operator table"))?;
+
+    let leased = StakeChainPersister::new(db.clone())
+        .await?
+        .load(&operator_table)
+        .await?
+        .get(operator_table.pov_op_key())
+        .map_or(BTreeSet::new(), |inputs| {
+            inputs
+                .stake_inputs
+                .values()
+                .map(|x| x.operator_funds)
+                .collect()
+        });
+    let mut operator_wallet =
+        init_operator_wallet(&config, &params, s2_client.clone(), leased).await?;
 
     // Get the operator's key index.
     let my_index = params
@@ -384,12 +412,11 @@ async fn init_duty_tracker(
         .map(|(idx, (p2p, musig2))| (idx as u32, p2p, musig2))
         .collect();
     let my_btc_key = s2_client.musig2_signer().pubkey().await?;
-    let my_idx = operator_table_entries
-        .iter()
-        .position(|(_, _, key)| key.x_only_public_key().0 == my_btc_key)
-        .expect("should be able to find my index");
-    let operator_table =
-        OperatorTable::new(operator_table_entries, my_idx as u32).expect("my index exists");
+    let operator_table = OperatorTable::new(
+        operator_table_entries,
+        OperatorTable::select_btc_x_only(my_btc_key),
+    )
+    .expect("my index exists");
     let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
 
     let db_pool = db.pool().clone();
@@ -446,6 +473,7 @@ async fn init_operator_wallet(
     config: &Config,
     params: &Params,
     s2_client: SecretServiceClient,
+    leased_outpoints: BTreeSet<OutPoint>,
 ) -> anyhow::Result<OperatorWallet> {
     info!("initializing operator wallet");
 
@@ -480,6 +508,7 @@ async fn init_operator_wallet(
         stakechain_key,
         operator_wallet_config,
         sync_backend,
+        leased_outpoints,
     );
     debug!("operator wallet initialized");
 
