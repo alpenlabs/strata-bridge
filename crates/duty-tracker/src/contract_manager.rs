@@ -17,7 +17,6 @@ use btc_notify::client::{BlockStatus, BtcZmqClient};
 use futures::StreamExt;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
-use secret_service_proto::v1::traits::*;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
@@ -129,20 +128,11 @@ impl ContractManager {
             };
             debug!(num_contracts=%active_contracts.len(), "loaded all active contracts");
 
-            let operator_pubkey = s2_client
-                .general_wallet_signer()
-                .pubkey()
-                .await
-                .expect("must be able to get stake chain wallet key");
-
             let funding_address =
                 Address::from_script(wallet.stakechain_script_buf(), network.params())
                     .expect("funding locking script must be valid for supplied network");
 
-            let stake_chains = match stake_chain_persister
-                .load(&operator_table, operator_pubkey)
-                .await
-            {
+            let stake_chains = match stake_chain_persister.load(&operator_table).await {
                 Ok(stake_chains) => {
                     match StakeChainSM::restore(
                         network,
