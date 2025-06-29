@@ -181,6 +181,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     let contract_manager_task = init_duty_tracker(
         &params,
         &config,
+        operator_table,
         pre_stake_pubkey.clone(),
         bitcoin_rpc_client.clone(),
         zmq_client,
@@ -384,6 +385,7 @@ fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
 async fn init_duty_tracker(
     params: &Params,
     config: &Config,
+    operator_table: OperatorTable,
     pre_stake_pubkey: ScriptBuf,
     rpc_client: BitcoinClient,
     zmq_client: BtcZmqClient,
@@ -398,25 +400,6 @@ async fn init_duty_tracker(
     let pegout_graph_params = params.tx_graph;
     let stake_chain_params = params.stake_chain;
     let sidesystem_params = params.sidesystem.clone();
-    let operator_table_entries: Vec<(u32, P2POperatorPubKey, secp256k1::PublicKey)> = params
-        .keys
-        .p2p
-        .iter()
-        .zip(params.keys.musig2.iter())
-        .map(|(p2p_key, musig2_x_only_key)| {
-            let p2p_key = P2POperatorPubKey::from(p2p_key.clone());
-            let musig2_key = musig2_x_only_key.public_key(Parity::Even);
-            (p2p_key, musig2_key)
-        })
-        .enumerate()
-        .map(|(idx, (p2p, musig2))| (idx as u32, p2p, musig2))
-        .collect();
-    let my_btc_key = s2_client.musig2_signer().pubkey().await?;
-    let operator_table = OperatorTable::new(
-        operator_table_entries,
-        OperatorTable::select_btc_x_only(my_btc_key),
-    )
-    .expect("my index exists");
     let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
 
     let db_pool = db.pool().clone();
