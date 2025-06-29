@@ -1,6 +1,16 @@
 //! This module provides function definitions for all of the canonical predicate combinators.
 use std::borrow::Borrow;
 
+/// Predicate that always returns true.
+pub const fn always<A>(_: &A) -> bool {
+    true
+}
+
+/// Predicate that always returns false.
+pub const fn never<A>(_: &A) -> bool {
+    false
+}
+
 /// Predicate combinator for the ! operation.
 pub fn not<A>(f: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
     move |a| !f(a)
