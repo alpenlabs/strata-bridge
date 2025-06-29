@@ -1,6 +1,6 @@
 //! Contains logic to handle proof generation.
 
-use std::{fs, sync::Arc, time::Duration};
+use std::{fs, time::Duration};
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::Proof;
@@ -47,7 +47,7 @@ fn should_dump_test_data() -> bool {
 pub(super) async fn prepare_proof_input(
     cfg: &ExecutionConfig,
     deposit_idx: u32,
-    output_handles: Arc<OutputHandles>,
+    output_handles: &OutputHandles,
     withdrawal_fulfillment_txid: Txid,
     start_height: BitcoinBlockHeight,
 ) -> Result<BridgeProofInput, ContractManagerErr> {

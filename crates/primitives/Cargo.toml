@@ -10,6 +10,7 @@ workspace = true
 alpen-bridge-params.workspace = true
 strata-primitives.workspace = true
 
+algebra.workspace = true
 anyhow.workspace = true
 arbitrary.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
