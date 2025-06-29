@@ -128,7 +128,7 @@ impl BtcZmqSM {
     /// state to reflect the the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> (Vec<TxEvent>, Option<BlockEvent>) {
         let block_height = block.bip34_block_height().unwrap_or(0);
-        info!(block_hash=%block.block_hash(), %block_height, "processing block");
+        info!(%block_height, block_hash=%block.block_hash(), "processing block");
         trace!(?block, "started processing a block");
 
         match self.unburied_blocks.front() {
@@ -247,7 +247,7 @@ impl BtcZmqSM {
                         });
                     }
                 }
-                info!(%blockhash, %height, "processed all buried transactions");
+                info!(block_height=%height, %blockhash, "processed all buried transactions");
                 Some(BlockEvent {
                     block: newly_buried,
                     status: BlockStatus::Buried,
