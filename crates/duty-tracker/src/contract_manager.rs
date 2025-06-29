@@ -730,7 +730,6 @@ impl ContractManagerCtx {
             let future = contract.process_event(ContractEvent::Block(height));
             block_event_futures.push(async move { (*deposit_txid, future.await) });
         }
-        trace!(%height, time_taken=?block_process_start_time.elapsed(), "processed all transaction-level contract events for block");
 
         let block_results = futures::future::join_all(block_event_futures).await;
         for (deposit_txid, result) in block_results {
