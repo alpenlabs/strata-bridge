@@ -164,7 +164,7 @@ pub(crate) async fn handle_publish_deposit_setup(
     }
 
     info!(?ignore, "acquiring claim funding utxo");
-    let (funding_op, remaining) = wallet.claim_funding_utxo(|op| ignore.contains(op));
+    let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
     info!("operator wallet has {remaining} unassigned claim funding utxos remaining");
 
     let funding_utxo = match funding_op {
@@ -184,7 +184,7 @@ pub(crate) async fn handle_publish_deposit_setup(
             })?;
 
             wallet
-                .claim_funding_utxo(|op| ignore.contains(op))
+                .claim_funding_utxo(predicate::never)
                 .0
                 .expect("no funding utxos available even after refill")
         }
