@@ -179,6 +179,19 @@ impl StakeChainSM {
         &self.stake_chains
     }
 
+    /// Returns the height of the current stake chain.
+    ///
+    /// This corresponds to the number of contracts in the
+    /// [`crate::contract_state_machine::ContractSM`] that have been processed since genesis.
+    pub fn height(&self) -> u32 {
+        let my_key = self.operator_table.pov_op_key();
+
+        self.stake_chains
+            .get(my_key)
+            .map(|inputs| inputs.stake_inputs.len() as u32)
+            .unwrap_or(0)
+    }
+
     /// Gets the stake transaction for the operator at the stake index of the argument.
     pub fn stake_tx(
         &self,

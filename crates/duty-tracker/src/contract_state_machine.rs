@@ -48,7 +48,7 @@ use strata_bridge_tx_graph::{
     },
 };
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{buf::Buf32, params::RollupParams};
 use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
@@ -324,7 +324,10 @@ pub enum ContractState {
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
         /// The transaction ID of the withdrawal request transaction in the execution environment.
-        withdrawal_request_txid: Txid,
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -361,7 +364,10 @@ pub enum ContractState {
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
         /// The transaction ID of the withdrawal request transaction in the execution environment.
-        withdrawal_request_txid: Txid,
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
         /// the assignment.
@@ -389,6 +395,12 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The withdrawal fulfillment transaction ID.
         withdrawal_fulfillment_txid: Txid,
@@ -2431,7 +2443,7 @@ impl ContractSM {
                             deadline,
                             active_graph,
                             recipient: recipient.clone(),
-                            withdrawal_request_txid: withdrawal_request_txid.into(),
+                            withdrawal_request_txid,
                             l1_start_height: height,
                         };
 
@@ -2609,6 +2621,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 recipient,
                 l1_start_height,
                 ..
@@ -2649,6 +2662,7 @@ impl ContractSM {
                     graph_sigs: graph_sigs.clone(),
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_height: height,
                     l1_start_height: *l1_start_height,
@@ -3143,7 +3157,8 @@ impl ContractSM {
         &self.state
     }
 
-    /// Returns an immutable copy of the peg out graph.
+    /// Returns an immutable copy of the [`PegOutGraph`] cache indexed by the corresponding stake
+    /// [`Txid`].
     pub const fn pog(&self) -> &BTreeMap<Txid, PegOutGraph> {
         &self.pog
     }
@@ -3184,11 +3199,14 @@ impl ContractSM {
         .collect()
     }
 
-    /// The txid of the assignment transaction for this contract.
+    /// The transaction ID of the assignment transaction for this contract.
     ///
-    /// Note that this is only available if the contract is in the [`ContractState::Assigned`] or
+    /// NOTE: that this is only available if the contract is in the [`ContractState::Assigned`] or
     /// [`ContractState::StakeTxReady`] state.
-    pub const fn withdrawal_request_txid(&self) -> Option<Txid> {
+    ///
+    /// This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of the
+    /// withdrawal transaction in the sidesystem's execution environment.
+    pub const fn withdrawal_request_txid(&self) -> Option<Buf32> {
         match &self.state().state {
             ContractState::Assigned {
                 withdrawal_request_txid,
