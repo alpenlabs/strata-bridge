@@ -9933,6 +9933,7 @@ dependencies = [
  "jsonrpsee",
  "serde",
  "strata-bridge-primitives",
+ "strata-primitives",
 ]
 
 [[package]]
