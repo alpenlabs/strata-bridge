@@ -2449,7 +2449,7 @@ impl ContractSM {
                         ..
                     } => {
                         if *fulfiller != assignee {
-                            info!(new=%assignee, current=%fulfiller, assignment=%assignment.idx(), "received assignment for a different fulfiller than the current");
+                            info!(assignment=%assignment.idx(), new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
 
                             *fulfiller = assignee;
                             *deadline = dispatched_state.exec_deadline();
@@ -2469,7 +2469,7 @@ impl ContractSM {
                         ..
                     } => {
                         if *fulfiller != assignee {
-                            info!(new=%assignee, current=%fulfiller, assignment=%assignment.idx(), "received assignment for a different fulfiller than the current");
+                            info!(assignment=%assignment.idx(), new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
 
                             *fulfiller = assignee;
                             *deadline = dispatched_state.exec_deadline();
