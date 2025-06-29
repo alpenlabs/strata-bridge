@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::{
     hashes::Hash,
@@ -120,7 +120,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         indexed.collect(),
         OperatorTable::select_btc_x_only(my_btc_pk),
     )
-    .ok_or_else(|| anyhow!("could not build operator table"))?;
+    .context("could not build OperatorTable")?;
 
     let leased = StakeChainPersister::new(db.clone())
         .await?
