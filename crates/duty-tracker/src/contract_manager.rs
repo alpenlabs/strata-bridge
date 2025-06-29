@@ -585,7 +585,6 @@ impl ContractManagerCtx {
                 continue;
             }
 
-            let txid = tx.compute_txid();
             let deposit_idx = deposit_idx_offset + new_contracts.len() as u32;
 
             // or a deposit request
