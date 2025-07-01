@@ -20,6 +20,7 @@ use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
 use secp256k1::PublicKey;
 use strata_bridge_primitives::secp::EvenSecretKey;
+use tracing::{debug, trace};
 
 /// Gets a Bitcoin Core RPC client.
 pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
@@ -264,10 +265,18 @@ pub async fn wait_for_height(
     rpc_client: &corepc_node::Node,
     height: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    debug!(%height, "waiting for target height");
     Ok(
         tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            while rpc_client.client.get_blockchain_info().unwrap().blocks != height as i64 {
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            loop {
+                let current_block_height = rpc_client.client.get_blockchain_info().unwrap().blocks;
+                if current_block_height < height as i64 {
+                    trace!(%current_block_height, target_block_height=%height, "waiting for target height");
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                } else {
+                    trace!(%current_block_height, target_block_height=%height, "target height reached");
+                    break;
+                }
             }
         })
         .await?,

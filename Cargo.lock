@@ -9970,6 +9970,7 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-primitives",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
