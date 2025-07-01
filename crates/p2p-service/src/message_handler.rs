@@ -10,7 +10,7 @@ use strata_p2p::{
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg};
 use tokio::sync::broadcast;
-use tracing::{error, info, trace};
+use tracing::{debug, error, info, trace};
 
 /// Message handler for the P2P client.
 ///
@@ -62,7 +62,7 @@ impl MessageHandler {
             error!(%description, %e, "failed to send message via ouroboros");
         };
 
-        info!(%description, "sent message");
+        debug!(%description, "sent message");
     }
 
     /// Requests information from an operator by signing it and sending it over the network.

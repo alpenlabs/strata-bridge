@@ -11,7 +11,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_p2p_types::P2POperatorPubKey;
-use tracing::{info, warn};
+use tracing::{debug, info, warn};
 
 use crate::{contract_state_machine::DepositSetup, errors::StakeChainErr};
 
@@ -50,7 +50,7 @@ impl StakeChainSM {
     ) -> Result<Self, StakeChainErr> {
         let p2p_keys = operator_table.p2p_keys();
 
-        info!("reconstructing stake txids");
+        debug!("reconstructing stake txids");
         let stake_txids = p2p_keys
             .iter()
             .filter_map(|p2p_key| stake_chains.get(p2p_key))
@@ -79,6 +79,7 @@ impl StakeChainSM {
             .zip(p2p_keys.iter())
             .map(|(stake_txids, p2p_key)| (p2p_key.clone(), stake_txids))
             .collect();
+        info!("stake txids reconstructed");
 
         Ok(StakeChainSM {
             network,
@@ -105,7 +106,7 @@ impl StakeChainSM {
         };
 
         if let Some(old_prestake_outpoint) = self.stake_chains.insert(operator.clone(), inputs) {
-            warn!(%operator, "tried to re-insert stake chain input that already exists; leaving unchanged");
+            warn!(%operator, "ignoring redundant stake chain exchange");
             self.stake_chains.insert(operator, old_prestake_outpoint);
         }
 
@@ -126,13 +127,13 @@ impl StakeChainSM {
         info!(%operator, "processing deposit setup");
 
         let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
-            warn!(%operator, "tried to process deposit setup for unknown operator");
+            warn!(%operator, "received deposit setup for unknown operator");
 
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
 
         if chain_input.stake_inputs.contains_key(&setup.index) {
-            warn!(%operator, "stake input already exists for this operator");
+            warn!(%operator, "ignoring redundant deposit setup");
             return Ok(self
                 .stake_tx(&operator, setup.index)?
                 .map(|tx| tx.compute_txid()));
@@ -210,7 +211,7 @@ impl StakeChainSM {
                     .stake_inputs
                     .values()
                     .nth(0)
-                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth))?;
+                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), 0))?;
                 let stake_hash = first_input.hash;
                 let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
                 let operator_funds = first_input.operator_funds;

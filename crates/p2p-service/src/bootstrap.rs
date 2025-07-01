@@ -8,7 +8,7 @@ use strata_p2p::swarm::{
 };
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{debug, info};
 
 use crate::{config::Configuration, constants::DEFAULT_IDLE_CONNECTION_TIMEOUT};
 
@@ -36,16 +36,19 @@ pub async fn bootstrap(
     };
     let cancel = CancellationToken::new();
 
-    info!("creating a swarm");
+    info!("initializing swarm");
     let swarm = swarm::with_tcp_transport(&p2p_config)?;
+    debug!("swarm initialized");
 
-    info!("creating a p2p node");
+    info!("initializing p2p node");
     let (mut p2p, handle) = P2P::from_config(p2p_config, cancel.clone(), swarm, None)?;
+    debug!("p2p node initialized");
 
     info!("establishing connections");
     let _ = p2p.establish_connections().await;
+    debug!("connections established");
 
-    info!("listening for network events and commands from handles");
+    info!("listening for network events and commands");
     let listen_task = tokio::spawn(p2p.listen());
 
     Ok((handle, cancel, listen_task))

@@ -3508,7 +3508,7 @@ mod tests {
         .collect::<Vec<_>>();
 
         let pov_idx = pov_idx % key_entries.len() as u32;
-        OperatorTable::new(key_entries, pov_idx).unwrap()
+        OperatorTable::new(key_entries, OperatorTable::select_idx(pov_idx)).unwrap()
     }
 }
 

@@ -2,6 +2,7 @@ datadir = "/app/data"
 is_faulty = false
 nag_interval = { secs = 60, nanos = 0 }
 min_withdrawal_fulfillment_window = 144
+stake_funding_pool_size = 32
 
 [secret_service_client]
 server_addr = "172.28.1.7:69"
@@ -30,9 +31,6 @@ num_threads = 4
 dial_timeout = { secs = 0, nanos = 250_000_000 }
 general_timeout = { secs = 0, nanos = 250_000_000 }
 connection_check_interval = { secs = 0, nanos = 500_000_000 }
-
-[operator_wallet]
-stake_funding_pool_size = 32
 
 [rpc]
 rpc_addr = "0.0.0.0:5678"

@@ -7,8 +7,9 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+algebra.workspace = true
+
 bdk_bitcoind_rpc.workspace = true
-bdk_esplora.workspace = true
 bdk_wallet.workspace = true
 tokio.workspace = true
 tracing.workspace = true

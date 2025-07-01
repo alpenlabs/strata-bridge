@@ -236,7 +236,7 @@ mod e2e_tests {
         sync::Arc,
     };
 
-    use algebra::curry;
+    use algebra::predicate;
     use bitcoind_async_client::Client as BitcoinClient;
     use btc_notify::client::{BtcZmqClient, BtcZmqConfig, TxStatus};
     use corepc_node::CookieValues;
@@ -267,7 +267,7 @@ mod e2e_tests {
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
         let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
-        info!("corepc_node::Node initialized");
+        debug!("corepc_node::Node initialized");
 
         let cfg = BtcZmqConfig::default()
             .with_hashblock_connection_string(hash_block_socket)
@@ -277,7 +277,7 @@ mod e2e_tests {
             .with_sequence_connection_string(sequence_socket);
 
         let zmq_client = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
-        info!("BtcZmqClient initialized");
+        debug!("BtcZmqClient initialized");
 
         let CookieValues { user, password } = bitcoind
             .params
@@ -286,10 +286,10 @@ mod e2e_tests {
             .expect("can parse cookie");
         let rpc_client = BitcoinClient::new(bitcoind.rpc_url(), user, password, None, None)
             .expect("can set up rpc client");
-        info!("bitcoin_async_client::Client initialized");
+        debug!("bitcoin_async_client::Client initialized");
 
         let tx_driver = TxDriver::new(zmq_client, rpc_client).await;
-        info!("TxDriver initialized");
+        debug!("TxDriver initialized");
 
         Ok((tx_driver, bitcoind))
     }
@@ -401,7 +401,7 @@ mod e2e_tests {
 
         info!("driving to mempool");
         driver
-            .drive(signed.clone(), curry::eq(TxStatus::Mempool))
+            .drive(signed.clone(), predicate::eq(TxStatus::Mempool))
             .await?;
         info!("transaction appeared in mempool");
 
