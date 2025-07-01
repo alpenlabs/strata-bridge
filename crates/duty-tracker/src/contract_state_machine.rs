@@ -1465,9 +1465,7 @@ impl ContractSM {
                 signer,
                 claim_txid,
                 pubnonces,
-            } => self
-                .process_graph_nonces(signer, claim_txid, pubnonces)
-                .map(|x| x.into_iter().collect()),
+            } => self.process_graph_nonces(signer, claim_txid, pubnonces),
 
             ContractEvent::GraphSigs {
                 signer,
@@ -1826,22 +1824,17 @@ impl ContractSM {
         signer: P2POperatorPubKey,
         claim_txid: Txid,
         nonces: Vec<PubNonce>,
-    ) -> Result<Option<OperatorDuty>, TransitionErr> {
+    ) -> Result<Vec<OperatorDuty>, TransitionErr> {
         debug!(%claim_txid, %signer, "processing graph nonces");
         let cfg = self.cfg().clone();
-        let graph_owner = self
-            .state
-            .state
-            .claim_to_operator(&claim_txid)
-            .ok_or(TransitionErr(format!(
-                "claim txid ({claim_txid}) not found in claim txids map"
-            )))?;
 
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
                 graph_nonces,
                 agg_nonces,
+                claim_txids,
+                graph_partials,
                 ..
             } => {
                 let unpacked = PogMusigF::unpack(nonces).ok_or(TransitionErr(
@@ -1863,7 +1856,7 @@ impl ContractSM {
                     );
 
                     // FIXME: (@Rajil1213) this should return an error
-                    return Ok(None);
+                    return Ok(Vec::new());
                 }
 
                 session_nonces.insert(signer.clone(), unpacked);
@@ -1882,53 +1875,78 @@ impl ContractSM {
                         .collect::<Vec<_>>();
                     info!(?received_nonces, required=%num_operators, "waiting for more nonces for some graphs");
 
-                    return Ok(None);
+                    return Ok(Vec::new());
                 }
 
                 info!(%claim_txid, %signer, "received all nonces for all graphs, aggregating them");
 
                 *agg_nonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
 
-                let Some(pog_input) = peg_out_graph_inputs.get(&graph_owner) else {
-                    return Err(TransitionErr(format!(
-                        "could not process graph nonces. claim_txid ({claim_txid}) not found in peg out graph map"
-                    )));
-                };
-                let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
+                let mut duties = Vec::with_capacity(graph_nonces.len());
+                let claim_txid_to_operator_map = claim_txids
+                    .iter()
+                    .map(|(op, claim_txid)| (claim_txid, op))
+                    .collect::<BTreeMap<_, _>>();
 
-                // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
-                // `&mut self` and the borrow checker does not allow us to reborrow it mutably
-                // inside the current mutable context even though the fields being mutated are
-                // different.
-                let stake_txid = pog_input.stake_outpoint.txid;
-                let pog = if let Some(pog) = self.pog.get(&stake_txid) {
-                    debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
-                    pog.clone()
-                } else {
-                    debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
-                    let pog = self.cfg.build_graph(pog_input);
-                    self.pog.insert(stake_txid, pog.clone());
+                for claim_txid in graph_nonces.keys() {
+                    let graph_owner =
+                        claim_txid_to_operator_map
+                            .get(claim_txid)
+                            .ok_or(TransitionErr(format!(
+                                "claim txid ({claim_txid}) not found in claim txids map"
+                            )))?;
 
-                    pog
-                };
+                    let Some(pog_input) = peg_out_graph_inputs.get(graph_owner) else {
+                        return Err(TransitionErr(format!(
+                            "could not process graph nonces. claim_txid ({claim_txid}) not found in peg out graph map"
+                        )));
+                    };
+                    let nonce_per_operator = graph_nonces.get(claim_txid).unwrap().clone();
 
-                let pubnonces = self
-                    .cfg
-                    .operator_table
-                    .convert_map_op_to_btc(graph_nonces)
-                    .map_err(|e| {
-                        TransitionErr(format!(
-                            "could not convert nonce map keys: {e} not in operator table",
-                        ))
-                    })?;
+                    // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
+                    // `&mut self` and the borrow checker does not allow us to reborrow it mutably
+                    // inside the current mutable context even though the fields being mutated are
+                    // different.
+                    let stake_txid = pog_input.stake_outpoint.txid;
+                    let pog = if let Some(pog) = self.pog.get(&stake_txid) {
+                        debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
+                        pog.clone()
+                    } else {
+                        debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
+                        let pog = self.cfg.build_graph(pog_input);
+                        self.pog.insert(stake_txid, pog.clone());
 
-                Ok(Some(OperatorDuty::PublishGraphSignatures {
-                    claim_txid,
-                    pubnonces,
-                    pog_prevouts: pog.musig_inpoints(),
-                    pog_sighashes: pog.musig_sighashes(),
-                    partial_signatures: None,
-                }))
+                        pog
+                    };
+
+                    let pubnonces = self
+                        .cfg
+                        .operator_table
+                        .convert_map_op_to_btc(nonce_per_operator)
+                        .map_err(|e| {
+                            TransitionErr(format!(
+                                "could not convert nonce map keys: {e} not in operator table",
+                            ))
+                        })?;
+
+                    let pov_key = cfg.operator_table.pov_op_key();
+                    let existing_partials =
+                        graph_partials
+                            .get(claim_txid)
+                            .and_then(|partials_per_operator| {
+                                partials_per_operator.get(pov_key).cloned()
+                            });
+
+                    duties.push(OperatorDuty::PublishGraphSignatures {
+                        claim_txid: *claim_txid,
+                        pubnonces,
+                        pog_prevouts: pog.musig_inpoints(),
+                        pog_sighashes: pog.musig_sighashes(),
+                        partial_signatures: existing_partials,
+                    });
+                }
+
+                Ok(duties)
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_graph_nonces ({})",
