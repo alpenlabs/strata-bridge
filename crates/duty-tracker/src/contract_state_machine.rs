@@ -1888,7 +1888,7 @@ impl ContractSM {
                     .map(|(op, claim_txid)| (claim_txid, op))
                     .collect::<BTreeMap<_, _>>();
 
-                for claim_txid in graph_nonces.keys() {
+                for (claim_txid, nonce_per_operator) in graph_nonces {
                     let graph_owner =
                         claim_txid_to_operator_map
                             .get(claim_txid)
@@ -1901,11 +1901,6 @@ impl ContractSM {
                             "could not process graph nonces. claim_txid ({claim_txid}) not found in peg out graph map"
                         )));
                     };
-                    let nonce_per_operator = graph_nonces.get(claim_txid).ok_or(
-                        TransitionErr(format!(
-                            "could not process graph nonces. claim_txid ({claim_txid}) not found in nonce map",
-                        )),
-                    )?.clone();
 
                     // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
                     // `&mut self` and the borrow checker does not allow us to reborrow it mutably
@@ -1926,7 +1921,7 @@ impl ContractSM {
                     let pubnonces = self
                         .cfg
                         .operator_table
-                        .convert_map_op_to_btc(nonce_per_operator)
+                        .convert_map_op_to_btc(nonce_per_operator.clone())
                         .map_err(|e| {
                             TransitionErr(format!(
                                 "could not convert nonce map keys: {e} not in operator table",
