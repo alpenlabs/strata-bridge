@@ -3,6 +3,7 @@
 #![feature(coverage_attribute)]
 #![feature(closure_lifetime_binder)]
 
+pub mod bijection;
 pub mod category;
 pub mod monoid;
 pub mod predicate;
