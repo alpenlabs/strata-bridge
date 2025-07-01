@@ -2103,11 +2103,23 @@ impl ContractSM {
         &mut self,
         sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
     ) -> Result<Vec<OperatorDuty>, TransitionErr> {
+        let cfg = self.cfg().clone();
         match &mut self.state.state {
-            ContractState::Requested { graph_sigs, .. } => {
+            ContractState::Requested {
+                graph_sigs,
+                root_nonces,
+                ..
+            } => {
                 *graph_sigs = sigs;
 
-                Ok(vec![])
+                let witness = cfg.deposit_tx.witnesses()[0].clone();
+                let existing_nonce = root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
+
+                Ok(vec![OperatorDuty::PublishRootNonce {
+                    deposit_request_txid: self.deposit_request_txid(),
+                    witness,
+                    nonce: existing_nonce,
+                }])
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_aggregate_sigs ({:?})",
