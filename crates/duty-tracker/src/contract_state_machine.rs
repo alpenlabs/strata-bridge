@@ -1901,7 +1901,11 @@ impl ContractSM {
                             "could not process graph nonces. claim_txid ({claim_txid}) not found in peg out graph map"
                         )));
                     };
-                    let nonce_per_operator = graph_nonces.get(claim_txid).unwrap().clone();
+                    let nonce_per_operator = graph_nonces.get(claim_txid).ok_or(
+                        TransitionErr(format!(
+                            "could not process graph nonces. claim_txid ({claim_txid}) not found in nonce map",
+                        )),
+                    )?.clone();
 
                     // NOTE: (@Rajil1213) we cannot use `self.retrieve_graph` here because it needs
                     // `&mut self` and the borrow checker does not allow us to reborrow it mutably
