@@ -2,7 +2,7 @@ name: Update nightly Rust
 
 on:
   schedule:
-    - cron: "29 17 2 * *" # At 17:29 on day-of-month 2.
+    - cron: "29 17 1 * *" # At 17:29 on day-of-month 1.
   workflow_dispatch: # allows manual triggering
 
 env:
