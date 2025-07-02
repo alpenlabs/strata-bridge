@@ -9330,6 +9330,11 @@ version = "5.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "12369fb09785c94982bc24bf5097a466a15a6994421785f7f11650d060239a1b"
 dependencies = [
+ "ark-bn254",
+ "ark-ec",
+ "ark-ff 0.5.0",
+ "ark-groth16",
+ "ark-serialize 0.5.0",
  "blake3",
  "cfg-if 1.0.0",
  "hex",

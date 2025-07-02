@@ -9,8 +9,6 @@ use ark_groth16::VerifyingKey;
 use ark_serialize::CanonicalDeserialize;
 use tracing::info;
 
-use crate::sp1;
-
 /// Fetches the Groth16 verification key from the specified path if it exists and is valid.
 pub fn fetch_groth16_vk(path: impl AsRef<Path>) -> Option<VerifyingKey<Bn254>> {
     if path.as_ref().exists() {
@@ -72,8 +70,10 @@ pub static GROTH16_VERIFICATION_KEY: LazyLock<VerifyingKey<Bn254>> = LazyLock::n
     let compile_time_public_inputs = [Fr::from_be_bytes_mod_order(&sp1_vk)];
 
     // embed first public input to the groth16 vk
-    let mut vk =
-        sp1::load_groth16_verifying_key_from_bytes(sp1_verifier::GROTH16_VK_BYTES.as_ref());
+    let mut vk = sp1_verifier::load_ark_groth16_verifying_key_from_bytes(
+        sp1_verifier::GROTH16_VK_BYTES.as_ref(),
+    )
+    .expect("failed to load arkworks groth16 verifying key from bytes - sp1_verifier crate should contain valid vkey bytes");
     let mut vk_gamma_abc_g1_0 = vk.gamma_abc_g1[0] * Fr::ONE;
     for (i, public_input) in compile_time_public_inputs.iter().enumerate() {
         vk_gamma_abc_g1_0 += vk.gamma_abc_g1[i + 1] * public_input;

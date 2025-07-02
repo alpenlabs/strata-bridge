@@ -15,8 +15,6 @@ use zkaleido::{ZkVmProgram, ZkVmVerifier};
 use zkaleido_sp1_groth16_verifier::verify_groth16;
 use zkaleido_sp1_host::SP1Host;
 
-use crate::sp1;
-
 /// Proves a bridge proof using SP1.
 pub fn sp1_prove(
     input: &BridgeProofInput,
@@ -42,7 +40,7 @@ pub fn sp1_prove(
 
     // SP1 prepends the raw Groth16 proof with the first 4 bytes of the groth16 vkey
     // The use of correct vkey is checked in verify_groth16 function above
-    let proof = sp1::load_groth16_proof_from_bytes(&proof_receipt.proof().as_bytes()[4..]);
+    let proof = sp1_verifier::load_ark_proof_from_bytes(&proof_receipt.proof().as_bytes()[4..])?;
     let public_inputs = [Fr::from_be_bytes_mod_order(&hash_public_inputs_with_fn(
         proof_receipt.public_values().as_bytes(),
         blake3_hash,

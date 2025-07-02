@@ -16,7 +16,7 @@ ark-serialize.workspace = true
 bincode.workspace = true
 hex.workspace = true
 sp1-sdk.workspace = true
-sp1-verifier.workspace = true
+sp1-verifier = { workspace = true, features = ["ark"] }
 strata-bridge-guest-builder.workspace = true
 strata-bridge-proof-protocol.workspace = true
 tracing.workspace = true
