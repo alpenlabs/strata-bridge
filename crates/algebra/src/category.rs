@@ -7,45 +7,42 @@ pub fn comp_once<A, B, C>(f: impl FnOnce(A) -> B, g: impl FnOnce(B) -> C) -> imp
 }
 
 /// Performs left-to-right composition for closures that only implement [`FnMut`].
-pub fn comp_mut<'composed, A, B, C>(
-    mut f: impl FnMut(A) -> B + 'composed,
-    mut g: impl FnMut(B) -> C + 'composed,
-) -> impl FnMut(A) -> C + 'composed {
+pub fn comp_mut<'f, A, B, C>(
+    mut f: impl FnMut(A) -> B + 'f,
+    mut g: impl FnMut(B) -> C + 'f,
+) -> impl FnMut(A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for functions where there is a lifetime dependency in the
 /// first argument, and the second closure operates over the output reference of the first argument.
-pub fn comp_as_ref_mut<A, B: ?Sized, C>(
-    mut f: impl FnMut(&A) -> &B,
-    mut g: impl FnMut(&B) -> C,
-) -> impl for<'a> FnMut(&'a A) -> C {
+pub fn comp_as_ref_mut<'f, A, B: ?Sized, C>(
+    mut f: impl FnMut(&A) -> &B + 'f,
+    mut g: impl FnMut(&B) -> C + 'f,
+) -> impl for<'a> FnMut(&'a A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for any functions operating over owned values.
-pub fn comp<'composed, A, B, C>(
-    f: impl Fn(A) -> B + 'composed,
-    g: impl Fn(B) -> C + 'composed,
-) -> impl for<'a> Fn(A) -> C + 'composed {
+pub fn comp<'f, A, B, C>(f: impl Fn(A) -> B + 'f, g: impl Fn(B) -> C + 'f) -> impl Fn(A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for functions where there is a lifetime dependency in the
 /// first argument, and the second closure operates over the output reference of the first argument.
-pub fn comp_as_ref<A, B: ?Sized, C>(
-    f: impl Fn(&A) -> &B,
-    g: impl Fn(&B) -> C,
-) -> impl for<'a> Fn(&'a A) -> C {
+pub fn comp_as_ref<'f, A, B: ?Sized, C>(
+    f: impl Fn(&A) -> &B + 'f,
+    g: impl Fn(&B) -> C + 'f,
+) -> impl for<'a> Fn(&'a A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for closures that have lifetime dependencies in both
 /// arguments.
-pub fn comp_as_refs<A: ?Sized, B: ?Sized + 'static, C: ?Sized>(
-    f: impl Fn(&A) -> &B,
-    g: impl Fn(&B) -> &C,
-) -> impl for<'a> Fn(&'a A) -> &'a C {
+pub fn comp_as_refs<'f, A: ?Sized, B: ?Sized + 'static, C: ?Sized>(
+    f: impl Fn(&A) -> &B + 'f,
+    g: impl Fn(&B) -> &C + 'f,
+) -> impl for<'a> Fn(&'a A) -> &'a C + 'f {
     move |a| g(f(a))
 }
 
@@ -62,13 +59,13 @@ pub fn moved_once<A, B>(f: impl FnOnce(&A) -> B) -> impl FnOnce(A) -> B {
 
 /// Lifts an `FnMut` that takes a borrowed argument into one that consumes that argument. This is
 /// useful because there is no way to build a function of type `f : A -> &A`
-pub fn moved_mut<A, B>(mut f: impl FnMut(&A) -> B) -> impl FnMut(A) -> B {
+pub fn moved_mut<'f, A, B>(mut f: impl FnMut(&A) -> B + 'f) -> impl FnMut(A) -> B + 'f {
     move |a| f(&a)
 }
 
 /// Lifts an `Fn` that takes a borrowed argument into one that consumes that argument. This is
 /// useful because there is no way to build a function of type `f : A -> &A`
-pub fn moved<A, B>(f: impl Fn(&A) -> B) -> impl Fn(A) -> B {
+pub fn moved<'f, A, B>(f: impl Fn(&A) -> B + 'f) -> impl Fn(A) -> B + 'f {
     move |a| f(&a)
 }
 
