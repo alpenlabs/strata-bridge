@@ -1,0 +1,29 @@
+[package]
+name = "mock-checkpoint"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mock-checkpoint"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0"
+arbitrary.workspace = true
+bitcoin = "0.32"
+bitcoind-async-client.workspace = true
+borsh.workspace = true
+clap.workspace = true
+hex = "0.4"
+strata-btcio = { path = "../../../strata/crates/btcio" } # TODO: change this to github
+strata-primitives = { path = "../../../strata/crates/primitives" } # TODO: change this to github
+strata-state.workspace = true
+secp256k1.workspace = true
+tokio = { version = "1.0", features = ["full"] }
+
+# TODO: remove this after local testing
+[patch.'https://github.com/alpenlabs/alpen.git']
+strata-primitives = { path = "../../../strata/crates/primitives" }
+
+[lints]
+workspace = true
