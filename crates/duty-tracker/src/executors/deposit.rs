@@ -14,9 +14,16 @@ use bitcoin::{
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid, XOnlyPublicKey,
 };
 use btc_notify::client::TxStatus;
-use futures::FutureExt;
-use musig2::{AggNonce, PartialSignature, PubNonce};
-use secp256k1::Message;
+use futures::{
+    future::{join3, join_all},
+    FutureExt,
+};
+use musig2::{
+    secp::{MaybePoint, MaybeScalar},
+    AggNonce, KeyAggContext, LiftedSignature, PartialSignature, PubNonce,
+};
+use operator_wallet::FundingUtxo;
+use secp256k1::{schnorr, Message, Parity, PublicKey};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
@@ -426,7 +433,7 @@ pub(crate) async fn handle_publish_graph_sigs(
 pub struct GraphInputParams {
     pub(crate) inpoint: OutPoint,
     pub(crate) sighash_type: TapSighashType,
-    pub(crate) nonces: Vec<PubNonce>,
+    pub(crate) aggnonce: AggNonce,
     pub(crate) partials: Vec<PartialSignature>,
     pub(crate) witness: TaprootWitness,
     pub(crate) sighash: Message,
@@ -439,56 +446,58 @@ pub struct GraphInputParams {
 /// `ouroboros_event_sender` to the node itself so that the state can be updated with the aggregate
 /// signatures.
 pub(crate) async fn handle_commit_sig(
-    _deposit_txid: Txid,
-    _s2_client: &SecretServiceClient,
-    _musig_pubkeys: Vec<XOnlyPublicKey>,
-    _synthetic_event_sender: &mpsc::UnboundedSender<SyntheticEvent>,
-    _graph_params: BTreeMap<Txid, PogMusigF<GraphInputParams>>,
+    deposit_txid: Txid,
+    musig_pubkeys: Vec<XOnlyPublicKey>,
+    synthetic_event_sender: &mpsc::UnboundedSender<SyntheticEvent>,
+    graph_params: BTreeMap<Txid, PogMusigF<GraphInputParams>>,
 ) -> Result<(), ContractManagerErr> {
-    // let mut graph_sigs = BTreeMap::new();
+    for (claim_txid, graph) in graph_params {
+        let sighash_types = graph.as_ref().map(|params| params.sighash_type);
 
-    // let musig2_signer = s2_client.musig2_signer();
+        let sigs: PogMusigF<LiftedSignature> = graph.map(|params| {
+            let ctx = key_agg_ctx(
+                musig_pubkeys.iter().map(|pk| pk.public_key(Parity::Even)),
+                params.witness,
+            );
 
-    // for (claim_txid, graph) in graph_params {
-    //     let sighash_types = graph.as_ref().map(|params| params.sighash_type);
-    //
-    //     let agg_sigs_for_graph = PogMusigF::transpose_result(graph.map(|params| {
-    //         let musig2_params = Musig2Params {
-    //             ordered_pubkeys: musig_pubkeys.clone(),
-    //             witness: params.witness.clone(),
-    //             input: params.inpoint,
-    //         };
-    //         todo!()
-    //     }))?;
-    //
-    //     let agg_sigs_for_graph: PogMusigF<LiftedSignature> =
-    //         PogMusigF::transpose_result(agg_sigs_for_graph)?;
-    //
-    //     let agg_sigs_for_graph =
-    //         agg_sigs_for_graph
-    //             .zip(sighash_types)
-    //             .map(|(sig, sighash_type)| taproot::Signature {
-    //                 signature: schnorr::Signature::from_slice(&sig.serialize())
-    //                     .expect("lifted signature must be a valid schnorr signature"),
-    //                 sighash_type,
-    //             });
-    //
-    //     graph_sigs.insert(claim_txid, agg_sigs_for_graph);
-    // }
-    //
-    // synthetic_event_sender
-    //     .send(SyntheticEvent::AggregatedSigs {
-    //         deposit_txid,
-    //         agg_sigs: graph_sigs,
-    //     })
-    //     .map_err(|e| {
-    //         error!(%e, "could not send aggregate sigs event");
-    //
-    //         // usually means the receiver is dropped i.e., the event loop has crashed.
-    //         ContractManagerErr::FatalErr(
-    //             format!("could not send aggregate sigs event due to {e}").into(),
-    //         )
-    //     })?;
+            let adaptor_signature = musig2::adaptor::aggregate_partial_signatures(
+                &ctx,
+                &params.aggnonce,
+                MaybePoint::Infinity,
+                params.partials,
+                params.sighash.as_ref(),
+            )
+            .expect("good final sig");
+            let sig = adaptor_signature
+                .adapt(MaybeScalar::Zero)
+                .expect("finalizing with empty adaptor should never result in an adaptor failure");
+            sig
+        });
+
+        let agg_sigs_for_graph =
+            sigs.zip(sighash_types)
+                .map(|(sig, sighash_type)| taproot::Signature {
+                    signature: schnorr::Signature::from_slice(&sig.serialize())
+                        .expect("lifted signature must be a valid schnorr signature"),
+                    sighash_type,
+                });
+
+        graph_sigs.insert(claim_txid, agg_sigs_for_graph);
+    }
+
+    synthetic_event_sender
+        .send(SyntheticEvent::AggregatedSigs {
+            deposit_txid,
+            agg_sigs: graph_sigs,
+        })
+        .map_err(|e| {
+            error!(%e, "could not send aggregate sigs event");
+
+            // usually means the receiver is dropped i.e., the event loop has crashed.
+            ContractManagerErr::FatalErr(
+                format!("could not send aggregate sigs event due to {e}").into(),
+            )
+        })?;
 
     Ok(())
 }
@@ -599,67 +608,83 @@ pub(crate) async fn handle_publish_root_signature(
 /// Handles the duty to publish the deposit transaction to bitcoin by finalizing it with the
 /// aggregate of all the partial signatures.
 pub(crate) async fn handle_publish_deposit(
-    _s2_client: &SecretServiceClient,
-    _tx_driver: &TxDriver,
-    _deposit_tx: DepositTx,
-    _partials: Vec<PartialSignature>,
-    _musig_pubkeys: Vec<XOnlyPublicKey>,
-    _pubnonces: Vec<PubNonce>,
-    _sighash: Message,
+    tx_driver: &TxDriver,
+    deposit_tx: DepositTx,
+    partials: Vec<PartialSignature>,
+    musig_pubkeys: Vec<XOnlyPublicKey>,
+    aggnonce: AggNonce,
+    sighash: Message,
 ) -> Result<(), ContractManagerErr> {
-    // info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
-    //
-    // let prevout = deposit_tx
-    //     .psbt()
-    //     .unsigned_tx
-    //     .input
-    //     .first()
-    //     .unwrap()
-    //     .previous_output;
-    //
-    // let params = Musig2Params {
-    //     ordered_pubkeys: musig_pubkeys,
-    //     witness: deposit_tx.witnesses()[0].clone(),
-    //     input: prevout,
-    // };
-    //
-    // let sig = s2_client
-    //     .musig2_signer()
-    //     .create_signature(params, pubnonces, *sighash.as_ref(), partials)
-    //     .await?
-    //     .map_err(|e| match e.narrow::<RoundContributionError, _>() {
-    //         Ok(rce) => TransitionErr(format!("invalid partial: {rce:?}")),
-    //         Err(other) => panic!("fatal: {other:?}"),
-    //     })?;
-    //
-    // let schnorr_sig = schnorr::Signature::from_slice(&sig.serialize())
-    //     .expect("must be a valid schnorr signature");
-    // let taproot_sig = taproot::Signature {
-    //     signature: schnorr_sig,
-    //     sighash_type: TapSighashType::All,
-    // };
-    //
-    // let mut sighasher = SighashCache::new(deposit_tx.psbt().unsigned_tx.clone());
-    //
-    // let deposit_tx_witness = sighasher.witness_mut(0).expect("must have first input");
-    // deposit_tx_witness.push(taproot_sig.to_vec());
-    //
-    // if let TaprootWitness::Script {
-    //     script_buf,
-    //     control_block,
-    // } = &deposit_tx.witnesses()[0]
-    // {
-    //     deposit_tx_witness.push(script_buf.to_bytes());
-    //     deposit_tx_witness.push(control_block.serialize());
-    // }
-    //
-    // let tx = sighasher.into_transaction();
-    //
-    // info!(txid = %tx.compute_txid(), "broadcasting deposit tx");
-    // tx_driver
-    //     .drive(tx, TxStatus::is_buried)
-    //     .await
-    //     .expect("deposit tx should get confirmed");
+    info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
+
+    let ctx = key_agg_ctx(
+        musig_pubkeys.iter().map(|pk| pk.public_key(Parity::Even)),
+        deposit_tx.witnesses()[0].clone(),
+    );
+
+    let adaptor_signature = musig2::adaptor::aggregate_partial_signatures(
+        &ctx,
+        &aggnonce,
+        MaybePoint::Infinity,
+        partials,
+        sighash.as_ref(),
+    )
+    .expect("good final sig");
+
+    let sig: LiftedSignature = adaptor_signature
+        .adapt(MaybeScalar::Zero)
+        .expect("finalizing with empty adaptor should never result in an adaptor failure");
+
+    let schnorr_sig = schnorr::Signature::from_slice(&sig.serialize())
+        .expect("must be a valid schnorr signature");
+    let taproot_sig = taproot::Signature {
+        signature: schnorr_sig,
+        sighash_type: TapSighashType::All,
+    };
+
+    let mut sighasher = SighashCache::new(deposit_tx.psbt().unsigned_tx.clone());
+
+    let deposit_tx_witness = sighasher.witness_mut(0).expect("must have first input");
+    deposit_tx_witness.push(taproot_sig.to_vec());
+
+    if let TaprootWitness::Script {
+        script_buf,
+        control_block,
+    } = &deposit_tx.witnesses()[0]
+    {
+        deposit_tx_witness.push(script_buf.to_bytes());
+        deposit_tx_witness.push(control_block.serialize());
+    }
+
+    let tx = sighasher.into_transaction();
+
+    info!(txid = %tx.compute_txid(), "broadcasting deposit tx");
+    tx_driver
+        .drive(tx, TxStatus::is_buried)
+        .await
+        .expect("deposit tx should get confirmed");
 
     Ok(())
+}
+
+pub fn key_agg_ctx(
+    pubkeys: impl Iterator<Item = PublicKey>,
+    witness: TaprootWitness,
+) -> KeyAggContext {
+    let mut ctx = KeyAggContext::new(pubkeys).expect("valid ctx");
+
+    match witness {
+        TaprootWitness::Key => {
+            ctx = ctx
+                .with_unspendable_taproot_tweak()
+                .expect("must be able to tweak the key agg context")
+        }
+        TaprootWitness::Tweaked { tweak } => {
+            ctx = ctx
+                .with_taproot_tweak(tweak.as_ref())
+                .expect("must be able to tweak the key agg context")
+        }
+        _ => {}
+    }
+    ctx
 }
