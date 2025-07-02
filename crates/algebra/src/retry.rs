@@ -1,11 +1,18 @@
-//! Retry mechanism inspired by Haskell's [RetryPolicyM](https://hackage.haskell.org/package/retry-0.9.3.1/docs/UnliftIO-Retry.html) combinator.
-//!
 //! This module provides a generalized retry strategy system that allows configuring
 //! retry behavior through composable policies.
+//!
+//! The retry mechanism is inspired by Haskell's [`RetryPolicyM`](https://hackage.haskell.org/package/retry-0.9.3.1/docs/UnliftIO-Retry.html) combinator.
 
-use std::{future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{fmt, future::Future, pin::Pin, sync::Arc, time::Duration};
 
-/// Type alias for the error handler function to reduce type complexity.
+/// The error handle function that accepts an error and the current retry attempt number.
+///
+/// The retry attempt number is useful for implementing strategies that depend on the number of
+/// attempts such as an exponential backoff strategy.
+///
+/// # Returns
+///
+/// A [`RetryAction`] indicating whether to retry the action or stop.
 pub type ErrorHandler<E> = Arc<dyn Fn(&E, usize) -> RetryAction + Send + Sync>;
 
 /// Represents the action to take when an error occurs during retry attempts.
@@ -18,21 +25,21 @@ pub enum RetryAction {
     Stop,
 }
 
-/// A retry strategy that determines how to handle errors and when to retry.
+/// A retry [`Strategy`] that determines how to handle errors and when to retry.
 ///
-/// This is similar to Haskell's [RetryPolicyM](https://hackage.haskell.org/package/retry-0.9.3.1/docs/UnliftIO-Retry.html), providing a way to configure
+/// This is similar to Haskell's [`RetryPolicyM`](https://hackage.haskell.org/package/retry-0.9.3.1/docs/UnliftIO-Retry.html), providing a way to configure
 /// retry behavior through error classification and scheduling.
 #[derive(Clone)]
 pub struct Strategy<E> {
     /// Determines the action to take for a given error and retry attempt number.
     error_handler: ErrorHandler<E>,
 
-    /// Maximum number of retry attempts (None for unlimited).
+    /// Maximum number of retry attempts (`None` for unlimited).
     max_retries: Option<usize>,
 }
 
-impl<E> std::fmt::Debug for Strategy<E> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl<E> fmt::Debug for Strategy<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Strategy")
             .field("max_retries", &self.max_retries)
             .finish_non_exhaustive()
@@ -40,7 +47,7 @@ impl<E> std::fmt::Debug for Strategy<E> {
 }
 
 impl<E> Strategy<E> {
-    /// Creates a new retry strategy with the given error handler.
+    /// Creates a new retry [`Strategy`] with the given error handler.
     ///
     /// This will retry indefinitely unless a maximum number of retries is set later with
     /// [`Self::with_max_retries`].
@@ -60,7 +67,7 @@ impl<E> Strategy<E> {
         self
     }
 
-    /// Creates a strategy that retries with exponential backoff.
+    /// Creates a [`Strategy`] that retries with exponential backoff.
     pub fn exponential_backoff(
         initial_delay: Duration,
         max_delay: Duration,
@@ -76,7 +83,7 @@ impl<E> Strategy<E> {
         })
     }
 
-    /// Creates a strategy that retries with a fixed delay.
+    /// Creates a [`Strategy`] that retries with a fixed delay.
     pub fn fixed_delay(delay: Duration) -> Strategy<E>
     where
         E: Send + Sync + 'static,
@@ -84,7 +91,7 @@ impl<E> Strategy<E> {
         Strategy::new(move |_error, _attempt| RetryAction::Retry(delay))
     }
 
-    /// Creates a strategy that never retries.
+    /// Creates a [`Strategy`] that never retries.
     pub fn no_retry() -> Strategy<E>
     where
         E: Send + Sync + 'static,
@@ -92,9 +99,9 @@ impl<E> Strategy<E> {
         Strategy::new(|_error, _attempt| RetryAction::Stop)
     }
 
-    /// Combines this strategy with another using a logical OR.
+    /// Combines this [`Strategy`] with another using a logical OR.
     ///
-    /// If this strategy says to stop, the other strategy is consulted.
+    /// If this [`Strategy`] says to stop, the other strategy is consulted.
     pub fn or<F>(self, other_handler: F) -> Strategy<E>
     where
         F: Fn(&E, usize) -> RetryAction + Send + Sync + 'static,
@@ -111,10 +118,46 @@ impl<E> Strategy<E> {
     }
 }
 
-/// Retry function that applies a strategy to a future-generating function.
+/// Retry function that applies a [`Strategy`] to a future-generating function.
 ///
-/// This function takes a retry strategy and returns a function that can be applied
+/// This function takes a retry [`Strategy`] and returns a function that can be applied
 /// to a future generator to add retry behavior.
+///
+/// # Example
+///
+/// ```
+/// # use std::time::Duration;
+/// # use std::sync::atomic::{AtomicUsize, Ordering};
+/// # use std::sync::Arc;
+/// # #[derive(Debug, PartialEq)]
+/// # enum MyError { Retryable }
+/// # #[tokio::main]
+/// # async fn main() {
+/// use algebra::retry::{retry, Strategy};
+///
+/// let counter = Arc::new(AtomicUsize::new(0));
+/// let counter_clone = counter.clone();
+///
+/// let strategy = Strategy::fixed_delay(Duration::from_millis(1)).with_max_retries(2);
+///
+/// let retry_fn = retry(strategy);
+/// let result = retry_fn(move || {
+///     let counter = counter_clone.clone();
+///     async move {
+///         let count = counter.fetch_add(1, Ordering::SeqCst);
+///         if count < 2 {
+///             Err(MyError::Retryable)
+///         } else {
+///             Ok("Success!")
+///         }
+///     }
+/// })
+/// .await;
+///
+/// assert_eq!(result, Ok("Success!"));
+/// assert_eq!(counter.load(Ordering::SeqCst), 3);
+/// # }
+/// ```
 pub fn retry<A, E, Fut, Gen>(
     strategy: Strategy<E>,
 ) -> impl Fn(Gen) -> Pin<Box<dyn Future<Output = Result<A, E>> + Send>>
@@ -160,7 +203,42 @@ where
     }
 }
 
-/// A simplified retry function that takes the strategy and generator directly.
+/// A simplified retry function that takes the [`Strategy`] and generator directly.
+///
+/// # Example
+///
+/// ```
+/// # use std::time::Duration;
+/// # use std::sync::atomic::{AtomicUsize, Ordering};
+/// # use std::sync::Arc;
+/// # #[derive(Debug, PartialEq)]
+/// # enum MyError { Retryable }
+/// # #[tokio::main]
+/// # async fn main() {
+/// use algebra::retry::{retry_with, Strategy};
+///
+/// let counter = Arc::new(AtomicUsize::new(0));
+/// let counter_clone = counter.clone();
+///
+/// let strategy = Strategy::fixed_delay(Duration::from_millis(1)).with_max_retries(2);
+///
+/// let result = retry_with(strategy, move || {
+///     let counter = counter_clone.clone();
+///     async move {
+///         let count = counter.fetch_add(1, Ordering::SeqCst);
+///         if count < 2 {
+///             Err(MyError::Retryable)
+///         } else {
+///             Ok("Success!")
+///         }
+///     }
+/// })
+/// .await;
+///
+/// assert_eq!(result, Ok("Success!"));
+/// assert_eq!(counter.load(Ordering::SeqCst), 3);
+/// # }
+/// ```
 pub async fn retry_with<A, E, Fut, Gen>(strategy: Strategy<E>, mut generator: Gen) -> Result<A, E>
 where
     A: Send + 'static,
