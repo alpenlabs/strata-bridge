@@ -109,7 +109,7 @@ impl ConnectorStake {
     /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
     pub fn generate_script(&self) -> ScriptBuf {
-        let mut locking_script = ScriptBuf::builder()
+        let locking_script = ScriptBuf::builder()
             .push_slice(self.operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
@@ -121,13 +121,13 @@ impl ConnectorStake {
 
         // handle `0`-locktime differently as pushing `0` sequence means no element is pushed which
         // results in the stack being empty when it is executed when spending.
-        if self.delta != relative::LockTime::ZERO {
-            locking_script = locking_script
+        let locking_script = if self.delta != relative::LockTime::ZERO {
+            locking_script
                 .push_sequence(self.delta.into())
                 .push_opcode(OP_CSV)
         } else {
-            locking_script = locking_script.push_opcode(OP_TRUE);
-        }
+            locking_script.push_opcode(OP_TRUE)
+        };
 
         locking_script.into_script()
     }
