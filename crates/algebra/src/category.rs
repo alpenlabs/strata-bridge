@@ -69,6 +69,37 @@ pub fn moved<'f, A, B>(f: impl Fn(&A) -> B + 'f) -> impl Fn(A) -> B + 'f {
     move |a| f(&a)
 }
 
+/// Lifts an `Fn` that takes an owned argument into one that just borrows it, cloning the value
+/// internally before consuming it with the argument. This is the conceptual opposite of [`moved`].
+pub fn borrowed<'f, A: Clone + 'f, B>(f: impl Fn(A) -> B + 'f) -> impl Fn(&'f A) -> B + 'f {
+    comp(A::clone, f)
+}
+
+/// Takes two functions, one that borrows the argument and one that consumes the same type of
+/// argument and pairs the results.
+pub fn fork<'f, A, B, C>(
+    borrow: impl Fn(&A) -> B + 'f,
+    consume: impl Fn(A) -> C + 'f,
+) -> impl Fn(A) -> (B, C) + 'f {
+    move |a| (borrow(&a), consume(a))
+}
+
+/// Reverses the component order of a 2-tuple.
+pub fn swap<A, B>((a, b): (A, B)) -> (B, A) {
+    (b, a)
+}
+
+/// Transforms a function into one that pairs the argument with the return value.
+pub fn annotate<'f, A: 'f, B: 'f>(f: impl Fn(&A) -> B + 'f) -> impl Fn(A) -> (A, B) + 'f {
+    let m = fork(f, iden);
+    comp(m, swap)
+}
+
+/// Transforms a function into one that pairs the return value with the argument.
+pub fn index<'f, A: 'f, B: 'f>(f: impl Fn(&B) -> A + 'f) -> impl Fn(B) -> (A, B) + 'f {
+    fork(f, iden)
+}
+
 #[cfg(test)]
 mod category_tests {
     /// This is a compile time test that asserts that we can ergonomically and sensibly compose all
