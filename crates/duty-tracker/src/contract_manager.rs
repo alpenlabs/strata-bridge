@@ -1688,19 +1688,19 @@ async fn execute_duty(
         OperatorDuty::CommitSig {
             deposit_txid,
             graph_params,
-        } => handle_commit_sig(
-            deposit_txid,
-            &outs.s2_client,
-            cfg.operator_table
-                .btc_keys()
-                .into_iter()
-                .map(|pk| pk.x_only_public_key().0)
-                .collect(),
-            &outs.synthetic_event_sender,
-            graph_params,
-        )
-        .await
-        .inspect_err(log_error),
+        } => {
+            handle_commit_sig(
+                deposit_txid,
+                cfg.operator_table
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect(),
+                synthetic_event_sender,
+                graph_params,
+            )
+            .await
+        }
 
         OperatorDuty::PublishRootSignature {
             aggnonce,
@@ -1728,23 +1728,24 @@ async fn execute_duty(
         OperatorDuty::PublishDeposit {
             deposit_tx,
             partial_sigs,
-            pubnonces,
+            aggnonce,
             sighash,
-        } => handle_publish_deposit(
-            &outs.s2_client,
-            &outs.tx_driver,
-            deposit_tx,
-            partial_sigs,
-            cfg.operator_table
-                .btc_keys()
-                .into_iter()
-                .map(|pk| pk.x_only_public_key().0)
-                .collect(),
-            pubnonces,
-            sighash,
-        )
-        .await
-        .inspect_err(log_error),
+        } => {
+            handle_publish_deposit(
+                tx_driver,
+                deposit_tx,
+                partial_sigs,
+                cfg.operator_table
+                    .btc_keys()
+                    .into_iter()
+                    .map(|pk| pk.x_only_public_key().0)
+                    .collect(),
+                aggnonce,
+                sighash,
+            )
+            .await
+        }
+
         OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,
