@@ -9,9 +9,9 @@ use sqlx::{self};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use super::types::{
-    DbAggNonce, DbAmount, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig, DbPubNonce,
-    DbScriptBuf, DbSecNonce, DbSignature, DbTaprootWitness, DbTxid, DbWots256PublicKey,
-    DbWotsPublicKeys, DbWotsSignatures, DbXOnlyPublicKey,
+    DbAggNonce, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig, DbPubNonce, DbSignature,
+    DbTaprootWitness, DbTxid, DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures,
+    DbXOnlyPublicKey,
 };
 
 /// The model for WOTS public keys stored in the database.
@@ -197,22 +197,6 @@ pub(super) struct AggregatedNonces {
     pub(super) agg_nonce: DbAggNonce,
 }
 
-/// The model to map secnonces to operators and deposit.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub(super) struct Secnonces {
-    /// The hex-serialized txid.
-    #[expect(dead_code)]
-    pub(super) txid: DbTxid,
-
-    /// The index of the input in the bitcoin transaction.
-    #[expect(dead_code)]
-    pub(super) input_index: DbInputIndex,
-
-    /// The hex-serialized secnonce.
-    #[expect(dead_code)]
-    pub(super) secnonce: DbSecNonce,
-}
-
 /// The model to map witnesses to operators.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub(super) struct Witnesses {
@@ -230,67 +214,6 @@ pub(super) struct Witnesses {
 
     /// The hex-serialized witness.
     pub(super) witness: DbTaprootWitness,
-}
-
-/// The model for joint query of kickoff txid to FundingInfo.
-#[derive(Debug, Clone, sqlx::FromRow, PartialEq)]
-pub(super) struct CollectedSigsPerMsg {
-    /// The hash of the message stored as `BLOB`.
-    pub(super) msg_hash: Vec<u8>,
-
-    /// The ID of the operator stored as `INTEGER`.
-    pub(super) operator_idx: DbOperatorIdx,
-
-    /// The hex-serialized partial signature.
-    pub(super) partial_signature: DbPartialSig,
-}
-
-/// The model for joint query of kickoff txid to FundingInfo.
-#[derive(Debug, Clone, sqlx::FromRow)]
-#[expect(dead_code)]
-pub(super) struct JoinedKickoffInfo {
-    /// The hex-serialized kickoff txid.
-    #[expect(dead_code)]
-    pub(super) ki_txid: DbTxid,
-
-    /// The serialized change address in the kickoff transaction.
-    pub(super) ki_change_address: String,
-
-    /// The network of the change address in the kickoff transaction.
-    pub(super) ki_change_address_network: String,
-
-    /// The amount of the change as `INTEGER` in the kickoff transaction.
-    pub(super) ki_change_amount: DbAmount,
-
-    /// The hex-serialized txid of the input to the kickoff.
-    pub(super) fi_input_txid: DbTxid,
-
-    /// The index of the input to the kickoff as `INTEGER`.
-    pub(super) fi_vout: DbInputIndex,
-
-    /// The amount of the input to the kickoff as `INTEGER`.
-    pub(super) fu_value: DbAmount,
-
-    /// The serialized script pubkey of the input to the kickoff.
-    pub(super) fu_script_pubkey: DbScriptBuf,
-}
-
-/// The model for outpoints.
-#[derive(Debug, Clone, sqlx::FromRow)]
-#[expect(dead_code)]
-pub(super) struct DbOutPoint {
-    /// The hex-serialized txid.
-    pub(super) txid: DbTxid,
-
-    /// The index of the output in the bitcoin transaction.
-    pub(super) vout: DbInputIndex,
-}
-
-/// The model for checkpoint index.
-#[derive(Debug, Clone, sqlx::FromRow)]
-#[expect(dead_code)]
-pub(super) struct CheckPointIdx {
-    pub(super) value: u64,
 }
 
 /// The model to map partial signatures to operators.
