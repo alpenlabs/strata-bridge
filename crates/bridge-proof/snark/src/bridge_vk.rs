@@ -73,7 +73,7 @@ pub static GROTH16_VERIFICATION_KEY: LazyLock<VerifyingKey<Bn254>> = LazyLock::n
     let mut vk = sp1_verifier::load_ark_groth16_verifying_key_from_bytes(
         sp1_verifier::GROTH16_VK_BYTES.as_ref(),
     )
-    .unwrap();
+    .expect("failed to load arkworks groth16 verifying key from bytes - sp1_verifier crate should contain valid vkey bytes");
     let mut vk_gamma_abc_g1_0 = vk.gamma_abc_g1[0] * Fr::ONE;
     for (i, public_input) in compile_time_public_inputs.iter().enumerate() {
         vk_gamma_abc_g1_0 += vk.gamma_abc_g1[i + 1] * public_input;
