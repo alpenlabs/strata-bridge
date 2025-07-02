@@ -213,7 +213,7 @@ where
                 };
                 let res = service
                     .musig2_signer()
-                    .get_our_partial_sig(params, aggnonce, &message)
+                    .get_our_partial_sig(params, aggnonce, message)
                     .await
                     .map(|ps| ps.serialize());
                 ServerMessage::Musig2GetOurPartialSig(res)
@@ -260,7 +260,7 @@ where
                 };
                 let res = service
                     .musig2_signer()
-                    .create_signature(params, pubnonces, &message, partial_sigs)
+                    .create_signature(params, pubnonces, message, partial_sigs)
                     .await
                     .map(|sig| sig.serialize());
                 ServerMessage::Musig2CreateSignature(res)

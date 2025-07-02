@@ -12,7 +12,7 @@ use thiserror::Error;
 
 use crate::{
     contract_persister::ContractPersistErr, contract_state_machine::TransitionErr,
-    s2_session_manager::MusigSessionErr, tx_driver::DriveErr,
+    tx_driver::DriveErr,
 };
 
 /// Unified error type for everything that can happen in the ContractManager.
@@ -48,7 +48,7 @@ pub enum ContractManagerErr {
 
     /// Errors from failed secret service requests
     #[error("secret service request failed with {0:?}")]
-    SecretServiceErr(#[from] secret_service_proto::v1::traits::ClientError),
+    SecretServiceErr(#[from] secret_service_proto::v2::traits::ClientError),
 
     /// Errors from the bridge db
     #[error("database error: {0:?}")]
@@ -65,10 +65,6 @@ pub enum ContractManagerErr {
     /// Error from the tx driver while submitting/tracking transaction on chain.
     #[error("failed to submit or track transaction: {0:?}")]
     TxDriverErr(#[from] DriveErr),
-
-    /// Errors originating from Musig signing issues.
-    #[error("musig session manager error: {0}")]
-    MusigSessionErr(#[from] MusigSessionErr),
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.

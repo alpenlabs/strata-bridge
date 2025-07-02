@@ -12,7 +12,17 @@ use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
 
-use super::traits::{BadFinalSignature, Musig2Params, OurPubKeyIsNotInParams, SelfVerifyFailed, RoundContributionError};
+use super::traits::{
+    BadFinalSignature, Musig2Params, OurPubKeyIsNotInParams, RoundContributionError,
+    SelfVerifyFailed,
+};
+
+pub type Musig2CreateSignatureError = OneOf<(
+    OurPubKeyIsNotInParams,
+    SelfVerifyFailed,
+    RoundContributionError,
+    BadFinalSignature,
+)>;
 
 /// Various messages the server can send to the client.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -61,17 +71,7 @@ pub enum ServerMessage {
 
     /// Response for
     /// [`Musig2Signer::create_signature`](super::traits::Musig2Signer::create_signature).
-    Musig2CreateSignature(
-        Result<
-            [u8; 64],
-            OneOf<(
-                OurPubKeyIsNotInParams,
-                SelfVerifyFailed,
-                RoundContributionError,
-                BadFinalSignature,
-            )>,
-        >,
-    ),
+    Musig2CreateSignature(Result<[u8; 64], Musig2CreateSignatureError>),
 
     /// Response for
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).

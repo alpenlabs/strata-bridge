@@ -57,14 +57,14 @@ impl Musig2Signer<Client> for Musig2Client {
         &self,
         params: Musig2Params,
         aggnonce: AggNonce,
-        message: &[u8; 32],
+        message: [u8; 32],
     ) -> <Client as Origin>::Container<
         Result<PartialSignature, terrors::OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>,
     > {
         let msg = ClientMessage::Musig2GetOurPartialSig {
             params: params.into(),
             aggnonce: aggnonce.serialize(),
-            message: *message,
+            message,
         };
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         if let ServerMessage::Musig2GetOurPartialSig(res) = res {
@@ -81,7 +81,7 @@ impl Musig2Signer<Client> for Musig2Client {
         &self,
         params: Musig2Params,
         pubnonces: Vec<PubNonce>,
-        message: &[u8; 32],
+        message: [u8; 32],
         partial_sigs: Vec<PartialSignature>,
     ) -> <Client as Origin>::Container<
         Result<
@@ -97,7 +97,7 @@ impl Musig2Signer<Client> for Musig2Client {
         let msg = ClientMessage::Musig2CreateSignature {
             params: params.into(),
             pubnonces: pubnonces.into_iter().map(|pn| pn.serialize()).collect(),
-            message: *message,
+            message,
             partial_sigs: partial_sigs.into_iter().map(|ps| ps.serialize()).collect(),
         };
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;

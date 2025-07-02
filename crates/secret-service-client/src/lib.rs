@@ -153,7 +153,7 @@ impl SecretService<Client> for SecretServiceClient {
     }
 }
 
-/// Makes a v1 secret service request via QUIC.
+/// Makes a v2 secret service request via QUIC.
 pub async fn make_v2_req(
     conn: &Connection,
     msg: ClientMessage,
