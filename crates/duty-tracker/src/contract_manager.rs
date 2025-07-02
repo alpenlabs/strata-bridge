@@ -15,15 +15,19 @@ use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transa
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
 use futures::StreamExt;
+use musig2::AggNonce;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
-use strata_bridge_tx_graph::transactions::{
-    deposit::DepositTx,
-    prelude::{AssertDataTxInput, CovenantTx},
+use strata_bridge_tx_graph::{
+    pog_musig_functor::PogMusigF,
+    transactions::{
+        deposit::DepositTx,
+        prelude::{AssertDataTxInput, CovenantTx},
+    },
 };
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
@@ -48,7 +52,6 @@ use crate::{
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
     predicates::{deposit_request_info, parse_strata_checkpoint},
-    s2_session_manager::MusigSessionManager,
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
     tx_driver::TxDriver,
@@ -212,7 +215,7 @@ impl ContractManager {
                 msg_handler,
                 bitcoind_rpc_client: rpc_client.clone(),
                 synthetic_event_sender,
-                s2_session_manager: MusigSessionManager::new(cfg.operator_table.clone(), s2_client),
+                s2_client,
                 tx_driver,
                 db,
             });
@@ -467,10 +470,8 @@ pub(super) struct OutputHandles {
     /// [`UnboundedSender`] channel for [`SyntheticEvent`]s handle.
     pub(super) synthetic_event_sender: mpsc::UnboundedSender<SyntheticEvent>,
 
-    /// Secret service [`MusigSessionManager`] handle.
-    pub(super) s2_session_manager: MusigSessionManager,
+    pub(super) s2_client: SecretServiceClient,
 
-    /// [`TxDriver`] handle.
     pub(super) tx_driver: TxDriver,
 
     /// Database [`SqliteDb`] handle.
@@ -1262,7 +1263,7 @@ impl ContractManagerCtx {
                         .get(&graph_owner)
                         .expect("graph input must exist if claim_txid exists");
 
-                    let (pog_prevouts, pog_sighashes) = contract
+                    let (pog_prevouts, pog_sighashes, pog_witnesses) = contract
                         .get_pog_cache()
                         .await?
                         .get(&input.stake_outpoint.txid)
@@ -1270,21 +1271,70 @@ impl ContractManagerCtx {
                             (
                                 cached_graph.musig_inpoints(),
                                 cached_graph.musig_sighashes(),
+                                cached_graph.musig_witnesses(),
                             )
                         })
                         .unwrap_or_else(|| {
                             let pog = cfg.build_graph(input);
-                            (pog.musig_inpoints(), pog.musig_sighashes())
+                            (
+                                pog.musig_inpoints(),
+                                pog.musig_sighashes(),
+                                pog.musig_witnesses(),
+                            )
                         });
+
+                    let mut slash_stake_len = None;
+                    for graphs in graph_partials.values() {
+                        for graph in graphs.values() {
+                            match slash_stake_len {
+                                Some(val) => assert_eq!(val, graph.slash_stake.len()),
+                                None => slash_stake_len = Some(graph.slash_stake.len()),
+                            }
+                        }
+                    }
+
+                    let aggnonces = PogMusigF::<AggNonce> {
+                        challenge: AggNonce::sum(
+                            graph_nonces.values().map(|pog| pog.challenge.clone()),
+                        ),
+                        pre_assert: AggNonce::sum(
+                            graph_nonces.values().map(|pog| pog.pre_assert.clone()),
+                        ),
+                        post_assert: std::array::from_fn(|i| {
+                            AggNonce::sum(
+                                graph_nonces.values().map(|pog| pog.post_assert[i].clone()),
+                            )
+                        }),
+                        payout_optimistic: std::array::from_fn(|i| {
+                            AggNonce::sum(
+                                graph_nonces
+                                    .values()
+                                    .map(|pog| pog.payout_optimistic[i].clone()),
+                            )
+                        }),
+                        payout: std::array::from_fn(|i| {
+                            AggNonce::sum(graph_nonces.values().map(|pog| pog.payout[i].clone()))
+                        }),
+                        disprove: AggNonce::sum(
+                            graph_nonces.values().map(|pog| pog.disprove.clone()),
+                        ),
+                        slash_stake: (0..cfg.stake_chain_params.slash_stake_count)
+                            .map(|slash_stake_idx| {
+                                std::array::from_fn(|input_idx| {
+                                    AggNonce::sum(graph_nonces.values().map(|pog| {
+                                        pog.slash_stake[slash_stake_idx][input_idx].clone()
+                                    }))
+                                })
+                            })
+                            .collect(),
+                    };
 
                     return Ok(Some(OperatorDuty::PublishGraphSignatures {
                         claim_txid,
-                        pubnonces: cfg
-                            .operator_table
-                            .convert_map_op_to_btc(graph_nonces)
-                            .unwrap(),
+                        aggnonces,
                         pog_prevouts,
                         pog_sighashes,
+                        witnesses: pog_witnesses,
                         partial_signatures: existing_partials,
                     }));
                 }
@@ -1329,12 +1379,10 @@ impl ContractManagerCtx {
 
                 Some(OperatorDuty::PublishRootSignature {
                     deposit_request_txid: session_id_as_txid,
-                    nonces: cfg
-                        .operator_table
-                        .convert_map_op_to_btc(root_nonces.clone())
-                        .expect("received nonces from non-existent operator"),
+                    aggnonce: AggNonce::sum(root_nonces.values()),
                     sighash,
                     partial_signature: existing_partial,
+                    witness: cfg.deposit_tx.witnesses()[0].clone(),
                 })
             }
         })
@@ -1557,14 +1605,12 @@ async fn execute_duty(
         error!(%error, "failed to execute {duty_description}");
     };
     match duty {
-        OperatorDuty::PublishStakeChainExchange => handle_publish_stake_chain_exchange(
-            &cfg,
-            &outs.s2_session_manager.s2_client,
-            &outs.db,
-            &outs.msg_handler,
-        )
-        .await
-        .inspect_err(log_error),
+        OperatorDuty::PublishStakeChainExchange => {
+            handle_publish_stake_chain_exchange(&cfg, &outs.s2_client, &outs.db, &outs.msg_handler)
+                .await
+                .inspect_err(log_error)
+        }
+
         OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
@@ -1579,7 +1625,12 @@ async fn execute_duty(
             witness,
             nonce,
         } => handle_publish_root_nonce(
-            &outs.s2_session_manager,
+            &outs.s2_client,
+            cfg.operator_table
+                .btc_keys()
+                .into_iter()
+                .map(|pk| pk.x_only_public_key().0)
+                .collect(),
             &outs.msg_handler,
             OutPoint::new(deposit_request_txid, 0),
             witness,
@@ -1587,13 +1638,19 @@ async fn execute_duty(
         )
         .await
         .inspect_err(log_error),
+
         OperatorDuty::PublishGraphNonces {
             claim_txid,
             pog_prevouts: pog_inputs,
             pog_witnesses,
             nonces,
         } => handle_publish_graph_nonces(
-            &outs.s2_session_manager,
+            &outs.s2_client,
+            cfg.operator_table
+                .btc_keys()
+                .into_iter()
+                .map(|pk| pk.x_only_public_key().0)
+                .collect(),
             &outs.msg_handler,
             claim_txid,
             pog_inputs,
@@ -1602,75 +1659,92 @@ async fn execute_duty(
         )
         .await
         .inspect_err(log_error),
+
         OperatorDuty::PublishGraphSignatures {
             claim_txid,
-            pubnonces,
+            aggnonces,
             pog_prevouts: pog_outpoints,
             pog_sighashes,
+            witnesses,
             partial_signatures,
         } => handle_publish_graph_sigs(
-            &outs.s2_session_manager,
+            &outs.s2_client,
+            cfg.operator_table
+                .btc_keys()
+                .into_iter()
+                .map(|pk| pk.x_only_public_key().0)
+                .collect(),
             &outs.msg_handler,
             claim_txid,
-            pubnonces,
+            aggnonces,
             pog_outpoints,
             pog_sighashes,
+            witnesses,
             partial_signatures,
         )
         .await
         .inspect_err(log_error),
+
         OperatorDuty::CommitSig {
             deposit_txid,
-            graph_partials,
-            pog_inpoints,
-            pog_sighash_types,
+            graph_params,
         } => handle_commit_sig(
-            &cfg,
             deposit_txid,
-            &outs.s2_session_manager,
+            &outs.s2_client,
+            cfg.operator_table
+                .btc_keys()
+                .into_iter()
+                .map(|pk| pk.x_only_public_key().0)
+                .collect(),
             &outs.synthetic_event_sender,
-            pog_inpoints,
-            pog_sighash_types,
-            graph_partials,
+            graph_params,
         )
         .await
         .inspect_err(log_error),
+
         OperatorDuty::PublishRootSignature {
-            nonces,
+            aggnonce,
             deposit_request_txid,
             sighash,
+            witness,
             partial_signature,
         } => handle_publish_root_signature(
-            &cfg,
-            &outs.s2_session_manager,
+            &outs.s2_client,
+            cfg.operator_table
+                .btc_keys()
+                .into_iter()
+                .map(|pk| pk.x_only_public_key().0)
+                .collect(),
             &outs.msg_handler,
-            nonces,
+            aggnonce,
             OutPoint::new(deposit_request_txid, 0),
             sighash,
+            witness,
             partial_signature,
         )
         .await
         .inspect_err(log_error),
+
         OperatorDuty::PublishDeposit {
             deposit_tx,
             partial_sigs,
-        } => {
-            let partials = cfg
-                .operator_table
-                .convert_map_op_to_btc(partial_sigs)
-                .expect("convert partial sig map to btc key index");
-            tokio::spawn(async move {
-                handle_publish_deposit(
-                    &outs.s2_session_manager,
-                    &outs.tx_driver,
-                    deposit_tx,
-                    partials,
-                )
-                .await
-                .inspect_err(log_error)
-            });
-            Ok(())
-        }
+            pubnonces,
+            sighash,
+        } => handle_publish_deposit(
+            &outs.s2_client,
+            &outs.tx_driver,
+            deposit_tx,
+            partial_sigs,
+            cfg.operator_table
+                .btc_keys()
+                .into_iter()
+                .map(|pk| pk.x_only_public_key().0)
+                .collect(),
+            pubnonces,
+            sighash,
+        )
+        .await
+        .inspect_err(log_error),
         OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
             FulfillerDuty::AdvanceStakeChain {
                 stake_index,

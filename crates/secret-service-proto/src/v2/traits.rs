@@ -137,11 +137,11 @@ impl From<musig2::errors::RoundContributionError> for RoundContributionError {
     }
 }
 
-impl Into<musig2::errors::RoundContributionError> for RoundContributionError {
-    fn into(self) -> musig2::errors::RoundContributionError {
+impl From<RoundContributionError> for musig2::errors::RoundContributionError {
+    fn from(val: RoundContributionError) -> Self {
         musig2::errors::RoundContributionError {
-            index: self.index,
-            reason: self.reason.into(),
+            index: val.index,
+            reason: val.reason.into(),
         }
     }
 }
@@ -179,9 +179,9 @@ impl From<musig2::errors::ContributionFaultReason> for ContributionFaultReason {
     }
 }
 
-impl Into<musig2::errors::ContributionFaultReason> for ContributionFaultReason {
-    fn into(self) -> musig2::errors::ContributionFaultReason {
-        match self {
+impl From<ContributionFaultReason> for musig2::errors::ContributionFaultReason {
+    fn from(val: ContributionFaultReason) -> Self {
+        match val {
             ContributionFaultReason::OutOfRange(v) => {
                 musig2::errors::ContributionFaultReason::OutOfRange(v)
             }
@@ -194,6 +194,13 @@ impl Into<musig2::errors::ContributionFaultReason> for ContributionFaultReason {
         }
     }
 }
+
+type CreateSignatureError = OneOf<(
+    OurPubKeyIsNotInParams,
+    SelfVerifyFailed,
+    RoundContributionError,
+    BadFinalSignature,
+)>;
 
 /// The MuSig2 signer trait is used to bootstrap and initialize a MuSig2 session.
 ///
@@ -211,7 +218,7 @@ pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
         &self,
         params: Musig2Params,
         aggnonce: AggNonce,
-        message: &[u8; 32],
+        message: [u8; 32],
     ) -> impl Future<
         Output = O::Container<
             Result<PartialSignature, OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>,
@@ -228,21 +235,9 @@ pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
         &self,
         params: Musig2Params,
         pubnonces: Vec<PubNonce>,
-        message: &[u8; 32],
+        message: [u8; 32],
         partial_sigs: Vec<PartialSignature>,
-    ) -> impl Future<
-        Output = O::Container<
-            Result<
-                LiftedSignature,
-                OneOf<(
-                    OurPubKeyIsNotInParams,
-                    SelfVerifyFailed,
-                    RoundContributionError,
-                    BadFinalSignature,
-                )>,
-            >,
-        >,
-    > + Send;
+    ) -> impl Future<Output = O::Container<Result<LiftedSignature, CreateSignatureError>>> + Send;
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]

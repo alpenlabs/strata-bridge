@@ -279,9 +279,15 @@ async fn musig2() {
     let total_local_signers = local_first_rounds.len();
 
     let mut pubnonces = Vec::with_capacity(3);
+
+    #[allow(
+        clippy::uninit_vec,
+        reason = "each of 3 indices is manually set so none will be left uninitialized"
+    )]
     unsafe {
         pubnonces.set_len(3);
     }
+
     for (i, local_fr) in local_first_rounds.iter().enumerate() {
         let idx = ctx.pubkey_index(local_signers[i].public_key()).unwrap();
         pubnonces[idx] = local_fr.borrow().our_public_nonce();
@@ -296,7 +302,7 @@ async fn musig2() {
 
     // send this signer's public nonce to secret service
     let remote_partial_sig = ms2_signer
-        .get_our_partial_sig(params.clone(), aggnonce.clone(), &digest_to_sign)
+        .get_our_partial_sig(params.clone(), aggnonce.clone(), digest_to_sign)
         .await
         .expect("good response")
         .expect("partial sig");
@@ -342,9 +348,15 @@ async fn musig2() {
     println!("pubkeys: {:?}", ctx.pubkeys());
 
     let mut partial_sigs = Vec::with_capacity(3);
+
+    #[allow(
+        clippy::uninit_vec,
+        reason = "each of 3 indices is manually set so none will be left uninitialized"
+    )]
     unsafe {
         partial_sigs.set_len(3);
     }
+
     for (i, local_sr) in local_second_rounds.iter().enumerate() {
         let our_sig = local_sr.borrow().our_signature();
         partial_sigs[ctx
@@ -380,7 +392,7 @@ async fn musig2() {
     }
 
     let sig = ms2_signer
-        .create_signature(params, pubnonces, &digest_to_sign, partial_sigs)
+        .create_signature(params, pubnonces, digest_to_sign, partial_sigs)
         .await
         .expect("good response")
         .expect("good sig");

@@ -2,7 +2,7 @@
 
 use std::{
     collections::HashMap,
-    hash::{BuildHasher, Hash, Hasher, RandomState},
+    hash::{BuildHasher, RandomState},
     sync::LazyLock,
 };
 
@@ -80,9 +80,7 @@ where
         params: &Musig2Params,
         create: impl FnOnce(&Musig2Params) -> Result<SecNonce, OurPubKeyIsNotInParams>,
     ) -> Result<SecNonce, OurPubKeyIsNotInParams> {
-        let mut hasher = self.hash_builder.build_hasher();
-        params.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = self.hash_builder.hash_one(params);
         if let Some(nonce) = self.cache.get(&hash) {
             Ok(nonce.clone())
         } else {
@@ -194,7 +192,7 @@ impl Musig2Signer<Server> for Ms2Signer {
         &self,
         params: Musig2Params,
         aggnonce: AggNonce,
-        message: &[u8; 32],
+        message: [u8; 32],
     ) -> Result<PartialSignature, OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>> {
         let key_agg_ctx = Self::key_agg_ctx(&params);
         let secnonce = self
@@ -222,7 +220,7 @@ impl Musig2Signer<Server> for Ms2Signer {
         &self,
         params: Musig2Params,
         pubnonces: Vec<PubNonce>,
-        message: &[u8; 32],
+        message: [u8; 32],
         partial_sigs: Vec<PartialSignature>,
     ) -> Result<
         LiftedSignature,
@@ -247,12 +245,12 @@ impl Musig2Signer<Server> for Ms2Signer {
 
             musig2::adaptor::verify_partial(
                 &key_agg_ctx,
-                partial_sig.clone(),
+                *partial_sig,
                 &aggnonce,
                 MaybePoint::Infinity,
                 signer_pubkey,
                 &pubnonces[signer_index],
-                &message,
+                message,
             )
             .map_err(|_| {
                 OneOf::new(RoundContributionError {
@@ -267,7 +265,7 @@ impl Musig2Signer<Server> for Ms2Signer {
             &aggnonce,
             MaybePoint::Infinity,
             partial_sigs,
-            &message,
+            message,
         )
         .map_err(|_| OneOf::new(BadFinalSignature))?;
         let sig = adaptor_signature
