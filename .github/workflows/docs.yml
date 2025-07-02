@@ -48,6 +48,11 @@ jobs:
         with:
           cache-on-failure: true
 
+      - name: Install latest just release
+        uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.55.3
+        with:
+          tool: just
+
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
@@ -63,7 +68,7 @@ jobs:
         run: cargo install sqlx-cli --locked
 
       - name: Run db migrations
-        run: make migrate
+        run: just migrate
 
       - name: Check docs leaving the dependencies out
         run: cargo doc --workspace --no-deps

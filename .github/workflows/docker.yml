@@ -52,6 +52,11 @@ jobs:
         with:
           toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
+      - name: Install latest just release
+        uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.55.3
+        with:
+          tool: just
+
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
@@ -66,7 +71,7 @@ jobs:
         run: cargo install sqlx-cli --locked
 
       - name: Run db migrations
-        run: make migrate
+        run: just migrate
 
       - name: Cache Docker layers
         uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
