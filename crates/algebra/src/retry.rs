@@ -213,24 +213,27 @@ mod tests {
     async fn test_fixed_delay_strategy() {
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
+        const MAX_RETRIES: usize = 3;
 
         let strategy = Strategy::fixed_delay(Duration::from_millis(10)).with_max_retries(2);
+        let success_msg = "success";
 
         let result = retry_with(strategy, move || {
             let counter = counter_clone.clone();
             async move {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
-                if count < 2 {
+                if count < MAX_RETRIES - 1 {
+                    // fetch_add returns the previous value
                     Err(TestError::Retryable)
                 } else {
-                    Ok("success")
+                    Ok(success_msg)
                 }
             }
         })
         .await;
 
-        assert_eq!(result, Ok("success"));
-        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        assert_eq!(result, Ok(success_msg));
+        assert_eq!(counter.load(Ordering::SeqCst), MAX_RETRIES);
     }
 
     #[tokio::test]
@@ -291,21 +294,22 @@ mod tests {
             .with_max_retries(MAX_RETRIES);
 
         let start = std::time::Instant::now();
+        let success_msg = "success after retries";
         let result = retry_with(strategy, move || {
             let counter = counter_clone.clone();
             async move {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
-                if count < 2 {
+                if count < MAX_RETRIES {
                     Err(TestError::Retryable)
                 } else {
-                    Ok("success")
+                    Ok(success_msg)
                 }
             }
         })
         .await;
 
         let elapsed = start.elapsed();
-        assert_eq!(result, Ok("success"));
+        assert_eq!(result, Ok(success_msg));
         assert_eq!(counter.load(Ordering::SeqCst), MAX_RETRIES + 1); // Initial attempt + retries
 
         assert!(elapsed >= INITIAL_DELAY * MULTIPLIER); // Should have waited at least
@@ -317,7 +321,7 @@ mod tests {
     async fn test_retry_function_combinator() {
         let counter = Arc::new(AtomicUsize::new(0));
         let counter_clone = counter.clone();
-        const MAX_COUNTS: usize = 3;
+        const MAX_RETRIES: usize = 2;
 
         let strategy = Strategy::fixed_delay(Duration::from_millis(1)).with_max_retries(2);
 
@@ -329,8 +333,7 @@ mod tests {
             let counter = counter_clone.clone();
             async move {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
-                if count < MAX_COUNTS - 1 {
-                    // fetch_add returns the previous value
+                if count < MAX_RETRIES {
                     Err(TestError::Retryable)
                 } else {
                     Ok("success from retry combinator")
@@ -340,7 +343,7 @@ mod tests {
         .await;
 
         assert_eq!(result, Ok("success from retry combinator"));
-        assert_eq!(counter.load(Ordering::SeqCst), MAX_COUNTS);
+        assert_eq!(counter.load(Ordering::SeqCst), MAX_RETRIES + 1); // Initial attempt + retries
     }
 
     #[tokio::test]
@@ -348,7 +351,6 @@ mod tests {
         const MAX_RETRIES: usize = 3;
         const FIRST_STRATEGY_DELAY: Duration = Duration::from_millis(1);
         const SECOND_STRATEGY_BASE_DELAY: u64 = 2;
-        const SUCCESS_AFTER_ATTEMPTS: usize = 4;
         // Calculate expected delay: FIRST_STRATEGY_DELAY + 2^1 + 2^2 = 1ms + 2ms + 4ms = 7ms
         const MINIMUM_EXPECTED_DELAY: Duration = Duration::from_millis(
             FIRST_STRATEGY_DELAY.as_millis() as u64
@@ -386,7 +388,7 @@ mod tests {
             let counter = counter_clone.clone();
             async move {
                 let count = counter.fetch_add(1, Ordering::SeqCst);
-                if count < SUCCESS_AFTER_ATTEMPTS - 1 {
+                if count < MAX_RETRIES {
                     Err(TestError::Retryable)
                 } else {
                     Ok(success_msg)
@@ -397,7 +399,7 @@ mod tests {
 
         let elapsed = start.elapsed();
         assert_eq!(result, Ok(success_msg));
-        assert_eq!(counter.load(Ordering::SeqCst), SUCCESS_AFTER_ATTEMPTS);
+        assert_eq!(counter.load(Ordering::SeqCst), MAX_RETRIES + 1); // Initial attempt + retries
 
         // Should have waited the calculated minimum delay
         assert!(elapsed >= MINIMUM_EXPECTED_DELAY);
