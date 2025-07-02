@@ -133,14 +133,11 @@ pub(super) async fn sign_assertions(
         .collect::<Result<Vec<_>, _>>()?;
 
     if public_params_sigs.len() != NUM_PUBS {
-        return Err(ContractManagerErr::FatalErr(
-            format!(
-                "public params signatures must have the right size, expected: {}, got: {}",
-                NUM_PUBS,
-                public_params_sigs.len()
-            )
-            .into(),
-        ));
+        return Err(ContractManagerErr::FatalErr(format!(
+            "public params signatures must have the right size, expected: {}, got: {}",
+            NUM_PUBS,
+            public_params_sigs.len()
+        )));
     }
 
     let public_params_sigs = public_params_sigs
@@ -152,14 +149,11 @@ pub(super) async fn sign_assertions(
         .collect::<Result<Vec<_>, _>>()?;
 
     if field_elems_sigs.len() != NUM_U256 {
-        return Err(ContractManagerErr::FatalErr(
-            format!(
-                "field element signatures must have the right size, expected: {}, got: {}",
-                NUM_U256,
-                field_elems_sigs.len()
-            )
-            .into(),
-        ));
+        return Err(ContractManagerErr::FatalErr(format!(
+            "field element signatures must have the right size, expected: {}, got: {}",
+            NUM_U256,
+            field_elems_sigs.len()
+        )));
     }
 
     let field_elems_sigs = field_elems_sigs
@@ -169,14 +163,11 @@ pub(super) async fn sign_assertions(
     let hash_sigs = hash_sigs.into_iter().collect::<Result<Vec<_>, _>>()?;
 
     if hash_sigs.len() != NUM_HASH {
-        return Err(ContractManagerErr::FatalErr(
-            format!(
-                "hash signatures must have the right size, expected: {}, got: {}",
-                NUM_HASH,
-                hash_sigs.len()
-            )
-            .into(),
-        ));
+        return Err(ContractManagerErr::FatalErr(format!(
+            "hash signatures must have the right size, expected: {}, got: {}",
+            NUM_HASH,
+            hash_sigs.len()
+        )));
     }
 
     let hash_sigs = hash_sigs
