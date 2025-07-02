@@ -14,7 +14,7 @@ use bitcoin::{
 };
 use musig2::{
     secp256k1::{Message, SecretKey, SECP256K1},
-    AggNonce, FirstRound, KeyAggContext, PartialSignature, SecNonceSpices,
+    AggNonce, FirstRound, KeyAggContext, LiftedSignature, PartialSignature, SecNonceSpices,
 };
 use rand::{thread_rng, Rng};
 use secret_service_client::SecretServiceClient;
@@ -391,11 +391,13 @@ async fn musig2() {
         }
     }
 
-    let sig = ms2_signer
-        .create_signature(params, pubnonces, digest_to_sign, partial_sigs)
-        .await
-        .expect("good response")
-        .expect("good sig");
+    let sig: LiftedSignature = local_second_rounds
+        .into_iter()
+        .next()
+        .unwrap()
+        .into_inner()
+        .finalize()
+        .unwrap();
     assert!(agg_pubkey
         .verify(
             SECP256K1,

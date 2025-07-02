@@ -8,7 +8,7 @@
 use std::{io, marker::Sync, net::SocketAddr, sync::Arc};
 
 use bitcoin::{hashes::Hash, TapNodeHash, Txid};
-use musig2::{AggNonce, PartialSignature, PubNonce};
+use musig2::AggNonce;
 pub use quinn::rustls;
 use quinn::{
     crypto::rustls::{NoInitialCipherSuite, QuicServerConfig},
@@ -217,53 +217,6 @@ where
                     .await
                     .map(|ps| ps.serialize());
                 ServerMessage::Musig2GetOurPartialSig(res)
-            }
-
-            ClientMessage::Musig2CreateSignature {
-                params,
-                pubnonces,
-                message,
-                partial_sigs,
-            } => {
-                let params = match params.try_into() {
-                    Ok(params) => params,
-                    Err(e) => {
-                        return Ok(ServerMessage::InvalidClientMessage(format!(
-                            "invalid params: {e:?}"
-                        )));
-                    }
-                };
-                let pubnonces = match pubnonces
-                    .into_iter()
-                    .map(|bs| PubNonce::from_bytes(&bs))
-                    .collect::<Result<Vec<_>, _>>()
-                {
-                    Ok(pubnonces) => pubnonces,
-                    Err(e) => {
-                        return Ok(ServerMessage::InvalidClientMessage(format!(
-                            "invalid pubnonces: {e:?}"
-                        )));
-                    }
-                };
-
-                let partial_sigs = match partial_sigs
-                    .into_iter()
-                    .map(|bs| PartialSignature::from_slice(&bs))
-                    .collect::<Result<Vec<_>, _>>()
-                {
-                    Ok(partial_sigs) => partial_sigs,
-                    Err(e) => {
-                        return Ok(ServerMessage::InvalidClientMessage(format!(
-                            "invalid partial sigs: {e:?}"
-                        )));
-                    }
-                };
-                let res = service
-                    .musig2_signer()
-                    .create_signature(params, pubnonces, message, partial_sigs)
-                    .await
-                    .map(|sig| sig.serialize());
-                ServerMessage::Musig2CreateSignature(res)
             }
 
             ClientMessage::SchnorrSignerSign {

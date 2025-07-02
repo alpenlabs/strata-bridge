@@ -3,14 +3,12 @@
 use std::sync::Arc;
 
 use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
-use musig2::{
-    secp256k1::schnorr::Signature, AggNonce, LiftedSignature, PartialSignature, PubNonce,
-};
+use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce};
 use quinn::Connection;
 use secret_service_proto::v2::{
     traits::{
-        BadFinalSignature, Client, ClientError, Musig2Params, Musig2Signer, Origin,
-        OurPubKeyIsNotInParams, RoundContributionError, SchnorrSigner, SelfVerifyFailed,
+        Client, ClientError, Musig2Params, Musig2Signer, Origin, OurPubKeyIsNotInParams,
+        SchnorrSigner, SelfVerifyFailed,
     },
     wire::{ClientMessage, ServerMessage, SignerTarget},
 };
@@ -70,40 +68,6 @@ impl Musig2Signer<Client> for Musig2Client {
         if let ServerMessage::Musig2GetOurPartialSig(res) = res {
             Ok(match res {
                 Ok(bs) => Ok(PartialSignature::from_slice(&bs).map_err(|_| ClientError::BadData)?),
-                Err(e) => Err(e),
-            })
-        } else {
-            Err(ClientError::WrongMessage(res.into()))
-        }
-    }
-
-    async fn create_signature(
-        &self,
-        params: Musig2Params,
-        pubnonces: Vec<PubNonce>,
-        message: [u8; 32],
-        partial_sigs: Vec<PartialSignature>,
-    ) -> <Client as Origin>::Container<
-        Result<
-            LiftedSignature,
-            terrors::OneOf<(
-                OurPubKeyIsNotInParams,
-                SelfVerifyFailed,
-                RoundContributionError,
-                BadFinalSignature,
-            )>,
-        >,
-    > {
-        let msg = ClientMessage::Musig2CreateSignature {
-            params: params.into(),
-            pubnonces: pubnonces.into_iter().map(|pn| pn.serialize()).collect(),
-            message,
-            partial_sigs: partial_sigs.into_iter().map(|ps| ps.serialize()).collect(),
-        };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
-        if let ServerMessage::Musig2CreateSignature(res) = res {
-            Ok(match res {
-                Ok(bs) => Ok(LiftedSignature::from_bytes(&bs).map_err(|_| ClientError::BadData)?),
                 Err(e) => Err(e),
             })
         } else {
