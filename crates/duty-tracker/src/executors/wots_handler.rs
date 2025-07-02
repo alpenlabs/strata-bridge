@@ -134,8 +134,7 @@ pub(super) async fn sign_assertions(
 
     if public_params_sigs.len() != NUM_PUBS {
         return Err(ContractManagerErr::FatalErr(format!(
-            "public params signatures must have the right size, expected: {}, got: {}",
-            NUM_PUBS,
+            "public params signatures must have the right size, expected: {NUM_PUBS}, got: {}",
             public_params_sigs.len()
         )));
     }
@@ -150,8 +149,7 @@ pub(super) async fn sign_assertions(
 
     if field_elems_sigs.len() != NUM_U256 {
         return Err(ContractManagerErr::FatalErr(format!(
-            "field element signatures must have the right size, expected: {}, got: {}",
-            NUM_U256,
+            "field element signatures must have the right size, expected: {NUM_U256}, got: {}",
             field_elems_sigs.len()
         )));
     }
@@ -164,8 +162,7 @@ pub(super) async fn sign_assertions(
 
     if hash_sigs.len() != NUM_HASH {
         return Err(ContractManagerErr::FatalErr(format!(
-            "hash signatures must have the right size, expected: {}, got: {}",
-            NUM_HASH,
+            "hash signatures must have the right size, expected: {NUM_HASH}, got: {}",
             hash_sigs.len()
         )));
     }
