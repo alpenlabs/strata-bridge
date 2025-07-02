@@ -6,7 +6,7 @@ use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use musig2::{
     secp256k1::{schnorr::Signature, SecretKey},
-    AggNonce, LiftedSignature, PartialSignature, PubNonce,
+    AggNonce, PartialSignature, PubNonce,
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
@@ -195,13 +195,6 @@ impl From<ContributionFaultReason> for musig2::errors::ContributionFaultReason {
     }
 }
 
-type CreateSignatureError = OneOf<(
-    OurPubKeyIsNotInParams,
-    SelfVerifyFailed,
-    RoundContributionError,
-    BadFinalSignature,
-)>;
-
 /// The MuSig2 signer trait is used to bootstrap and initialize a MuSig2 session.
 ///
 /// # Warning
@@ -224,20 +217,6 @@ pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
             Result<PartialSignature, OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>,
         >,
     > + Send;
-
-    /// Attempts to create the final signature in a musig2 session from round 1's public nonces
-    /// and round 2's partial signatures, along with the secrets inside S2.
-    ///
-    /// Both `pubnonces` and `partial_sigs` MUST be ordered to match `params.ordered_pubkeys` and
-    /// contain our own pubnonce/partial signature from [`Self::get_pub_nonce`] and
-    /// [`Self::get_our_partial_sig`] respectively.
-    fn create_signature(
-        &self,
-        params: Musig2Params,
-        pubnonces: Vec<PubNonce>,
-        message: [u8; 32],
-        partial_sigs: Vec<PartialSignature>,
-    ) -> impl Future<Output = O::Container<Result<LiftedSignature, CreateSignatureError>>> + Send;
 }
 
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]

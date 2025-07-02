@@ -12,17 +12,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
 
-use super::traits::{
-    BadFinalSignature, Musig2Params, OurPubKeyIsNotInParams, RoundContributionError,
-    SelfVerifyFailed,
-};
-
-pub type Musig2CreateSignatureError = OneOf<(
-    OurPubKeyIsNotInParams,
-    SelfVerifyFailed,
-    RoundContributionError,
-    BadFinalSignature,
-)>;
+use super::traits::{Musig2Params, OurPubKeyIsNotInParams, SelfVerifyFailed};
 
 /// Various messages the server can send to the client.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
@@ -70,10 +60,7 @@ pub enum ServerMessage {
     Musig2GetOurPartialSig(Result<[u8; 32], OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>),
 
     /// Response for
-    /// [`Musig2Signer::create_signature`](super::traits::Musig2Signer::create_signature).
-    Musig2CreateSignature(Result<[u8; 64], Musig2CreateSignatureError>),
 
-    /// Response for
     /// [`WotsSigner::get_128_secret_key`](super::traits::WotsSigner::get_128_secret_key).
     WotsGet128SecretKey {
         /// A set of 20 byte keys, one for each bit that is committed to.
@@ -165,19 +152,6 @@ pub enum ClientMessage {
         aggnonce: [u8; 66],
         /// Message to be signed
         message: [u8; 32],
-    },
-
-    /// Request for
-    /// [`Musig2Signer::create_signature`](super::traits::Musig2Signer::create_signature).
-    Musig2CreateSignature {
-        /// Params for the musig2 session
-        params: SerializableMusig2Params,
-        /// Nonces from round 1
-        pubnonces: Vec<[u8; 66]>,
-        /// Message to be signed
-        message: [u8; 32],
-        /// Partial signatures from round 2
-        partial_sigs: Vec<[u8; 32]>,
     },
 
     /// Request for

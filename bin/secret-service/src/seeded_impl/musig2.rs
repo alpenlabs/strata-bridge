@@ -17,13 +17,13 @@ use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::{
     errors::SigningError,
-    secp::{MaybePoint, MaybeScalar, Point},
+    secp::{MaybePoint, Point},
     secp256k1::{schnorr::Signature, Message, SECP256K1},
-    AggNonce, KeyAggContext, LiftedSignature, PartialSignature, PubNonce, SecNonce, SecNonceSpices,
+    AggNonce, KeyAggContext, PartialSignature, PubNonce, SecNonce, SecNonceSpices,
 };
 use secret_service_proto::v2::traits::{
-    BadFinalSignature, ContributionFaultReason, Musig2Params, Musig2Signer, Origin,
-    OurPubKeyIsNotInParams, RoundContributionError, SchnorrSigner, SelfVerifyFailed, Server,
+    Musig2Params, Musig2Signer, Origin, OurPubKeyIsNotInParams, SchnorrSigner, SelfVerifyFailed,
+    Server,
 };
 use sha2::Sha256;
 use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
@@ -214,64 +214,6 @@ impl Musig2Signer<Server> for Ms2Signer {
             Err(SigningError::SelfVerifyFail) => return Err(OneOf::new(SelfVerifyFailed)),
         };
         Ok(partial_signature)
-    }
-
-    async fn create_signature(
-        &self,
-        params: Musig2Params,
-        pubnonces: Vec<PubNonce>,
-        message: [u8; 32],
-        partial_sigs: Vec<PartialSignature>,
-    ) -> Result<
-        LiftedSignature,
-        OneOf<(
-            OurPubKeyIsNotInParams,
-            SelfVerifyFailed,
-            RoundContributionError,
-            BadFinalSignature,
-        )>,
-    > {
-        let key_agg_ctx = Self::key_agg_ctx(&params);
-
-        let aggnonce = AggNonce::sum(&pubnonces);
-
-        for (signer_index, partial_sig) in partial_sigs.iter().enumerate() {
-            let signer_pubkey: Point = key_agg_ctx.get_pubkey(signer_index).ok_or_else(|| {
-                OneOf::new(RoundContributionError {
-                    index: signer_index,
-                    reason: ContributionFaultReason::OutOfRange(key_agg_ctx.pubkeys().len()),
-                })
-            })?;
-
-            musig2::adaptor::verify_partial(
-                &key_agg_ctx,
-                *partial_sig,
-                &aggnonce,
-                MaybePoint::Infinity,
-                signer_pubkey,
-                &pubnonces[signer_index],
-                message,
-            )
-            .map_err(|_| {
-                OneOf::new(RoundContributionError {
-                    index: signer_index,
-                    reason: ContributionFaultReason::InvalidSignature,
-                })
-            })?;
-        }
-
-        let adaptor_signature = musig2::adaptor::aggregate_partial_signatures(
-            &key_agg_ctx,
-            &aggnonce,
-            MaybePoint::Infinity,
-            partial_sigs,
-            message,
-        )
-        .map_err(|_| OneOf::new(BadFinalSignature))?;
-        let sig = adaptor_signature
-            .adapt(MaybeScalar::Zero)
-            .expect("finalizing with empty adaptor should never result in an adaptor failure");
-        Ok(sig)
     }
 }
 
