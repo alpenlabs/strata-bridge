@@ -12,36 +12,43 @@ pub const fn never<A>(_: &A) -> bool {
 }
 
 /// Predicate combinator for the ! operation.
+#[inline(always)]
 pub fn not<A>(f: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
     move |a| !f(a)
 }
 
 /// Predicate combinator for the && operation.
+#[inline(always)]
 pub fn and<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
     move |a| f(a) && g(a)
 }
 
 /// Predicate combinator for the || operation.
+#[inline(always)]
 pub fn or<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&A) -> bool {
     move |a| f(a) || g(a)
 }
 
 /// Predicate combinator for the xor operation.
+#[inline(always)]
 pub fn xor<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&A) -> bool {
     move |a| f(a) ^ g(a)
 }
 
 /// Predicate combinator for the nand operation.
+#[inline(always)]
 pub fn nand<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
     move |a| !(f(a) & g(a))
 }
 
 /// Predicate combinator for the nor operation.
+#[inline(always)]
 pub fn nor<A>(f: impl Fn(&A) -> bool, g: impl Fn(&A) -> bool) -> impl for<'a> Fn(&'a A) -> bool {
     move |a| !(f(a) | g(a))
 }
 
 /// Contravariant functor map over predicates.
+#[inline(always)]
 pub fn contramap<A, B>(
     f: impl Fn(&A) -> B,
     p: impl Fn(&B) -> bool,
@@ -50,41 +57,49 @@ pub fn contramap<A, B>(
 }
 
 /// Curried version of the [`PartialEq::eq`] function that can be used to construct a predicate.
+#[inline(always)]
 pub fn eq<A: Eq + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b == a.borrow()
 }
 
 /// Curried version of the [`PartialEq::ne`] function that can be used to construct a predicate.
+#[inline(always)]
 pub fn ne<A: Eq + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b != a.borrow()
 }
 
 /// Curried version of the [`PartialOrd::gt`] function that can be used to construct a predicate.
+#[inline(always)]
 pub fn gt<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b > a.borrow()
 }
 
 /// Curried version of the [`PartialOrd::ge`] function that can be used to construct a predicate.
+#[inline(always)]
 pub fn ge<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b >= a.borrow()
 }
 
 /// Curried version of the [`PartialOrd::lt`] function that can be used to construct a predicate.
+#[inline(always)]
 pub fn lt<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b < a.borrow()
 }
 
 /// Curried version of the [`PartialOrd::le`] function that can be used to construct a predicate.
+#[inline(always)]
 pub fn le<A: Ord + ?Sized, R: Borrow<A>>(a: R) -> impl for<'a> Fn(&'a A) -> bool {
     move |b| b <= a.borrow()
 }
 
 /// Eliminates values that don't pass the predicate.
+#[inline(always)]
 pub fn guard<A>(pred: impl Fn(&A) -> bool) -> impl Fn(A) -> Option<A> {
     move |a| pred(&a).then_some(a)
 }
 
 /// Eliminates values that don't pass the state-changing predicate.
+#[inline(always)]
 pub fn guard_mut<'pred, A>(
     mut pred: impl FnMut(&A) -> bool + 'pred,
 ) -> impl FnMut(A) -> Option<A> + 'pred {
