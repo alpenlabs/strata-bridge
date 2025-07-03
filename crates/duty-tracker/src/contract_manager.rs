@@ -278,7 +278,10 @@ impl ContractManager {
 
                             info!(%deposit_txid, "committing aggregate signatures");
                             match contract.process_contract_event(ContractEvent::AggregatedSigs { agg_sigs }) {
-                                Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => duties.extend(synthetic_event_duties),
+                                Ok(synthetic_event_duties) if !synthetic_event_duties.is_empty() => {
+                                    debug!(%deposit_txid, num_duties=%synthetic_event_duties.len(), "received duties from synthetic event");
+                                    duties.extend(synthetic_event_duties);
+                                },
                                 Ok(synthetic_event_duties) => { trace!(?synthetic_event_duties, "got no duties when processing contract event from synthetic event"); },
                                 Err(e) => {
                                     error!(%deposit_txid, %e, "failed to process ouroboros event");
