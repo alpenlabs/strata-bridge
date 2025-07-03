@@ -14,15 +14,11 @@ use bitcoin::{
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid, XOnlyPublicKey,
 };
 use btc_notify::client::TxStatus;
-use futures::{
-    future::{join3, join_all},
-    FutureExt,
-};
+use futures::FutureExt;
 use musig2::{
     secp::{MaybePoint, MaybeScalar},
     AggNonce, KeyAggContext, LiftedSignature, PartialSignature, PubNonce,
 };
-use operator_wallet::FundingUtxo;
 use secp256k1::{schnorr, Message, Parity, PublicKey};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
@@ -30,7 +26,10 @@ use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
-use strata_bridge_tx_graph::{pog_musig_functor::PogMusigF, transactions::deposit::DepositTx};
+use strata_bridge_tx_graph::{
+    pog_musig_functor::PogMusigF,
+    transactions::{deposit::DepositTx, prelude::CovenantTx},
+};
 use strata_p2p_types::{Scope, SessionId, StakeChainId};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
@@ -451,6 +450,8 @@ pub(crate) async fn handle_commit_sig(
     synthetic_event_sender: &mpsc::UnboundedSender<SyntheticEvent>,
     graph_params: BTreeMap<Txid, PogMusigF<GraphInputParams>>,
 ) -> Result<(), ContractManagerErr> {
+    let mut graph_sigs = BTreeMap::new();
+
     for (claim_txid, graph) in graph_params {
         let sighash_types = graph.as_ref().map(|params| params.sighash_type);
 
@@ -468,10 +469,10 @@ pub(crate) async fn handle_commit_sig(
                 params.sighash.as_ref(),
             )
             .expect("good final sig");
-            let sig = adaptor_signature
+
+            adaptor_signature
                 .adapt(MaybeScalar::Zero)
-                .expect("finalizing with empty adaptor should never result in an adaptor failure");
-            sig
+                .expect("finalizing with empty adaptor should never result in an adaptor failure")
         });
 
         let agg_sigs_for_graph =
@@ -667,7 +668,7 @@ pub(crate) async fn handle_publish_deposit(
     Ok(())
 }
 
-pub fn key_agg_ctx(
+pub(crate) fn key_agg_ctx(
     pubkeys: impl Iterator<Item = PublicKey>,
     witness: TaprootWitness,
 ) -> KeyAggContext {

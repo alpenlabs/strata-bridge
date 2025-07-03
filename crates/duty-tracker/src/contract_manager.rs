@@ -1696,7 +1696,7 @@ async fn execute_duty(
                     .into_iter()
                     .map(|pk| pk.x_only_public_key().0)
                     .collect(),
-                synthetic_event_sender,
+                &outs.synthetic_event_sender,
                 graph_params,
             )
             .await
@@ -1732,7 +1732,7 @@ async fn execute_duty(
             sighash,
         } => {
             handle_publish_deposit(
-                tx_driver,
+                &outs.tx_driver,
                 deposit_tx,
                 partial_sigs,
                 cfg.operator_table

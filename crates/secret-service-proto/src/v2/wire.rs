@@ -42,7 +42,7 @@ pub enum ServerMessage {
 
     /// Response for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
     SchnorrSignerPubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`](bitcoin::XOnlyPublicKey) for operator signatures.
+        /// Serialized Schnorr [`XOnlyPublicKey`] for operator signatures.
         pubkey: [u8; 32],
     },
 
