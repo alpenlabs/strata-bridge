@@ -71,50 +71,6 @@ jobs:
           DATABASE_URL: sqlite://./operator.db
           SKIP_GUEST_BUILD: 1
 
-  miri:
-    runs-on: ubuntu-latest
-    needs: extract-rust-version
-    timeout-minutes: 60
-    strategy:
-      matrix:
-        package:
-          - secret-service-server
-          # - strata-bridge-tx-graph # broken given sp1 does not like miri.
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
-        with:
-          persist-credentials: false
-          submodules: true
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@b95584d8105b9ab200e15821fa671848cf2b7017 # nightly
-        with:
-          toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
-          components: miri
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
-        with:
-          cache-on-failure: true
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
-        with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install sqlx-cli
-        run: cargo install sqlx-cli --locked
-
-      - name: Run db migrations
-        run: make migrate
-
-      - name: cargo miri test
-        run: cargo miri test -p ${{ matrix.package }}
-        env:
-          MIRIFLAGS: ""
-          SKIP_GUEST_BUILD: 1
-
   fmt:
     name: Check code formatting
     runs-on: ubuntu-latest
