@@ -5916,11 +5916,13 @@ dependencies = [
  "bitcoind-async-client",
  "borsh",
  "clap",
+ "corepc-node",
  "hex",
  "secp256k1",
  "strata-btcio",
+ "strata-l1tx 0.3.0-alpha.1",
  "strata-primitives 0.3.0-alpha.1",
- "strata-state 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git)",
+ "strata-state 0.3.0-alpha.1",
  "tokio",
 ]
 

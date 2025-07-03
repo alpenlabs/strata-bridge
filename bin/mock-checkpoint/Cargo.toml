@@ -14,16 +14,18 @@ bitcoin = "0.32"
 bitcoind-async-client.workspace = true
 borsh.workspace = true
 clap.workspace = true
+corepc-node.workspace = true
 hex = "0.4"
 strata-btcio = { path = "../../../strata/crates/btcio" } # TODO: change this to github
-strata-primitives = { path = "../../../strata/crates/primitives" } # TODO: change this to github
-strata-state.workspace = true
+# strata-primitives.workspace = true
+strata-primitives = { path = "../../../strata/crates/primitives" } # TODO: change this to workspace
+# strata-state.workspace = true
+strata-state = { path = "../../../strata/crates/state" } # TODO: change this to workspace
 secp256k1.workspace = true
 tokio = { version = "1.0", features = ["full"] }
 
-# TODO: remove this after local testing
-[patch.'https://github.com/alpenlabs/alpen.git']
-strata-primitives = { path = "../../../strata/crates/primitives" }
+[dev-dependencies]
+strata-l1tx = { path = "../../../strata/crates/l1tx" } # TODO: change this to workspace
 
 [lints]
 workspace = true

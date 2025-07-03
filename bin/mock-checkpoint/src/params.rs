@@ -1,17 +1,22 @@
+use std::sync::Arc;
+
 use secp256k1::{Secp256k1, SecretKey};
+use strata_btcio::writer::builder::EnvelopeParams;
 use strata_primitives::{
     block_credential::CredRule,
     buf::Buf32,
+    operator::OperatorPubkeys,
     params::{OperatorConfig, Params, ProofPublishMode, RollupParams, SyncParams},
     proof::RollupVerifyingKey,
 };
 
 use crate::Args;
 
-// TODO: initialize with operators
-pub(crate) fn create_params(args: &Args) -> Params {
+pub(crate) fn create_envelope_params(args: &Args) -> EnvelopeParams {
     let pubkey = derive_schnorr_pubkey(&args.sequencer_private_key);
-    Params {
+    // just use the same key for simplicity
+    let op_pubkey = OperatorPubkeys::new(pubkey, pubkey);
+    let rollup_params = Params {
         rollup: RollupParams {
             rollup_name: "strata".to_string(),
             block_time: 100,
@@ -20,7 +25,7 @@ pub(crate) fn create_params(args: &Args) -> Params {
             cred_rule: CredRule::SchnorrKey(pubkey),
             horizon_l1_height: 100,
             genesis_l1_height: 100,
-            operator_config: OperatorConfig::Static(Vec::new()),
+            operator_config: OperatorConfig::Static(vec![op_pubkey]),
             evm_genesis_block_hash: Buf32::zero(),
             evm_genesis_block_state_root: Buf32::zero(),
             l1_reorg_safe_depth: 4,
@@ -38,7 +43,13 @@ pub(crate) fn create_params(args: &Args) -> Params {
             client_checkpoint_interval: 200,
             l2_blocks_fetch_limit: 100,
         },
-    }
+    };
+    EnvelopeParams::new(
+        Arc::new(rollup_params),
+        args.sequencer_address.clone(),
+        args.network,
+        args.fee_rate,
+    )
 }
 
 fn derive_schnorr_pubkey(seckey: &Buf32) -> Buf32 {
