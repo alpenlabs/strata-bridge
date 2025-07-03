@@ -996,7 +996,11 @@ pub enum OperatorDuty {
 
         /// Partial signatures from peers.
         partial_sigs: Vec<PartialSignature>,
+
+        /// The aggregated nonce received from peers.
         aggnonce: AggNonce,
+
+        /// The sighash of the deposit transaction that needs to be signed.
         sighash: Message,
     },
 
@@ -2065,97 +2069,15 @@ impl ContractSM {
 
                 info!(%claim_txid, "received all partials for all graphs");
 
-                let (pog_inpoints, pog_sighash_types, pog_sighashes, pog_witnesses): (
-                    BTreeMap<Txid, PogMusigF<OutPoint>>,
-                    BTreeMap<Txid, PogMusigF<TapSighashType>>,
-                    BTreeMap<Txid, PogMusigF<Message>>,
-                    BTreeMap<Txid, PogMusigF<TaprootWitness>>,
-                ) = claim_txids
-                    .iter()
-                    .filter_map(|(signer, claim_txid)| {
-                        peg_out_graph_inputs
-                            .get(signer)
-                            .map(|pog_input| (claim_txid, pog_input))
-                    })
-                    .map(|(claim_txid, pog_input)| {
-                        let pog = pog_cache
-                            .get(&pog_input.stake_outpoint.txid)
-                            .cloned()
-                            .unwrap_or_else(|| cfg.build_graph(pog_input));
-
-                        (
-                            (*claim_txid, pog.musig_inpoints()),
-                            (*claim_txid, pog.musig_sighash_types()),
-                            (*claim_txid, pog.musig_sighashes()),
-                            (*claim_txid, pog.musig_witnesses()),
-                        )
-                    })
-                    .unzip();
-
                 // BtreeMap<Txid, PogMusigF<GraphInputParams>>
                 // Txid is the claim txid
-                let mut graph_params = BTreeMap::new();
-                let aggnonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
-                for (_, claim_txid) in claim_txids {
-                    let sighashtypes = pog_sighash_types
-                        .get(claim_txid)
-                        .expect("sighash types for claim should exist");
-                    let aggnonces = aggnonces
-                        .get(claim_txid)
-                        .expect("aggnonces for claim should exist");
-                    let sighashes = pog_sighashes
-                        .get(claim_txid)
-                        .expect("messages for claim should exist");
-                    let witnesses = pog_witnesses
-                        .get(claim_txid)
-                        .expect("witnesses for claim should exist");
-                    let partials = graph_partials
-                        .get(claim_txid)
-                        .expect("partials for whole graph should be available");
-
-                    let partials = cfg
-                        .operator_table
-                        .btc_keys()
-                        .into_iter()
-                        .map(|btc_key| {
-                            cfg.operator_table
-                                .btc_key_to_op_key(&btc_key)
-                                .expect("p2p key")
-                        })
-                        .map(|p2p_key| {
-                            partials
-                                .get(p2p_key)
-                                .expect("operator should have partials")
-                        })
-                        .collect::<Vec<_>>();
-
-                    // i have
-                    // op1, op2, op3 where each is a PogMusigF<PartialSig>
-                    // i want
-                    // PogMusigF<Vec<Partials>>
-
-                    let params = PogMusigF::<AggNonce>::unpack(aggnonces.clone())
-                        .expect("foo")
-                        .zip(*sighashtypes)
-                        .zip(*witnesses)
-                        .zip(*sighashes)
-                        .map(
-                            |(((aggnonce, sighash_type), witness), sighash)| GraphInputParams {
-                                sighash_type,
-                                aggnonce,
-                                partials: todo!(),
-                                witness,
-                                sighash,
-                            },
-                        );
-
-                    graph_params.insert(claim_txid, params);
-                }
-
-                Ok(Some(OperatorDuty::CommitSig {
-                    deposit_txid,
-                    graph_params,
-                }))
+                // let mut graph_params = BTreeMap::new();
+                let _aggnonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
+                // Ok(Some(OperatorDuty::CommitSig {
+                //     deposit_txid,
+                //     graph_params,
+                // }))
+                todo!()
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_graph_signatures ({})",
@@ -2319,7 +2241,7 @@ impl ContractSM {
                             partial_sigs: partials,
                             deposit_tx: self.cfg.deposit_tx.clone(),
                             aggnonce: AggNonce::sum(root_nonces.values()),
-                            sighash: self.cfg.deposit_tx.sighashes()[0].clone(),
+                            sighash: self.cfg.deposit_tx.sighashes()[0],
                         })
                     } else {
                         None
