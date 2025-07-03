@@ -1586,7 +1586,6 @@ async fn execute_duty(
         .inspect_err(log_error),
         OperatorDuty::PublishDeposit {
             deposit_tx,
-
             partial_sigs,
         } => {
             let partials = cfg
