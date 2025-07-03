@@ -920,12 +920,16 @@ impl ContractManagerCtx {
                     .iter_mut()
                     .find(|(_, contract)| contract.deposit_request_txid() == txid)
                 {
-                    if nonces.len() != 1 {
+                    let Some(nonce) = nonces.pop() else {
+                        return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
+                            UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces },
+                        )));
+                    };
+                    if !nonces.is_empty() {
                         return Err(ContractManagerErr::InvalidP2PMessage(Box::new(
                             UnsignedGossipsubMsg::Musig2NoncesExchange { session_id, nonces },
                         )));
                     }
-                    let nonce = nonces.pop().unwrap();
                     duties.extend(
                         contract.process_contract_event(ContractEvent::RootNonce(key, nonce))?,
                     );
