@@ -14,7 +14,7 @@ use bitcoind_async_client::{
     Client,
 };
 use clap::Parser;
-use strata_btcio::writer::builder::{create_envelope_transactions, EnvelopeParams};
+use strata_btcio::writer::builder::{create_envelope_transactions, EnvelopeConfig};
 use strata_primitives::{buf::Buf32, l1::payload::L1Payload};
 use strata_state::chain_state::Chainstate;
 
@@ -30,14 +30,14 @@ use crate::{
 async fn main() {
     let args = Args::parse();
 
-    let env_params = create_envelope_params(&args);
+    let env_config = create_envelope_params(&args);
 
     let chainstate = ChainstateWithEmptyDeposits::new();
     let new_chainstate = update_deposit_entries(chainstate, &args.deposit_entries);
 
     let bitcoin_client = create_bitcoin_client(&args);
     if let Err(e) = create_and_publish_checkpoint(
-        &env_params,
+        &env_config,
         &bitcoin_client,
         new_chainstate,
         &args.sequencer_private_key,
@@ -50,7 +50,7 @@ async fn main() {
 }
 
 async fn create_and_publish_checkpoint(
-    env_params: &EnvelopeParams,
+    env_config: &EnvelopeConfig,
     bitcoin_client: &Client,
     chainstate: Chainstate,
     seq_privkey: &Buf32,
@@ -64,7 +64,7 @@ async fn create_and_publish_checkpoint(
         .await
         .expect("Could not get wallet utxos");
 
-    let (commit_tx, reveal_tx) = create_envelope_transactions(env_params, &[l1p], utxos)?;
+    let (commit_tx, reveal_tx) = create_envelope_transactions(env_config, &[l1p], utxos)?;
     let commit_txid = commit_tx.compute_txid();
     let reveal_txid = reveal_tx.compute_txid();
 
@@ -87,8 +87,9 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::{Address, Amount, Network};
-    use bitcoind_async_client::traits::Reader;
+    use bitcoind_async_client::{traits::Reader, Client};
     use corepc_node::{serde_json::Value, Conf, Node};
+    use strata_btcio::writer::builder::EnvelopeConfig;
     use strata_l1tx::{envelope::parser::parse_envelope_payloads, TxFilterConfig};
     use strata_primitives::{
         batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint},
@@ -162,21 +163,21 @@ mod tests {
     }
 
     async fn create_and_publish_test_checkpoint(
-        env_params: &strata_btcio::writer::builder::EnvelopeParams,
-        bitcoin_client: &bitcoind_async_client::Client,
+        env_config: &EnvelopeConfig,
+        bitcoin_client: &Client,
         chainstate: Chainstate,
         seq_privkey: &Buf32,
-    ) -> (bitcoin::Txid, bitcoin::Txid) {
-        create_and_publish_checkpoint(env_params, bitcoin_client, chainstate, seq_privkey)
+    ) -> (Txid, Txid) {
+        create_and_publish_checkpoint(env_config, bitcoin_client, chainstate, seq_privkey)
             .await
             .inspect_err(|e| println!("Error creating/publishing checkpoint: {e}"))
             .unwrap()
     }
 
     async fn fetch_and_parse_reveal_tx(
-        bitcoin_client: &bitcoind_async_client::Client,
-        rtxid: &bitcoin::Txid,
-        env_params: &strata_btcio::writer::builder::EnvelopeParams,
+        bitcoin_client: &Client,
+        rtxid: &Txid,
+        env_config: &EnvelopeConfig,
     ) -> SignedCheckpoint {
         let tx = bitcoin_client
             .get_raw_transaction_verbosity_zero(rtxid)
@@ -191,7 +192,7 @@ mod tests {
             .script
             .to_bytes();
 
-        let filter_conf = TxFilterConfig::derive_from(env_params.params.rollup()).unwrap();
+        let filter_conf = TxFilterConfig::derive_from(env_config.params.rollup()).unwrap();
         let checkpoint_payload = parse_envelope_payloads(&scr.into(), &filter_conf)
             .unwrap()
             .into_iter()
@@ -203,10 +204,10 @@ mod tests {
 
     fn verify_checkpoint_and_chainstate(
         signed_checkpoint: &SignedCheckpoint,
-        env_params: &strata_btcio::writer::builder::EnvelopeParams,
+        env_config: &EnvelopeConfig,
         expected_chainstate: &Chainstate,
     ) {
-        let cred_rule = &env_params.params.rollup().cred_rule;
+        let cred_rule = &env_config.params.rollup().cred_rule;
         assert!(
             verify_signed_checkpoint_sig(signed_checkpoint, cred_rule),
             "Checkpoint verification failed"
@@ -228,7 +229,7 @@ mod tests {
         let seq_addr = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
 
         let args = create_test_args(&node);
-        let env_params = create_envelope_params(&args);
+        let env_config = create_envelope_params(&args);
         let bitcoin_client = create_bitcoin_client(&args);
 
         let chainstate = ChainstateWithEmptyDeposits::new();
@@ -236,7 +237,7 @@ mod tests {
         let chainstate = update_deposit_entries(chainstate, &dep_entries);
 
         let (_ctxid, rtxid) = create_and_publish_test_checkpoint(
-            &env_params,
+            &env_config,
             &bitcoin_client,
             chainstate.clone(),
             &args.sequencer_private_key,
@@ -248,7 +249,7 @@ mod tests {
             .unwrap();
 
         let signed_checkpoint =
-            fetch_and_parse_reveal_tx(&bitcoin_client, &rtxid, &env_params).await;
-        verify_checkpoint_and_chainstate(&signed_checkpoint, &env_params, &chainstate);
+            fetch_and_parse_reveal_tx(&bitcoin_client, &rtxid, &env_config).await;
+        verify_checkpoint_and_chainstate(&signed_checkpoint, &env_config, &chainstate);
     }
 }
