@@ -4,12 +4,12 @@ use std::sync::Arc;
 use bitcoin::{hashes::Hash, Txid};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use quinn::Connection;
-use secret_service_proto::v1::{
+use secret_service_proto::v2::{
     traits::{Client, ClientError, Origin, WotsSigner},
     wire::{ClientMessage, ServerMessage, WotsKeySpecifier},
 };
 
-use crate::{make_v1_req, Config};
+use crate::{make_v2_req, Config};
 
 /// Winternitz One-time Signature (WOTS) signer client.
 #[derive(Debug, Clone)]
@@ -42,7 +42,7 @@ impl WotsSigner<Client> for WotsClient {
                 index,
             },
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128SecretKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
@@ -62,7 +62,7 @@ impl WotsSigner<Client> for WotsClient {
                 index,
             },
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256SecretKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
@@ -82,7 +82,7 @@ impl WotsSigner<Client> for WotsClient {
                 index,
             },
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128PublicKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
@@ -102,7 +102,7 @@ impl WotsSigner<Client> for WotsClient {
                 index,
             },
         };
-        let res = make_v1_req(&self.conn, msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256PublicKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
@@ -124,7 +124,7 @@ impl WotsSigner<Client> for WotsClient {
             },
             msg: *msg,
         };
-        let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, wire_msg, self.config.timeout).await?;
         let ServerMessage::WotsGet128Signature { sig } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
@@ -146,7 +146,7 @@ impl WotsSigner<Client> for WotsClient {
             },
             msg: *msg,
         };
-        let res = make_v1_req(&self.conn, wire_msg, self.config.timeout).await?;
+        let res = make_v2_req(&self.conn, wire_msg, self.config.timeout).await?;
         let ServerMessage::WotsGet256Signature { sig } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };

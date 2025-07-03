@@ -2,7 +2,7 @@
 
 use bitcoin::bip32::Xpriv;
 use musig2::secp256k1::{SecretKey, SECP256K1};
-use secret_service_proto::v1::traits::{Origin, P2PSigner, Server};
+use secret_service_proto::v2::traits::{Origin, P2PSigner, Server};
 use strata_bridge_primitives::secp::EvenSecretKey;
 
 use super::paths::P2P_KEY_PATH;
