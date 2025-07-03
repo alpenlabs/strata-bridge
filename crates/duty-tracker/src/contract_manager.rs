@@ -247,13 +247,9 @@ impl ContractManager {
                             info!(%duty, "starting duty execution from lagging blocks");
                             let cfg = cfg.clone();
                             let output_handles = output_handles.clone();
-                            task::spawn(async move {
-                                if let Err(e) =
-                                    execute_duty(cfg, output_handles, duty.clone()).await
-                                {
-                                    error!(%e, %duty, "failed to execute duty");
-                                }
-                            });
+                            if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
+                                error!(%e, %duty, "failed to execute duty");
+                            }
                         }
                     }
                     Err(e) => {
@@ -392,17 +388,15 @@ impl ContractManager {
                     }
                 }
 
-                duties.into_iter().for_each(|duty| {
+                for duty in duties {
                     debug!(%duty, "starting duty execution from new events");
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
-                    task::spawn(async move {
-                        if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
-                            error!(%e, %duty, "failed to execute duty");
-                        }
-                    });
-                });
+                    if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
+                        error!(%e, %duty, "failed to execute duty");
+                    }
+                }
             }
 
             unreachable!("event loop must never end");
