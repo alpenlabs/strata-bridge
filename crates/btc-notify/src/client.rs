@@ -5,6 +5,7 @@
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
 use std::{collections::VecDeque, error::Error, sync::Arc, time::Duration};
 
+use algebra::{category, predicate};
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
 use futures::StreamExt;
@@ -45,7 +46,7 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 #[derive(Debug, Clone)]
 pub struct BtcZmqClient {
     bury_depth: usize,
-    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
+    block_subs: Arc<Mutex<Vec<(mpsc::UnboundedSender<BlockEvent>, u64)>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
     thread_handle: Arc<JoinHandle<()>>,
@@ -101,7 +102,9 @@ impl BtcZmqClient {
         };
 
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth, unburied_blocks)));
-        let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<BlockEvent>>::new()));
+        let block_subs = Arc::new(Mutex::new(
+            Vec::<(mpsc::UnboundedSender<BlockEvent>, u64)>::new(),
+        ));
         let block_subs_thread = block_subs.clone();
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
         let tx_subs_thread = tx_subs.clone();
@@ -132,11 +135,19 @@ impl BtcZmqClient {
                                     // if the receiver has been dropped, we remove it from the
                                     // subscription list.
                                     block_subs_thread.lock().await.retain(|sub| {
-                                        sub.send(BlockEvent {
-                                            block: block.clone(),
-                                            status: BlockStatus::Mined,
-                                        })
-                                        .is_ok()
+                                        if block
+                                            .bip34_block_height()
+                                            .is_ok_and(category::moved(predicate::ge(sub.1)))
+                                        {
+                                            sub.0
+                                                .send(BlockEvent {
+                                                    block: block.clone(),
+                                                    status: BlockStatus::Mined,
+                                                })
+                                                .is_ok()
+                                        } else {
+                                            true
+                                        }
                                     });
 
                                     // Now we process the block to understand what the relevant
@@ -149,10 +160,17 @@ impl BtcZmqClient {
                                     let (tx_events, block_event) = sm.process_block(block);
 
                                     if let Some(block_event) = block_event {
-                                        block_subs_thread
-                                            .lock()
-                                            .await
-                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                        block_subs_thread.lock().await.retain(|sub| {
+                                            if block_event
+                                                .block
+                                                .bip34_block_height()
+                                                .is_ok_and(category::moved(predicate::ge(sub.1)))
+                                            {
+                                                sub.0.send(block_event.clone()).is_ok()
+                                            } else {
+                                                true
+                                            }
+                                        })
                                     }
                                     tx_events
                                 }
@@ -167,10 +185,17 @@ impl BtcZmqClient {
                                     let (tx_events, block_event) = sm.process_sequence(seq);
 
                                     if let Some(block_event) = block_event {
-                                        block_subs_thread
-                                            .lock()
-                                            .await
-                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                        block_subs_thread.lock().await.retain(|sub| {
+                                            if block_event
+                                                .block
+                                                .bip34_block_height()
+                                                .is_ok_and(category::moved(predicate::ge(sub.1)))
+                                            {
+                                                sub.0.send(block_event.clone()).is_ok()
+                                            } else {
+                                                true
+                                            }
+                                        });
                                     }
 
                                     tx_events
@@ -252,12 +277,12 @@ impl BtcZmqClient {
 
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is
     /// connected to the main Bitcoin blockchain.
-    pub async fn subscribe_blocks(&self) -> Subscription<BlockEvent> {
+    pub async fn subscribe_blocks(&self, first: u64) -> Subscription<BlockEvent> {
         let (send, recv) = mpsc::unbounded_channel();
 
         trace!("subscribing to blocks");
 
-        self.block_subs.lock().await.push(send);
+        self.block_subs.lock().await.push((send, first));
 
         Subscription::from_receiver(recv)
     }
@@ -291,7 +316,7 @@ mod e2e_tests {
     use tokio::time::timeout;
 
     use super::*;
-    use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
+    use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus, state_machine::BIP34_MIN_HEIGHT};
 
     async fn setup_node() -> Result<(BtcZmqConfig, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
@@ -320,8 +345,10 @@ mod e2e_tests {
         // height since old blocks are still buffered in the zmq socket. It appears to update its
         // internal cursor at block heights 1, 6, 11, 16, and 21. 21 Is the first one that actually
         // works due to BIP34 requirements.
-        bitcoind.client.generate_to_address(21, &address)?;
-        wait_for_height(&bitcoind, 21).await?;
+        bitcoind
+            .client
+            .generate_to_address(BIP34_MIN_HEIGHT as usize, &address)?;
+        wait_for_height(&bitcoind, BIP34_MIN_HEIGHT as usize).await?;
 
         let cfg = BtcZmqConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
@@ -364,7 +391,7 @@ mod e2e_tests {
         let (client, bitcoind) = setup_client().await?;
 
         // Subscribe to new blocks
-        let mut block_sub = client.subscribe_blocks().await;
+        let mut block_sub = client.subscribe_blocks(BIP34_MIN_HEIGHT).await;
 
         // Mine a new block
         let newly_mined = bitcoind
@@ -401,8 +428,8 @@ mod e2e_tests {
         let (client_1, client_2, bitcoind) = setup_two_clients().await?;
         info!("subscribing to blocks");
 
-        let mut block_sub_1 = client_1.subscribe_blocks().await;
-        let mut block_sub_2 = client_2.subscribe_blocks().await;
+        let mut block_sub_1 = client_1.subscribe_blocks(BIP34_MIN_HEIGHT).await;
+        let mut block_sub_2 = client_2.subscribe_blocks(BIP34_MIN_HEIGHT).await;
 
         info!("mining block");
         let newly_mined = bitcoind
@@ -868,7 +895,7 @@ mod e2e_tests {
         let new_address = bitcoind.client.new_address()?;
 
         // Create new block subscription.
-        let mut block_sub = client.subscribe_blocks().await;
+        let mut block_sub = client.subscribe_blocks(BIP34_MIN_HEIGHT).await;
 
         // Assert that we have an active block subscription.
         assert_eq!(client.num_block_subscriptions().await, 1);

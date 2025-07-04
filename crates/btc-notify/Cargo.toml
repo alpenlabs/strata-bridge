@@ -7,6 +7,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+algebra.workspace = true
 bitcoin.workspace = true
 bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
 futures.workspace = true

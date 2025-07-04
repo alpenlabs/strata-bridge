@@ -2209,6 +2209,7 @@ dependencies = [
 name = "btc-notify"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "bitcoin",
  "bitcoincore-zmq",
  "corepc-node",
