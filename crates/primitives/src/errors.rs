@@ -5,6 +5,7 @@ use bitcoin::{
     taproot::{TaprootBuilder, TaprootBuilderError},
     AddressType,
 };
+use musig2::errors::{KeyAggError, TweakError};
 use thiserror::Error;
 
 use crate::types::OperatorIdx;
@@ -122,3 +123,16 @@ pub enum ParseError {
 
 /// Result type alias that has [`ParseError`] as the error type for succinctness.
 pub type ParseResult<T> = Result<T, ParseError>;
+
+/// Errors that can occur while creating or tweaking the key aggregation context in
+/// [`Musig2`](musig2).
+#[derive(Debug, Clone, Error)]
+pub enum AggError {
+    /// Error while building the key aggregation context.
+    #[error("could not build key aggregation context: {0}")]
+    BuildError(#[from] KeyAggError),
+
+    /// Error while tweaking the kay aggregation context.
+    #[error("could not tweak key aggregation context: {0}")]
+    TweakError(#[from] TweakError),
+}

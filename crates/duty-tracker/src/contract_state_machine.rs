@@ -2213,6 +2213,9 @@ impl ContractSM {
                     return Ok(None);
                 }
 
+                let witness = &self.cfg.deposit_tx.witnesses()[0];
+                let key_agg_ctx = create_agg_ctx(self.cfg.operator_table.btc_keys(), witness)
+                    .expect("must be able to create context");
                 root_partials.insert(signer, sig);
 
                 Ok(
