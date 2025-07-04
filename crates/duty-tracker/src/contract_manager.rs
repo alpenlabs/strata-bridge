@@ -153,7 +153,7 @@ impl ContractManager {
                     return;
                 }
             };
-            let mut block_sub = zmq_client.subscribe_blocks().await;
+            let mut block_sub = zmq_client.subscribe_blocks(current + 1).await;
 
             // It's extremely unlikely that these will ever differ at all but it's possible for
             // them to differ by at most 1 in the scenario where we crash mid-batch when committing
