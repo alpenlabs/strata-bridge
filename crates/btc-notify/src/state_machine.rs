@@ -694,7 +694,7 @@ mod prop_tests {
     // Generates a random predicate that will shrink towards including all transactions.
     prop_compose! {
         fn arb_predicate()(modsize in 1..255u8) -> DebuggablePredicate {
-            let pred = move |tx: &Transaction| tx.compute_txid().to_raw_hash().to_byte_array()[31] % modsize == 0;
+            let pred = move |tx: &Transaction| tx.compute_txid().to_raw_hash().to_byte_array()[31].is_multiple_of(modsize);
             DebuggablePredicate {
                 pred: std::sync::Arc::new(pred),
                 description: format!("txid mod {modsize} == 0"),
