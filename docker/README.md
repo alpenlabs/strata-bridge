@@ -14,6 +14,7 @@ Layout:
 
 - x86 ubuntu 24.04 image based on succinct's SP1 image
 - SP1 toolchain installed
+- `just` installed
 - Bridge toolchain installed
 - External dependencies compiled
 - Internal dependencies (`crates` dir) compiled
