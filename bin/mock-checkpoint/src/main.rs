@@ -23,14 +23,14 @@ use crate::{
     bitcoin::{create_bitcoin_client, publish_txs},
     chainstate::{update_deposit_entries, ChainstateWithEmptyDeposits},
     checkpoint::{create_checkpoint, sign_checkpoint},
-    params::create_envelope_params,
+    params::create_envelope_config,
 };
 
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
 
-    let env_config = create_envelope_params(&args);
+    let env_config = create_envelope_config(&args);
 
     let chainstate = ChainstateWithEmptyDeposits::new();
     let new_chainstate = update_deposit_entries(chainstate, &args.deposit_entries);
@@ -86,7 +86,7 @@ async fn create_and_publish_checkpoint(
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::{Address, Amount, Network};
+    use bitcoin::{Address, Amount, Network, Txid};
     use bitcoind_async_client::{traits::Reader, Client};
     use corepc_node::{serde_json::Value, Conf, Node};
     use strata_btcio::writer::builder::EnvelopeConfig;
@@ -99,7 +99,7 @@ mod tests {
     use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
 
     use crate::{
-        create_and_publish_checkpoint, create_bitcoin_client, create_envelope_params,
+        create_and_publish_checkpoint, create_bitcoin_client, create_envelope_config,
         update_deposit_entries, Args, ChainstateWithEmptyDeposits,
     };
 
@@ -197,7 +197,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .find(|p| *p.payload_type() == L1PayloadType::Checkpoint)
-            .expect("Did not find checpoint in payload");
+            .expect("Did not find checkpoint in envelopes");
 
         borsh::from_slice::<SignedCheckpoint>(checkpoint_payload.data()).unwrap()
     }
@@ -229,7 +229,7 @@ mod tests {
         let seq_addr = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
 
         let args = create_test_args(&node);
-        let env_config = create_envelope_params(&args);
+        let env_config = create_envelope_config(&args);
         let bitcoin_client = create_bitcoin_client(&args);
 
         let chainstate = ChainstateWithEmptyDeposits::new();

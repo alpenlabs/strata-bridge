@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use secp256k1::{Secp256k1, SecretKey};
-use strata_btcio::writer::builder::EnvelopeParams;
+use strata_btcio::writer::builder::EnvelopeConfig;
 use strata_primitives::{
     block_credential::CredRule,
     buf::Buf32,
@@ -12,7 +12,7 @@ use strata_primitives::{
 
 use crate::Args;
 
-pub(crate) fn create_envelope_params(args: &Args) -> EnvelopeParams {
+pub(crate) fn create_envelope_config(args: &Args) -> EnvelopeConfig {
     let pubkey = derive_schnorr_pubkey(&args.sequencer_private_key);
     // just use the same key for simplicity
     let op_pubkey = OperatorPubkeys::new(pubkey, pubkey);
@@ -44,11 +44,12 @@ pub(crate) fn create_envelope_params(args: &Args) -> EnvelopeParams {
             l2_blocks_fetch_limit: 100,
         },
     };
-    EnvelopeParams::new(
+    EnvelopeConfig::new(
         Arc::new(rollup_params),
         args.sequencer_address.clone(),
         args.network,
         args.fee_rate,
+        546,
     )
 }
 

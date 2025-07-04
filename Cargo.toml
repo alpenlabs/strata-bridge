@@ -33,7 +33,8 @@ members = [
   "bin/alpen-bridge",
 
   # test utilities
-  "crates/test-utils", "bin/mock-checkpoint",
+  "crates/test-utils",
+  "bin/mock-checkpoint",
 ]
 
 default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]

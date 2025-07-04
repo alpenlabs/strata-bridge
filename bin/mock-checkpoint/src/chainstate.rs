@@ -12,7 +12,7 @@ impl ChainstateWithEmptyDeposits {
         let chst: Chainstate = Arbitrary::arbitrary(&mut raw).unwrap();
         // Make sure deposits_table is empty
         assert!(
-            chst.deposits_table().len() == 0,
+            chst.deposits_table().is_empty(),
             "Chainstate deposits table is not empty"
         );
         Self(chst)

@@ -16,16 +16,14 @@ borsh.workspace = true
 clap.workspace = true
 corepc-node.workspace = true
 hex = "0.4"
-strata-btcio = { path = "../../../strata/crates/btcio" } # TODO: change this to github
-# strata-primitives.workspace = true
-strata-primitives = { path = "../../../strata/crates/primitives" } # TODO: change this to workspace
-# strata-state.workspace = true
-strata-state = { path = "../../../strata/crates/state" } # TODO: change this to workspace
 secp256k1.workspace = true
+strata-btcio = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-primitives.workspace = true
+strata-state.workspace = true
 tokio = { version = "1.0", features = ["full"] }
 
 [dev-dependencies]
-strata-l1tx = { path = "../../../strata/crates/l1tx" } # TODO: change this to workspace
+strata-l1tx.workspace = true
 
 [lints]
 workspace = true
