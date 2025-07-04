@@ -53,11 +53,9 @@ pub(crate) struct Args {
 
 fn validate_private_key(s: &str) -> Result<Buf32, String> {
     let bytes = hex::decode(s).map_err(|_| "Invalid hex string")?;
-    if bytes.len() != 32 {
-        return Err(format!(
-            "Private key must be exactly 32 bytes, got {}",
-            bytes.len()
-        ));
+    let len = bytes.len();
+    if len != 32 {
+        return Err(format!("Private key must be exactly 32 bytes, got {len}",));
     }
     let mut buf = [0; 32];
     buf.copy_from_slice(&bytes);
@@ -73,7 +71,7 @@ fn validate_address(s: &str) -> Result<Address, String> {
 /// Parse and validate deposit entries json file.
 fn validate_deposit_entries(file_path: &str) -> Result<Vec<DepositEntry>, String> {
     let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
-    let deposit_entries =
-        serde_json::from_str(&content).map_err(|e| format!("Deposit entries parse error: {e}"))?;
+    let deposit_entries = serde_json::from_str(&content)
+        .map_err(|e| format!("Deposit entries parse error in file {file_path}: {e}"))?;
     Ok(deposit_entries)
 }

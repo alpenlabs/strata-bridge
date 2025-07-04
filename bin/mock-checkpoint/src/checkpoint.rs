@@ -2,7 +2,7 @@ use arbitrary::{Arbitrary, Unstructured};
 use secp256k1::{Message, SecretKey, SECP256K1};
 use strata_primitives::{
     batch::{Checkpoint, CheckpointSidecar, SignedCheckpoint},
-    buf::{Buf32, Buf64},
+    buf::Buf32,
 };
 use strata_state::chain_state::Chainstate;
 
@@ -18,11 +18,9 @@ pub(crate) fn create_checkpoint(chainstate: Chainstate) -> Checkpoint {
 
 pub(crate) fn sign_checkpoint(checkpoint: Checkpoint, secretkey: &Buf32) -> SignedCheckpoint {
     let message = checkpoint.hash();
-
+    let msg = Message::from_digest_slice(message.as_ref()).expect("Invalid message hash");
     let sk = SecretKey::from_slice(secretkey.as_ref()).expect("Invalid private key");
     let kp = sk.keypair(SECP256K1);
-    let msg = Message::from_digest_slice(message.as_ref()).expect("Invalid message hash");
     let sig = SECP256K1.sign_schnorr(&msg, &kp);
-    let sig = Buf64::from(sig.serialize());
-    SignedCheckpoint::new(checkpoint, sig)
+    SignedCheckpoint::new(checkpoint, sig.serialize().into())
 }

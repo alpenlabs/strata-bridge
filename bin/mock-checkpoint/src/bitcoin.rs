@@ -1,4 +1,4 @@
-use bitcoin::Transaction;
+use bitcoin::{Transaction, Txid};
 use bitcoind_async_client::{traits::Broadcaster, Client};
 
 use crate::Args;
@@ -22,7 +22,7 @@ pub(crate) async fn publish_txs(
     client: &Client,
     commit_tx: Transaction,
     reveal_tx: Transaction,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<(Txid, Txid)> {
     println!("Publishing commit tx");
     let commit_txid = client.send_raw_transaction(&commit_tx).await?;
     println!("Published commit tx: {commit_txid}");
@@ -31,5 +31,5 @@ pub(crate) async fn publish_txs(
     let reveal_txid = client.send_raw_transaction(&reveal_tx).await?;
     println!("Published reveal tx: {reveal_txid}");
 
-    Ok(())
+    Ok((commit_txid, reveal_txid))
 }

@@ -1,6 +1,8 @@
 # Mock Checkpoint CLI
 
 A tool for creating and publishing mock checkpoints to Bitcoin for testing.
+This enables user to create a checkpoint containing chainstate with arbitrary
+deposits table. Store deposit entries in a json file and pass it to the cli.
 
 ## Usage
 

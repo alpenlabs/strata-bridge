@@ -46,12 +46,14 @@ async fn main() {
     {
         eprintln!("Failed to publish txs: {e}");
         exit(1);
+    } else {
+        println!("Successfully published checkpoint transaction!");
     }
 }
 
 async fn create_and_publish_checkpoint(
     env_config: &EnvelopeConfig,
-    bitcoin_client: &Client,
+    client: &Client,
     chainstate: Chainstate,
     seq_privkey: &Buf32,
 ) -> anyhow::Result<(Txid, Txid)> {
@@ -59,27 +61,20 @@ async fn create_and_publish_checkpoint(
     let signed_checkpoint = sign_checkpoint(checkpoint, seq_privkey);
     let l1p = L1Payload::new_checkpoint(borsh::to_vec(&signed_checkpoint).unwrap());
 
-    let utxos = bitcoin_client
-        .get_utxos()
-        .await
-        .expect("Could not get wallet utxos");
+    let utxos = client.get_utxos().await;
+    let utxos = utxos.expect("Could not get wallet utxos");
 
-    let (commit_tx, reveal_tx) = create_envelope_transactions(env_config, &[l1p], utxos)?;
-    let commit_txid = commit_tx.compute_txid();
-    let reveal_txid = reveal_tx.compute_txid();
+    let (c_tx, r_tx) = create_envelope_transactions(env_config, &[l1p], utxos)?;
 
     // Sign commit tx
-    let signed_commit = bitcoin_client
-        .sign_raw_transaction_with_wallet(&commit_tx, None)
-        .await
-        .unwrap()
-        .hex;
+    let signed_commit = client.sign_raw_transaction_with_wallet(&c_tx, None).await;
+    let signed_commit = signed_commit.unwrap().hex;
 
     let signed_commit: Transaction = consensus::encode::deserialize_hex(&signed_commit)
         .expect("could not deserialize transaction");
 
-    publish_txs(bitcoin_client, signed_commit, reveal_tx).await?;
-    Ok((commit_txid, reveal_txid))
+    let (c_txid, r_txid) = publish_txs(client, signed_commit, r_tx).await?;
+    Ok((c_txid, r_txid))
 }
 
 #[cfg(test)]
@@ -141,10 +136,8 @@ mod tests {
     }
 
     fn create_test_args(node: &Node) -> Args {
-        let (user, password) = node
-            .params
-            .get_cookie_values()
-            .unwrap()
+        let cookies = node.params.get_cookie_values().unwrap();
+        let (user, password) = cookies
             .map(|c| (c.user, c.password))
             .unwrap_or(("".to_string(), "".to_string()));
         let seq_addr = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
@@ -175,25 +168,17 @@ mod tests {
     }
 
     async fn fetch_and_parse_reveal_tx(
-        bitcoin_client: &Client,
+        client: &Client,
         rtxid: &Txid,
         env_config: &EnvelopeConfig,
     ) -> SignedCheckpoint {
-        let tx = bitcoin_client
-            .get_raw_transaction_verbosity_zero(rtxid)
-            .await
-            .unwrap()
-            .transaction()
-            .unwrap();
-        let scr = tx.input[0]
-            .witness
-            .taproot_leaf_script()
-            .unwrap()
-            .script
-            .to_bytes();
+        let tx_resp = client.get_raw_transaction_verbosity_zero(rtxid).await;
+        let tx = tx_resp.unwrap().transaction().unwrap();
+        let scr = tx.input[0].witness.taproot_leaf_script();
+        let scr_bytes = scr.unwrap().script.to_bytes();
 
         let filter_conf = TxFilterConfig::derive_from(env_config.params.rollup()).unwrap();
-        let checkpoint_payload = parse_envelope_payloads(&scr.into(), &filter_conf)
+        let checkpoint_payload = parse_envelope_payloads(&scr_bytes.into(), &filter_conf)
             .unwrap()
             .into_iter()
             .find(|p| *p.payload_type() == L1PayloadType::Checkpoint)
@@ -208,10 +193,8 @@ mod tests {
         expected_chainstate: &Chainstate,
     ) {
         let cred_rule = &env_config.params.rollup().cred_rule;
-        assert!(
-            verify_signed_checkpoint_sig(signed_checkpoint, cred_rule),
-            "Checkpoint verification failed"
-        );
+        let sig_verified = verify_signed_checkpoint_sig(signed_checkpoint, cred_rule);
+        assert!(sig_verified, "Checkpoint verification failed");
         let obtained_checkpoint: Checkpoint = signed_checkpoint.clone().into();
         let chstate: Chainstate =
             borsh::from_slice(obtained_checkpoint.sidecar().chainstate()).unwrap();
