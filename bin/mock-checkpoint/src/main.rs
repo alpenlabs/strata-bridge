@@ -84,10 +84,7 @@ mod tests {
 
     use bitcoin::{Address, Amount, Network, Txid};
     use bitcoind_async_client::{traits::Reader, Client};
-    use corepc_node::{
-        serde_json::{self, Value},
-        Conf, Node,
-    };
+    use corepc_node::{serde_json::Value, Conf, Node};
     use strata_btcio::writer::builder::EnvelopeConfig;
     use strata_l1tx::{envelope::parser::parse_envelope_payloads, TxFilterConfig};
     use strata_primitives::{
@@ -98,8 +95,8 @@ mod tests {
     use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
 
     use crate::{
-        args::validate_deposit_entries, create_and_publish_checkpoint, create_bitcoin_client,
-        create_envelope_config, update_deposit_entries, Args, ChainstateWithEmptyDeposits,
+        create_and_publish_checkpoint, create_bitcoin_client, create_envelope_config,
+        update_deposit_entries, Args, ChainstateWithEmptyDeposits,
     };
 
     fn create_node() -> Node {
@@ -238,13 +235,5 @@ mod tests {
         let signed_checkpoint =
             fetch_and_parse_reveal_tx(&bitcoin_client, &rtxid, &env_config).await;
         verify_checkpoint_and_chainstate(&signed_checkpoint, &env_config, &chainstate);
-    }
-
-    #[tokio::test]
-    async fn write_to_file() {
-        let path = "dep_entries.json";
-        let deps = validate_deposit_entries(path).unwrap();
-        // let deps: Vec<DepositEntry> = serde_json::from_str(&content).unwrap();
-        // std::fs::write("dep_entries.json", serde_json::to_string(&deps).unwrap()).unwrap();
     }
 }

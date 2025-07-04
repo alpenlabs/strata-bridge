@@ -16,13 +16,6 @@ impl DepEntries {
     }
 }
 
-impl FromStr for DepEntries {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        validate_deposit_entries(s)
-    }
-}
-
 /// Command line arguments.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
