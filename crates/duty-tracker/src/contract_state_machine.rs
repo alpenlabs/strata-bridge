@@ -2139,7 +2139,7 @@ impl ContractSM {
 
                 Ok(
                     if root_nonces.len() == self.cfg.operator_table.cardinality() {
-                        // we have all the sigs now
+                        // we have all the nonces now
                         // issue deposit signature
                         let deposit_tx = &self.cfg.deposit_tx;
                         let witness = &deposit_tx.witnesses()[0];
@@ -3423,38 +3423,6 @@ fn aggregate_partials(
                 .expect("agg sig per graph must have the expected length");
 
             (claim_txid, agg_sig_per_graph)
-        })
-        .collect()
-}
-
-#[expect(unused)]
-fn transpose_partials(
-    ordered_p2p_keys: &[&P2POperatorPubKey],
-    graph_partials: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
-) -> BTreeMap<Txid, Vec<Vec<PartialSignature>>> {
-    graph_partials
-        .iter()
-        .map(|(claim_txid, partials_per_op)| {
-            let packed_partials = ordered_p2p_keys
-                .iter()
-                .filter_map(|signer| Some(partials_per_op.get(signer)?.clone().pack()))
-                .collect::<Vec<_>>();
-
-            // each packed `PogMusigF` vector contains the same number of inputs i.e., length of
-            // each inner `Vec` will be the same.
-            let num_inputs = packed_partials.first().map(|v| v.len()).unwrap_or(0);
-
-            let transposed_partials: Vec<Vec<PartialSignature>> = (0..num_inputs)
-                .map(|input_index| {
-                    packed_partials
-                        .iter()
-                        .filter_map(|partials| partials.get(input_index))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .collect();
-
-            (*claim_txid, transposed_partials)
         })
         .collect()
 }
