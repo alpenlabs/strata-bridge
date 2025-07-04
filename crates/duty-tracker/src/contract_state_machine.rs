@@ -2414,6 +2414,7 @@ impl ContractSM {
             )));
         }
 
+        let operator_table = self.cfg().operator_table.clone();
         match assignment.deposit_state() {
             DepositState::Dispatched(dispatched_state) => {
                 let assignee = dispatched_state.assignee();
@@ -2487,6 +2488,9 @@ impl ContractSM {
                     ContractState::Assigned {
                         fulfiller,
                         deadline,
+                        claim_txids,
+                        active_graph,
+                        peg_out_graphs,
                         ..
                     } => {
                         if *fulfiller != assignee {
@@ -2494,6 +2498,23 @@ impl ContractSM {
 
                             *fulfiller = assignee;
                             *deadline = dispatched_state.exec_deadline();
+                            let p2p_key =
+                                operator_table
+                                    .idx_to_op_key(&assignee)
+                                    .ok_or(TransitionErr(format!(
+                                    "could not convert operator index {assignee} to operator key"
+                                )))?;
+
+                            let claim_txid = claim_txids.get(p2p_key).ok_or(TransitionErr(format!(
+                                "could not find claim_txid for operator {p2p_key} in csm {deposit_txid}",
+                            )))?;
+
+                            *active_graph = peg_out_graphs
+                                .get(claim_txid)
+                                .ok_or(TransitionErr(format!(
+                                    "could not find peg out graph for claim txid {claim_txid} in csm {deposit_txid}",
+                                )))?
+                                .to_owned();
                         }
 
                         Ok(Some(OperatorDuty::FulfillerDuty(
@@ -2507,6 +2528,9 @@ impl ContractSM {
                     ContractState::StakeTxReady {
                         fulfiller,
                         deadline,
+                        claim_txids,
+                        active_graph,
+                        peg_out_graphs,
                         ..
                     } => {
                         if *fulfiller != assignee {
@@ -2514,6 +2538,24 @@ impl ContractSM {
 
                             *fulfiller = assignee;
                             *deadline = dispatched_state.exec_deadline();
+
+                            let p2p_key =
+                                operator_table
+                                    .idx_to_op_key(&assignee)
+                                    .ok_or(TransitionErr(format!(
+                                    "could not convert operator index {assignee} to operator key"
+                                )))?;
+
+                            let claim_txid = claim_txids.get(p2p_key).ok_or(TransitionErr(format!(
+                                "could not find claim_txid for operator {p2p_key} in csm {deposit_txid}",
+                            )))?;
+
+                            *active_graph = peg_out_graphs
+                                .get(claim_txid)
+                                .ok_or(TransitionErr(format!(
+                                    "could not find peg out graph for claim txid {claim_txid} in csm {deposit_txid}",
+                                )))?
+                                .to_owned();
                         }
 
                         let is_assigned_to_me = *fulfiller == pov_idx;
@@ -2655,6 +2697,7 @@ impl ContractSM {
                 l1_start_height,
                 ..
             } => {
+                let txid = tx.compute_txid();
                 if !is_fulfillment_tx(
                     network,
                     &peg_out_graph_params,
@@ -2667,6 +2710,7 @@ impl ContractSM {
                     // might get somebody else's stake transaction here.
                     // this can happen if this node's stake transaction is settled before other
                     // nodes'.
+                    warn!(%txid, "received a non-fulfillment tx in process_fulfillment_confirmation");
 
                     // FIXME: (@Rajil1213) this should be an error case.
                     return Ok(None);
@@ -2677,7 +2721,7 @@ impl ContractSM {
                     let stake_txid = active_graph.1.stake_txid;
 
                     Some(OperatorDuty::FulfillerDuty(FulfillerDuty::PublishClaim {
-                        withdrawal_fulfillment_txid: tx.compute_txid(),
+                        withdrawal_fulfillment_txid: txid,
                         stake_txid,
                         deposit_txid,
                     }))
