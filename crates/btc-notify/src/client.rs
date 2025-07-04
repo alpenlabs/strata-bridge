@@ -8,7 +8,7 @@ use std::{collections::VecDeque, error::Error, sync::Arc, time::Duration};
 use algebra::{category, predicate};
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
-use futures::StreamExt;
+use futures::{future, Stream, StreamExt};
 use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
@@ -46,7 +46,7 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 #[derive(Debug, Clone)]
 pub struct BtcZmqClient {
     bury_depth: usize,
-    block_subs: Arc<Mutex<Vec<(mpsc::UnboundedSender<BlockEvent>, u64)>>>,
+    block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
     state_machine: Arc<Mutex<BtcZmqSM>>,
     thread_handle: Arc<JoinHandle<()>>,
@@ -102,9 +102,7 @@ impl BtcZmqClient {
         };
 
         let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth, unburied_blocks)));
-        let block_subs = Arc::new(Mutex::new(
-            Vec::<(mpsc::UnboundedSender<BlockEvent>, u64)>::new(),
-        ));
+        let block_subs = Arc::new(Mutex::new(Vec::<mpsc::UnboundedSender<BlockEvent>>::new()));
         let block_subs_thread = block_subs.clone();
         let tx_subs = Arc::new(Mutex::new(Vec::<TxSubscriptionDetails>::new()));
         let tx_subs_thread = tx_subs.clone();
@@ -135,19 +133,11 @@ impl BtcZmqClient {
                                     // if the receiver has been dropped, we remove it from the
                                     // subscription list.
                                     block_subs_thread.lock().await.retain(|sub| {
-                                        if block
-                                            .bip34_block_height()
-                                            .is_ok_and(category::moved(predicate::ge(sub.1)))
-                                        {
-                                            sub.0
-                                                .send(BlockEvent {
-                                                    block: block.clone(),
-                                                    status: BlockStatus::Mined,
-                                                })
-                                                .is_ok()
-                                        } else {
-                                            true
-                                        }
+                                        sub.send(BlockEvent {
+                                            block: block.clone(),
+                                            status: BlockStatus::Mined,
+                                        })
+                                        .is_ok()
                                     });
 
                                     // Now we process the block to understand what the relevant
@@ -160,17 +150,10 @@ impl BtcZmqClient {
                                     let (tx_events, block_event) = sm.process_block(block);
 
                                     if let Some(block_event) = block_event {
-                                        block_subs_thread.lock().await.retain(|sub| {
-                                            if block_event
-                                                .block
-                                                .bip34_block_height()
-                                                .is_ok_and(category::moved(predicate::ge(sub.1)))
-                                            {
-                                                sub.0.send(block_event.clone()).is_ok()
-                                            } else {
-                                                true
-                                            }
-                                        })
+                                        block_subs_thread
+                                            .lock()
+                                            .await
+                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
                                     }
                                     tx_events
                                 }
@@ -185,17 +168,10 @@ impl BtcZmqClient {
                                     let (tx_events, block_event) = sm.process_sequence(seq);
 
                                     if let Some(block_event) = block_event {
-                                        block_subs_thread.lock().await.retain(|sub| {
-                                            if block_event
-                                                .block
-                                                .bip34_block_height()
-                                                .is_ok_and(category::moved(predicate::ge(sub.1)))
-                                            {
-                                                sub.0.send(block_event.clone()).is_ok()
-                                            } else {
-                                                true
-                                            }
-                                        });
+                                        block_subs_thread
+                                            .lock()
+                                            .await
+                                            .retain(|sub| sub.send(block_event.clone()).is_ok());
                                     }
 
                                     tx_events
@@ -247,7 +223,7 @@ impl BtcZmqClient {
     pub async fn subscribe_transactions(
         &self,
         f: impl Fn(&Transaction) -> bool + Sync + Send + 'static,
-    ) -> Subscription<TxEvent> {
+    ) -> impl Stream<Item = TxEvent> {
         let (send, recv) = mpsc::unbounded_channel();
         let predicate = Arc::new(f);
 
@@ -277,14 +253,21 @@ impl BtcZmqClient {
 
     /// Creates a new [`Subscription`] that emits new [`bitcoin::Block`] every time a new block is
     /// connected to the main Bitcoin blockchain.
-    pub async fn subscribe_blocks(&self, first: u64) -> Subscription<BlockEvent> {
-        let (send, recv) = mpsc::unbounded_channel();
+    pub async fn subscribe_blocks(&self, first: u64) -> impl Stream<Item = BlockEvent> {
+        let (send, recv) = mpsc::unbounded_channel::<BlockEvent>();
 
         trace!("subscribing to blocks");
 
-        self.block_subs.lock().await.push((send, first));
+        self.block_subs.lock().await.push(send);
 
-        Subscription::from_receiver(recv)
+        Subscription::from_receiver(recv).skip_while(move |evt| {
+            future::ready(
+                evt.block
+                    .bip34_block_height()
+                    .map(category::moved(predicate::lt(first)))
+                    .unwrap_or(true),
+            )
+        })
     }
 
     /// Returns the number of active transaction subscriptions created with
