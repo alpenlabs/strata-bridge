@@ -925,15 +925,6 @@ pub enum OperatorDuty {
         partial_signatures: Option<PogMusigF<PartialSignature>>,
     },
 
-    /// Instructs us to commit the aggregated signatures to state.
-    CommitSig {
-        /// The transaction ID of the deposit transaction for this contract.
-        deposit_txid: Txid,
-
-        /// The partials for all the graphs.
-        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, Vec<PartialSignature>>>,
-    },
-
     /// Instructs us to send out our nonce for the deposit transaction signature.
     PublishRootNonce {
         /// Transaction ID of the DRT
@@ -1002,9 +993,6 @@ impl Display for OperatorDuty {
             }
             OperatorDuty::PublishGraphSignatures { claim_txid, .. } => {
                 write!(f, "PublishGraphSignatures ({claim_txid})")
-            }
-            OperatorDuty::CommitSig { deposit_txid, .. } => {
-                write!(f, "CommitSig (deposit: {deposit_txid})")
             }
             OperatorDuty::PublishRootNonce {
                 deposit_request_txid,
