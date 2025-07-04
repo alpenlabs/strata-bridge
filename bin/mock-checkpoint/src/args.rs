@@ -1,9 +1,10 @@
 use std::str::FromStr;
 
-use bitcoin::{Address, Network};
+use bitcoin::{base58, bip32::Xpriv, Address, Network};
 use clap::Parser;
 use corepc_node::serde_json;
-use strata_primitives::buf::Buf32;
+use strata_key_derivation::sequencer::SequencerKeys;
+use strata_primitives::{buf::Buf32, keys::ZeroizableXpriv};
 use strata_state::bridge_state::DepositEntry;
 
 /// Command line arguments.
@@ -47,19 +48,18 @@ pub(crate) struct Args {
     pub sequencer_private_key: Buf32,
 
     /// Path to file containing JSON-serialized entries
-    #[arg(long, value_parser = validate_deposit_entries)]
     pub deposit_entries: Vec<DepositEntry>,
 }
 
-fn validate_private_key(s: &str) -> Result<Buf32, String> {
-    let bytes = hex::decode(s).map_err(|_| "Invalid hex string")?;
-    let len = bytes.len();
-    if len != 32 {
-        return Err(format!("Private key must be exactly 32 bytes, got {len}",));
-    }
-    let mut buf = [0; 32];
-    buf.copy_from_slice(&bytes);
-    Ok(buf.into())
+pub(crate) fn validate_private_key(str_buf: &str) -> anyhow::Result<Buf32> {
+    let buf = base58::decode_check(str_buf)?;
+    let master_xpriv = ZeroizableXpriv::new(Xpriv::decode(&buf)?);
+
+    // Actually do the key derivation from the root key and then derive the pubkey from that.
+    let seq_keys = SequencerKeys::new(&master_xpriv)?;
+    let seq_xpriv = seq_keys.derived_xpriv();
+
+    Ok(Buf32::from(seq_xpriv.private_key.secret_bytes()))
 }
 
 /// Validate sequencer address. Assumes network checked.
