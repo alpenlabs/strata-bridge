@@ -14,18 +14,20 @@ use bitcoin::{
         serde::{Deserialize, Serialize},
         sha256,
     },
-    sighash::{Prevouts, SighashCache},
     taproot, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
 use musig2::{
-    secp256k1::Message, verify_partial, AggNonce, KeyAggContext, PartialSignature, PubNonce,
+    aggregate_partial_signatures, secp256k1::Message, verify_partial, AggNonce, PartialSignature,
+    PubNonce,
 };
+use secp256k1::schnorr;
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
     constants::NUM_ASSERT_DATA_TX,
+    key_agg::create_agg_ctx,
     operator_table::OperatorTable,
-    scripts::taproot::{create_message_hash, TaprootWitness},
+    scripts::taproot::TaprootWitness,
     types::{BitcoinBlockHeight, OperatorIdx},
     wots::{self, Groth16Sigs, Wots256Sig},
 };
@@ -52,10 +54,7 @@ use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
-use crate::{
-    executors::deposit::GraphInputParams,
-    predicates::{is_challenge, is_disprove, is_fulfillment_tx},
-};
+use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
 
 /// Helper structure for passing around the relevant information we receive in the DepositSetup P2P
 /// message.
@@ -863,26 +862,6 @@ impl ContractState {
     }
 }
 
-/// This is the set of events that are not directly derived from the chain state or the p2p network
-/// but rather serve a specific auxiliary function in the contract state machine architecture.
-#[derive(Debug, Clone)]
-pub enum SyntheticEvent {
-    /// Siginifies that we have aggregated the partial signatures for all relevant inpoints of all
-    /// the graphs for a particular contract (identified by the deposit txid) and that these need
-    /// to be committed.
-    ///
-    /// The committed signatures are used during withdrawal execution to settle relevant
-    /// transactions in the pre-signed peg-out graph.
-    AggregatedSigs {
-        /// The transaction ID of the deposit transaction that this contract is associated with.
-        deposit_txid: Txid,
-
-        /// The aggregated signatures for the peg out graph indexed by the transaction ID of the
-        /// claim transaction in the peg out graph.
-        agg_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
-    },
-}
-
 /// This is the superset of all possible operator duties.
 #[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
@@ -951,8 +930,8 @@ pub enum OperatorDuty {
         /// The transaction ID of the deposit transaction for this contract.
         deposit_txid: Txid,
 
-        /// The input params for all graphs.
-        graph_params: BTreeMap<Txid, PogMusigF<GraphInputParams>>,
+        /// The partials for all the graphs.
+        graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, Vec<PartialSignature>>>,
     },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
@@ -999,9 +978,6 @@ pub enum OperatorDuty {
 
         /// The aggregated nonce received from peers.
         aggnonce: AggNonce,
-
-        /// The sighash of the deposit transaction that needs to be signed.
-        sighash: Message,
     },
 
     /// Injection function for a FulfillerDuty.
@@ -1889,13 +1865,13 @@ impl ContractSM {
 
                 *agg_nonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
 
-                let duties = Vec::with_capacity(graph_nonces.len());
+                let mut duties = Vec::with_capacity(graph_nonces.len());
                 let claim_txid_to_operator_map = claim_txids
                     .iter()
                     .map(|(op, claim_txid)| (claim_txid, op))
                     .collect::<BTreeMap<_, _>>();
 
-                for (claim_txid, nonce_per_operator) in graph_nonces {
+                for claim_txid in graph_nonces.keys() {
                     let graph_owner =
                         claim_txid_to_operator_map
                             .get(claim_txid)
@@ -1914,7 +1890,7 @@ impl ContractSM {
                     // inside the current mutable context even though the fields being mutated are
                     // different.
                     let stake_txid = pog_input.stake_outpoint.txid;
-                    let _pog = if let Some(pog) = self.pog.get(&stake_txid) {
+                    let pog = if let Some(pog) = self.pog.get(&stake_txid) {
                         debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
                         pog.clone()
                     } else {
@@ -1925,32 +1901,32 @@ impl ContractSM {
                         pog
                     };
 
-                    let _pubnonces = self
-                        .cfg
-                        .operator_table
-                        .convert_map_op_to_btc(nonce_per_operator.clone())
-                        .map_err(|e| {
-                            TransitionErr(format!(
-                                "could not convert nonce map keys: {e} not in operator table",
-                            ))
-                        })?;
-
                     let pov_key = cfg.operator_table.pov_op_key();
-                    let _existing_partials =
+                    let existing_partials =
                         graph_partials
                             .get(claim_txid)
                             .and_then(|partials_per_operator| {
                                 partials_per_operator.get(pov_key).cloned()
                             });
 
-                    // duties.push(OperatorDuty::PublishGraphSignatures {
-                    //     claim_txid: *claim_txid,
-                    //     aggnonces,
-                    //     pog_prevouts: pog.musig_inpoints(),
-                    //     pog_sighashes: pog.musig_sighashes(),
-                    //     witnesses: pog.musig_witnesses(),
-                    //     partial_signatures: None,
-                    // })
+                    let Some(aggnonces) = agg_nonces.get(claim_txid) else {
+                        return Err(TransitionErr(format!(
+                            "could not process graph nonces. claim_txid ({claim_txid}) not found in agg_nonces map"
+                        )));
+                    };
+                    let aggnonces =
+                        PogMusigF::<AggNonce>::unpack(aggnonces.clone()).ok_or(TransitionErr(
+                            "could not unpack agg nonce vector into PogMusigF".to_string(),
+                        ))?;
+
+                    duties.push(OperatorDuty::PublishGraphSignatures {
+                        claim_txid: *claim_txid,
+                        aggnonces,
+                        pog_prevouts: pog.musig_inpoints(),
+                        pog_sighashes: pog.musig_sighashes(),
+                        witnesses: pog.musig_witnesses(),
+                        partial_signatures: existing_partials,
+                    })
                 }
 
                 Ok(duties)
@@ -1985,6 +1961,8 @@ impl ContractSM {
                 agg_nonces,
                 claim_txids,
                 graph_partials,
+                graph_sigs,
+                root_nonces,
                 ..
             } => {
                 // session partials must be present for this claim_txid at this point
@@ -2069,15 +2047,47 @@ impl ContractSM {
 
                 info!(%claim_txid, "received all partials for all graphs");
 
-                // BtreeMap<Txid, PogMusigF<GraphInputParams>>
-                // Txid is the claim txid
-                // let mut graph_params = BTreeMap::new();
-                let _aggnonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
-                // Ok(Some(OperatorDuty::CommitSig {
-                //     deposit_txid,
-                //     graph_params,
-                // }))
-                todo!()
+                let pogs = peg_out_graph_inputs
+                    .values()
+                    .map(|graph_input| {
+                        let stake_txid = graph_input.stake_outpoint.txid;
+
+                        self.pog
+                            .get(&stake_txid)
+                            .cloned()
+                            .unwrap_or_else(|| cfg.build_graph(graph_input))
+                    })
+                    .collect::<Vec<_>>();
+
+                let aux_data = pogs
+                    .iter()
+                    .map(|pog| {
+                        let claim_txid = pog.claim_tx.compute_txid();
+
+                        let aux_data_per_graph = AuxAggData {
+                            agg_nonces: agg_nonces
+                                .get(&claim_txid)
+                                .cloned()
+                                .expect("agg_nonces must be present"),
+                            sighash_types: pog.musig_sighash_types(),
+                            sighashes: pog.musig_sighashes(),
+                            witnesses: pog.musig_witnesses(),
+                        };
+
+                        (claim_txid, aux_data_per_graph)
+                    })
+                    .collect();
+
+                *graph_sigs = aggregate_partials(&cfg.operator_table, aux_data, graph_partials);
+
+                let witness = cfg.deposit_tx.witnesses()[0].clone();
+                let existing_nonce = root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
+
+                Ok(Some(OperatorDuty::PublishRootNonce {
+                    deposit_request_txid: self.deposit_request_txid(),
+                    witness,
+                    nonce: existing_nonce,
+                }))
             }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_graph_signatures ({})",
@@ -2123,6 +2133,7 @@ impl ContractSM {
         let deposit_txid = self.deposit_txid();
         debug!(%deposit_txid, %signer, "processing root nonce");
 
+        let operator_table = self.cfg.operator_table.clone();
         match &mut self.state.state {
             ContractState::Requested { root_nonces, .. } => {
                 if let Some(existing) = root_nonces.get(&signer) {
@@ -2143,27 +2154,19 @@ impl ContractSM {
                         // we have all the sigs now
                         // issue deposit signature
                         let deposit_tx = &self.cfg.deposit_tx;
-
-                        let txouts = deposit_tx
-                            .psbt()
-                            .inputs
-                            .iter()
-                            .map(|i| i.witness_utxo.clone().expect("witness_utxo must be set"))
-                            .collect::<Vec<_>>();
-
                         let witness = &deposit_tx.witnesses()[0];
-
-                        let sighash = create_message_hash(
-                            &mut SighashCache::new(&deposit_tx.psbt().unsigned_tx),
-                            Prevouts::All(&txouts),
-                            witness,
-                            TapSighashType::All,
-                            0,
-                        )
-                        .map_err(|e| TransitionErr(e.to_string()))?;
+                        let sighash = deposit_tx.sighashes()[0];
+                        let aggnonce = operator_table
+                            .btc_keys()
+                            .into_iter()
+                            .filter_map(|btc_key| {
+                                let p2p_key = operator_table.btc_key_to_op_key(&btc_key)?;
+                                root_nonces.get(p2p_key).cloned()
+                            })
+                            .sum();
 
                         Some(OperatorDuty::PublishRootSignature {
-                            aggnonce: AggNonce::sum(root_nonces.values()),
+                            aggnonce,
                             deposit_request_txid: self.deposit_request_txid(),
                             sighash,
                             partial_signature: None,
@@ -2213,9 +2216,40 @@ impl ContractSM {
                     return Ok(None);
                 }
 
+                let aggnonce = AggNonce::sum(root_nonces.values().cloned());
+
                 let witness = &self.cfg.deposit_tx.witnesses()[0];
                 let key_agg_ctx = create_agg_ctx(self.cfg.operator_table.btc_keys(), witness)
                     .expect("must be able to create context");
+                let btc_pubkey = self
+                    .cfg
+                    .operator_table
+                    .op_key_to_btc_key(&signer)
+                    .ok_or_else(|| {
+                        TransitionErr(format!(
+                            "could not convert operator key {signer} to BTC key"
+                        ))
+                    })?;
+                let root_nonce = root_nonces
+                    .get(&signer)
+                    .ok_or_else(|| TransitionErr(format!("root nonce for {signer} not found")))?;
+                let message = self.cfg.deposit_tx.sighashes()[0];
+
+                if verify_partial(
+                    &key_agg_ctx,
+                    sig,
+                    &aggnonce,
+                    btc_pubkey,
+                    root_nonce,
+                    message.as_ref(),
+                )
+                .is_err()
+                {
+                    error!(%signer, "root signature verification failed");
+                    // this is not worth crashing the event loop over
+                    return Ok(None);
+                }
+
                 root_partials.insert(signer, sig);
 
                 Ok(
@@ -2223,28 +2257,23 @@ impl ContractSM {
                         // we have all the deposit sigs now
                         // we can publish the deposit
 
-                        let root_nonces = root_nonces.clone();
+                        let partial_sigs = self
+                            .cfg
+                            .operator_table
+                            .btc_keys()
+                            .into_iter()
+                            .filter_map(|btc_key| {
+                                let p2p_key =
+                                    self.cfg.operator_table.btc_key_to_op_key(&btc_key)?;
 
-                        let partials = {
-                            let partials = self
-                                .cfg
-                                .operator_table
-                                .convert_map_op_to_btc(root_partials.clone())
-                                .expect("all p2p keys present");
-                            self.cfg()
-                                .operator_table
-                                .btc_keys()
-                                .into_iter()
-                                .map(|pk| partials.get(&pk).expect("present nonce"))
-                                .cloned()
-                                .collect()
-                        };
+                                root_partials.get(p2p_key).cloned()
+                            })
+                            .collect();
 
                         Some(OperatorDuty::PublishDeposit {
-                            partial_sigs: partials,
+                            partial_sigs,
+                            aggnonce,
                             deposit_tx: self.cfg.deposit_tx.clone(),
-                            aggnonce: AggNonce::sum(root_nonces.values()),
-                            sighash: self.cfg.deposit_tx.sighashes()[0],
                         })
                     } else {
                         None
@@ -3123,7 +3152,8 @@ impl ContractSM {
         tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
-        debug!(%deposit_txid, "processing optimistic payout confirmation");
+        let txid = tx.compute_txid();
+        debug!(%deposit_txid, %txid, "processing optimistic payout confirmation");
 
         match &mut self.state.state {
             ContractState::Claimed {
@@ -3131,15 +3161,14 @@ impl ContractSM {
                 withdrawal_fulfillment_txid,
                 ..
             } => {
-                let payout_optimistic_txid = tx.compute_txid();
-                if payout_optimistic_txid != active_graph.1.payout_optimistic_txid {
-                    return Err(TransitionErr(format!("invalid optimistic payout transaction ({}) in process_optimistic_payout_confirmation", tx.compute_txid())));
+                if txid != active_graph.1.payout_optimistic_txid {
+                    return Err(TransitionErr(format!("invalid optimistic payout transaction ({txid}) in process_optimistic_payout_confirmation")));
                 }
 
-                info!(txid=%payout_optimistic_txid, "processing optimistic payout confirmation");
+                info!(%txid, "processing optimistic payout confirmation");
                 self.state.state = ContractState::Resolved {
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
-                    payout_txid: payout_optimistic_txid,
+                    payout_txid: txid,
                     path: ResolutionPath::Optimistic,
                 };
 
@@ -3320,34 +3349,158 @@ fn aggregate_nonces(
         .filter_map(|btc_key| operator_table.btc_key_to_op_key(&btc_key))
         .collect::<Vec<_>>();
 
-    graph_nonces
-        .iter()
-        .map(|(claim_txid, session_nonces)| {
-            let nonces_per_graph: Vec<Vec<PubNonce>> = signer_keys
+    transpose_musig_data(&signer_keys, graph_nonces)
+        .into_iter()
+        .map(|(claim_txid, nonces_per_input)| {
+            let agg_nonces_per_input = nonces_per_input.into_iter().map(AggNonce::sum).collect();
+
+            (claim_txid, agg_nonces_per_input)
+        })
+        .collect()
+}
+
+/// Auxiliary data required to compute aggregate signatures from partials in the MuSig2 scheme.
+pub(crate) struct AuxAggData {
+    agg_nonces: Vec<AggNonce>,
+    sighash_types: PogMusigF<TapSighashType>,
+    sighashes: PogMusigF<Message>,
+    witnesses: PogMusigF<TaprootWitness>,
+}
+
+fn aggregate_partials(
+    operator_table: &OperatorTable,
+    aux_data: BTreeMap<Txid, AuxAggData>,
+    graph_partials: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+) -> BTreeMap<Txid, PogMusigF<taproot::Signature>> {
+    let signer_keys = operator_table
+        .btc_keys()
+        .into_iter()
+        .filter_map(|btc_key| operator_table.btc_key_to_op_key(&btc_key))
+        .collect::<Vec<_>>();
+
+    let transposed_partials = transpose_musig_data(&signer_keys, graph_partials);
+
+    aux_data
+        .into_iter()
+        .zip(transposed_partials.values())
+        .map(|((claim_txid, aux_data_per_graph), partials_per_graph)| {
+            let AuxAggData {
+                agg_nonces,
+                sighash_types,
+                sighashes,
+                witnesses,
+            } = aux_data_per_graph;
+
+            let witnesses = witnesses.pack();
+            let sighashes = sighashes.pack();
+            let sighash_types = sighash_types.pack();
+
+            let agg_sig_per_graph = partials_per_graph
                 .iter()
-                .filter_map(|signer| {
-                    session_nonces
-                        .get(signer)
-                        .map(|nonces| nonces.clone().pack())
-                })
+                .zip(witnesses)
+                .zip(agg_nonces)
+                .zip(sighashes)
+                .zip(sighash_types)
+                .map(
+                    |((((partials, witness), agg_nonce), message), sighash_type)| {
+                        let key_agg_ctx = create_agg_ctx(operator_table.btc_keys(), &witness)
+                            .inspect_err(|e| {
+                                error!(%e, %claim_txid, "could not create key agg ctx");
+                            })
+                            .expect("must be able to create key agg ctx");
+
+                        let agg_sig = aggregate_partial_signatures::<
+                            PartialSignature,
+                            schnorr::Signature,
+                        >(
+                            &key_agg_ctx,
+                            &agg_nonce,
+                            partials.iter().cloned(),
+                            message.as_ref(),
+                        )
+                        .inspect_err(|e| {
+                            error!(%e, %claim_txid, "could not aggregate partial signatures");
+                        })
+                        .expect("each partial should have been pre-verified before aggregating");
+
+                        taproot::Signature {
+                            signature: agg_sig,
+                            sighash_type,
+                        }
+                    },
+                )
                 .collect::<Vec<_>>();
 
-            // all operators are guaranteed to produce the same number of nonces
-            // so we can get the total number of inputs from the nonces generated by the
-            // first operator.
-            let num_inputs = nonces_per_graph.first().map(|v| v.len()).unwrap_or(0);
+            let agg_sig_per_graph = PogMusigF::<taproot::Signature>::unpack(agg_sig_per_graph)
+                .expect("agg sig per graph must have the expected length");
 
-            // fold all the nonces into a single aggregated nonce per input
-            let agg_nonces_per_graph: Vec<AggNonce> = (0..num_inputs)
+            (claim_txid, agg_sig_per_graph)
+        })
+        .collect()
+}
+
+#[expect(unused)]
+fn transpose_partials(
+    ordered_p2p_keys: &[&P2POperatorPubKey],
+    graph_partials: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+) -> BTreeMap<Txid, Vec<Vec<PartialSignature>>> {
+    graph_partials
+        .iter()
+        .map(|(claim_txid, partials_per_op)| {
+            let packed_partials = ordered_p2p_keys
+                .iter()
+                .filter_map(|signer| Some(partials_per_op.get(signer)?.clone().pack()))
+                .collect::<Vec<_>>();
+
+            // each packed `PogMusigF` vector contains the same number of inputs i.e., length of
+            // each inner `Vec` will be the same.
+            let num_inputs = packed_partials.first().map(|v| v.len()).unwrap_or(0);
+
+            let transposed_partials: Vec<Vec<PartialSignature>> = (0..num_inputs)
                 .map(|input_index| {
-                    nonces_per_graph
+                    packed_partials
                         .iter()
-                        .filter_map(|nonces| nonces.get(input_index))
-                        .sum::<AggNonce>()
+                        .filter_map(|partials| partials.get(input_index))
+                        .cloned()
+                        .collect::<Vec<_>>()
                 })
+                .collect();
+
+            (*claim_txid, transposed_partials)
+        })
+        .collect()
+}
+
+fn transpose_musig_data<T>(
+    ordered_p2p_keys: &[&P2POperatorPubKey],
+    graph_data: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<T>>>,
+) -> BTreeMap<Txid, Vec<Vec<T>>>
+where
+    T: Clone,
+{
+    graph_data
+        .iter()
+        .map(|(claim_txid, data_per_op)| {
+            let packed_data = ordered_p2p_keys
+                .iter()
+                .filter_map(|signer| Some(data_per_op.get(signer)?.clone().pack()))
                 .collect::<Vec<_>>();
 
-            (*claim_txid, agg_nonces_per_graph)
+            // each packed `PogMusigF` vector contains the same number of inputs i.e., length of
+            // each inner `Vec` will be the same.
+            let num_inputs = packed_data.first().map(|v| v.len()).unwrap_or(0);
+
+            let transposed_partials: Vec<Vec<T>> = (0..num_inputs)
+                .map(|input_index| {
+                    packed_data
+                        .iter()
+                        .filter_map(|data| data.get(input_index))
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+
+            (*claim_txid, transposed_partials)
         })
         .collect()
 }
@@ -3396,13 +3549,6 @@ fn verify_partials_from_peer(
     let messages = pog.musig_sighashes().clone().pack();
     let witnesses = pog.musig_witnesses().clone().pack();
 
-    let key_agg_ctx_script = KeyAggContext::new(cfg.operator_table.btc_keys())
-        .expect("must be able to create key agg ctx");
-    let key_agg_ctx_key = key_agg_ctx_script
-        .clone()
-        .with_unspendable_taproot_tweak()
-        .expect("must be able to add unspendable tweak");
-
     if individual_pubnonces
         .iter()
         .zip(messages)
@@ -3414,17 +3560,10 @@ fn verify_partials_from_peer(
                     (((individual_pubnonce, message), witness), partial_signature),
                     aggregated_nonce,
             )| {
-                let key_agg_ctx = match witness {
-                    TaprootWitness::Key => &key_agg_ctx_key,
-                    TaprootWitness::Script { .. } => &key_agg_ctx_script,
-                    TaprootWitness::Tweaked { tweak } => &key_agg_ctx_script
-                        .clone()
-                        .with_taproot_tweak(tweak.as_ref())
-                        .expect("must be able to add tweak"),
-                };
+                let key_agg_ctx = create_agg_ctx(cfg.operator_table.btc_keys(), &witness).expect("must be able to create key agg ctx");
 
                 verify_partial(
-                    key_agg_ctx,
+                    &key_agg_ctx,
                     *partial_signature,
                     aggregated_nonce,
                     individual_pubkey,

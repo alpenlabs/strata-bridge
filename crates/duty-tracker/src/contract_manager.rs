@@ -36,7 +36,7 @@ use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
     select,
-    sync::{broadcast, mpsc, RwLock},
+    sync::{broadcast, RwLock},
     task::{self, JoinHandle},
     time,
 };
@@ -47,7 +47,7 @@ use crate::{
     contract_persister::ContractPersister,
     contract_state_machine::{
         ContractCfg, ContractEvent, ContractState, DepositSetup, FulfillerDuty, MachineState,
-        OperatorDuty, SyntheticEvent, TransitionErr,
+        OperatorDuty, TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
@@ -207,14 +207,10 @@ impl ContractManager {
             let (ouroboros_sender, mut ouroboros_receiver) = broadcast::channel(OUROBOROS_CAP);
             let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
 
-            let (synthetic_event_sender, mut synthetic_event_receiver) =
-                mpsc::unbounded_channel::<SyntheticEvent>();
-
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
                 msg_handler,
                 bitcoind_rpc_client: rpc_client.clone(),
-                synthetic_event_sender,
                 s2_client,
                 tx_driver,
                 db,
@@ -285,38 +281,12 @@ impl ContractManager {
             // skip any missed ticks to avoid flooding the network with duplicate nag messages
             interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
 
-            // Create duty response channel for async contract processing
-            let (duty_response_sender, mut duty_response_receiver) = mpsc::unbounded_channel();
-
             loop {
                 let mut duties = vec![];
                 select! {
                     biased; // follow the same order as specified below
 
-                    // First we take care of synthetic events so that we ensure the internal state
-                    // is as consistent as possible.
-                    synthetic_event = synthetic_event_receiver.recv() => {
-                        if let Some(SyntheticEvent::AggregatedSigs{ deposit_txid, agg_sigs }) = synthetic_event {
-                            if let Some(contract) = ctx.state.active_contracts.get_actor(&deposit_txid) {
-                                info!(%deposit_txid, "committing aggregate signatures");
-                                if let Err(e) = contract.process_event_async(
-                                    ContractEvent::AggregatedSigs { agg_sigs },
-                                    duty_response_sender.clone()
-                                ) {
-                                    error!(%deposit_txid, %e, "failed to send aggregate sigs event to contract actor");
-                                    // We only receive an event from this channel once (no retries).
-                                    // Not having aggregate signatures is catastrophic because we
-                                    // don't have a reliable fallback mechanism to get them in the
-                                    // future. So it's better to break the event loop and panic if this ever happens.
-                                    break;
-                                }
-                            } else {
-                                error!(%deposit_txid, "received aggregate sigs for unknown contract");
-                            }
-                        }
-                    },
-
-                    // Next we prioritize the ouroboros channel since processing our own message is
+                    // First we prioritize the ouroboros channel since processing our own message is
                     // necessary for having consistent state.
                     ouroboros_msg = ouroboros_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
@@ -369,7 +339,7 @@ impl ContractManager {
                         }
                     },
 
-                    // Then we process peer messages. We do this last so we have the best chance of
+                    // Finally, we process peer messages. We do this last so we have the best chance of
                     // servicing peer requests and can sidestep the processing of unnecessary peer
                     // messages.
                     Some(event) = p2p_handle.next() => match event {
@@ -399,25 +369,6 @@ impl ContractManager {
                         Err(e) => {
                             error!(%e, "error while polling for p2p messages");
                             // this could be a transient issue, so no need to break immediately
-                        }
-                    },
-
-                    // Finally we pull from the duties channel and execute those.
-                    Some((contract_txid, duty_result)) = duty_response_receiver.recv() => {
-                        match duty_result {
-                            Ok(contract_duties) if !contract_duties.is_empty() => {
-                                info!(%contract_txid, num_duties=%contract_duties.len(), "received duties from contract actor");
-                                duties.extend(contract_duties);
-                            },
-                            Ok(_) => {
-                                trace!(%contract_txid, "contract actor processed event with no duties");
-                            },
-                            Err(e) => {
-                                error!(%contract_txid, %e, "contract actor failed to process event");
-                                // For aggregate signatures, this is catastrophic
-                                // Check if this was an aggregate signature event and break if so
-                                // For now, we'll log the error and continue
-                            }
                         }
                     },
 
@@ -466,9 +417,6 @@ pub(super) struct OutputHandles {
 
     /// [`BitcoinClient`] handle.
     pub(super) bitcoind_rpc_client: BitcoinClient,
-
-    /// [`UnboundedSender`] channel for [`SyntheticEvent`]s handle.
-    pub(super) synthetic_event_sender: mpsc::UnboundedSender<SyntheticEvent>,
 
     pub(super) s2_client: SecretServiceClient,
 
@@ -1237,8 +1185,8 @@ impl ContractManagerCtx {
 
                     let ContractState::Requested {
                         peg_out_graph_inputs,
-                        graph_nonces,
                         graph_partials,
+                        agg_nonces,
                         ..
                     } = &state.state
                     else {
@@ -1253,7 +1201,6 @@ impl ContractManagerCtx {
                         .and_then(|session_partials| session_partials.get(our_p2p_key))
                         .cloned();
 
-                    let graph_nonces = graph_nonces.get(&claim_txid).unwrap().clone();
                     let graph_owner = state
                         .state
                         .claim_to_operator(&claim_txid)
@@ -1293,40 +1240,14 @@ impl ContractManagerCtx {
                         }
                     }
 
-                    let aggnonces = PogMusigF::<AggNonce> {
-                        challenge: AggNonce::sum(
-                            graph_nonces.values().map(|pog| pog.challenge.clone()),
-                        ),
-                        pre_assert: AggNonce::sum(
-                            graph_nonces.values().map(|pog| pog.pre_assert.clone()),
-                        ),
-                        post_assert: std::array::from_fn(|i| {
-                            AggNonce::sum(
-                                graph_nonces.values().map(|pog| pog.post_assert[i].clone()),
-                            )
-                        }),
-                        payout_optimistic: std::array::from_fn(|i| {
-                            AggNonce::sum(
-                                graph_nonces
-                                    .values()
-                                    .map(|pog| pog.payout_optimistic[i].clone()),
-                            )
-                        }),
-                        payout: std::array::from_fn(|i| {
-                            AggNonce::sum(graph_nonces.values().map(|pog| pog.payout[i].clone()))
-                        }),
-                        disprove: AggNonce::sum(
-                            graph_nonces.values().map(|pog| pog.disprove.clone()),
-                        ),
-                        slash_stake: (0..cfg.stake_chain_params.slash_stake_count)
-                            .map(|slash_stake_idx| {
-                                std::array::from_fn(|input_idx| {
-                                    AggNonce::sum(graph_nonces.values().map(|pog| {
-                                        pog.slash_stake[slash_stake_idx][input_idx].clone()
-                                    }))
-                                })
-                            })
-                            .collect(),
+                    let Some(aggnonces) =
+                        agg_nonces.get(&claim_txid).and_then(|session_aggnonces| {
+                            PogMusigF::<AggNonce>::unpack(session_aggnonces.to_vec())
+                        })
+                    else {
+                        warn!(%claim_txid, "no aggnonces found for claim txid");
+
+                        return Ok(None);
                     };
 
                     return Ok(Some(OperatorDuty::PublishGraphSignatures {
@@ -1667,39 +1588,40 @@ async fn execute_duty(
             pog_sighashes,
             witnesses,
             partial_signatures,
-        } => handle_publish_graph_sigs(
-            &outs.s2_client,
-            cfg.operator_table
-                .btc_keys()
-                .into_iter()
-                .map(|pk| pk.x_only_public_key().0)
-                .collect(),
-            &outs.msg_handler,
-            claim_txid,
-            aggnonces,
-            pog_outpoints,
-            pog_sighashes,
-            witnesses,
-            partial_signatures,
-        )
-        .await
-        .inspect_err(log_error),
-
-        OperatorDuty::CommitSig {
-            deposit_txid,
-            graph_params,
         } => {
-            handle_commit_sig(
-                deposit_txid,
+            let input = aggnonces
+                .zip(pog_outpoints)
+                .zip(pog_sighashes)
+                .zip(witnesses)
+                .map(
+                    |(((aggnonce, pog_outpoint), pog_sighash), witness)| GenPartialsInput {
+                        aggnonce,
+                        outpoint: pog_outpoint,
+                        sighash: pog_sighash,
+                        witness,
+                    },
+                );
+
+            handle_publish_graph_sigs(
+                &outs.s2_client,
                 cfg.operator_table
                     .btc_keys()
                     .into_iter()
                     .map(|pk| pk.x_only_public_key().0)
                     .collect(),
-                &outs.synthetic_event_sender,
-                graph_params,
+                &outs.msg_handler,
+                claim_txid,
+                input,
+                partial_signatures,
             )
             .await
+            .inspect_err(log_error)
+        }
+
+        OperatorDuty::CommitSig { .. } => {
+            warn!("ignoring commit sig duty");
+
+            Ok(())
         }
 
         OperatorDuty::PublishRootSignature {
@@ -1729,19 +1651,13 @@ async fn execute_duty(
             deposit_tx,
             partial_sigs,
             aggnonce,
-            sighash,
         } => {
             handle_publish_deposit(
                 &outs.tx_driver,
+                cfg.operator_table.btc_keys().into_iter().collect(),
                 deposit_tx,
                 partial_sigs,
-                cfg.operator_table
-                    .btc_keys()
-                    .into_iter()
-                    .map(|pk| pk.x_only_public_key().0)
-                    .collect(),
                 aggnonce,
-                sighash,
             )
             .await
         }

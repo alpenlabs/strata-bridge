@@ -1,10 +1,7 @@
 //! Handles duties related to presigning of the
 //! [`strata_bridge_tx_graph::peg_out_graph::PegOutGraph`] and the broadcasting of the [`Deposit
 //! Transaction`](strata_bridge_tx_graph::transactions::deposit::DepositTx).
-use std::{
-    collections::{BTreeMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashSet, sync::Arc};
 
 use algebra::predicate;
 use bdk_wallet::{miniscript::ToPublicKey, Wallet};
@@ -15,28 +12,24 @@ use bitcoin::{
 };
 use btc_notify::client::TxStatus;
 use futures::FutureExt;
-use musig2::{
-    secp::{MaybePoint, MaybeScalar},
-    AggNonce, KeyAggContext, LiftedSignature, PartialSignature, PubNonce,
-};
-use secp256k1::{schnorr, Message, Parity, PublicKey};
+use musig2::{aggregate_partial_signatures, AggNonce, PartialSignature, PubNonce};
+use secp256k1::{schnorr, Message, PublicKey};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
-use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootWitness};
 use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
 use strata_bridge_tx_graph::{
     pog_musig_functor::PogMusigF,
     transactions::{deposit::DepositTx, prelude::CovenantTx},
 };
 use strata_p2p_types::{Scope, SessionId, StakeChainId};
-use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
-    contract_state_machine::{SyntheticEvent, TransitionErr},
+    contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
     executors::wots_handler::get_wots_pks,
     tx_driver::TxDriver,
@@ -342,9 +335,6 @@ pub(crate) async fn handle_publish_graph_nonces(
     // TODO(@storopoli): Commit the graph nonces to the database in the `pub_nonces` table.
     //                   This function should take a `&SqliteDB` handle as an argument.
 
-    // TODO(@storopoli): Commit the graph witnesses to the database in the `witnesses` table.
-    //                   This function should take a `&SqliteDB` handle as an argument.
-
     info!(%claim_txid, "publishing graph nonces");
     message_handler
         .send_musig2_nonces(
@@ -356,61 +346,63 @@ pub(crate) async fn handle_publish_graph_nonces(
     Ok(())
 }
 
+/// The information required to generate the Musig2 partial signature for an input in the peg out
+/// graph.
+pub(crate) struct GenPartialsInput {
+    pub(crate) aggnonce: AggNonce,
+    pub(crate) outpoint: OutPoint,
+    pub(crate) sighash: Message,
+    pub(crate) witness: TaprootWitness,
+}
+
 /// Handles the duty to publish the graph partial signatures for the given peg out graph identified
 /// by the transaction ID of its claim transaction.
 // TODO(@storopoli): This also commits the graph partial signatures to the database in the
 // `partial_signatures` table.
-#[expect(clippy::too_many_arguments)]
 pub(crate) async fn handle_publish_graph_sigs(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     message_handler: &MessageHandler,
     claim_txid: Txid,
-    aggnonces: PogMusigF<AggNonce>,
-    pog_outpoints: PogMusigF<OutPoint>,
-    pog_sighashes: PogMusigF<Message>,
-    pog_witnesses: PogMusigF<TaprootWitness>,
+    input_data: PogMusigF<GenPartialsInput>,
     pre_generated_partial_signatures: Option<PogMusigF<PartialSignature>>,
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph signatures");
 
     let musig2_signer = s2_client.musig2_signer();
 
-    let partial_sigs: PogMusigF<PartialSignature> =
-        if let Some(existing_sigs) = pre_generated_partial_signatures {
-            debug!(%claim_txid, "using pre-generated graph signatures from contract state");
-            existing_sigs
-        } else {
-            debug!(%claim_txid, "generating new graph signatures via secret service");
+    let partial_sigs = if let Some(existing_partials) = pre_generated_partial_signatures {
+        debug!(%claim_txid, "using pre-generated partials from contract state");
 
-            info!(%claim_txid, "getting all partials");
-            PogMusigF::transpose_result(
-                pog_outpoints
-                    .clone()
-                    .zip(pog_sighashes)
-                    .zip(pog_witnesses)
-                    .zip(aggnonces)
-                    .map(|(((op, sighash), witness), aggnonce)| {
-                        let params = Musig2Params {
-                            ordered_pubkeys: musig_pubkeys.clone(),
-                            witness,
-                            input: op,
-                        };
-                        musig2_signer
-                            .get_our_partial_sig(params, aggnonce, *sighash.as_ref())
-                            .map(|r| r.map(|r2| r2.unwrap()))
-                    })
-                    .join_all()
-                    .await,
-            )
-            .inspect_err(|e| {
-                error!(
-                    %claim_txid,
-                    ?e,
-                    "failed to get partials for graph signatures"
-                );
-            })?
-        };
+        existing_partials
+    } else {
+        let partial_sigs_futures = input_data.map(|data| {
+            let GenPartialsInput {
+                aggnonce,
+                outpoint,
+                sighash,
+                witness,
+            } = data;
+
+            let musig_params = Musig2Params {
+                ordered_pubkeys: musig_pubkeys.clone(),
+                witness,
+                input: outpoint,
+            };
+
+            musig2_signer
+                .get_our_partial_sig(musig_params, aggnonce, *sighash.as_ref())
+                .map(|f| f.map(|r| r.expect("good partial sig")))
+        });
+
+        PogMusigF::transpose_result(partial_sigs_futures.join_all().await).inspect_err(|e| {
+            error!(
+                %claim_txid,
+                ?e,
+                "failed to get partials for graph"
+            );
+        })?
+    };
 
     // TODO(@storopoli): Commit the graph partial signatures to the database in the
     //                   `partial_signatures` table. This function should take a `&SqliteDB`
@@ -423,82 +415,6 @@ pub(crate) async fn handle_publish_graph_sigs(
             partial_sigs.pack(),
         )
         .await;
-
-    Ok(())
-}
-
-#[derive(Debug, Clone)]
-#[expect(dead_code)]
-pub struct GraphInputParams {
-    pub(crate) inpoint: OutPoint,
-    pub(crate) sighash_type: TapSighashType,
-    pub(crate) aggnonce: AggNonce,
-    pub(crate) partials: Vec<PartialSignature>,
-    pub(crate) witness: TaprootWitness,
-    pub(crate) sighash: Message,
-}
-
-/// Handles the duty to commit the aggregate signatures for the given peg out graph identified by
-/// the deposit txid.
-///
-/// This produces a [`ContractEvent::AggregateSigs`] event which is sent via the
-/// `ouroboros_event_sender` to the node itself so that the state can be updated with the aggregate
-/// signatures.
-pub(crate) async fn handle_commit_sig(
-    deposit_txid: Txid,
-    musig_pubkeys: Vec<XOnlyPublicKey>,
-    synthetic_event_sender: &mpsc::UnboundedSender<SyntheticEvent>,
-    graph_params: BTreeMap<Txid, PogMusigF<GraphInputParams>>,
-) -> Result<(), ContractManagerErr> {
-    let mut graph_sigs = BTreeMap::new();
-
-    for (claim_txid, graph) in graph_params {
-        let sighash_types = graph.as_ref().map(|params| params.sighash_type);
-
-        let sigs: PogMusigF<LiftedSignature> = graph.map(|params| {
-            let ctx = key_agg_ctx(
-                musig_pubkeys.iter().map(|pk| pk.public_key(Parity::Even)),
-                params.witness,
-            );
-
-            let adaptor_signature = musig2::adaptor::aggregate_partial_signatures(
-                &ctx,
-                &params.aggnonce,
-                MaybePoint::Infinity,
-                params.partials,
-                params.sighash.as_ref(),
-            )
-            .expect("good final sig");
-
-            adaptor_signature
-                .adapt(MaybeScalar::Zero)
-                .expect("finalizing with empty adaptor should never result in an adaptor failure")
-        });
-
-        let agg_sigs_for_graph =
-            sigs.zip(sighash_types)
-                .map(|(sig, sighash_type)| taproot::Signature {
-                    signature: schnorr::Signature::from_slice(&sig.serialize())
-                        .expect("lifted signature must be a valid schnorr signature"),
-                    sighash_type,
-                });
-
-        graph_sigs.insert(claim_txid, agg_sigs_for_graph);
-    }
-
-    synthetic_event_sender
-        .send(SyntheticEvent::AggregatedSigs {
-            deposit_txid,
-            agg_sigs: graph_sigs,
-        })
-        .map_err(|e| {
-            error!(%e, "could not send aggregate sigs event");
-
-            // usually means the receiver is dropped i.e., the event loop has crashed.
-            ContractManagerErr::FatalErr(
-                format!("could not send aggregate sigs event due to {e}").into(),
-            )
-        })?;
 
     Ok(())
 }
@@ -610,37 +526,25 @@ pub(crate) async fn handle_publish_root_signature(
 /// aggregate of all the partial signatures.
 pub(crate) async fn handle_publish_deposit(
     tx_driver: &TxDriver,
+    musig_pubkeys: Vec<PublicKey>,
     deposit_tx: DepositTx,
     partials: Vec<PartialSignature>,
-    musig_pubkeys: Vec<XOnlyPublicKey>,
     aggnonce: AggNonce,
-    sighash: Message,
 ) -> Result<(), ContractManagerErr> {
     info!(deposit_txid=%deposit_tx.compute_txid(), "executing duty to publish deposit");
+    let witness = &deposit_tx.witnesses()[0];
 
-    let ctx = key_agg_ctx(
-        musig_pubkeys.iter().map(|pk| pk.public_key(Parity::Even)),
-        deposit_tx.witnesses()[0].clone(),
-    );
+    let ctx = create_agg_ctx(musig_pubkeys.into_iter(), witness).expect("must create agg ctx");
 
-    let adaptor_signature = musig2::adaptor::aggregate_partial_signatures(
-        &ctx,
-        &aggnonce,
-        MaybePoint::Infinity,
-        partials,
-        sighash.as_ref(),
-    )
-    .expect("good final sig");
+    let sighash = deposit_tx.sighashes()[0];
+    let aggregate_sig: schnorr::Signature =
+        aggregate_partial_signatures(&ctx, &aggnonce, partials, sighash.as_ref())
+            .expect("partial signatures must be valid");
 
-    let sig: LiftedSignature = adaptor_signature
-        .adapt(MaybeScalar::Zero)
-        .expect("finalizing with empty adaptor should never result in an adaptor failure");
-
-    let schnorr_sig = schnorr::Signature::from_slice(&sig.serialize())
-        .expect("must be a valid schnorr signature");
+    let sighash_type = deposit_tx.sighash_types()[0];
     let taproot_sig = taproot::Signature {
-        signature: schnorr_sig,
-        sighash_type: TapSighashType::All,
+        signature: aggregate_sig,
+        sighash_type,
     };
 
     let mut sighasher = SighashCache::new(deposit_tx.psbt().unsigned_tx.clone());
@@ -666,26 +570,4 @@ pub(crate) async fn handle_publish_deposit(
         .expect("deposit tx should get confirmed");
 
     Ok(())
-}
-
-pub(crate) fn key_agg_ctx(
-    pubkeys: impl Iterator<Item = PublicKey>,
-    witness: TaprootWitness,
-) -> KeyAggContext {
-    let mut ctx = KeyAggContext::new(pubkeys).expect("valid ctx");
-
-    match witness {
-        TaprootWitness::Key => {
-            ctx = ctx
-                .with_unspendable_taproot_tweak()
-                .expect("must be able to tweak the key agg context")
-        }
-        TaprootWitness::Tweaked { tweak } => {
-            ctx = ctx
-                .with_taproot_tweak(tweak.as_ref())
-                .expect("must be able to tweak the key agg context")
-        }
-        _ => {}
-    }
-    ctx
 }
