@@ -33,7 +33,8 @@ async fn main() {
     let env_config = create_envelope_config(&args);
 
     let chainstate = ChainstateWithEmptyDeposits::new();
-    let new_chainstate = update_deposit_entries(chainstate, &args.deposit_entries);
+    let dep_entries = args.deposit_entries.clone().into_inner();
+    let new_chainstate = update_deposit_entries(chainstate, &dep_entries);
 
     let bitcoin_client = create_bitcoin_client(&args);
     if let Err(e) = create_and_publish_checkpoint(
@@ -83,7 +84,10 @@ mod tests {
 
     use bitcoin::{Address, Amount, Network, Txid};
     use bitcoind_async_client::{traits::Reader, Client};
-    use corepc_node::{serde_json::Value, Conf, Node};
+    use corepc_node::{
+        serde_json::{self, Value},
+        Conf, Node,
+    };
     use strata_btcio::writer::builder::EnvelopeConfig;
     use strata_l1tx::{envelope::parser::parse_envelope_payloads, TxFilterConfig};
     use strata_primitives::{
@@ -94,8 +98,8 @@ mod tests {
     use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
 
     use crate::{
-        create_and_publish_checkpoint, create_bitcoin_client, create_envelope_config,
-        update_deposit_entries, Args, ChainstateWithEmptyDeposits,
+        args::validate_deposit_entries, create_and_publish_checkpoint, create_bitcoin_client,
+        create_envelope_config, update_deposit_entries, Args, ChainstateWithEmptyDeposits,
     };
 
     fn create_node() -> Node {
@@ -151,7 +155,7 @@ mod tests {
             da_tag: "alpn_da".to_string(),
             checkpoint_tag: "alpn_ckpt".to_string(),
             sequencer_private_key: [1u8; 32].into(),
-            deposit_entries: Vec::new(),
+            deposit_entries: crate::args::DepEntries(Vec::new()),
         }
     }
 
@@ -234,5 +238,13 @@ mod tests {
         let signed_checkpoint =
             fetch_and_parse_reveal_tx(&bitcoin_client, &rtxid, &env_config).await;
         verify_checkpoint_and_chainstate(&signed_checkpoint, &env_config, &chainstate);
+    }
+
+    #[tokio::test]
+    async fn write_to_file() {
+        let path = "dep_entries.json";
+        let deps = validate_deposit_entries(path).unwrap();
+        // let deps: Vec<DepositEntry> = serde_json::from_str(&content).unwrap();
+        // std::fs::write("dep_entries.json", serde_json::to_string(&deps).unwrap()).unwrap();
     }
 }

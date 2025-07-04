@@ -7,6 +7,22 @@ use strata_key_derivation::sequencer::SequencerKeys;
 use strata_primitives::{buf::Buf32, keys::ZeroizableXpriv};
 use strata_state::bridge_state::DepositEntry;
 
+#[derive(Clone, Debug)]
+pub(crate) struct DepEntries(pub Vec<DepositEntry>);
+
+impl DepEntries {
+    pub(crate) fn into_inner(self) -> Vec<DepositEntry> {
+        self.0
+    }
+}
+
+impl FromStr for DepEntries {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        validate_deposit_entries(s)
+    }
+}
+
 /// Command line arguments.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about=None)]
@@ -48,7 +64,8 @@ pub(crate) struct Args {
     pub sequencer_private_key: Buf32,
 
     /// Path to file containing JSON-serialized entries
-    pub deposit_entries: Vec<DepositEntry>,
+    #[arg(long, value_parser = validate_deposit_entries)]
+    pub deposit_entries: DepEntries,
 }
 
 pub(crate) fn validate_private_key(str_buf: &str) -> anyhow::Result<Buf32> {
@@ -69,9 +86,9 @@ fn validate_address(s: &str) -> Result<Address, String> {
 }
 
 /// Parse and validate deposit entries json file.
-fn validate_deposit_entries(file_path: &str) -> Result<Vec<DepositEntry>, String> {
+pub(crate) fn validate_deposit_entries(file_path: &str) -> Result<DepEntries, String> {
     let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
     let deposit_entries = serde_json::from_str(&content)
         .map_err(|e| format!("Deposit entries parse error in file {file_path}: {e}"))?;
-    Ok(deposit_entries)
+    Ok(DepEntries(deposit_entries))
 }
