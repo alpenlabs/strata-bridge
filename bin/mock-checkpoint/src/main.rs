@@ -92,7 +92,12 @@ mod tests {
         buf::Buf32,
         l1::{payload::L1PayloadType, OutputRef},
     };
-    use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
+    use strata_state::{
+        bridge_state::{
+            DepositEntry, DepositState, DispatchCommand, DispatchedState, WithdrawOutput,
+        },
+        chain_state::Chainstate,
+    };
 
     use crate::{
         create_and_publish_checkpoint, create_bitcoin_client, create_envelope_config,
@@ -113,10 +118,25 @@ mod tests {
         let oref3 = OutputRef::new(Into::<Buf32>::into([3; 32]).into(), 0);
         let oref4 = OutputRef::new(Into::<Buf32>::into([4; 32]).into(), 0);
         let tenbtc = Amount::from_sat(1_000_000_000).into();
-        let dep1 = DepositEntry::new(0, oref1, vec![1, 2, 3], tenbtc, None);
+        let mut dep1 = DepositEntry::new(0, oref1, vec![1, 2, 3], tenbtc, None);
         let dep2 = DepositEntry::new(1, oref2, vec![1, 2, 3], tenbtc, None);
         let dep3 = DepositEntry::new(2, oref3, vec![1, 2, 3], tenbtc, None);
         let dep4 = DepositEntry::new(3, oref4, vec![1, 2, 3], tenbtc, None);
+
+        dep1.set_withdrawal_request_txid(Some(Buf32::from([5; 32])));
+        let dep1_state = dep1.deposit_state_mut();
+        let destination = Address::from_str("bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080")
+            .unwrap()
+            .require_network(Network::Regtest)
+            .unwrap()
+            .into();
+
+        *dep1_state = DepositState::Dispatched(DispatchedState::new(
+            DispatchCommand::new(vec![WithdrawOutput::new(destination, tenbtc)]),
+            0,
+            1000,
+        ));
+
         vec![dep1, dep2, dep3, dep4]
     }
 
