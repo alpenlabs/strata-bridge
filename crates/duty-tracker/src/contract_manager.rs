@@ -862,6 +862,21 @@ impl ContractManagerCtx {
                             duty
                         });
 
+                    // immediately commit the state to disk as this is a critical state transition.
+                    if !duties.is_empty() {
+                        debug!(%deposit_txid, %index, "committing deposit setup to disk");
+                        let deposit_idx = contract.cfg().deposit_idx;
+                        let deposit_tx = &contract.cfg().deposit_tx;
+                        let operator_table = &contract.cfg().operator_table;
+
+                        self.state_handles
+                            .contract_persister
+                            .commit(&deposit_txid, deposit_idx, deposit_tx, operator_table, contract.state())
+                            .await.inspect_err(|e| {
+                                error!(%e, %deposit_txid, %deposit_idx, "could not persist contract data to disk");
+                            })?;
+                    }
+
                     duties.extend(deposit_setup_duties);
                 } else {
                     // One of the other operators may have seen a DRT that we have not yet
