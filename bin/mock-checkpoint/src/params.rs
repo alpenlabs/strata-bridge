@@ -13,7 +13,7 @@ use strata_primitives::{
 use crate::Args;
 
 pub(crate) fn create_envelope_config(args: &Args) -> EnvelopeConfig {
-    let pubkey = derive_schnorr_pubkey(&args.sequencer_private_key);
+    let pubkey = derive_schnorr_pubkey(&args.sequencer_xpriv);
     // just use the same key for simplicity
     let op_pubkey = OperatorPubkeys::new(pubkey, pubkey);
     let rollup_params = Params {

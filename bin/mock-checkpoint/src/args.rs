@@ -8,11 +8,17 @@ use strata_primitives::{buf::Buf32, keys::ZeroizableXpriv};
 use strata_state::bridge_state::DepositEntry;
 
 #[derive(Clone, Debug)]
-pub(crate) struct DepEntries(pub Vec<DepositEntry>);
+pub(crate) struct DepositEntries(pub Vec<DepositEntry>);
 
-impl DepEntries {
-    pub(crate) fn into_inner(self) -> Vec<DepositEntry> {
-        self.0
+impl From<Vec<DepositEntry>> for DepositEntries {
+    fn from(entries: Vec<DepositEntry>) -> Self {
+        Self(entries)
+    }
+}
+
+impl From<DepositEntries> for Vec<DepositEntry> {
+    fn from(entries: DepositEntries) -> Self {
+        entries.0
     }
 }
 
@@ -21,16 +27,16 @@ impl DepEntries {
 #[command(version, about, long_about=None)]
 pub(crate) struct Args {
     /// Bitcoin RPC endpoint URL
-    #[arg(long, default_value = "http://localhost:18444")]
-    pub bitcoin_url: String,
+    #[arg(long, default_value = "http://localhost:18444/wallet/default")]
+    pub btc_url: String,
 
     /// Bitcoin RPC username
-    #[arg(long, default_value = "rpcuser")]
-    pub bitcoin_username: String,
+    #[arg(long, default_value = "user")]
+    pub btc_user: String,
 
     /// Bitcoin RPC password
-    #[arg(long, default_value = "rpcpassword")]
-    pub bitcoin_password: String,
+    #[arg(long, default_value = "password")]
+    pub btc_pass: String,
 
     /// Fee rate in sats/vbyte
     #[arg(long, default_value = "100")]
@@ -45,23 +51,23 @@ pub(crate) struct Args {
     pub network: Network,
 
     /// DA tag
-    #[arg(long, default_value = "alpn_da")]
+    #[arg(long, default_value = "strata_da")]
     pub da_tag: String,
 
     /// Checkpoint tag
-    #[arg(long, default_value = "alpn_ckpt")]
+    #[arg(long, default_value = "strata_ckpt")]
     pub checkpoint_tag: String,
 
     /// Sequencer private key (hex string, 32 bytes)
-    #[arg(long, env = "SEQUENCER_PRIVATE_KEY", value_parser = validate_private_key)]
-    pub sequencer_private_key: Buf32,
+    #[arg(long, env = "SEQUENCER_XPRIV", value_parser = validate_xpriv)]
+    pub sequencer_xpriv: Buf32,
 
     /// Path to file containing JSON-serialized entries
     #[arg(long, value_parser = validate_deposit_entries)]
-    pub deposit_entries: DepEntries,
+    pub deposit_entries: DepositEntries,
 }
 
-pub(crate) fn validate_private_key(str_buf: &str) -> anyhow::Result<Buf32> {
+pub(crate) fn validate_xpriv(str_buf: &str) -> anyhow::Result<Buf32> {
     let buf = base58::decode_check(str_buf)?;
     let master_xpriv = ZeroizableXpriv::new(Xpriv::decode(&buf)?);
 
@@ -79,9 +85,10 @@ fn validate_address(s: &str) -> Result<Address, String> {
 }
 
 /// Parse and validate deposit entries json file.
-pub(crate) fn validate_deposit_entries(file_path: &str) -> Result<DepEntries, String> {
+pub(crate) fn validate_deposit_entries(file_path: &str) -> Result<DepositEntries, String> {
     let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
     let deposit_entries = serde_json::from_str(&content)
         .map_err(|e| format!("Deposit entries parse error in file {file_path}: {e}"))?;
-    Ok(DepEntries(deposit_entries))
+
+    Ok(DepositEntries(deposit_entries))
 }

@@ -8,9 +8,9 @@ pub(crate) fn create_bitcoin_client(args: &Args) -> Client {
     let max_retries = Some(3);
     let retry_interval = Some(3);
     Client::new(
-        args.bitcoin_url.clone(),
-        args.bitcoin_username.clone(),
-        args.bitcoin_password.clone(),
+        args.btc_url.clone(),
+        args.btc_user.clone(),
+        args.btc_pass.clone(),
         max_retries,
         retry_interval,
     )

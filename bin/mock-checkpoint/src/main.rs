@@ -16,7 +16,7 @@ use bitcoind_async_client::{
 use clap::Parser;
 use strata_btcio::writer::builder::{create_envelope_transactions, EnvelopeConfig};
 use strata_primitives::{buf::Buf32, l1::payload::L1Payload};
-use strata_state::chain_state::Chainstate;
+use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
 
 use crate::{
     args::Args,
@@ -33,7 +33,7 @@ async fn main() {
     let env_config = create_envelope_config(&args);
 
     let chainstate = ChainstateWithEmptyDeposits::new();
-    let dep_entries = args.deposit_entries.clone().into_inner();
+    let dep_entries: Vec<DepositEntry> = args.deposit_entries.clone().into();
     let new_chainstate = update_deposit_entries(chainstate, &dep_entries);
 
     let bitcoin_client = create_bitcoin_client(&args);
@@ -41,7 +41,7 @@ async fn main() {
         &env_config,
         &bitcoin_client,
         new_chainstate,
-        &args.sequencer_private_key,
+        &args.sequencer_xpriv,
     )
     .await
     {
@@ -163,16 +163,16 @@ mod tests {
             .unwrap_or(("".to_string(), "".to_string()));
         let seq_addr = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
         Args {
-            bitcoin_url: format!("http://{}", node.params.rpc_socket),
-            bitcoin_username: user,
-            bitcoin_password: password,
+            btc_url: format!("http://{}", node.params.rpc_socket),
+            btc_user: user,
+            btc_pass: password,
             fee_rate: 100,
             sequencer_address: Address::from_str(seq_addr).unwrap().assume_checked(),
             network: Network::Regtest,
             da_tag: "alpn_da".to_string(),
             checkpoint_tag: "alpn_ckpt".to_string(),
-            sequencer_private_key: [1u8; 32].into(),
-            deposit_entries: crate::args::DepEntries(Vec::new()),
+            sequencer_xpriv: [1u8; 32].into(),
+            deposit_entries: crate::args::DepositEntries(Vec::new()),
         }
     }
 
@@ -244,7 +244,7 @@ mod tests {
             &env_config,
             &bitcoin_client,
             chainstate.clone(),
-            &args.sequencer_private_key,
+            &args.sequencer_xpriv,
         )
         .await;
 
