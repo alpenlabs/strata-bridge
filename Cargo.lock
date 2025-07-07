@@ -5937,6 +5937,7 @@ dependencies = [
  "clap",
  "corepc-node",
  "secp256k1",
+ "strata-bridge-common",
  "strata-btcio",
  "strata-key-derivation",
  "strata-l1tx",

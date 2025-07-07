@@ -82,6 +82,7 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-btcio = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-config = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git" }
