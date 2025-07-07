@@ -612,10 +612,16 @@ impl ContractManagerCtx {
             duties.extend(contract.process_contract_event(ContractEvent::Block(height))?)
         }
 
+        let num_active_contracts = self.state.active_contracts.len();
+        debug!(%num_active_contracts, "committing all contract states to disk");
+
         self.state_handles
             .contract_persister
             .commit_all(self.state.active_contracts.iter())
             .await?;
+
+        let num_new_contracts = new_contracts.len();
+        debug!(%num_new_contracts, "committing all new contract states to disk");
 
         // Now that we've processed all the events related to the old contracts and dispatched the
         // corresponding events to them, we can add the new contracts which will receive relevant
@@ -1068,9 +1074,9 @@ impl ContractManagerCtx {
         debug!(claims = ?self.state.claim_txids, "get nonces exchange");
 
         // First try to find by claim_txid
-        if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid).copied() {
-            if let Some(csm) = self.state.active_contracts.get(&deposit_txid) {
-                return Self::handle_graph_nonces_request(session_id_as_txid, csm);
+        if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
+            if let Some(csm) = self.state.active_contracts.get(deposit_txid) {
+                return Self::process_graph_nonces_request(session_id_as_txid, csm);
             }
         }
 
