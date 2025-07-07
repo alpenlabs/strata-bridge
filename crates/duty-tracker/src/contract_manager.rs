@@ -1657,10 +1657,11 @@ async fn execute_duty(
                 tokio::spawn(async move {
                     match stake_tx {
                         StakeTxKind::Head(stake_tx) => {
-                            handle_publish_first_stake(&cfg, &outs, stake_tx).await
+                            handle_publish_first_stake(&cfg, outs.clone(), stake_tx).await
                         }
                         StakeTxKind::Tail(stake_tx) => {
-                            handle_advance_stake_chain(&cfg, &outs, stake_index, stake_tx).await
+                            handle_advance_stake_chain(&cfg, outs.clone(), stake_index, stake_tx)
+                                .await
                         }
                     }
                     .inspect_err(log_error)
