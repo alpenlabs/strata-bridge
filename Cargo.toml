@@ -31,12 +31,18 @@ members = [
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
+  "bin/mock-checkpoint",
 
   # test utilities
   "crates/test-utils",
 ]
 
-default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]
+default-members = [
+  "bin/alpen-bridge",
+  "bin/dev-cli",
+  "bin/assert-splitter",
+  "bin/mock-checkpoint",
+]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -76,8 +82,10 @@ strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-btcio = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-config = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/alpen.git" }

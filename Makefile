@@ -221,6 +221,20 @@ migrate: ## Run migrations
 	touch operator.db && \
 	sqlx migrate run
 
+.PHONY: checkpoint
+checkpoint: ## Broadcast a mock checkpoint
+	RUST_LOG=info \
+ 	cargo r \
+		--bin mock-checkpoint \
+		-- \
+		--btc-url http://localhost:18443/wallet/default \
+		--btc-user user \
+		--btc-pass password \
+		--checkpoint-tag strata-ckpt \
+		--da-tag strata-da \
+		--deposit-entries deposit-entries.json \
+		--sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZWi # keep this in sync with `docker/vol/alpen-bridge-{1,2,3}/params.toml`
+
 
 .PHONY: bridge-in
 bridge-in: ## Run bridge-in

@@ -1,0 +1,32 @@
+[package]
+name = "mock-checkpoint"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "mock-checkpoint"
+path = "src/main.rs"
+
+[dependencies]
+strata-bridge-common.workspace = true
+
+strata-btcio.workspace = true
+strata-key-derivation.workspace = true
+strata-primitives.workspace = true
+strata-state.workspace = true
+
+anyhow = "1.0"
+arbitrary.workspace = true
+bitcoin = "0.32"
+bitcoind-async-client.workspace = true
+borsh.workspace = true
+clap.workspace = true
+corepc-node.workspace = true
+secp256k1.workspace = true
+tokio = { version = "1.0", features = ["full"] }
+
+[dev-dependencies]
+strata-l1tx.workspace = true
+
+[lints]
+workspace = true
