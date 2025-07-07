@@ -8,6 +8,7 @@ name = "mock-checkpoint"
 path = "src/main.rs"
 
 [dependencies]
+strata-bridge-common.workspace = true
 strata-key-derivation.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true

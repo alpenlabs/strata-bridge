@@ -1,4 +1,5 @@
 use arbitrary::{Arbitrary, Unstructured};
+use strata_bridge_common::tracing::info;
 use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
 
 /// Chainstate wrapper which ensures the chainstate always has empty deposit table.
@@ -31,6 +32,7 @@ pub(crate) fn update_deposit_entries(
     let mut chs = chainstate.into_inner();
     let dep_table = chs.deposits_table_mut();
 
+    info!("updating deposit entries in chainstate");
     for entry in dep_entries {
         // Can only create Accepted deposit entry.
         let idx = dep_table.create_next_deposit(

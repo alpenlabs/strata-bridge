@@ -14,6 +14,10 @@ use bitcoind_async_client::{
     Client,
 };
 use clap::Parser;
+use strata_bridge_common::{
+    logging::{self, LoggerConfig},
+    tracing::{error, info},
+};
 use strata_btcio::writer::builder::{create_envelope_transactions, EnvelopeConfig};
 use strata_primitives::{buf::Buf32, l1::payload::L1Payload};
 use strata_state::{bridge_state::DepositEntry, chain_state::Chainstate};
@@ -28,6 +32,9 @@ use crate::{
 
 #[tokio::main]
 async fn main() {
+    // Initialize logging
+    logging::init(LoggerConfig::new("mock-checkpoint".to_string()));
+
     let args = Args::parse();
 
     let env_config = create_envelope_config(&args);
@@ -37,7 +44,8 @@ async fn main() {
     let new_chainstate = update_deposit_entries(chainstate, &dep_entries);
 
     let bitcoin_client = create_bitcoin_client(&args);
-    if let Err(e) = create_and_publish_checkpoint(
+
+    match create_and_publish_checkpoint(
         &env_config,
         &bitcoin_client,
         new_chainstate,
@@ -45,10 +53,13 @@ async fn main() {
     )
     .await
     {
-        eprintln!("Failed to publish txs: {e}");
-        exit(1);
-    } else {
-        println!("Successfully published checkpoint transaction!");
+        Ok((commit_txid, reveal_txid)) => {
+            info!(%commit_txid, %reveal_txid, "checkpoint created and published successfully");
+        }
+        Err(e) => {
+            error!(%e, "failed to create and publish checkpoint");
+            exit(1);
+        }
     }
 }
 
@@ -58,24 +69,32 @@ async fn create_and_publish_checkpoint(
     chainstate: Chainstate,
     seq_privkey: &Buf32,
 ) -> anyhow::Result<(Txid, Txid)> {
+    info!("creating checkpoint with chainstate");
     let checkpoint = create_checkpoint(chainstate);
+
+    info!("signing checkpoint");
     let signed_checkpoint = sign_checkpoint(checkpoint, seq_privkey);
     let l1p = L1Payload::new_checkpoint(borsh::to_vec(&signed_checkpoint).unwrap());
 
+    info!("fetching funding utxos");
     let utxos = client.get_utxos().await;
     let utxos = utxos.expect("Could not get wallet utxos");
 
-    let (c_tx, r_tx) = create_envelope_transactions(env_config, &[l1p], utxos)?;
+    info!("creating envelope transactions");
+    let (commit_tx, reveal_tx) = create_envelope_transactions(env_config, &[l1p], utxos)?;
 
-    // Sign commit tx
-    let signed_commit = client.sign_raw_transaction_with_wallet(&c_tx, None).await;
+    info!("signing commit transaction");
+    let signed_commit = client
+        .sign_raw_transaction_with_wallet(&commit_tx, None)
+        .await;
     let signed_commit = signed_commit.unwrap().hex;
 
     let signed_commit: Transaction = consensus::encode::deserialize_hex(&signed_commit)
         .expect("could not deserialize transaction");
 
-    let (c_txid, r_txid) = publish_txs(client, signed_commit, r_tx).await?;
-    Ok((c_txid, r_txid))
+    info!("publishing transactions");
+    let (commit_txid, reveal_txid) = publish_txs(client, signed_commit, reveal_tx).await?;
+    Ok((commit_txid, reveal_txid))
 }
 
 #[cfg(test)]
@@ -85,6 +104,7 @@ mod tests {
     use bitcoin::{Address, Amount, Network, Txid};
     use bitcoind_async_client::{traits::Reader, Client};
     use corepc_node::{serde_json::Value, Conf, Node};
+    use strata_bridge_common::tracing::error;
     use strata_btcio::writer::builder::EnvelopeConfig;
     use strata_l1tx::{envelope::parser::parse_envelope_payloads, TxFilterConfig};
     use strata_primitives::{
@@ -184,7 +204,7 @@ mod tests {
     ) -> (Txid, Txid) {
         create_and_publish_checkpoint(env_config, bitcoin_client, chainstate, seq_privkey)
             .await
-            .inspect_err(|e| println!("Error creating/publishing checkpoint: {e}"))
+            .inspect_err(|e| error!(%e, "error creating/publishing checkpoint"))
             .unwrap()
     }
 

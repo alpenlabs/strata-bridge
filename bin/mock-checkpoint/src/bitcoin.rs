@@ -1,5 +1,6 @@
 use bitcoin::{Transaction, Txid};
 use bitcoind_async_client::{traits::Broadcaster, Client};
+use strata_bridge_common::tracing::info;
 
 use crate::Args;
 
@@ -23,13 +24,11 @@ pub(crate) async fn publish_txs(
     commit_tx: Transaction,
     reveal_tx: Transaction,
 ) -> anyhow::Result<(Txid, Txid)> {
-    println!("Publishing commit tx");
     let commit_txid = client.send_raw_transaction(&commit_tx).await?;
-    println!("Published commit tx: {commit_txid}");
+    info!(%commit_txid, "published commit tx");
 
-    println!("Publishing reveal tx");
     let reveal_txid = client.send_raw_transaction(&reveal_tx).await?;
-    println!("Published reveal tx: {reveal_txid}");
+    info!(%reveal_txid, "published reveal tx");
 
     Ok((commit_txid, reveal_txid))
 }
