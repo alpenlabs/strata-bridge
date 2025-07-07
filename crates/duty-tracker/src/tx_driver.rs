@@ -8,6 +8,7 @@ use algebra::{
 };
 use bitcoin::{Transaction, Txid};
 use bitcoind_async_client::{
+    error::ClientError,
     traits::{Broadcaster, Reader},
     Client as BitcoinClient,
 };
@@ -31,6 +32,10 @@ pub enum DriveErr {
     /// Indicates that the TxDriver has been dropped and no more events should be expected.
     #[error("tx driver has been aborted, no more events should be expected")]
     DriverAborted,
+
+    /// Indicates that the transaction could not be published.
+    #[error("could not publish transaction: {0}")]
+    PublishFailed(ClientError),
 }
 
 /// This is the minimal description of a request to drive a transaction.
@@ -120,23 +125,40 @@ impl TxDriver {
                         let tx_sub = zmq_client.subscribe_transactions(
                             move |tx| tx == &rawtx_filter
                         ).await;
-                        active_tx_subs.push(tx_sub);
-                        active_jobs = active_jobs.merge(job.into());
 
                         if rpc_client.get_raw_transaction_verbosity_zero(&txid).await.is_ok() {
-                            debug!(%txid, "transaction already broadcasted, skipping resubmission.");
+                            debug!(%txid, "transaction already broadcasted, skipping resubmission but subscribing to events");
+                            active_tx_subs.push(tx_sub);
+                            active_jobs = active_jobs.merge(job.into());
+
                             continue;
                         }
 
                         match rpc_client.send_raw_transaction(&rawtx_rpc_client).await {
                             Ok(txid) => {
                                 info!(%txid, "broadcasted transaction successfully");
+                                // only add subscriptions and jobs if the transaction was
+                                // broadcasted successfully
+                                // NOTE: (@Rajil1213) this code is duplicated here. An alternative
+                                // is to add the subscription at the top and then remove them if the submission errors
+                                // but removing a subscription from a `SelectAll` is not straightforward.
+                                active_tx_subs.push(tx_sub);
+                                active_jobs = active_jobs.merge(job.into());
                             },
                             Err(err) => {
                                 // TODO(proofofkeags): in this case we may have not hit the mempool
                                 // purge rate and then we have to probably CPFP using anchor from
                                 // the getgo and try again via submit package.
+                                //
+                                // TODO: (@Rajil1213) it may also be the case that the transaction
+                                // is not valid, in which case we should notify the job submitter.
+                                // So, we need more intelligent error handling here. For now, we
+                                // just inform the caller until we add fee-bumping support.
                                 error!(%txid, tx=?rawtx_rpc_client, %err, "could not submit transaction");
+                                // send feedback to the job submitter
+                                if job.respond_on.send(Err(DriveErr::PublishFailed(err))).is_err() {
+                                    error!("could not send error response to job submitter");
+                                }
                             }
                         }
                     }

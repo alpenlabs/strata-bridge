@@ -1,7 +1,5 @@
 //! Error types for the duty tracker.
 
-use std::error::Error;
-
 use bdk_wallet::error::CreateTxError;
 use bitcoind_async_client::error::ClientError;
 use strata_bridge_db::errors::DbError;
@@ -59,12 +57,24 @@ pub enum ContractManagerErr {
     CreateTxErr(#[from] CreateTxError),
 
     /// General catch-all for errors.
-    #[error("error: {0}")]
-    FatalErr(#[from] Box<dyn Error + Sync + Send + 'static>),
+    #[error("fatal error: {0}")]
+    FatalErr(String),
 
     /// Error from the tx driver while submitting/tracking transaction on chain.
     #[error("failed to submit or track transaction: {0:?}")]
     TxDriverErr(#[from] DriveErr),
+}
+
+impl From<String> for ContractManagerErr {
+    fn from(msg: String) -> Self {
+        ContractManagerErr::FatalErr(msg)
+    }
+}
+
+impl From<&str> for ContractManagerErr {
+    fn from(msg: &str) -> Self {
+        ContractManagerErr::FatalErr(msg.to_string())
+    }
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.

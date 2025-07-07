@@ -1,6 +1,9 @@
 //! Handles the withdrawal duty as it pertains to the optimistic case i.e., when no challenges
 //! occur.
 
+use std::{sync::Arc, time::Duration};
+
+use algebra::retry::{retry_with, RetryAction, Strategy};
 use bitcoin::{
     hashes::{sha256, Hash},
     sighash::{Prevouts, SighashCache},
@@ -30,7 +33,7 @@ use strata_bridge_tx_graph::transactions::{
         NUM_PAYOUT_OPTIMISTIC_INPUTS,
     },
 };
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
@@ -39,11 +42,12 @@ use crate::{
         constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
         wots_handler::get_withdrawal_fulfillment_wots_pk,
     },
+    tx_driver::DriveErr,
 };
 
 pub(crate) async fn handle_publish_first_stake(
     cfg: &ExecutionConfig,
-    output_handles: &OutputHandles,
+    output_handles: Arc<OutputHandles>,
     stake_tx: StakeTx<Head>,
 ) -> Result<(), ContractManagerErr> {
     info!("starting to publish first stake tx");
@@ -72,12 +76,8 @@ pub(crate) async fn handle_publish_first_stake(
     let signed_stake_tx = stake_tx.finalize_unchecked(funds_signature, stake_signature);
 
     info!(txid=%signed_stake_tx.compute_txid(), "broadcasting first stake transaction");
-    output_handles
-        .tx_driver
-        .drive(signed_stake_tx, TxStatus::is_buried)
-        .await?;
 
-    Ok(())
+    try_publish_stake_tx(output_handles, signed_stake_tx, 0).await
 }
 
 /// Advances the stake chain by submitting the given transaction to the tx driver.
@@ -86,7 +86,7 @@ pub(crate) async fn handle_publish_first_stake(
 /// the provided `stake_tx`.
 pub(crate) async fn handle_advance_stake_chain(
     cfg: &ExecutionConfig,
-    output_handles: &OutputHandles,
+    output_handles: Arc<OutputHandles>,
     stake_index: u32,
     stake_tx: StakeTx<Tail>,
 ) -> Result<(), ContractManagerErr> {
@@ -159,12 +159,85 @@ pub(crate) async fn handle_advance_stake_chain(
     );
 
     info!(txid=%signed_stake_tx.compute_txid(), %stake_index, "broadcasting stake transaction");
-    output_handles
-        .tx_driver
-        .drive(signed_stake_tx, TxStatus::is_buried)
-        .await?;
+    try_publish_stake_tx(output_handles, signed_stake_tx, stake_index).await
+}
 
-    Ok(())
+/// Tries to publish the stake transaction using the provided `OutputHandles` with retry logic.
+///
+/// # Errors
+///
+/// If the transaction fails to be broadcasted after maximum retries or on fatal errors.
+// HACK: (@Rajil1213) this function is a workaround for the fact that the stake chain must be
+// broadcasted sequentially with a certain timelock between consecutive links.
+// If there are multiple withdrawal requests, it may be the case that the transactions cannot be
+// broadcasted concurrently, so we retry until the parent transaction is confirmed or the maximum
+// number of retries is reached.
+async fn try_publish_stake_tx(
+    output_handles: Arc<OutputHandles>,
+    signed_stake_tx: bitcoin::Transaction,
+    stake_index: u32,
+) -> Result<(), ContractManagerErr> {
+    // NOTE: (@Rajil1213) The following constants are not made configurable as this is supposed to
+    // be a temporary workaround.
+
+    /// The maximum number of retries to publish a stake transaction.
+    ///
+    /// The value 30 is chosen to allow enough time for the first stake transaction to be confirmed
+    /// in a batch of 25 transactions -- 25 being the number of dependent transactions that are
+    /// allowed to exist in the mempool.
+    const MAX_RETRIES: usize = 30;
+
+    /// The delay between consecutive retries when trying to publish a stake transaction.
+    const RETRY_DELAY: Duration = Duration::from_secs(60);
+
+    let stake_txid = signed_stake_tx.compute_txid();
+
+    // Create a retry strategy that handles different error types appropriately
+    let strategy = Strategy::new(move |error: &ContractManagerErr, attempt| {
+        match error {
+            ContractManagerErr::TxDriverErr(DriveErr::DriverAborted) => {
+                // Fatal error - don't retry
+                error!(?error, %stake_txid, %stake_index, "fatal error: driver aborted, not retrying");
+                RetryAction::Stop
+            }
+            ContractManagerErr::TxDriverErr(DriveErr::PublishFailed(ref err)) => {
+                // Retryable error
+                warn!(
+                    %err,
+                    %stake_txid,
+                    %stake_index,
+                    %attempt,
+                    "failed to broadcast stake transaction, will retry..."
+                );
+                RetryAction::Retry(RETRY_DELAY)
+            }
+            _ => {
+                // Other errors are considered fatal
+                error!(?error, %stake_txid, %stake_index, "unexpected error type, not retrying");
+                RetryAction::Stop
+            }
+        }
+    })
+    .with_max_retries(MAX_RETRIES);
+
+    retry_with(strategy, move || {
+        let output_handles = output_handles.clone();
+        let signed_stake_tx = signed_stake_tx.clone();
+        async move {
+            match output_handles
+                .tx_driver
+                .drive(signed_stake_tx, TxStatus::is_buried)
+                .await
+            {
+                Ok(_) => {
+                    debug!(%stake_txid, %stake_index, "successfully broadcasted stake transaction");
+                    Ok(())
+                }
+                Err(tx_driver_err) => Err(ContractManagerErr::TxDriverErr(tx_driver_err)),
+            }
+        }
+    })
+    .await
 }
 
 /// Constructs, finalizes and broadcasts the Withdrawal Fulfillment Transaction.

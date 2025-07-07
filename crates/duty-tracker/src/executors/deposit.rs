@@ -173,9 +173,9 @@ pub(crate) async fn handle_publish_deposit_setup(
             finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
             wallet.sync().await.map_err(|e| {
                 error!(?e, "could not sync wallet after refilling funding utxos");
-                ContractManagerErr::FatalErr(
-                    format!("could not sync wallet after refilling funding utxos: {e:?}").into(),
-                )
+                ContractManagerErr::FatalErr(format!(
+                    "could not sync wallet after refilling funding utxos: {e:?}"
+                ))
             })?;
 
             wallet
@@ -286,7 +286,8 @@ async fn finalize_claim_funding_tx(
     tx_driver
         .drive(tx, predicate::eq(TxStatus::Mempool)) // It's our tx, we won't double spend
         .await
-        .map_err(|e| ContractManagerErr::FatalErr(Box::new(e)))?;
+        .map_err(|e| ContractManagerErr::FatalErr(e.to_string()))?;
+
     info!(%txid, "claim funding tx detected in mempool");
 
     Ok(())

@@ -7,4 +7,5 @@ pub mod category;
 pub mod monoid;
 pub mod predicate;
 pub mod req;
+pub mod retry;
 pub mod semigroup;

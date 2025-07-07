@@ -7,6 +7,9 @@ edition = "2021"
 name = "mock-checkpoint"
 path = "src/main.rs"
 
+[lints]
+workspace = true
+
 [dependencies]
 strata-bridge-common.workspace = true
 
@@ -15,18 +18,15 @@ strata-key-derivation.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
 
-anyhow = "1.0"
+anyhow.workspace = true
 arbitrary.workspace = true
-bitcoin = "0.32"
+bitcoin.workspace = true
 bitcoind-async-client.workspace = true
 borsh.workspace = true
 clap.workspace = true
 corepc-node.workspace = true
 secp256k1.workspace = true
-tokio = { version = "1.0", features = ["full"] }
+tokio.workspace = true
 
 [dev-dependencies]
 strata-l1tx.workspace = true
-
-[lints]
-workspace = true

@@ -4,7 +4,10 @@ use std::slice;
 
 use bitcoin::{
     hashes::{sha256, Hash},
-    opcodes::all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
+    opcodes::{
+        all::{OP_CHECKSIGVERIFY, OP_CSV, OP_EQUALVERIFY, OP_SHA256, OP_SIZE},
+        OP_TRUE,
+    },
     psbt::Input,
     relative,
     taproot::{ControlBlock, LeafVersion},
@@ -106,7 +109,7 @@ impl ConnectorStake {
     /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
     pub fn generate_script(&self) -> ScriptBuf {
-        ScriptBuf::builder()
+        let locking_script = ScriptBuf::builder()
             .push_slice(self.operator_pubkey.serialize())
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
@@ -114,10 +117,19 @@ impl ConnectorStake {
             .push_opcode(OP_EQUALVERIFY)
             .push_opcode(OP_SHA256)
             .push_slice(self.stake_hash.to_byte_array())
-            .push_opcode(OP_EQUALVERIFY)
-            .push_sequence(self.delta.into())
-            .push_opcode(OP_CSV)
-            .into_script()
+            .push_opcode(OP_EQUALVERIFY);
+
+        // handle `0`-locktime differently as pushing `0` sequence means no element is pushed which
+        // results in the stack being empty when it is executed when spending.
+        let locking_script = if self.delta != relative::LockTime::ZERO {
+            locking_script
+                .push_sequence(self.delta.into())
+                .push_opcode(OP_CSV)
+        } else {
+            locking_script.push_opcode(OP_TRUE)
+        };
+
+        locking_script.into_script()
     }
 
     /// Creates a P2TR address with key spend path for the given operator set and a single script
