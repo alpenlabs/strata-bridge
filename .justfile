@@ -245,7 +245,7 @@ checkpoint:
         --btc-user user \
         --btc-pass password \
         --checkpoint-tag strata-ckpt \
-        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZams
+        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZams # keep this in sync with `docker/vol/alpen-bridge-{1,2,3}/params.toml`
 
 # Run bridge-in
 [group('bridge')]
@@ -259,7 +259,7 @@ bridge-in:
         --btc-user user \
         --btc-pass password \
         --params bin/dev-cli/params.toml \
-        --ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8
+        --ee-address 70997970C51812dc3A010C7d01b50e0d17dc79C8 # from anvil #2
 
 # Run bridge-out
 [group('bridge')]
@@ -272,7 +272,7 @@ bridge-out:
         --params bin/dev-cli/params.toml \
         --ee-url http://localhost:8545 \
         --destination-address-pubkey 94b25feb390fbefadd68f7c1eee7e0c475fea0d1fdde59ba66ab6ca819fce47c \
-        --private-key 59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+        --private-key 59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d # from anvil #2
 
 # Issue a challenge transaction, set `CLAIM_TXID` env var to use
 [group('bridge')]
