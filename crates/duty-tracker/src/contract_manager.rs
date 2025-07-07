@@ -1185,7 +1185,17 @@ impl ContractManagerCtx {
     ) -> Option<OperatorDuty> {
         info!(%deposit_request_txid, "received nag for root nonces");
 
-        if let ContractState::Requested { root_nonces, .. } = &csm.state().state {
+        if let ContractState::Requested {
+            graph_sigs,
+            root_nonces,
+            ..
+        } = &csm.state().state
+        {
+            if graph_sigs.len() != csm.cfg().operator_table.cardinality() {
+                warn!(%deposit_request_txid, "aggregated graphs sigs incomplete, cannot publish root nonces");
+                return None;
+            }
+
             let witness = csm.cfg().deposit_tx.witnesses()[0].clone();
 
             // Get nonce from state if it exists for this operator
