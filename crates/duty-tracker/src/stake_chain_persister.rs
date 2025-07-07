@@ -54,7 +54,6 @@ impl StakeChainPersister {
                     ?stake_input,
                     "constructing stake data to commit to disk"
                 );
-                debug!(%operator_id, %stake_index, hash=%stake_input.hash, "constructing stake data to commit to disk");
 
                 stake_chain_data.push((operator_id, stake_index, stake_input));
             }

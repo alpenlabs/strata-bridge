@@ -1105,7 +1105,7 @@ impl ContractManagerCtx {
     ) -> Option<OperatorDuty> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
-        debug!(claims = ?self.state.claim_txids, "get nonces exchange");
+        trace!(claims = ?self.state.claim_txids, "get nonces exchange");
 
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
@@ -1220,7 +1220,7 @@ impl ContractManagerCtx {
     ) -> Option<OperatorDuty> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
-        debug!(claims = ?self.state.claim_txids, "get signatures exchange");
+        trace!(claims = ?self.state.claim_txids, "get signatures exchange");
 
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
