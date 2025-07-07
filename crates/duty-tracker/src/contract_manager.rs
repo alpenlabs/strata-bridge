@@ -1001,28 +1001,28 @@ impl ContractManagerCtx {
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         match req {
             GetMessageRequest::StakeChainExchange { .. } => {
-                Ok(self.handle_stake_chain_exchange_request())
+                Ok(self.process_stake_chain_exchange_request())
             }
             GetMessageRequest::DepositSetup { scope, .. } => {
-                self.handle_deposit_setup_request(scope)
+                self.process_deposit_setup_request(scope)
             }
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
-                Ok(self.handle_musig2_nonces_exchange_request(session_id))
+                Ok(self.process_musig2_nonces_exchange_request(session_id))
             }
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
-                Ok(self.handle_musig2_signatures_exchange_request(session_id))
+                Ok(self.process_musig2_signatures_exchange_request(session_id))
             }
         }
     }
 
-    fn handle_stake_chain_exchange_request(&self) -> Option<OperatorDuty> {
+    fn process_stake_chain_exchange_request(&self) -> Option<OperatorDuty> {
         info!("received request for stake chain exchange");
         // TODO(proofofkeags): actually choose the correct stake chain
         // inputs based off the stake chain id we receive.
         Some(OperatorDuty::PublishStakeChainExchange)
     }
 
-    fn handle_deposit_setup_request(
+    fn process_deposit_setup_request(
         &self,
         scope: Scope,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
@@ -1059,7 +1059,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn handle_musig2_nonces_exchange_request(
+    fn process_musig2_nonces_exchange_request(
         &mut self,
         session_id: SessionId,
     ) -> Option<OperatorDuty> {
@@ -1081,7 +1081,7 @@ impl ContractManagerCtx {
             .values()
             .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
         {
-            Self::handle_root_nonces_request(session_id_as_txid, csm)
+            Self::process_root_nonces_request(session_id_as_txid, csm)
         } else {
             // otherwise ignore this message.
             warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
@@ -1089,7 +1089,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn handle_graph_nonces_request(claim_txid: Txid, csm: &ContractSM) -> Option<OperatorDuty> {
+    fn process_graph_nonces_request(claim_txid: Txid, csm: &ContractSM) -> Option<OperatorDuty> {
         info!(%claim_txid, "received request for graph nonces");
 
         if let ContractState::Requested {
@@ -1139,7 +1139,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn handle_root_nonces_request(
+    fn process_root_nonces_request(
         deposit_request_txid: Txid,
         csm: &ContractSM,
     ) -> Option<OperatorDuty> {
@@ -1164,7 +1164,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn handle_musig2_signatures_exchange_request(
+    fn process_musig2_signatures_exchange_request(
         &mut self,
         session_id: SessionId,
     ) -> Option<OperatorDuty> {
@@ -1175,7 +1175,7 @@ impl ContractManagerCtx {
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
             if let Some(csm) = self.state.active_contracts.get(deposit_txid) {
-                return Self::handle_graph_signatures_request(&self.cfg, session_id_as_txid, csm);
+                return Self::process_graph_signatures_request(&self.cfg, session_id_as_txid, csm);
             }
         }
 
@@ -1186,7 +1186,7 @@ impl ContractManagerCtx {
             .values()
             .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
         {
-            Self::handle_root_signatures_request(session_id_as_txid, csm)
+            Self::process_root_signatures_request(session_id_as_txid, csm)
         } else {
             // otherwise ignore this message.
             warn!(txid=%session_id_as_txid, "received a musig2 signatures exchange for an unknown session");
@@ -1194,7 +1194,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn handle_graph_signatures_request(
+    fn process_graph_signatures_request(
         cfg: &ExecutionConfig,
         claim_txid: Txid,
         csm: &ContractSM,
@@ -1262,7 +1262,7 @@ impl ContractManagerCtx {
         }
     }
 
-    fn handle_root_signatures_request(
+    fn process_root_signatures_request(
         deposit_request_txid: Txid,
         csm: &ContractSM,
     ) -> Option<OperatorDuty> {
