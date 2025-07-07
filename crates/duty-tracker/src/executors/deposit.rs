@@ -349,9 +349,17 @@ pub(crate) async fn handle_publish_graph_nonces(
 /// The information required to generate the Musig2 partial signature for an input in the peg out
 /// graph.
 pub(crate) struct GenPartialsInput {
+    /// The [`musig2`] aggregated nonce.
     pub(crate) aggnonce: AggNonce,
+
+    /// The input being signed represented as an [`OutPoint`].
     pub(crate) outpoint: OutPoint,
+
+    /// The sighash of the transaction being signed for this input.
     pub(crate) sighash: Message,
+
+    /// The type of spending path to be used which determines how the keys are aggregated in
+    /// [`musig2`].
     pub(crate) witness: TaprootWitness,
 }
 

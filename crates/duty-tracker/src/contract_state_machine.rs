@@ -3349,9 +3349,17 @@ fn aggregate_nonces(
 
 /// Auxiliary data required to compute aggregate signatures from partials in the MuSig2 scheme.
 pub(crate) struct AuxAggData {
+    /// The agg nonces for each of the inputs in the [`PegOutGraph`] using the same (canonical)
+    /// order as used by [`PogMusigF`] to pack graph information.
     agg_nonces: Vec<AggNonce>,
+
+    /// The sighash types used in each input in the [`PegOutGraph`].
     sighash_types: PogMusigF<TapSighashType>,
+
+    /// The sighash corresponding to each input in the [`PegOutGraph`].
     sighashes: PogMusigF<Message>,
+
+    /// The type of spending path to use in each input in the [`PegOutGraph`].
     witnesses: PogMusigF<TaprootWitness>,
 }
 
