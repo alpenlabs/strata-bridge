@@ -938,11 +938,30 @@ impl ContractManagerCtx {
                     .get(&txid)
                     .and_then(|txid| self.state.active_contracts.get_mut(txid))
                 {
-                    duties.extend(contract.process_contract_event(ContractEvent::GraphSigs {
-                        signer: key,
-                        claim_txid: txid,
-                        signatures: signatures.clone(),
-                    })?);
+                    let publish_graph_sigs_duty =
+                        contract.process_contract_event(ContractEvent::GraphSigs {
+                            signer: key,
+                            claim_txid: txid,
+                            signatures: signatures.clone(),
+                        })?;
+
+                    // this is a critical state transition as signatures are aggregated here, so
+                    // commit the state to disk immediately.
+                    if !publish_graph_sigs_duty.is_empty() {
+                        debug!(%txid, "committing graph sigs to disk");
+                        let deposit_idx = contract.cfg().deposit_idx;
+                        let deposit_tx = &contract.cfg().deposit_tx;
+                        let operator_table = &contract.cfg().operator_table;
+
+                        self.state_handles
+                            .contract_persister
+                            .commit(&txid, deposit_idx, deposit_tx, operator_table, contract.state())
+                            .await.inspect_err(|e| {
+                                error!(%e, %txid, %deposit_idx, "could not persist contract data to disk");
+                            })?;
+                    }
+
+                    duties.extend(publish_graph_sigs_duty);
                 } else if let Some((_, contract)) = self
                     .state
                     .active_contracts
