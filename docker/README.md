@@ -7,8 +7,8 @@ docker build -f docker/<dockerfile> .
 ```
 
 Layout:
-- `Dockerfile`: base image used to build the other images.
 
+- `Dockerfile`: base image used to build the other images.
 
 ## Base image
 
@@ -42,7 +42,7 @@ To run three bridge operators (one bridge node and one secret service node each)
 You can do this with:
 
 ```sh
-make gen-s2-tls
+just gen-s2-tls
 ```
 
 This will create the required files/directories inside `docker/vol/alpen-bridge-{1,2,3}`.
@@ -50,7 +50,7 @@ This will create the required files/directories inside `docker/vol/alpen-bridge-
 ### Running the containers
 
 ```sh
-make clean-docker
+just clean-docker
 ```
 
 This will build the base and runtime images, clean up the database in `docker/vol`, delete old containers and run new ones.
@@ -80,7 +80,7 @@ These should look like the following:
 2025-04-15T10:07:13.046028Z  INFO operator_wallet: crates/operator-wallet/src/lib.rs:95: stakechain wallet address: bcrt1payzuzxk4q2szywcnrcgyy7u0t3899xyllep92gcqsukc8r3wypxqn6qy03
 ```
 
-Finally, you need to create a [`.env`](../.env) file at the root of this repository (from where you will run `make clean-docker`).
+Finally, you need to create a [`.env`](../.env) file at the root of this repository (from where you will run `just clean-docker`).
 This file has the following structure:
 
 ```plaintext
@@ -128,7 +128,7 @@ open http://localhost:11000/debug/pprof/heap/flamegraph
 To bridge-in, you can run:
 
 ```sh
-make bridge-in
+just bridge-in
 ```
 
 Make sure to update the [`constants.rs`](../bin/dev-cli/src/constants.rs) file with the correct values for `AGGREGATED_PUBKEY_HEX` and `MAGIC_BYTES`.

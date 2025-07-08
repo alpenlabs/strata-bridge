@@ -1,4 +1,4 @@
-# run via `make gen-s2-tls` not directly!
+# run via `just gen-s2-tls` not directly!
 
 BRIDGE_BASE_DIR=${1:-docker/vol/alpen-bridge}
 S2_BASE_DIR=${2:-docker/vol/secret-service}
@@ -24,7 +24,7 @@ openssl req -new -key $BRIDGE_TLS_DIR/key.pem -out bridge_node.csr -subj "/CN=Br
 openssl x509 -req -in bridge_node.csr -CA $S2_TLS_DIR/bridge.ca.pem -CAkey bridge_node_ca.key -CAcreateserial -out $BRIDGE_TLS_DIR/cert.pem -days 365 -sha256
 
 # Create config file for secret-service with SAN
-cat > secret_service.cnf << EOF
+cat >secret_service.cnf <<EOF
 [req]
 distinguished_name = req_distinguished_name
 req_extensions = v3_req

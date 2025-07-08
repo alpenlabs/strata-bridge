@@ -44,13 +44,18 @@ jobs:
         with:
           toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
+      - name: Install latest just release
+        uses: taiki-e/install-action@9ca1734d8940023f074414ee621fd530c4ce10f2 # v2.55.3
+        with:
+          tool: just
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@27d86b8f455f5faba378fdd55a1c18e1998b3633 # cargo-hack
+
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@27d86b8f455f5faba378fdd55a1c18e1998b3633 # cargo-hack
 
       - name: Rust cache
         uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2
@@ -77,7 +82,7 @@ jobs:
           cargo prove --version
 
       - name: Run db migrations
-        run: make migrate
+        run: just migrate
 
       - name: Check crates compile
         run: cargo hack check
