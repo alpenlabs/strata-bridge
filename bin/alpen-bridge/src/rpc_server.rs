@@ -492,14 +492,6 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         withdrawal_request_txid,
                         assigned_operator_idx: fulfiller,
                     }),
-                    ContractState::StakeTxReady {
-                        withdrawal_request_txid,
-                        fulfiller,
-                        ..
-                    } => Some(RpcBridgeDutyStatus::Withdrawal {
-                        withdrawal_request_txid,
-                        assigned_operator_idx: fulfiller,
-                    }),
                     // Anything else is not a duty for the bridge operator
                     _ => None,
                 }
@@ -543,18 +535,6 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                             assigned_operator_idx: *fulfiller,
                         })
                     }
-
-                    ContractState::StakeTxReady {
-                        claim_txids,
-                        withdrawal_request_txid,
-                        fulfiller,
-                        ..
-                    } if claim_txids.contains_key(operator_p2p_pk) => {
-                        Some(RpcBridgeDutyStatus::Withdrawal {
-                            withdrawal_request_txid: *withdrawal_request_txid,
-                            assigned_operator_idx: *fulfiller,
-                        })
-                    }
                     _ => None,
                 }
             })
@@ -571,10 +551,6 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             // NOTE: this is a source of bugs, don't use the `_` to match all.
             match &entry.0.state.state {
                 ContractState::Assigned {
-                    withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::StakeTxReady {
                     withdrawal_request_txid,
                     ..
                 }
@@ -638,10 +614,6 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 }
 
                 ContractState::Assigned {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::StakeTxReady {
                     withdrawal_request_txid: entry_withdrawal_request_txid,
                     ..
                 }
@@ -719,8 +691,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 // States that do not have an active graph with a claim transaction.
                 ContractState::Requested { .. }
                 | ContractState::Deposited { .. }
-                | ContractState::Assigned { .. }
-                | ContractState::StakeTxReady { .. } => None,
+                | ContractState::Assigned { .. } => None,
 
                 // States that are terminal and do not have an active graph.
                 ContractState::Resolved { .. } | ContractState::Disproved { .. } => None,
@@ -754,7 +725,6 @@ const fn contract_state_to_reimbursement_status(state: &ContractState) -> RpcRei
         ContractState::Requested { .. }
         | ContractState::Deposited { .. }
         | ContractState::Assigned { .. }
-        | ContractState::StakeTxReady { .. }
         | ContractState::Fulfilled { .. } => RpcReimbursementStatus::NotStarted,
         ContractState::Claimed { active_graph, .. } => RpcReimbursementStatus::InProgress {
             challenge_step: ChallengeStep::Claim,

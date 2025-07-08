@@ -296,49 +296,9 @@ pub enum ContractState {
     },
 
     /// This state describes everything from the moment the strata state commitment corresponding
-    /// to a valid withdrawal assignment is posted to bitcoin all the way to the corresponding
-    /// stake transaction being confirmed.
+    /// to a valid withdrawal assignment is posted to the monent the withdrawal fulfillment
+    /// transaction is confirmed.
     Assigned {
-        /// These are the actual peg-out-graph input parameters and summaries for each operator.
-        /// This will be stored so we can monitor the transactions relevant to advancing the
-        /// contract through its lifecycle, as well as reconstructing the graph when necessary.
-        peg_out_graphs: BTreeMap<Txid, (PegOutGraphInput, PegOutGraphSummary)>,
-
-        /// This is an index so we can look up the claim txid that is owned by the specified key.
-        /// This is primarily used to process assignments.
-        claim_txids: BTreeMap<P2POperatorPubKey, Txid>,
-
-        /// This is a collection of the aggregated signatures per graph that can be used to settle
-        /// transactions in the peg out graph at withdrawal time.
-        graph_sigs: BTreeMap<Txid, PogMusigF<taproot::Signature>>,
-
-        /// The operator responsible for fulfilling the withdrawal.
-        fulfiller: OperatorIdx,
-
-        /// The descriptor of the recipient.
-        recipient: Descriptor,
-
-        /// The deadline by which the operator must fulfill the withdrawal before it is reassigned.
-        deadline: BitcoinBlockHeight,
-
-        /// The graph that belongs to the assigned operator.
-        active_graph: (PegOutGraphInput, PegOutGraphSummary),
-
-        /// The transaction ID of the withdrawal request transaction in the execution environment.
-        ///
-        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
-        /// the withdrawal transaction in the sidesystem's execution environment.
-        withdrawal_request_txid: Buf32,
-
-        /// The height of the last block in bitcoin covered by the sidesystem checkpoint containing
-        /// the assignment.
-        l1_start_height: BitcoinBlockHeight,
-    },
-
-    /// This state describes everything from the moment stake transaction corresponding to this
-    /// deposit confirms to the moment the fulfillment transaction confirms for the assigned
-    /// operator.
-    StakeTxReady {
         /// These are the actual peg-out-graph input parameters and summaries for each operator.
         /// This will be stored so we can monitor the transactions relevant to advancing the
         /// contract through its lifecycle, as well as reconstructing the graph when necessary.
@@ -671,14 +631,6 @@ impl Display for ContractState {
             } => format!(
                 "Assigned to {fulfiller} with recipient: {recipient} and deadline {deadline}"
             ),
-            ContractState::StakeTxReady {
-                active_graph,
-                fulfiller,
-                ..
-            } => format!(
-                "StakeTxReady ({}) for operator {fulfiller}",
-                active_graph.1.stake_txid
-            ),
             ContractState::Fulfilled { fulfiller, .. } => {
                 format!("Fulfilled by operator {fulfiller}")
             }
@@ -781,7 +733,6 @@ impl ContractState {
             } => peg_out_graphs.values().cloned().collect(),
             ContractState::Deposited { peg_out_graphs, .. }
             | ContractState::Assigned { peg_out_graphs, .. }
-            | ContractState::StakeTxReady { peg_out_graphs, .. }
             | ContractState::Fulfilled { peg_out_graphs, .. }
             | ContractState::Claimed { peg_out_graphs, .. }
             | ContractState::Challenged { peg_out_graphs, .. }
@@ -800,7 +751,6 @@ impl ContractState {
             ContractState::Requested { claim_txids, .. }
             | ContractState::Deposited { claim_txids, .. }
             | ContractState::Assigned { claim_txids, .. }
-            | ContractState::StakeTxReady { claim_txids, .. }
             | ContractState::Fulfilled { claim_txids, .. }
             | ContractState::Claimed { claim_txids, .. }
             | ContractState::Challenged { claim_txids, .. }
@@ -823,7 +773,6 @@ impl ContractState {
             ContractState::Requested { graph_sigs, .. }
             | ContractState::Deposited { graph_sigs, .. }
             | ContractState::Assigned { graph_sigs, .. }
-            | ContractState::StakeTxReady { graph_sigs, .. }
             | ContractState::Fulfilled { graph_sigs, .. }
             | ContractState::Claimed { graph_sigs, .. }
             | ContractState::Challenged { graph_sigs, .. }
@@ -842,7 +791,6 @@ impl ContractState {
             ContractState::Requested { claim_txids, .. }
             | ContractState::Deposited { claim_txids, .. }
             | ContractState::Assigned { claim_txids, .. }
-            | ContractState::StakeTxReady { claim_txids, .. }
             | ContractState::Fulfilled { claim_txids, .. }
             | ContractState::Claimed { claim_txids, .. }
             | ContractState::Challenged { claim_txids, .. }
@@ -872,7 +820,6 @@ impl ContractState {
                 .and_then(|op_key| peg_out_graph_inputs.get(&op_key)),
             ContractState::Deposited { peg_out_graphs, .. }
             | ContractState::Assigned { peg_out_graphs, .. }
-            | ContractState::StakeTxReady { peg_out_graphs, .. }
             | ContractState::Fulfilled { peg_out_graphs, .. }
             | ContractState::Claimed { peg_out_graphs, .. }
             | ContractState::Challenged { peg_out_graphs, .. }
@@ -894,7 +841,6 @@ impl ContractState {
             } => peg_out_graph_summaries.get(&claim_txid),
             ContractState::Deposited { peg_out_graphs, .. }
             | ContractState::Assigned { peg_out_graphs, .. }
-            | ContractState::StakeTxReady { peg_out_graphs, .. }
             | ContractState::Fulfilled { peg_out_graphs, .. }
             | ContractState::Claimed { peg_out_graphs, .. }
             | ContractState::Challenged { peg_out_graphs, .. }
@@ -1066,17 +1012,11 @@ pub enum FulfillerDuty {
     /// Instructs us to send our initial StakeChainExchange message.
     InitStakeChain,
 
-    /// Originates when strata state on L1 is published and there has been an assignment.
-    AdvanceStakeChain {
-        /// Index of the stake transaction to advance to.
-        stake_index: u32,
-
+    /// Originates when strata state on L1 is published which contains a valid assignment.
+    HandleFulfillment {
         /// The stake transaction to advance corresponding to the stake index.
         stake_tx: StakeTxKind,
-    },
 
-    /// Originates when strata state on L1 is published and assignment is self.
-    PublishFulfillment {
         /// Withdrawal metadata.
         withdrawal_metadata: WithdrawalMetadata,
 
@@ -1202,15 +1142,7 @@ impl Display for FulfillerDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             FulfillerDuty::InitStakeChain => write!(f, "InitStakeChain"),
-            FulfillerDuty::AdvanceStakeChain {
-                stake_index,
-                stake_tx,
-            } => write!(
-                f,
-                "AdvanceStakeChain for stake_index: {stake_index}, stake_tx: {:?}",
-                &stake_tx.psbt().unsigned_tx
-            ),
-            FulfillerDuty::PublishFulfillment {
+            FulfillerDuty::HandleFulfillment {
                 withdrawal_metadata,
                 ..
             } => write!(f, "PublishFulfillment: {withdrawal_metadata:?}"),
@@ -1410,7 +1342,7 @@ impl ContractSM {
         let txid = tx.compute_txid();
 
         let operator_ids = cfg.operator_table.operator_idxs();
-        if let ContractState::StakeTxReady { recipient, .. } = &self.state.state {
+        if let ContractState::Assigned { recipient, .. } = &self.state.state {
             if operator_ids.iter().any(|operator_idx| {
                 is_fulfillment_tx(
                     cfg.network,
@@ -1624,8 +1556,7 @@ impl ContractSM {
                 tx.compute_txid(),
                 self.state.state
             ))),
-            ContractState::Assigned { .. } => self.process_stake_chain_advancement(tx),
-            ContractState::StakeTxReady { .. } => self.process_fulfillment_confirmation(tx, height),
+            ContractState::Assigned { .. } => self.process_fulfillment_confirmation(height, tx),
             ContractState::Fulfilled { .. } => self.process_claim_confirmation(height, tx),
             ContractState::Claimed { .. } => self.process_challenge_confirmation(tx).or_else(|e| {
                 debug!(%e, "could not process challenge tx");
@@ -2343,7 +2274,6 @@ impl ContractSM {
             // and so are agnostic to new block events.
             ContractState::Deposited { .. }
             | ContractState::Assigned { .. }
-            | ContractState::StakeTxReady { .. }
             | ContractState::Fulfilled { .. }
             | ContractState::PreAssertConfirmed { .. }
             | ContractState::AssertDataConfirmed { .. }
@@ -2485,10 +2415,11 @@ impl ContractSM {
             )));
         }
 
-        let operator_table = self.cfg().operator_table.clone();
         match assignment.deposit_state() {
             DepositState::Dispatched(dispatched_state) => {
                 let assignee = dispatched_state.assignee();
+                debug!(%assignee, deposit_idx=%self.cfg.deposit_idx, "received withdrawal assignment");
+
                 let assignee_key = match self.cfg.operator_table.idx_to_p2p_key(&assignee) {
                     Some(op_key) => op_key.clone(),
                     None => {
@@ -2497,7 +2428,6 @@ impl ContractSM {
                         )));
                     }
                 };
-                let pov_idx = self.cfg.operator_table.pov_idx();
                 let recipient = dispatched_state
                     .cmd()
                     .withdraw_outputs()
@@ -2516,8 +2446,23 @@ impl ContractSM {
                         ))
                     })?;
 
+                let withdrawal_metadata = WithdrawalMetadata {
+                    tag: self.cfg().peg_out_graph_params.tag,
+                    operator_idx: assignee,
+                    deposit_idx: self.cfg.deposit_idx,
+                    deposit_txid,
+                };
+
                 match &mut self.state.state {
+                    // new assignment
                     ContractState::Deposited {
+                        peg_out_graphs,
+                        claim_txids,
+                        graph_sigs,
+                        ..
+                    }
+                    // re-assignment
+                    | ContractState::Assigned {
                         peg_out_graphs,
                         claim_txids,
                         graph_sigs,
@@ -2549,107 +2494,13 @@ impl ContractSM {
                         };
 
                         Ok(Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::AdvanceStakeChain {
-                                stake_index: assignment.idx(),
+                            FulfillerDuty::HandleFulfillment {
                                 stake_tx,
+                                withdrawal_metadata,
+                                user_descriptor: recipient.clone(),
+                                deadline,
                             },
                         )))
-                    }
-
-                    ContractState::Assigned {
-                        fulfiller,
-                        deadline,
-                        claim_txids,
-                        active_graph,
-                        peg_out_graphs,
-                        ..
-                    } => {
-                        if *fulfiller != assignee {
-                            info!(assignment=%self.cfg.deposit_idx, new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
-
-                            *fulfiller = assignee;
-                            *deadline = dispatched_state.exec_deadline();
-                            let p2p_key =
-                                operator_table
-                                    .idx_to_p2p_key(&assignee)
-                                    .ok_or(TransitionErr(format!(
-                                    "could not convert operator index {assignee} to operator key"
-                                )))?;
-
-                            let claim_txid = claim_txids.get(p2p_key).ok_or(TransitionErr(format!(
-                                "could not find claim_txid for operator {p2p_key} in csm {deposit_txid}",
-                            )))?;
-
-                            *active_graph = peg_out_graphs
-                                .get(claim_txid)
-                                .ok_or(TransitionErr(format!(
-                                    "could not find peg out graph for claim txid {claim_txid} in csm {deposit_txid}",
-                                )))?
-                                .to_owned();
-                        }
-
-                        Ok(Some(OperatorDuty::FulfillerDuty(
-                            FulfillerDuty::AdvanceStakeChain {
-                                stake_index: assignment.idx(),
-                                stake_tx,
-                            },
-                        )))
-                    }
-
-                    ContractState::StakeTxReady {
-                        fulfiller,
-                        deadline,
-                        claim_txids,
-                        active_graph,
-                        peg_out_graphs,
-                        ..
-                    } => {
-                        if *fulfiller != assignee {
-                            info!(assignment=%self.cfg.deposit_idx, new=%assignee, current=%fulfiller, "received assignment for a different fulfiller than the current");
-
-                            *fulfiller = assignee;
-                            *deadline = dispatched_state.exec_deadline();
-
-                            let p2p_key =
-                                operator_table
-                                    .idx_to_p2p_key(&assignee)
-                                    .ok_or(TransitionErr(format!(
-                                    "could not convert operator index {assignee} to operator key"
-                                )))?;
-
-                            let claim_txid = claim_txids.get(p2p_key).ok_or(TransitionErr(format!(
-                                "could not find claim_txid for operator {p2p_key} in csm {deposit_txid}",
-                            )))?;
-
-                            *active_graph = peg_out_graphs
-                                .get(claim_txid)
-                                .ok_or(TransitionErr(format!(
-                                    "could not find peg out graph for claim txid {claim_txid} in csm {deposit_txid}",
-                                )))?
-                                .to_owned();
-                        }
-
-                        let is_assigned_to_me = *fulfiller == pov_idx;
-                        let duty = if is_assigned_to_me {
-                            let withdrawal_metadata = WithdrawalMetadata {
-                                tag: self.cfg.peg_out_graph_params.tag,
-                                operator_idx: *fulfiller,
-                                deposit_idx: assignment.idx(),
-                                deposit_txid,
-                            };
-
-                            Some(OperatorDuty::FulfillerDuty(
-                                FulfillerDuty::PublishFulfillment {
-                                    withdrawal_metadata,
-                                    user_descriptor: recipient.clone(),
-                                    deadline: *deadline,
-                                },
-                            ))
-                        } else {
-                            None
-                        };
-
-                        Ok(duty)
                     }
 
                     cur_state => {
@@ -2672,82 +2523,11 @@ impl ContractSM {
         }
     }
 
-    fn process_stake_chain_advancement(
-        &mut self,
-        tx: &Transaction,
-    ) -> Result<Option<OperatorDuty>, TransitionErr> {
-        let deposit_txid = self.deposit_txid();
-        info!(%deposit_txid, "processing stake chain advancement");
-
-        match &mut self.state.state {
-            ContractState::Assigned {
-                peg_out_graphs,
-                claim_txids,
-                graph_sigs,
-                fulfiller,
-                recipient,
-                deadline,
-                active_graph,
-                withdrawal_request_txid,
-                l1_start_height,
-                ..
-            } => {
-                if tx.compute_txid() != active_graph.1.stake_txid {
-                    // might be somebody else's stake txid
-
-                    // FIXME: (@Rajil1213) This should be an error variant that the upstream code
-                    // can handle. Most likely, the upstream code will just
-                    // ignore this error.
-                    return Ok(None);
-                }
-
-                let is_assigned_to_me = *fulfiller == self.cfg.operator_table.pov_idx();
-                let duty = if is_assigned_to_me {
-                    // if this withdrawal is assigned to this operator, then it needs to fulfill
-                    // it.
-                    let withdrawal_metadata = WithdrawalMetadata {
-                        tag: self.cfg.peg_out_graph_params.tag,
-                        operator_idx: *fulfiller,
-                        deposit_idx: self.cfg.deposit_idx,
-                        deposit_txid,
-                    };
-
-                    Some(OperatorDuty::FulfillerDuty(
-                        FulfillerDuty::PublishFulfillment {
-                            withdrawal_metadata,
-                            user_descriptor: recipient.clone(),
-                            deadline: *deadline,
-                        },
-                    ))
-                } else {
-                    None
-                };
-
-                self.state.state = ContractState::StakeTxReady {
-                    peg_out_graphs: peg_out_graphs.clone(),
-                    graph_sigs: graph_sigs.clone(),
-                    claim_txids: claim_txids.clone(),
-                    fulfiller: *fulfiller,
-                    recipient: recipient.clone(),
-                    deadline: *deadline,
-                    active_graph: active_graph.clone(),
-                    withdrawal_request_txid: *withdrawal_request_txid,
-                    l1_start_height: *l1_start_height,
-                };
-
-                Ok(duty)
-            }
-            cur_state => Err(TransitionErr(format!(
-                "unexpected state in process_stake_chain_advancement ({cur_state})"
-            ))),
-        }
-    }
-
     fn process_fulfillment_confirmation(
         // Analyze fulfillment transaction to determine
         &mut self,
-        tx: &Transaction,
         height: BitcoinBlockHeight,
+        tx: &Transaction,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
         let deposit_idx = self.cfg.deposit_idx;
@@ -2757,7 +2537,7 @@ impl ContractSM {
         let peg_out_graph_params = self.cfg.peg_out_graph_params;
         let network = self.cfg.network;
         match &mut self.state.state {
-            ContractState::StakeTxReady {
+            ContractState::Assigned {
                 peg_out_graphs,
                 claim_txids,
                 graph_sigs,
@@ -3347,7 +3127,6 @@ impl ContractSM {
             ContractState::Requested { claim_txids, .. }
             | ContractState::Deposited { claim_txids, .. }
             | ContractState::Assigned { claim_txids, .. }
-            | ContractState::StakeTxReady { claim_txids, .. }
             | ContractState::Fulfilled { claim_txids, .. }
             | ContractState::Claimed { claim_txids, .. }
             | ContractState::Challenged { claim_txids, .. }
@@ -3367,18 +3146,14 @@ impl ContractSM {
 
     /// The transaction ID of the assignment transaction for this contract.
     ///
-    /// NOTE: that this is only available if the contract is in the [`ContractState::Assigned`] or
-    /// [`ContractState::StakeTxReady`] state.
+    /// NOTE: that this is only available if the contract is in the [`ContractState::Assigned`]
+    /// state.
     ///
     /// This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of the
     /// withdrawal transaction in the sidesystem's execution environment.
     pub const fn withdrawal_request_txid(&self) -> Option<Buf32> {
         match &self.state().state {
             ContractState::Assigned {
-                withdrawal_request_txid,
-                ..
-            }
-            | ContractState::StakeTxReady {
                 withdrawal_request_txid,
                 ..
             } => Some(*withdrawal_request_txid),
@@ -3404,7 +3179,6 @@ impl ContractSM {
             ContractState::Requested { .. }
             | ContractState::Deposited { .. }
             | ContractState::Assigned { .. }
-            | ContractState::StakeTxReady { .. }
             | ContractState::Disproved {}
             | ContractState::Resolved { .. } => None,
 
