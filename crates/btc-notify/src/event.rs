@@ -1,3 +1,5 @@
+use std::fmt;
+
 use bitcoin::{Block, BlockHash, Transaction};
 
 /// TxStatus is the primary output of this API via the subscription.
@@ -43,13 +45,29 @@ pub enum TxStatus {
         height: u64,
     },
 }
+
+impl fmt::Display for TxStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TxStatus::Unknown => write!(f, "unknown"),
+            TxStatus::Mempool => write!(f, "in mempool"),
+            TxStatus::Mined { blockhash, height } => {
+                write!(f, "mined in block {height} ({blockhash})")
+            }
+            TxStatus::Buried { blockhash, height } => {
+                write!(f, "buried in block {height} ({blockhash})")
+            }
+        }
+    }
+}
+
 impl TxStatus {
-    /// returns true if the status is some sort of [`TxStatus::Mined`] status.
+    /// Returns true if the status is some sort of [`TxStatus::Mined`] status.
     pub const fn is_mined(&self) -> bool {
         matches!(self, TxStatus::Mined { .. })
     }
 
-    /// returns true if the status is some sort of [`TxStatus::Buried`] status.
+    /// Returns true if the status is some sort of [`TxStatus::Buried`] status.
     pub const fn is_buried(&self) -> bool {
         matches!(self, TxStatus::Buried { .. })
     }
