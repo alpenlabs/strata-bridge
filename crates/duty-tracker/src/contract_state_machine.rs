@@ -439,6 +439,12 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
+
         /// The transaction ID of the withdrawal fulfillment transaction.
         withdrawal_fulfillment_txid: Txid,
 
@@ -472,6 +478,12 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The height at which the claim transaction was confirmed.
         claim_height: BitcoinBlockHeight,
@@ -509,6 +521,12 @@ pub enum ContractState {
 
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
+
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The height at which the claim transaction was confirmed.
         claim_height: BitcoinBlockHeight,
@@ -550,6 +568,12 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
+
         /// The transaction ID of the withdrawal fulfillment transaction.
         withdrawal_fulfillment_txid: Txid,
 
@@ -583,6 +607,12 @@ pub enum ContractState {
         /// The graph that belongs to the assigned operator.
         active_graph: (PegOutGraphInput, PegOutGraphSummary),
 
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
+
         /// The height at which the post-assert transaction was confirmed.
         post_assert_height: BitcoinBlockHeight,
 
@@ -605,6 +635,12 @@ pub enum ContractState {
     Resolved {
         /// The spent claim transaction ID that led to this contract being resolved.
         claim_txid: Txid,
+
+        /// The transaction ID of the withdrawal request transaction in the execution environment.
+        ///
+        /// NOTE: This is not a Bitcoin [`Txid`] but a [`Buf32`] representing the transaction ID of
+        /// the withdrawal transaction in the sidesystem's execution environment.
+        withdrawal_request_txid: Buf32,
 
         /// The transaction ID of the withdrawal fulfillment transaction.
         withdrawal_fulfillment_txid: Txid,
@@ -2773,6 +2809,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 withdrawal_fulfillment_txid,
                 l1_start_height,
                 ..
@@ -2804,6 +2841,7 @@ impl ContractSM {
                     claim_height: height,
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     l1_start_height: *l1_start_height,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_commitment: Wots256Sig(commitment),
@@ -2843,6 +2881,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 claim_height,
                 l1_start_height,
                 withdrawal_fulfillment_txid,
@@ -2865,6 +2904,7 @@ impl ContractSM {
                     graph_sigs: graph_sigs.clone(),
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     claim_height: *claim_height,
                     l1_start_height: *l1_start_height,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
@@ -2892,6 +2932,7 @@ impl ContractSM {
                 peg_out_graphs,
                 claim_txids,
                 active_graph,
+                withdrawal_request_txid,
                 graph_sigs,
                 fulfiller,
                 claim_height,
@@ -2907,6 +2948,7 @@ impl ContractSM {
                 claim_height,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 withdrawal_fulfillment_txid,
                 withdrawal_fulfillment_commitment,
                 l1_start_height,
@@ -2950,6 +2992,7 @@ impl ContractSM {
                     graph_sigs: graph_sigs.clone(),
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     claim_height: *claim_height,
                     l1_start_height: *l1_start_height,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
@@ -2979,6 +3022,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 withdrawal_fulfillment_txid,
                 withdrawal_fulfillment_commitment,
                 signed_assert_data_txs,
@@ -3027,6 +3071,7 @@ impl ContractSM {
                     graph_sigs: graph_sigs.clone(),
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
                     signed_assert_data_txs: signed_assert_data_txs.clone(),
@@ -3055,6 +3100,7 @@ impl ContractSM {
                 graph_sigs,
                 fulfiller,
                 active_graph,
+                withdrawal_request_txid,
                 withdrawal_fulfillment_txid,
                 withdrawal_fulfillment_commitment,
                 signed_assert_data_txs,
@@ -3103,6 +3149,7 @@ impl ContractSM {
                     post_assert_height,
                     fulfiller: *fulfiller,
                     active_graph: active_graph.clone(),
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     withdrawal_fulfillment_commitment: *withdrawal_fulfillment_commitment,
                     proof_commitment: Groth16Sigs(proof_commitment),
@@ -3171,6 +3218,7 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Claimed {
                 active_graph,
+                withdrawal_request_txid,
                 withdrawal_fulfillment_txid,
                 ..
             } => {
@@ -3182,6 +3230,7 @@ impl ContractSM {
                 info!(txid=%payout_optimistic_txid, "processing optimistic payout confirmation");
                 self.state.state = ContractState::Resolved {
                     claim_txid: active_graph.1.claim_txid,
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     payout_txid: payout_optimistic_txid,
                     path: ResolutionPath::Optimistic,
@@ -3206,6 +3255,7 @@ impl ContractSM {
         match &mut self.state.state {
             ContractState::Asserted {
                 active_graph,
+                withdrawal_request_txid,
                 withdrawal_fulfillment_txid,
                 ..
             } => {
@@ -3218,6 +3268,7 @@ impl ContractSM {
 
                 self.state.state = ContractState::Resolved {
                     claim_txid: active_graph.1.claim_txid,
+                    withdrawal_request_txid: *withdrawal_request_txid,
                     withdrawal_fulfillment_txid: *withdrawal_fulfillment_txid,
                     payout_txid: defended_payout_txid,
                     path: ResolutionPath::Contested,
