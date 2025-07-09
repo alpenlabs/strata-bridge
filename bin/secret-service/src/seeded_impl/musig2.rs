@@ -147,7 +147,7 @@ impl Ms2Signer {
         params: &Musig2Params,
         key_agg_ctx: &KeyAggContext,
     ) -> Result<SecNonce, OurPubKeyIsNotInParams> {
-        SECNONCE_CACHE.lock().await.get_or_set(params, |params| {
+        SECNONCE_CACHE.lock().await.get(params, |params| {
             let nonce_seed = {
                 let info = make_buf! {
                     (&params.input.txid.as_raw_hash().to_byte_array(), 32),

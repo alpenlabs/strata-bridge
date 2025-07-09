@@ -202,9 +202,12 @@ async fn schnorr_signers() {
 async fn musig2() {
     let client = setup().await;
 
+    const TOTAL_SIGNERS: usize = 3;
+    const LOCAL_SIGNERS: usize = TOTAL_SIGNERS - 1;
+
     let ms2_signer = client.musig2_signer();
 
-    let local_signers = (0..2)
+    let local_signers = (0..LOCAL_SIGNERS)
         .map(|_| {
             EvenSecretKey::from(SecretKey::new(&mut thread_rng()))
                 .deref()
@@ -276,16 +279,15 @@ async fn musig2() {
     let remote_signer_index = ctx
         .pubkey_index(remote_public_key.public_key(Parity::Even))
         .unwrap();
-    let total_local_signers = local_first_rounds.len();
 
-    let mut pubnonces = Vec::with_capacity(3);
+    let mut pubnonces = Vec::with_capacity(TOTAL_SIGNERS);
 
     #[allow(
         clippy::uninit_vec,
         reason = "each of 3 indices is manually set so none will be left uninitialized"
     )]
     unsafe {
-        pubnonces.set_len(3);
+        pubnonces.set_len(TOTAL_SIGNERS);
     }
 
     for (i, local_fr) in local_first_rounds.iter().enumerate() {
@@ -307,7 +309,7 @@ async fn musig2() {
         .expect("good response")
         .expect("partial sig");
 
-    for i in 0..total_local_signers {
+    for i in 0..LOCAL_SIGNERS {
         let local_fr = &local_first_rounds[i];
         // send secret service's pub nonce to this local signer
         local_fr
@@ -315,7 +317,7 @@ async fn musig2() {
             .receive_nonce(remote_signer_index, remote_pub_nonce.clone())
             .expect("our nonce to be good");
         // receive the other local pubnonces
-        for j in 0..total_local_signers {
+        for j in 0..LOCAL_SIGNERS {
             if i == j {
                 continue;
             }
@@ -347,14 +349,14 @@ async fn musig2() {
         .collect::<Vec<RefCell<_>>>();
     println!("pubkeys: {:?}", ctx.pubkeys());
 
-    let mut partial_sigs = Vec::with_capacity(3);
+    let mut partial_sigs = Vec::with_capacity(TOTAL_SIGNERS);
 
     #[allow(
         clippy::uninit_vec,
         reason = "each of 3 indices is manually set so none will be left uninitialized"
     )]
     unsafe {
-        partial_sigs.set_len(3);
+        partial_sigs.set_len(TOTAL_SIGNERS);
     }
 
     for (i, local_sr) in local_second_rounds.iter().enumerate() {
@@ -372,14 +374,14 @@ async fn musig2() {
         .pubkey_index(remote_public_key.public_key(Parity::Even))
         .unwrap()] = remote_partial_sig;
 
-    for i in 0..total_local_signers {
+    for i in 0..LOCAL_SIGNERS {
         let sr = &local_second_rounds[i];
         // give secret service's partial sig to this signer
         sr.borrow_mut()
             .receive_signature(remote_signer_index, remote_partial_sig)
             .expect("our partial sig to be good");
         // exchange partial sigs with the other local signers
-        for j in 0..total_local_signers {
+        for j in 0..LOCAL_SIGNERS {
             if i == j {
                 continue;
             }
