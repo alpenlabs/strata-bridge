@@ -202,33 +202,32 @@ impl StakeChainSM {
     ) -> Result<Option<StakeTxKind>, StakeChainErr> {
         match self.stake_chains.get(op) {
             Some(stake_chain_inputs) => {
-                let pre_stake = stake_chain_inputs.pre_stake_outpoint;
-
                 let context = self.operator_table.tx_build_context(self.network);
 
                 // handle the first stake tx differently as it spends a pre-stake and not the stake
                 // tx.
-                let first_input = stake_chain_inputs
-                    .stake_inputs
-                    .values()
-                    .nth(0)
-                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), 0))?;
-                let stake_hash = first_input.hash;
-                let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
-                let operator_funds = first_input.operator_funds;
-                let operator_pubkey = first_input.operator_pubkey;
-
-                let first_stake = StakeTx::<Head>::new(
-                    &context,
-                    &self.params,
-                    stake_hash,
-                    withdrawal_fulfillment_pk,
-                    pre_stake,
-                    operator_funds,
-                    operator_pubkey,
-                );
-
                 if nth == 0 {
+                    let pre_stake = stake_chain_inputs.pre_stake_outpoint;
+                    let first_input = stake_chain_inputs
+                        .stake_inputs
+                        .values()
+                        .nth(0)
+                        .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), 0))?;
+                    let stake_hash = first_input.hash;
+                    let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
+                    let operator_funds = first_input.operator_funds;
+                    let operator_pubkey = first_input.operator_pubkey;
+
+                    let first_stake = StakeTx::<Head>::new(
+                        &context,
+                        &self.params,
+                        stake_hash,
+                        withdrawal_fulfillment_pk,
+                        pre_stake,
+                        operator_funds,
+                        operator_pubkey,
+                    );
+
                     return Ok(Some(StakeTxKind::Head(first_stake)));
                 }
 
