@@ -75,7 +75,7 @@ where
         }
     }
 
-    fn get_or_set(
+    fn get(
         &mut self,
         params: &Musig2Params,
         create: impl FnOnce(&Musig2Params) -> Result<SecNonce, OurPubKeyIsNotInParams>,
@@ -154,10 +154,10 @@ impl Ms2Signer {
                     (&params.input.vout.to_le_bytes(), 4)
                 };
                 let hk = Hkdf::<Sha256>::new(None, &self.ikm);
-                let mut okm = [0u8; 32];
-                hk.expand(&info, &mut okm)
+                let mut output = [0u8; 32];
+                hk.expand(&info, &mut output)
                     .expect("32 is a valid length for Sha256 to output");
-                okm
+                output
             };
 
             let our_signer_idx = params

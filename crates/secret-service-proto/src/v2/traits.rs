@@ -195,18 +195,31 @@ impl From<ContributionFaultReason> for musig2::errors::ContributionFaultReason {
     }
 }
 
-/// The MuSig2 signer trait is used to bootstrap and initialize a MuSig2 session.
+/// The MuSig2 signer trait is used by the caller to request the operations
+/// requiring knowledge of secrets which only S2 possesses. This API was
+/// redesigned to be fully idempotent and deterministic, and doesn't hold any
+/// state on S2 outside of the statically configured keys.
 ///
 /// # Warning
 ///
 /// A single secret key should be used across all sessions initiated by this signer,
 /// whose public key should be accessible via the [`SchnorrSigner::pubkey`] method.
 pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
+    /// Given the params of a musig2 session, deterministically generate a
+    /// public nonce. S2 will create a secret nonce deterministically, then
+    /// derive the public nonce from it and return it to the caller.
     fn get_pub_nonce(
         &self,
         params: Musig2Params,
     ) -> impl Future<Output = O::Container<Result<PubNonce, OurPubKeyIsNotInParams>>> + Send;
 
+    /// Given the params of a musig2 session, an aggregated nonce created from
+    /// the signers' session pubnonces and the message to sign, return a partial
+    /// signature. These can be validated and aggregated into the final
+    /// signature valid for the musig2 group public key by the caller.
+    ///
+    /// Fails if our pubkey wasn't present in [`Musig2Params::ordered_pubkeys`],
+    /// or if the signature we produced fails to verify.
     fn get_our_partial_sig(
         &self,
         params: Musig2Params,
