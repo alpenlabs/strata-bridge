@@ -568,6 +568,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
         let mut withdrawals = Vec::new();
         for entry in all_entries {
+            // NOTE: this is a source of bugs, don't use the `_` to match all.
             match &entry.0.state.state {
                 ContractState::Assigned {
                     withdrawal_request_txid,
@@ -580,10 +581,37 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 | ContractState::Fulfilled {
                     withdrawal_request_txid,
                     ..
+                }
+                | ContractState::Claimed {
+                    withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::Challenged {
+                    withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::PreAssertConfirmed {
+                    withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::AssertDataConfirmed {
+                    withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::Asserted {
+                    withdrawal_request_txid,
+                    ..
                 } => {
                     withdrawals.push(*withdrawal_request_txid);
                 }
-                _ => {}
+
+                ContractState::Requested { .. }
+                | ContractState::Deposited { .. }
+                // NOTE: Resolved contracts have no *current* withdrawals and will pollute the return array.
+                | ContractState::Resolved { .. }
+                | ContractState::Disproved { .. } => {
+                    continue;
+                }
             }
         }
 
@@ -601,11 +629,39 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         let withdrawal_info = all_entries
             .iter()
             .find_map(|entry| match &entry.0.state.state {
+                // NOTE: this is a source of bugs, don't use the `_` to match all.
+                ContractState::Requested { .. }
+                | ContractState::Deposited { .. }
+                | ContractState::Disproved { .. } => {
+                    // These states do not have withdrawals, so we skip them
+                    None
+                }
+
                 ContractState::Assigned {
                     withdrawal_request_txid: entry_withdrawal_request_txid,
                     ..
                 }
                 | ContractState::StakeTxReady {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::Claimed {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::Challenged {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::PreAssertConfirmed {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::AssertDataConfirmed {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    ..
+                }
+                | ContractState::Asserted {
                     withdrawal_request_txid: entry_withdrawal_request_txid,
                     ..
                 } => {
@@ -618,7 +674,13 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         None
                     }
                 }
+
                 ContractState::Fulfilled {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                }
+                | ContractState::Resolved {
                     withdrawal_request_txid: entry_withdrawal_request_txid,
                     withdrawal_fulfillment_txid,
                     ..
@@ -634,7 +696,6 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                         None
                     }
                 }
-                _ => None,
             });
 
         Ok(withdrawal_info)
