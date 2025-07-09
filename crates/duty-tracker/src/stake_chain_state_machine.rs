@@ -124,7 +124,8 @@ impl StakeChainSM {
         operator: P2POperatorPubKey,
         setup: &DepositSetup,
     ) -> Result<Option<Txid>, StakeChainErr> {
-        info!(%operator, "processing deposit setup");
+        let deposit_index = setup.index;
+        info!(%operator, %deposit_index, "processing deposit setup");
 
         let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
             warn!(%operator, "received deposit setup for unknown operator");
@@ -132,19 +133,19 @@ impl StakeChainSM {
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
 
-        if chain_input.stake_inputs.contains_key(&setup.index) {
-            warn!(%operator, "ignoring redundant deposit setup");
+        if chain_input.stake_inputs.contains_key(&deposit_index) {
+            warn!(%operator, %deposit_index, "ignoring redundant deposit setup");
             return Ok(self
-                .stake_tx(&operator, setup.index)?
+                .stake_tx(&operator, deposit_index)?
                 .map(|tx| tx.compute_txid()));
         }
 
         chain_input
             .stake_inputs
-            .insert(setup.index, setup.stake_tx_data());
+            .insert(deposit_index, setup.stake_tx_data());
 
         // now try to create the stake transaction at the index
-        let Some(stake_tx) = self.stake_tx(&operator, setup.index)? else {
+        let Some(stake_tx) = self.stake_tx(&operator, deposit_index)? else {
             warn!(%operator, "stake tx not found for this operator");
 
             // if unable to create the stake tx, we ignore it but inform the caller.
@@ -159,10 +160,10 @@ impl StakeChainSM {
         if self
             .stake_txids
             .get(&operator)
-            .map(|txids| txids.contains_key(&setup.index))
+            .map(|txids| txids.contains_key(&deposit_index))
             .unwrap_or(false)
         {
-            warn!(%operator, index=%setup.index, "stake txid already exists for this index");
+            warn!(%operator, %deposit_index, "stake txid already exists for this index");
 
             return Ok(Some(stake_txid));
         }
@@ -170,7 +171,7 @@ impl StakeChainSM {
         self.stake_txids
             .entry(operator.clone())
             .or_default()
-            .insert(setup.index, stake_txid);
+            .insert(deposit_index, stake_txid);
 
         Ok(Some(stake_txid))
     }
