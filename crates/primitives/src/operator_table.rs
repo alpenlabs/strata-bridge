@@ -160,6 +160,8 @@ impl OperatorTable {
 
     /// Converts a map from operator public keys to a value to a map from bitcoin public keys to the
     /// same value.
+    ///
+    /// (p2p, V) -> (btc, V)
     pub fn convert_map_op_to_btc<V>(
         &self,
         map: BTreeMap<P2POperatorPubKey, V>,
@@ -174,6 +176,8 @@ impl OperatorTable {
 
     /// Converts a map from bitcoin public keys to a value to a map from operator public keys to the
     /// same value.
+    ///
+    /// (btc, V) -> (p2p, V)
     pub fn convert_map_btc_to_op<V>(
         &self,
         map: BTreeMap<secp256k1::PublicKey, V>,
@@ -189,6 +193,8 @@ impl OperatorTable {
 
     /// Converts a map from operator public keys to a value to a map from operator indices to the
     /// same value.
+    ///
+    /// (p2p, V) -> (idx, V)
     pub fn convert_map_op_to_idx<V>(
         &self,
         map: BTreeMap<P2POperatorPubKey, V>,
@@ -200,6 +206,8 @@ impl OperatorTable {
 
     /// Converts a map from operator indices to a value to a map from operator public keys to the
     /// same value.
+    ///
+    /// (idx, V) -> (p2p, V)
     pub fn convert_map_idx_to_op<V>(
         &self,
         map: BTreeMap<OperatorIdx, V>,
@@ -214,6 +222,8 @@ impl OperatorTable {
 
     /// Converts a map from bitcoin public keys to a value to a map from operator indices to the
     /// same value.
+    ///
+    /// (btc, V) -> (idx, V)
     pub fn convert_map_btc_to_idx<V>(
         &self,
         map: BTreeMap<secp256k1::PublicKey, V>,
@@ -228,6 +238,8 @@ impl OperatorTable {
 
     /// Converts a map from bitcoin public keys to a value to a map from operator indices to the
     /// same value.
+    ///
+    /// (idx, V) -> (btc, V)
     pub fn convert_map_idx_to_btc<V>(
         &self,
         map: BTreeMap<OperatorIdx, V>,
