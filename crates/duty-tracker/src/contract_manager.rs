@@ -1330,13 +1330,9 @@ impl ContractManagerCtx {
             let aggnonce = csm
                 .cfg()
                 .operator_table
-                .btc_keys()
-                .into_iter()
-                .filter_map(|btc_key| {
-                    let p2p_key = csm.cfg().operator_table.btc_key_to_op_key(&btc_key)?;
-
-                    root_nonces.get(p2p_key).cloned()
-                })
+                .convert_map_op_to_btc(root_nonces.clone())
+                .expect("valid operator table")
+                .into_values()
                 .sum();
 
             Some(OperatorDuty::PublishRootSignature {
