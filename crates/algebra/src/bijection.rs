@@ -10,7 +10,7 @@ use crate::category;
 type Lookup<A, B> = Arc<dyn Fn(&A) -> Option<B>>;
 
 /// A Bijection is a two way lookup.
-#[allow(missing_debug_implementations)]
+#[allow(missing_debug_implementations, reason = "internal closures")]
 pub struct Bijection<A: Clone + 'static, B: Clone + 'static> {
     forward: Lookup<A, B>,
     reverse: Lookup<B, A>,

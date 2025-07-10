@@ -11,7 +11,7 @@ type AsyncConsumer<State> = Box<dyn FnMut(&State) -> BoxFuture<'static, ()>>;
 
 /// A general state machine data structure that can be build from a config and state transition
 /// function.
-#[allow(missing_debug_implementations)]
+#[allow(missing_debug_implementations, reason = "has closures in internals")]
 pub struct StateMachine<
     Input,
     Config,
