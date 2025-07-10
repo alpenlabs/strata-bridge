@@ -1,7 +1,8 @@
 use bitcoin::{Block, BlockHash, Transaction};
+use serde::{Deserialize, Serialize};
 
 /// TxStatus is the primary output of this API via the subscription.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum TxStatus {
     /// Indicates that the transaction is not staged for inclusion in the blockchain.
     ///
