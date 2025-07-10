@@ -11,7 +11,7 @@ type AsyncConsumer<State> = Box<dyn FnMut(&State) -> BoxFuture<'static, ()>>;
 
 /// A general state machine data structure that can be build from a config and state transition
 /// function.
-#[allow(missing_debug_implementations, reason = "has closures in internals")]
+#[allow(missing_debug_implementations, reason = "internal closures")]
 pub struct StateMachine<
     Input,
     Config,
@@ -36,7 +36,7 @@ impl<
         F: FnMut(&Config, &mut State, Input) -> Result<Output, Err>,
     > StateMachine<Input, Config, State, Output, Err, F>
 {
-    /// Constructs a new state machine from its Config type and the state transition function.
+    /// Constructs a new state machine from its `Config` type and the state transition function.
     pub fn new(config: Config, stf: F) -> Self {
         StateMachine {
             input_stream: Box::new(stream::empty::<Input>()),
@@ -48,7 +48,8 @@ impl<
         }
     }
 
-    /// Restores a state machine from its Config type, it's state and the state transition function.
+    /// Restores a state machine from its `Config` type, it's state and the state transition
+    /// function.
     pub fn restore(cfg: Config, state: State, stf: F) -> Self {
         StateMachine {
             input_stream: Box::new(stream::empty()),
@@ -60,17 +61,17 @@ impl<
         }
     }
 
-    /// Gives us shared access to the internal Config value.
+    /// Gives us shared access to the internal `Config` value.
     pub const fn config(&self) -> &Config {
         &self.config
     }
 
-    /// Gives us shared access to the internal State value.
+    /// Gives us shared access to the internal `State` value.
     pub const fn state(&self) -> &State {
         &self.state
     }
 
-    /// Feeds a single Input event into the StateMachine and returns the result.
+    /// Feeds a single `Input` event into the [`StateMachine`] and returns the result.
     pub async fn feed(&mut self, input: Input) -> Result<Output, Err> {
         let res = (self.stf)(&self.config, &mut self.state, input);
         if res.is_ok() {
@@ -79,13 +80,14 @@ impl<
         res
     }
 
-    /// Attaches this StateMachine to an Input Stream which repeatedly feeds it.
+    /// Attaches this [`StateMachine`] to an `Input` [`Stream`] which repeatedly
+    /// [`StateMachine::feed`]s it.
     pub fn attach(&mut self, input_stream: impl Stream<Item = Input> + Unpin + 'static) {
         self.input_stream = Box::new(input_stream);
     }
 
-    /// Registers an async State continuation to be called every time an Input event is accepted by
-    /// the StateMachine.
+    /// Registers an async `State` continuation to be called every time an Input event is accepted
+    /// by the [`StateMachine`].
     pub fn state_hook<R, Fut: Sync + Send + Future<Output = ()> + 'static>(
         &mut self,
         mut f: impl FnMut(&State) -> Fut + 'static,
