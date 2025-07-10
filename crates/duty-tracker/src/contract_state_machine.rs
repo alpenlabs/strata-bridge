@@ -8,6 +8,7 @@ use std::{
     thread,
 };
 
+use algebra::category;
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
     hashes::{
@@ -3487,35 +3488,37 @@ fn verify_partials_from_peer(
         "agg nonces missing for claim ({claim_txid})"
     )))?;
 
-    if individual_pubnonces
-        .zip(pog.musig_sighashes())
-        .zip(pog.musig_witnesses())
-        .zip(partial_sigs.clone())
-        .zip(agg_nonces.clone())
-        .pack()
-        .into_iter()
-        .any(
-            |(
-                    (((individual_pubnonce, message), witness), partial_signature),
-                    aggregated_nonce,
-            )| {
-                let key_agg_ctx = create_agg_ctx(cfg.operator_table.btc_keys(), &witness).expect("must be able to create key agg ctx");
+    let is_invalid = |pubnonce, message: Message, witness, partial_signature, aggregated_nonce| {
+        let key_agg_ctx = create_agg_ctx(cfg.operator_table.btc_keys(), &witness)
+            .expect("must be able to create key agg ctx");
 
-                verify_partial(
+        verify_partial(
                     &key_agg_ctx,
                     partial_signature,
                     &aggregated_nonce,
                     individual_pubkey,
-                    &individual_pubnonce,
+                    &pubnonce,
                     message.as_ref(),
                 )
                 .inspect_err(
                     |e| error!(%e, ?signer, %message, ?partial_signature, "partial sig verification failed"),
                 )
                 .is_err()
-            },
-        )
-    {
+    };
+
+    let invalid = PogMusigF::<bool>::zip_with_5(
+        is_invalid,
+        individual_pubnonces,
+        pog.musig_sighashes(),
+        pog.musig_witnesses(),
+        partial_sigs.clone(),
+        agg_nonces.clone(),
+    )
+    .pack()
+    .into_iter()
+    .any(category::iden);
+
+    if invalid {
         return Err(TransitionErr(format!("partial signature verification failed for claim txid ({claim_txid}) from signer ({signer})")));
     }
 
