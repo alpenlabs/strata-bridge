@@ -396,6 +396,8 @@ impl<T> PogMusigF<T> {
         // Now we just fold it vector wise.
         graphs
             .into_iter()
+            // here we trivially lift single T value into Vec<T> to get Semigroup in the leaves
+            // which gives us Semigroup for the PogMusigF.
             .map(|g| g.map(|a| vec![a]))
             .fold(init, PogMusigF::<_>::merge)
     }
@@ -453,6 +455,7 @@ where
 }
 
 impl<A: Semigroup> Semigroup for PogMusigF<A> {
+    /// PogMusigF preserves the Semigroup structure of its leaves
     fn merge(self, other: Self) -> Self {
         PogMusigF::<A>::zip_with(A::merge, self, other)
     }
