@@ -27,6 +27,7 @@ pub struct StateMachine<
     state_hook: AsyncConsumer<State>,
     pending_state_hook: Option<(BoxFuture<'static, ()>, Output)>,
 }
+
 impl<
         Input: 'static,
         Config,
