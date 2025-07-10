@@ -1359,7 +1359,6 @@ impl ContractSM {
 
         summaries.iter().any(|g| {
             deposit_txid == txid
-                || g.stake_txid == txid
                 || g.claim_txid == txid
                 || g.payout_optimistic_txid == txid
                 || g.pre_assert_txid == txid
