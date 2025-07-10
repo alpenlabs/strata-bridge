@@ -3505,8 +3505,7 @@ fn verify_partials_from_peer(
                 .is_err()
     };
 
-    let invalid = PogMusigF::<bool>::zip_with_5(
-        |a, b, c, d, e| (a, b, c, d, e),
+    let invalid = PogMusigF::<()>::zip5(
         individual_pubnonces,
         pog.musig_sighashes(),
         pog.musig_witnesses(),
