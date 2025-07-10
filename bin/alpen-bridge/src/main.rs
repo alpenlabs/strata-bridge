@@ -5,7 +5,7 @@
 )]
 #![feature(generic_const_exprs)] //strata-p2p
 
-use std::{fs, path::Path, thread::sleep};
+use std::{fs, path::Path, thread::sleep, time::Duration};
 
 use args::OperationMode;
 use clap::Parser;
@@ -15,6 +15,8 @@ use mode::{operator, verifier};
 use params::Params;
 use serde::de::DeserializeOwned;
 use strata_bridge_common::{logging, logging::LoggerConfig};
+use strata_tasks::TaskManager;
+use tokio::runtime;
 use tracing::{debug, info, trace};
 
 mod args;
@@ -58,49 +60,49 @@ fn main() {
     let params = parse_toml::<Params>(cli.params);
     let config = parse_toml::<Config>(cli.config);
 
+    let runtime = runtime::Builder::new_multi_thread()
+        .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
+        .thread_stack_size(
+            config
+                .thread_stack_size
+                .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
+        )
+        .enable_all()
+        .build()
+        .expect("must be able to create runtime");
+
+    let task_manager = TaskManager::new(runtime.handle().clone());
+    task_manager.start_signal_listeners();
+
+    let executor = task_manager.executor();
+
     match cli.mode {
         OperationMode::Operator => {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
-                .thread_stack_size(
-                    config
-                        .thread_stack_size
-                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
-                )
-                .enable_all()
-                .build()
-                .expect("must be able to create runtime");
-
-            runtime.block_on(async move {
-                #[cfg(feature = "memory_profiling")]
-                memory_pprof::setup_memory_profiling(3_000);
-                operator::bootstrap(params, config)
-                    .await
-                    .unwrap_or_else(|e| panic!("operator loop crashed: {e:?}"));
-            });
+            executor
+                .clone()
+                .spawn_critical_async("operator", async move {
+                    #[cfg(feature = "memory_profiling")]
+                    memory_pprof::setup_memory_profiling(3_000);
+                    operator::bootstrap(params, config, executor.clone()).await
+                });
         }
         OperationMode::Verifier => {
-            let runtime = tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
-                .thread_stack_size(
-                    config
-                        .thread_stack_size
-                        .unwrap_or(DEFAULT_THREAD_STACK_SIZE),
-                )
-                .enable_all()
-                .build()
-                .expect("must be able to create runtime");
-            runtime.block_on(async move {
-                #[cfg(feature = "memory_profiling")]
-                memory_pprof::setup_memory_profiling(3000);
-                verifier::bootstrap(params, config)
-                    .await
-                    .unwrap_or_else(|e| {
-                        panic!("verifier loop crashed: {e:?}");
-                    });
-            });
+            executor
+                .clone()
+                .spawn_critical_async("verifier", async move {
+                    #[cfg(feature = "memory_profiling")]
+                    memory_pprof::setup_memory_profiling(3_000);
+                    verifier::bootstrap(params, config, executor.clone()).await
+                });
         }
     }
+
+    let shutdown_timeout = Duration::from_secs(30);
+    if let Err(e) = task_manager.monitor(Some(shutdown_timeout)) {
+        panic!("bridge node crashed: {e:?}");
+    }
+
+    info!("bridge node shutdown complete");
 }
 
 /// Reads and parses a TOML file from the given path into the given type `T`.
