@@ -8,7 +8,6 @@ use std::{
     thread,
 };
 
-use algebra::category;
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{
     hashes::{
@@ -3488,7 +3487,7 @@ fn verify_partials_from_peer(
         "agg nonces missing for claim ({claim_txid})"
     )))?;
 
-    let is_invalid = |pubnonce, message: Message, witness, partial_signature, aggregated_nonce| {
+    let is_invalid = |(pubnonce, message, witness, partial_signature, aggregated_nonce)| {
         let key_agg_ctx = create_agg_ctx(cfg.operator_table.btc_keys(), &witness)
             .expect("must be able to create key agg ctx");
 
@@ -3498,7 +3497,7 @@ fn verify_partials_from_peer(
                     &aggregated_nonce,
                     individual_pubkey,
                     &pubnonce,
-                    message.as_ref(),
+                    Message::as_ref(&message),
                 )
                 .inspect_err(
                     |e| error!(%e, ?signer, %message, ?partial_signature, "partial sig verification failed"),
@@ -3507,7 +3506,7 @@ fn verify_partials_from_peer(
     };
 
     let invalid = PogMusigF::<bool>::zip_with_5(
-        is_invalid,
+        |a, b, c, d, e| (a, b, c, d, e),
         individual_pubnonces,
         pog.musig_sighashes(),
         pog.musig_witnesses(),
@@ -3516,7 +3515,7 @@ fn verify_partials_from_peer(
     )
     .pack()
     .into_iter()
-    .any(category::iden);
+    .any(is_invalid);
 
     if invalid {
         return Err(TransitionErr(format!("partial signature verification failed for claim txid ({claim_txid}) from signer ({signer})")));
