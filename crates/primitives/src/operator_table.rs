@@ -172,6 +172,21 @@ impl OperatorTable {
             .collect()
     }
 
+    /// Converts a map from bitcoin public keys to a value to a map from operator public keys to the
+    /// same value.
+    pub fn convert_map_btc_to_op<V>(
+        &self,
+        map: BTreeMap<secp256k1::PublicKey, V>,
+    ) -> Result<BTreeMap<P2POperatorPubKey, V>, secp256k1::PublicKey> {
+        map.into_iter()
+            .map(|(btc, v)| {
+                self.btc_key_to_op_key(&btc)
+                    .cloned()
+                    .map_or(Err(btc), |op| Ok((op, v)))
+            })
+            .collect()
+    }
+
     /// Returns a predicate capable of identifying a particular operator index. This is useful to
     /// use in the constructor.
     pub fn select_idx(idx: OperatorIdx) -> impl Fn(&OperatorTableEntry) -> bool {
