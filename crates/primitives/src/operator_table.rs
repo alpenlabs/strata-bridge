@@ -187,6 +187,59 @@ impl OperatorTable {
             .collect()
     }
 
+    /// Converts a map from operator public keys to a value to a map from operator indices to the
+    /// same value.
+    pub fn convert_map_op_to_idx<V>(
+        &self,
+        map: BTreeMap<P2POperatorPubKey, V>,
+    ) -> Result<BTreeMap<OperatorIdx, V>, P2POperatorPubKey> {
+        map.into_iter()
+            .map(|(op, v)| self.op_key_to_idx(&op).map_or(Err(op), |idx| Ok((idx, v))))
+            .collect()
+    }
+
+    /// Converts a map from operator indices to a value to a map from operator public keys to the
+    /// same value.
+    pub fn convert_map_idx_to_op<V>(
+        &self,
+        map: BTreeMap<OperatorIdx, V>,
+    ) -> Result<BTreeMap<P2POperatorPubKey, V>, OperatorIdx> {
+        map.into_iter()
+            .map(|(idx, v)| {
+                self.idx_to_op_key(&idx)
+                    .map_or(Err(idx), |op| Ok((op.clone(), v)))
+            })
+            .collect()
+    }
+
+    /// Converts a map from bitcoin public keys to a value to a map from operator indices to the
+    /// same value.
+    pub fn convert_map_btc_to_idx<V>(
+        &self,
+        map: BTreeMap<secp256k1::PublicKey, V>,
+    ) -> Result<BTreeMap<OperatorIdx, V>, secp256k1::PublicKey> {
+        map.into_iter()
+            .map(|(btc, v)| {
+                self.btc_key_to_idx(&btc)
+                    .map_or(Err(btc), |idx| Ok((idx, v)))
+            })
+            .collect()
+    }
+
+    /// Converts a map from bitcoin public keys to a value to a map from operator indices to the
+    /// same value.
+    pub fn convert_map_idx_to_btc<V>(
+        &self,
+        map: BTreeMap<OperatorIdx, V>,
+    ) -> Result<BTreeMap<secp256k1::PublicKey, V>, OperatorIdx> {
+        map.into_iter()
+            .map(|(idx, v)| {
+                self.idx_to_btc_key(&idx)
+                    .map_or(Err(idx), |btc| Ok((btc, v)))
+            })
+            .collect()
+    }
+
     /// Returns a predicate capable of identifying a particular operator index. This is useful to
     /// use in the constructor.
     pub fn select_idx(idx: OperatorIdx) -> impl Fn(&OperatorTableEntry) -> bool {
