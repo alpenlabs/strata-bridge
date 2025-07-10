@@ -13,6 +13,7 @@ strata-bridge-primitives.workspace = true
 
 strata-primitives.workspace = true
 
+algebra.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 bitcoin-bosd.workspace = true
 bitcoin-script = { workspace = true }

@@ -9861,6 +9861,7 @@ dependencies = [
 name = "strata-bridge-tx-graph"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "alpen-bridge-params",
  "bitcoin",
  "bitcoin-bosd",
@@ -9889,7 +9890,7 @@ dependencies = [
 [[package]]
 name = "strata-btcio"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -9915,7 +9916,7 @@ dependencies = [
 [[package]]
 name = "strata-config"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "bitcoin",
  "serde",
@@ -9924,7 +9925,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "strata-primitives",
  "zkaleido",
@@ -9935,7 +9936,7 @@ dependencies = [
 [[package]]
 name = "strata-db"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -9952,7 +9953,7 @@ dependencies = [
 [[package]]
 name = "strata-key-derivation"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "bitcoin",
  "secp256k1",
@@ -9964,7 +9965,7 @@ dependencies = [
 [[package]]
 name = "strata-l1tx"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -10025,7 +10026,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "arbitrary",
  "bincode",
@@ -10050,7 +10051,7 @@ dependencies = [
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -10063,7 +10064,7 @@ dependencies = [
 [[package]]
 name = "strata-state"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -10079,7 +10080,7 @@ dependencies = [
 [[package]]
 name = "strata-status"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "strata-primitives",
  "strata-state",
@@ -10091,7 +10092,7 @@ dependencies = [
 [[package]]
 name = "strata-storage"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -10109,7 +10110,7 @@ dependencies = [
 [[package]]
 name = "strata-tasks"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen.git#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "anyhow",
  "futures-util",

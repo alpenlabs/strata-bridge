@@ -314,7 +314,7 @@ pub(crate) async fn handle_publish_graph_nonces(
         existing_nonces
     } else {
         debug!(%claim_txid, "generating new nonces via secret service");
-        PogMusigF::transpose_result(
+        PogMusigF::sequence_result(
             pog_outpoints
                 .clone()
                 .zip(pog_witnesses.clone())
@@ -404,7 +404,7 @@ pub(crate) async fn handle_publish_graph_sigs(
                 .map(|f| f.map(|r| r.expect("good partial sig")))
         });
 
-        PogMusigF::transpose_result(partial_sigs_futures.join_all().await).inspect_err(|e| {
+        PogMusigF::sequence_result(partial_sigs_futures.join_all().await).inspect_err(|e| {
             error!(
                 %claim_txid,
                 ?e,

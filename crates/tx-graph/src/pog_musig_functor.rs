@@ -1,8 +1,9 @@
 //! Functor like data structure for holding an arbitrary data structure that is matched with each of
 //! the inputs of the peg-out graph.
 
-use std::future::Future;
+use std::{array, future::Future};
 
+use algebra::semigroup::Semigroup;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 
@@ -271,8 +272,58 @@ impl<T> PogMusigF<T> {
         a.zip(b).zip(c.zip(d)).map(|((a, b), (c, d))| f(a, b, c, d))
     }
 
+    /// Applies a function to the data while zipping five different [`PogMusigF`]s.
+    pub fn zip_with_5<A, B, C, D, E, O>(
+        f: impl Fn(A, B, C, D, E) -> O,
+        a: PogMusigF<A>,
+        b: PogMusigF<B>,
+        c: PogMusigF<C>,
+        d: PogMusigF<D>,
+        e: PogMusigF<E>,
+    ) -> PogMusigF<O> {
+        a.zip(b)
+            .zip(c)
+            .zip(d)
+            .zip(e)
+            .map(|((((a, b), c), d), e)| f(a, b, c, d, e))
+    }
+
+    /// Attempts to project a PogMusigF with optional components into one with non-optional
+    /// components, returning None if any component is None.
+    pub fn sequence_option(mut graph: PogMusigF<Option<T>>) -> Option<PogMusigF<T>> {
+        Some(PogMusigF {
+            challenge: graph.challenge?,
+            pre_assert: graph.pre_assert?,
+            post_assert: graph
+                .post_assert
+                .into_iter()
+                .collect::<Option<Vec<T>>>()?
+                .try_into()
+                .ok()?,
+            payout_optimistic: [
+                graph.payout_optimistic[0].take()?,
+                graph.payout_optimistic[1].take()?,
+                graph.payout_optimistic[2].take()?,
+                graph.payout_optimistic[3].take()?,
+                graph.payout_optimistic[4].take()?,
+            ],
+            payout: [
+                graph.payout[0].take()?,
+                graph.payout[1].take()?,
+                graph.payout[2].take()?,
+                graph.payout[3].take()?,
+            ],
+            disprove: graph.disprove?,
+            slash_stake: graph
+                .slash_stake
+                .into_iter()
+                .map(|[a, b]| a.and_then(|a| b.map(|b| [a, b])))
+                .collect::<Option<Vec<[T; 2]>>>()?,
+        })
+    }
+
     /// Transposes the result of a [`PogMusigF`].
-    pub fn transpose_result<E>(graph: PogMusigF<Result<T, E>>) -> Result<PogMusigF<T>, E> {
+    pub fn sequence_result<E>(graph: PogMusigF<Result<T, E>>) -> Result<PogMusigF<T>, E> {
         Ok(PogMusigF {
             challenge: graph.challenge?,
             pre_assert: graph.pre_assert?,
@@ -304,6 +355,49 @@ impl<T> PogMusigF<T> {
                 .map(|[ra, rb]| Ok::<[T; NUM_SLASH_STAKE_INPUTS], E>([ra?, rb?]))
                 .collect::<Result<Vec<[T; NUM_SLASH_STAKE_INPUTS]>, E>>()?,
         })
+    }
+
+    /// Transposes a [`Vec`] of [`PogMusigF`]s into the inverse functor order. Order is preserved
+    /// component wise.
+    pub fn sequence_pog_musig_f(graphs: Vec<PogMusigF<T>>) -> PogMusigF<Vec<T>> {
+        // We sample the initial size so we can have an appropriately sized zip length.
+        let mut num_left = graphs.first().map(|g| g.slash_stake.len()).unwrap_or(0);
+
+        // NOTE(proofofkeags): We initialize the accumulator with empty vectors in all targets with
+        // an initial stake slash length of the first graph. The stake slash size is guaranteed to
+        // be the minimum of the lengths in the vector so sampling any one of them is as good as any
+        // other as it will trim things down to the shortest length that appears in all of the
+        // graphs in the vector.
+        //
+        // This isn't ideal, ideally we'd want to be able to lift a runtime value into the length of
+        // the stake chain vector but it would require messing with type level programming that I'm
+        // not yet sure is worth it. To truly make this a Monoid, we would have to generalize this
+        // structure from having a Vec of slash_stake to having an impl IntoIterator of them. This
+        // would allow us to use [`std::iter::repeat(Vec::new())`] as the monoidal unit value since
+        // it will never trim on zip.
+        let init = PogMusigF {
+            challenge: Vec::new(),
+            pre_assert: Vec::new(),
+            post_assert: array::from_fn(|_| Vec::new()),
+            payout_optimistic: array::from_fn(|_| Vec::new()),
+            payout: array::from_fn(|_| Vec::new()),
+            disprove: Vec::new(),
+            slash_stake: std::iter::from_fn(move || {
+                if num_left == 0 {
+                    None
+                } else {
+                    num_left -= 1;
+                    Some([Vec::new(), Vec::new()])
+                }
+            })
+            .collect(),
+        };
+
+        // Now we just fold it vector wise.
+        graphs
+            .into_iter()
+            .map(|g| g.map(|a| vec![a]))
+            .fold(init, PogMusigF::<_>::merge)
     }
 }
 
@@ -340,6 +434,13 @@ impl<T: Clone, U: Clone> PogMusigF<(T, U)> {
     }
 }
 
+impl<T: Clone> PogMusigF<&T> {
+    /// Clones the component references.
+    pub fn cloned(self) -> PogMusigF<T> {
+        self.map(T::clone)
+    }
+}
+
 impl<F> PogMusigF<F>
 where
     F: Future,
@@ -348,5 +449,11 @@ where
     /// Joins all the futures in the data structure.
     pub async fn join_all(self) -> PogMusigF<F::Output> {
         PogMusigF::unpack(join_all(self.pack()).await).unwrap()
+    }
+}
+
+impl<A: Semigroup> Semigroup for PogMusigF<A> {
+    fn merge(self, other: Self) -> Self {
+        PogMusigF::<A>::zip_with(A::merge, self, other)
     }
 }
