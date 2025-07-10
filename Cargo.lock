@@ -93,6 +93,7 @@ dependencies = [
  "futures",
  "proptest",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

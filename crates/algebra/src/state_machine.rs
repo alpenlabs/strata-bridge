@@ -156,6 +156,7 @@ impl<
 #[cfg(test)]
 mod state_machine_tests {
     use futures::stream::StreamExt;
+    use tracing::info;
 
     use super::*;
     #[tokio::test]
@@ -170,7 +171,8 @@ mod state_machine_tests {
             .filter_map(|x| future::ready(x.ok()))
             .collect::<Vec<usize>>()
             .await;
-        println!("{transcript:?}");
+        info!("{transcript:?}");
+        assert_eq!(transcript, vec![0, 1, 1, 2, 2, 3, 3, 4, 4, 5])
     }
 
     const fn test_stf(_cfg: &(), state: &mut usize, input: bool) -> Result<usize, ()> {

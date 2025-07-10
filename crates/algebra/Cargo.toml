@@ -10,3 +10,6 @@ workspace = true
 futures.workspace = true
 proptest.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+tracing.workspace = true
