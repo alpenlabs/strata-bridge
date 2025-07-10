@@ -18,8 +18,8 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use musig2::{
-    aggregate_partial_signatures, secp256k1::Message, verify_partial, AggNonce, PartialSignature,
-    PubNonce,
+    aggregate_partial_signatures, errors::VerifyError, secp256k1::Message, verify_partial,
+    AggNonce, PartialSignature, PubNonce,
 };
 use secp256k1::schnorr;
 use strata_bridge_primitives::{
@@ -261,7 +261,7 @@ pub enum ContractState {
         /// This is a collection of all the packed aggregated nonces for each graph.
         ///
         /// This is used to validate partial signatures as they are received from the p2p.
-        agg_nonces: BTreeMap<Txid, Vec<AggNonce>>,
+        agg_nonces: BTreeMap<Txid, PogMusigF<AggNonce>>,
 
         /// This is a collection of all partial signatures for all graphs (indexed by the claim
         /// txid) and for all operators.
@@ -1851,7 +1851,7 @@ impl ContractSM {
 
                 info!(%claim_txid, %signer, "received all nonces for all graphs, aggregating them");
 
-                *agg_nonces = aggregate_nonces(&cfg.operator_table, graph_nonces);
+                *agg_nonces = aggregate_nonces(graph_nonces);
 
                 let mut duties = Vec::with_capacity(graph_nonces.len());
                 let claim_txid_to_operator_map = claim_txids
@@ -1897,15 +1897,11 @@ impl ContractSM {
                                 partials_per_operator.get(pov_key).cloned()
                             });
 
-                    let Some(aggnonces) = agg_nonces.get(claim_txid) else {
+                    let Some(aggnonces) = agg_nonces.get(claim_txid).cloned() else {
                         return Err(TransitionErr(format!(
                             "could not process graph nonces. claim_txid ({claim_txid}) not found in agg_nonces map"
                         )));
                     };
-                    let aggnonces =
-                        PogMusigF::<AggNonce>::unpack(aggnonces.clone()).ok_or(TransitionErr(
-                            "could not unpack agg nonce vector into PogMusigF".to_string(),
-                        ))?;
 
                     duties.push(OperatorDuty::PublishGraphSignatures {
                         claim_txid: *claim_txid,
@@ -2004,7 +2000,7 @@ impl ContractSM {
                     pog,
                     graph_nonces,
                     agg_nonces,
-                    &partial_sigs,
+                    &unpacked,
                 )? {
                     warn!(%claim_txid, %signer, "partials verification failed");
 
@@ -2066,7 +2062,8 @@ impl ContractSM {
                     })
                     .collect();
 
-                *graph_sigs = aggregate_partials(&cfg.operator_table, aux_data, graph_partials);
+                *graph_sigs =
+                    aggregate_partials(&cfg.operator_table, aux_data, graph_partials.clone());
 
                 let witness = cfg.deposit_tx.witnesses()[0].clone();
                 let existing_nonce = root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
@@ -3372,22 +3369,16 @@ impl ContractSM {
 }
 
 fn aggregate_nonces(
-    operator_table: &OperatorTable,
     graph_nonces: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
-) -> BTreeMap<Txid, Vec<AggNonce>> {
-    let signer_keys = operator_table
-        .btc_keys()
-        .into_iter()
-        .filter_map(|btc_key| operator_table.btc_key_to_op_key(&btc_key))
-        .collect::<Vec<_>>();
+) -> BTreeMap<Txid, PogMusigF<AggNonce>> {
+    let agg_one = |g: &BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>| {
+        PogMusigF::sequence_pog_musig_f(g.values().map(PogMusigF::clone).collect())
+            .map(AggNonce::sum)
+    };
 
-    transpose_musig_data(&signer_keys, graph_nonces)
-        .into_iter()
-        .map(|(claim_txid, nonces_per_input)| {
-            let agg_nonces_per_input = nonces_per_input.into_iter().map(AggNonce::sum).collect();
-
-            (claim_txid, agg_nonces_per_input)
-        })
+    graph_nonces
+        .iter()
+        .map(|(claim_txid, operator_nonces)| (*claim_txid, agg_one(operator_nonces)))
         .collect()
 }
 
@@ -3395,7 +3386,7 @@ fn aggregate_nonces(
 pub(crate) struct AuxAggData {
     /// The agg nonces for each of the inputs in the [`PegOutGraph`] using the same (canonical)
     /// order as used by [`PogMusigF`] to pack graph information.
-    agg_nonces: Vec<AggNonce>,
+    agg_nonces: PogMusigF<AggNonce>,
 
     /// The sighash types used in each input in the [`PegOutGraph`].
     sighash_types: PogMusigF<TapSighashType>,
@@ -3410,105 +3401,48 @@ pub(crate) struct AuxAggData {
 fn aggregate_partials(
     operator_table: &OperatorTable,
     aux_data: BTreeMap<Txid, AuxAggData>,
-    graph_partials: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
+    mut graph_partials: BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PartialSignature>>>,
 ) -> BTreeMap<Txid, PogMusigF<taproot::Signature>> {
-    let signer_keys = operator_table
-        .btc_keys()
-        .into_iter()
-        .filter_map(|btc_key| operator_table.btc_key_to_op_key(&btc_key))
-        .collect::<Vec<_>>();
-
-    let transposed_partials = transpose_musig_data(&signer_keys, graph_partials);
-
     aux_data
         .into_iter()
-        .zip(transposed_partials.values())
-        .map(|((claim_txid, aux_data_per_graph), partials_per_graph)| {
-            let AuxAggData {
-                agg_nonces,
-                sighash_types,
-                sighashes,
-                witnesses,
-            } = aux_data_per_graph;
+        .map(|(claim_txid, aux)| {
+            let agg_contexts = aux.witnesses.map(|w| {
+                create_agg_ctx(operator_table.btc_keys(), &w)
+                    .expect("must be able to create key agg ctx")
+            });
+            let partials = PogMusigF::sequence_pog_musig_f(
+                operator_table
+                    .convert_map_op_to_btc(
+                        graph_partials
+                            .remove(&claim_txid)
+                            .expect("we must have partials for this claim txid"),
+                    )
+                    .expect("signature contributions don't match operator table")
+                    .into_values()
+                    .collect::<Vec<PogMusigF<PartialSignature>>>(),
+            );
+            let schnorr_sigs = PogMusigF::sequence_result::<VerifyError>(PogMusigF::<
+                schnorr::Signature,
+            >::zip_with_4(
+                aggregate_partial_signatures::<PartialSignature, schnorr::Signature>,
+                agg_contexts.as_ref(),
+                aux.agg_nonces.as_ref(),
+                partials,
+                aux.sighashes.as_ref().map(Message::as_ref),
+            ))
+            .unwrap();
 
-            let witnesses = witnesses.pack();
-            let sighashes = sighashes.pack();
-            let sighash_types = sighash_types.pack();
-
-            let agg_sig_per_graph = partials_per_graph
-                .iter()
-                .zip(witnesses)
-                .zip(agg_nonces)
-                .zip(sighashes)
-                .zip(sighash_types)
-                .map(
-                    |((((partials, witness), agg_nonce), message), sighash_type)| {
-                        let key_agg_ctx = create_agg_ctx(operator_table.btc_keys(), &witness)
-                            .inspect_err(|e| {
-                                error!(%e, %claim_txid, "could not create key agg ctx");
-                            })
-                            .expect("must be able to create key agg ctx");
-
-                        let agg_sig = aggregate_partial_signatures::<
-                            PartialSignature,
-                            schnorr::Signature,
-                        >(
-                            &key_agg_ctx,
-                            &agg_nonce,
-                            partials.iter().cloned(),
-                            message.as_ref(),
-                        )
-                        .inspect_err(|e| {
-                            error!(%e, %claim_txid, "could not aggregate partial signatures");
-                        })
-                        .expect("each partial should have been pre-verified before aggregating");
-
-                        taproot::Signature {
-                            signature: agg_sig,
-                            sighash_type,
-                        }
+            (
+                claim_txid,
+                PogMusigF::<taproot::Signature>::zip_with(
+                    |signature, sighash_type| taproot::Signature {
+                        signature,
+                        sighash_type,
                     },
-                )
-                .collect::<Vec<_>>();
-
-            let agg_sig_per_graph = PogMusigF::<taproot::Signature>::unpack(agg_sig_per_graph)
-                .expect("agg sig per graph must have the expected length");
-
-            (claim_txid, agg_sig_per_graph)
-        })
-        .collect()
-}
-
-fn transpose_musig_data<T>(
-    ordered_p2p_keys: &[&P2POperatorPubKey],
-    graph_data: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<T>>>,
-) -> BTreeMap<Txid, Vec<Vec<T>>>
-where
-    T: Clone,
-{
-    graph_data
-        .iter()
-        .map(|(claim_txid, data_per_op)| {
-            let packed_data = ordered_p2p_keys
-                .iter()
-                .filter_map(|signer| Some(data_per_op.get(signer)?.clone().pack()))
-                .collect::<Vec<_>>();
-
-            // each packed `PogMusigF` vector contains the same number of inputs i.e., length of
-            // each inner `Vec` will be the same.
-            let num_inputs = packed_data.first().map(|v| v.len()).unwrap_or(0);
-
-            let transposed_partials: Vec<Vec<T>> = (0..num_inputs)
-                .map(|input_index| {
-                    packed_data
-                        .iter()
-                        .filter_map(|data| data.get(input_index))
-                        .cloned()
-                        .collect::<Vec<_>>()
-                })
-                .collect();
-
-            (*claim_txid, transposed_partials)
+                    schnorr_sigs,
+                    aux.sighash_types,
+                ),
+            )
         })
         .collect()
 }
@@ -3521,8 +3455,8 @@ fn verify_partials_from_peer(
     claim_txid: &Txid,
     pog: PegOutGraph,
     graph_nonces: &BTreeMap<Txid, BTreeMap<P2POperatorPubKey, PogMusigF<PubNonce>>>,
-    agg_nonces: &BTreeMap<Txid, Vec<AggNonce>>,
-    partial_sigs: &[PartialSignature],
+    agg_nonces: &BTreeMap<Txid, PogMusigF<AggNonce>>,
+    partial_sigs: &PogMusigF<PartialSignature>,
 ) -> Result<bool, TransitionErr> {
     let individual_pubkey = cfg
         .operator_table
@@ -3547,22 +3481,19 @@ fn verify_partials_from_peer(
     let individual_pubnonces = individual_pubnonces
         .get(signer)
         .expect("signer must have pubnonces in graph nonces")
-        .clone()
-        .pack();
+        .clone();
 
     let agg_nonces = agg_nonces.get(claim_txid).ok_or(TransitionErr(format!(
         "agg nonces missing for claim ({claim_txid})"
     )))?;
 
-    let messages = pog.musig_sighashes().clone().pack();
-    let witnesses = pog.musig_witnesses().clone().pack();
-
     if individual_pubnonces
-        .iter()
-        .zip(messages)
-        .zip(witnesses)
-        .zip(partial_sigs)
-        .zip(agg_nonces)
+        .zip(pog.musig_sighashes())
+        .zip(pog.musig_witnesses())
+        .zip(partial_sigs.clone())
+        .zip(agg_nonces.clone())
+        .pack()
+        .into_iter()
         .any(
             |(
                     (((individual_pubnonce, message), witness), partial_signature),
@@ -3572,10 +3503,10 @@ fn verify_partials_from_peer(
 
                 verify_partial(
                     &key_agg_ctx,
-                    *partial_signature,
-                    aggregated_nonce,
+                    partial_signature,
+                    &aggregated_nonce,
                     individual_pubkey,
-                    individual_pubnonce,
+                    &individual_pubnonce,
                     message.as_ref(),
                 )
                 .inspect_err(
@@ -3644,12 +3575,17 @@ mod tests {
 
         graph_nonces.insert(txid, session_nonces);
 
-        let agg_nonces_map = aggregate_nonces(&operator_table, &graph_nonces);
+        let agg_nonces_map = aggregate_nonces(&graph_nonces);
 
         agg_nonces_map.values().for_each(|agg_nonces| {
-            agg_nonces.iter().enumerate().for_each(|(i, agg_nonce)| {
-                assert_eq!(agg_nonce, &expected_agg_nonce, "agg_nonce mismatch at {i}");
-            });
+            agg_nonces
+                .as_ref()
+                .pack()
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, agg_nonce)| {
+                    assert_eq!(agg_nonce, &expected_agg_nonce, "agg_nonce mismatch at {i}");
+                });
         });
     }
 

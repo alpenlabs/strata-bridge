@@ -15,19 +15,15 @@ use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transa
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
 use futures::StreamExt;
-use musig2::AggNonce;
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
-use strata_bridge_tx_graph::{
-    pog_musig_functor::PogMusigF,
-    transactions::{
-        deposit::DepositTx,
-        prelude::{AssertDataTxInput, CovenantTx},
-    },
+use strata_bridge_tx_graph::transactions::{
+    deposit::DepositTx,
+    prelude::{AssertDataTxInput, CovenantTx},
 };
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
@@ -1294,9 +1290,7 @@ impl ContractManagerCtx {
                     )
                 });
 
-            let aggnonces = agg_nonces.get(&claim_txid).and_then(|session_aggnonces| {
-                PogMusigF::<AggNonce>::unpack(session_aggnonces.to_vec())
-            })?;
+            let aggnonces = agg_nonces.get(&claim_txid)?.clone();
 
             Some(OperatorDuty::PublishGraphSignatures {
                 claim_txid,
