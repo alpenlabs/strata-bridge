@@ -94,6 +94,13 @@ pub fn fork<'f, A, B, C>(
     move |a| (borrow(&a), consume(a))
 }
 
+/// Categorical dual of [`fork`]. This joins two independent functions into a single bus operation.
+/// This is most useful in KV iterator pipelines.
+#[inline(always)]
+pub fn bus<A, B, C, D>(f: impl Fn(A) -> C, g: impl Fn(B) -> D) -> impl Fn((A, B)) -> (C, D) {
+    move |(a, b)| (f(a), g(b))
+}
+
 /// Reverses the component order of a 2-tuple.
 pub fn swap<A, B>((a, b): (A, B)) -> (B, A) {
     (b, a)
