@@ -3430,7 +3430,7 @@ fn aggregate_partials(
                 partials,
                 aux.sighashes.as_ref().map(Message::as_ref),
             ))
-            .unwrap();
+            .expect("partial signatures have already been validated so aggregation shouldn't fail");
 
             (
                 claim_txid,
