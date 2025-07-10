@@ -12,7 +12,7 @@ use bitcoin::{
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
 use btc_notify::client::TxStatus;
-use secret_service_proto::v1::traits::*;
+use secret_service_proto::v2::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,
 };
@@ -42,7 +42,6 @@ use crate::{
         constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
         wots_handler::get_withdrawal_fulfillment_wots_pk,
     },
-    s2_session_manager::MusigSessionManager,
     tx_driver::DriveErr,
 };
 
@@ -52,8 +51,6 @@ pub(crate) async fn handle_publish_first_stake(
     stake_tx: StakeTx<Head>,
 ) -> Result<(), ContractManagerErr> {
     info!("starting to publish first stake tx");
-
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
 
     // the first stake transaction spends the pre-stake which is locked by the key in the
     // stake-chain wallet
@@ -65,11 +62,13 @@ pub(crate) async fn handle_publish_first_stake(
         ],
     );
 
-    let funds_signature = s2_client
+    let funds_signature = output_handles
+        .s2_client
         .stakechain_wallet_signer()
         .sign(messages[0].as_ref(), None)
         .await?;
-    let stake_signature = s2_client
+    let stake_signature = output_handles
+        .s2_client
         .stakechain_wallet_signer()
         .sign(messages[1].as_ref(), None)
         .await?;
@@ -93,11 +92,10 @@ pub(crate) async fn handle_advance_stake_chain(
 ) -> Result<(), ContractManagerErr> {
     info!(%stake_index, "starting to advance stake chain");
 
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
-
     let messages = stake_tx.sighashes(cfg.funding_address.script_pubkey());
 
-    let funds_signature = s2_client
+    let funds_signature = output_handles
+        .s2_client
         .stakechain_wallet_signer()
         .sign(messages[0].as_ref(), None)
         .await?;
@@ -108,13 +106,14 @@ pub(crate) async fn handle_advance_stake_chain(
     // setup which is used for reimbursements/cpfp.
     // so instead of sharing another key, we can just reuse this key (which is part of a taproot
     // address).
-    let stake_signature = s2_client
+    let stake_signature = output_handles
+        .s2_client
         .general_wallet_signer()
         .sign_no_tweak(messages[1].as_ref())
         .await?;
 
     let operator_id = cfg.operator_table.pov_idx();
-    let op_p2p_key = cfg.operator_table.pov_op_key();
+    let op_p2p_key = cfg.operator_table.pov_p2p_key();
 
     let pre_stake_outpoint = output_handles
         .db
@@ -127,7 +126,7 @@ pub(crate) async fn handle_advance_stake_chain(
         vout: pre_stake_vout,
     } = pre_stake_outpoint;
 
-    let pre_image_client = s2_client.stake_chain_preimages();
+    let pre_image_client = output_handles.s2_client.stake_chain_preimages();
     let prev_preimage = pre_image_client
         .get_preimg(pre_stake_txid, pre_stake_vout, stake_index - 1)
         .await?;
@@ -138,7 +137,11 @@ pub(crate) async fn handle_advance_stake_chain(
         .tx_build_context(cfg.network)
         .aggregated_pubkey();
 
-    let operator_pubkey = s2_client.general_wallet_signer().pubkey().await?;
+    let operator_pubkey = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?;
 
     let prev_connector_s = ConnectorStake::new(
         n_of_n_agg_pubkey,
@@ -327,7 +330,6 @@ pub(crate) async fn handle_withdrawal_fulfillment(
             let mut signed_wft = wft_psbt.unsigned_tx.clone();
             for (input_index, msg) in message_hashes.enumerate() {
                 let signature = output_handles
-                    .s2_session_manager
                     .s2_client
                     .general_wallet_signer()
                     .sign(msg.as_ref(), None)
@@ -369,9 +371,8 @@ pub(crate) async fn handle_publish_claim(
         deposit_txid,
     };
 
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
+    let wots_client = output_handles.s2_client.wots_signer();
 
-    let wots_client = s2_client.wots_signer();
     let withdrawal_fulfillment_pk =
         get_withdrawal_fulfillment_wots_pk(deposit_txid, &wots_client).await?;
 
@@ -381,7 +382,11 @@ pub(crate) async fn handle_publish_claim(
         .tx_build_context(network)
         .aggregated_pubkey();
 
-    let cpfp_key = s2_client.general_wallet_signer().pubkey().await?;
+    let cpfp_key = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?;
 
     let connector_k = ConnectorK::new(network, withdrawal_fulfillment_pk.into());
     let connector_c0 = ConnectorC0::new(
@@ -436,9 +441,11 @@ pub(crate) async fn handle_publish_payout_optimistic(
     stake_index: u32,
     agg_sigs: [taproot::Signature; NUM_PAYOUT_OPTIMISTIC_INPUTS],
 ) -> Result<(), ContractManagerErr> {
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
-
-    let operator_key = s2_client.general_wallet_signer().pubkey().await?;
+    let operator_key = output_handles
+        .s2_client
+        .general_wallet_signer()
+        .pubkey()
+        .await?;
     let network = cfg.network;
 
     let payout_optimistic_data = PayoutOptimisticData {
@@ -477,10 +484,11 @@ pub(crate) async fn handle_publish_payout_optimistic(
         .get_pre_stake(cfg.operator_table.pov_idx())
         .await?
         .ok_or(StakeChainErr::StakeSetupDataNotFound(
-            cfg.operator_table.pov_op_key().clone(),
+            cfg.operator_table.pov_p2p_key().clone(),
         ))?;
 
-    let stake_hash = s2_client
+    let stake_hash = output_handles
+        .s2_client
         .stake_chain_preimages()
         .get_preimg(prestake_txid, prestake_vout, stake_index)
         .await?;

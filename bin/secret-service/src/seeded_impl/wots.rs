@@ -5,7 +5,7 @@ use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use hkdf::Hkdf;
 use make_buf::make_buf;
 use musig2::secp256k1::SECP256K1;
-use secret_service_proto::v1::traits::{Server, WotsSigner};
+use secret_service_proto::v2::traits::{Server, WotsSigner};
 use sha2::Sha256;
 use wots::{
     key_width, wots_public_key, wots_sign_128_bitvm, wots_sign_256_bitvm, PARAMS_128,

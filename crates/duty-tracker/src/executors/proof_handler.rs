@@ -6,7 +6,7 @@ use ark_bn254::{Bn254, Fr};
 use ark_groth16::Proof;
 use bitcoin::{block::Header, Block, Txid};
 use bitcoind_async_client::{traits::Reader, Client as BtcClient};
-use secret_service_proto::v1::traits::*;
+use secret_service_proto::v2::traits::*;
 use strata_bridge_primitives::types::BitcoinBlockHeight;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
 use strata_bridge_proof_protocol::{
@@ -22,7 +22,6 @@ use crate::{
     contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
     predicates::parse_strata_checkpoint,
-    s2_session_manager::MusigSessionManager,
 };
 
 /// Set this environment variable to 1 to dump test data required for prover unit tests.
@@ -64,7 +63,8 @@ pub(super) async fn prepare_proof_input(
     )
     .await?;
 
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
+    let s2_client = &output_handles.s2_client;
+
     let op_signature: Buf64 = s2_client
         .musig2_signer()
         .sign_no_tweak(withdrawal_fulfillment_txid.as_ref())

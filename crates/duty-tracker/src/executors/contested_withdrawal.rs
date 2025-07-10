@@ -4,7 +4,7 @@ use btc_notify::client::TxStatus;
 use futures::future::join_all;
 use rand::thread_rng;
 use secp256k1::rand::{self, Rng};
-use secret_service_proto::v1::traits::*;
+use secret_service_proto::v2::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorA256Factory, ConnectorA3, ConnectorAHashFactory, ConnectorC0, ConnectorCpfp,
     ConnectorNOfN, ConnectorP,
@@ -32,7 +32,6 @@ use crate::{
         proof_handler::{generate_proof, prepare_proof_input},
         wots_handler::{get_wots_pks, sign_assertions},
     },
-    s2_session_manager::MusigSessionManager,
 };
 
 pub(crate) async fn handle_publish_pre_assert(
@@ -45,7 +44,7 @@ pub(crate) async fn handle_publish_pre_assert(
 ) -> Result<(), ContractManagerErr> {
     info!(%deposit_idx, %deposit_txid, %claim_txid, "executing duty to publish pre-assert tx");
 
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
+    let s2_client = &output_handles.s2_client;
 
     let pre_assert_data = PreAssertData { claim_txid };
 
@@ -151,19 +150,14 @@ pub(crate) async fn handle_publish_assert_data(
         .0;
     let connector_n_of_n = ConnectorNOfN::new(agg_pubkey, cfg.network);
 
-    let general_key = output_handles
-        .s2_session_manager
-        .s2_client
-        .general_wallet_signer()
-        .pubkey()
-        .await?;
+    let s2_client = &output_handles.s2_client.clone();
+    let general_key = s2_client.general_wallet_signer().pubkey().await?;
     let connector_cpfp = ConnectorCpfp::new(general_key, cfg.network);
 
     let assert_data_tx_batch =
         AssertDataTxBatch::new(assert_data_input, connector_n_of_n, connector_cpfp);
 
     info!(%deposit_idx, %deposit_txid, "committing to assertions with WOTS");
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
     let wots_client = s2_client.wots_signer();
     let wots_signatures = sign_assertions(deposit_txid, &wots_client, assertions).await?;
 
@@ -225,7 +219,7 @@ pub(crate) async fn handle_publish_post_assert(
         .0;
     let connector_n_of_n = ConnectorNOfN::new(agg_key, cfg.network);
 
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
+    let s2_client = &output_handles.s2_client;
 
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
     let connector_cpfp = ConnectorCpfp::new(general_key, cfg.network);
@@ -272,7 +266,7 @@ pub(crate) async fn handle_publish_payout(
     agg_sigs: [taproot::Signature; NUM_PAYOUT_INPUTS],
 ) -> Result<(), ContractManagerErr> {
     info!(%deposit_idx, %deposit_txid, %claim_txid, %stake_txid, %post_assert_txid, "executing duty to publish payout transaction");
-    let MusigSessionManager { s2_client, .. } = &output_handles.s2_session_manager;
+    let s2_client = &output_handles.s2_client;
 
     let reimbursement_key = s2_client.general_wallet_signer().pubkey().await?;
 
@@ -309,7 +303,7 @@ pub(crate) async fn handle_publish_payout(
         .get_stake_data(pov_idx, deposit_idx)
         .await?
         .ok_or(StakeChainErr::StakeSetupDataNotFound(
-            cfg.operator_table.pov_op_key().clone(),
+            cfg.operator_table.pov_p2p_key().clone(),
         ))?;
     let connector_p = ConnectorP::new(agg_key, stake_data.hash, cfg.network);
 

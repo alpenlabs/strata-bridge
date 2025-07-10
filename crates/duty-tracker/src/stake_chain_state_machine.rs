@@ -124,7 +124,8 @@ impl StakeChainSM {
         operator: P2POperatorPubKey,
         setup: &DepositSetup,
     ) -> Result<Option<Txid>, StakeChainErr> {
-        info!(%operator, "processing deposit setup");
+        let deposit_index = setup.index;
+        info!(%operator, %deposit_index, "processing deposit setup");
 
         let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
             warn!(%operator, "received deposit setup for unknown operator");
@@ -132,19 +133,19 @@ impl StakeChainSM {
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
 
-        if chain_input.stake_inputs.contains_key(&setup.index) {
-            warn!(%operator, "ignoring redundant deposit setup");
+        if chain_input.stake_inputs.contains_key(&deposit_index) {
+            warn!(%operator, %deposit_index, "ignoring redundant deposit setup");
             return Ok(self
-                .stake_tx(&operator, setup.index)?
+                .stake_tx(&operator, deposit_index)?
                 .map(|tx| tx.compute_txid()));
         }
 
         chain_input
             .stake_inputs
-            .insert(setup.index, setup.stake_tx_data());
+            .insert(deposit_index, setup.stake_tx_data());
 
         // now try to create the stake transaction at the index
-        let Some(stake_tx) = self.stake_tx(&operator, setup.index)? else {
+        let Some(stake_tx) = self.stake_tx(&operator, deposit_index)? else {
             warn!(%operator, "stake tx not found for this operator");
 
             // if unable to create the stake tx, we ignore it but inform the caller.
@@ -159,10 +160,10 @@ impl StakeChainSM {
         if self
             .stake_txids
             .get(&operator)
-            .map(|txids| txids.contains_key(&setup.index))
+            .map(|txids| txids.contains_key(&deposit_index))
             .unwrap_or(false)
         {
-            warn!(%operator, index=%setup.index, "stake txid already exists for this index");
+            warn!(%operator, %deposit_index, "stake txid already exists for this index");
 
             return Ok(Some(stake_txid));
         }
@@ -170,7 +171,7 @@ impl StakeChainSM {
         self.stake_txids
             .entry(operator.clone())
             .or_default()
-            .insert(setup.index, stake_txid);
+            .insert(deposit_index, stake_txid);
 
         Ok(Some(stake_txid))
     }
@@ -185,7 +186,7 @@ impl StakeChainSM {
     /// This corresponds to the number of contracts in the
     /// [`crate::contract_state_machine::ContractSM`] that have been processed since genesis.
     pub fn height(&self) -> u32 {
-        let my_key = self.operator_table.pov_op_key();
+        let my_key = self.operator_table.pov_p2p_key();
 
         self.stake_chains
             .get(my_key)
@@ -201,33 +202,32 @@ impl StakeChainSM {
     ) -> Result<Option<StakeTxKind>, StakeChainErr> {
         match self.stake_chains.get(op) {
             Some(stake_chain_inputs) => {
-                let pre_stake = stake_chain_inputs.pre_stake_outpoint;
-
                 let context = self.operator_table.tx_build_context(self.network);
 
                 // handle the first stake tx differently as it spends a pre-stake and not the stake
                 // tx.
-                let first_input = stake_chain_inputs
-                    .stake_inputs
-                    .values()
-                    .nth(0)
-                    .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), 0))?;
-                let stake_hash = first_input.hash;
-                let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
-                let operator_funds = first_input.operator_funds;
-                let operator_pubkey = first_input.operator_pubkey;
-
-                let first_stake = StakeTx::<Head>::new(
-                    &context,
-                    &self.params,
-                    stake_hash,
-                    withdrawal_fulfillment_pk,
-                    pre_stake,
-                    operator_funds,
-                    operator_pubkey,
-                );
-
                 if nth == 0 {
+                    let pre_stake = stake_chain_inputs.pre_stake_outpoint;
+                    let first_input = stake_chain_inputs
+                        .stake_inputs
+                        .values()
+                        .nth(0)
+                        .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), 0))?;
+                    let stake_hash = first_input.hash;
+                    let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
+                    let operator_funds = first_input.operator_funds;
+                    let operator_pubkey = first_input.operator_pubkey;
+
+                    let first_stake = StakeTx::<Head>::new(
+                        &context,
+                        &self.params,
+                        stake_hash,
+                        withdrawal_fulfillment_pk,
+                        pre_stake,
+                        operator_funds,
+                        operator_pubkey,
+                    );
+
                     return Ok(Some(StakeTxKind::Head(first_stake)));
                 }
 

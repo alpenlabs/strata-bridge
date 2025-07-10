@@ -28,7 +28,7 @@ pub struct OperatorTable {
     idx_key: BTreeMap<OperatorIdx, (P2POperatorPubKey, secp256k1::PublicKey)>,
 
     /// The operator public key to the index.
-    op_key: BTreeMap<P2POperatorPubKey, (OperatorIdx, secp256k1::PublicKey)>,
+    p2p_key: BTreeMap<P2POperatorPubKey, (OperatorIdx, secp256k1::PublicKey)>,
 
     /// The bitcoin public key to the operator public key.
     btc_key: BTreeMap<secp256k1::PublicKey, (OperatorIdx, P2POperatorPubKey)>,
@@ -40,7 +40,7 @@ impl OperatorTable {
         is_us: impl for<'a> FnMut(&'a OperatorTableEntry) -> bool + 'static,
     ) -> Option<Self> {
         let mut idx_key = BTreeMap::new();
-        let mut op_key = BTreeMap::new();
+        let mut p2p_key = BTreeMap::new();
         let mut btc_key = BTreeMap::new();
 
         let pov = entries
@@ -52,7 +52,9 @@ impl OperatorTable {
             if idx_key
                 .insert(entry.0, (entry.1.clone(), entry.2))
                 .is_some()
-                || op_key.insert(entry.1.clone(), (entry.0, entry.2)).is_some()
+                || p2p_key
+                    .insert(entry.1.clone(), (entry.0, entry.2))
+                    .is_some()
                 || btc_key.insert(entry.2, (entry.0, entry.1)).is_some()
             {
                 // This means we have a duplicate value which indicates a problem.
@@ -63,13 +65,13 @@ impl OperatorTable {
         Some(OperatorTable {
             pov,
             idx_key,
-            op_key,
+            p2p_key,
             btc_key,
         })
     }
 
     /// Returns the operator public key for the given index.
-    pub fn idx_to_op_key<'a>(&'a self, idx: &OperatorIdx) -> Option<&'a P2POperatorPubKey> {
+    pub fn idx_to_p2p_key<'a>(&'a self, idx: &OperatorIdx) -> Option<&'a P2POperatorPubKey> {
         self.idx_key.get(idx).map(|x| &x.0)
     }
 
@@ -79,13 +81,13 @@ impl OperatorTable {
     }
 
     /// Returns the index for the given operator public key.
-    pub fn op_key_to_idx(&self, op_key: &P2POperatorPubKey) -> Option<OperatorIdx> {
-        self.op_key.get(op_key).map(|x| x.0)
+    pub fn p2p_key_to_idx(&self, op_key: &P2POperatorPubKey) -> Option<OperatorIdx> {
+        self.p2p_key.get(op_key).map(|x| x.0)
     }
 
     /// Returns the bitcoin public key for the given operator public key.
-    pub fn op_key_to_btc_key(&self, op_key: &P2POperatorPubKey) -> Option<secp256k1::PublicKey> {
-        self.op_key.get(op_key).map(|x| x.1)
+    pub fn p2p_key_to_btc_key(&self, op_key: &P2POperatorPubKey) -> Option<secp256k1::PublicKey> {
+        self.p2p_key.get(op_key).map(|x| x.1)
     }
 
     /// Returns the index for the given bitcoin public key.
@@ -94,7 +96,7 @@ impl OperatorTable {
     }
 
     /// Returns the operator public key for the given bitcoin public key.
-    pub fn btc_key_to_op_key<'a>(
+    pub fn btc_key_to_p2p_key<'a>(
         &'a self,
         btc_key: &secp256k1::PublicKey,
     ) -> Option<&'a P2POperatorPubKey> {
@@ -107,7 +109,7 @@ impl OperatorTable {
     }
 
     /// Returns the operator public key for the proof of work operator.
-    pub fn pov_op_key(&self) -> &P2POperatorPubKey {
+    pub fn pov_p2p_key(&self) -> &P2POperatorPubKey {
         // NOTE(proofofkeags): unwrap is safe because we assert this key is in the map in the
         // constructor.
         &self.idx_key.get(&self.pov).unwrap().0
@@ -133,7 +135,7 @@ impl OperatorTable {
 
     /// Returns the P2P public keys for the operators in the table.
     pub fn p2p_keys(&self) -> BTreeSet<P2POperatorPubKey> {
-        self.op_key.keys().cloned().collect()
+        self.p2p_key.keys().cloned().collect()
     }
 
     /// Returns the indices of the operators in the table.
@@ -160,14 +162,94 @@ impl OperatorTable {
 
     /// Converts a map from operator public keys to a value to a map from bitcoin public keys to the
     /// same value.
-    pub fn convert_map_op_to_btc<V>(
+    ///
+    /// (p2p, V) -> (btc, V)
+    pub fn convert_map_p2p_to_btc<V>(
         &self,
         map: BTreeMap<P2POperatorPubKey, V>,
     ) -> Result<BTreeMap<secp256k1::PublicKey, V>, P2POperatorPubKey> {
         map.into_iter()
             .map(|(op, v)| {
-                self.op_key_to_btc_key(&op)
+                self.p2p_key_to_btc_key(&op)
                     .map_or(Err(op), |btc| Ok((btc, v)))
+            })
+            .collect()
+    }
+
+    /// Converts a map from bitcoin public keys to a value to a map from operator public keys to the
+    /// same value.
+    ///
+    /// (btc, V) -> (p2p, V)
+    pub fn convert_map_btc_to_p2p<V>(
+        &self,
+        map: BTreeMap<secp256k1::PublicKey, V>,
+    ) -> Result<BTreeMap<P2POperatorPubKey, V>, secp256k1::PublicKey> {
+        map.into_iter()
+            .map(|(btc, v)| {
+                self.btc_key_to_p2p_key(&btc)
+                    .cloned()
+                    .map_or(Err(btc), |op| Ok((op, v)))
+            })
+            .collect()
+    }
+
+    /// Converts a map from operator public keys to a value to a map from operator indices to the
+    /// same value.
+    ///
+    /// (p2p, V) -> (idx, V)
+    pub fn convert_map_p2p_to_idx<V>(
+        &self,
+        map: BTreeMap<P2POperatorPubKey, V>,
+    ) -> Result<BTreeMap<OperatorIdx, V>, P2POperatorPubKey> {
+        map.into_iter()
+            .map(|(op, v)| self.p2p_key_to_idx(&op).map_or(Err(op), |idx| Ok((idx, v))))
+            .collect()
+    }
+
+    /// Converts a map from operator indices to a value to a map from operator public keys to the
+    /// same value.
+    ///
+    /// (idx, V) -> (p2p, V)
+    pub fn convert_map_idx_to_p2p<V>(
+        &self,
+        map: BTreeMap<OperatorIdx, V>,
+    ) -> Result<BTreeMap<P2POperatorPubKey, V>, OperatorIdx> {
+        map.into_iter()
+            .map(|(idx, v)| {
+                self.idx_to_p2p_key(&idx)
+                    .map_or(Err(idx), |op| Ok((op.clone(), v)))
+            })
+            .collect()
+    }
+
+    /// Converts a map from bitcoin public keys to a value to a map from operator indices to the
+    /// same value.
+    ///
+    /// (btc, V) -> (idx, V)
+    pub fn convert_map_btc_to_idx<V>(
+        &self,
+        map: BTreeMap<secp256k1::PublicKey, V>,
+    ) -> Result<BTreeMap<OperatorIdx, V>, secp256k1::PublicKey> {
+        map.into_iter()
+            .map(|(btc, v)| {
+                self.btc_key_to_idx(&btc)
+                    .map_or(Err(btc), |idx| Ok((idx, v)))
+            })
+            .collect()
+    }
+
+    /// Converts a map from bitcoin public keys to a value to a map from operator indices to the
+    /// same value.
+    ///
+    /// (idx, V) -> (btc, V)
+    pub fn convert_map_idx_to_btc<V>(
+        &self,
+        map: BTreeMap<OperatorIdx, V>,
+    ) -> Result<BTreeMap<secp256k1::PublicKey, V>, OperatorIdx> {
+        map.into_iter()
+            .map(|(idx, v)| {
+                self.idx_to_btc_key(&idx)
+                    .map_or(Err(idx), |btc| Ok((btc, v)))
             })
             .collect()
     }
@@ -180,7 +262,7 @@ impl OperatorTable {
 
     /// Returns a predicate capable of identifying a particular operator pubkey. This is useful to
     /// use in the constructor.
-    pub fn select_op(op: P2POperatorPubKey) -> impl Fn(&OperatorTableEntry) -> bool {
+    pub fn select_p2p(op: P2POperatorPubKey) -> impl Fn(&OperatorTableEntry) -> bool {
         move |(_, o, _)| *o == op
     }
 

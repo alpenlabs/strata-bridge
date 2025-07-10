@@ -5,7 +5,7 @@ use rkyv::{
     Archive, Deserialize, Serialize,
 };
 
-use crate::v1;
+use crate::v2;
 
 trait WireMessageMarker:
     for<'a> Serialize<HighSerializer<AlignedVec, ArenaHandle<'a>, rancor::Error>>
@@ -25,8 +25,8 @@ pub type LengthUint = u16;
 #[repr(u8)]
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum VersionedClientMessage {
-    /// Version 1 of the client message.
-    V1(v1::wire::ClientMessage),
+    /// Version 2 of the client message.
+    V2(v2::wire::ClientMessage),
 }
 
 impl WireMessageMarker for VersionedClientMessage {}
@@ -35,8 +35,8 @@ impl WireMessageMarker for VersionedClientMessage {}
 #[repr(u8)]
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum VersionedServerMessage {
-    /// Version 1 of the server message.
-    V1(v1::wire::ServerMessage),
+    /// Version 2 of the server message.
+    V2(v2::wire::ServerMessage),
 }
 
 impl WireMessageMarker for VersionedServerMessage {}

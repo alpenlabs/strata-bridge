@@ -1,29 +1,28 @@
 //! The traits that make up the secret service's interfaces
 
-use std::{collections::BTreeMap, future::Future};
+use std::future::Future;
 
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use musig2::{
-    errors::{RoundContributionError, RoundFinalizeError},
     secp256k1::{schnorr::Signature, SecretKey},
-    AggNonce, LiftedSignature, PartialSignature, PubNonce,
+    AggNonce, PartialSignature, PubNonce,
 };
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
+use terrors::OneOf;
 
-use super::wire::{Musig2NewSessionError, ServerMessage};
+use super::wire::ServerMessage;
 
 // FIXME: possible when https://github.com/rust-lang/rust/issues/63063 is stabliized
 // pub type AsyncResult<T, E = ()> = impl Future<Output = Result<T, E>>;
 
 /// Core interface for the Secret Service, implemented by both the client and the server with
 /// different versions.
-pub trait SecretService<O, FirstRound, SecondRound>: Send
+pub trait SecretService<O>: Send
 where
     O: Origin,
-    FirstRound: Musig2SignerFirstRound<O, SecondRound>,
 {
     /// Implementation of the [`SchnorrSigner`] trait for the general wallet.
     type GeneralWalletSigner: SchnorrSigner<O>;
@@ -34,7 +33,7 @@ where
     type P2PSigner: P2PSigner<O>;
 
     /// Implementation of the [`Musig2Signer`] trait.
-    type Musig2Signer: Musig2Signer<O, FirstRound>;
+    type Musig2Signer: Musig2Signer<O>;
 
     /// Implementation of the [`WotsSigner`] trait.
     type WotsSigner: WotsSigner<O>;
@@ -102,144 +101,142 @@ pub trait P2PSigner<O: Origin>: Send {
     fn secret_key(&self) -> impl Future<Output = O::Container<SecretKey>> + Send;
 }
 
-/// Uniquely identifies an in-memory MuSig2 session on the signing server.
-pub type Musig2SessionId = OutPoint;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub struct OurPubKeyIsNotInParams;
 
-/// Error returned when trying to access a signer that is out of bounds.
-#[derive(Debug, Archive, Serialize, Deserialize, Clone)]
-pub struct SignerIdxOutOfBounds {
-    /// Index tried to access.
+/// We could not verify the signature we produced.
+/// This may indicate a malicious actor attempted to make us
+/// produce a signature which could reveal our secret key. The
+/// signing session should be aborted and retried with new nonces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub struct SelfVerifyFailed;
+
+/// The final signature is not valid for the given key and message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
+pub struct BadFinalSignature;
+
+/// This error is returned by when a peer provides an invalid contribution
+/// to one of the signing rounds.
+///
+/// This is either because the signer's index exceeds the maximum, or
+/// because we received an invalid contribution from this signer.
+#[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
+pub struct RoundContributionError {
+    /// The erroneous signer index.
     pub index: usize,
-
-    /// Number of signers in the session.
-    pub n_signers: usize,
+    /// The reason why the signer's contribution was rejected.
+    pub reason: ContributionFaultReason,
 }
 
-/// The MuSig2 signer trait is used to bootstrap and initialize a MuSig2 session.
+impl From<musig2::errors::RoundContributionError> for RoundContributionError {
+    fn from(value: musig2::errors::RoundContributionError) -> Self {
+        Self {
+            index: value.index,
+            reason: value.reason.into(),
+        }
+    }
+}
+
+impl From<RoundContributionError> for musig2::errors::RoundContributionError {
+    fn from(val: RoundContributionError) -> Self {
+        musig2::errors::RoundContributionError {
+            index: val.index,
+            reason: val.reason.into(),
+        }
+    }
+}
+
+/// Enumerates the causes for why receiving a contribution from a peer
+/// might fail.
+#[derive(Debug, PartialEq, Eq, Clone, Archive, Serialize, Deserialize)]
+pub enum ContributionFaultReason {
+    /// The signer's index is out of range for the given
+    /// number of signers in the group. Embeds `n_signers`
+    /// (the number of signers).
+    OutOfRange(usize),
+
+    /// Indicates we received different contribution values from
+    /// this peer for the same round. If we receive the same
+    /// nonce or signature from this peer more than once this is
+    /// acceptable and treated as a no-op, but receiving inconsistent
+    /// contributions from the same signer may indicate there is
+    /// malicious behavior occurring.
+    InconsistentContribution,
+
+    /// Indicates we received an invalid partial signature.
+    InvalidSignature,
+}
+
+impl From<musig2::errors::ContributionFaultReason> for ContributionFaultReason {
+    fn from(value: musig2::errors::ContributionFaultReason) -> Self {
+        match value {
+            musig2::errors::ContributionFaultReason::OutOfRange(v) => Self::OutOfRange(v),
+            musig2::errors::ContributionFaultReason::InconsistentContribution => {
+                Self::InconsistentContribution
+            }
+            musig2::errors::ContributionFaultReason::InvalidSignature => Self::InvalidSignature,
+        }
+    }
+}
+
+impl From<ContributionFaultReason> for musig2::errors::ContributionFaultReason {
+    fn from(val: ContributionFaultReason) -> Self {
+        match val {
+            ContributionFaultReason::OutOfRange(v) => {
+                musig2::errors::ContributionFaultReason::OutOfRange(v)
+            }
+            ContributionFaultReason::InconsistentContribution => {
+                musig2::errors::ContributionFaultReason::InconsistentContribution
+            }
+            ContributionFaultReason::InvalidSignature => {
+                musig2::errors::ContributionFaultReason::InvalidSignature
+            }
+        }
+    }
+}
+
+/// The MuSig2 signer trait is used by the caller to request the operations
+/// requiring knowledge of secrets which only S2 possesses. This API was
+/// redesigned to be fully idempotent and deterministic, and doesn't hold any
+/// state on S2 outside of the statically configured keys.
 ///
 /// # Warning
 ///
 /// A single secret key should be used across all sessions initiated by this signer,
 /// whose public key should be accessible via the [`SchnorrSigner::pubkey`] method.
-pub trait Musig2Signer<O: Origin, FirstRound>: SchnorrSigner<O> + Send + Sync {
-    /// Initializes a new MuSig2 session with the given public keys, witness, input transaction ID,
-    /// and input vout.
-    ///
-    /// # Warning
-    ///
-    /// `pubkeys` MUST include our own pubkey. The order of pubkeys will be untouched.
-    fn new_session(
+pub trait Musig2Signer<O: Origin>: SchnorrSigner<O> + Send + Sync {
+    /// Given the params of a musig2 session, deterministically generate a
+    /// public nonce. S2 will create a secret nonce deterministically, then
+    /// derive the public nonce from it and return it to the caller.
+    fn get_pub_nonce(
         &self,
-        session_id: Musig2SessionId,
-        ordered_pubkeys: Vec<XOnlyPublicKey>,
-        witness: TaprootWitness,
-        input_txid: Txid,
-        input_vout: u32,
-    ) -> impl Future<Output = O::Container<Result<FirstRound, O::Musig2NewSessionErr>>> + Send;
+        params: Musig2Params,
+    ) -> impl Future<Output = O::Container<Result<PubNonce, OurPubKeyIsNotInParams>>> + Send;
+
+    /// Given the params of a musig2 session, an aggregated nonce created from
+    /// the signers' session pubnonces and the message to sign, return a partial
+    /// signature. These can be validated and aggregated into the final
+    /// signature valid for the musig2 group public key by the caller.
+    ///
+    /// Fails if our pubkey wasn't present in [`Musig2Params::ordered_pubkeys`],
+    /// or if the signature we produced fails to verify.
+    fn get_our_partial_sig(
+        &self,
+        params: Musig2Params,
+        aggnonce: AggNonce,
+        message: [u8; 32],
+    ) -> impl Future<
+        Output = O::Container<
+            Result<PartialSignature, OneOf<(OurPubKeyIsNotInParams, SelfVerifyFailed)>>,
+        >,
+    > + Send;
 }
 
-/// Represents a state-machine-like API for performing MuSig2 signing.
-///
-/// This first round is returned by the [`Musig2Signer::new_session`] method of the [`Musig2Signer`]
-/// trait.
-///
-/// # Implementation Details
-///
-/// This enables ergonomic usage of the (relatively) complex MuSig2 signing process via generics.
-/// The `secret-service-client` crate provides a client-side implementation of this trait, and
-/// implementers should provide their own implementation server-side.
-pub trait Musig2SignerFirstRound<O: Origin, SecondRound>: Send + Sync {
-    /// Returns the client's public nonce which should be shared with other signers.
-    fn our_nonce(&self) -> impl Future<Output = O::Container<PubNonce>> + Send;
-
-    /// Returns a vector of all signer public keys who the client have yet to receive a [`PubNonce`]
-    /// from.
-    ///
-    /// Note that this will never return our own public key.
-    fn holdouts(&self) -> impl Future<Output = O::Container<Vec<XOnlyPublicKey>>> + Send;
-
-    /// Returns `true` once all public nonces have been received from every signer.
-    fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
-
-    /// Adds one or more [`PubNonce`]s to the internal state, registering each to a specific signers
-    /// at a given index.
-    ///
-    /// Returns an error if the XOnlyPublicKey isn't included in this session, or if the client
-    /// already have a different nonce on-file for that signer.
-    fn receive_pub_nonces(
-        &mut self,
-        nonces: impl Iterator<Item = (XOnlyPublicKey, PubNonce)> + Send,
-    ) -> impl Future<
-        Output = O::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>,
-    > + Send;
-
-    /// Finishes the first round once all nonces are received, combining nonces
-    /// into an aggregated nonce, and creating a partial signature using `seckey`
-    /// on a given `message`, both of which are stored in the returned `SecondRound`.
-    ///
-    /// This method intentionally consumes the `FirstRound`, to avoid accidentally
-    /// reusing a secret-nonce.
-    ///
-    /// This method should only be invoked once [`is_complete`][Self::is_complete]
-    /// returns true, otherwise it will fail. Can also return an error if partial
-    /// signing fails, probably because the wrong secret key was given.
-    ///
-    /// For all partial signatures to be valid, everyone must naturally be signing the
-    /// same message.
-    fn finalize(
-        self,
-        digest: [u8; 32],
-    ) -> impl Future<Output = O::Container<Result<SecondRound, RoundFinalizeError>>> + Send;
-}
-
-/// This trait represents the second round of the MuSig2 signing process.
-/// It is responsible for aggregating the partial signatures into a single
-/// signature, and for verifying the aggregated signature.
-pub trait Musig2SignerSecondRound<O: Origin>: Send + Sync {
-    /// Returns the aggregated nonce built from the nonces provided in the first round. Signers who
-    /// find themselves in an aggregator role can distribute this aggregated nonce to other signers
-    /// to that they can produce an aggregated signature without 1:1 communication between every
-    /// pair of signers.
-    fn agg_nonce(&self) -> impl Future<Output = O::Container<AggNonce>> + Send;
-
-    /// Returns a vector of signer public keys from whom the server have yet to receive a
-    /// [`PartialSignature`]. Note that since our signature was constructed at the end of the
-    /// first round, this vector will never contain our own public key.
-    fn holdouts(&self) -> impl Future<Output = O::Container<Vec<XOnlyPublicKey>>> + Send;
-
-    /// Returns the partial signature created during finalization of the first round.
-    fn our_signature(&self) -> impl Future<Output = O::Container<PartialSignature>> + Send;
-
-    /// Returns true once the server have all partial signatures from the group.
-    fn is_complete(&self) -> impl Future<Output = O::Container<bool>> + Send;
-
-    /// Adds one or more [`PartialSignature`]s to the internal state, registering each to a specific
-    /// signer. Returns an error if the signature is not valid, if the given public key isn't
-    /// part of the set of signers, or if the server already has a different partial signature
-    /// on-file for that signer.
-    fn receive_signatures(
-        &mut self,
-        sigs: impl Iterator<Item = (XOnlyPublicKey, PartialSignature)> + Send,
-    ) -> impl Future<
-        Output = O::Container<Result<(), BTreeMap<XOnlyPublicKey, RoundContributionError>>>,
-    > + Send;
-
-    /// Finishes the second round once all partial signatures are received,
-    /// combining signatures into an aggregated signature on the `message`
-    /// given in the first round finalization.
-    ///
-    /// # Warning
-    ///
-    /// This method should only be invoked once
-    /// [`is_complete`][Musig2SignerSecondRound::is_complete] returns true, otherwise it will
-    /// fail.
-    ///
-    /// Can also return an error if partial signature aggregation fails, but if
-    /// [`receive_signatures`][Musig2SignerSecondRound::receive_signatures] was successful, then
-    /// finalizing will succeed with overwhelming probability.
-    fn finalize(
-        self,
-    ) -> impl Future<Output = O::Container<Result<LiftedSignature, RoundFinalizeError>>> + Send;
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
+pub struct Musig2Params {
+    pub ordered_pubkeys: Vec<XOnlyPublicKey>,
+    pub witness: TaprootWitness,
+    pub input: OutPoint,
 }
 
 /// Winternitz One-Time Signatures (WOTS) are used to transfer state across UTXOs, even though
@@ -323,7 +320,6 @@ pub trait StakeChainPreimages<O: Origin>: Send {
 pub trait Origin {
     /// Container type for responses from secret service traits.
     type Container<T>;
-    type Musig2NewSessionErr;
 }
 
 /// Enforcer for other traits to ensure implementations only work for the server & provides
@@ -333,7 +329,6 @@ pub struct Server;
 impl Origin for Server {
     // for the server, this is just a transparent wrapper
     type Container<T> = T;
-    type Musig2NewSessionErr = SignerIdxOutOfBounds;
 }
 
 /// Enforcer for other traits to ensure implementations only work for the client and provides
@@ -343,7 +338,6 @@ pub struct Client;
 impl Origin for Client {
     // For the client, the server wrap responses in a result that may have a client error.
     type Container<T> = Result<T, ClientError>;
-    type Musig2NewSessionErr = Musig2NewSessionError;
 }
 
 /// Various errors a client may encounter when interacting with the Secret Service.

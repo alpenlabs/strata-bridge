@@ -13,3 +13,4 @@ musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true
 strata-bridge-primitives.workspace = true
+terrors.workspace = true
