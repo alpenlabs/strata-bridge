@@ -13,10 +13,21 @@ use crate::{
 };
 
 /// The number of headers after withdrawal fulfillment transaction that must be provided as private
-/// input
+/// input.
 ///
-/// TODO: update this once this is fixed
-// this is fine for testnet-i
+/// This is essentially the number of headers in the chain fragment used in the proof.
+/// The longer it is the harder it is to mine privately.
+// TODO: (@prajwolrg, @Rajil1213) update this once this is finalized.
+// It's fine to have a smaller value in testnet-I since we run the bridge nodes and they're
+// incapable of constructing a private fork but this needs to be higher for mainnet (at least in the
+// BitVM-based bridge design).
+// The reason for choosing a lower value is that we want the bridge node
+// to be able to generate the proof immediately when it needs to i.e., after it is challenged and
+// the timelock between the `Claim` and `PreAssert` transaction has expired, without having to wait
+// for a long time for the bitcoin chain to have enough headers after the withdrawal fulfillment
+// transaction. This means that this needs to be set to a value that is lower than the
+// `pre_assert_timelock` in the bridge params. To facilitate local testing, this has been sent to a
+// much smaller value of `10`.
 pub const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 10;
 
 /// Verifies that the given transaction is included in the provided Bitcoin header's merkle root.
