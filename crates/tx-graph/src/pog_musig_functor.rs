@@ -200,6 +200,36 @@ impl<T> PogMusigF<T> {
         }
     }
 
+    /// Zips 3 PogMusigF's into a PogMusigF of a 3-tuple.
+    pub fn zip3<A, B, C>(
+        a: PogMusigF<A>,
+        b: PogMusigF<B>,
+        c: PogMusigF<C>,
+    ) -> PogMusigF<(A, B, C)> {
+        PogMusigF::<(A, B, C)>::zip_with_3(|a, b, c| (a, b, c), a, b, c)
+    }
+
+    /// Zips 4 PogMusigF's into a PogMusigF of a 4-tuple.
+    pub fn zip4<A, B, C, D>(
+        a: PogMusigF<A>,
+        b: PogMusigF<B>,
+        c: PogMusigF<C>,
+        d: PogMusigF<D>,
+    ) -> PogMusigF<(A, B, C, D)> {
+        PogMusigF::<(A, B, C, D)>::zip_with_4(|a, b, c, d| (a, b, c, d), a, b, c, d)
+    }
+
+    /// Zips 5 PogMusigF's into a PogMusigF of a 5-tuple.
+    pub fn zip5<A, B, C, D, E>(
+        a: PogMusigF<A>,
+        b: PogMusigF<B>,
+        c: PogMusigF<C>,
+        d: PogMusigF<D>,
+        e: PogMusigF<E>,
+    ) -> PogMusigF<(A, B, C, D, E)> {
+        PogMusigF::<(A, B, C, D, E)>::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
+    }
+
     /// Applies a function to the data while zipping it with another data structure.
     pub fn zip_apply<A, B>(f: PogMusigF<impl Fn(A) -> B>, a: PogMusigF<A>) -> PogMusigF<B> {
         PogMusigF {
