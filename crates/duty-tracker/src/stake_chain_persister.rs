@@ -36,11 +36,9 @@ impl StakeChainPersister {
         cfg: &OperatorTable,
         state: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<(), DbError> {
-        let op_id_and_chain_inputs = state.into_iter().filter_map(|(p2p_key, chain_inputs)| {
-            // extract only those with valid operator ids
-            cfg.op_key_to_idx(&p2p_key)
-                .map(|op_id| (op_id, chain_inputs))
-        });
+        let op_id_and_chain_inputs = cfg
+            .convert_map_op_to_idx(state)
+            .expect("fully saturated stake chain inputs");
 
         info!(
             "preparing the required information to commit all operator's stake chain data to disk"
