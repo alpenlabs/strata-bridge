@@ -1,4 +1,7 @@
-//! DOCS
+//! This module defines a general [`StateMachine`]. This state machine is built from a state
+//! transition (STF) that has access to a `&Config` value, a `&mut State` value, and emits an
+//! `Output` type when giving an `Input`. This machine can be attached to a [`Stream`] of `Input`s
+//! which will cause it to behave as a [`Stream`] of `Output`s
 
 use std::{future::Future, pin::Pin};
 
