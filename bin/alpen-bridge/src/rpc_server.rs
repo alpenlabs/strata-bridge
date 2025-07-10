@@ -644,10 +644,27 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
-        let mut claims = Vec::new();
-        for entry in all_entries {
-            claims.extend(entry.0.state.state.claim_txids())
-        }
+        let claims: Vec<_> = all_entries
+            .into_iter()
+            .filter_map(|entry| match entry.0.state.state {
+                // States that have an active graph with a claim transaction.
+                ContractState::Claimed { active_graph, .. }
+                | ContractState::Challenged { active_graph, .. }
+                | ContractState::PreAssertConfirmed { active_graph, .. }
+                | ContractState::AssertDataConfirmed { active_graph, .. }
+                | ContractState::Asserted { active_graph, .. }
+                | ContractState::Fulfilled { active_graph, .. } => Some(active_graph.1.claim_txid),
+
+                // States that do not have an active graph with a claim transaction.
+                ContractState::Requested { .. }
+                | ContractState::Deposited { .. }
+                | ContractState::Assigned { .. }
+                | ContractState::StakeTxReady { .. } => None,
+
+                // States that are terminal and do not have an active graph.
+                ContractState::Resolved { .. } | ContractState::Disproved { .. } => None,
+            })
+            .collect();
 
         Ok(claims)
     }
