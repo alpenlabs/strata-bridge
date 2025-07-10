@@ -37,7 +37,7 @@ impl StakeChainPersister {
         state: BTreeMap<P2POperatorPubKey, StakeChainInputs>,
     ) -> Result<(), DbError> {
         let op_id_and_chain_inputs = cfg
-            .convert_map_op_to_idx(state)
+            .convert_map_p2p_to_idx(state)
             .expect("fully saturated stake chain inputs");
 
         info!(
@@ -76,7 +76,7 @@ impl StakeChainPersister {
         for operator_id in operator_ids {
             let stake_data = self.db.get_all_stake_data(operator_id).await?;
             let pre_stake_outpoint = self.db.get_pre_stake(operator_id).await?;
-            let p2p_key = cfg.idx_to_op_key(&operator_id);
+            let p2p_key = cfg.idx_to_p2p_key(&operator_id);
 
             match (pre_stake_outpoint, p2p_key) {
                 (Some(pre_stake_outpoint), Some(p2p_key)) => {

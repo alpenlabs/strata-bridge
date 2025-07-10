@@ -467,7 +467,7 @@ impl ContractManagerCtx {
         // advances the cursor does not advance the cursor on the newly created contracts.
         let mut new_contracts = Vec::new();
 
-        let pov_key = self.cfg.operator_table.pov_op_key().clone();
+        let pov_key = self.cfg.operator_table.pov_p2p_key().clone();
         // The next contract will have its index at the tip of the current stake chain.
         let deposit_idx_offset = self.state.stake_chains.height();
 
@@ -670,7 +670,7 @@ impl ContractManagerCtx {
                             .get_mut(&deposit_txid)
                             .expect("withdrawal info must be for an active contract");
 
-                        let pov_op_p2p_key = self.cfg.operator_table.pov_op_key();
+                        let pov_op_p2p_key = self.cfg.operator_table.pov_p2p_key();
                         let stake_index = entry.idx();
                         let Ok(Some(stake_tx)) = self
                             .state
@@ -717,7 +717,7 @@ impl ContractManagerCtx {
         let sender_id = self
             .cfg
             .operator_table
-            .op_key_to_idx(&msg.key)
+            .p2p_key_to_idx(&msg.key)
             .expect("sender must be in the operator table");
         let msg_kind = match msg.unsigned {
             UnsignedGossipsubMsg::StakeChainExchange { .. } => "StakeChainExchange".to_string(),
@@ -1069,7 +1069,7 @@ impl ContractManagerCtx {
             .state
             .stake_chains
             .state()
-            .get(self.cfg.operator_table.pov_op_key())
+            .get(self.cfg.operator_table.pov_p2p_key())
             .expect("our p2p key must exist in the operator table")
             .clone();
 
@@ -1089,7 +1089,7 @@ impl ContractManagerCtx {
             Err(ContractManagerErr::InvalidP2PRequest(Box::new(
                 GetMessageRequest::DepositSetup {
                     scope,
-                    operator_pk: self.cfg.operator_table.pov_op_key().clone(),
+                    operator_pk: self.cfg.operator_table.pov_p2p_key().clone(),
                 },
             )))
         }
@@ -1159,7 +1159,7 @@ impl ContractManagerCtx {
             let existing_nonces = graph_nonces
                 .get(&claim_txid)
                 .and_then(|session_nonces| {
-                    session_nonces.get(csm.cfg().operator_table.pov_op_key())
+                    session_nonces.get(csm.cfg().operator_table.pov_p2p_key())
                 })
                 .cloned();
 
@@ -1196,7 +1196,7 @@ impl ContractManagerCtx {
 
             // Get nonce from state if it exists for this operator
             let existing_nonce = root_nonces
-                .get(csm.cfg().operator_table.pov_op_key())
+                .get(csm.cfg().operator_table.pov_p2p_key())
                 .cloned();
 
             Some(OperatorDuty::PublishRootNonce {
@@ -1255,7 +1255,7 @@ impl ContractManagerCtx {
             info!(%claim_txid, "received nag for graph signatures");
 
             // Check if we already have our own partial signatures for this graph
-            let our_p2p_key = cfg.operator_table.pov_op_key();
+            let our_p2p_key = cfg.operator_table.pov_p2p_key();
             let existing_partials = graph_partials
                 .get(&claim_txid)
                 .and_then(|session_partials| session_partials.get(our_p2p_key))
@@ -1321,7 +1321,7 @@ impl ContractManagerCtx {
             info!(%deposit_request_txid, "received nag for root signatures");
 
             // Check if we already have our own root partial signature for this contract
-            let our_p2p_key = csm.cfg().operator_table.pov_op_key();
+            let our_p2p_key = csm.cfg().operator_table.pov_p2p_key();
             let existing_partial = root_partials.get(our_p2p_key).copied();
 
             let deposit_tx = &csm.cfg().deposit_tx;
@@ -1330,7 +1330,7 @@ impl ContractManagerCtx {
             let aggnonce = csm
                 .cfg()
                 .operator_table
-                .convert_map_op_to_btc(root_nonces.clone())
+                .convert_map_p2p_to_btc(root_nonces.clone())
                 .expect("valid operator table")
                 .into_values()
                 .sum();
@@ -1407,7 +1407,7 @@ impl ContractManagerCtx {
 
                 // Take the difference and add it to the list of things to nag.
                 commands.extend(want.difference(&have).map(|key| {
-                    let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                    let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let scope = Scope::from_bytes(*txid.as_ref());
 
                     debug!(?operator_id, %txid, "queueing nag for deposit setup");
@@ -1435,7 +1435,7 @@ impl ContractManagerCtx {
                         .collect::<BTreeSet<P2POperatorPubKey>>();
 
                     commands.extend(want.difference(&have).map(|key| {
-                        let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                        let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(*claim_txid.as_ref());
 
                         debug!(?operator_id, %claim_txid, "queueing nag for graph nonces");
@@ -1459,7 +1459,7 @@ impl ContractManagerCtx {
                         .cloned()
                         .collect::<BTreeSet<P2POperatorPubKey>>();
                     commands.extend(want.difference(&have).map(|key| {
-                        let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                        let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
 
                         debug!(?operator_id, %txid, "queueing nag for graph sigs");
@@ -1481,7 +1481,7 @@ impl ContractManagerCtx {
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
                 commands.extend(want.difference(&have).map(|key| {
-                    let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                    let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
                     debug!(?operator_id, %txid, "queueing nag for root nonces");
@@ -1502,7 +1502,7 @@ impl ContractManagerCtx {
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
                 commands.extend(want.difference(&have).map(|key| {
-                    let operator_id = self.cfg.operator_table.op_key_to_idx(key);
+                    let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
                     debug!(?operator_id, %txid, "queueing nag for root sigs");

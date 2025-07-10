@@ -1889,7 +1889,7 @@ impl ContractSM {
                         pog
                     };
 
-                    let pov_key = cfg.operator_table.pov_op_key();
+                    let pov_key = cfg.operator_table.pov_p2p_key();
                     let existing_partials =
                         graph_partials
                             .get(claim_txid)
@@ -2066,7 +2066,7 @@ impl ContractSM {
                     aggregate_partials(&cfg.operator_table, aux_data, graph_partials.clone());
 
                 let witness = cfg.deposit_tx.witnesses()[0].clone();
-                let existing_nonce = root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
+                let existing_nonce = root_nonces.get(cfg.operator_table.pov_p2p_key()).cloned();
 
                 Ok(Some(OperatorDuty::PublishRootNonce {
                     deposit_request_txid: self.deposit_request_txid(),
@@ -2095,7 +2095,7 @@ impl ContractSM {
                 *graph_sigs = sigs;
 
                 let witness = cfg.deposit_tx.witnesses()[0].clone();
-                let existing_nonce = root_nonces.get(cfg.operator_table.pov_op_key()).cloned();
+                let existing_nonce = root_nonces.get(cfg.operator_table.pov_p2p_key()).cloned();
 
                 Ok(vec![OperatorDuty::PublishRootNonce {
                     deposit_request_txid: self.deposit_request_txid(),
@@ -2145,7 +2145,7 @@ impl ContractSM {
                             .btc_keys()
                             .into_iter()
                             .filter_map(|btc_key| {
-                                let p2p_key = operator_table.btc_key_to_op_key(&btc_key)?;
+                                let p2p_key = operator_table.btc_key_to_p2p_key(&btc_key)?;
                                 root_nonces.get(p2p_key).cloned()
                             })
                             .sum();
@@ -2209,7 +2209,7 @@ impl ContractSM {
                 let btc_pubkey = self
                     .cfg
                     .operator_table
-                    .op_key_to_btc_key(&signer)
+                    .p2p_key_to_btc_key(&signer)
                     .ok_or_else(|| {
                         TransitionErr(format!(
                             "could not convert operator key {signer} to BTC key"
@@ -2249,7 +2249,7 @@ impl ContractSM {
                             .into_iter()
                             .filter_map(|btc_key| {
                                 let p2p_key =
-                                    self.cfg.operator_table.btc_key_to_op_key(&btc_key)?;
+                                    self.cfg.operator_table.btc_key_to_p2p_key(&btc_key)?;
 
                                 root_partials.get(p2p_key).cloned()
                             })
@@ -2443,7 +2443,7 @@ impl ContractSM {
         match assignment.deposit_state() {
             DepositState::Dispatched(dispatched_state) => {
                 let assignee = dispatched_state.assignee();
-                let assignee_key = match self.cfg.operator_table.idx_to_op_key(&assignee) {
+                let assignee_key = match self.cfg.operator_table.idx_to_p2p_key(&assignee) {
                     Some(op_key) => op_key.clone(),
                     None => {
                         return Err(TransitionErr(format!(
@@ -2525,7 +2525,7 @@ impl ContractSM {
                             *deadline = dispatched_state.exec_deadline();
                             let p2p_key =
                                 operator_table
-                                    .idx_to_op_key(&assignee)
+                                    .idx_to_p2p_key(&assignee)
                                     .ok_or(TransitionErr(format!(
                                     "could not convert operator index {assignee} to operator key"
                                 )))?;
@@ -2566,7 +2566,7 @@ impl ContractSM {
 
                             let p2p_key =
                                 operator_table
-                                    .idx_to_op_key(&assignee)
+                                    .idx_to_p2p_key(&assignee)
                                     .ok_or(TransitionErr(format!(
                                     "could not convert operator index {assignee} to operator key"
                                 )))?;
@@ -3412,7 +3412,7 @@ fn aggregate_partials(
             });
             let partials = PogMusigF::sequence_pog_musig_f(
                 operator_table
-                    .convert_map_op_to_btc(
+                    .convert_map_p2p_to_btc(
                         graph_partials
                             .remove(&claim_txid)
                             .expect("we must have partials for this claim txid"),
@@ -3460,7 +3460,7 @@ fn verify_partials_from_peer(
 ) -> Result<bool, TransitionErr> {
     let individual_pubkey = cfg
         .operator_table
-        .op_key_to_btc_key(signer)
+        .p2p_key_to_btc_key(signer)
         .expect("signer must be part of musig session");
 
     let individual_pubnonces = graph_nonces
@@ -3548,7 +3548,7 @@ mod tests {
         let mut graph_nonces = BTreeMap::new();
         let mut session_nonces = BTreeMap::new();
         operator_table.operator_idxs().iter().for_each(|op_idx| {
-            let signer = operator_table.idx_to_op_key(op_idx).unwrap();
+            let signer = operator_table.idx_to_p2p_key(op_idx).unwrap();
 
             // populate the nonce for every input with the same pubnonce.
             // this means that each input will have the same pubnonce for the same operator.

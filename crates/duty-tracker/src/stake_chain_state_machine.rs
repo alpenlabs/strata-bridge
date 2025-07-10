@@ -186,7 +186,7 @@ impl StakeChainSM {
     /// This corresponds to the number of contracts in the
     /// [`crate::contract_state_machine::ContractSM`] that have been processed since genesis.
     pub fn height(&self) -> u32 {
-        let my_key = self.operator_table.pov_op_key();
+        let my_key = self.operator_table.pov_p2p_key();
 
         self.stake_chains
             .get(my_key)

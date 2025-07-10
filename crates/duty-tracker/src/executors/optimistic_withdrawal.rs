@@ -113,7 +113,7 @@ pub(crate) async fn handle_advance_stake_chain(
         .await?;
 
     let operator_id = cfg.operator_table.pov_idx();
-    let op_p2p_key = cfg.operator_table.pov_op_key();
+    let op_p2p_key = cfg.operator_table.pov_p2p_key();
 
     let pre_stake_outpoint = output_handles
         .db
@@ -484,7 +484,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
         .get_pre_stake(cfg.operator_table.pov_idx())
         .await?
         .ok_or(StakeChainErr::StakeSetupDataNotFound(
-            cfg.operator_table.pov_op_key().clone(),
+            cfg.operator_table.pov_p2p_key().clone(),
         ))?;
 
     let stake_hash = output_handles

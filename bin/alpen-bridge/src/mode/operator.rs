@@ -126,7 +126,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .await?
         .load(&operator_table)
         .await?
-        .get(operator_table.pov_op_key())
+        .get(operator_table.pov_p2p_key())
         .map_or(BTreeSet::new(), |inputs| {
             inputs
                 .stake_inputs

@@ -528,7 +528,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 let operator_p2p_pk = entry
                     .0
                     .operator_table
-                    .btc_key_to_op_key(&operator_pk.inner)?;
+                    .btc_key_to_p2p_key(&operator_pk.inner)?;
 
                 // Then, only get the entries where the operator index matches
                 match &entry.0.state.state {

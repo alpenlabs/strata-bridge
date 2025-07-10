@@ -303,7 +303,7 @@ pub(crate) async fn handle_publish_payout(
         .get_stake_data(pov_idx, deposit_idx)
         .await?
         .ok_or(StakeChainErr::StakeSetupDataNotFound(
-            cfg.operator_table.pov_op_key().clone(),
+            cfg.operator_table.pov_p2p_key().clone(),
         ))?;
     let connector_p = ConnectorP::new(agg_key, stake_data.hash, cfg.network);
 
