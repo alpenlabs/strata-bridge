@@ -1,6 +1,7 @@
 //! Types for the RPC server.
 
 use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, taproot, OutPoint, Txid};
+use btc_notify::client::TxStatus;
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{types::OperatorIdx, wots};
 use strata_primitives::buf::Buf32;
@@ -179,4 +180,14 @@ pub struct RpcDisproveData {
 
     /// The N-of-N signature used to finalize the first input in the disprove transaction.
     pub n_of_n_sig: taproot::Signature,
+}
+
+/// Claim transaction information with Bitcoin network status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcClaimTxInfo {
+    /// Transaction ID of the claim transaction
+    pub txid: Txid,
+
+    /// Bitcoin network status of the transaction
+    pub tx_status: TxStatus,
 }

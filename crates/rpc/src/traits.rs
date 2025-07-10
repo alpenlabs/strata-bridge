@@ -5,8 +5,8 @@ use jsonrpsee::{core::RpcResult, proc_macros::rpc};
 use strata_primitives::buf::Buf32;
 
 use crate::types::{
-    RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcDisproveData, RpcOperatorStatus,
-    RpcWithdrawalInfo,
+    RpcBridgeDutyStatus, RpcClaimInfo, RpcClaimTxInfo, RpcDepositInfo, RpcDisproveData,
+    RpcOperatorStatus, RpcWithdrawalInfo,
 };
 
 /// RPCs related to information about the client itself.
@@ -75,9 +75,9 @@ pub trait StrataBridgeMonitoringApi {
         withdrawal_request_txid: Buf32,
     ) -> RpcResult<Option<RpcWithdrawalInfo>>;
 
-    /// Get all claim transaction IDs.
+    /// Get all claim transaction IDs with their Bitcoin network status.
     #[method(name = "claims")]
-    async fn get_claims(&self) -> RpcResult<Vec<Txid>>;
+    async fn get_claims(&self, bury_depth: Option<u32>) -> RpcResult<Vec<RpcClaimTxInfo>>;
 
     /// Get claim details for a given claim transaction ID.
     #[method(name = "claimInfo")]
