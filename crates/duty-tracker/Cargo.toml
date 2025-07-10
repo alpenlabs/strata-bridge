@@ -25,6 +25,7 @@ strata-p2p-types = { workspace = true, features = ["proptest"] }
 strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-state.workspace = true
+strata-tasks.workspace = true
 
 ark-bn254.workspace = true
 ark-groth16.workspace = true
