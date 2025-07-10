@@ -4,7 +4,12 @@ use std::{fmt, sync::Arc};
 
 use anyhow::{bail, Context};
 use async_trait::async_trait;
-use bitcoin::{taproot::Signature, OutPoint, PublicKey, Txid};
+use bitcoin::{taproot::Signature, BlockHash, OutPoint, PublicKey, Txid};
+use bitcoind_async_client::{
+    traits::{Reader, Wallet},
+    Client as BitcoinClient,
+};
+use btc_notify::client::TxStatus;
 use chrono::{DateTime, Utc};
 use duty_tracker::contract_state_machine::{ContractCfg, ContractState, MachineState};
 use jsonrpsee::{
@@ -31,9 +36,9 @@ use strata_bridge_rpc::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
     },
     types::{
-        ChallengeStep, RpcBridgeDutyStatus, RpcClaimInfo, RpcDepositInfo, RpcDepositStatus,
-        RpcDisproveData, RpcOperatorStatus, RpcReimbursementStatus, RpcWithdrawalInfo,
-        RpcWithdrawalStatus,
+        ChallengeStep, RpcBridgeDutyStatus, RpcClaimInfo, RpcClaimTxInfo, RpcDepositInfo,
+        RpcDepositStatus, RpcDisproveData, RpcOperatorStatus, RpcReimbursementStatus,
+        RpcWithdrawalInfo, RpcWithdrawalStatus,
     },
 };
 use strata_bridge_stake_chain::prelude::STAKE_VOUT;
@@ -205,6 +210,9 @@ pub(crate) struct BridgeRpc {
 
     /// RPC server configuration.
     config: RpcConfig,
+
+    /// Bitcoin client for querying transaction status.
+    bitcoin_client: BitcoinClient,
 }
 
 impl BridgeRpc {
@@ -214,6 +222,7 @@ impl BridgeRpc {
         p2p_handle: P2PHandle,
         params: Params,
         config: RpcConfig,
+        bitcoin_client: BitcoinClient,
     ) -> Self {
         // Initialize with empty cache
         let cached_contracts = Arc::new(RwLock::new(Vec::new()));
@@ -226,6 +235,7 @@ impl BridgeRpc {
             p2p_handle,
             params,
             config,
+            bitcoin_client,
         };
 
         // Start the cache refresh task
@@ -376,6 +386,55 @@ impl BridgeRpc {
                 debug!(%num_contracts_after, "contracts cache refreshed");
             }
         });
+    }
+
+    /// Gets the Bitcoin network status of a transaction.
+    async fn get_tx_status(&self, txid: Txid, bury_depth: Option<u32>) -> RpcResult<TxStatus> {
+        match self.bitcoin_client.get_transaction(&txid).await {
+            // First, check if the transaction exists in mempool or blockchain.
+            Ok(tx_info) => {
+                let confirmations = tx_info.confirmations;
+
+                match confirmations {
+                    0 => Ok(TxStatus::Mempool),
+                    conf if bury_depth.is_some()
+                        && conf >= bury_depth.unwrap_or(self.config.bury_depth) as u64 =>
+                    {
+                        // Transaction is buried
+                        if let Some(blockhash) = tx_info.blockhash {
+                            let blockhash =
+                                blockhash.parse::<BlockHash>().expect("valid blockhash");
+                            if let Ok(block_info) = self.bitcoin_client.get_block(&blockhash).await
+                            {
+                                let height = block_info
+                                    .bip34_block_height()
+                                    .expect("block header version will always be >= 2");
+                                return Ok(TxStatus::Buried { blockhash, height });
+                            }
+                        }
+                        Ok(TxStatus::Unknown)
+                    }
+                    _ => {
+                        // Transaction is mined but not buried
+                        if let Some(blockhash) = tx_info.blockhash {
+                            let blockhash =
+                                blockhash.parse::<BlockHash>().expect("valid blockhash");
+                            if let Ok(block_info) = self.bitcoin_client.get_block(&blockhash).await
+                            {
+                                let height = block_info
+                                    .bip34_block_height()
+                                    .expect("block header version will always be >= 2");
+                                return Ok(TxStatus::Mined { blockhash, height });
+                            }
+                        }
+                        Ok(TxStatus::Unknown)
+                    }
+                }
+            }
+
+            // Transaction does not exist in the mempool or blockchain.
+            Err(_) => Ok(TxStatus::Unknown),
+        }
     }
 }
 
@@ -640,7 +699,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         Ok(withdrawal_info)
     }
 
-    async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
+    async fn get_claims(&self, bury_depth: Option<u32>) -> RpcResult<Vec<RpcClaimTxInfo>> {
         // Use the cached contracts
         let all_entries = self.cached_contracts.read().await.clone();
 
@@ -649,7 +708,19 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             claims.extend(entry.0.state.state.claim_txids())
         }
 
-        Ok(claims)
+        // Use the provided bury_depth or fall back to the configured one
+        let effective_bury_depth = bury_depth.unwrap_or(self.config.bury_depth);
+
+        let mut claim_infos = Vec::new();
+        for txid in claims {
+            let tx_status = self.get_tx_status(txid, Some(effective_bury_depth)).await?;
+            // Only include claims that have been broadcast to Bitcoin network
+            if !matches!(tx_status, TxStatus::Unknown) {
+                claim_infos.push(RpcClaimTxInfo { txid, tx_status });
+            }
+        }
+
+        Ok(claim_infos)
     }
 
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {

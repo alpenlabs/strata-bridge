@@ -196,7 +196,14 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     info!("starting rpc server");
     let rpc_config = config.rpc.clone();
     let rpc_params = params.clone();
-    let rpc_task = start_rpc_server(db_rpc, p2p_handle_rpc, rpc_params, rpc_config).await?;
+    let rpc_task = start_rpc_server(
+        db_rpc,
+        p2p_handle_rpc,
+        rpc_params,
+        rpc_config,
+        bitcoin_rpc_client.clone(),
+    )
+    .await?;
     debug!("rpc server started");
 
     // Wait for all tasks to run
@@ -440,9 +447,10 @@ async fn start_rpc_server(
     p2p_handle: P2PHandle,
     params: Params,
     config: RpcConfig,
+    bitcoin_client: BitcoinClient,
 ) -> anyhow::Result<JoinHandle<()>> {
     let rpc_addr = config.rpc_addr.clone();
-    let rpc_client = BridgeRpc::new(db, p2p_handle, params, config);
+    let rpc_client = BridgeRpc::new(db, p2p_handle, params, config, bitcoin_client);
     let handle = spawn(async move {
         start_rpc(&rpc_client, rpc_addr.as_str())
             .await

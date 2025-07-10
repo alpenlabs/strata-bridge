@@ -72,6 +72,7 @@ pub(crate) struct SecretServiceConfig {
 
     /// Path to the bridge's TLS cert used for client authentication.
     pub cert: PathBuf,
+
     /// Path to the bridge's TLS key used for client authentication.
     pub key: PathBuf,
 
@@ -144,6 +145,14 @@ pub(crate) struct RpcConfig {
     /// Default is
     /// [`DEFAULT_RPC_CACHE_REFRESH_INTERVAL`](crate::constants::DEFAULT_RPC_CACHE_REFRESH_INTERVAL).
     pub refresh_interval: Option<Duration>,
+
+    /// Default bury depth for transactions when not specified in RPC calls.
+    ///
+    /// This is the number of blocks that must be built on top of a given block before that
+    /// block is considered buried. A bury depth of 6 will mean that the most recent "buried"
+    /// block will be the 7th newest block. A bury depth of 0 would mean that the block is
+    /// considered buried the moment it is mined.
+    pub bury_depth: u32,
 }
 
 #[cfg(test)]
@@ -195,6 +204,7 @@ mod tests {
             [rpc]
             rpc_addr = "localhost:5678"
             refresh_interval = {secs = 600, nanos = 0 }
+            bury_depth = 6
 
             [btc_zmq]
             bury_depth = 6
