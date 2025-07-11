@@ -1647,16 +1647,13 @@ async fn execute_duty(
             partial_sigs,
             aggnonce,
         } => {
-            let partials = cfg
-                .operator_table
-                .convert_map_op_to_btc(partial_sigs)
-                .expect("convert partial sig map to btc key index");
             tokio::spawn(async move {
                 handle_publish_deposit(
-                    &outs.s2_session_manager,
                     &outs.tx_driver,
+                    cfg.operator_table.btc_keys().into_iter().collect(),
                     deposit_tx,
-                    partials,
+                    partial_sigs,
+                    aggnonce,
                 )
                 .await
                 .inspect_err(log_error)
