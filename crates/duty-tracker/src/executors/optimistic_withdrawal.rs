@@ -24,7 +24,7 @@ use strata_bridge_primitives::{
 };
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, PAYOUT_VOUT, WITHDRAWAL_FULFILLMENT_VOUT},
-    transactions::stake::{Head, Tail},
+    transactions::stake::{Head, StakeTxKind, Tail},
 };
 use strata_bridge_tx_graph::transactions::{
     claim::{ClaimData, ClaimTx},
@@ -243,7 +243,8 @@ async fn try_publish_stake_tx(
 /// Constructs, finalizes and broadcasts the Withdrawal Fulfillment Transaction.
 pub(crate) async fn handle_withdrawal_fulfillment(
     cfg: &ExecutionConfig,
-    output_handles: &OutputHandles,
+    output_handles: Arc<OutputHandles>,
+    stake_tx: StakeTxKind,
     withdrawal_metadata: WithdrawalMetadata,
     user_descriptor: Descriptor,
     deadline: BitcoinBlockHeight,
@@ -251,6 +252,49 @@ pub(crate) async fn handle_withdrawal_fulfillment(
     let deposit_idx = withdrawal_metadata.deposit_idx;
     info!(dest=%user_descriptor, %deposit_idx, %deadline, "handling duty to fulfill withdrawal");
 
+    match stake_tx {
+        StakeTxKind::Head(stake_tx) => {
+            handle_publish_first_stake(cfg, output_handles.clone(), stake_tx).await?
+        }
+        StakeTxKind::Tail(stake_tx) => {
+            handle_advance_stake_chain(
+                cfg,
+                output_handles.clone(),
+                withdrawal_metadata.deposit_idx,
+                stake_tx,
+            )
+            .await?
+        }
+    }
+
+    let pov_idx = cfg.operator_table.pov_idx();
+    let assignee = withdrawal_metadata.operator_idx;
+    let is_assigned_to_me = assignee == pov_idx;
+
+    if !is_assigned_to_me {
+        debug!(%pov_idx, %assignee, "not fronting withdrawal as it is not assigned to me");
+        return Ok(());
+    }
+
+    fulfill_withdrawal(
+        cfg,
+        &output_handles,
+        withdrawal_metadata,
+        user_descriptor,
+        deadline,
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn fulfill_withdrawal(
+    cfg: &ExecutionConfig,
+    output_handles: &OutputHandles,
+    withdrawal_metadata: WithdrawalMetadata,
+    user_descriptor: Descriptor,
+    deadline: BitcoinBlockHeight,
+) -> Result<(), ContractManagerErr> {
     let fulfillment_window = cfg.min_withdrawal_fulfillment_window;
     let cur_height = output_handles
         .bitcoind_rpc_client

@@ -50,6 +50,13 @@ struct TxDriveJob {
     respond_on: oneshot::Sender<Result<(), DriveErr>>,
 }
 
+impl TxDriveJob {
+    /// Returns the condition upon which the caller needs to be notified.
+    fn condition(&self) -> &(dyn Fn(&TxStatus) -> bool + Send) {
+        &self.condition
+    }
+}
+
 type TxSubscriberSet = Vec<(
     Box<dyn Fn(&TxStatus) -> bool + Send>,
     oneshot::Sender<Result<(), DriveErr>>,
@@ -126,10 +133,45 @@ impl TxDriver {
                             move |tx| tx == &rawtx_filter
                         ).await;
 
-                        if rpc_client.get_raw_transaction_verbosity_zero(&txid).await.is_ok() {
-                            debug!(%txid, "transaction already broadcasted, skipping resubmission but subscribing to events");
-                            active_tx_subs.push(tx_sub);
-                            active_jobs = active_jobs.merge(job.into());
+                        if let Ok(tx_data) = rpc_client.get_raw_transaction_verbosity_one(&txid).await {
+                            let num_confirmations = tx_data.confirmations.unwrap_or(0);
+                            let block_hash = tx_data.blockhash;
+                            let block_height = if let Some(block_hash) = block_hash {
+                                // This uses `0` as the default since a block height of `0` does not
+                                // satisfy any practical predicate
+                                rpc_client.get_block(&block_hash).await.map(|block| block.bip34_block_height().unwrap_or(0)).unwrap_or(0)
+                            } else {
+                                0
+                            };
+
+                            let bury_depth = zmq_client.bury_depth() as u32;
+                            let tx_status = match num_confirmations {
+                                0 => TxStatus::Mempool,
+                                n if n < bury_depth => TxStatus::Mined {
+                                    blockhash: tx_data.blockhash.expect("must be present if confirmed"),
+                                    height: block_height,
+                                },
+                                _ => TxStatus::Buried {
+                                    blockhash: tx_data.blockhash.expect("must be present if confirmed"),
+                                    height: block_height,
+                                },
+                            };
+
+                            if job.condition()(&tx_status) {
+                                debug!(%txid, %tx_status, "transaction already fulfills the supplied condition, notifying job submitter");
+                                if job.respond_on.send(Ok(())).is_err() {
+                                    error!("could not send response to job submitter");
+                                }
+                            } else {
+                                // if the condition is not met, we still need to add the job
+                                // to the active jobs so that we can notify it later.
+                                // FIXME: (@Rajil1213) it may be the case that by the time we
+                                // subscribe to events, the event may already have happened.
+                                // For example, a new block may have been produced that causes the
+                                // transaction to be buried.
+                                active_tx_subs.push(tx_sub);
+                                active_jobs = active_jobs.merge(job.into());
+                            }
 
                             continue;
                         }

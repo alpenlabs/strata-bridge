@@ -1,3 +1,4 @@
+use algebra::predicate;
 use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::HASH_LEN};
 use btc_notify::client::TxStatus;
@@ -184,9 +185,10 @@ pub(crate) async fn handle_publish_assert_data(
                 let txid = signed_assert_data_tx.compute_txid();
                 info!(%txid, %index, "submitting assert-data transaction to the tx-driver");
 
-                output_handles
-                    .tx_driver
-                    .drive(signed_assert_data_tx, TxStatus::is_mined)
+                output_handles.tx_driver.drive(
+                    signed_assert_data_tx,
+                    predicate::or(TxStatus::is_mined, TxStatus::is_buried),
+                )
             });
 
     join_all(assert_data_batch_broadcast_job)

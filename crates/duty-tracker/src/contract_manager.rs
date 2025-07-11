@@ -20,7 +20,6 @@ use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
-use strata_bridge_stake_chain::transactions::stake::StakeTxKind;
 use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
     prelude::{AssertDataTxInput, CovenantTx},
@@ -1648,44 +1647,34 @@ async fn execute_duty(
             partial_sigs,
             aggnonce,
         } => {
-            handle_publish_deposit(
-                &outs.tx_driver,
-                cfg.operator_table.btc_keys().into_iter().collect(),
-                deposit_tx,
-                partial_sigs,
-                aggnonce,
-            )
-            .await
+            tokio::spawn(async move {
+                handle_publish_deposit(
+                    &outs.tx_driver,
+                    cfg.operator_table.btc_keys().into_iter().collect(),
+                    deposit_tx,
+                    partial_sigs,
+                    aggnonce,
+                )
+                .await
+                .inspect_err(log_error)
+            });
+
+            Ok(())
         }
 
         OperatorDuty::FulfillerDuty(fulfiller_duty) => match fulfiller_duty {
-            FulfillerDuty::AdvanceStakeChain {
-                stake_index,
-                stake_tx,
-            } => {
-                tokio::spawn(async move {
-                    match stake_tx {
-                        StakeTxKind::Head(stake_tx) => {
-                            handle_publish_first_stake(&cfg, outs.clone(), stake_tx).await
-                        }
-                        StakeTxKind::Tail(stake_tx) => {
-                            handle_advance_stake_chain(&cfg, outs.clone(), stake_index, stake_tx)
-                                .await
-                        }
-                    }
-                    .inspect_err(log_error)
-                });
-                Ok(())
-            }
-            FulfillerDuty::PublishFulfillment {
+            FulfillerDuty::HandleFulfillment {
                 withdrawal_metadata,
                 user_descriptor,
                 deadline,
+                stake_tx,
+                ..
             } => {
                 tokio::spawn(async move {
                     handle_withdrawal_fulfillment(
                         &cfg,
-                        &outs,
+                        outs.clone(),
+                        stake_tx,
                         withdrawal_metadata,
                         user_descriptor,
                         deadline,
@@ -1693,6 +1682,7 @@ async fn execute_duty(
                     .await
                     .inspect_err(log_error)
                 });
+
                 Ok(())
             }
             FulfillerDuty::PublishClaim {
@@ -1711,6 +1701,7 @@ async fn execute_duty(
                     .await
                     .inspect_err(log_error)
                 });
+
                 Ok(())
             }
             FulfillerDuty::PublishPayoutOptimistic {
@@ -1733,6 +1724,7 @@ async fn execute_duty(
                     .await
                     .inspect_err(log_error)
                 });
+
                 Ok(())
             }
             FulfillerDuty::PublishPreAssert {
@@ -1753,6 +1745,7 @@ async fn execute_duty(
                     .await
                     .inspect_err(log_error)
                 });
+
                 Ok(())
             }
             FulfillerDuty::PublishAssertData {
@@ -1778,6 +1771,7 @@ async fn execute_duty(
                     )
                     .await
                 });
+
                 Ok(())
             }
             FulfillerDuty::PublishPostAssertData {
@@ -1796,6 +1790,7 @@ async fn execute_duty(
                     .await
                     .inspect_err(log_error)
                 });
+
                 Ok(())
             }
             FulfillerDuty::PublishPayout {
@@ -1820,6 +1815,7 @@ async fn execute_duty(
                     .await
                     .inspect_err(log_error)
                 });
+
                 Ok(())
             }
             FulfillerDuty::InitStakeChain => Err(TransitionErr(
