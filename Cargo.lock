@@ -90,8 +90,10 @@ dependencies = [
 name = "algebra"
 version = "0.1.0"
 dependencies = [
+ "futures",
  "proptest",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

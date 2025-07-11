@@ -2,50 +2,53 @@
 //! variants.
 
 /// Performs left-to-right composition for closures that only implement [`FnOnce`].
+#[inline(always)]
 pub fn comp_once<A, B, C>(f: impl FnOnce(A) -> B, g: impl FnOnce(B) -> C) -> impl FnOnce(A) -> C {
     |a| g(f(a))
 }
 
 /// Performs left-to-right composition for closures that only implement [`FnMut`].
-pub fn comp_mut<'composed, A, B, C>(
-    mut f: impl FnMut(A) -> B + 'composed,
-    mut g: impl FnMut(B) -> C + 'composed,
-) -> impl FnMut(A) -> C + 'composed {
+#[inline(always)]
+pub fn comp_mut<'f, A, B, C>(
+    mut f: impl FnMut(A) -> B + 'f,
+    mut g: impl FnMut(B) -> C + 'f,
+) -> impl FnMut(A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for functions where there is a lifetime dependency in the
 /// first argument, and the second closure operates over the output reference of the first argument.
-pub fn comp_as_ref_mut<A, B: ?Sized, C>(
-    mut f: impl FnMut(&A) -> &B,
-    mut g: impl FnMut(&B) -> C,
-) -> impl for<'a> FnMut(&'a A) -> C {
+#[inline(always)]
+pub fn comp_as_ref_mut<'f, A, B: ?Sized, C>(
+    mut f: impl FnMut(&A) -> &B + 'f,
+    mut g: impl FnMut(&B) -> C + 'f,
+) -> impl for<'a> FnMut(&'a A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for any functions operating over owned values.
-pub fn comp<'composed, A, B, C>(
-    f: impl Fn(A) -> B + 'composed,
-    g: impl Fn(B) -> C + 'composed,
-) -> impl for<'a> Fn(A) -> C + 'composed {
+#[inline(always)]
+pub fn comp<'f, A, B, C>(f: impl Fn(A) -> B + 'f, g: impl Fn(B) -> C + 'f) -> impl Fn(A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for functions where there is a lifetime dependency in the
 /// first argument, and the second closure operates over the output reference of the first argument.
-pub fn comp_as_ref<A, B: ?Sized, C>(
-    f: impl Fn(&A) -> &B,
-    g: impl Fn(&B) -> C,
-) -> impl for<'a> Fn(&'a A) -> C {
+#[inline(always)]
+pub fn comp_as_ref<'f, A, B: ?Sized, C>(
+    f: impl Fn(&A) -> &B + 'f,
+    g: impl Fn(&B) -> C + 'f,
+) -> impl for<'a> Fn(&'a A) -> C + 'f {
     move |a| g(f(a))
 }
 
 /// Performs left-to-right composition for closures that have lifetime dependencies in both
 /// arguments.
-pub fn comp_as_refs<A: ?Sized, B: ?Sized + 'static, C: ?Sized>(
-    f: impl Fn(&A) -> &B,
-    g: impl Fn(&B) -> &C,
-) -> impl for<'a> Fn(&'a A) -> &'a C {
+#[inline(always)]
+pub fn comp_as_refs<'f, A: ?Sized, B: ?Sized + 'static, C: ?Sized>(
+    f: impl Fn(&A) -> &B + 'f,
+    g: impl Fn(&B) -> &C + 'f,
+) -> impl for<'a> Fn(&'a A) -> &'a C + 'f {
     move |a| g(f(a))
 }
 
@@ -56,20 +59,63 @@ pub const fn iden<A>(a: A) -> A {
 
 /// Lifts an `FnOnce` that takes a borrowed argument into one that consumes that argument. This is
 /// useful because there is no way to build a function of type `f : A -> &A`
+#[inline(always)]
 pub fn moved_once<A, B>(f: impl FnOnce(&A) -> B) -> impl FnOnce(A) -> B {
     move |a| f(&a)
 }
 
 /// Lifts an `FnMut` that takes a borrowed argument into one that consumes that argument. This is
 /// useful because there is no way to build a function of type `f : A -> &A`
-pub fn moved_mut<A, B>(mut f: impl FnMut(&A) -> B) -> impl FnMut(A) -> B {
+#[inline(always)]
+pub fn moved_mut<'f, A, B>(mut f: impl FnMut(&A) -> B + 'f) -> impl FnMut(A) -> B + 'f {
     move |a| f(&a)
 }
 
 /// Lifts an `Fn` that takes a borrowed argument into one that consumes that argument. This is
 /// useful because there is no way to build a function of type `f : A -> &A`
-pub fn moved<A, B>(f: impl Fn(&A) -> B) -> impl Fn(A) -> B {
+#[inline(always)]
+pub fn moved<'f, A, B>(f: impl Fn(&A) -> B + 'f) -> impl Fn(A) -> B + 'f {
     move |a| f(&a)
+}
+
+/// Lifts an `Fn` that takes an owned argument into one that just borrows it, cloning the value
+/// internally before consuming it with the argument. This is the conceptual opposite of [`moved`].
+pub fn borrowed<'f, A: Clone + 'f, B>(f: impl Fn(A) -> B + 'f) -> impl Fn(&'f A) -> B + 'f {
+    comp(A::clone, f)
+}
+
+/// Takes two functions, one that borrows the argument and one that consumes the same type of
+/// argument and pairs the results.
+#[inline(always)]
+pub fn fork<'f, A, B, C>(
+    borrow: impl Fn(&A) -> B + 'f,
+    consume: impl Fn(A) -> C + 'f,
+) -> impl Fn(A) -> (B, C) + 'f {
+    move |a| (borrow(&a), consume(a))
+}
+
+/// Categorical dual of [`fork`]. This joins two independent functions into a single bus operation.
+/// This is most useful in KV iterator pipelines.
+#[inline(always)]
+pub fn bus<A, B, C, D>(f: impl Fn(A) -> C, g: impl Fn(B) -> D) -> impl Fn((A, B)) -> (C, D) {
+    move |(a, b)| (f(a), g(b))
+}
+
+/// Reverses the component order of a 2-tuple.
+pub fn swap<A, B>((a, b): (A, B)) -> (B, A) {
+    (b, a)
+}
+
+/// Transforms a function into one that pairs the argument with the return value.
+#[inline]
+pub fn annotate<'f, A: 'f, B: 'f>(f: impl Fn(&A) -> B + 'f) -> impl Fn(A) -> (A, B) + 'f {
+    comp(fork(f, iden), swap)
+}
+
+/// Transforms a function into one that pairs the return value with the argument.
+#[inline]
+pub fn index<'f, A: 'f, B: 'f>(f: impl Fn(&B) -> A + 'f) -> impl Fn(B) -> (A, B) + 'f {
+    fork(f, iden)
 }
 
 #[cfg(test)]
