@@ -92,6 +92,7 @@ strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/alpen.gi
 strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-tasks = { git = "https://github.com/alpenlabs/alpen.git" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
 strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }

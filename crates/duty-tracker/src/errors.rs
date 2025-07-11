@@ -105,3 +105,23 @@ pub enum StakeChainErr {
     #[error("unexpected problem with stake chain state machine: {0}")]
     Unexpected(String),
 }
+
+/// Error type for shutdown operations.
+#[derive(Debug, Error)]
+pub enum ShutdownErr {
+    /// Error during contract state persistence.
+    #[error("failed to persist contract state: {0}")]
+    ContractPersistErr(#[from] ContractPersistErr),
+
+    /// Error during stake chain state persistence.
+    #[error("failed to persist stake chain state: {0}")]
+    StakeChainPersistErr(#[from] DbError),
+
+    /// Timeout during shutdown operations
+    #[error("timeout during shutdown operation: {0}")]
+    ShutdownTimeout(String),
+
+    /// Error indicatiing unexpected behavior during shutdown.
+    #[error("unexpected problem with the shutdown operation: {0}")]
+    Unexpected(String),
+}

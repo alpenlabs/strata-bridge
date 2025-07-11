@@ -40,6 +40,9 @@ pub(crate) struct Config {
     /// The target pool size for claim funding transactions.
     pub stake_funding_pool_size: usize,
 
+    /// Timeout for shutdown operations.
+    pub shutdown_timeout: Duration,
+
     /// Configuration required to connector to a _local_ instance of the secret service server.
     pub secret_service_client: SecretServiceConfig,
 
@@ -160,6 +163,7 @@ mod tests {
             nag_interval = { secs = 60, nanos = 0 }
             min_withdrawal_fulfillment_window = 144
             stake_funding_pool_size = 32
+            shutdown_timeout = { secs = 15, nanos = 0 }
 
             [secret_service_client]
             server_addr = "localhost:1234"
@@ -203,6 +207,8 @@ mod tests {
             rawblock_connection_string = "tcp://127.0.0.1:28334"
             rawtx_connection_string = "tcp://127.0.0.1:28335"
             sequence_connection_string = "tcp://127.0.0.1:28336"
+
+            shutdown_timeout = { secs = 15, nanos = 0 }
         "#;
 
         let config = toml::from_str::<Config>(config);

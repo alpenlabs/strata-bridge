@@ -22,7 +22,7 @@ use bitcoind_async_client::{
 use btc_notify::client::BtcZmqClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
-    stake_chain_persister::StakeChainPersister, tx_driver::TxDriver,
+    shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister, tx_driver::TxDriver,
 };
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
@@ -53,18 +53,23 @@ use strata_bridge_primitives::{
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
-use tokio::{net::lookup_host, spawn, sync::broadcast, task::JoinHandle, try_join};
-use tracing::{debug, info};
+use strata_tasks::TaskExecutor;
+use tokio::{net::lookup_host, sync::broadcast, task::JoinHandle};
+use tracing::{debug, error, info};
 
 use crate::{
-    config::{Config, P2PConfig, RpcConfig, SecretServiceConfig},
+    config::{Config, P2PConfig, SecretServiceConfig},
     params::Params,
     rpc_server::{start_rpc, BridgeRpc},
 };
 
 /// Bootstraps the bridge client in Operator mode by hooking up all the required auxiliary services
-/// including database, rpc server, etc.
-pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<()> {
+/// including database, rpc server, graceful shutdown handler, etc.
+pub(crate) async fn bootstrap(
+    params: Params,
+    config: Config,
+    executor: TaskExecutor,
+) -> anyhow::Result<()> {
     debug!("bootstrapping operator node");
 
     // Secret Service stuff.
@@ -178,7 +183,7 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
         .expect("should be able to connect to zmq");
 
     let pre_stake_pubkey = operator_wallet.stakechain_script_buf();
-    let contract_manager_task = init_duty_tracker(
+    let (contract_manager, contract_persister, stake_chain_persister) = init_duty_tracker(
         &params,
         &config,
         operator_table,
@@ -193,15 +198,57 @@ pub(crate) async fn bootstrap(params: Params, config: Config) -> anyhow::Result<
     .await?;
     debug!("contract manager initialized");
 
+    // Create shutdown handler for graceful shutdown.
+    let shutdown_handler = ShutdownHandler::new(contract_persister, stake_chain_persister);
+
     info!("starting rpc server");
     let rpc_config = config.rpc.clone();
     let rpc_params = params.clone();
-    let rpc_task = start_rpc_server(db_rpc, p2p_handle_rpc, rpc_params, rpc_config).await?;
+    let rpc_addr = rpc_config.rpc_addr.clone();
+    executor.spawn_critical_async_with_shutdown("rpc_server", |_| async move {
+        let rpc_client = BridgeRpc::new(db_rpc, p2p_handle_rpc, rpc_params, rpc_config);
+        start_rpc(&rpc_client, rpc_addr.as_str()).await
+    });
     debug!("rpc server started");
 
-    // Wait for all tasks to run
-    // They are supposed to run indefinitely in most cases
-    try_join!(rpc_task, p2p_task, contract_manager_task)?;
+    info!("starting p2p service");
+    executor.spawn_critical_async_with_shutdown("p2p_service", |_| async move {
+        p2p_task.await.map_err(anyhow::Error::from)
+    });
+    debug!("p2p service started");
+
+    info!("starting contract manager");
+    let shutdown_timeout = config.shutdown_timeout;
+    executor.spawn_critical_async_with_shutdown("contract_manager", |shutdown_guard| async move {
+        // Wait for the contract manager to complete or shutdown signal.
+        let shutdown_fut = async {
+            shutdown_guard.wait_for_shutdown().await;
+
+            // Extract execution state and persist before shutdown.
+            match contract_manager.shutdown_and_extract_state().await {
+                Ok(execution_state) => {
+                    info!("extracted execution state, persisting before shutdown");
+                    match shutdown_handler
+                        .persist_state_before_shutdown(
+                            &execution_state,
+                            &shutdown_guard,
+                            shutdown_timeout,
+                        )
+                        .await
+                    {
+                        Ok(()) => info!("successfully persisted state before shutdown"),
+                        Err(e) => error!("failed to persist state before shutdown: {e:?}"),
+                    }
+                }
+                Err(e) => error!("failed to extract execution state: {e:?}"),
+            }
+        };
+
+        // This will run until shutdown is signaled.
+        shutdown_fut.await;
+        Ok(())
+    });
+    debug!("contract manager started");
 
     Ok(())
 }
@@ -393,7 +440,7 @@ async fn init_duty_tracker(
     p2p_handle: P2PHandle,
     operator_wallet: OperatorWallet,
     db: SqliteDb,
-) -> anyhow::Result<JoinHandle<()>> {
+) -> anyhow::Result<(ContractManager, ContractPersister, StakeChainPersister)> {
     let network = params.network;
     let nag_interval = config.nag_interval;
     let connector_params = params.connectors;
@@ -404,14 +451,20 @@ async fn init_duty_tracker(
 
     let db_pool = db.pool().clone();
     info!("initializing contract persister");
-    let contract_persister = ContractPersister::new(db_pool, config.db).await?;
+    let contract_persister = ContractPersister::new(db_pool.clone(), config.db).await?;
     debug!("contract persister initialized");
 
     info!("initializing stake chain persister");
     let stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
     debug!("stake chain persister initialized");
 
-    Ok(ContractManager::new(
+    // Create separate persisters for shutdown handler since they don't implement Clone
+    info!("initializing shutdown persisters");
+    let shutdown_contract_persister = ContractPersister::new(db_pool.clone(), config.db).await?;
+    let shutdown_stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
+    debug!("shutdown persisters initialized");
+
+    let contract_manager = ContractManager::new(
         network,
         nag_interval,
         connector_params,
@@ -432,23 +485,13 @@ async fn init_duty_tracker(
         s2_client,
         operator_wallet,
         db,
-    ))
-}
+    );
 
-async fn start_rpc_server(
-    db: SqliteDb,
-    p2p_handle: P2PHandle,
-    params: Params,
-    config: RpcConfig,
-) -> anyhow::Result<JoinHandle<()>> {
-    let rpc_addr = config.rpc_addr.clone();
-    let rpc_client = BridgeRpc::new(db, p2p_handle, params, config);
-    let handle = spawn(async move {
-        start_rpc(&rpc_client, rpc_addr.as_str())
-            .await
-            .expect("failed to start RPC server");
-    });
-    Ok(handle)
+    Ok((
+        contract_manager,
+        shutdown_contract_persister,
+        shutdown_stake_chain_persister,
+    ))
 }
 
 /// Initializes the operator wallet

@@ -5,6 +5,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Debug,
+    future, mem,
     sync::Arc,
     time::{Duration, Instant},
     vec,
@@ -31,7 +32,7 @@ use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
     select,
-    sync::{broadcast, RwLock},
+    sync::{broadcast, oneshot, RwLock},
     task::{self, JoinHandle},
     time,
 };
@@ -46,6 +47,7 @@ use crate::{
     errors::{ContractManagerErr, StakeChainErr},
     executors::prelude::*,
     predicates::{deposit_request_info, parse_strata_checkpoint},
+    shutdown::ExecutionState,
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
     tx_driver::TxDriver,
@@ -55,13 +57,16 @@ use crate::{
 /// [`ContractSM`]s.
 #[derive(Debug)]
 pub struct ContractManager {
+    /// Handle to the task that runs the contract manager event loop.
     thread_handle: JoinHandle<()>,
+
+    /// Channel sender for initiating shutdown and extracting the execution state.
+    shutdown_sender: Option<oneshot::Sender<oneshot::Sender<ExecutionState>>>,
 }
 
 impl ContractManager {
     /// Initializes the ContractManager with the appropriate external event feeds and data stores.
     #[expect(clippy::too_many_arguments)]
-    #[expect(clippy::new_ret_no_self)]
     pub fn new(
         // Static Config Parameters
         network: Network,
@@ -86,8 +91,12 @@ impl ContractManager {
         s2_client: SecretServiceClient,
         wallet: OperatorWallet,
         db: SqliteDb,
-    ) -> JoinHandle<()> {
-        task::spawn(async move {
+    ) -> ContractManager {
+        let (shutdown_sender, shutdown_receiver) =
+            oneshot::channel::<oneshot::Sender<ExecutionState>>();
+
+        let thread_handle = task::spawn(async move {
+            let mut shutdown_receiver = Some(shutdown_receiver);
             let crash = |e: ContractManagerErr| {
                 error!(?e, "crashing");
                 panic!("{e}");
@@ -215,6 +224,7 @@ impl ContractManager {
                 active_contracts,
                 claim_txids,
                 stake_chains,
+                operator_table: cfg.operator_table.clone(),
             };
             let mut ctx = ContractManagerCtx {
                 cfg: cfg.clone(),
@@ -264,7 +274,7 @@ impl ContractManager {
                 select! {
                     biased; // follow the same order as specified below
 
-                    // First we prioritize the ouroboros channel since processing our own message is
+                    // First, we prioritize the ouroboros channel since processing our own message is
                     // necessary for having consistent state.
                     ouroboros_msg = ouroboros_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
@@ -288,6 +298,35 @@ impl ContractManager {
                             error!(%e, "failed to receive ouroboros message");
                             break;
                         },
+                    },
+
+                    // Next, we handle shutdown signal.
+                    state_sender = async {
+                        match shutdown_receiver.as_mut() {
+                            Some(receiver) => receiver.await,
+                            None => future::pending().await, // Never resolves if already consumed
+                        }
+                    } => {
+                        shutdown_receiver = None; // Consume the receiver
+                        if let Ok(state_sender) = state_sender {
+                            info!("shutdown signal received, extracting execution state");
+
+                            // Move the state out since we're shutting down
+                            let shutdown_state = ExecutionState {
+                                active_contracts: mem::take(&mut ctx.state.active_contracts),
+                                claim_txids: mem::take(&mut ctx.state.claim_txids),
+                                stake_chains: mem::replace(&mut ctx.state.stake_chains, {
+                                    // Create a minimal replacement since we're shutting down
+                                    StakeChainSM::new(cfg.network, cfg.operator_table.clone(), cfg.stake_chain_params)
+                                }),
+                                operator_table: cfg.operator_table.clone(),
+                            };
+
+                            if state_sender.send(shutdown_state).is_err() {
+                                error!("failed to send execution state during shutdown");
+                            }
+                            break;
+                        }
                     },
 
                     // Then prioritize processing the backlog of chain state.
@@ -370,8 +409,37 @@ impl ContractManager {
                 }
             }
 
-            unreachable!("event loop must never end");
-        })
+            info!("contract manager event loop exited");
+        });
+
+        ContractManager {
+            thread_handle,
+            shutdown_sender: Some(shutdown_sender),
+        }
+    }
+
+    /// Initiates graceful shutdown and extracts the [`ExecutionState`].
+    pub async fn shutdown_and_extract_state(
+        mut self,
+    ) -> Result<ExecutionState, ContractManagerErr> {
+        let (state_sender, state_receiver) = oneshot::channel();
+
+        let shutdown_sender = self.shutdown_sender.take().ok_or_else(|| {
+            ContractManagerErr::FatalErr("ContractManager shutdown already initiated".to_string())
+        })?;
+
+        if shutdown_sender.send(state_sender).is_err() {
+            return Err(ContractManagerErr::FatalErr(
+                "Failed to send shutdown signal to contract manager".to_string(),
+            ));
+        }
+
+        match state_receiver.await {
+            Ok(execution_state) => Ok(execution_state),
+            Err(_) => Err(ContractManagerErr::FatalErr(
+                "Failed to receive execution state from contract manager".to_string(),
+            )),
+        }
     }
 }
 
@@ -398,19 +466,6 @@ pub(super) struct OutputHandles {
 
     /// Database [`SqliteDb`] handle.
     pub(super) db: SqliteDb,
-}
-
-/// The actual state that is being tracked by the [`ContractManager`].
-#[derive(Debug)]
-pub(super) struct ExecutionState {
-    /// Active contracts state.
-    pub(super) active_contracts: BTreeMap<Txid, ContractSM>,
-
-    /// Claim Transaction IDs state map.
-    pub(super) claim_txids: BTreeMap<Txid, Txid>,
-
-    /// Stake Chain state.
-    pub(super) stake_chains: StakeChainSM,
 }
 
 /// The proxy for the state being tracked by the [`ContractManager`].

@@ -15,6 +15,7 @@ pub mod contract_state_machine;
 pub mod errors;
 pub mod executors;
 pub mod predicates;
+pub mod shutdown;
 pub mod stake_chain_persister;
 pub mod stake_chain_state_machine;
 pub mod tx_driver;
