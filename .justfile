@@ -245,7 +245,8 @@ checkpoint:
         --btc-user user \
         --btc-pass password \
         --checkpoint-tag strata-ckpt \
-        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZams # keep this in sync with `docker/vol/alpen-bridge-{1,2,3}/params.toml`
+        --deposit-entries deposit-entries.json \
+        --sequencer-xpriv tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZWi # keep this in sync with `docker/vol/alpen-bridge-{1,2,3}/params.toml`
 
 # Run bridge-in
 [group('bridge')]
