@@ -5,7 +5,7 @@
 )]
 #![feature(generic_const_exprs)] //strata-p2p
 
-use std::{fs, path::Path, thread::sleep, time::Duration};
+use std::{fs, path::Path, thread::sleep};
 
 use args::OperationMode;
 use clap::Parser;
@@ -59,6 +59,7 @@ fn main() {
 
     let params = parse_toml::<Params>(cli.params);
     let config = parse_toml::<Config>(cli.config);
+    let shutdown_timeout = config.shutdown_timeout;
 
     let runtime = runtime::Builder::new_multi_thread()
         .worker_threads(config.num_threads.unwrap_or(DEFAULT_THREAD_COUNT).into())
@@ -97,7 +98,6 @@ fn main() {
         }
     }
 
-    let shutdown_timeout = Duration::from_secs(30);
     if let Err(e) = task_manager.monitor(Some(shutdown_timeout)) {
         panic!("bridge node crashed: {e:?}");
     }

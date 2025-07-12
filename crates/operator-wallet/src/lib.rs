@@ -64,6 +64,13 @@ pub struct OperatorWallet {
     general_addr_script_buf: ScriptBuf,
     sync_backend: Backend,
     leased_outpoints: BTreeSet<OutPoint>,
+    /// The outpoints used to fund the withdrawal fulfillment transactions.
+    ///
+    /// This keeps track of all such utxos so that two parallel withdrawal fulfillment executors do
+    /// not end up acquiring the same funding utxo and failing due to double-spend. It is assumed
+    /// that the [`OperatorWallet`] itself is accessed via a mutually exclusive lock and so
+    /// this [`BTreeSet`] is not behind another lock.
+    fronting_outpoints: BTreeSet<OutPoint>,
 }
 
 impl OperatorWallet {
@@ -100,6 +107,7 @@ impl OperatorWallet {
             general_wallet,
             stakechain_wallet,
             sync_backend,
+            fronting_outpoints: BTreeSet::new(),
             leased_outpoints,
         }
     }
@@ -170,11 +178,20 @@ impl OperatorWallet {
         let mut tx_builder = self.general_wallet.build_tx();
         // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
+        tx_builder.unspendable(self.fronting_outpoints.iter().copied().collect());
         tx_builder.fee_rate(fee_rate);
         tx_builder.add_recipient(user_script_pubkey, amount);
         tx_builder.add_data(&push_data);
         tx_builder.ordering(TxOrdering::Untouched);
-        tx_builder.finish()
+
+        let psbt = tx_builder.finish()?;
+
+        // Mark the used input(s) as fronted so we can track it later
+        psbt.unsigned_tx.input.iter().for_each(|input| {
+            self.fronting_outpoints.insert(input.previous_output);
+        });
+
+        Ok(psbt)
     }
 
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet

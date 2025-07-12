@@ -46,14 +46,14 @@ STAKE_CHAIN_WALLET_3=${STAKE_CHAIN_WALLET_3}
 
 bcli="bitcoin-cli -rpcuser=${BTC_USER} -rpcpassword=${BTC_PASS} -regtest -rpcconnect=127.0.0.1 -rpcport=18443"
 
-# Generate a block to the address of the operator's general wallet
-$bcli generatetoaddress 1 ${GENERAL_WALLET_1}
+# Fund the general wallets with enough funds.
+$bcli generatetoaddress 10 ${GENERAL_WALLET_1}
 sleep 0.1
 
-$bcli generatetoaddress 1 ${GENERAL_WALLET_2}
+$bcli generatetoaddress 10 ${GENERAL_WALLET_2}
 sleep 0.1
 
-$bcli generatetoaddress 1 ${GENERAL_WALLET_3}
+$bcli generatetoaddress 10 ${GENERAL_WALLET_3}
 sleep 0.1
 
 # mine enough blocks to the default wallet address to mature coinbase funds
