@@ -3,7 +3,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use async_trait::async_trait;
-use bitcoin::Txid;
+use bitcoin::{OutPoint, Txid};
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::{scripts::taproot::TaprootWitness, types::OperatorIdx};
 use tokio::sync::RwLock;
@@ -32,6 +32,12 @@ pub type OperatorIdxToTxInputPartialSigMap = HashMap<OperatorIdx, TxInputToParti
 /// Maps an operator index to a transaction input to a taproot witness.
 pub type OperatorIdxToTxInputWitnessMap = HashMap<OperatorIdx, TxInputToWitnessMap>;
 
+/// Maps a deposit index to an OutPoint.
+pub type DepositIdxToOutPointMap = HashMap<u32, OutPoint>;
+
+/// Maps an operator index to a deposit index to an OutPoint.
+pub type OperatorIdxToDepositIdxOutPointMap = HashMap<OperatorIdx, DepositIdxToOutPointMap>;
+
 /// In-memory database for the operator.    
 #[derive(Debug, Default)]
 pub struct OperatorDbInMemory {
@@ -46,6 +52,9 @@ pub struct OperatorDbInMemory {
 
     /// operator_id -> txid, input_index -> TaprootWitness
     witnesses: Arc<RwLock<OperatorIdxToTxInputWitnessMap>>,
+
+    /// operator_id -> deposit_idx -> OutPoint
+    funding_outpoints: Arc<RwLock<OperatorIdxToDepositIdxOutPointMap>>,
 }
 
 #[async_trait]
@@ -176,5 +185,37 @@ impl OperatorDb for OperatorDbInMemory {
             .or_default()
             .insert((txid, input_index), witness);
         Ok(())
+    }
+
+    async fn get_funding_outpoint(&self, operator_idx: OperatorIdx, deposit_idx: u32) -> DbResult<Option<OutPoint>> {
+        Ok(self
+            .funding_outpoints
+            .read()
+            .await
+            .get(&operator_idx)
+            .and_then(|m| m.get(&deposit_idx))
+            .copied())
+    }
+
+    async fn set_funding_outpoint(&self, operator_idx: OperatorIdx, deposit_idx: u32, outpoint: OutPoint) -> DbResult<()> {
+        trace!(action = "trying to acquire wlock on funding_outpoints", %operator_idx, deposit_idx);
+        let mut funding_outpoints_map = self.funding_outpoints.write().await;
+        trace!(event = "acquired wlock on funding_outpoints", %operator_idx, deposit_idx);
+
+        funding_outpoints_map
+            .entry(operator_idx)
+            .or_default()
+            .insert(deposit_idx, outpoint);
+        Ok(())
+    }
+
+    async fn get_all_funding_outpoints(&self, operator_idx: OperatorIdx) -> DbResult<Vec<(u32, OutPoint)>> {
+        Ok(self
+            .funding_outpoints
+            .read()
+            .await
+            .get(&operator_idx)
+            .map(|m| m.iter().map(|(&deposit_idx, &outpoint)| (deposit_idx, outpoint)).collect())
+            .unwrap_or_default())
     }
 }

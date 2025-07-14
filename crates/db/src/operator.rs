@@ -140,4 +140,14 @@ pub trait OperatorDb {
         input_index: u32,
         witness: TaprootWitness,
     ) -> DbResult<()>;
+
+    /// Gets, if present, a funding [`OutPoint`] from the database,
+    /// given an [`OperatorIdx`] and a `deposit_idx`.
+    async fn get_funding_outpoint(&self, operator_idx: OperatorIdx, deposit_idx: u32) -> DbResult<Option<OutPoint>>;
+
+    /// Sets a funding [`OutPoint`] in the database, for a given [`OperatorIdx`] and `deposit_idx`.
+    async fn set_funding_outpoint(&self, operator_idx: OperatorIdx, deposit_idx: u32, outpoint: OutPoint) -> DbResult<()>;
+
+    /// Gets all funding [`OutPoint`]s from the database for a given [`OperatorIdx`].
+    async fn get_all_funding_outpoints(&self, operator_idx: OperatorIdx) -> DbResult<Vec<(u32, OutPoint)>>;
 }

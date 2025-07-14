@@ -399,14 +399,27 @@ impl PublicDb for SqliteDb {
                 let mut tx = pool.begin().await.map_err(StorageError::from)?;
                 let stake_data = DbStakeTxData::from(stake_data);
 
+                // Insert into funding_outpoints table
                 sqlx::query!(
-                    "INSERT OR IGNORE INTO operator_stake_data
-                        (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                    "INSERT OR IGNORE INTO funding_outpoints
+                        (operator_idx, deposit_idx, funding_txid, funding_vout)
+                        VALUES ($1, $2, $3, $4)",
                     operator_idx,
                     stake_index,
                     stake_data.funding_txid,
                     stake_data.funding_vout,
+                )
+                .execute(&mut *tx)
+                .await
+                .map_err(StorageError::from)?;
+
+                // Insert into operator_stake_data table (without funding_txid and funding_vout)
+                sqlx::query!(
+                    "INSERT OR IGNORE INTO operator_stake_data
+                        (operator_idx, deposit_idx, hash, operator_pubkey, withdrawal_fulfillment_pk)
+                        VALUES ($1, $2, $3, $4, $5)",
+                    operator_idx,
+                    stake_index,
                     stake_data.hash,
                     stake_data.operator_pubkey,
                     stake_data.withdrawal_fulfillment_pk,
@@ -431,13 +444,14 @@ impl PublicDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::DbStakeTxData,
                 r#"SELECT
-                    funding_txid AS "funding_txid: DbTxid",
-                    funding_vout AS "funding_vout: DbInputIndex",
-                    hash AS "hash: DbHash",
-                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey",
-                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
-                    FROM operator_stake_data
-                    WHERE operator_idx = $1 AND deposit_idx = $2"#,
+                    fo.funding_txid AS "funding_txid: DbTxid",
+                    fo.funding_vout AS "funding_vout: DbInputIndex",
+                    osd.hash AS "hash: DbHash",
+                    osd.operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey",
+                    osd.withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
+                    FROM operator_stake_data osd
+                    JOIN funding_outpoints fo ON osd.operator_idx = fo.operator_idx AND osd.deposit_idx = fo.deposit_idx
+                    WHERE osd.operator_idx = $1 AND osd.deposit_idx = $2"#,
                 operator_idx,
                 deposit_id
             )
@@ -458,14 +472,28 @@ impl PublicDb for SqliteDb {
 
                 for (operator_idx, deposit_id, stake_data) in data {
                     let stake_data = DbStakeTxData::from(stake_data);
+                    
+                    // Insert into funding_outpoints table
                     sqlx::query!(
-                        "INSERT OR IGNORE INTO operator_stake_data
-                            (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
-                            VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                        "INSERT OR IGNORE INTO funding_outpoints
+                            (operator_idx, deposit_idx, funding_txid, funding_vout)
+                            VALUES ($1, $2, $3, $4)",
                         operator_idx,
                         deposit_id,
                         stake_data.funding_txid,
                         stake_data.funding_vout,
+                    )
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(StorageError::from)?;
+
+                    // Insert into operator_stake_data table (without funding_txid and funding_vout)
+                    sqlx::query!(
+                        "INSERT OR IGNORE INTO operator_stake_data
+                            (operator_idx, deposit_idx, hash, operator_pubkey, withdrawal_fulfillment_pk)
+                            VALUES ($1, $2, $3, $4, $5)",
+                        operator_idx,
+                        deposit_id,
                         stake_data.hash,
                         stake_data.operator_pubkey,
                         stake_data.withdrawal_fulfillment_pk,
@@ -487,14 +515,15 @@ impl PublicDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::DbStakeTxData,
                 r#"SELECT
-                    funding_txid AS "funding_txid: DbTxid",
-                    funding_vout AS "funding_vout: DbInputIndex",
-                    hash AS "hash: DbHash",
-                    withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey",
-                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey"
-                    FROM operator_stake_data
-                    WHERE operator_idx = $1
-                    ORDER BY deposit_idx ASC"#,
+                    fo.funding_txid AS "funding_txid: DbTxid",
+                    fo.funding_vout AS "funding_vout: DbInputIndex",
+                    osd.hash AS "hash: DbHash",
+                    osd.withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey",
+                    osd.operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey"
+                    FROM operator_stake_data osd
+                    JOIN funding_outpoints fo ON osd.operator_idx = fo.operator_idx AND osd.deposit_idx = fo.deposit_idx
+                    WHERE osd.operator_idx = $1
+                    ORDER BY osd.deposit_idx ASC"#,
                 operator_idx,
             )
             .fetch_all(&self.pool)
@@ -976,6 +1005,75 @@ impl OperatorDb for SqliteDb {
         })
         .await
     }
+
+    async fn get_funding_outpoint(&self, operator_idx: OperatorIdx, deposit_idx: u32) -> DbResult<Option<OutPoint>> {
+        execute_with_retries(self.config(), || async {
+            Ok(sqlx::query!(
+                r#"SELECT funding_txid AS "funding_txid: DbTxid", funding_vout AS "funding_vout: DbInputIndex"
+                    FROM funding_outpoints
+                    WHERE operator_idx = $1 AND deposit_idx = $2"#,
+                operator_idx,
+                deposit_idx
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .map(|row| OutPoint {
+                txid: *row.funding_txid,
+                vout: *row.funding_vout,
+            }))
+        })
+        .await
+    }
+
+    async fn set_funding_outpoint(&self, operator_idx: OperatorIdx, deposit_idx: u32, outpoint: OutPoint) -> DbResult<()> {
+        execute_with_retries(self.config(), || async {
+            let mut tx = self.pool.begin().await.map_err(StorageError::from)?;
+
+            let funding_txid = DbTxid::from(outpoint.txid);
+            let funding_vout = DbInputIndex::from(outpoint.vout);
+
+            sqlx::query!(
+                "INSERT OR IGNORE INTO funding_outpoints
+                    (operator_idx, deposit_idx, funding_txid, funding_vout)
+                    VALUES ($1, $2, $3, $4)",
+                operator_idx,
+                deposit_idx,
+                funding_txid,
+                funding_vout
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(StorageError::from)?;
+
+            tx.commit().await.map_err(StorageError::from)?;
+
+            Ok(())
+        })
+        .await
+    }
+
+    async fn get_all_funding_outpoints(&self, operator_idx: OperatorIdx) -> DbResult<Vec<(u32, OutPoint)>> {
+        execute_with_retries(self.config(), || async {
+            Ok(sqlx::query!(
+                r#"SELECT deposit_idx, funding_txid AS "funding_txid: DbTxid", funding_vout AS "funding_vout: DbInputIndex"
+                    FROM funding_outpoints
+                    WHERE operator_idx = $1
+                    ORDER BY deposit_idx ASC"#,
+                operator_idx
+            )
+            .fetch_all(&self.pool)
+            .await
+            .map_err(StorageError::from)?
+            .into_iter()
+            .map(|row| (row.deposit_idx as u32, OutPoint {
+                txid: *row.funding_txid,
+                vout: *row.funding_vout,
+            }))
+            .collect())
+        })
+        .await
+    }
 }
 
 /// Executes an operation for a given number of retries with a backoff period before erroring out.
@@ -1331,5 +1429,91 @@ mod tests {
                 .is_ok_and(|v| v == Some(partial_signature)),
             "partial signature must exist after setting"
         );
+    }
+
+    #[sqlx::test(migrations = "../../migrations")]
+    async fn test_funding_outpoints(pool: SqlitePool) {
+        let operator_idx: u32 = rand::thread_rng().gen();
+        let deposit_idx: u32 = rand::thread_rng().gen();
+        let funding_outpoint = bitcoin::OutPoint {
+            txid: generate_txid(),
+            vout: rand::thread_rng().gen_range(0..10),
+        };
+
+        let db = SqliteDb::new(pool);
+
+        assert!(
+            db.get_funding_outpoint(operator_idx, deposit_idx)
+                .await
+                .is_ok_and(|v| v.is_none()),
+            "funding outpoint must not exist initially"
+        );
+
+        db.set_funding_outpoint(operator_idx, deposit_idx, funding_outpoint)
+            .await
+            .expect("must be able to set funding outpoint");
+
+        assert!(
+            db.get_funding_outpoint(operator_idx, deposit_idx)
+                .await
+                .is_ok_and(|v| v == Some(funding_outpoint)),
+            "funding outpoint must exist after setting"
+        );
+
+        let different_operator_idx: u32 = operator_idx + 1;
+        assert!(
+            db.get_all_funding_outpoints(different_operator_idx)
+                .await
+                .is_ok_and(|v| v.is_empty()),
+            "different operator should have no funding outpoints"
+        );
+
+        let all_outpoints = db.get_all_funding_outpoints(operator_idx)
+            .await
+            .expect("must be able to get all funding outpoints");
+        assert_eq!(all_outpoints.len(), 1);
+        assert_eq!(all_outpoints[0], (deposit_idx, funding_outpoint));
+
+        let deposit_idx2: u32 = deposit_idx + 1;
+        let funding_outpoint2 = bitcoin::OutPoint {
+            txid: generate_txid(),
+            vout: rand::thread_rng().gen_range(0..10),
+        };
+
+        db.set_funding_outpoint(operator_idx, deposit_idx2, funding_outpoint2)
+            .await
+            .expect("must be able to set second funding outpoint");
+
+        let all_outpoints = db.get_all_funding_outpoints(operator_idx)
+            .await
+            .expect("must be able to get all funding outpoints");
+        assert_eq!(all_outpoints.len(), 2);
+        
+        let mut sorted_outpoints = all_outpoints;
+        sorted_outpoints.sort_by_key(|&(deposit_idx, _)| deposit_idx);
+        
+        assert_eq!(sorted_outpoints[0], (deposit_idx, funding_outpoint));
+        assert_eq!(sorted_outpoints[1], (deposit_idx2, funding_outpoint2));
+
+        let different_funding_outpoint = bitcoin::OutPoint {
+            txid: generate_txid(),
+            vout: rand::thread_rng().gen_range(0..10),
+        };
+        
+        db.set_funding_outpoint(operator_idx, deposit_idx, different_funding_outpoint)
+            .await
+            .expect("must be able to attempt setting different funding outpoint");
+
+        assert!(
+            db.get_funding_outpoint(operator_idx, deposit_idx)
+                .await
+                .is_ok_and(|v| v == Some(funding_outpoint)),
+            "original funding outpoint should remain unchanged due to INSERT OR IGNORE"
+        );
+
+        let all_outpoints = db.get_all_funding_outpoints(operator_idx)
+            .await
+            .expect("must be able to get all funding outpoints");
+        assert_eq!(all_outpoints.len(), 2, "should still have only 2 outpoints");
     }
 }
