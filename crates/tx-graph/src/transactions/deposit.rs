@@ -222,7 +222,7 @@ impl DepositTx {
 
         for (i, input) in psbt.inputs.iter_mut().enumerate() {
             input.witness_utxo = Some(prevouts[i].clone());
-            input.sighash_type = Some(TapSighashType::Default.into());
+            input.sighash_type = Some(TapSighashType::All.into());
         }
 
         let witnesses = [TaprootWitness::Tweaked {
