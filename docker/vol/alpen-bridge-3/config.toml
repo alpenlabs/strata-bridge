@@ -3,6 +3,7 @@ is_faulty = false
 nag_interval = { secs = 300, nanos = 0 }
 min_withdrawal_fulfillment_window = 144
 stake_funding_pool_size = 32
+shutdown_timeout = { secs = 30, nanos = 0 }
 
 [secret_service_client]
 server_addr = "172.28.1.7:69"

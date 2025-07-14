@@ -27,5 +27,5 @@ mock-checkpoint --sequencer-xpriv <MASTER_XPRIV> [OPTIONS]
 
 ```bash
 export SEQUENCER_XPRIV=tprv8ezKDhpQHojBcUwXVZHBHBMg3QJQieAneQt9kkSMBoxdWdfBi1oBTiDev4J1ebeWH9hVV64fDeddyaLjMe7tjuS16QKPwykFAAiM66RcZWi
-mock-checkpoint
+mock-checkpoint --deposit-entries deposit-entries.json
 ```

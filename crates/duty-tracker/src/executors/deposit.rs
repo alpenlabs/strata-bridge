@@ -150,46 +150,58 @@ pub(crate) async fn handle_publish_deposit_setup(
         .map(|input| input.operator_funds.to_owned())
         .collect::<HashSet<OutPoint>>();
 
-    let mut wallet = wallet.write().await;
-    info!("syncing wallet before fetching funding utxos for the stake");
-
-    match wallet.sync().await {
-        Ok(()) => info!("synced wallet successfully"),
-        Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
-    }
-
     info!(?ignore, "acquiring claim funding utxo");
-    let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
-    info!("operator wallet has {remaining} unassigned claim funding utxos remaining");
+    let (funding_utxo, remaining) = {
+        let mut wallet = wallet.write().await;
+        info!("syncing wallet before fetching funding utxos for the stake");
 
-    let funding_utxo = match funding_op {
-        Some(outpoint) => outpoint,
-        None => {
-            warn!("could not acquire claim funding utxo. attempting refill...");
-            // The first time we run the node, it may be the case that the wallet starts off
-            // empty.
-            let psbt = wallet
-                .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN, cfg.stake_funding_pool_size)?;
-            finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt).await?;
-            wallet.sync().await.map_err(|e| {
-                error!(?e, "could not sync wallet after refilling funding utxos");
-                ContractManagerErr::FatalErr(format!(
-                    "could not sync wallet after refilling funding utxos: {e:?}"
-                ))
-            })?;
+        match wallet.sync().await {
+            Ok(()) => info!("synced wallet successfully"),
+            Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
+        }
 
-            wallet
-                .claim_funding_utxo(predicate::never)
-                .0
-                .expect("no funding utxos available even after refill")
+        let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
+
+        match funding_op {
+            Some(outpoint) => (outpoint, remaining),
+            None => {
+                warn!("could not acquire claim funding utxo. attempting refill...");
+                // The first time we run the node, it may be the case that the wallet starts off
+                // empty.
+                let psbt = wallet.refill_claim_funding_utxos(
+                    FeeRate::BROADCAST_MIN,
+                    cfg.stake_funding_pool_size,
+                )?;
+
+                // we only wait till the claim funding tx is in the mempool so it is fine to hold
+                // the `wallet` lock till that happens.
+                finalize_claim_funding_tx(s2_client, tx_driver, wallet.general_wallet(), psbt)
+                    .await?;
+
+                wallet.sync().await.map_err(|e| {
+                    error!(?e, "could not sync wallet after refilling funding utxos");
+                    ContractManagerErr::FatalErr(format!(
+                        "could not sync wallet after refilling funding utxos: {e:?}"
+                    ))
+                })?;
+
+                let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
+
+                (
+                    funding_op.expect("no funding utxos available even after refill"),
+                    remaining,
+                )
+            }
         }
     };
+
+    info!(%deposit_idx, %funding_utxo, "operator wallet has {remaining} unassigned claim funding utxos remaining");
 
     if remaining <= cfg.stake_funding_pool_size as u64 / 2 {
         let pool_size = cfg.stake_funding_pool_size;
         let outs = output_handles.clone();
         tokio::spawn(async move {
-            info!("refilling claim funding utxo pool to size of {pool_size}");
+            info!(%remaining, "refilling claim funding utxo pool to size of {pool_size}");
             let mut wallet = outs.wallet.write().await;
             let psbt = wallet
                 .refill_claim_funding_utxos(FeeRate::BROADCAST_MIN, pool_size)

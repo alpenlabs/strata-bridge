@@ -331,71 +331,79 @@ async fn fulfill_withdrawal(
     let op_return_data = withdrawal_metadata.op_return_data();
     let user_script_pubkey = user_descriptor.to_script();
 
-    let mut wallet = output_handles.wallet.write().await;
+    // acquire the wallet lock to ensure that we are not using spent outputs
+    // then drop it immediately once we have the withdrawal fulfillment psbt constructed.
+    let wft_psbt = {
+        let mut wallet = output_handles.wallet.write().await;
 
-    // this is to make sure that we're not using spent outputs
-    // if we are, the duty will not be fulfilled and we'll just wait for the next assigned operator
-    // to fulfill the duty.
-    info!("syncing wallet before constructing withdrawal fulfillment tx");
-    if let Err(e) = wallet.sync().await {
-        warn!(
-            ?e,
-            "could not sync wallet before constructing withdrawal tx, continuing anyway"
-        );
+        // this is to make sure that we're not using spent outputs
+        // if we are, the duty will not be fulfilled and we'll just wait for the next assigned
+        // operator to fulfill the duty.
+        info!("syncing wallet before constructing withdrawal fulfillment tx");
+        if let Err(e) = wallet.sync().await {
+            warn!(
+                ?e,
+                "could not sync wallet before constructing withdrawal tx, continuing anyway"
+            );
+        };
+
+        match wallet.front_withdrawal(
+            fee_rate,
+            user_script_pubkey,
+            amount,
+            op_return_data.as_ref(),
+        ) {
+            Ok(wft_psbt) => wft_psbt,
+            Err(err) => {
+                // most of the time, this just means that the wallet does not have enough funds
+                error!(%err, "could not front withdrawal");
+
+                return Ok(());
+            }
+        }
     };
 
-    match wallet.front_withdrawal(
-        fee_rate,
-        user_script_pubkey,
-        amount,
-        op_return_data.as_ref(),
-    ) {
-        Ok(wft_psbt) => {
-            let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
+    let txid = wft_psbt.unsigned_tx.compute_txid();
+    info!(%txid, "signing withdrawal fulfillment transaction");
+    let mut sighash_cache = SighashCache::new(&wft_psbt.unsigned_tx);
 
-            let prevouts = wft_psbt
-                .inputs
-                .iter()
-                .filter_map(|input| input.witness_utxo.clone())
-                .collect::<Vec<_>>();
-            let prevouts = Prevouts::All(&prevouts);
+    let prevouts = wft_psbt
+        .inputs
+        .iter()
+        .filter_map(|input| input.witness_utxo.clone())
+        .collect::<Vec<_>>();
+    let prevouts = Prevouts::All(&prevouts);
 
-            let message_hashes = wft_psbt.inputs.iter().enumerate().map(|(input_index, _)| {
-                create_message_hash(
-                    &mut sighash_cache,
-                    prevouts.clone(),
-                    &TaprootWitness::Key,
-                    TapSighashType::Default,
-                    input_index,
-                )
-                .expect("must be able to create message hash for each input in wft")
-            });
+    let message_hashes = wft_psbt.inputs.iter().enumerate().map(|(input_index, _)| {
+        create_message_hash(
+            &mut sighash_cache,
+            prevouts.clone(),
+            &TaprootWitness::Key,
+            TapSighashType::Default,
+            input_index,
+        )
+        .expect("must be able to create message hash for each input in wft")
+    });
 
-            let mut signed_wft = wft_psbt.unsigned_tx.clone();
-            for (input_index, msg) in message_hashes.enumerate() {
-                let signature = output_handles
-                    .s2_client
-                    .general_wallet_signer()
-                    .sign(msg.as_ref(), None)
-                    .await?;
+    let mut signed_wft = wft_psbt.unsigned_tx.clone();
+    for (input_index, msg) in message_hashes.enumerate() {
+        let signature = output_handles
+            .s2_client
+            .general_wallet_signer()
+            .sign(msg.as_ref(), None)
+            .await?;
 
-                signed_wft.input[input_index]
-                    .witness
-                    .push(signature.serialize());
-            }
-
-            info!(txid=%signed_wft.compute_txid(), "submitting withdrawal fulfillment tx to the tx driver");
-
-            output_handles
-                .tx_driver
-                .drive(signed_wft, TxStatus::is_buried)
-                .await?;
-        }
-        Err(err) => {
-            // most of the time, this just means that the wallet does not have enough funds
-            error!(%err, "could not front withdrawal");
-        }
+        signed_wft.input[input_index]
+            .witness
+            .push(signature.serialize());
     }
+
+    info!(%txid, "submitting withdrawal fulfillment tx to the tx driver");
+
+    output_handles
+        .tx_driver
+        .drive(signed_wft, TxStatus::is_buried)
+        .await?;
 
     Ok(())
 }
