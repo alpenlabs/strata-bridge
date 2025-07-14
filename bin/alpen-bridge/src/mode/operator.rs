@@ -43,7 +43,7 @@ use sqlx::{
     migrate::Migrator,
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions},
 };
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
@@ -127,21 +127,6 @@ pub(crate) async fn bootstrap(
     )
     .context("could not build OperatorTable")?;
 
-    let leased = StakeChainPersister::new(db.clone())
-        .await?
-        .load(&operator_table)
-        .await?
-        .get(operator_table.pov_p2p_key())
-        .map_or(BTreeSet::new(), |inputs| {
-            inputs
-                .stake_inputs
-                .values()
-                .map(|x| x.operator_funds)
-                .collect()
-        });
-    let mut operator_wallet =
-        init_operator_wallet(&config, &params, s2_client.clone(), leased).await?;
-
     // Get the operator's key index.
     let my_index = params
         .keys
@@ -149,6 +134,15 @@ pub(crate) async fn bootstrap(
         .iter()
         .position(|k| k == &my_btc_pk)
         .expect("should be able to find my index") as u32;
+
+    let leased = db
+        .get_all_funding_outpoints(my_index)
+        .await?
+        .into_iter()
+        .map(|(_index, outpoint)| outpoint)
+        .collect();
+    let mut operator_wallet =
+        init_operator_wallet(&config, &params, s2_client.clone(), leased).await?;
 
     // Initialize the P2P handle.
     info!("initializing p2p handle");

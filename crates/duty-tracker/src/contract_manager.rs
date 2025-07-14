@@ -265,6 +265,52 @@ impl ContractManager {
                 cursor = next;
             }
 
+            // Check if the tip of the stake chain matches the number of active contracts.
+            //
+            // A mismatch can occur if the node crashes _after_ persisting the contracts but
+            // _before_ persisting the stake chain data.
+            //
+            // NOTE: (@Rajil1213) Make sure that this implementation is consistent with how state is
+            // persisted in [`Self::process_block`].
+
+            let stake_data_sync_commands = cfg
+                .operator_table
+                .p2p_keys()
+                .clone()
+                .into_iter()
+                .flat_map(|p2p_key| {
+                    let state = &ctx.state;
+                    let max_stake_chain_index = state
+                        .stake_chains
+                        .state()
+                        .get(&p2p_key)
+                        .map(|inputs| inputs.stake_inputs.len() as u32)
+                        .unwrap_or(0)
+                        .saturating_sub(1);
+
+                    state
+                        .active_contracts
+                        .iter()
+                        .filter_map(|(txid, contract)| {
+                            // filter out contracts whose index is ahead of the max stake chain
+                            // index for this operator.
+                            if contract.deposit_idx() > max_stake_chain_index {
+                                let scope = Scope::from_bytes(*txid.as_ref());
+                                Some(Command::RequestMessage(GetMessageRequest::DepositSetup {
+                                    scope,
+                                    operator_pk: p2p_key.clone(),
+                                }))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<Vec<_>>()
+                });
+
+            for command in stake_data_sync_commands {
+                p2p_handle.send_command(command).await;
+            }
+
             let mut interval = time::interval(nag_interval);
             // skip any missed ticks to avoid flooding the network with duplicate nag messages
             interval.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
@@ -663,27 +709,57 @@ impl ContractManagerCtx {
         }
 
         let num_active_contracts = self.state.active_contracts.len();
-        debug!(%num_active_contracts, "committing all contract states to disk");
-
-        self.state_handles
-            .contract_persister
-            .commit_all(self.state.active_contracts.iter())
-            .await?;
-
-        let num_new_contracts = new_contracts.len();
-        debug!(%num_new_contracts, "committing all new contract states to disk");
+        let contracts_in_block = new_contracts.len();
 
         // Now that we've processed all the events related to the old contracts and dispatched the
         // corresponding events to them, we can add the new contracts which will receive relevant
         // events from subsequent blocks.
         for sm in new_contracts {
-            self.state_handles
-                .contract_persister
-                .init(sm.cfg(), sm.state())
-                .await?;
-
             self.state.active_contracts.insert(sm.deposit_txid(), sm);
         }
+
+        // We now need to commit both the `ContractSM` and the `StakeChainSM` state to disk.
+
+        // Commentary: (@Rajil1213) What happens if the node crashes _after_ all the stake data has
+        // been persisted to disk but _before_ the active contracts have been persisted?
+        //
+        // In this case, the node will start processing the last block again but because the stake
+        // chain has already been constructed, it will start at a newer index which is problematic.
+        // So, we need to persist the active contracts before we commit the stake chain data. This
+        // prevents the node from reprocessing the last block.
+
+        // Commit all the active contracts.
+        debug!(%num_active_contracts, %contracts_in_block, %height, "committing all contract states to disk");
+        self.state_handles
+            .contract_persister
+            .commit_all(self.state.active_contracts.iter())
+            .await?;
+
+        // Commentary: (@Rajil1213) What happens if the node crashes _after_ all the active
+        // contracts have been persisted but _before_ the stake chain data has been
+        // persisted?
+        //
+        // In this case, the node will not reprocess the last block since the cursor will be
+        // updated. But the node will not have the latest stake chain information. This is
+        // problematic because we need this information to construct future stake transactions and
+        // to service withdrawals. Therefore, we must nag for this information at startup.
+        //
+        // NOTE: (@Rajil1213) Make sure that the `nag` implementation before the main event loop is
+        // consistent with the above reasoning.
+
+        // Then, commit all stake chain data to disk.
+        let stake_chain_height = self.state.stake_chains.height();
+        debug!(%stake_chain_height, "committing stake data to disk");
+        self.state_handles
+            .stake_chain_persister
+            .commit_stake_data(
+                &self.cfg.operator_table,
+                self.state.stake_chains.state().clone(),
+            )
+            .await
+            .inspect_err(|e| {
+                error!(%e, "could not persist stake chain data to disk");
+            })?;
 
         Ok(duties)
     }
@@ -857,18 +933,6 @@ impl ContractManagerCtx {
                         // when there are multiple deposits being processed concurrently.
                         return Ok(vec![]);
                     };
-
-                    debug!(%deposit_txid, %sender_id, %index, "committing stake data to disk");
-                    self.state_handles
-                        .stake_chain_persister
-                        .commit_stake_data(
-                            &self.cfg.operator_table,
-                            self.state.stake_chains.state().clone(),
-                        )
-                        .await
-                        .inspect_err(|e| {
-                            error!(%e, "could not persist stake chain data to disk");
-                        })?;
 
                     let deposit_idx = contract.cfg().deposit_idx;
                     let stake_tx = self
@@ -1437,8 +1501,7 @@ impl ContractManagerCtx {
             }),
         );
 
-        debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
-
+        debug!(num_active_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
         for (txid, contract) in self.state.active_contracts.iter() {
             let state = &contract.state().state;
             if let ContractState::Requested {

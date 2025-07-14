@@ -16,7 +16,7 @@ use musig2::{aggregate_partial_signatures, AggNonce, PartialSignature, PubNonce}
 use secp256k1::{schnorr, Message, PublicKey};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
-use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
+use strata_bridge_db::{operator::OperatorDb, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootWitness};
 use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
@@ -84,10 +84,8 @@ pub(crate) async fn handle_publish_deposit_setup(
     info!(%deposit_txid, "executing duty to publish deposit setup");
 
     let OutputHandles {
-        wallet,
         msg_handler,
         s2_client,
-        tx_driver,
         db,
         ..
     } = output_handles.as_ref();
@@ -143,6 +141,65 @@ pub(crate) async fn handle_publish_deposit_setup(
     // check if there's a funding outpoint already for this stake index
     // otherwise, find a new unspent one from operator wallet and filter out all the
     // outpoints already in the db
+    let funding_utxo = {
+        if let Some(funding_utxo) = db.get_funding_outpoint(pov_idx, deposit_idx).await? {
+            info!(%deposit_txid, %deposit_idx, %funding_utxo, "found funding outpoint in the database");
+            funding_utxo
+        } else {
+            info!(%deposit_txid, %deposit_idx, "fetching new funding utxo");
+            fetch_new_funding_utxo(
+                cfg,
+                &output_handles,
+                deposit_txid,
+                deposit_idx,
+                stake_inputs,
+            )
+            .await?
+        }
+    };
+
+    // store the funding utxo eagerly to the database so that we minimize the risk of losing our own
+    // data _after_ sending it out to peers.
+    info!(%deposit_txid, %deposit_idx, %funding_utxo, "storing funding outpoint in the database");
+    output_handles
+        .db
+        .set_funding_outpoint(pov_idx, deposit_idx, funding_utxo)
+        .await
+        .inspect_err(|e| {
+            error!(
+                ?e,
+                "could not store this operator's funding outpoint in the database"
+            );
+        })?;
+
+    info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
+    msg_handler
+        .send_deposit_setup(
+            deposit_idx,
+            scope,
+            stakechain_preimg_hash,
+            funding_utxo,
+            operator_pk,
+            wots_pks.clone(),
+        )
+        .await;
+
+    Ok(())
+}
+
+async fn fetch_new_funding_utxo(
+    cfg: &ExecutionConfig,
+    output_handles: &Arc<OutputHandles>,
+    deposit_txid: Txid,
+    deposit_idx: u32,
+    stake_inputs: std::collections::BTreeMap<u32, StakeTxData>,
+) -> Result<OutPoint, ContractManagerErr> {
+    let OutputHandles {
+        s2_client,
+        tx_driver,
+        wallet,
+        ..
+    } = output_handles.as_ref();
 
     info!(%deposit_txid, %deposit_idx, "fetching funding outpoint for the stake transaction");
     let ignore = stake_inputs
@@ -151,8 +208,8 @@ pub(crate) async fn handle_publish_deposit_setup(
         .collect::<HashSet<OutPoint>>();
 
     let mut wallet = wallet.write().await;
-    info!("syncing wallet before fetching funding utxos for the stake");
 
+    info!("syncing wallet before fetching funding utxos for the stake");
     match wallet.sync().await {
         Ok(()) => info!("synced wallet successfully"),
         Err(e) => error!(?e, "could not sync wallet but proceeding regardless"),
@@ -160,8 +217,8 @@ pub(crate) async fn handle_publish_deposit_setup(
 
     info!(?ignore, "acquiring claim funding utxo");
     let (funding_op, remaining) = wallet.claim_funding_utxo(predicate::never);
-    info!("operator wallet has {remaining} unassigned claim funding utxos remaining");
 
+    info!("operator wallet has {remaining} unassigned claim funding utxos remaining");
     let funding_utxo = match funding_op {
         Some(outpoint) => outpoint,
         None => {
@@ -206,40 +263,7 @@ pub(crate) async fn handle_publish_deposit_setup(
         });
     }
 
-    // store the stake data eagerly to the database so that we minimize the risk of losing our own
-    // data _after_ sending it out to peers.
-    info!(%deposit_txid, %deposit_idx, "storing stake data in the database");
-    let stake_data = StakeTxData {
-        operator_funds: funding_utxo,
-        hash: stakechain_preimg_hash,
-        withdrawal_fulfillment_pk: wots_pks.withdrawal_fulfillment.into(),
-        operator_pubkey: operator_pk,
-    };
-
-    output_handles
-        .db
-        .add_stake_data(pov_idx, deposit_idx, stake_data)
-        .await
-        .inspect_err(|e| {
-            error!(
-                ?e,
-                "could not store this operator's stake data in the database"
-            );
-        })?;
-
-    info!(%deposit_txid, %deposit_idx, "broadcasting deposit setup message");
-    msg_handler
-        .send_deposit_setup(
-            deposit_idx,
-            scope,
-            stakechain_preimg_hash,
-            funding_utxo,
-            operator_pk,
-            wots_pks.clone(),
-        )
-        .await;
-
-    Ok(())
+    Ok(funding_utxo)
 }
 
 async fn finalize_claim_funding_tx(
