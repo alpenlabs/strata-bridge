@@ -25,7 +25,7 @@ use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
     prelude::{AssertDataTxInput, CovenantTx},
 };
-use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
+use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
@@ -199,11 +199,7 @@ impl ContractManager {
             let (ouroboros_req_sender, mut ouroboros_req_receiver) =
                 broadcast::channel(OUROBOROS_CAP);
 
-            let msg_handler = MessageHandler::new(
-                p2p_handle.clone(),
-                ouroboros_msg_sender,
-                ouroboros_req_sender,
-            );
+            let msg_handler = MessageHandler::new(ouroboros_msg_sender, ouroboros_req_sender);
 
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
@@ -286,16 +282,26 @@ impl ContractManager {
                     // necessary for having consistent state.
                     ouroboros_msg = ouroboros_msg_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
-                            match ctx.process_p2p_message(msg).await {
-                                Ok(ouroboros_duties) if !ouroboros_duties.is_empty() => {
-                                    info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
-                                    for duty in ouroboros_duties.iter() {
-                                        debug!(?duty);
+                            match ctx.process_unsigned_gossip_msg(
+                                msg.clone().into(),
+                                cfg.operator_table.pov_p2p_key().clone(),
+                                cfg.operator_table.pov_idx()
+                            ).await {
+                                Ok(ouroboros_duties) => {
+                                    if !ouroboros_duties.is_empty() {
+                                        info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
+                                        for duty in ouroboros_duties.iter() {
+                                            debug!(?duty);
+                                        }
+
+                                        duties.extend(ouroboros_duties);
                                     }
 
-                                    duties.extend(ouroboros_duties);
-                                },
-                                Ok(_) => {},
+                                    // If we successfully handle the processing of our message, we
+                                    // can forward it to the rest of the p2p network.
+                                    let signed = p2p_handle.sign_message(msg);
+                                    p2p_handle.send_command(Command::PublishMessage(signed)).await;
+                                }
                                 Err(e) => {
                                     error!(%e, "failed to process ouroboros message");
                                     break;
@@ -310,14 +316,24 @@ impl ContractManager {
 
                     // And similarly, prioritize self-nags next
                     ouroboros_req = ouroboros_req_receiver.recv() => match ouroboros_req {
-                        Ok(req) =>
-                            match ctx.process_p2p_request(req.clone()).await {
-                                Ok(p2p_req_duties) => duties.extend(p2p_req_duties),
-                                Err(e) => {
-                                    error!(?req, %e, "failed to process p2p request");
-                                    // in case an error occurs, we will just nag again
-                                    // so no need to break out of the event loop
-                            },
+                        Ok(req) => {
+                            if req.operator_pubkey() == cfg.operator_table.pov_p2p_key() {
+                                // Peel off requests that were directed at ourselves.
+                                match ctx.process_p2p_request(req.clone()).await {
+                                    Ok(p2p_req_duties) => {
+                                        duties.extend(p2p_req_duties);
+                                    },
+                                    Err(e) => {
+                                        error!(?req, %e, "failed to process p2p request");
+                                        // in case an error occurs, we will just nag again
+                                        // so no need to break out of the event loop
+                                    }
+                                }
+                            } else {
+                                // If it wasn't meant for us we can forward the request to the p2p
+                                // network
+                                p2p_handle.send_command(Command::RequestMessage(req)).await;
+                            }
                         },
                         Err(e) => {
                             error!(%e, "failed to receive ouroboros request");

@@ -1,14 +1,10 @@
 //! Message handler for the Strata Bridge P2P.
 
 use bitcoin::{hashes::sha256, OutPoint, Txid, XOnlyPublicKey};
-use libp2p::{Multiaddr, PeerId};
 use musig2::{PartialSignature, PubNonce};
-use strata_p2p::{
-    commands::{Command, ConnectToPeerCommand, UnsignedPublishMessage},
-    swarm::handle::P2PHandle,
-};
+use strata_p2p::commands::UnsignedPublishMessage;
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg};
+use strata_p2p_wire::p2p::v1::GetMessageRequest;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, trace};
 
@@ -20,12 +16,9 @@ use tracing::{debug, error, info, trace};
 // interface to read messages off of the p2p network (aka the `Inbox`).
 #[derive(Debug, Clone)]
 pub struct MessageHandler {
-    /// The P2P handle that is used to listen for events and call commands.
-    handle: P2PHandle,
-
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
-    ouroboros_msg_sender: broadcast::Sender<GossipsubMsg>,
+    ouroboros_msg_sender: broadcast::Sender<UnsignedPublishMessage>,
 
     /// The outbound channel used to self-publish message requests.
     ///
@@ -38,27 +31,13 @@ pub struct MessageHandler {
 impl MessageHandler {
     /// Creates a new message handler.
     pub const fn new(
-        handle: P2PHandle,
-        ouroboros_msg_sender: broadcast::Sender<GossipsubMsg>,
+        ouroboros_msg_sender: broadcast::Sender<UnsignedPublishMessage>,
         ouroboros_req_sender: broadcast::Sender<GetMessageRequest>,
     ) -> Self {
         Self {
-            handle,
             ouroboros_msg_sender,
             ouroboros_req_sender,
         }
-    }
-
-    /// Connects to a peer, whitelists peer, and adds peer to the gossip network.
-    pub async fn connect(&self, peer_id: PeerId, peer_addr: Multiaddr) {
-        trace!(%peer_id, %peer_addr, "connecting to peer");
-        self.handle
-            .send_command(Command::ConnectToPeer(ConnectToPeerCommand {
-                peer_id,
-                peer_addr: peer_addr.clone(),
-            }))
-            .await;
-        info!(%peer_id, %peer_addr, "connected to peer");
     }
 
     /// Dispatches an unsigned gossip message by signing it and sending it over the network as well
@@ -67,10 +46,10 @@ impl MessageHandler {
     /// Internal use only.
     async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
         trace!(%description, ?msg, "sending message");
-        let signed_msg = self.handle.sign_message(msg.clone());
-        self.handle.send_command(signed_msg.clone()).await;
+        // let signed_msg = self.handle.sign_message(msg.clone());
+        // self.handle.send_command(signed_msg.clone()).await;
 
-        if let Err(e) = self.ouroboros_msg_sender.send(signed_msg.into()) {
+        if let Err(e) = self.ouroboros_msg_sender.send(msg) {
             error!(%description, %e, "failed to send message via ouroboros");
 
             return;
@@ -84,9 +63,6 @@ impl MessageHandler {
     /// Internal use only.
     async fn request(&self, req: GetMessageRequest, description: &str) {
         trace!(%description, ?req, "sending request");
-        let command = Command::RequestMessage(req.clone());
-        self.handle.send_command(command).await;
-
         if let Err(e) = self.ouroboros_req_sender.send(req) {
             error!(%description, %e, "failed to send request via ouroboros");
 
