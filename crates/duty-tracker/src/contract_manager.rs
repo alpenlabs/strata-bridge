@@ -15,7 +15,7 @@ use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChai
 use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
 use btc_notify::client::{BlockStatus, BtcZmqClient};
-use futures::StreamExt;
+use futures::{future::join_all, StreamExt};
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
@@ -25,7 +25,7 @@ use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
     prelude::{AssertDataTxInput, CovenantTx},
 };
-use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
+use strata_p2p::{self, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
@@ -194,8 +194,16 @@ impl ContractManager {
             // This will only happen if this node as well as other event sources generate far too
             // many events.
             const OUROBOROS_CAP: usize = 100;
-            let (ouroboros_sender, mut ouroboros_receiver) = broadcast::channel(OUROBOROS_CAP);
-            let msg_handler = MessageHandler::new(p2p_handle.clone(), ouroboros_sender);
+            let (ouroboros_msg_sender, mut ouroboros_msg_receiver) =
+                broadcast::channel(OUROBOROS_CAP);
+            let (ouroboros_req_sender, mut ouroboros_req_receiver) =
+                broadcast::channel(OUROBOROS_CAP);
+
+            let msg_handler = MessageHandler::new(
+                p2p_handle.clone(),
+                ouroboros_msg_sender,
+                ouroboros_req_sender,
+            );
 
             let output_handles = Arc::new(OutputHandles {
                 wallet: RwLock::new(wallet),
@@ -276,7 +284,7 @@ impl ContractManager {
 
                     // First, we prioritize the ouroboros channel since processing our own message is
                     // necessary for having consistent state.
-                    ouroboros_msg = ouroboros_receiver.recv() => match ouroboros_msg {
+                    ouroboros_msg = ouroboros_msg_receiver.recv() => match ouroboros_msg {
                         Ok(msg) => {
                             match ctx.process_p2p_message(msg).await {
                                 Ok(ouroboros_duties) if !ouroboros_duties.is_empty() => {
@@ -298,6 +306,23 @@ impl ContractManager {
                             error!(%e, "failed to receive ouroboros message");
                             break;
                         },
+                    },
+
+                    // And similarly, prioritize self-nags next
+                    ouroboros_req = ouroboros_req_receiver.recv() => match ouroboros_req {
+                        Ok(req) =>
+                            match ctx.process_p2p_request(req.clone()).await {
+                                Ok(p2p_req_duties) => duties.extend(p2p_req_duties),
+                                Err(e) => {
+                                    error!(?req, %e, "failed to process p2p request");
+                                    // in case an error occurs, we will just nag again
+                                    // so no need to break out of the event loop
+                            },
+                        },
+                        Err(e) => {
+                            error!(%e, "failed to receive ouroboros request");
+                            break;
+                        }
                     },
 
                     // Next, we handle shutdown signal.
@@ -391,10 +416,22 @@ impl ContractManager {
                     _instant = interval.tick() => {
                         debug!("nagging peers for necessary p2p messages");
 
-                        let nags = ctx.nag();
-                        for nag in nags {
-                            p2p_handle.send_command(nag).await;
-                        }
+                        let nags = ctx.nag().into_iter().map(|nag| {
+                            let output_handles = output_handles.clone();
+                            async move {
+                                let msg_handler = &output_handles.msg_handler;
+
+                                match nag {
+                                    GetMessageRequest::StakeChainExchange { stake_chain_id, operator_pk } => msg_handler.request_stake_chain_exchange(stake_chain_id, operator_pk).await,
+                                    GetMessageRequest::DepositSetup { scope, operator_pk } => msg_handler.request_deposit_setup(scope, operator_pk).await,
+                                    GetMessageRequest::Musig2NoncesExchange { session_id, operator_pk } => msg_handler.request_musig2_nonces(session_id, operator_pk).await,
+                                    GetMessageRequest::Musig2SignaturesExchange { session_id, operator_pk } => msg_handler.request_musig2_signatures(session_id, operator_pk).await,
+                                }
+                            }
+                        });
+
+                        join_all(nags).await;
+
                     }
                 }
 
@@ -1411,12 +1448,12 @@ impl ContractManagerCtx {
     /// will always be received by it as well. If the message is not sent to the network, the
     /// other peers will nag the current node and so the message will be produced and consumed
     /// in response to these nags.
-    fn nag(&self) -> Vec<Command> {
+    fn nag(&self) -> Vec<GetMessageRequest> {
         // Get the operator set as a whole.
         let want = self.cfg.operator_table.p2p_keys();
 
-        let mut all_commands = Vec::new();
-        all_commands.extend(
+        let mut all_requests = Vec::new();
+        all_requests.extend(
             want.difference(
                 &self
                     .state
@@ -1431,10 +1468,10 @@ impl ContractManagerCtx {
                 let stake_chain_id = StakeChainId::from_bytes([0u8; 32]);
 
                 debug!(peer=%operator_pk, "nagging peer for stake chain exchange");
-                Command::RequestMessage(GetMessageRequest::StakeChainExchange {
+                GetMessageRequest::StakeChainExchange {
                     stake_chain_id,
                     operator_pk,
-                })
+                }
             }),
         );
 
@@ -1452,7 +1489,7 @@ impl ContractManagerCtx {
                 ..
             } = state
             {
-                let mut commands = Vec::new();
+                let mut requests = Vec::new();
 
                 // check if we have the graph data from everybody for this contract
                 let have = peg_out_graph_inputs
@@ -1461,20 +1498,20 @@ impl ContractManagerCtx {
                     .collect::<BTreeSet<P2POperatorPubKey>>();
 
                 // Take the difference and add it to the list of things to nag.
-                commands.extend(want.difference(&have).map(|key| {
+                requests.extend(want.difference(&have).map(|key| {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let scope = Scope::from_bytes(*txid.as_ref());
 
                     debug!(?operator_id, %txid, "queueing nag for deposit setup");
-                    Command::RequestMessage(GetMessageRequest::DepositSetup {
+                    GetMessageRequest::DepositSetup {
                         scope,
                         operator_pk: key.clone(),
-                    })
+                    }
                 }));
 
                 // If this is not empty then we can't yet nag for the graph nonces.
-                if !commands.is_empty() {
-                    all_commands.extend(commands.into_iter());
+                if !requests.is_empty() {
+                    all_requests.extend(requests.into_iter());
                     continue;
                 }
 
@@ -1489,21 +1526,21 @@ impl ContractManagerCtx {
                         .cloned()
                         .collect::<BTreeSet<P2POperatorPubKey>>();
 
-                    commands.extend(want.difference(&have).map(|key| {
+                    requests.extend(want.difference(&have).map(|key| {
                         let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(*claim_txid.as_ref());
 
                         debug!(?operator_id, %claim_txid, "queueing nag for graph nonces");
-                        Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
+                        GetMessageRequest::Musig2NoncesExchange {
                             session_id,
                             operator_pk: key.clone(),
-                        })
+                        }
                     }));
                 }
 
                 // If this is not empty then we can't yet nag for the graph sigs.
-                if !commands.is_empty() {
-                    all_commands.extend(commands.into_iter());
+                if !requests.is_empty() {
+                    all_requests.extend(requests.into_iter());
                     continue;
                 }
 
@@ -1513,21 +1550,21 @@ impl ContractManagerCtx {
                         .keys()
                         .cloned()
                         .collect::<BTreeSet<P2POperatorPubKey>>();
-                    commands.extend(want.difference(&have).map(|key| {
+                    requests.extend(want.difference(&have).map(|key| {
                         let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
 
                         debug!(?operator_id, %txid, "queueing nag for graph sigs");
-                        Command::RequestMessage(GetMessageRequest::Musig2SignaturesExchange {
+                        GetMessageRequest::Musig2SignaturesExchange {
                             session_id,
                             operator_pk: key.clone(),
-                        })
+                        }
                     }));
                 }
 
                 // If this is not empty then we can't yet nag for the root nonces.
-                if !commands.is_empty() {
-                    return commands;
+                if !requests.is_empty() {
+                    return requests;
                 }
 
                 // Otherwise we can.
@@ -1535,20 +1572,20 @@ impl ContractManagerCtx {
                     .keys()
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
-                commands.extend(want.difference(&have).map(|key| {
+                requests.extend(want.difference(&have).map(|key| {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
                     debug!(?operator_id, %txid, "queueing nag for root nonces");
-                    Command::RequestMessage(GetMessageRequest::Musig2NoncesExchange {
+                    GetMessageRequest::Musig2NoncesExchange {
                         session_id,
                         operator_pk: key.clone(),
-                    })
+                    }
                 }));
 
                 // If this is not empty then we can't yet nag for the root sigs.
-                if !commands.is_empty() {
-                    return commands;
+                if !requests.is_empty() {
+                    return requests;
                 }
 
                 // Finally we can nag for the root sigs.
@@ -1556,20 +1593,20 @@ impl ContractManagerCtx {
                     .keys()
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
-                commands.extend(want.difference(&have).map(|key| {
+                requests.extend(want.difference(&have).map(|key| {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
                     debug!(?operator_id, %txid, "queueing nag for root sigs");
-                    Command::RequestMessage(GetMessageRequest::Musig2SignaturesExchange {
+                    GetMessageRequest::Musig2SignaturesExchange {
                         session_id,
                         operator_pk: key.clone(),
-                    })
+                    }
                 }));
             }
         }
 
-        all_commands
+        all_requests
     }
 }
 

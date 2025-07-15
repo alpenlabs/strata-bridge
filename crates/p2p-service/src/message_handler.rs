@@ -25,15 +25,27 @@ pub struct MessageHandler {
 
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
-    ouroboros_sender: broadcast::Sender<GossipsubMsg>,
+    ouroboros_msg_sender: broadcast::Sender<GossipsubMsg>,
+
+    /// The outbound channel used to self-publish message requests.
+    ///
+    /// It is used when a node needs to nag itself. This mimics a duty retry mechanism and is
+    /// useful if the node broadcasts a message to its peers that it then loses or fails to
+    /// persist before an inopportune restart.
+    ouroboros_req_sender: broadcast::Sender<GetMessageRequest>,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
-    pub const fn new(handle: P2PHandle, ouroboros_sender: broadcast::Sender<GossipsubMsg>) -> Self {
+    pub const fn new(
+        handle: P2PHandle,
+        ouroboros_msg_sender: broadcast::Sender<GossipsubMsg>,
+        ouroboros_req_sender: broadcast::Sender<GetMessageRequest>,
+    ) -> Self {
         Self {
             handle,
-            ouroboros_sender,
+            ouroboros_msg_sender,
+            ouroboros_req_sender,
         }
     }
 
@@ -58,8 +70,10 @@ impl MessageHandler {
         let signed_msg = self.handle.sign_message(msg.clone());
         self.handle.send_command(signed_msg.clone()).await;
 
-        if let Err(e) = self.ouroboros_sender.send(signed_msg.into()) {
+        if let Err(e) = self.ouroboros_msg_sender.send(signed_msg.into()) {
             error!(%description, %e, "failed to send message via ouroboros");
+
+            return;
         };
 
         debug!(%description, "sent message");
@@ -70,8 +84,15 @@ impl MessageHandler {
     /// Internal use only.
     async fn request(&self, req: GetMessageRequest, description: &str) {
         trace!(%description, ?req, "sending request");
-        let command = Command::RequestMessage(req);
+        let command = Command::RequestMessage(req.clone());
         self.handle.send_command(command).await;
+
+        if let Err(e) = self.ouroboros_req_sender.send(req) {
+            error!(%description, %e, "failed to send request via ouroboros");
+
+            return;
+        }
+
         info!(%description, "sent request");
     }
 
