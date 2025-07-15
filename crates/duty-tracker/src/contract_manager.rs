@@ -522,8 +522,16 @@ impl ContractManagerCtx {
         let mut new_contracts = Vec::new();
 
         let pov_key = self.cfg.operator_table.pov_p2p_key().clone();
-        // The next contract will have its index at the tip of the current stake chain.
-        let deposit_idx_offset = self.state.stake_chains.height();
+        // The next contract will have its index at a value that is 1 more than the max deposit
+        // index that has already been processed.
+        let deposit_idx_offset = self
+            .state
+            .active_contracts
+            .values()
+            .map(|contract| contract.deposit_idx())
+            .max()
+            .map(|max_index| max_index + 1)
+            .unwrap_or(0);
 
         for tx in block.txdata {
             let txid = tx.compute_txid();
