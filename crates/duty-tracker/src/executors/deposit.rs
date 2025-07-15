@@ -272,7 +272,7 @@ async fn finalize_claim_funding_tx(
         })
         .collect::<Vec<_>>();
     let mut sighasher = SighashCache::new(&mut tx);
-    let sighash_type = TapSighashType::All;
+    let sighash_type = TapSighashType::Default;
     let prevouts = Prevouts::All(&txins_as_outs);
     for input_index in 0..txins_as_outs.len() {
         let sighash = sighasher
