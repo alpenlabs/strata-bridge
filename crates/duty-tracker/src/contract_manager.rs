@@ -671,27 +671,20 @@ impl ContractManagerCtx {
         }
 
         let num_active_contracts = self.state.active_contracts.len();
-        debug!(%num_active_contracts, "committing all contract states to disk");
-
-        self.state_handles
-            .contract_persister
-            .commit_all(self.state.active_contracts.iter())
-            .await?;
-
         let num_new_contracts = new_contracts.len();
-        debug!(%num_new_contracts, "committing all new contract states to disk");
 
         // Now that we've processed all the events related to the old contracts and dispatched the
         // corresponding events to them, we can add the new contracts which will receive relevant
         // events from subsequent blocks.
         for sm in new_contracts {
-            self.state_handles
-                .contract_persister
-                .init(sm.cfg(), sm.state())
-                .await?;
-
             self.state.active_contracts.insert(sm.deposit_txid(), sm);
         }
+
+        debug!(%num_active_contracts, %num_new_contracts, %height, "finished processing block, committing all contract states to disk");
+        self.state_handles
+            .contract_persister
+            .commit_all(self.state.active_contracts.iter())
+            .await?;
 
         Ok(duties)
     }
