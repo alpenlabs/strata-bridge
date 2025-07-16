@@ -8,10 +8,9 @@ use strata_p2p_wire::p2p::v1::GetMessageRequest;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, trace};
 
-/// Message handler for the P2P client.
+/// Message handler for the bridge node for relaying p2p messages.
 ///
-/// This exposes an interface that allows publishing messages but not reading messages from the p2p
-/// network.
+/// This exposes an interface that allows publishing messages to the node itself as [`libbp2p`](https://docs.rs/libp2p/latest/libp2p/) does not support self-publishing.
 // TODO: (@Rajil1213) rename this to `Outbox` and create a newtype for `P2PHandle` that exposes the
 // interface to read messages off of the p2p network (aka the `Inbox`).
 #[derive(Debug, Clone)]
@@ -136,8 +135,8 @@ impl MessageHandler {
 
     /// Requests a deposit setup message from an operator.
     ///
-    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
-    /// [`Self.handle`].
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the associated
+    /// [`P2PHandle`](strata_p2p::swarm::handle::P2PHandle).
     pub async fn request_deposit_setup(&self, scope: Scope, operator_pk: P2POperatorPubKey) {
         let req = GetMessageRequest::DepositSetup { scope, operator_pk };
         self.request(req, "Deposit setup request").await;
@@ -145,8 +144,8 @@ impl MessageHandler {
 
     /// Requests a Stake chain exchange message from an operator.
     ///
-    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
-    /// [`Self.handle`].
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the associated
+    /// [`P2PHandle`](strata_p2p::swarm::handle::P2PHandle).
     pub async fn request_stake_chain_exchange(
         &self,
         stake_chain_id: StakeChainId,
@@ -161,8 +160,8 @@ impl MessageHandler {
 
     /// Requests a MuSig2 nonces exchange message from an operator.
     ///
-    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
-    /// [`Self.handle`].
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the associated
+    /// [`P2PHandle`](strata_p2p::swarm::handle::P2PHandle).
     pub async fn request_musig2_nonces(
         &self,
         session_id: SessionId,
@@ -177,8 +176,8 @@ impl MessageHandler {
 
     /// Requests a MuSig2 signatures exchange message from an operator.
     ///
-    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the [`P2PHandle`] in
-    /// [`Self.handle`].
+    /// The user needs to wait for the response by [`Poll`](std::task::Poll)ing the associated
+    /// [`P2PHandle`](strata_p2p::swarm::handle::P2PHandle).
     pub async fn request_musig2_signatures(
         &self,
         session_id: SessionId,

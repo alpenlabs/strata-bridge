@@ -291,7 +291,7 @@ impl ContractManager {
                                     if !ouroboros_duties.is_empty() {
                                         info!(num_duties=ouroboros_duties.len(), "queueing duties generated via ouroboros");
                                         for duty in ouroboros_duties.iter() {
-                                            debug!(?duty);
+                                            trace!(?duty, "received ouroboros message duty");
                                         }
 
                                         duties.extend(ouroboros_duties);
@@ -314,7 +314,7 @@ impl ContractManager {
                         },
                     },
 
-                    // And similarly, prioritize self-nags next
+                    // And similarly, prioritize nags next
                     ouroboros_req = ouroboros_req_receiver.recv() => match ouroboros_req {
                         Ok(req) => {
                             if req.operator_pubkey() == cfg.operator_table.pov_p2p_key() {
