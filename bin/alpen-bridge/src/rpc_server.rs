@@ -606,6 +606,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             .iter()
             .find_map(|entry| match &entry.0.state.state {
                 // NOTE: this is a source of bugs, don't use the `_` to match all.
+
+                // No withdraw information.
                 ContractState::Requested { .. }
                 | ContractState::Deposited { .. }
                 | ContractState::Disproved { .. } => {
@@ -613,27 +615,8 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                     None
                 }
 
+                // Withdraw is in progress.
                 ContractState::Assigned {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::Claimed {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::Challenged {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::PreAssertConfirmed {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::AssertDataConfirmed {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                }
-                | ContractState::Asserted {
                     withdrawal_request_txid: entry_withdrawal_request_txid,
                     ..
                 } => {
@@ -648,6 +631,31 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 }
 
                 ContractState::Fulfilled {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                }
+                | ContractState::Claimed {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                }
+                | ContractState::Challenged {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                }
+                | ContractState::PreAssertConfirmed {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                }
+                | ContractState::AssertDataConfirmed {
+                    withdrawal_request_txid: entry_withdrawal_request_txid,
+                    withdrawal_fulfillment_txid,
+                    ..
+                }
+                | ContractState::Asserted {
                     withdrawal_request_txid: entry_withdrawal_request_txid,
                     withdrawal_fulfillment_txid,
                     ..
