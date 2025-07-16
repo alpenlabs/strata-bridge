@@ -160,7 +160,6 @@ pub(crate) async fn bootstrap(
     handle_stakechain_genesis(
         db_stakechain,
         s2_client.clone(),
-        p2p_handle.clone(),
         &mut operator_wallet,
         my_index,
         Arc::new(bitcoin_rpc_client.clone()),
@@ -548,16 +547,15 @@ async fn init_operator_wallet(
 async fn handle_stakechain_genesis(
     db: SqliteDb,
     s2_client: SecretServiceClient,
-    p2p_handle: P2PHandle,
     operator_wallet: &mut OperatorWallet,
     my_index: OperatorIdx,
     bitcoin_rpc_client: Arc<BitcoinClient>,
 ) {
     // the ouroboros sender is part of the message handler interface but is unused when sending
     // stakechain genesis information.
-    let (ouroboros_sender, _ouroboros_receiver) = broadcast::channel(1);
-    let message_handler = MessageHandler::new(p2p_handle, ouroboros_sender);
-
+    let (ouroboros_msg_sender, _ouroboros_msg_receiver) = broadcast::channel(1);
+    let (ouroboros_req_sender, _ouroboros_req_receiver) = broadcast::channel(1);
+    let message_handler = MessageHandler::new(ouroboros_msg_sender, ouroboros_req_sender);
     let general_key = s2_client
         .general_wallet_signer()
         .pubkey()

@@ -3108,6 +3108,11 @@ impl ContractSM {
         self.cfg.deposit_tx.compute_txid()
     }
 
+    /// The index of the deposit on which this contract is centered.
+    pub const fn deposit_idx(&self) -> u32 {
+        self.cfg.deposit_idx
+    }
+
     /// The txid of the original deposit request that kicked off this contract.
     pub fn deposit_request_txid(&self) -> Txid {
         self.cfg().deposit_request_txid()
