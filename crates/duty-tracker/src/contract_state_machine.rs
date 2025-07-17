@@ -2473,6 +2473,7 @@ impl ContractSM {
                     deposit_idx: self.cfg.deposit_idx,
                     deposit_txid,
                 };
+                let deadline = dispatched_state.exec_deadline();
 
                 match &mut self.state.state {
                     // new assignment
@@ -2494,7 +2495,6 @@ impl ContractSM {
                                 "could not find claim_txid for operator {assignee_key} in csm {deposit_txid}",
                             )))?;
 
-                        let deadline = dispatched_state.exec_deadline();
                         let active_graph = peg_out_graphs
                             .get(fulfiller_claim_txid)
                             .ok_or(TransitionErr(format!(
@@ -2522,7 +2522,45 @@ impl ContractSM {
                                 deadline,
                             },
                         )))
-                    }
+                    },
+
+                    // HACK: (@Rajil1213) this is a hack so that the stake chain advancement occurs
+                    // even if the contract has already been aborted.
+                    ContractState::Aborted => {
+                        warn!(%deposit_txid, ?assignment, "received assignment for an aborted contract");
+
+                        // We set the operator index to `u32::MAX` so that the withdrawal fulfillment never happens.
+                        // We take this path instead of another approach (such as fulfilling the
+                        // withdrawal as present in the mock assignment but using a different `tag`
+                        // value) because race conditions can result in an "infinite money" glitch.
+                        //
+                        // For example, if a deposit goes through after the refund delay height
+                        // because the user does not take it back,
+                        // the ContractSM will be set to the `Aborted` state but the deposit will still be minted.
+                        // In the future, if this is assigned, the recipient will keep getting fulfillments because
+                        // the OL will never see a withdrawal fulfillment for this assignment
+                        // because the tag is different, and will keep reassigning it to different operators.
+                        // The bridge, on the other hand, will continue fulfilling these
+                        // reassignments.
+                        //
+                        // TODO: (@Rajil1213), In the future, we may want to set the contract state to `Resolved` if we
+                        // see a fulfillment with a `u32::MAX` assignee. This also requires that we update the `is_fulfillment` prediacte to account for this stub assignee.
+                        // For now, this is fine since a contract in `Aborted` state does not incur too much memory usage, and the
+                        // event itself should be pretty rare.
+                        let stub_withdrawal_metadata = WithdrawalMetadata {
+                            operator_idx: u32::MAX,
+                            ..withdrawal_metadata
+                        };
+
+                        Ok(Some(OperatorDuty::FulfillerDuty(
+                            FulfillerDuty::HandleFulfillment {
+                                stake_tx,
+                                withdrawal_metadata: stub_withdrawal_metadata,
+                                user_descriptor: recipient.clone(),
+                                deadline,
+                            },
+                        )))
+                    },
 
                     cur_state => {
                         warn!(?assignment, %cur_state, "received stale assignment, ignoring");
