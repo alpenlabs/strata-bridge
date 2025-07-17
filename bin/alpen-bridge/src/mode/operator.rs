@@ -54,7 +54,7 @@ use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
 use strata_tasks::TaskExecutor;
-use tokio::{net::lookup_host, sync::broadcast, task::JoinHandle};
+use tokio::{net::lookup_host, select, sync::broadcast, task::JoinHandle};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -219,33 +219,49 @@ pub(crate) async fn bootstrap(
     info!("starting contract manager");
     let shutdown_timeout = config.shutdown_timeout;
     executor.spawn_critical_async_with_shutdown("contract_manager", |shutdown_guard| async move {
-        // Wait for the contract manager to complete or shutdown signal.
-        let shutdown_fut = async {
-            shutdown_guard.wait_for_shutdown().await;
+        let mut contract_manager = contract_manager;
 
-            // Extract execution state and persist before shutdown.
-            match contract_manager.shutdown_and_extract_state().await {
-                Ok(execution_state) => {
-                    info!("extracted execution state, persisting before shutdown");
-                    match shutdown_handler
-                        .persist_state_before_shutdown(
-                            &execution_state,
-                            &shutdown_guard,
-                            shutdown_timeout,
-                        )
-                        .await
-                    {
-                        Ok(()) => info!("successfully persisted state before shutdown"),
-                        Err(e) => error!("failed to persist state before shutdown: {e:?}"),
+        // Race between shutdown signal and contract manager completion
+        select! {
+            // Handle shutdown signal.
+            _ = shutdown_guard.wait_for_shutdown() => {
+                info!("shutdown signal received, initiating graceful shutdown");
+
+                // Extract execution state and persist before shutdown.
+                match contract_manager.shutdown_and_extract_state().await {
+                    Ok(execution_state) => {
+                        info!("extracted execution state, persisting before shutdown");
+                        match shutdown_handler
+                            .persist_state_before_shutdown(
+                                &execution_state,
+                                &shutdown_guard,
+                                shutdown_timeout,
+                            )
+                            .await
+                        {
+                            Ok(()) => info!("successfully persisted state before shutdown"),
+                            Err(e) => error!("failed to persist state before shutdown: {e:?}"),
+                        }
+                    }
+                    Err(e) => error!("failed to extract execution state: {e:?}"),
+                }
+                Ok(())
+            }
+
+            // Handle contract manager completion (this should indicate an error)
+            result = &mut contract_manager.thread_handle => {
+                match result {
+                    Ok(e) => {
+                        error!("contract manager failed: {e:?}");
+                        Err(anyhow::Error::from(e))
+                    }
+                    Err(e) => {
+                        error!("contract manager panicked: {e:?}");
+                        Err(anyhow::Error::from(e))
                     }
                 }
-                Err(e) => error!("failed to extract execution state: {e:?}"),
             }
-        };
-
-        // This will run until shutdown is signaled.
-        shutdown_fut.await;
-        Ok(())
+        }
     });
     debug!("contract manager started");
 
