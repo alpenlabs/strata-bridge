@@ -586,7 +586,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 // NOTE: Resolved contracts have no *current* withdrawals and will pollute the return array.
                 | ContractState::Resolved { .. }
                 | ContractState::Disproved { .. }
-                | ContractState::Aborted {  } => {
+                | ContractState::Aborted => {
                     continue;
                 }
             }
@@ -612,7 +612,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 ContractState::Requested { .. }
                 | ContractState::Deposited { .. }
                 | ContractState::Disproved { .. }
-                | ContractState::Aborted {} => {
+                | ContractState::Aborted => {
                     // These states do not have withdrawals, so we skip them
                     None
                 }
@@ -706,7 +706,7 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 // States that are terminal and do not have an active graph.
                 ContractState::Resolved { .. }
                 | ContractState::Disproved { .. }
-                | ContractState::Aborted {} => None,
+                | ContractState::Aborted => None,
             })
             .collect();
 
@@ -738,7 +738,7 @@ const fn contract_state_to_reimbursement_status(state: &ContractState) -> RpcRei
         | ContractState::Deposited { .. }
         | ContractState::Assigned { .. }
         | ContractState::Fulfilled { .. }
-        | ContractState::Aborted {} => RpcReimbursementStatus::NotStarted,
+        | ContractState::Aborted => RpcReimbursementStatus::NotStarted,
         ContractState::Claimed { active_graph, .. } => RpcReimbursementStatus::InProgress {
             challenge_step: ChallengeStep::Claim,
             claim_txid: active_graph.1.claim_txid,
