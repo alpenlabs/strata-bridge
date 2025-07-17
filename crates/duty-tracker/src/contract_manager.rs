@@ -1936,7 +1936,11 @@ async fn execute_duty(
         OperatorDuty::Abort => {
             warn!("received an Abort duty, this should not happen in normal operation");
 
-            unimplemented!("abort duty is not implemented yet");
+            // TODO(proofofkeags): right now we don't actively attempt to prune Aborted contracts.
+            // We need to hold onto them in our active state for now because of its implications on
+            // advancing the stake chain. In the future we need to prune them after their stake
+            // transaction is published since their state is no longer relevant.
+            Ok(())
         }
         OperatorDuty::VerifierDuty(verifier_duty) => {
             warn!(%verifier_duty, "ignoring verifier duty");
