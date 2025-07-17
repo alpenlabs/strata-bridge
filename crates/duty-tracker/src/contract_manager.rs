@@ -58,7 +58,9 @@ use crate::{
 #[derive(Debug)]
 pub struct ContractManager {
     /// Handle to the task that runs the contract manager event loop.
-    thread_handle: JoinHandle<()>,
+    ///
+    /// NOTE: it holds a [`ContractManagerErr`] since the event loop exiting is an error.
+    pub thread_handle: JoinHandle<ContractManagerErr>,
 
     /// Channel sender for initiating shutdown and extracting the execution state.
     shutdown_sender: Option<oneshot::Sender<oneshot::Sender<ExecutionState>>>,
@@ -97,10 +99,6 @@ impl ContractManager {
 
         let thread_handle = task::spawn(async move {
             let mut shutdown_receiver = Some(shutdown_receiver);
-            let crash = |e: ContractManagerErr| {
-                error!(?e, "crashing");
-                panic!("{e}");
-            };
 
             info!("loading all active contracts");
 
@@ -123,7 +121,10 @@ impl ContractManager {
                         )
                     })
                     .collect::<BTreeMap<Txid, ContractSM>>(),
-                Err(e) => crash(e.into()),
+                Err(e) => {
+                    error!(?e, "failed to load active contracts, crashing");
+                    return e.into();
+                }
             };
             debug!(num_contracts=%active_contracts.len(), "loaded all active contracts");
 
@@ -141,14 +142,14 @@ impl ContractManager {
                     ) {
                         Ok(stake_chains) => stake_chains,
                         Err(e) => {
-                            crash(ContractManagerErr::StakeChainErr(e));
-                            return;
+                            error!(?e, "failed to load stake chains, crashing");
+                            return ContractManagerErr::StakeChainErr(e);
                         }
                     }
                 }
                 Err(e) => {
-                    crash(e.into());
-                    return;
+                    error!(?e, "failed to load stake chain persister, crashing");
+                    return e.into();
                 }
             };
             debug!("restored stake chain data");
@@ -156,8 +157,8 @@ impl ContractManager {
             let current = match rpc_client.get_block_count().await {
                 Ok(a) => a - (zmq_client.bury_depth() as u64),
                 Err(e) => {
-                    crash(e.into());
-                    return;
+                    error!(?e, "failed to get block count, crashing");
+                    return e.into();
                 }
             };
             let mut block_sub = zmq_client.subscribe_blocks().await;
@@ -242,8 +243,8 @@ impl ContractManager {
                 let block = match rpc_client.get_block_at(next).await {
                     Ok(a) => a,
                     Err(e) => {
-                        crash(e.into());
-                        return;
+                        error!(?e, "failed to get block, crashing");
+                        return e.into();
                     }
                 };
                 let blockhash = block.block_hash();
@@ -304,13 +305,13 @@ impl ContractManager {
                                 }
                                 Err(e) => {
                                     error!(%e, "failed to process ouroboros message");
-                                    break;
+                                    return e;
                                 }
                             }
                         },
                         Err(e) => {
                             error!(%e, "failed to receive ouroboros message");
-                            break;
+                            return ContractManagerErr::FatalErr(format!("failed to receive ouroboros message: {e:?}"));
                         },
                     },
 
@@ -337,7 +338,7 @@ impl ContractManager {
                         },
                         Err(e) => {
                             error!(%e, "failed to receive ouroboros request");
-                            break;
+                            return ContractManagerErr::FatalErr(format!("failed to receive ouroboros request: {e:?}"));
                         }
                     },
 
@@ -366,7 +367,8 @@ impl ContractManager {
                             if state_sender.send(shutdown_state).is_err() {
                                 error!("failed to send execution state during shutdown");
                             }
-                            break;
+                            info!("contract manager event loop exited due to shutdown");
+                            return ContractManagerErr::FatalErr("contract manager event loop exited due to shutdown".to_string());
                         }
                     },
 
@@ -392,7 +394,7 @@ impl ContractManager {
                             Ok(_) => {},
                             Err(e) => {
                                 error!(%blockhash, %block_height, ?e, "failed to process block");
-                                break;
+                                return e;
                             }
                         }
                     },
@@ -462,7 +464,13 @@ impl ContractManager {
                 }
             }
 
-            info!("contract manager event loop exited");
+            #[allow(
+                unreachable_code,
+                reason = "Failsafe mechanism so that the event loop never exits without an error!"
+            )]
+            ContractManagerErr::FatalErr(
+                "contract manager event loop exited unexpectedly".to_string(),
+            )
         });
 
         ContractManager {
