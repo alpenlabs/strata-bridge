@@ -613,6 +613,10 @@ pub enum ContractState {
         /// The nature of the resolution.
         path: ResolutionPath,
     },
+
+    /// This state describes the state where the refund delay has been exceeded before a DRT could
+    /// be converted to a DT.
+    Aborted {},
 }
 
 impl Display for ContractState {
@@ -691,6 +695,7 @@ impl Display for ContractState {
             } => {
                 format!("Resolved via {path} path with withdrawal fulfillment ({withdrawal_fulfillment_txid}) and payout ({payout_txid})")
             }
+            ContractState::Aborted {} => "Aborted".to_string(),
         };
 
         write!(f, "ContractState: {display_str}")
@@ -739,7 +744,9 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { peg_out_graphs, .. }
             | ContractState::AssertDataConfirmed { peg_out_graphs, .. }
             | ContractState::Asserted { peg_out_graphs, .. } => get_summaries(peg_out_graphs),
-            ContractState::Disproved { .. } | ContractState::Resolved { .. } => Vec::new(),
+            ContractState::Disproved { .. }
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => Vec::new(),
         }
     }
 
@@ -761,7 +768,7 @@ impl ContractState {
                 return HashSet::from([*claim_txid]);
             }
 
-            ContractState::Disproved { .. } => &dummy,
+            ContractState::Disproved { .. } | ContractState::Aborted {} => &dummy,
         };
 
         claim_txids.values().copied().collect()
@@ -779,7 +786,9 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { graph_sigs, .. }
             | ContractState::AssertDataConfirmed { graph_sigs, .. }
             | ContractState::Asserted { graph_sigs, .. } => graph_sigs,
-            ContractState::Disproved { .. } | ContractState::Resolved { .. } => &BTreeMap::new(),
+            ContractState::Disproved { .. }
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => &BTreeMap::new(),
         };
 
         graph_sigs.clone()
@@ -797,7 +806,9 @@ impl ContractState {
             | ContractState::PreAssertConfirmed { claim_txids, .. }
             | ContractState::AssertDataConfirmed { claim_txids, .. } => claim_txids,
             ContractState::Asserted { claim_txids, .. } => claim_txids,
-            ContractState::Disproved {} | ContractState::Resolved { .. } => &BTreeMap::new(),
+            ContractState::Disproved {}
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => &BTreeMap::new(),
         };
 
         claim_txids.iter().find_map(|(op_key, claim)| {
@@ -828,7 +839,9 @@ impl ContractState {
             | ContractState::Asserted { peg_out_graphs, .. } => {
                 peg_out_graphs.get(&claim_txid).map(|(input, _)| input)
             }
-            ContractState::Disproved {} | ContractState::Resolved { .. } => None,
+            ContractState::Disproved {}
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => None,
         }
     }
 
@@ -849,7 +862,9 @@ impl ContractState {
             | ContractState::Asserted { peg_out_graphs, .. } => {
                 peg_out_graphs.get(&claim_txid).map(|(_, summary)| summary)
             }
-            ContractState::Disproved {} | ContractState::Resolved { .. } => None,
+            ContractState::Disproved {}
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => None,
         }
     }
 }
@@ -1592,6 +1607,11 @@ impl ContractSM {
                 tx.compute_txid(),
                 self.state.state
             ))),
+            ContractState::Aborted {} => Err(TransitionErr(format!(
+                "peg out graph confirmation ({}) delivered to CSM in Aborted state ({})",
+                tx.compute_txid(),
+                self.state.state
+            ))),
         }
     }
 
@@ -2277,12 +2297,14 @@ impl ContractSM {
             | ContractState::PreAssertConfirmed { .. }
             | ContractState::AssertDataConfirmed { .. }
             | ContractState::Disproved {}
-            | ContractState::Resolved { .. } => None,
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => None,
 
             // the next states for the following states depend on a timelock
             // and therefore care about a new block event.
             ContractState::Requested { abort_deadline, .. } => {
                 if self.state.block_height >= *abort_deadline {
+                    self.state.state = ContractState::Aborted {};
                     Some(OperatorDuty::Abort)
                 } else {
                     None
@@ -3141,7 +3163,7 @@ impl ContractSM {
                 return vec![*claim_txid];
             }
 
-            ContractState::Disproved {} => &dummy,
+            ContractState::Disproved {} | ContractState::Aborted {} => &dummy,
         }
         .values()
         .copied()
@@ -3171,7 +3193,8 @@ impl ContractSM {
             | ContractState::AssertDataConfirmed { .. }
             | ContractState::Asserted { .. }
             | ContractState::Disproved {}
-            | ContractState::Resolved { .. } => None,
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => None,
         }
     }
     /// The txid of the withdrawal fulfillment for this contract.
@@ -3184,7 +3207,8 @@ impl ContractSM {
             | ContractState::Deposited { .. }
             | ContractState::Assigned { .. }
             | ContractState::Disproved {}
-            | ContractState::Resolved { .. } => None,
+            | ContractState::Resolved { .. }
+            | ContractState::Aborted {} => None,
 
             ContractState::Fulfilled {
                 withdrawal_fulfillment_txid,
