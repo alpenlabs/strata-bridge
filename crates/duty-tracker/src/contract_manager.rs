@@ -954,28 +954,25 @@ impl ContractManagerCtx {
                             ))
                         })?);
 
-                    let deposit_setup_duties = contract
-                        .process_contract_event(ContractEvent::DepositSetup {
+                    let deposit_setup_duties =
+                        contract.process_contract_event(ContractEvent::DepositSetup {
                             operator_p2p_key: key.clone(),
                             operator_btc_key: operator_pk,
                             stake_hash: hash,
                             stake_txid: stake_tx.compute_txid(),
                             wots_keys,
-                        })?
-                        .into_iter()
-                        .map(|duty| {
-                            // we need a way to feed the claim txids back into the manager's index
-                            // so we skim it off of the publish graph
-                            // nonces duty.
-                            if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
-                                self.state.claim_txids.insert(claim_txid, deposit_txid);
-                            }
+                        })?;
 
-                            duty
-                        });
+                    for duty in deposit_setup_duties.iter() {
+                        // we need a way to feed the claim txids back into the manager's index so we
+                        // skim it off of the publish graph nonces duty.
+                        if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
+                            self.state.claim_txids.insert(*claim_txid, deposit_txid);
+                        }
+                    }
 
                     // immediately commit the state to disk as this is a critical state transition.
-                    if !duties.is_empty() {
+                    if !deposit_setup_duties.is_empty() {
                         debug!(%deposit_txid, %index, "committing deposit setup to disk");
                         let deposit_idx = contract.cfg().deposit_idx;
                         let deposit_tx = &contract.cfg().deposit_tx;
