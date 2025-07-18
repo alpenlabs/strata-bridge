@@ -43,9 +43,9 @@ pub fn fq_from_nibbles() -> Script {
 
     script! {
         for i in (1..=N_DIGITS).rev() {
-            if (i * WINDOW) % LIMB_SIZE == 0 {
+            if (i * WINDOW).is_multiple_of(LIMB_SIZE) {
                 OP_TOALTSTACK
-            } else if (i * WINDOW) % LIMB_SIZE > 0 &&
+            } else if !(i * WINDOW).is_multiple_of(LIMB_SIZE) &&
                         (i * WINDOW) % LIMB_SIZE < WINDOW {
                 OP_SWAP
                 { split_digit(WINDOW, (i * WINDOW) % LIMB_SIZE) }
