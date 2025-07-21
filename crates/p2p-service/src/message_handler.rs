@@ -5,7 +5,7 @@ use musig2::{PartialSignature, PubNonce};
 use strata_p2p::commands::UnsignedPublishMessage;
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::GetMessageRequest;
-use tokio::sync::broadcast;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 
 /// Message handler for the bridge node for relaying p2p messages.
@@ -17,21 +17,21 @@ use tracing::{debug, error, info, trace};
 pub struct MessageHandler {
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
-    ouroboros_msg_sender: broadcast::Sender<UnsignedPublishMessage>,
+    ouroboros_msg_sender: mpsc::UnboundedSender<UnsignedPublishMessage>,
 
     /// The outbound channel used to self-publish message requests.
     ///
     /// It is used when a node needs to nag itself. This mimics a duty retry mechanism and is
     /// useful if the node broadcasts a message to its peers that it then loses or fails to
     /// persist before an inopportune restart.
-    ouroboros_req_sender: broadcast::Sender<GetMessageRequest>,
+    ouroboros_req_sender: mpsc::UnboundedSender<GetMessageRequest>,
 }
 
 impl MessageHandler {
     /// Creates a new message handler.
     pub const fn new(
-        ouroboros_msg_sender: broadcast::Sender<UnsignedPublishMessage>,
-        ouroboros_req_sender: broadcast::Sender<GetMessageRequest>,
+        ouroboros_msg_sender: mpsc::UnboundedSender<UnsignedPublishMessage>,
+        ouroboros_req_sender: mpsc::UnboundedSender<GetMessageRequest>,
     ) -> Self {
         Self {
             ouroboros_msg_sender,
