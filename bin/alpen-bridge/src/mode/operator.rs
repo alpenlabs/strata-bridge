@@ -54,7 +54,7 @@ use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
 use strata_p2p::swarm::handle::P2PHandle;
 use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
 use strata_tasks::TaskExecutor;
-use tokio::{net::lookup_host, select, sync::broadcast, task::JoinHandle};
+use tokio::{net::lookup_host, select, sync::mpsc, task::JoinHandle};
 use tracing::{debug, error, info};
 
 use crate::{
@@ -569,8 +569,8 @@ async fn handle_stakechain_genesis(
 ) {
     // the ouroboros sender is part of the message handler interface but is unused when sending
     // stakechain genesis information.
-    let (ouroboros_msg_sender, _ouroboros_msg_receiver) = broadcast::channel(1);
-    let (ouroboros_req_sender, _ouroboros_req_receiver) = broadcast::channel(1);
+    let (ouroboros_msg_sender, _ouroboros_msg_receiver) = mpsc::unbounded_channel();
+    let (ouroboros_req_sender, _ouroboros_req_receiver) = mpsc::unbounded_channel();
     let message_handler = MessageHandler::new(ouroboros_msg_sender, ouroboros_req_sender);
     let general_key = s2_client
         .general_wallet_signer()

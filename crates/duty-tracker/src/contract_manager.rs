@@ -32,7 +32,7 @@ use strata_primitives::params::RollupParams;
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
     select,
-    sync::{broadcast, oneshot, RwLock},
+    sync::{mpsc, oneshot, RwLock},
     task::{self, JoinHandle},
     time,
 };
@@ -194,11 +194,8 @@ impl ContractManager {
             // documentation on broadcast::channel says that the actual capacity may be higher).
             // This will only happen if this node as well as other event sources generate far too
             // many events.
-            const OUROBOROS_CAP: usize = 100;
-            let (ouroboros_msg_sender, mut ouroboros_msg_receiver) =
-                broadcast::channel(OUROBOROS_CAP);
-            let (ouroboros_req_sender, mut ouroboros_req_receiver) =
-                broadcast::channel(OUROBOROS_CAP);
+            let (ouroboros_msg_sender, mut ouroboros_msg_receiver) = mpsc::unbounded_channel();
+            let (ouroboros_req_sender, mut ouroboros_req_receiver) = mpsc::unbounded_channel();
 
             let msg_handler = MessageHandler::new(ouroboros_msg_sender, ouroboros_req_sender);
 
@@ -282,7 +279,7 @@ impl ContractManager {
                     // First, we prioritize the ouroboros channel since processing our own message is
                     // necessary for having consistent state.
                     ouroboros_msg = ouroboros_msg_receiver.recv() => match ouroboros_msg {
-                        Ok(msg) => {
+                        Some(msg) => {
                             match ctx.process_unsigned_gossip_msg(
                                 msg.clone().into(),
                                 cfg.operator_table.pov_p2p_key().clone(),
@@ -309,15 +306,15 @@ impl ContractManager {
                                 }
                             }
                         },
-                        Err(e) => {
-                            error!(%e, "failed to receive ouroboros message");
-                            return ContractManagerErr::FatalErr(format!("failed to receive ouroboros message: {e:?}"));
+                        None => {
+                            error!("ouroboros stream closed");
+                            return ContractManagerErr::FatalErr("ouroboros stream closed".to_string());
                         },
                     },
 
                     // And similarly, prioritize nags next
                     ouroboros_req = ouroboros_req_receiver.recv() => match ouroboros_req {
-                        Ok(req) => {
+                        Some(req) => {
                             if req.operator_pubkey() == cfg.operator_table.pov_p2p_key() {
                                 // Peel off requests that were directed at ourselves.
                                 match ctx.process_p2p_request(req.clone()).await {
@@ -336,9 +333,9 @@ impl ContractManager {
                                 p2p_handle.send_command(Command::RequestMessage(req)).await;
                             }
                         },
-                        Err(e) => {
-                            error!(%e, "failed to receive ouroboros request");
-                            return ContractManagerErr::FatalErr(format!("failed to receive ouroboros request: {e:?}"));
+                        None => {
+                            error!("ouroboros request stream closed");
+                            return ContractManagerErr::FatalErr("ouroboros request stream closed".to_string());
                         }
                     },
 
