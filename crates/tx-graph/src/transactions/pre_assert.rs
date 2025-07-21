@@ -1,8 +1,7 @@
 //! Constructs the pre-assert transaction.
 
 use bitcoin::{
-    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, TapSighashType, Transaction,
-    TxOut, Txid,
+    sighash::Prevouts, Amount, OutPoint, Psbt, Sequence, TapSighashType, Transaction, TxOut, Txid,
 };
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
@@ -153,7 +152,6 @@ impl PreAssertTx {
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
         let mut tx = create_tx(tx_ins, tx_outs.clone());
-        tx.version = transaction::Version(3); // for 0-fee TRUC transactions
         tx.input[0].sequence = Sequence::from_height(connector_c0.pre_assert_timelock() as u16);
 
         let mut psbt =

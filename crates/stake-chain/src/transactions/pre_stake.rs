@@ -31,9 +31,11 @@ impl PreStakeTx {
     ///
     /// The `previous_utxo` is the [`TxOut`] from the previous transaction that funds the stake
     /// chain.
+    ///
+    /// NOTE: This is a [V3](`transaction::Version`) transaction.
     pub fn new(inputs: Vec<TxIn>, outputs: Vec<TxOut>, previous_utxo: &TxOut) -> Self {
         let transaction = Transaction {
-            version: transaction::Version(2),
+            version: transaction::Version(3),
             lock_time: absolute::LockTime::ZERO,
             input: inputs,
             output: outputs,

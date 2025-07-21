@@ -3,8 +3,8 @@
 use std::{collections::BTreeMap, marker::PhantomData};
 
 use bitcoin::{
-    hashes::Hash, transaction, Address, Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction,
-    TxOut, Txid, Weight, Witness,
+    hashes::Hash, Address, Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
+    Weight, Witness,
 };
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::ConnectorCpfp;
@@ -148,12 +148,7 @@ impl Cpfp<Unfunded> {
         let tx_ins = create_tx_ins(utxos);
         let tx_outs = create_tx_outs([(ScriptBuf::new(), Amount::from_int_btc(0))]);
 
-        let mut unsigned_child_tx = create_tx(tx_ins, tx_outs);
-
-        // An unconfirmed TRUC transaction can only be spent by a TRUC transaction.
-        if details.parent_tx.version == transaction::Version(3) {
-            unsigned_child_tx.version = transaction::Version(3);
-        }
+        let unsigned_child_tx = create_tx(tx_ins, tx_outs);
 
         let mut psbt =
             Psbt::from_unsigned_tx(unsigned_child_tx).expect("must be able to create psbt");
@@ -344,8 +339,7 @@ mod tests {
             ),
         ]);
 
-        let mut unsigned_parent_tx = create_tx(tx_ins, tx_outs);
-        unsigned_parent_tx.version = transaction::Version(3);
+        let unsigned_parent_tx = create_tx(tx_ins, tx_outs);
 
         let signed_parent_tx = btc_client
             .call::<SignRawTransactionWithWallet>(

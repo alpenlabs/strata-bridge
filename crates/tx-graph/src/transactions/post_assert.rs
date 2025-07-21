@@ -1,8 +1,7 @@
 //! Constructs the post-assert transaction.
 
 use bitcoin::{
-    sighash::Prevouts, transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
-    Txid,
+    sighash::Prevouts, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
 };
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
@@ -79,8 +78,7 @@ impl PostAssertTx {
         let tx_outs = create_tx_outs(scripts_and_amounts);
         trace!(event = "created tx outs", count = tx_outs.len());
 
-        let mut tx = create_tx(tx_ins, tx_outs);
-        tx.version = transaction::Version(3);
+        let tx = create_tx(tx_ins, tx_outs);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("witness should be empty");
 

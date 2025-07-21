@@ -52,6 +52,8 @@ pub struct DisproveTx {
 
 impl DisproveTx {
     /// Constructs a new instance of the disprove transaction.
+    ///
+    /// NOTE: This is a [V2](`bitcoin::transaction::Version::TWO`) transaction.
     pub fn new(
         data: DisproveData,
         stake_amount: Amount,
@@ -85,7 +87,8 @@ impl DisproveTx {
 
         let tx_outs = create_tx_outs([(burn_script, burn_amount)]);
 
-        let tx = create_tx(tx_ins, tx_outs);
+        let mut tx = create_tx(tx_ins, tx_outs);
+        tx.version = bitcoin::transaction::Version(2);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("should be able to create psbt");
 

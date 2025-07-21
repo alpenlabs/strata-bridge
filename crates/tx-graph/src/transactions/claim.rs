@@ -1,6 +1,6 @@
 //! Constructs the claim transaction.
 
-use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
+use bitcoin::{Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
 use bitvm::signatures::{Wots, Wots32 as wots256};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{constants::FUNDING_AMOUNT, scripts::prelude::*};
@@ -74,8 +74,7 @@ impl ClaimTx {
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
-        let mut tx = create_tx(tx_ins, tx_outs);
-        tx.version = transaction::Version(3);
+        let tx = create_tx(tx_ins, tx_outs);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("tx should have an empty witness");
 

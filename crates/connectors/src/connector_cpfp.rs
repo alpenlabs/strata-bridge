@@ -67,7 +67,6 @@ mod tests {
         hashes::Hash,
         key::TapTweak,
         sighash::{Prevouts, SighashCache},
-        transaction::Version,
         Address, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     };
     use bitcoind_async_client::types::{ListUnspent, SignRawTransactionWithWallet};
@@ -174,7 +173,6 @@ mod tests {
             script_pubkey: connector.generate_taproot_address().script_pubkey(),
         }];
         let mut parent_tx = create_tx(parent_tx_ins, parent_tx_outs);
-        parent_tx.version = Version(3);
 
         let mut sighasher = SighashCache::new(&mut parent_tx);
         let prevouts = [TxOut {
@@ -248,7 +246,6 @@ mod tests {
         let child_tx_outs =
             create_tx_outs([(output_address.script_pubkey(), starting_tx.output[0].value)]);
         let mut child_tx = create_tx(child_tx_ins, child_tx_outs);
-        child_tx.version = Version(3);
 
         let mut psbt = Psbt::from_unsigned_tx(child_tx.clone()).expect("must be unsigned");
         let mut sighasher = SighashCache::new(&mut child_tx);

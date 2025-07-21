@@ -1,8 +1,8 @@
 //! Constructs the payout optimistic transaction.
 
 use bitcoin::{
-    sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
-    TapSighashType, Transaction, TxOut, Txid,
+    sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt, Sequence, TapSighashType,
+    Transaction, TxOut, Txid,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use serde::{Deserialize, Serialize};
@@ -151,8 +151,7 @@ impl PayoutOptimisticTx {
             (cpfp_script, cpfp_amount),
         ]);
 
-        let mut tx = create_tx(tx_ins, tx_outs);
-        tx.version = transaction::Version(3);
+        let tx = create_tx(tx_ins, tx_outs);
 
         let mut psbt = Psbt::from_unsigned_tx(tx).expect("the witness must be empty");
 

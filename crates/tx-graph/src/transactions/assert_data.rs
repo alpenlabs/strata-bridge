@@ -2,9 +2,7 @@
 
 use std::array;
 
-use bitcoin::{
-    transaction, Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid,
-};
+use bitcoin::{Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid};
 use bitvm::{
     signatures::{Wots, Wots32 as wots256},
     treepp::*,
@@ -77,8 +75,7 @@ impl AssertDataTxBatch {
                 (connector_cpfp_output_script, connector_cpfp_output_amt),
             ]);
 
-            let mut tx = create_tx(tx_ins, tx_outs);
-            tx.version = transaction::Version(3);
+            let tx = create_tx(tx_ins, tx_outs);
 
             let mut psbt = Psbt::from_unsigned_tx(tx).expect("must have an empty witness");
             psbt.inputs[0].witness_utxo = Some(prevout);

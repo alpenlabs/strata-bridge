@@ -216,8 +216,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
         let mut tx = create_tx(tx_ins, tx_outs);
-        // needed for 1P1C TRUC relay
-        tx.version = transaction::Version(3);
+
         // the previous stake input has a relative timelock.
         tx.input[1].sequence = Sequence::from_height(params.delta.to_consensus_u32() as u16);
 
@@ -310,6 +309,10 @@ impl StakeTx<Head> {
     ///   tx-graph as well as those in the state transaction.
     /// - `operator_pubkey`: The operator's public key used to create the [`ConnectorStake`] output
     ///   that is spent by the next stake transaction in the chain.
+    ///
+    /// # Notes
+    ///
+    /// This is a [V3](`transaction::Version`) transaction.
     pub fn new(
         context: &impl BuildContext,
         params: &StakeChainParams,
@@ -478,8 +481,7 @@ impl StakeTx<Tail> {
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
         let mut tx = create_tx(tx_ins, tx_outs);
-        // needed for 1P1C TRUC relay
-        tx.version = transaction::Version(3);
+
         // the previous stake input has a relative timelock.
         tx.input[1].sequence = Sequence::from_height(params.delta.to_consensus_u32() as u16);
 

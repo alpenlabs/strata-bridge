@@ -114,9 +114,11 @@ pub fn anyone_can_spend_txout() -> TxOut {
 }
 
 /// Create a bitcoin [`Transaction`] for the given inputs and outputs.
+///
+/// NOTE: This is a [V3](`transaction::Version`) transaction.
 pub const fn create_tx(tx_ins: Vec<TxIn>, tx_outs: Vec<TxOut>) -> Transaction {
     Transaction {
-        version: transaction::Version::TWO,
+        version: transaction::Version(3),
         lock_time: LockTime::ZERO,
         input: tx_ins,
         output: tx_outs,
