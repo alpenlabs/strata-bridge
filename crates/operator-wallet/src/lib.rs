@@ -1,7 +1,7 @@
 //! Operator wallet
 pub mod sync;
 
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, time::Duration};
 
 use algebra::predicate;
 use bdk_wallet::{
@@ -13,7 +13,15 @@ use bdk_wallet::{
     KeychainKind, LocalOutput, TxOrdering, Wallet,
 };
 use sync::{Backend, SyncError};
-use tracing::info;
+use tokio::time::sleep;
+use tracing::{error, info};
+
+/// How many times we should reattempt after an error during a wallet sync
+const SYNC_RETRIES: u32 = 5;
+/// The wallet will delay a retry by SYNC_BASE_DELAY*2^current_retry,
+/// exponential backoff
+const SYNC_BACKOFF: u32 = 2;
+const SYNC_BASE_DELAY: Duration = Duration::from_millis(100);
 
 /// Config for [`OperatorWallet`]
 #[derive(Debug)]
@@ -301,14 +309,37 @@ impl OperatorWallet {
         &self.stakechain_wallet
     }
 
-    /// Syncs the wallet using the backend provided on construction
+    /// Syncs the wallet using the backend provided on construction.
     pub async fn sync(&mut self) -> Result<(), SyncError> {
-        self.sync_backend
-            .sync_wallet(&mut self.general_wallet, &mut self.leased_outpoints)
-            .await?;
-        self.sync_backend
-            .sync_wallet(&mut self.stakechain_wallet, &mut self.leased_outpoints)
-            .await?;
-        Ok(())
+        let mut retries_left = SYNC_RETRIES;
+        loop {
+            let mut err = None;
+            if let Err(e) = self
+                .sync_backend
+                .sync_wallet(&mut self.general_wallet, &mut self.leased_outpoints)
+                .await
+            {
+                err = Some(e);
+            }
+            if let Err(e) = self
+                .sync_backend
+                .sync_wallet(&mut self.stakechain_wallet, &mut self.leased_outpoints)
+                .await
+            {
+                err = Some(e);
+            }
+
+            match err {
+                Some(e) => {
+                    error!(?e, "error syncing wallet");
+                    if retries_left == 0 {
+                        break Err(e);
+                    }
+                    sleep(SYNC_BASE_DELAY * SYNC_BACKOFF.pow(SYNC_RETRIES - retries_left)).await;
+                    retries_left -= 1;
+                }
+                None => break Ok(()),
+            }
+        }
     }
 }
