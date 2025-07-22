@@ -212,7 +212,6 @@ mod tests {
             rawtx_connection_string = "tcp://127.0.0.1:28335"
             sequence_connection_string = "tcp://127.0.0.1:28336"
 
-            shutdown_timeout = { secs = 15, nanos = 0 }
             [stake_tx]
             max_retries = 5
             retry_delay = { secs = 1, nanos = 0 }
