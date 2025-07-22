@@ -7,6 +7,7 @@ use std::{
     time::Duration,
 };
 
+use algebra::retry::{retry_with_mut, Strategy};
 use anyhow::{anyhow, Context};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::{
@@ -604,13 +605,22 @@ async fn handle_stakechain_genesis(
 
         debug!(%fee_rate, "fetched fee rate from bitcoin client");
 
-        // We need to sync the wallet.
-        info!("syncing operator wallet");
-        operator_wallet
-            .sync()
-            .await
-            .expect("should be able to sync the wallet");
-        debug!("operator wallet synced");
+        // We need to sync the wallet with exponential backoff retry.
+        info!("syncing operator wallet with retry logic");
+        let sync_strategy = Strategy::exponential_backoff(
+            Duration::from_millis(500),   // Initial delay: 500ms
+            Duration::from_secs(30),      // Max delay: 30s
+            2.0,                         // Multiplier: 2x
+        ).with_max_retries(5);           // Max 5 attempts
+        
+        retry_with_mut(sync_strategy, operator_wallet, |wallet| {
+            Box::pin(async move {
+                wallet.sync().await
+            })
+        })
+        .await
+        .expect("should be able to sync the wallet after retries");
+        debug!("operator wallet synced successfully");
 
         // Create the PreStake tx.
         let pre_stake_psbt = operator_wallet

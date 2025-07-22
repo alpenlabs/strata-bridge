@@ -11,6 +11,7 @@ name = "alpen-bridge"
 path = "src/main.rs"
 
 [dependencies]
+algebra.workspace = true
 alpen-bridge-params.workspace = true
 btc-notify.workspace = true
 duty-tracker.workspace = true

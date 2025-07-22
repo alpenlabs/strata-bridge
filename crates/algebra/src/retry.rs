@@ -272,6 +272,78 @@ where
     }
 }
 
+/// Retry function that accepts a closure with mutable state access.
+///
+/// This is useful when you need to retry operations that require mutable access to some state,
+/// such as syncing a wallet with exponential backoff.
+///
+/// # Example
+///
+/// ```
+/// # use std::time::Duration;
+/// # use std::cell::RefCell;
+/// # #[derive(Debug, PartialEq)]
+/// # enum MyError { Retryable }
+/// # #[tokio::main]
+/// # async fn main() {
+/// use algebra::retry::{retry_with_mut, Strategy};
+///
+/// let mut counter = 0;
+/// let strategy = Strategy::fixed_delay(Duration::from_millis(1)).with_max_retries(2);
+///
+/// let result = retry_with_mut(strategy, &mut counter, |count| {
+///     Box::pin(async move {
+///         *count += 1;
+///         if *count < 3 {
+///             Err(MyError::Retryable)
+///         } else {
+///             Ok("Success!")
+///         }
+///     })
+/// })
+/// .await;
+///
+/// assert_eq!(result, Ok("Success!"));
+/// assert_eq!(counter, 3);
+/// # }
+/// ```
+pub async fn retry_with_mut<A, E, T, F>(
+    strategy: Strategy<E>,
+    state: &mut T,
+    mut operation: F,
+) -> Result<A, E>
+where
+    A: Send + 'static,
+    E: Send + 'static,
+    T: Send,
+    F: FnMut(&mut T) -> Pin<Box<dyn Future<Output = Result<A, E>> + Send + '_>>,
+{
+    let mut attempt = 0;
+
+    loop {
+        match operation(state).await {
+            Ok(result) => return Ok(result),
+            Err(error) => {
+                // Check if we've exceeded max retries
+                if let Some(max_retries) = strategy.max_retries {
+                    if attempt >= max_retries {
+                        return Err(error);
+                    }
+                }
+
+                // Determine what action to take
+                match (strategy.error_handler)(&error, attempt) {
+                    RetryAction::Retry(delay) => {
+                        tokio::time::sleep(delay).await;
+                        attempt += 1;
+                    }
+                    RetryAction::Stop => return Err(error),
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{
@@ -481,5 +553,131 @@ mod tests {
 
         // Should have waited the calculated minimum delay
         assert!(elapsed >= MINIMUM_EXPECTED_DELAY);
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_mut_success() {
+        let mut wallet_state = WalletState {
+            sync_count: 0,
+            last_block_height: 0,
+        };
+
+        let strategy = Strategy::fixed_delay(Duration::from_millis(1)).with_max_retries(3);
+
+        let result = super::retry_with_mut(strategy, &mut wallet_state, |state| {
+            Box::pin(async move {
+                state.sync_count += 1;
+                state.last_block_height += 100;
+
+                if state.sync_count < 3 {
+                    Err(TestError::Retryable)
+                } else {
+                    Ok(format!("Synced to block {}", state.last_block_height))
+                }
+            })
+        })
+        .await;
+
+        assert_eq!(result, Ok("Synced to block 300".to_string()));
+        assert_eq!(wallet_state.sync_count, 3);
+        assert_eq!(wallet_state.last_block_height, 300);
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_mut_max_retries_exceeded() {
+        let mut wallet_state = WalletState {
+            sync_count: 0,
+            last_block_height: 0,
+        };
+
+        let strategy = Strategy::fixed_delay(Duration::from_millis(1)).with_max_retries(2);
+
+        let result: Result<String, TestError> = super::retry_with_mut(
+            strategy,
+            &mut wallet_state,
+            |state| {
+                Box::pin(async move {
+                    state.sync_count += 1;
+                    state.last_block_height += 100;
+                    Err(TestError::Retryable)
+                })
+            },
+        )
+        .await;
+
+        assert_eq!(result, Err(TestError::Retryable));
+        assert_eq!(wallet_state.sync_count, 3); // Initial attempt + 2 retries
+        assert_eq!(wallet_state.last_block_height, 300);
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_mut_exponential_backoff() {
+        let mut wallet_state = WalletState {
+            sync_count: 0,
+            last_block_height: 1000,
+        };
+
+        let strategy = Strategy::exponential_backoff(
+            Duration::from_millis(1),
+            Duration::from_millis(100),
+            2.0,
+        )
+        .with_max_retries(2);
+
+        let start = std::time::Instant::now();
+        let result = super::retry_with_mut(strategy, &mut wallet_state, |state| {
+            Box::pin(async move {
+                state.sync_count += 1;
+                state.last_block_height += 50;
+
+                if state.sync_count < 3 {
+                    Err(TestError::Retryable)
+                } else {
+                    Ok(format!("Final sync at block {}", state.last_block_height))
+                }
+            })
+        })
+        .await;
+
+        let elapsed = start.elapsed();
+        assert_eq!(result, Ok("Final sync at block 1150".to_string()));
+        assert_eq!(wallet_state.sync_count, 3);
+        assert_eq!(wallet_state.last_block_height, 1150);
+
+        // Should have waited at least the initial delay
+        assert!(elapsed >= Duration::from_millis(1));
+    }
+
+    #[tokio::test]
+    async fn test_retry_with_mut_fatal_error() {
+        let mut wallet_state = WalletState {
+            sync_count: 0,
+            last_block_height: 0,
+        };
+
+        let strategy = Strategy::new(|error: &TestError, _attempt| match error {
+            TestError::Retryable => RetryAction::Retry(Duration::from_millis(1)),
+            TestError::Fatal => RetryAction::Stop,
+        });
+
+        let result: Result<String, TestError> = super::retry_with_mut(
+            strategy,
+            &mut wallet_state,
+            |state| {
+                Box::pin(async move {
+                    state.sync_count += 1;
+                    Err(TestError::Fatal)
+                })
+            },
+        )
+        .await;
+
+        assert_eq!(result, Err(TestError::Fatal));
+        assert_eq!(wallet_state.sync_count, 1); // Only one attempt
+    }
+
+    struct WalletState {
+        sync_count: usize,
+        last_block_height: u64,
     }
 }

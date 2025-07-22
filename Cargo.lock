@@ -863,6 +863,7 @@ dependencies = [
 name = "alpen-bridge"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "alpen-bridge-params",
  "anyhow",
  "async-trait",
