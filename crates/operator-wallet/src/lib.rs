@@ -160,8 +160,13 @@ impl OperatorWallet {
     /// Creates a PSBT that outfronts a withdrawal from the general wallet to a user owned P2TR
     /// address. (excluding anchor outputs). Needs signing by the general wallet.
     ///
+    /// # Notes
+    ///
     /// The caller is responsible of assuring that the `OP_RETURN` data is within standard limits,
     /// i.e. `<= 80` bytes.
+    ///
+    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
+    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
     pub fn front_withdrawal(
         &mut self,
         fee_rate: FeeRate,
@@ -176,6 +181,8 @@ impl OperatorWallet {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
 
         let mut tx_builder = self.general_wallet.build_tx();
+        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
+        tx_builder.version(3);
         // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.unspendable(self.fronting_outpoints.iter().copied().collect());
@@ -196,6 +203,11 @@ impl OperatorWallet {
 
     /// Creates a PSBT that refills the pool of claim funding UTXOs from the general wallet
     /// (excluding anchor outputs). Needs signing by the general wallet.
+    ///
+    /// # Notes
+    ///
+    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
+    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
     pub fn refill_claim_funding_utxos(
         &mut self,
         fee_rate: FeeRate,
@@ -220,6 +232,8 @@ impl OperatorWallet {
             .collect();
 
         let mut tx_builder = self.general_wallet.build_tx();
+        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
+        tx_builder.version(3);
         tx_builder.unspendable(excluded);
 
         let current_size = current_claim_funding_outpoints.len();
@@ -268,9 +282,16 @@ impl OperatorWallet {
 
     /// Creates a new prestake transaction by paying funds from the general wallet into the
     /// stakechain wallet (excludes anchor outputs). This will create a [Self::s_utxo].
+    ///
+    /// # Notes
+    ///
+    /// This transaction is a version 3 transaction that supports 1-parent-1-child (1P1C) package
+    /// relay mempool policies. The transaction maximum size is `10_000` virtual bytes.
     pub fn create_prestake_tx(&mut self, fee_rate: FeeRate) -> Result<Psbt, CreateTxError> {
         let anchor_outpoints = self.anchor_outputs().map(|lo| lo.outpoint).collect();
         let mut tx_builder = self.general_wallet.build_tx();
+        // Set transaction version to 3 for CPFP 1P1C TRUC transactions.
+        tx_builder.version(3);
         // DON'T spend any of the anchor outputs
         tx_builder.unspendable(anchor_outpoints);
         tx_builder.fee_rate(fee_rate);
