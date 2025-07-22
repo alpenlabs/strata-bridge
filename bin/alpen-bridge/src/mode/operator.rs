@@ -490,6 +490,7 @@ async fn init_duty_tracker(
         config.is_faulty,
         config.min_withdrawal_fulfillment_window,
         config.stake_funding_pool_size,
+        config.stake_tx,
         pre_stake_pubkey,
         zmq_client,
         rpc_client,
