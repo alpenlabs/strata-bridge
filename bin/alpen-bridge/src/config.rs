@@ -1,6 +1,7 @@
 use std::{path::PathBuf, time::Duration};
 
 use btc_notify::client::BtcZmqConfig;
+use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::persistent::config::DbConfig;
@@ -60,6 +61,9 @@ pub(crate) struct Config {
 
     /// Configuration for the Bitcoin ZMQ client.
     pub btc_zmq: BtcZmqConfig,
+
+    /// Configuration for retrying the publishing of stake chain transactions.
+    pub stake_tx: StakeTxRetryConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -209,6 +213,9 @@ mod tests {
             sequence_connection_string = "tcp://127.0.0.1:28336"
 
             shutdown_timeout = { secs = 15, nanos = 0 }
+            [stake_tx]
+            max_retries = 5
+            retry_delay = { secs = 1, nanos = 0 }
         "#;
 
         let config = toml::from_str::<Config>(config);
