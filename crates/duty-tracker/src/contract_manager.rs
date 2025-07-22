@@ -45,7 +45,7 @@ use crate::{
         OperatorDuty, TransitionErr,
     },
     errors::{ContractManagerErr, StakeChainErr},
-    executors::prelude::*,
+    executors::{config::StakeTxRetryConfig, prelude::*},
     predicates::{deposit_request_info, parse_strata_checkpoint},
     shutdown::ExecutionState,
     stake_chain_persister::StakeChainPersister,
@@ -81,6 +81,7 @@ impl ContractManager {
         is_faulty: bool,
         min_withdrawal_fulfillment_window: u64,
         stake_funding_pool_size: usize,
+        stake_tx_retry_config: StakeTxRetryConfig,
         // Genesis information
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
@@ -182,6 +183,7 @@ impl ContractManager {
                 stake_chain_params,
                 sidesystem_params,
                 operator_table,
+                stake_tx_retry_config,
                 pre_stake_pubkey: pre_stake_pubkey.clone(),
                 funding_address: funding_address.clone(),
                 is_faulty,
@@ -545,6 +547,7 @@ pub(super) struct ExecutionConfig {
     pub(super) stake_chain_params: StakeChainParams,
     pub(super) sidesystem_params: RollupParams,
     pub(super) operator_table: OperatorTable,
+    pub(super) stake_tx_retry_config: StakeTxRetryConfig,
     pub(super) pre_stake_pubkey: ScriptBuf,
     pub(super) funding_address: Address,
     pub(super) is_faulty: bool,

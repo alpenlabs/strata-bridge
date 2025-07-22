@@ -1,7 +1,7 @@
 //! Handles the withdrawal duty as it pertains to the optimistic case i.e., when no challenges
 //! occur.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use algebra::retry::{retry_with, RetryAction, Strategy};
 use bitcoin::{
@@ -39,6 +39,7 @@ use crate::{
     contract_manager::{ExecutionConfig, OutputHandles},
     errors::{ContractManagerErr, StakeChainErr},
     executors::{
+        config::StakeTxRetryConfig,
         constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
         wots_handler::get_withdrawal_fulfillment_wots_pk,
     },
@@ -77,7 +78,13 @@ pub(crate) async fn handle_publish_first_stake(
 
     info!(txid=%signed_stake_tx.compute_txid(), "broadcasting first stake transaction");
 
-    try_publish_stake_tx(output_handles, signed_stake_tx, 0).await
+    try_publish_stake_tx(
+        output_handles,
+        cfg.stake_tx_retry_config,
+        signed_stake_tx,
+        0,
+    )
+    .await
 }
 
 /// Advances the stake chain by submitting the given transaction to the tx driver.
@@ -159,7 +166,13 @@ pub(crate) async fn handle_advance_stake_chain(
     );
 
     info!(txid=%signed_stake_tx.compute_txid(), %stake_index, "broadcasting stake transaction");
-    try_publish_stake_tx(output_handles, signed_stake_tx, stake_index).await
+    try_publish_stake_tx(
+        output_handles,
+        cfg.stake_tx_retry_config,
+        signed_stake_tx,
+        stake_index,
+    )
+    .await
 }
 
 /// Tries to publish the stake transaction using the provided `OutputHandles` with retry logic.
@@ -174,21 +187,12 @@ pub(crate) async fn handle_advance_stake_chain(
 // number of retries is reached.
 async fn try_publish_stake_tx(
     output_handles: Arc<OutputHandles>,
+    retry_config: StakeTxRetryConfig,
     signed_stake_tx: bitcoin::Transaction,
     stake_index: u32,
 ) -> Result<(), ContractManagerErr> {
     // NOTE: (@Rajil1213) The following constants are not made configurable as this is supposed to
     // be a temporary workaround.
-
-    /// The maximum number of retries to publish a stake transaction.
-    ///
-    /// The value 30 is chosen to allow enough time for the first stake transaction to be confirmed
-    /// in a batch of 25 transactions -- 25 being the number of dependent transactions that are
-    /// allowed to exist in the mempool.
-    const MAX_RETRIES: usize = 30;
-
-    /// The delay between consecutive retries when trying to publish a stake transaction.
-    const RETRY_DELAY: Duration = Duration::from_secs(60);
 
     let stake_txid = signed_stake_tx.compute_txid();
 
@@ -209,7 +213,7 @@ async fn try_publish_stake_tx(
                     %attempt,
                     "failed to broadcast stake transaction, will retry..."
                 );
-                RetryAction::Retry(RETRY_DELAY)
+                RetryAction::Retry(retry_config.retry_delay)
             }
             _ => {
                 // Other errors are considered fatal
@@ -218,7 +222,7 @@ async fn try_publish_stake_tx(
             }
         }
     })
-    .with_max_retries(MAX_RETRIES);
+    .with_max_retries(retry_config.max_retries as usize);
 
     retry_with(strategy, move || {
         let output_handles = output_handles.clone();
