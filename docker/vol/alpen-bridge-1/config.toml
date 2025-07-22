@@ -44,3 +44,7 @@ hashtx_connection_string = "tcp://host.docker.internal:28333"
 rawblock_connection_string = "tcp://host.docker.internal:28334"
 rawtx_connection_string = "tcp://host.docker.internal:28335"
 sequence_connection_string = "tcp://host.docker.internal:28336"
+
+[stake_tx]
+max_retries = 10
+retry_delay = { secs = 5, nanos = 0 }
