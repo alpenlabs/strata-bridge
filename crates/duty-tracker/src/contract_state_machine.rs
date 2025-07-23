@@ -1646,6 +1646,9 @@ impl ContractSM {
             "processing deposit setup for contract"
         );
 
+        let new_stake_outpoint = OutPoint::new(new_stake_txid, STAKE_VOUT);
+        let new_withdrawal_fulfillment_outpoint =
+            OutPoint::new(new_stake_txid, WITHDRAWAL_FULFILLMENT_VOUT);
         match &mut self.state.state {
             ContractState::Requested {
                 peg_out_graph_inputs,
@@ -1655,31 +1658,27 @@ impl ContractSM {
                 graph_partials,
                 ..
             } => {
-                let pog_input = PegOutGraphInput {
-                    stake_outpoint: OutPoint::new(new_stake_txid, STAKE_VOUT),
-                    withdrawal_fulfillment_outpoint: OutPoint::new(
-                        new_stake_txid,
-                        WITHDRAWAL_FULFILLMENT_VOUT,
-                    ),
-                    stake_hash: new_stake_hash,
-                    wots_public_keys: new_wots_keys,
-                    operator_pubkey,
-                };
-
-                if let Some(existing) = peg_out_graph_inputs.get(&signer) {
-                    warn!(
-                        "already received deposit setup from {signer} for contract {deposit_txid}"
-                    );
-                    debug_assert_eq!(
-                        &pog_input, existing,
-                        "conflicting deposit setup from {signer} for contract {deposit_txid}"
-                    );
-
-                    // FIXME: (@Rajil1213) this should return an error
-                    return Ok(vec![]);
-                }
-
-                peg_out_graph_inputs.insert(signer, pog_input);
+                peg_out_graph_inputs
+                    .entry(signer)
+                    .and_modify(|pog_input| {
+                        // NOTE: (@Rajil1213) it's safe to replace the stake tx outpoints here
+                        // because it is computed using inputs that are
+                        // _never_ replaced once shared. This is also
+                        // necessary in circumstances where the contract state is
+                        // persisted but the stake data isn't before crashing, which leads to a
+                        // consensus failure when generating graphs after the node
+                        // comes back up.
+                        pog_input.stake_outpoint = new_stake_outpoint;
+                        pog_input.withdrawal_fulfillment_outpoint =
+                            new_withdrawal_fulfillment_outpoint;
+                    })
+                    .or_insert_with(|| PegOutGraphInput {
+                        stake_outpoint: new_stake_outpoint,
+                        withdrawal_fulfillment_outpoint: new_withdrawal_fulfillment_outpoint,
+                        stake_hash: new_stake_hash,
+                        wots_public_keys: new_wots_keys,
+                        operator_pubkey,
+                    });
 
                 if peg_out_graph_inputs.len() != self.cfg.operator_table.cardinality() {
                     // FIXME: (@Rajil1213) this should return an error
