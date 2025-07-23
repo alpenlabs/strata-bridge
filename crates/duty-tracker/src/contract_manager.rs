@@ -303,8 +303,31 @@ impl ContractManager {
                                     p2p_handle.send_command(Command::PublishMessage(signed)).await;
                                 }
                                 Err(e) => {
-                                    error!(%e, "failed to process ouroboros message");
-                                    return e;
+                                    error!(%e, "CRITICAL: failed to process ouroboros message");
+                                    // NOTE: (@Rajil1213) Generally speaking, not being able to
+                                    // process self-published messages is indicative of deeper
+                                    // issues in the system as a node should always publish valid
+                                    // messages. However, there is a case where this is not strictly
+                                    // true. Consider the following:
+                                    //
+                                    // A node processes and persists a new contract (say, index 10) and then crashes
+                                    // without having created the `DepositSetup` message (aka the
+                                    // `StakeTxData`). While it is down, another deposit request comes
+                                    // in (index 11). When processing the lagged blocks, the node
+                                    // will first create the duty to publish the `DepositSetup`
+                                    // for index 11. This means that the node will create and
+                                    // publish the `DepositSetup` message which gets sent via
+                                    // ouroboros. At this point, we fail to process the
+                                    // `DepositSetup` message because the stake chain is broken
+                                    // (i.e., the stake data for index 10 does not exist but it does
+                                    // for index 11).
+                                    //
+                                    // If we were to panic here, the node would never be able to
+                                    // progress beyond this point. But if we let things run their
+                                    // course, the node will eventually create the `DepositSetup`
+                                    // message (via the self-nagging mechanism) and things should
+                                    // eventually stabilize. Therefore, we do not return the error when we
+                                    // fail to process an ouroboros message.
                                 }
                             }
                         },
