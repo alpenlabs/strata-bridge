@@ -303,3 +303,30 @@ disprove:
         --params bin/dev-cli/params.toml \
         --vk-path strata-bridge-groth16-vk.hex \
         --bridge-node-url http://localhost:15678/rpc
+
+[doc("\
+Performs the following experiment:
+1. Make a deposit request and stop the nodes after the contract is created but before the graphs can be generated.
+2. Delete the deposit setup for operator 0 from the network state.
+3. Start all but the first node again.
+4. Wait for the nodes to sync.
+5. Make a few more deposits that the first node misses out on and wait till they are buried.
+6. Start the first node again and check if all deposits make it through.\
+")]
+[group('experiments')]
+erase-deposit-setup:
+    #!/usr/bin/env bash -xe
+    just bridge-in
+    sleep 15 # wait for graph generation to begin
+    docker compose stop bridge-{1,2,3}
+    sleep 5 # wait for nodes to stop
+    sqlite3 docker/vol/alpen-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1;"
+    sqlite3 docker/vol/alpen-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
+    sqlite3 docker/vol/alpen-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx=1 and operator_idx=0;"
+    docker compose start bridge-{2,3}
+    sleep 10 # wait for nodes to sync
+    for i in {1..3}; do
+        just bridge-in
+    done
+    sleep 10 # wait for deposits to be buried
+    docker compose start bridge-1
