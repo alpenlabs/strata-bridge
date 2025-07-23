@@ -127,18 +127,21 @@ impl StakeChainSM {
         let deposit_index = setup.index;
         info!(%operator, %deposit_index, "processing deposit setup");
 
+        if let Some(stake_txid) = self
+            .stake_txids
+            .get(&operator)
+            .and_then(|txids| txids.get(&deposit_index))
+        {
+            warn!(%operator, %deposit_index, "stake txid already exists for this index");
+
+            return Ok(Some(*stake_txid));
+        }
+
         let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
             warn!(%operator, "received deposit setup for unknown operator");
 
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
-
-        if chain_input.stake_inputs.contains_key(&deposit_index) {
-            warn!(%operator, %deposit_index, "ignoring redundant deposit setup");
-            return Ok(self
-                .stake_tx(&operator, deposit_index)?
-                .map(|tx| tx.compute_txid()));
-        }
 
         chain_input
             .stake_inputs
@@ -155,19 +158,6 @@ impl StakeChainSM {
 
         // add the new stake txid to the state
         let stake_txid = stake_tx.compute_txid();
-
-        // only update if this is a new entry
-        if self
-            .stake_txids
-            .get(&operator)
-            .map(|txids| txids.contains_key(&deposit_index))
-            .unwrap_or(false)
-        {
-            warn!(%operator, %deposit_index, "stake txid already exists for this index");
-
-            return Ok(Some(stake_txid));
-        }
-
         self.stake_txids
             .entry(operator.clone())
             .or_default()
