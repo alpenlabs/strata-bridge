@@ -1521,8 +1521,10 @@ impl ContractManagerCtx {
 
         debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
 
+        let stake_chains = self.state.stake_chains.state();
         for (txid, contract) in self.state.active_contracts.iter() {
             let state = &contract.state().state;
+
             if let ContractState::Requested {
                 deposit_request_txid,
                 peg_out_graph_inputs,
@@ -1535,18 +1537,50 @@ impl ContractManagerCtx {
             {
                 let mut requests = Vec::new();
 
-                // check if we have the graph data from everybody for this contract
-                let have = peg_out_graph_inputs
-                    .keys()
-                    .cloned()
-                    .collect::<BTreeSet<P2POperatorPubKey>>();
+                // Check if we have the stake data from everybody for this contract.
+                // Since this data lives in a separate SM and is persisted separately,
+                // chances are that this data may not be available in the event of a crash.
+                let stake_index = contract.cfg().deposit_idx;
+                let have = stake_chains
+                    .iter()
+                    .filter_map(|(p2p_key, inputs)| {
+                        if inputs.stake_inputs.contains_key(&stake_index) {
+                            Some(p2p_key.clone())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<BTreeSet<_>>();
 
                 // Take the difference and add it to the list of things to nag.
                 requests.extend(want.difference(&have).map(|key| {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let scope = Scope::from_bytes(*txid.as_ref());
 
-                    debug!(?operator_id, %txid, "queueing nag for deposit setup");
+                    debug!(?operator_id, %txid, "queueing nag for deposit setup since stake data is missing");
+                    GetMessageRequest::DepositSetup {
+                        scope,
+                        operator_pk: key.clone(),
+                    }
+                }));
+
+                if !requests.is_empty() {
+                    all_requests.extend(requests.into_iter());
+                    continue;
+                }
+
+                // As an additional safety measure, also check if the `peg_out_graph_inputs` are
+                // present.
+                let have = peg_out_graph_inputs
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+
+                requests.extend(want.difference(&have).map(|key| {
+                    let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
+                    let scope = Scope::from_bytes(*txid.as_ref());
+
+                    debug!(?operator_id, %txid, "queueing nag for deposit setup since peg out graph input is missing");
                     GetMessageRequest::DepositSetup {
                         scope,
                         operator_pk: key.clone(),
