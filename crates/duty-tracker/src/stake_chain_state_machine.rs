@@ -178,9 +178,9 @@ impl StakeChainSM {
     pub fn height(&self) -> u32 {
         let my_key = self.operator_table.pov_p2p_key();
 
-        self.stake_chains
+        self.stake_txids
             .get(my_key)
-            .map(|inputs| inputs.stake_inputs.len() as u32)
+            .map(|txids| txids.len() as u32)
             .unwrap_or(0)
     }
 
