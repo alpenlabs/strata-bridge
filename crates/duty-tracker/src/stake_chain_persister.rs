@@ -74,7 +74,7 @@ impl StakeChainPersister {
         let operator_ids = cfg.operator_idxs();
 
         for operator_id in operator_ids {
-            let stake_data = self.db.get_all_stake_data(operator_id).await?;
+            let stake_inputs = self.db.get_all_stake_data(operator_id).await?;
             let pre_stake_outpoint = self.db.get_pre_stake(operator_id).await?;
             let p2p_key = cfg.idx_to_p2p_key(&operator_id);
 
@@ -84,17 +84,13 @@ impl StakeChainPersister {
                         p2p_key.clone(),
                         StakeChainInputs {
                             pre_stake_outpoint,
-                            stake_inputs: stake_data
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, stake_data)| (index as u32, stake_data))
-                                .collect(),
+                            stake_inputs,
                         },
                     );
                 }
                 _ => {
                     warn!(
-                        ?stake_data,
+                        ?stake_inputs,
                         ?pre_stake_outpoint,
                         p2p_key = ?p2p_key.map(|k| Vec::<u8>::from(k.clone()).to_lower_hex_string()),
                         "ignoring incomplete data"

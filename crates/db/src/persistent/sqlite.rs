@@ -1,6 +1,6 @@
 //! SQLite implementation of the persistent storage layer.
 
-use std::ops::Deref;
+use std::{collections::BTreeMap, ops::Deref};
 
 use async_trait::async_trait;
 use bitcoin::{OutPoint, Txid};
@@ -397,7 +397,7 @@ impl PublicDb for SqliteDb {
             let stake_data = stake_data.to_owned();
             async move {
                 let mut tx = pool.begin().await.map_err(StorageError::from)?;
-                let stake_data = DbStakeTxData::from(stake_data);
+                let stake_data = DbStakeTxData::new(stake_index, stake_data);
 
                 sqlx::query!(
                     "INSERT OR IGNORE INTO operator_stake_data
@@ -431,6 +431,7 @@ impl PublicDb for SqliteDb {
             Ok(sqlx::query_as!(
                 models::DbStakeTxData,
                 r#"SELECT
+                    deposit_idx AS "deposit_idx: u32",
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
@@ -444,7 +445,7 @@ impl PublicDb for SqliteDb {
             .fetch_optional(&self.pool)
             .await
             .map_err(StorageError::from)?
-            .map(Into::into))
+            .map(|row| DbStakeTxData { ..row }.into()))
         })
         .await
     }
@@ -456,14 +457,14 @@ impl PublicDb for SqliteDb {
             async move {
                 let mut tx = pool.begin().await.map_err(StorageError::from)?;
 
-                for (operator_idx, deposit_id, stake_data) in data {
-                    let stake_data = DbStakeTxData::from(stake_data);
+                for (operator_idx, deposit_idx, stake_data) in data {
+                    let stake_data = DbStakeTxData::new(deposit_idx, stake_data);
                     sqlx::query!(
                         "INSERT OR IGNORE INTO operator_stake_data
                             (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
                             VALUES ($1, $2, $3, $4, $5, $6, $7)",
                         operator_idx,
-                        deposit_id,
+                        deposit_idx,
                         stake_data.funding_txid,
                         stake_data.funding_vout,
                         stake_data.hash,
@@ -482,11 +483,15 @@ impl PublicDb for SqliteDb {
         }).await
     }
 
-    async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
+    async fn get_all_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> DbResult<BTreeMap<u32, StakeTxData>> {
         execute_with_retries(self.config(), || async {
             Ok(sqlx::query_as!(
                 models::DbStakeTxData,
                 r#"SELECT
+                    deposit_idx AS "deposit_idx: u32",
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
@@ -501,7 +506,7 @@ impl PublicDb for SqliteDb {
             .await
             .map_err(StorageError::from)?
             .into_iter()
-            .map(Into::into)
+            .map(|row| (row.deposit_idx, DbStakeTxData { ..row }.into()))
             .collect())
         })
         .await

@@ -1,5 +1,7 @@
 //! Public database interface for the Strata Bridge.
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use bitcoin::{OutPoint, Txid};
 use secp256k1::schnorr::Signature;
@@ -91,7 +93,10 @@ pub trait PublicDb {
     async fn add_all_stake_data(&self, data: Vec<(OperatorIdx, u32, StakeTxData)>) -> DbResult<()>;
 
     /// Gets all [`StakeTxData`] for a given [`OperatorIdx`].
-    async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>>;
+    async fn get_all_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> DbResult<BTreeMap<u32, StakeTxData>>;
 
     /// Sets the pre-stake [`OutPoint`] for a given [`OperatorIdx`]. This is typically the output
     /// point of the transaction that will be used as an input to the first stake transaction.

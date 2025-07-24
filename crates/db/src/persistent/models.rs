@@ -65,6 +65,9 @@ pub(super) struct Signature {
 
 /// The model for tracking the stake information.
 pub(super) struct DbStakeTxData {
+    /// The index of the deposit.
+    pub(super) deposit_idx: u32,
+
     /// The txid of the transaction used to fund the dust outputs.
     pub(super) funding_txid: DbTxid,
 
@@ -81,9 +84,10 @@ pub(super) struct DbStakeTxData {
     pub(super) operator_pubkey: DbXOnlyPublicKey,
 }
 
-impl From<StakeTxData> for DbStakeTxData {
-    fn from(stake_tx_data: StakeTxData) -> Self {
+impl DbStakeTxData {
+    pub(crate) fn new(deposit_idx: u32, stake_tx_data: StakeTxData) -> Self {
         Self {
+            deposit_idx,
             funding_txid: stake_tx_data.operator_funds.txid.into(),
             funding_vout: stake_tx_data.operator_funds.vout.into(),
             hash: stake_tx_data.hash.into(),
