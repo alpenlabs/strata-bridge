@@ -171,6 +171,13 @@ impl StakeChainSM {
         &self.stake_chains
     }
 
+    /// Returns the stake txid for an operator for a given deposit index.
+    pub fn stake_txid(&self, op: &P2POperatorPubKey, deposit_idx: u32) -> Option<&Txid> {
+        self.stake_txids
+            .get(op)
+            .and_then(|stake_txids| stake_txids.get(&deposit_idx))
+    }
+
     /// Returns the height of the current stake chain.
     ///
     /// This corresponds to the number of contracts in the
