@@ -1521,9 +1521,53 @@ impl ContractManagerCtx {
 
         debug!(num_contracts=%self.state.active_contracts.len(), "constructing nag commands for active contracts in Requested state");
 
-        let stake_chains = self.state.stake_chains.state();
+        let stake_chains = &self.state.stake_chains;
         for (txid, contract) in self.state.active_contracts.iter() {
             let state = &contract.state().state;
+            let stake_index = contract.cfg().deposit_idx;
+            let mut requests = Vec::new();
+
+            // Check if we have the stake data from everybody for this contract.
+            // Since this data lives in a separate SM and is persisted separately,
+            // chances are that this data may not be available in the event of a crash.
+            //
+            // For example, this can happen in extreme cases where the node crashes before
+            // persisting the deposit setup data and remains down past
+            // the `refund_delay`.
+            //
+            // NOTE: (@Rajil1213) This only applies to a contract in the `Aborted` state but we
+            // take the conservative approach and sanity check this for contracts in any
+            // state.
+            let have = self
+                .cfg
+                .operator_table
+                .p2p_keys()
+                .into_iter()
+                .filter_map(|p2p_key| {
+                    if stake_chains.stake_txid(&p2p_key, stake_index).is_some() {
+                        Some(p2p_key)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<BTreeSet<_>>();
+
+            // Take the difference and add it to the list of things to nag.
+            requests.extend(want.difference(&have).map(|key| {
+                let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
+                let scope = Scope::from_bytes(*txid.as_ref());
+
+                debug!(?operator_id, %txid, %stake_index, "queueing nag for deposit setup since stake data is missing");
+                GetMessageRequest::DepositSetup {
+                    scope,
+                    operator_pk: key.clone(),
+                }
+            }));
+
+            if !requests.is_empty() {
+                all_requests.extend(requests.into_iter());
+                continue;
+            }
 
             if let ContractState::Requested {
                 deposit_request_txid,
@@ -1535,42 +1579,6 @@ impl ContractManagerCtx {
                 ..
             } = state
             {
-                let mut requests = Vec::new();
-
-                // Check if we have the stake data from everybody for this contract.
-                // Since this data lives in a separate SM and is persisted separately,
-                // chances are that this data may not be available in the event of a crash.
-                let stake_index = contract.cfg().deposit_idx;
-                let have = stake_chains
-                    .iter()
-                    .filter_map(|(p2p_key, inputs)| {
-                        if inputs.stake_inputs.contains_key(&stake_index) {
-                            Some(p2p_key.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<BTreeSet<_>>();
-
-                // Take the difference and add it to the list of things to nag.
-                requests.extend(want.difference(&have).map(|key| {
-                    let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
-                    let scope = Scope::from_bytes(*txid.as_ref());
-
-                    debug!(?operator_id, %txid, "queueing nag for deposit setup since stake data is missing");
-                    GetMessageRequest::DepositSetup {
-                        scope,
-                        operator_pk: key.clone(),
-                    }
-                }));
-
-                if !requests.is_empty() {
-                    all_requests.extend(requests.into_iter());
-                    continue;
-                }
-
-                // As an additional safety measure, also check if the `peg_out_graph_inputs` are
-                // present.
                 let have = peg_out_graph_inputs
                     .keys()
                     .cloned()
@@ -1608,7 +1616,7 @@ impl ContractManagerCtx {
                         let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(*claim_txid.as_ref());
 
-                        debug!(?operator_id, %claim_txid, "queueing nag for graph nonces");
+                        debug!(?operator_id, %claim_txid, deposit_idx=%stake_index, "queueing nag for graph nonces");
                         GetMessageRequest::Musig2NoncesExchange {
                             session_id,
                             operator_pk: key.clone(),
@@ -1632,7 +1640,7 @@ impl ContractManagerCtx {
                         let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
 
-                        debug!(?operator_id, %txid, "queueing nag for graph sigs");
+                        debug!(?operator_id, %txid, deposit_idx=%stake_index, "queueing nag for graph sigs");
                         GetMessageRequest::Musig2SignaturesExchange {
                             session_id,
                             operator_pk: key.clone(),
@@ -1642,7 +1650,8 @@ impl ContractManagerCtx {
 
                 // If this is not empty then we can't yet nag for the root nonces.
                 if !requests.is_empty() {
-                    return requests;
+                    all_requests.extend(requests.into_iter());
+                    continue;
                 }
 
                 // Otherwise we can.
@@ -1654,7 +1663,7 @@ impl ContractManagerCtx {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
-                    debug!(?operator_id, %txid, "queueing nag for root nonces");
+                    debug!(?operator_id, %txid, deposit_idx=%stake_index, "queueing nag for root nonces");
                     GetMessageRequest::Musig2NoncesExchange {
                         session_id,
                         operator_pk: key.clone(),
@@ -1663,7 +1672,8 @@ impl ContractManagerCtx {
 
                 // If this is not empty then we can't yet nag for the root sigs.
                 if !requests.is_empty() {
-                    return requests;
+                    all_requests.extend(requests.into_iter());
+                    continue;
                 }
 
                 // Finally we can nag for the root sigs.
@@ -1675,7 +1685,7 @@ impl ContractManagerCtx {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
-                    debug!(?operator_id, %txid, "queueing nag for root sigs");
+                    debug!(?operator_id, %txid, deposit_idx=%stake_index, "queueing nag for root sigs");
                     GetMessageRequest::Musig2SignaturesExchange {
                         session_id,
                         operator_pk: key.clone(),
