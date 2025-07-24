@@ -1271,11 +1271,7 @@ impl ContractManagerCtx {
         {
             info!(%claim_txid, "received nag for graph nonces");
 
-            let graph_owner = csm
-                .state()
-                .state
-                .claim_to_operator(&claim_txid)
-                .expect("claim_txid must exist as it is part of the claim_txids");
+            let graph_owner = csm.state().state.claim_to_operator(&claim_txid)?;
 
             let input = peg_out_graph_inputs
                 .get(&graph_owner)
@@ -1396,11 +1392,7 @@ impl ContractManagerCtx {
                 .and_then(|session_partials| session_partials.get(our_p2p_key))
                 .cloned();
 
-            let graph_owner = csm
-                .state()
-                .state
-                .claim_to_operator(&claim_txid)
-                .expect("claim_txid must exist as it is part of the claim_txids");
+            let graph_owner = csm.state().state.claim_to_operator(&claim_txid)?;
 
             let input = &peg_out_graph_inputs
                 .get(&graph_owner)
@@ -1563,6 +1555,7 @@ impl ContractManagerCtx {
                 }
             }));
 
+            // if the stake data is missing, don't proceed further with this contract
             if !requests.is_empty() {
                 all_requests.extend(requests.into_iter());
                 continue;
@@ -1571,6 +1564,7 @@ impl ContractManagerCtx {
             if let ContractState::Requested {
                 deposit_request_txid,
                 peg_out_graph_inputs,
+                claim_txids,
                 graph_nonces,
                 graph_partials,
                 root_nonces,
@@ -1605,11 +1599,16 @@ impl ContractManagerCtx {
                 // However, this can be a bit wasteful during race conditions where we query for
                 // both deposit setup and nonces even though one or both of them may be en-route
                 // or being processed.
-                for (claim_txid, nonces) in graph_nonces {
-                    let have = nonces
-                        .keys()
-                        .cloned()
-                        .collect::<BTreeSet<P2POperatorPubKey>>();
+                for claim_txid in claim_txids.values() {
+                    let have = graph_nonces
+                        .get(claim_txid)
+                        .map(|nonces| {
+                            nonces
+                                .keys()
+                                .cloned()
+                                .collect::<BTreeSet<P2POperatorPubKey>>()
+                        })
+                        .unwrap_or_default();
 
                     requests.extend(want.difference(&have).map(|key| {
                         let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
@@ -1630,11 +1629,17 @@ impl ContractManagerCtx {
                 }
 
                 // Otherwise we can move onto the graph signatures.
-                for (claim_txid, partials) in graph_partials {
-                    let have = partials
-                        .keys()
-                        .cloned()
-                        .collect::<BTreeSet<P2POperatorPubKey>>();
+                for claim_txid in claim_txids.values() {
+                    let have = graph_partials
+                        .get(claim_txid)
+                        .map(|partials| {
+                            partials
+                                .keys()
+                                .cloned()
+                                .collect::<BTreeSet<P2POperatorPubKey>>()
+                        })
+                        .unwrap_or_default();
+
                     requests.extend(want.difference(&have).map(|key| {
                         let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                         let session_id = SessionId::from_bytes(claim_txid.to_byte_array());
