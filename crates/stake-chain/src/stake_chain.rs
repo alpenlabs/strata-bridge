@@ -50,6 +50,9 @@ impl StakeChain {
     ///
     /// This can be used to recreate a stake chain if the initial set of inputs are known.
     ///
+    /// NOTE: if there are discontinuities in the [`StakeChainInputs`], then only the chain fragment
+    /// till the first discontinuity is created.
+    ///
     /// # Parameters
     ///
     /// - `context`: The context to use for building the transactions.
@@ -61,21 +64,14 @@ impl StakeChain {
         stake_chain_inputs: &StakeChainInputs,
         stake_chain_params: &StakeChainParams,
     ) -> Self {
-        // Instantiate a vector with the length `M`.
         let stake_inputs = &stake_chain_inputs.stake_inputs;
-        let num_inputs = stake_inputs.len();
 
-        if num_inputs == 0 {
+        let Some(first_stake_inputs) = stake_inputs.get(&0) else {
             return Self {
                 head: None,
                 tail: vec![],
             };
-        }
-
-        let first_stake_inputs = stake_chain_inputs
-            .stake_inputs
-            .get(&0)
-            .expect("must have at least one stake input");
+        };
 
         let first_stake_tx = StakeTx::<Head>::new(
             context,
@@ -87,21 +83,15 @@ impl StakeChain {
             first_stake_inputs.operator_pubkey,
         );
 
-        if num_inputs == 1 {
+        let Some(next_stake_input) = stake_inputs.get(&1) else {
             return Self {
                 head: Some(first_stake_tx),
                 tail: vec![],
             };
-        }
+        };
 
-        let next_stake_tx = first_stake_tx.advance(
-            context,
-            stake_chain_params,
-            stake_inputs
-                .get(&1)
-                .cloned()
-                .expect("must have at least two stake inputs"),
-        );
+        let next_stake_tx =
+            first_stake_tx.advance(context, stake_chain_params, next_stake_input.clone());
 
         let num_inputs = stake_inputs.len();
         let mut tail: Vec<StakeTx<Tail>> = Vec::with_capacity(num_inputs - 1);
