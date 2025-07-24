@@ -1,6 +1,9 @@
 //! In-memory database traits and implementations for the public.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 
 use async_trait::async_trait;
 use bitcoin::{OutPoint, Txid};
@@ -284,14 +287,21 @@ impl PublicDb for PublicDbInMemory {
             .cloned())
     }
 
-    async fn get_all_stake_data(&self, operator_idx: OperatorIdx) -> DbResult<Vec<StakeTxData>> {
+    async fn get_all_stake_data(
+        &self,
+        operator_idx: OperatorIdx,
+    ) -> DbResult<BTreeMap<u32, StakeTxData>> {
         Ok(self
             .stake_data
             .read()
             .await
             .get(&operator_idx)
-            .map(|map| map.values().cloned().collect())
-            .unwrap_or(vec![]))
+            .map(|map| {
+                map.iter()
+                    .map(|(deposit_idx, stake_data)| (*deposit_idx, stake_data.clone()))
+                    .collect()
+            })
+            .unwrap_or_default())
     }
 
     async fn register_claim_txid(
