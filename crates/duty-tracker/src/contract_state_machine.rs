@@ -1778,6 +1778,12 @@ impl ContractSM {
 
                 Ok(duties)
             }
+            ContractState::Aborted => {
+                // this can happen if some of the contracts are in `Aborted` state after a prolonged
+                // downtime.
+                debug!("received deposit setup in Aborted state, doing nothing");
+                Ok(vec![])
+            }
             _ => Err(TransitionErr(format!(
                 "unexpected state in process_deposit_setup ({})",
                 self.state.state
