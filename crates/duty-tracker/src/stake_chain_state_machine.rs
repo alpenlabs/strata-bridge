@@ -233,13 +233,10 @@ impl StakeChainSM {
                     .get(op)
                     .ok_or(StakeChainErr::StakeTxNotFound(op.clone(), nth))?;
 
-                let prev_stake_txid =
-                    stake_txids
-                        .get(&(nth - 1))
-                        .ok_or(StakeChainErr::IncompleteStakeChainInput(
-                            op.clone(),
-                            nth - 1,
-                        ))?;
+                let prev_stake_txid = stake_txids
+                    .get(&(nth - 1))
+                    .ok_or(StakeChainErr::MissingStakeTxid(op.clone(), nth - 1))?;
+
                 let prev_input = stake_chain_inputs.stake_inputs.get(&(nth - 1)).ok_or(
                     StakeChainErr::IncompleteStakeChainInput(op.clone(), nth - 1),
                 )?;

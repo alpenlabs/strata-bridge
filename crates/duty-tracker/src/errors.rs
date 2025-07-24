@@ -88,6 +88,12 @@ pub enum StakeChainErr {
     #[error("stake inputs missing for operators: {0:?}")]
     IncompleteState(Vec<P2POperatorPubKey>),
 
+    /// Error indicating an inconsistent state in the
+    /// [`StakeChainSM`](crate::stake_chain_state_machine::StakeChainSM) such that an expected
+    /// stake txid is not present.
+    #[error("stake txid missing for operator: {0}, index: {1}")]
+    MissingStakeTxid(P2POperatorPubKey, u32),
+
     /// Error indicating that some stake chain data is missing.
     #[error("stake chain inputs incomplete for operator: {0}, index: {1}")]
     IncompleteStakeChainInput(P2POperatorPubKey, u32),
