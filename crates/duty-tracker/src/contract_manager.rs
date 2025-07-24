@@ -933,7 +933,6 @@ impl ContractManagerCtx {
                         wots_pks: wots_pks.clone(),
                     };
 
-                    debug!(%deposit_txid, %sender_id, %index, "processing stake tx setup");
                     let Some(_stake_txid) =
                         self.state.stake_chains.process_setup(key.clone(), &setup)?
                     else {
@@ -1306,7 +1305,7 @@ impl ContractManagerCtx {
                 nonces: existing_nonces,
             })
         } else {
-            warn!("nagged for nonces on a ContractSM that is not in a Requested state");
+            warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
             None
         }
     }
@@ -1341,7 +1340,7 @@ impl ContractManagerCtx {
                 nonce: existing_nonce,
             })
         } else {
-            warn!("nagged for nonces on a ContractSM that is not in a Requested state");
+            warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
             None
         }
     }
