@@ -1834,11 +1834,11 @@ impl ContractSM {
                 session_nonces.insert(signer.clone(), unpacked);
 
                 let num_operators = self.cfg.operator_table.cardinality();
-                let have_all_graphs = graph_nonces.values().count() == num_operators;
-                let have_all_nonces_in_each_graph = graph_nonces
-                    .values()
-                    .all(|session_nonces| session_nonces.len() == num_operators);
-                let have_all_nonces = have_all_graphs && have_all_nonces_in_each_graph;
+                let have_all_nonces = claim_txids.values().all(|claim_txid| {
+                    graph_nonces.get(claim_txid).is_some_and(|session_nonces| {
+                        session_nonces.keys().count() == num_operators
+                    })
+                });
 
                 if !have_all_nonces {
                     let received_nonces = graph_nonces
@@ -1860,7 +1860,7 @@ impl ContractSM {
                     .map(|(op, claim_txid)| (claim_txid, op))
                     .collect::<BTreeMap<_, _>>();
 
-                for claim_txid in graph_nonces.keys() {
+                for claim_txid in claim_txids.values() {
                     let graph_owner =
                         claim_txid_to_operator_map
                             .get(claim_txid)
@@ -2013,11 +2013,13 @@ impl ContractSM {
                 session_partials.insert(signer, unpacked);
 
                 let num_operators = self.cfg.operator_table.cardinality();
-                let have_all_graphs = graph_partials.values().count() == num_operators;
-                let have_all_partials_for_all_graphs = graph_partials
-                    .values()
-                    .all(|session_partials| session_partials.len() == num_operators);
-                let have_all_partials = have_all_graphs && have_all_partials_for_all_graphs;
+                let have_all_partials = claim_txids.values().all(|claim_txid| {
+                    graph_partials
+                        .get(claim_txid)
+                        .is_some_and(|session_partials| {
+                            session_partials.keys().count() == num_operators
+                        })
+                });
 
                 if !have_all_partials {
                     let received_partials = graph_partials
