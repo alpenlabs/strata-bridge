@@ -11,7 +11,7 @@ use strata_bridge_stake_chain::{
     StakeChain,
 };
 use strata_p2p_types::P2POperatorPubKey;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, span, warn, Level};
 
 use crate::{contract_state_machine::DepositSetup, errors::StakeChainErr};
 
@@ -79,15 +79,17 @@ impl StakeChainSM {
             .zip(p2p_keys.iter())
             .map(|(stake_txids, p2p_key)| (p2p_key.clone(), stake_txids))
             .collect();
-        info!("stake txids reconstructed");
 
-        Ok(StakeChainSM {
+        let sm = StakeChainSM {
             network,
             params,
             operator_table,
             stake_chains,
             stake_txids,
-        })
+        };
+
+        debug!(height=%sm.height(), "stake chain state machine initialized");
+        Ok(sm)
     }
 
     /// State transition function for processing the StakeChainExchange P2P message.
@@ -125,20 +127,22 @@ impl StakeChainSM {
         setup: &DepositSetup,
     ) -> Result<Option<Txid>, StakeChainErr> {
         let deposit_index = setup.index;
-        info!(%operator, %deposit_index, "processing deposit setup");
 
+        let _log_ctx = span!(Level::DEBUG, "process_setup", %operator, %deposit_index).entered();
+
+        info!("processing stake tx setup");
         if let Some(stake_txid) = self
             .stake_txids
             .get(&operator)
             .and_then(|txids| txids.get(&deposit_index))
         {
-            warn!(%operator, %deposit_index, "stake txid already exists for this index");
+            warn!("stake txid already exists for this index");
 
             return Ok(Some(*stake_txid));
         }
 
         let Some(chain_input) = self.stake_chains.get_mut(&operator) else {
-            warn!(%operator, "received deposit setup for unknown operator");
+            warn!("received deposit setup for unknown operator");
 
             return Err(StakeChainErr::StakeSetupDataNotFound(operator.clone()));
         };
@@ -148,6 +152,7 @@ impl StakeChainSM {
             .insert(deposit_index, setup.stake_tx_data());
 
         // now try to create the stake transaction at the index
+        debug!("constructing stake tx");
         let Some(stake_tx) = self.stake_tx(&operator, deposit_index)? else {
             warn!(%operator, "stake tx not found for this operator");
 
@@ -158,6 +163,7 @@ impl StakeChainSM {
 
         // add the new stake txid to the state
         let stake_txid = stake_tx.compute_txid();
+        debug!(%stake_txid, "updating stake txid state cache");
         self.stake_txids
             .entry(operator.clone())
             .or_default()
