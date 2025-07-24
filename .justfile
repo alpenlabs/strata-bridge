@@ -330,3 +330,29 @@ erase-deposit-setup:
     done
     sleep 10 # wait for deposits to be buried
     docker compose start bridge-1
+
+[group('experiments')]
+[doc("\
+Simulates the following scenario:
+- Nodes crash after persisting new contract(s) but before persisting the deposit setup.
+- The nodes stay down long enough for the contract(s) to be `Aborted`.
+- The nodes also miss a few deposit requests while they're down.
+
+Manual steps required before running this recipe:
+1. Make at least four deposits (0,1,2,3 - 2 and 3 will be leaked by this recipe).
+2. Make at least two more concurrent deposits (but stop the nodes before two deposit goes through).
+3. Update the `block_height` in the sql statements in this recipe to match the last processed block height before stopping the nodes.\
+")]
+leak-deposit-setup:
+    #!/usr/bin/env bash -xe
+    sqlite3 docker/vol/alpen-bridge-1/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/alpen-bridge-1/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/alpen-bridge-2/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/alpen-bridge-2/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/alpen-bridge-3/data/bridge.db "DELETE FROM operator_stake_data WHERE deposit_idx>=2 and deposit_idx<=3"
+    sqlite3 docker/vol/alpen-bridge-3/data/bridge.db "UPDATE contracts SET state = '{\"block_height\":180,\"state\":\"Aborted\"}' where deposit_idx>=2 and deposit_idx<=3"
+    for i in {1..2}; do
+        just bridge-in
+    done
+    sleep 10
+    docker compose start bridge-{1,2,3}
