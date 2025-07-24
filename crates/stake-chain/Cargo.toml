@@ -14,6 +14,7 @@ strata-bridge-primitives.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
 serde.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-common.workspace = true

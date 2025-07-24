@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use alpen_bridge_params::stake_chain::StakeChainParams;
 use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, OutPoint};
 use strata_bridge_primitives::build_context::BuildContext;
+use tracing::warn;
 
 use crate::{
     prelude::StakeTx,
@@ -73,8 +74,7 @@ impl StakeChain {
 
         let first_stake_inputs = stake_chain_inputs
             .stake_inputs
-            .values()
-            .nth(0)
+            .get(&0)
             .expect("must have at least one stake input");
 
         let first_stake_tx = StakeTx::<Head>::new(
@@ -94,33 +94,34 @@ impl StakeChain {
             };
         }
 
-        let new_stake_tx = first_stake_tx.advance(
+        let next_stake_tx = first_stake_tx.advance(
             context,
             stake_chain_params,
             stake_inputs
-                .values()
-                .nth(1)
+                .get(&1)
                 .cloned()
                 .expect("must have at least two stake inputs"),
         );
 
-        let tail = stake_inputs
-            .iter()
-            .skip(2) // first and the second created above
-            .fold(vec![new_stake_tx], |mut tail, (_stake_index, stake_input)| {
-                let new_stake_tx = tail
+        let num_inputs = stake_inputs.len();
+        let mut tail: Vec<StakeTx<Tail>> = Vec::with_capacity(num_inputs - 1);
+        tail.push(next_stake_tx);
+
+        // skip the first two created above
+        for stake_index in (0..num_inputs).skip(2) {
+            let stake_index = stake_index as u32;
+            if let Some(stake_input) = stake_inputs.get(&stake_index) {
+                let next_stake_tx = tail
                     .last()
                     .expect("must have at least one element in every loop because it is initialized with one element")
-                    .advance(
-                        context,
-                        stake_chain_params,
-                        stake_input.clone(),
-                    );
+                    .advance(context, stake_chain_params, stake_input.clone());
 
-                tail.push(new_stake_tx);
-
-                tail
-            });
+                tail.push(next_stake_tx);
+            } else {
+                warn!("stake chain inputs are not fully saturated, missing stake input at index {stake_index}");
+                break;
+            }
+        }
 
         Self {
             head: Some(first_stake_tx),
