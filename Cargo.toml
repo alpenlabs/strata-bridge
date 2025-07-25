@@ -81,22 +81,22 @@ strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-btcio = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-config = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-crypto = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-primitives = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-state = { git = "https://github.com/alpenlabs/alpen.git" }
-strata-tasks = { git = "https://github.com/alpenlabs/alpen.git" }
+strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4"}
+strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-config = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-state = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-tasks = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git" }
-strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git" }
-strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git" }
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", rev = "d7f4d4acddd4d36a2962e948ffa03c1f0d01685a" }
+strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", rev = "d7f4d4acddd4d36a2962e948ffa03c1f0d01685a" }
+strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git", rev = "d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"}
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
