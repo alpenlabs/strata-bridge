@@ -1425,6 +1425,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "ethnum"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca81e6b4777c89fd810c25a4be2b1bd93ea034fbe58e6a75216a34c6b82c539b"
+
+[[package]]
 name = "eyre"
 version = "0.6.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4395,25 +4401,27 @@ dependencies = [
  "strata-proofimpl-btc-blockspace",
  "strata-state",
  "thiserror 2.0.12",
- "zkaleido",
- "zkaleido-native-adapter",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+ "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
 name = "strata-crypto"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#1d042c018364213b937e4249aa0ce52743731b46"
+version = "0.2.0"
+source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
 dependencies = [
+ "secp256k1",
+ "sha2",
  "strata-primitives",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
  "zkaleido-risc0-groth16-verifier",
  "zkaleido-sp1-groth16-verifier",
 ]
 
 [[package]]
 name = "strata-l1tx"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#1d042c018364213b937e4249aa0ce52743731b46"
+version = "0.2.0"
+source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
 dependencies = [
  "anyhow",
  "bitcoin",
@@ -4428,9 +4436,10 @@ dependencies = [
 
 [[package]]
 name = "strata-primitives"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#1d042c018364213b937e4249aa0ce52743731b46"
+version = "0.2.0"
+source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
 dependencies = [
+ "anyhow",
  "arbitrary",
  "bincode",
  "bitcoin",
@@ -4445,39 +4454,50 @@ dependencies = [
  "rand 0.8.5",
  "secp256k1",
  "serde",
+ "serde_json",
  "sha2",
  "thiserror 2.0.12",
+ "tracing",
  "zeroize",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
 name = "strata-proofimpl-btc-blockspace"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#1d042c018364213b937e4249aa0ce52743731b46"
+version = "0.2.0"
+source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
 dependencies = [
  "bitcoin",
  "borsh",
+ "digest",
+ "serde",
+ "sha2",
  "strata-l1tx",
  "strata-primitives",
- "zkaleido",
- "zkaleido-native-adapter",
+ "strata-state",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
 name = "strata-state"
-version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git#1d042c018364213b937e4249aa0ce52743731b46"
+version = "0.2.0"
+source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
 dependencies = [
  "anyhow",
  "arbitrary",
  "async-trait",
  "bitcoin",
  "borsh",
+ "digest",
+ "ethnum",
+ "hex",
  "serde",
+ "sha2",
  "strata-crypto",
  "strata-primitives",
  "tracing",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
@@ -5650,6 +5670,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
+dependencies = [
+ "arbitrary",
+ "async-trait",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "zkaleido-native-adapter"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
@@ -5657,29 +5690,40 @@ dependencies = [
  "bincode",
  "borsh",
  "serde",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+]
+
+[[package]]
+name = "zkaleido-native-adapter"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
+dependencies = [
+ "bincode",
+ "borsh",
+ "serde",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
 name = "zkaleido-risc0-groth16-verifier"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
 dependencies = [
  "hex",
  "risc0-binfmt",
  "risc0-groth16",
  "risc0-zkp",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
 dependencies = [
  "hex",
  "sp1-verifier",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
@@ -5691,7 +5735,7 @@ dependencies = [
  "cfg-if",
  "serde",
  "sp1-zkvm",
- "zkaleido",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
