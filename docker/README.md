@@ -63,7 +63,7 @@ the appropriate addresses are not configured in the [entrypoint.sh](./bitcoin/en
 However, before crashing, these nodes will log some useful information.
 
 To update the [params](./vol/alpen-bridge-1/params.toml) file, you need to get the p2p and musig2 public keys for each operator from the container logs.
-The logs should looks something like the following:
+The logs should look something like the following:
 
 ```plaintext
 2025-04-15T10:07:12.971503Z  INFO alpen_bridge::mode::operator: bin/alpen-bridge/src/mode/operator.rs:82: Retrieved P2P public key from S2 p2p_pk=020b1251c1a11d65a3cf324c66b67e9333799d21490d2e2c95866aab76e3a0f301
@@ -71,6 +71,8 @@ The logs should looks something like the following:
 ```
 
 Use these values to populate the `keys` section of the params file. You also need to update the `wallet_pk` value in the sidesystem params.
+
+**Important**: The order of these values matters in the params file as well as in the sidesystem config! The `[sidesystem]` value should be exactly the same as the strata's rollup params. Note that **signing pks are obsolete**, so they can be set to any valid schnorr pubkeys.
 
 Similarly, you can get the general and stake chain wallet addresses for each operator from the logs.
 These should look like the following:
@@ -91,9 +93,11 @@ STAKE_CHAIN_WALLET_2=
 GENERAL_WALLET_3=
 STAKE_CHAIN_WALLET_3=
 SP1_PROVER=network
-NETWORK_RPC_URL=https://rpc.production2.succinct.tools
+SP1_PROOF_STRATEGY=
+NETWORK_RPC_URL=
 NETWORK_PRIVATE_KEY=
 ```
+> Make sure to have `SP1_PROOF_STRATEGY`, `NETWORK_RPC_URL` and `NETWORK_PRIVATE_KEY` properly set as these are needed during bridging-in.
 
 ### Memory Profiling
 
@@ -131,6 +135,24 @@ To bridge-in, you can run:
 just bridge-in
 ```
 
-Make sure to update the [`constants.rs`](../bin/dev-cli/src/constants.rs) file with the correct values for `AGGREGATED_PUBKEY_HEX` and `MAGIC_BYTES`.
-The MuSig2 aggregated pubkey is logged by the bridge node when it starts up.
-The `MAGIC_BYTES` must be the same as the one in the params file's `tag` value.
+**Important:** Ensure that the musig2 keys used in dev-cli parameters match those used in bridge operator parameters for consistency.
+
+## Troubleshooting
+
+### SP1 Build Errors
+
+If you encounter SP1 verification errors during `just bridge-in` similar to:
+
+```
+error: failed to run custom build command for `sp1-prover v5.0.5`
+thread 'main' panicked at build.rs:59:47:
+called `Result::unwrap()` on an `Err` value: Verification(...vk_map.bin: (verification: FAILED))
+```
+
+This typically indicates an issue with the SP1 toolchain setup. Ensure you have:
+
+1. Installed the SP1 toolchain: `curl -L https://sp1up.succinct.xyz | bash`  
+2. Completed the setup by running: `sp1up`
+3. Restarted your terminal or sourced your shell configuration
+
+If the error persists after proper SP1 setup, verify that your `.env` file contains the correct SP1 configuration as shown above.
