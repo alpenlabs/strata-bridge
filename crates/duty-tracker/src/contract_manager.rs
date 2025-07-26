@@ -1685,7 +1685,8 @@ impl ContractManagerCtx {
                     .keys()
                     .cloned()
                     .collect::<BTreeSet<P2POperatorPubKey>>();
-                requests.extend(want.difference(&have).map(|key| {
+
+                all_requests.extend(want.difference(&have).map(|key| {
                     let operator_id = self.cfg.operator_table.p2p_key_to_idx(key);
                     let session_id = SessionId::from_bytes(*deposit_request_txid.as_ref());
 
