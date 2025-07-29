@@ -10125,7 +10125,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?rev=d7f4d4acddd4d36a2962e948ffa03c1f0d01685a#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.1.0#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
 dependencies = [
  "async-trait",
  "bitcoin",
@@ -10144,7 +10144,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?rev=d7f4d4acddd4d36a2962e948ffa03c1f0d01685a#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.1.0#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
 dependencies = [
  "bitcoin",
  "hex",
@@ -10157,7 +10157,7 @@ dependencies = [
 [[package]]
 name = "strata-p2p-wire"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?rev=d7f4d4acddd4d36a2962e948ffa03c1f0d01685a#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.1.0#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
 dependencies = [
  "bitcoin",
  "libp2p",
