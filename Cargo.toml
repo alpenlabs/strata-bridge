@@ -94,9 +94,9 @@ strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
 strata-tasks = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", rev = "d7f4d4acddd4d36a2962e948ffa03c1f0d01685a" }
-strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", rev = "d7f4d4acddd4d36a2962e948ffa03c1f0d01685a" }
-strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git", rev = "d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"}
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
+strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
+strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
