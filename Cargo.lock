@@ -861,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "alpen-bridge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alpen-bridge-params",
  "anyhow",
@@ -3189,7 +3189,7 @@ dependencies = [
 
 [[package]]
 name = "dev-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "alloy",
  "alloy-signer",
@@ -5963,7 +5963,7 @@ dependencies = [
 
 [[package]]
 name = "mock-checkpoint"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -8548,7 +8548,7 @@ dependencies = [
 
 [[package]]
 name = "secret-service"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bitcoin",
  "bitvm",
