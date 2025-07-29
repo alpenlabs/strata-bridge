@@ -39,7 +39,7 @@ for i in $(seq 1 $N); do
     echo "Iteration $i certificates generated successfully."
 
     # Return to base directory
-    cd ../../
+    cd ..
 done
 
 echo "All iterations completed. Certificates are stored in $BASE_DIR/{1..$N}/"
