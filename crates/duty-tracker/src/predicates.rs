@@ -17,7 +17,7 @@ use strata_bridge_tx_graph::transactions::{
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::params::RollupParams;
 use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
-use tracing::warn;
+use tracing::{debug, warn};
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
     let mut instructions = script.instructions();
@@ -51,27 +51,49 @@ pub(crate) fn deposit_request_info(
     build_context: &impl BuildContext,
     stake_index: u32,
 ) -> Option<DepositRequestData> {
-    let deposit_request_output = tx.output.first()?;
+    let Some(deposit_request_output) = tx.output.first() else {
+        debug!(txid=%tx.compute_txid(), "DRT missing output");
+        return None;
+    };
+
     if deposit_request_output.value <= pegout_graph_params.deposit_amount {
+        debug!(txid=%tx.compute_txid(), "DRT output value too low, expected at least {} but got {}", pegout_graph_params.deposit_amount, deposit_request_output.value);
         return None;
     }
 
     let ee_address_size = sidesystem_params.address_length as usize;
     let tag = pegout_graph_params.tag.as_bytes();
 
-    let (recovery_x_only_pk, el_addr) = magic_tagged_data(tag, &tx.output.get(1)?.script_pubkey)
-        .and_then(|meta| {
-            if meta.len() != SCHNORR_PUBLIC_KEY_SIZE + ee_address_size {
-                return None;
-            }
-            let recovery_x_only_pk = meta.get(..SCHNORR_PUBLIC_KEY_SIZE)?;
-            // TODO: handle error variant and get rid of expect.
-            let recovery_x_only_pk = XOnlyPublicKey::from_slice(recovery_x_only_pk)
-                .expect("failed to parse XOnlyPublicKey");
-            let el_addr =
-                meta.get(SCHNORR_PUBLIC_KEY_SIZE..SCHNORR_PUBLIC_KEY_SIZE + ee_address_size)?;
-            Some((recovery_x_only_pk, el_addr))
-        })?;
+    let Some(metadata_output) = tx.output.get(1) else {
+        debug!(txid=%tx.compute_txid(), "DRT missing metadata output");
+        return None;
+    };
+
+    let Some(meta) = magic_tagged_data(tag, &metadata_output.script_pubkey) else {
+        debug!(txid=%tx.compute_txid(), "DRT missing tag");
+        return None;
+    };
+
+    if meta.len() != SCHNORR_PUBLIC_KEY_SIZE + ee_address_size {
+        debug!(txid=%tx.compute_txid(), "invalid DRT metadata size, expected {} but got {}", SCHNORR_PUBLIC_KEY_SIZE + ee_address_size, meta.len());
+        return None;
+    }
+
+    let Some(recovery_x_only_pk) = meta.get(..SCHNORR_PUBLIC_KEY_SIZE) else {
+        debug!(txid=%tx.compute_txid(), "DRT metadata missing recovery x-only public key");
+        return None;
+    };
+
+    // TODO: handle error variant and get rid of expect.
+    let recovery_x_only_pk =
+        XOnlyPublicKey::from_slice(recovery_x_only_pk).expect("failed to parse XOnlyPublicKey");
+
+    let Some(el_addr) =
+        meta.get(SCHNORR_PUBLIC_KEY_SIZE..SCHNORR_PUBLIC_KEY_SIZE + ee_address_size)
+    else {
+        debug!(txid=%tx.compute_txid(), "DRT metadata missing execution environment address");
+        return None;
+    };
 
     let deposit_request_data = DepositRequestData::new(
         OutPoint::new(tx.compute_txid(), 0),
