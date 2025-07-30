@@ -216,9 +216,16 @@ pub(crate) fn parse_strata_checkpoint(
 
 #[cfg(test)]
 mod tests {
+    use std::{collections::BTreeMap, str::FromStr};
+
     use alpen_bridge_params::prelude::PegOutGraphParams;
-    use bitcoin::{Amount, Block, OutPoint, ScriptBuf, TxOut};
+    use bitcoin::{
+        consensus, Amount, Block, Network, OutPoint, ScriptBuf, Transaction, TxOut, XOnlyPublicKey,
+    };
     use bitcoin_bosd::Descriptor;
+    use secp256k1::Parity;
+    use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_primitives::build_context::TxBuildContext;
     use strata_bridge_test_utils::prelude::{generate_txid, generate_xonly_pubkey};
     use strata_bridge_tx_graph::transactions::prelude::{
         WithdrawalFulfillment, WithdrawalMetadata,
@@ -226,7 +233,7 @@ mod tests {
     use strata_primitives::params::RollupParams;
 
     use super::parse_strata_checkpoint;
-    use crate::predicates::is_fulfillment_tx;
+    use crate::predicates::{deposit_request_info, is_fulfillment_tx};
 
     #[test]
     fn test_fulfillment_predicate() {
@@ -306,6 +313,96 @@ mod tests {
         assert!(
             parse_strata_checkpoint(strata_checkpoint_tx, &rollup_params).is_some(),
             "must be able to parse valid strata checkpoint tx"
+        );
+    }
+
+    #[test]
+    fn test_deposit_request_predicate() {
+        logging::init(LoggerConfig::new(
+            "test_deposit_request_predicate".to_string(),
+        ));
+
+        let bridge_keys = [
+            "73441f2ba801b557b23c15829f4a87c02332d59a71499da1479048e6175ff4e0",
+            "6bc16ede3b4b30edd4b59ab3a7209de21b468508349983e17a08910ec7a82f5f",
+            "2bc0e2a6dd1c80beefa363d8baf980101d0596d914d4ee2d73e2fcaff2e72dc6",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(idx, key)| {
+            (
+                idx as u32,
+                XOnlyPublicKey::from_str(key)
+                    .unwrap()
+                    .public_key(Parity::Even),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+        let maybe_drt = "\
+02000000000101920a2ecd7eaa0adebb4b585552d67d7d26a7ebd7f8b43203852b041d8c2a2e910100000000fdffffff03e8\
+cd9a3b00000000225120219796da38be41571aff1b3ba3f950dff6d0b4666e1607821fbd1a177d57ee800000000000000000\
+3a6a38616c706e3a320d77dd6835636fb8435117eea3887e152751ee5f5fc7b87f68496e5ae44ee29f15a6b0d2e9450f392f\
+88293b9fc0a5c5e1a77a3d0f0000000000225120c3464fa3e6075a23102b51ba94d784371e6ff9b1d94fcf30b4e15efbaeb8\
+edff0140d5b50e414b9cf2fc7115e06e2f9da88286f8e944638b640bdcae6690a2fbef905f39ac86c28ae0a6b3e6f2a296e7\
+43f4a257824f81ec1bfefe827633958b523a16090000\
+";
+        let maybe_drt: Transaction = consensus::encode::deserialize_hex(maybe_drt).unwrap();
+
+        let sidesystem_params =
+            std::fs::read_to_string("../../test-data/rollup_params.json").unwrap();
+        let sidesystem_params: RollupParams = serde_json::from_str(&sidesystem_params).unwrap();
+        let pegout_graph_params = PegOutGraphParams::default();
+        let build_context = TxBuildContext::new(Network::Signet, bridge_keys.into(), 0);
+        let random_stake_index = 10;
+
+        let Some(deposit_request_data) = deposit_request_info(
+            &maybe_drt,
+            &sidesystem_params,
+            &pegout_graph_params,
+            &build_context,
+            random_stake_index,
+        ) else {
+            panic!("failed to parse deposit request data");
+        };
+
+        assert_eq!(
+            deposit_request_data.deposit_request_outpoint().txid,
+            maybe_drt.compute_txid(),
+            "deposit request txid must match"
+        );
+
+        assert_eq!(
+            deposit_request_data.stake_index(),
+            random_stake_index,
+            "stake index must match"
+        );
+
+        let expected_el_address = vec![
+            0xe2, 0x9f, 0x15, 0xa6, 0xb0, 0xd2, 0xe9, 0x45, 0xf, 0x39, 0x2f, 0x88, 0x29, 0x3b,
+            0x9f, 0xc0, 0xa5, 0xc5, 0xe1, 0xa7,
+        ];
+        assert_eq!(
+            deposit_request_data.el_address(),
+            expected_el_address,
+            "execution environment address must match"
+        );
+
+        let expected_output_amount = Amount::from_sat(1_000_001_000);
+        assert_eq!(
+            *deposit_request_data.total_amount(),
+            expected_output_amount,
+            "deposit amount must match"
+        );
+
+        let expected_recovery_x_only_pk = XOnlyPublicKey::from_str(
+            "3a320d77dd6835636fb8435117eea3887e152751ee5f5fc7b87f68496e5ae44e",
+        )
+        .unwrap();
+        assert_eq!(
+            *deposit_request_data.x_only_public_key(),
+            expected_recovery_x_only_pk,
+            "recovery x-only public key must match"
         );
     }
 }
