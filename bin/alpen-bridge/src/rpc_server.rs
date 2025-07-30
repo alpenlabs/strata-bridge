@@ -740,19 +740,16 @@ const fn contract_state_to_reimbursement_status(state: &ContractState) -> RpcRei
         | ContractState::Assigned { .. }
         | ContractState::Fulfilled { .. }
         | ContractState::Aborted => RpcReimbursementStatus::NotStarted,
-        ContractState::Claimed { active_graph, .. } => RpcReimbursementStatus::InProgress {
+        ContractState::Claimed { .. } => RpcReimbursementStatus::InProgress {
             challenge_step: ChallengeStep::Claim,
-            claim_txid: active_graph.1.claim_txid,
         },
-        ContractState::Challenged { active_graph, .. } => RpcReimbursementStatus::Challenged {
+        ContractState::Challenged { .. } => RpcReimbursementStatus::Challenged {
             challenge_step: ChallengeStep::Challenge,
-            claim_txid: active_graph.1.claim_txid,
         },
-        ContractState::PreAssertConfirmed { active_graph, .. }
-        | ContractState::AssertDataConfirmed { active_graph, .. }
-        | ContractState::Asserted { active_graph, .. } => RpcReimbursementStatus::Challenged {
+        ContractState::PreAssertConfirmed { .. }
+        | ContractState::AssertDataConfirmed { .. }
+        | ContractState::Asserted { .. } => RpcReimbursementStatus::Challenged {
             challenge_step: ChallengeStep::Assert,
-            claim_txid: active_graph.1.claim_txid,
         },
         ContractState::Resolved { payout_txid, .. } => RpcReimbursementStatus::Complete {
             payout_txid: *payout_txid,
