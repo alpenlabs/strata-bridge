@@ -704,9 +704,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 | ContractState::Assigned { .. } => None,
 
                 // States that are terminal and do not have an active graph.
-                ContractState::Resolved { .. }
-                | ContractState::Disproved { .. }
-                | ContractState::Aborted => None,
+                ContractState::Disproved { .. } | ContractState::Aborted => None,
+
+                // However resolved contracts have a definite `claim_txid`.
+                ContractState::Resolved { claim_txid, .. } => Some(claim_txid),
             })
             .collect();
 
