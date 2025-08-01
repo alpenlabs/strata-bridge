@@ -644,6 +644,7 @@ impl sqlx::Encode<'_, Sqlite> for DbAmount {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(dead_code)]
 pub(super) struct DbTransaction(Transaction);
 
 impl Deref for DbTransaction {
