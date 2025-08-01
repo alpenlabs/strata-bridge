@@ -203,33 +203,29 @@ pub(super) struct AggregatedNonces {
 
 /// The model to map secnonces to operators and deposit.
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[expect(dead_code)]
 pub(super) struct Secnonces {
     /// The hex-serialized txid.
-    #[expect(dead_code)]
     pub(super) txid: DbTxid,
 
     /// The index of the input in the bitcoin transaction.
-    #[expect(dead_code)]
     pub(super) input_index: DbInputIndex,
 
     /// The hex-serialized secnonce.
-    #[expect(dead_code)]
     pub(super) secnonce: DbSecNonce,
 }
 
 /// The model to map witnesses to operators.
 #[derive(Debug, Clone, sqlx::FromRow)]
+#[expect(dead_code)]
 pub(super) struct Witnesses {
     /// The ID of the operator stored as `INTEGER`.
-    #[expect(dead_code)]
     pub(super) operator_idx: DbOperatorIdx,
 
     /// The hex-serialized txid.
-    #[expect(dead_code)]
     pub(super) txid: DbTxid,
 
     /// The index of the input in the bitcoin transaction.
-    #[expect(dead_code)]
     pub(super) input_index: DbInputIndex,
 
     /// The hex-serialized witness.
@@ -238,6 +234,7 @@ pub(super) struct Witnesses {
 
 /// The model for joint query of kickoff txid to FundingInfo.
 #[derive(Debug, Clone, sqlx::FromRow, PartialEq)]
+#[expect(dead_code)]
 pub(super) struct CollectedSigsPerMsg {
     /// The hash of the message stored as `BLOB`.
     pub(super) msg_hash: Vec<u8>,
@@ -254,7 +251,6 @@ pub(super) struct CollectedSigsPerMsg {
 #[expect(dead_code)]
 pub(super) struct JoinedKickoffInfo {
     /// The hex-serialized kickoff txid.
-    #[expect(dead_code)]
     pub(super) ki_txid: DbTxid,
 
     /// The serialized change address in the kickoff transaction.
