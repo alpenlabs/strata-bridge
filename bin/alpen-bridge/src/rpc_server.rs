@@ -377,6 +377,35 @@ impl BridgeRpc {
             }
         });
     }
+
+    /// Returns contracts that have claim transactions along with their `claim_txids` from the
+    /// `cache`.
+    fn get_contracts_with_claims(
+        cache: &[(TypedContractRecord, ContractCfg)],
+    ) -> impl Iterator<Item = (&(TypedContractRecord, ContractCfg), Txid)> {
+        cache.iter().filter_map(|entry| match &entry.0.state.state {
+            // States that have an active graph with a claim transaction.
+            ContractState::Claimed { active_graph, .. }
+            | ContractState::Challenged { active_graph, .. }
+            | ContractState::PreAssertConfirmed { active_graph, .. }
+            | ContractState::AssertDataConfirmed { active_graph, .. }
+            | ContractState::Asserted { active_graph, .. }
+            | ContractState::Fulfilled { active_graph, .. } => {
+                Some((entry, active_graph.1.claim_txid))
+            }
+
+            // States that do not have an active graph with a claim transaction.
+            ContractState::Requested { .. }
+            | ContractState::Deposited { .. }
+            | ContractState::Assigned { .. } => None,
+
+            // States that are terminal and do not have an active graph.
+            ContractState::Disproved { .. } | ContractState::Aborted => None,
+
+            // However resolved contracts have a definite `claim_txid`.
+            ContractState::Resolved { claim_txid, .. } => Some((entry, *claim_txid)),
+        })
+    }
 }
 
 #[async_trait]
@@ -432,9 +461,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_deposit_requests(&self) -> RpcResult<Vec<Txid>> {
-        let all_entries = self.cached_contracts.read().await.clone();
+        let cache = self.cached_contracts.read().await;
 
-        let deposit_requests = all_entries
+        let deposit_requests = cache
             .iter()
             .map(|entry| entry.1.deposit_request_txid())
             .collect();
@@ -447,9 +476,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         deposit_request_txid: Txid,
     ) -> RpcResult<RpcDepositInfo> {
         // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        let cache = self.cached_contracts.read().await;
 
-        for entry in all_entries {
+        for entry in &*cache {
             let entry_deposit_request_txid = entry.1.deposit_request_txid();
             if deposit_request_txid == entry_deposit_request_txid {
                 let status = match &entry.0.state.state {
@@ -475,9 +504,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_bridge_duties(&self) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
         // we don't care about the hot state here, we only care about the database
-        let all_entries = self.cached_contracts.read().await;
+        let cache = self.cached_contracts.read().await;
 
-        let duties = all_entries
+        let duties = cache
             .iter()
             .filter_map(|entry| {
                 match entry.0.state.state {
@@ -506,11 +535,11 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         operator_pk: PublicKey,
     ) -> RpcResult<Vec<RpcBridgeDutyStatus>> {
         // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await;
+        let cache = self.cached_contracts.read().await;
 
         // NOTE: duties by operator pk is only for withdrawal duties,
         //       it does not make sense for deposit duties
-        let duties = all_entries
+        let duties = cache
             .iter()
             .filter_map(|entry| {
                 // Get the operator p2p key from the operator table
@@ -544,10 +573,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_withdrawals(&self) -> RpcResult<Vec<Buf32>> {
-        let all_entries = self.cached_contracts.read().await.clone();
+        let cache = self.cached_contracts.read().await;
 
         let mut withdrawals = Vec::new();
-        for entry in all_entries {
+        for entry in &*cache {
             // NOTE: this is a source of bugs, don't use the `_` to match all.
             match &entry.0.state.state {
                 ContractState::Assigned {
@@ -600,133 +629,108 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
         withdrawal_request_txid: Buf32,
     ) -> RpcResult<Option<RpcWithdrawalInfo>> {
         // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        let cache = self.cached_contracts.read().await;
 
         // Find the contract with the matching withdrawal_request_txid
-        let withdrawal_info = all_entries
-            .iter()
-            .find_map(|entry| match &entry.0.state.state {
-                // NOTE: this is a source of bugs, don't use the `_` to match all.
+        let withdrawal_info = cache.iter().find_map(|entry| match &entry.0.state.state {
+            // NOTE: this is a source of bugs, don't use the `_` to match all.
 
-                // No withdraw information.
-                ContractState::Requested { .. }
-                | ContractState::Deposited { .. }
-                | ContractState::Disproved { .. }
-                | ContractState::Aborted => {
-                    // These states do not have withdrawals, so we skip them
+            // No withdraw information.
+            ContractState::Requested { .. }
+            | ContractState::Deposited { .. }
+            | ContractState::Disproved { .. }
+            | ContractState::Aborted => {
+                // These states do not have withdrawals, so we skip them
+                None
+            }
+
+            // Withdraw is in progress.
+            ContractState::Assigned {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                ..
+            } => {
+                if withdrawal_request_txid == *entry_withdrawal_request_txid {
+                    Some(RpcWithdrawalInfo {
+                        status: RpcWithdrawalStatus::InProgress,
+                        withdrawal_request_txid,
+                    })
+                } else {
                     None
                 }
+            }
 
-                // Withdraw is in progress.
-                ContractState::Assigned {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    ..
-                } => {
-                    if withdrawal_request_txid == *entry_withdrawal_request_txid {
-                        Some(RpcWithdrawalInfo {
-                            status: RpcWithdrawalStatus::InProgress,
-                            withdrawal_request_txid,
-                        })
-                    } else {
-                        None
-                    }
+            ContractState::Fulfilled {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::Claimed {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::Challenged {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::PreAssertConfirmed {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::AssertDataConfirmed {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::Asserted {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            }
+            | ContractState::Resolved {
+                withdrawal_request_txid: entry_withdrawal_request_txid,
+                withdrawal_fulfillment_txid,
+                ..
+            } => {
+                if withdrawal_request_txid == *entry_withdrawal_request_txid {
+                    Some(RpcWithdrawalInfo {
+                        status: RpcWithdrawalStatus::Complete {
+                            fulfillment_txid: *withdrawal_fulfillment_txid,
+                        },
+                        withdrawal_request_txid,
+                    })
+                } else {
+                    None
                 }
-
-                ContractState::Fulfilled {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                }
-                | ContractState::Claimed {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                }
-                | ContractState::Challenged {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                }
-                | ContractState::PreAssertConfirmed {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                }
-                | ContractState::AssertDataConfirmed {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                }
-                | ContractState::Asserted {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                }
-                | ContractState::Resolved {
-                    withdrawal_request_txid: entry_withdrawal_request_txid,
-                    withdrawal_fulfillment_txid,
-                    ..
-                } => {
-                    if withdrawal_request_txid == *entry_withdrawal_request_txid {
-                        Some(RpcWithdrawalInfo {
-                            status: RpcWithdrawalStatus::Complete {
-                                fulfillment_txid: *withdrawal_fulfillment_txid,
-                            },
-                            withdrawal_request_txid,
-                        })
-                    } else {
-                        None
-                    }
-                }
-            });
+            }
+        });
 
         Ok(withdrawal_info)
     }
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
-        // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        // Use the cached contracts without cloning
+        let cached_contracts = self.cached_contracts.read().await;
 
-        let claims: Vec<_> = all_entries
-            .into_iter()
-            .filter_map(|entry| match entry.0.state.state {
-                // States that have an active graph with a claim transaction.
-                ContractState::Claimed { active_graph, .. }
-                | ContractState::Challenged { active_graph, .. }
-                | ContractState::PreAssertConfirmed { active_graph, .. }
-                | ContractState::AssertDataConfirmed { active_graph, .. }
-                | ContractState::Asserted { active_graph, .. }
-                | ContractState::Fulfilled { active_graph, .. } => Some(active_graph.1.claim_txid),
-
-                // States that do not have an active graph with a claim transaction.
-                ContractState::Requested { .. }
-                | ContractState::Deposited { .. }
-                | ContractState::Assigned { .. } => None,
-
-                // States that are terminal and do not have an active graph.
-                ContractState::Disproved { .. } | ContractState::Aborted => None,
-
-                // However resolved contracts have a definite `claim_txid`.
-                ContractState::Resolved { claim_txid, .. } => Some(claim_txid),
-            })
+        let claims = Self::get_contracts_with_claims(&cached_contracts)
+            .map(|(_, claim_txid)| claim_txid)
             .collect();
 
         Ok(claims)
     }
 
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
-        // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        // Use the cached contracts without cloning
+        let cached_contracts = self.cached_contracts.read().await;
 
-        let claim_info = all_entries
-            .iter()
-            .find(|entry| {
-                let claim_txids = entry.0.state.state.claim_txids();
-
-                claim_txids.contains(&claim_txid)
-            })
-            .map(|entry| contract_state_to_reimbursement_status(&entry.0.state.state))
-            .map(|status| RpcClaimInfo { claim_txid, status });
+        let claim_info = Self::get_contracts_with_claims(&cached_contracts)
+            .find(|(_, entry_claim_txid)| *entry_claim_txid == claim_txid)
+            .map(|(entry, _)| RpcClaimInfo {
+                claim_txid,
+                status: contract_state_to_reimbursement_status(&entry.0.state.state),
+            });
 
         Ok(claim_info)
     }
