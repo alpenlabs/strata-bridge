@@ -377,6 +377,35 @@ impl BridgeRpc {
             }
         });
     }
+
+    /// Returns contracts that have claim transactions along with their `claim_txids` from the
+    /// `cache`.
+    fn get_contracts_with_claims(
+        cache: &[(TypedContractRecord, ContractCfg)],
+    ) -> impl Iterator<Item = (&(TypedContractRecord, ContractCfg), Txid)> {
+        cache.iter().filter_map(|entry| match &entry.0.state.state {
+            // States that have an active graph with a claim transaction.
+            ContractState::Claimed { active_graph, .. }
+            | ContractState::Challenged { active_graph, .. }
+            | ContractState::PreAssertConfirmed { active_graph, .. }
+            | ContractState::AssertDataConfirmed { active_graph, .. }
+            | ContractState::Asserted { active_graph, .. }
+            | ContractState::Fulfilled { active_graph, .. } => {
+                Some((entry, active_graph.1.claim_txid))
+            }
+
+            // States that do not have an active graph with a claim transaction.
+            ContractState::Requested { .. }
+            | ContractState::Deposited { .. }
+            | ContractState::Assigned { .. } => None,
+
+            // States that are terminal and do not have an active graph.
+            ContractState::Disproved { .. } | ContractState::Aborted => None,
+
+            // However resolved contracts have a definite `claim_txid`.
+            ContractState::Resolved { claim_txid, .. } => Some((entry, *claim_txid)),
+        })
+    }
 }
 
 #[async_trait]
@@ -685,30 +714,10 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_claims(&self) -> RpcResult<Vec<Txid>> {
         // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        let cache = self.cached_contracts.read().await.clone();
 
-        let claims: Vec<_> = all_entries
-            .into_iter()
-            .filter_map(|entry| match entry.0.state.state {
-                // States that have an active graph with a claim transaction.
-                ContractState::Claimed { active_graph, .. }
-                | ContractState::Challenged { active_graph, .. }
-                | ContractState::PreAssertConfirmed { active_graph, .. }
-                | ContractState::AssertDataConfirmed { active_graph, .. }
-                | ContractState::Asserted { active_graph, .. }
-                | ContractState::Fulfilled { active_graph, .. } => Some(active_graph.1.claim_txid),
-
-                // States that do not have an active graph with a claim transaction.
-                ContractState::Requested { .. }
-                | ContractState::Deposited { .. }
-                | ContractState::Assigned { .. } => None,
-
-                // States that are terminal and do not have an active graph.
-                ContractState::Disproved { .. } | ContractState::Aborted => None,
-
-                // However resolved contracts have a definite `claim_txid`.
-                ContractState::Resolved { claim_txid, .. } => Some(claim_txid),
-            })
+        let claims = Self::get_contracts_with_claims(&cache)
+            .map(|(_, claim_txid)| claim_txid)
             .collect();
 
         Ok(claims)
@@ -716,17 +725,14 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
 
     async fn get_claim_info(&self, claim_txid: Txid) -> RpcResult<Option<RpcClaimInfo>> {
         // Use the cached contracts
-        let all_entries = self.cached_contracts.read().await.clone();
+        let cache = self.cached_contracts.read().await.clone();
 
-        let claim_info = all_entries
-            .iter()
-            .find(|entry| {
-                let claim_txids = entry.0.state.state.claim_txids();
-
-                claim_txids.contains(&claim_txid)
-            })
-            .map(|entry| contract_state_to_reimbursement_status(&entry.0.state.state))
-            .map(|status| RpcClaimInfo { claim_txid, status });
+        let claim_info = Self::get_contracts_with_claims(&cache)
+            .find(|(_, entry_claim_txid)| *entry_claim_txid == claim_txid)
+            .map(|(entry, _)| RpcClaimInfo {
+                claim_txid,
+                status: contract_state_to_reimbursement_status(&entry.0.state.state),
+            });
 
         Ok(claim_info)
     }
