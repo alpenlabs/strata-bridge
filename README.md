@@ -20,15 +20,6 @@ The following is the transaction graph that has been implemented in this reposit
     <figcaption>The transaction graph for this repository.</figcaption>
 </figure>
 
-## System Diagram
-
-The following is the system diagram for this repository:
-
-<figure>
-    <img src="./assets/system-design.jpg" alt = "System diagram" />
-    <figcaption>The system diagram for this repository.</figcaption>
-</figure>
-
 ## How To Run Locally
 
 ### Prerequisites
