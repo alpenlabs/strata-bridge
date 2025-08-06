@@ -574,14 +574,16 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
                 | ContractState::Asserted {
                     withdrawal_request_txid,
                     ..
+                }
+                | ContractState::Resolved {
+                    withdrawal_request_txid,
+                    ..
                 } => {
                     withdrawals.push(*withdrawal_request_txid);
                 }
 
                 ContractState::Requested { .. }
                 | ContractState::Deposited { .. }
-                // NOTE: Resolved contracts have no *current* withdrawals and will pollute the return array.
-                | ContractState::Resolved { .. }
                 | ContractState::Disproved { .. }
                 | ContractState::Aborted => {
                     continue;
