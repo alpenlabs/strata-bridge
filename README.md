@@ -34,6 +34,14 @@ The following is the transaction graph that has been implemented in this reposit
 -   [`bitcoind`](https://bitcoin.org/en/download) to run the unit tests.
 -   [`just`](https://just.systems/) to run the commands in this repository.
 
+We also provide a [`flake.nix`](flake.nix) with a `devShell` with all the dependencies
+necessary for local development.
+Install [Nix](https://nixos.org) and run:
+
+```sh
+nix develop
+```
+
 ### Running
 
 Run the Strata stack (`strata-client`, `strata-reth`, `bitcoind`) as per the instructions
