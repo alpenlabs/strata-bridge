@@ -11,7 +11,7 @@
 /rust-toolchain.toml @Rajil1213 @storopoli @ProofOfKeags @Zk2u
 **/Cargo.toml @Rajil1213 @storopoli @ProofOfKeags @Zk2u
 **/Cargo.lock @Rajil1213 @storopoli @ProofOfKeags @Zk2u
-**/Makefile @Rajil1213 @storopoli @Zk2u 
+**/Makefile @Rajil1213 @storopoli @Zk2u
 **/LICENSE* @Rajil1213 @storopoli @ProofOfKeags @Zk2u
 **/README.md @Rajil1213 @storopoli @ProofOfKeags @Zk2u
 **/.gitignore @storopoli
@@ -69,7 +69,7 @@
 /.config/ @Rajil1213
 /.vscode/ @Rajil1213
 /docker/ @Rajil1213 @Zk2u
-/compose.yml @Rajil1213 @Zk2u 
+/compose.yml @Rajil1213 @Zk2u
 /.dockerignore @Rajil1213
 /.editorconfig @Rajil1213
 /.sample_env @Rajil1213
@@ -78,3 +78,7 @@
 # CI/CD
 /.github/ @storopoli
 /.codecov.yml @storopoli
+
+# Nix
+**/*.nix @storopoli
+flake.lock @storopoli
