@@ -306,20 +306,25 @@ pub(crate) fn process_counterproof<'a>(
     }
 
     let bridge_proof_data = extract_op_return_data(&bridge_proof_tx.output[0])?;
+    // FIXME: Can accumulated proof of work be extracted from public values?
     let mut public_values = [0; 36];
     public_values.copy_from_slice(&bridge_proof_data[0..36]);
     let mut acc_pow_high_bytes = [0; 4];
     acc_pow_high_bytes.copy_from_slice(&bridge_proof_data[32..32 + 4]);
     let acc_pow_high_bytes = u32::from_be_bytes(acc_pow_high_bytes);
+    // FIXME: Set correct length of Groth16 proof
     let mut bridge_proof_bytes = [0; 128];
     bridge_proof_bytes.copy_from_slice(&bridge_proof_data[32 + 4..]);
 
     match mode {
         CounterproofMode::InvalidBridgeProof => {
             let proof = Proof::new(bridge_proof_bytes.to_vec());
+            // FIXME: Create public values from bridge proof tx
             let public_values = PublicValues::new(Vec::new());
             let proof_receipt = ProofReceipt::new(proof, public_values);
             // TODO: Move Buf32 into constant (Buf32::new needs to become const fn first)
+            // TODO: Add SP1 key of dummy statement for testing
+            //       We need a valid proof and an invalid proof for the given statement to put into the bridge proof tx.
             let rollup_vk = RollupVerifyingKey::SP1VerifyingKey(Buf32::new([0x00; 32]));
             if groth16_verifier::verify_rollup_groth16_proof_receipt(&proof_receipt, &rollup_vk)
                 .is_ok()
