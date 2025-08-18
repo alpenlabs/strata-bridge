@@ -16,8 +16,8 @@ strata-primitives.workspace = true
 strata-proofimpl-btc-blockspace.workspace = true
 strata-state.workspace = true
 
-zkaleido.workspace = true
-zkaleido-native-adapter.workspace = true
+zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc13" }
+zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc13" }
 
 bitcoin.workspace = true
 borsh.workspace = true

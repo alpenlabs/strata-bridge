@@ -9875,8 +9875,8 @@ dependencies = [
  "strata-state",
  "thiserror 2.0.12",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
- "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
@@ -10234,7 +10234,7 @@ dependencies = [
  "strata-primitives 0.2.0",
  "strata-state",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
- "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
@@ -12382,17 +12382,6 @@ dependencies = [
  "borsh",
  "serde",
  "thiserror 1.0.69",
-]
-
-[[package]]
-name = "zkaleido-native-adapter"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
-dependencies = [
- "bincode",
- "borsh",
- "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
