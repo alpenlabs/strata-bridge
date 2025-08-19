@@ -237,6 +237,8 @@ pub(crate) struct CounterproofInput {
     mode: CounterproofMode,
 }
 
+// Derive borsh serialize
+// wrapper for xonlypublickey borsh serialize in strata primitives
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 pub(crate) struct CounterproofPublicOutput {
     bridge_proof_master_key: secp256k1::XOnlyPublicKey,
@@ -306,27 +308,29 @@ pub(crate) fn process_counterproof<'a>(
     }
 
     let bridge_proof_data = extract_op_return_data(&bridge_proof_tx.output[0])?;
-    // FIXME: Can accumulated proof of work be extracted from public values?
+    // FIXME: Extract pow from public values
     let mut public_values = [0; 36];
     public_values.copy_from_slice(&bridge_proof_data[0..36]);
     let mut acc_pow_high_bytes = [0; 4];
     acc_pow_high_bytes.copy_from_slice(&bridge_proof_data[32..32 + 4]);
     let acc_pow_high_bytes = u32::from_be_bytes(acc_pow_high_bytes);
-    // FIXME: Set correct length of Groth16 proof
-    let mut bridge_proof_bytes = [0; 128];
+    // TODO: Reduce to 128 bytes using compressed Groth proof
+    //       This requires changes in zkaleido
+    let mut bridge_proof_bytes = [0; 256];
     bridge_proof_bytes.copy_from_slice(&bridge_proof_data[32 + 4..]);
 
     match mode {
         CounterproofMode::InvalidBridgeProof => {
             let proof = Proof::new(bridge_proof_bytes.to_vec());
             // FIXME: Create public values from bridge proof tx
+            // Same number of bytes as bridge proof public values
             let public_values = PublicValues::new(Vec::new());
             let proof_receipt = ProofReceipt::new(proof, public_values);
             // TODO: Move Buf32 into constant (Buf32::new needs to become const fn first)
             // TODO: Add SP1 key of dummy statement for testing
             //       We need a valid proof and an invalid proof for the given statement to put into the bridge proof tx.
-            let rollup_vk = RollupVerifyingKey::SP1VerifyingKey(Buf32::new([0x00; 32]));
-            if groth16_verifier::verify_rollup_groth16_proof_receipt(&proof_receipt, &rollup_vk)
+            let proof_vk = RollupVerifyingKey::SP1VerifyingKey(Buf32::new([0x00; 32]));
+            if groth16_verifier::verify_rollup_groth16_proof_receipt(&proof_receipt, &proof_vk)
                 .is_ok()
             {
                 return Err("bridge proof should be invalid for counterproof to be valid");
@@ -355,6 +359,8 @@ pub(crate) fn process_counterproof<'a>(
 fn verify_header_chain(chain: &[bitcoin::block::Header]) -> Result<bitcoin::Work, &'static str> {
     // TODO: Construct header verification state without requiring rollup parameters.
     //       This function does NOT care about any L2 stuff!
+    // TODO: Verify genesis header: not infinite pow
+    //       Latest part of recursive proof
     // let btc_params = Params::new(rollup_params.network);
     // for header in &headers {
     //     header_vs.check_and_update_continuity(header, &btc_params)?;
@@ -382,13 +388,16 @@ fn extract_op_return_data(txout: &bitcoin::TxOut) -> Result<&[u8], &'static str>
     if !script.is_op_return() {
         return Err("locking script must be an OP_RETURN script");
     }
-    // OP_RETURN OP_PUSHDATA1 <32 + 4 + 128 = 164> (164 additional bytes...)
-    // Total length = 3 + 164 = 167
-    if script.as_bytes().len() != 167 {
-        return Err("OP_RETURN script must push exactly 164 bytes");
+    // OP_RETURN OP_PUSHDATA2 <32 + 4 + 256 = 292> (292 additional bytes...)
+    //  32 bytes: tip hash
+    //   4 bytes: accumulated proof of work (high bytes)
+    // 256 bytes: Groth16 proof
+    // Total length = 2 + 2 + 292 = 296
+    if script.as_bytes().len() != 296 {
+        return Err("OP_RETURN script must push exactly 292 bytes");
     }
-    let data = &script.as_bytes()[3..];
-    debug_assert_eq!(data.len(), 164);
+    let data = &script.as_bytes()[2 + 2..];
+    debug_assert_eq!(data.len(), 292);
 
     Ok(data)
 }
