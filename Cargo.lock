@@ -9863,9 +9863,11 @@ name = "strata-bridge-proof-protocol"
 version = "0.1.0"
 dependencies = [
  "alpen-bridge-params",
+ "bincode",
  "bitcoin",
  "borsh",
  "prover-test-utils",
+ "sp1-sdk",
  "strata-bridge-common",
  "strata-bridge-proof-primitives",
  "strata-crypto",

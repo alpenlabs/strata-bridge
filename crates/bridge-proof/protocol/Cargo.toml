@@ -19,8 +19,10 @@ strata-state.workspace = true
 zkaleido.workspace = true
 zkaleido-native-adapter.workspace = true
 
+bincode = "1.3"
 bitcoin.workspace = true
 borsh.workspace = true
+sp1-sdk = "5.0.0"
 thiserror.workspace = true
 
 [dev-dependencies]

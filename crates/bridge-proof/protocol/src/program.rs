@@ -96,11 +96,15 @@ pub fn get_native_host() -> NativeHost {
 #[cfg(test)]
 mod tests {
     use alpen_bridge_params::prelude::PegOutGraphParams;
+    use bitcoin::hashes::serde::Serialize;
+    use borsh::BorshSerialize;
     use prover_test_utils::{
         extract_test_headers, get_strata_checkpoint_tx, get_withdrawal_fulfillment_tx,
         load_op_signature, load_test_rollup_params,
     };
+    use sp1_sdk::{SP1Proof, SP1Stdin, SP1VerifyingKey};
     use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_primitives::bridge;
     use tracing::debug;
     use zkaleido::ZkVmProgram;
 
@@ -128,4 +132,61 @@ mod tests {
         let receipt = BridgeProgram::prove(&input, &host).unwrap();
         debug!(?receipt, "received proof receipt from native host");
     }
+
+    fn write_serde<T: Serialize>(input: &mut SP1Stdin, item: &T) {
+        input.write(item);
+    }
+
+    fn write_borsh<T: BorshSerialize>(input: &mut SP1Stdin, item: &T) {
+        let slice = borsh::to_vec(item).unwrap();
+        write_buf(input, &slice);
+    }
+
+    fn write_buf(input: &mut SP1Stdin, item: &[u8]) {
+        input.write_slice(item);
+    }
+
+    #[test]
+    fn test_another() {
+        let mut input = SP1Stdin::new();
+        let bridge_proof_input = get_input();
+
+        let headers_buf = bridge_proof_input.headers.iter().fold(
+            Vec::with_capacity(bridge_proof_input.headers.len() * 80),
+            |mut acc, header| {
+                acc.extend_from_slice(&serialize(header));
+                acc
+            },
+        );
+
+        write_serde(&mut input, &bridge_proof_input.rollup_params);
+        write_serde(&mut input, &bridge_proof_input.pegout_graph_params);
+        write_buf(&mut input, &headers_buf);
+        write_borsh(&mut input, &bridge_proof_input.withdrawal_fulfillment_tx);
+
+        use std::{
+            fs::File,
+            io::{Read, Write},
+        };
+        let mut file = File::create("test_input.bin").expect("Failed to create file");
+        let encoded = bincode::serialize(&input).expect("Failed to serialize input with bincode");
+        file.write_all(&encoded)
+            .expect("Failed to write encoded input to file");
+        file.flush().expect("Failed to flush file");
+
+        let mut file = File::open("test_input.bin").expect("Failed to open file");
+        let mut encoded = Vec::new();
+        file.read_to_end(&mut encoded).expect("Failed to read file");
+
+        let decoded: SP1Stdin =
+            bincode::deserialize(&encoded).expect("Failed to deserialize input");
+        println!("Absiehk decode {:?}", decoded);
+    }
 }
+
+// input_builder
+//             .write_serde(&input.rollup_params)?
+//             .write_serde(&input.pegout_graph_params)?
+//             .write_buf(&headers_buf)?
+//             .write_borsh(&borsh_input)?
+//             .build()
