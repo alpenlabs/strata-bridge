@@ -5,6 +5,7 @@
 [![codecov](https://codecov.io/github/alpenlabs/strata-bridge/graph/badge.svg?token=UYZ5YPKGL2)](https://codecov.io/github/alpenlabs/strata-bridge)
 [![build](https://github.com/alpenlabs/strata-bridge/actions/workflows/build.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
 [![lint](https://github.com/alpenlabs/strata-bridge/actions/workflows/lint.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
+[![Release: v0.2.0](https://badgen.net/static/release/v0.2.0/yellow)](https://github.com/alpenlabs/strata-bridge/releases/tag/v0.2.0-rc3)
 
 A reference implementation of Strata Bridge by your friends at [Alpen Labs](https://www.alpenlabs.io/).
 
