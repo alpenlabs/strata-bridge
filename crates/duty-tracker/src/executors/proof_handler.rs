@@ -123,7 +123,7 @@ async fn prepare_header_chain(
         // Only set `checkpoint` if it's currently `None` and we find a matching tx
         strata_checkpoint_tx = strata_checkpoint_tx.or_else(|| {
             block.txdata.iter().enumerate().find_map(|(idx, tx)| {
-                let checkpoint = parse_strata_checkpoint(tx, &cfg.sidesystem_params)?;
+                let checkpoint = parse_strata_checkpoint(tx, &cfg.sidesystem_params, None)?;
 
                 let height = block.bip34_block_height().unwrap() as u32;
                 info!(

@@ -462,6 +462,7 @@ async fn init_duty_tracker(
     let pegout_graph_params = params.tx_graph;
     let stake_chain_params = params.stake_chain;
     let sidesystem_params = params.sidesystem.clone();
+    let alt_sidesystem_cred_rule = params.alt_sidesystem_cred_rule.clone();
     let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
 
     let db_pool = db.pool().clone();
@@ -486,6 +487,7 @@ async fn init_duty_tracker(
         pegout_graph_params,
         stake_chain_params,
         sidesystem_params,
+        alt_sidesystem_cred_rule,
         operator_table,
         config.is_faulty,
         config.min_withdrawal_fulfillment_window,

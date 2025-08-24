@@ -3,7 +3,7 @@ use bitcoin::{hex::DisplayHex, Network};
 use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{block_credential::CredRule, params::RollupParams};
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
@@ -41,6 +41,11 @@ pub(crate) struct Params {
     /// Consensus parameters that don't change for the lifetime of the network
     /// (unless there's some weird hard fork).
     pub sidesystem: RollupParams,
+
+    /// Optional alternative credential rule used when verifying
+    /// mock checkpoints for the side system. This can serve as a
+    /// quick fix for the deposit index leak issue.
+    pub alt_sidesystem_cred_rule: Option<CredRule>,
 }
 
 /// The keys used by the operators encoded in hex strings for convenience.
@@ -171,6 +176,9 @@ mod tests {
             proof_publish_mode = "strict"
             max_deposits_in_block = 20
             network = "signet"
+
+            [alt_sidesystem_cred_rule]
+            schnorr_key = "0x613d43a9f85f50bded3a10c35ba3344b583fc3d4429667280b3c0e0281209aeb"
         "#,
         );
 
@@ -185,6 +193,8 @@ mod tests {
         let deserialized = deserialized.unwrap();
         let serialized = toml::to_string(&deserialized).unwrap();
         let params = toml::from_str::<Params>(&serialized).unwrap();
+
+        println!("Serialized Params:\n{:?}", params.alt_sidesystem_cred_rule);
 
         assert_eq!(
             deserialized, params,
