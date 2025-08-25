@@ -38,7 +38,7 @@ pub struct OperatorDbInMemory {
     /// operator_id -> txid, input_index -> PubNonce
     pub_nonces: Arc<RwLock<OperatorIdxToTxInputNonceMap>>,
 
-    /// operator_id -> txid, input_index -> AggNonce
+    /// txid, input_index -> AggNonce
     aggregated_nonces: Arc<RwLock<TxInputToAggNonceMap>>,
 
     /// operator_id -> txid, input_index -> PartialSignature (secp256k1::schnorr::Signature)
