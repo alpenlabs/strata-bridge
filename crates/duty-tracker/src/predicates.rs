@@ -15,7 +15,7 @@ use strata_bridge_tx_graph::transactions::{
     claim::CHALLENGE_VOUT, deposit::DepositRequestData, prelude::POST_ASSERT_INPUT_INDEX,
 };
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{block_credential::CredRule, params::RollupParams};
 use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
 use tracing::warn;
 
@@ -187,6 +187,7 @@ pub(crate) fn is_fulfillment_tx(
 pub(crate) fn parse_strata_checkpoint(
     tx: &Transaction,
     rollup_params: &RollupParams,
+    alternative_cred: Option<&CredRule>,
 ) -> Option<Checkpoint> {
     let filter_config =
         TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
@@ -206,12 +207,15 @@ pub(crate) fn parse_strata_checkpoint(
         return None;
     };
 
-    let cred_rule = &rollup_params.cred_rule;
-    if !verify_signed_checkpoint_sig(&signed_checkpoint, cred_rule) {
-        return None;
+    let is_valid_sig = verify_signed_checkpoint_sig(&signed_checkpoint, &rollup_params.cred_rule)
+        || alternative_cred
+            .is_some_and(|cred| verify_signed_checkpoint_sig(&signed_checkpoint, cred));
+
+    if is_valid_sig {
+        return Some(signed_checkpoint.into());
     }
 
-    Some(signed_checkpoint.into())
+    None
 }
 
 #[cfg(test)]
@@ -304,7 +308,7 @@ mod tests {
             .expect("expected index of checkpoint must exist in txdata");
 
         assert!(
-            parse_strata_checkpoint(strata_checkpoint_tx, &rollup_params).is_some(),
+            parse_strata_checkpoint(strata_checkpoint_tx, &rollup_params, None).is_some(),
             "must be able to parse valid strata checkpoint tx"
         );
     }

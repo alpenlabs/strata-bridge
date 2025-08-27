@@ -28,7 +28,7 @@ use strata_bridge_tx_graph::transactions::{
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{block_credential::CredRule, params::RollupParams};
 use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
     select,
@@ -77,6 +77,7 @@ impl ContractManager {
         pegout_graph_params: PegOutGraphParams,
         stake_chain_params: StakeChainParams,
         sidesystem_params: RollupParams,
+        alt_sidesystem_cred_rule: Option<CredRule>,
         operator_table: OperatorTable,
         is_faulty: bool,
         min_withdrawal_fulfillment_window: u64,
@@ -182,6 +183,7 @@ impl ContractManager {
                 pegout_graph_params,
                 stake_chain_params,
                 sidesystem_params,
+                alt_sidesystem_cred_rule,
                 operator_table,
                 stake_tx_retry_config,
                 pre_stake_pubkey: pre_stake_pubkey.clone(),
@@ -569,6 +571,7 @@ pub(super) struct ExecutionConfig {
     pub(super) pegout_graph_params: PegOutGraphParams,
     pub(super) stake_chain_params: StakeChainParams,
     pub(super) sidesystem_params: RollupParams,
+    pub(super) alt_sidesystem_cred_rule: Option<CredRule>,
     pub(super) operator_table: OperatorTable,
     pub(super) stake_tx_retry_config: StakeTxRetryConfig,
     pub(super) pre_stake_pubkey: ScriptBuf,
@@ -782,7 +785,11 @@ impl ContractManagerCtx {
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
 
-        if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
+        if let Some(checkpoint) = parse_strata_checkpoint(
+            tx,
+            &self.cfg.sidesystem_params,
+            self.cfg.alt_sidesystem_cred_rule.as_ref(),
+        ) {
             debug!(
                 epoch = %checkpoint.batch_info().epoch(),
                 "found valid strata checkpoint"
