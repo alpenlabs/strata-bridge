@@ -3,7 +3,7 @@ use bitcoin::{hex::DisplayHex, Network};
 use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
-use strata_primitives::params::RollupParams;
+use strata_primitives::{block_credential::CredRule, params::RollupParams};
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
@@ -41,6 +41,11 @@ pub(crate) struct Params {
     /// Consensus parameters that don't change for the lifetime of the network
     /// (unless there's some weird hard fork).
     pub sidesystem: RollupParams,
+
+    /// Optional alternative credential rule used when verifying
+    /// mock checkpoints for the side system. This can serve as a
+    /// quick fix for the deposit index leak issue.
+    pub alt_sidesystem_cred_rule: Option<CredRule>,
 }
 
 /// The keys used by the operators encoded in hex strings for convenience.

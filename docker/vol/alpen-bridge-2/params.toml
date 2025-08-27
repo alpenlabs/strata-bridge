@@ -55,3 +55,6 @@ dispatch_assignment_dur = 1000000
 proof_publish_mode.timeout = 30
 max_deposits_in_block = 16
 network = "regtest"
+
+[alt_sidesystem_cred_rule]
+schnorr_key = "0x7e87bfe02764e06aa9d3e421131383b1e767fdd621ed3243b1acd690eb3e94b0"
