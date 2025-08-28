@@ -9774,6 +9774,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-counter-proof"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "strata-bridge-common",
+ "strata-crypto",
+ "strata-primitives 0.2.0",
+ "tracing",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido-native-adapter",
+]
+
+[[package]]
 name = "strata-bridge-db"
 version = "0.1.0"
 dependencies = [
