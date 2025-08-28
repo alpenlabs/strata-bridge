@@ -13,7 +13,7 @@ use bitcoind_async_client::{
     Client as BitcoinClient,
 };
 use btc_notify::{
-    client::{BtcZmqClient, TxEvent, TxStatus},
+    client::{BtcZmqClient, Connected, TxEvent, TxStatus},
     subscription::Subscription,
 };
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
@@ -114,7 +114,7 @@ pub struct TxDriver {
 }
 impl TxDriver {
     /// Initializes the TxDriver.
-    pub async fn new(zmq_client: BtcZmqClient, rpc_client: BitcoinClient) -> Self {
+    pub async fn new(zmq_client: BtcZmqClient<Connected>, rpc_client: BitcoinClient) -> Self {
         let new_jobs = unbounded_channel::<TxDriveJob>();
         let new_jobs_sender = new_jobs.0;
         let mut block_subscription = zmq_client.subscribe_blocks().await;
@@ -297,13 +297,14 @@ impl Drop for TxDriver {
 mod e2e_tests {
     use std::{
         collections::{BTreeMap, VecDeque},
+        path::PathBuf,
         sync::Arc,
     };
 
     use algebra::predicate;
     use bitcoind_async_client::Client as BitcoinClient;
-    use btc_notify::client::{BtcZmqClient, BtcZmqConfig, TxStatus};
-    use corepc_node::CookieValues;
+    use btc_notify::client::{BlockFetcher, BtcZmqClient, BtcZmqConfig, TxStatus};
+    use corepc_node::{client::client_sync::Auth, CookieValues};
     use futures::join;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -311,6 +312,33 @@ mod e2e_tests {
     use tracing::{debug, info};
 
     use super::TxDriver;
+
+    fn setup_fetcher(rpc_url: &str, cookie_file: PathBuf) -> impl BlockFetcher<Error = String> {
+        struct Fetcher(corepc_node::Client);
+
+        #[async_trait::async_trait]
+        impl BlockFetcher for Fetcher {
+            type Error = String;
+
+            async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+                let hash = self
+                    .0
+                    .get_block_hash(height)
+                    .map_err(|e| e.to_string())?
+                    .block_hash()
+                    .expect("must be valid hash");
+                let block = self.0.get_block(hash).map_err(|e| e.to_string())?;
+
+                Ok(block)
+            }
+        }
+
+        let auth = Auth::CookieFile(cookie_file);
+        let client = corepc_node::Client::new_with_auth(rpc_url, auth)
+            .expect("must be able to create client");
+
+        Fetcher(client)
+    }
 
     async fn setup() -> Result<(TxDriver, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
@@ -340,7 +368,11 @@ mod e2e_tests {
             .with_rawtx_connection_string(raw_tx_socket)
             .with_sequence_connection_string(sequence_socket);
 
-        let zmq_client = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
+        let zmq_client = BtcZmqClient::new(&cfg, VecDeque::new());
+        let start_height = bitcoind.client.get_block_count()?.0;
+        let cookie_file = bitcoind.params.cookie_file.clone();
+        let fetcher = setup_fetcher(&bitcoind.rpc_url(), cookie_file);
+        let zmq_client = zmq_client.connect(start_height, fetcher).await?;
         debug!("BtcZmqClient initialized");
 
         let CookieValues { user, password } = bitcoind
