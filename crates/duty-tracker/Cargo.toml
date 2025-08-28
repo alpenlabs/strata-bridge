@@ -29,6 +29,7 @@ strata-tasks.workspace = true
 
 ark-bn254.workspace = true
 ark-groth16.workspace = true
+async-trait.workspace = true
 bdk_wallet.workspace = true
 bincode.workspace = true
 bitcoin.workspace = true
@@ -55,6 +56,7 @@ tracing.workspace = true
 strata-bridge-common.workspace = true
 strata-bridge-test-utils.workspace = true
 
+async-trait.workspace = true
 corepc-node.workspace = true
 hex.workspace = true
 proptest.workspace = true
