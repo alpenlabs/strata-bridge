@@ -87,7 +87,6 @@ impl ContractManager {
         // Subsystem Handles
         zmq_client: BtcZmqClient,
         rpc_client: BitcoinClient,
-        tx_driver: TxDriver,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
         stake_chain_persister: StakeChainPersister,
@@ -162,7 +161,13 @@ impl ContractManager {
                     return e.into();
                 }
             };
+            let zmq_client = zmq_client
+                .connect()
+                .await
+                .expect("must be able to connect to bitcoind's zmq interface");
+
             let mut block_sub = zmq_client.subscribe_blocks().await;
+            let tx_driver = TxDriver::new(zmq_client, rpc_client.clone()).await;
 
             // It's extremely unlikely that these will ever differ at all but it's possible for
             // them to differ by at most 1 in the scenario where we crash mid-batch when committing

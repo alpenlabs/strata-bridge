@@ -22,7 +22,7 @@ use bitcoind_async_client::{
 use btc_notify::client::BtcZmqClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
-    shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister, tx_driver::TxDriver,
+    shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
 };
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
@@ -177,9 +177,7 @@ pub(crate) async fn bootstrap(
     }
     // Initialize the duty tracker.
     info!("initializing contract manager");
-    let zmq_client = BtcZmqClient::connect(&config.btc_zmq, unburied_blocks)
-        .await
-        .expect("should be able to connect to zmq");
+    let zmq_client = BtcZmqClient::new(&config.btc_zmq, unburied_blocks);
 
     let pre_stake_pubkey = operator_wallet.stakechain_script_buf();
     let (contract_manager, contract_persister, stake_chain_persister) = init_duty_tracker(
@@ -462,7 +460,6 @@ async fn init_duty_tracker(
     let pegout_graph_params = params.tx_graph;
     let stake_chain_params = params.stake_chain;
     let sidesystem_params = params.sidesystem.clone();
-    let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
 
     let db_pool = db.pool().clone();
     info!("initializing contract persister");
@@ -494,7 +491,6 @@ async fn init_duty_tracker(
         pre_stake_pubkey,
         zmq_client,
         rpc_client,
-        tx_driver,
         p2p_handle,
         contract_persister,
         stake_chain_persister,
