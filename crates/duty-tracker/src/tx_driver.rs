@@ -302,6 +302,7 @@ mod e2e_tests {
     };
 
     use algebra::predicate;
+    use bitcoin::Block;
     use bitcoind_async_client::Client as BitcoinClient;
     use btc_notify::client::{BlockFetcher, BtcZmqClient, BtcZmqConfig, TxStatus};
     use corepc_node::{client::client_sync::Auth, CookieValues};

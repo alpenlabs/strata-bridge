@@ -13,8 +13,8 @@ use std::{
 
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
-use bitcoind_async_client::{client::Client as BitcoinClient, traits::Reader};
-use btc_notify::client::{BlockStatus, BtcZmqClient};
+use bitcoind_async_client::{client::Client as BitcoinClient, error::ClientError, traits::Reader};
+use btc_notify::client::{BlockFetcher, BlockStatus, BtcZmqClient};
 use futures::{future::join_all, StreamExt};
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
@@ -161,13 +161,6 @@ impl ContractManager {
                     return e.into();
                 }
             };
-            let zmq_client = zmq_client
-                .connect()
-                .await
-                .expect("must be able to connect to bitcoind's zmq interface");
-
-            let mut block_sub = zmq_client.subscribe_blocks().await;
-            let tx_driver = TxDriver::new(zmq_client, rpc_client.clone()).await;
 
             // It's extremely unlikely that these will ever differ at all but it's possible for
             // them to differ by at most 1 in the scenario where we crash mid-batch when committing
@@ -175,11 +168,20 @@ impl ContractManager {
             //
             // We take the minimum height that any state machine has observed since we want to
             // re-feed chain events that they might have missed.
-            let mut cursor = active_contracts
+            let cursor = active_contracts
                 .values()
                 .min_by(|sm1, sm2| sm1.state().block_height.cmp(&sm2.state().block_height))
                 .map(|sm| sm.state().block_height)
                 .unwrap_or(current);
+
+            let fetcher = BtcFetcher(rpc_client.clone());
+            let zmq_client = zmq_client
+                .connect(cursor, fetcher)
+                .await
+                .expect("must be able to connect to bitcoind's zmq interface");
+
+            let mut block_sub = zmq_client.subscribe_blocks().await;
+            let tx_driver = TxDriver::new(zmq_client, rpc_client.clone()).await;
 
             let cfg = Arc::new(ExecutionConfig {
                 network,
@@ -240,39 +242,6 @@ impl ContractManager {
                 state,
                 state_handles,
             };
-
-            info!(cursor = %cursor, current = %current, "performing bitcoin rpc sync");
-            while cursor < current {
-                let next = cursor + 1;
-                let block = match rpc_client.get_block_at(next).await {
-                    Ok(a) => a,
-                    Err(e) => {
-                        error!(?e, "failed to get block, crashing");
-                        return e.into();
-                    }
-                };
-                let blockhash = block.block_hash();
-                let res = ctx.process_block(block).await;
-                match res {
-                    Ok(duties) => {
-                        info!(%next, "successfully rpc sync'ed block");
-                        for duty in duties {
-                            info!(%duty, "starting duty execution from lagging blocks");
-                            let cfg = cfg.clone();
-                            let output_handles = output_handles.clone();
-                            if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
-                                error!(%e, %duty, "failed to execute duty");
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!(%blockhash, %cursor, %e, "failed to process block");
-                        panic!("{e:?}");
-                    }
-                }
-
-                cursor = next;
-            }
 
             let mut interval = time::interval(nag_interval);
             // skip any missed ticks to avoid flooding the network with duplicate nag messages
@@ -534,6 +503,18 @@ impl ContractManager {
 impl Drop for ContractManager {
     fn drop(&mut self) {
         self.thread_handle.abort();
+    }
+}
+
+#[derive(Debug)]
+struct BtcFetcher(BitcoinClient);
+
+#[async_trait::async_trait]
+impl BlockFetcher for BtcFetcher {
+    type Error = ClientError;
+
+    async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+        self.0.get_block_at(height).await
     }
 }
 

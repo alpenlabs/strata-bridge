@@ -159,6 +159,8 @@ impl BtcZmqClient<Disconnected> {
         let block_subs_thread = self.block_subs.clone();
         let tx_subs_thread = self.tx_subs.clone();
         let state_machine_thread = self.state_machine.clone();
+
+        let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
             loop {
                 // This loop has no break condition. It is only aborted when the BtcZmqClient is
@@ -181,33 +183,66 @@ impl BtcZmqClient<Disconnected> {
                                 }
                                 Message::Block(block, _) => {
                                     trace!(%topic, "received event");
-                                    // First send the block to the block subscribers.
-                                    // if the receiver has been dropped, we remove it from the
-                                    // subscription list.
-                                    block_subs_thread.lock().await.retain(|sub| {
-                                        sub.send(BlockEvent {
-                                            block: block.clone(),
-                                            status: BlockStatus::Mined,
-                                        })
-                                        .is_ok()
-                                    });
+                                    let mut blocks = Vec::new();
 
-                                    // Now we process the block to understand what the relevant
-                                    // transaction diff is.
-                                    trace!(?block, "processing block");
-                                    let height_string = block
-                                        .bip34_block_height()
-                                        .map_or_else(|_| "UNKNOWN".to_string(), |h| h.to_string());
-                                    info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
-                                    let (tx_events, block_event) = sm.process_block(block);
+                                    debug!("received block at height {received_height}, expected {cursor}");
 
-                                    if let Some(block_event) = block_event {
-                                        block_subs_thread
-                                            .lock()
-                                            .await
-                                            .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                    // check if the height of this block is the one that we expect.
+                                    // and then, backfill any skipped blocks.
+                                    let mut blocks = Vec::new();
+                                    while cursor < received_height {
+                                        match fetcher.fetch_block(cursor).await {
+                                            Ok(b) => blocks.push(b),
+                                            Err(e) => {
+                                                error!(?e, %cursor, "failed to fetch skipped block");
+                                                continue;
+                                            }
+                                        }
+
+                                        cursor += 1;
+                                        debug!(%cursor, "fetched skipped block and incremented cursor");
                                     }
-                                    tx_events
+
+                                    blocks.push(block); // add the one from ZMQ
+
+                                    let mut all_tx_events = Vec::new();
+                                    for block in blocks {
+                                        // First send the block to the block subscribers.
+                                        // if the receiver has been dropped, we remove it from the
+                                        // subscription list.
+                                        block_subs_thread.lock().await.retain(|sub| {
+                                            sub.send(BlockEvent {
+                                                block: block.clone(),
+                                                status: BlockStatus::Mined,
+                                            })
+                                            .is_ok()
+                                        });
+
+                                        // Now we process the block to understand what the relevant
+                                        // transaction diff is.
+                                        trace!(?block, "processing block");
+                                        let height_string = block.bip34_block_height().map_or_else(
+                                            |_| "UNKNOWN".to_string(),
+                                            |h| h.to_string(),
+                                        );
+                                        info!(block_height=%height_string, block_hash=%block.block_hash(), "processing block");
+                                        let (tx_events, block_event) = sm.process_block(block);
+
+                                        if let Some(block_event) = block_event {
+                                            block_subs_thread
+                                                .lock()
+                                                .await
+                                                .retain(|sub| sub.send(block_event.clone()).is_ok())
+                                        }
+
+                                        all_tx_events.extend(tx_events);
+                                    }
+
+                                    // finally, increment the cursor after processing the latest
+                                    // block.
+                                    cursor += 1;
+
+                                    all_tx_events
                                 }
                                 Message::Tx(tx, _) => {
                                     trace!(%topic, "received event");
@@ -378,6 +413,7 @@ mod e2e_tests {
     use std::{path::PathBuf, task::Poll};
 
     use corepc_node::{client::client_sync::Auth, serde_json::json};
+    use proptest::prelude::*;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::{wait_for_blocks, wait_for_height};
@@ -473,7 +509,9 @@ mod e2e_tests {
         let start_height = bitcoind.client.get_block_count()?.0;
         let fetcher = setup_fetcher(&bitcoind.rpc_url(), cookie_file);
 
-        let client = BtcZmqClient::new(&cfg, VecDeque::new()).connect().await?;
+        let client = BtcZmqClient::new(&cfg, VecDeque::new())
+            .connect(start_height, fetcher)
+            .await?;
 
         Ok((client, bitcoind))
     }
@@ -1065,5 +1103,74 @@ mod e2e_tests {
         .await?;
 
         Ok(())
+    }
+
+    proptest! {
+        // run only 10 test cases
+        #![proptest_config(ProptestConfig {
+            cases: 10,
+            .. ProptestConfig::default()
+        })]
+
+        #[test]
+        #[serial]
+        fn blocks_are_contiguous(
+            block_batches in proptest::collection::vec(1u32..5u32, 1..5),
+        ) {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                // Set up new bitcoind and zmq client instance
+                let (client, bitcoind) = setup_client().await.unwrap();
+
+                // Subscribe to new blocks
+                let mut block_sub = client.subscribe_blocks().await;
+
+                // Keep track of the last seen height
+                // Since the notify service should deliver blocks starting from `start_height`, the
+                // `last_height` should be one less than that.
+                let mut last_height = client.start_height().saturating_sub(1);
+                let new_address = bitcoind.client.new_address().unwrap();
+
+                // Generate blocks in batches with potential gaps between batches
+                for batch_size in block_batches {
+                    let _ = bitcoind.client.generate_to_address(batch_size as usize, &new_address).unwrap();
+                    let latest_height = bitcoind.client.get_block_count().unwrap().0;
+
+                    let start_time = tokio::time::Instant::now();
+                    // For each block in this batch
+                    while last_height < latest_height {
+                        if let Some(event) = timeout(Duration::from_secs(10), block_sub.next()).await.unwrap() {
+                            match event.status {
+                                BlockStatus::Uncled => continue,
+                                BlockStatus::Buried => continue,
+                                BlockStatus::Mined => {
+                                    let received_height = event.block.bip34_block_height().unwrap();
+
+                                    // Verify that this block's height is exactly one more than the last seen height
+                                    prop_assert_eq!(
+                                        received_height,
+                                        last_height + 1,
+                                        "Block heights should be contiguous. Expected height {}, got {}",
+                                        last_height + 1,
+                                        received_height
+                                    );
+
+                                    last_height = received_height;
+                                },
+                            }
+                        }
+
+                        prop_assert!(start_time.elapsed() < Duration::from_secs(300), "timeout waiting for block events");
+                    }
+                }
+
+                // Explicitly drop the client here to prevent rustc from "optimizing" the code and dropping
+                // it earlier, aborting the producer thread
+                drop(client);
+
+                Ok::<(), proptest::test_runner::TestCaseError>(())
+            })
+            .unwrap();
+        }
     }
 }
