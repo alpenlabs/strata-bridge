@@ -17,5 +17,4 @@ bitcoin.workspace = true
 borsh.workspace = true
 
 [dev-dependencies]
-strata-bridge-common.workspace = true
 tracing.workspace = true

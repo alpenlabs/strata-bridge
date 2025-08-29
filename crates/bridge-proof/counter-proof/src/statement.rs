@@ -118,6 +118,7 @@ pub(crate) fn process_counterproof(
             }
         }
         CounterproofMode::HeavierChain(heavier_chain) => {
+            println!("User acc pow {}", acc_pow_high_bytes);
             let heavier_acc_pow = verify_header_chain(heavier_chain)?;
             let x = heavier_acc_pow.to_be_bytes();
             let heavier_acc_pow_high_bytes = u32::from_be_bytes([x[0], x[1], x[2], x[3]]);
