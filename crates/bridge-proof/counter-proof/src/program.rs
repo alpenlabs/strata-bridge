@@ -82,32 +82,29 @@ pub fn get_native_host() -> NativeHost {
 mod tests {
     use std::sync::Arc;
 
-    use bitcoin::{key::Secp256k1, secp256k1, XOnlyPublicKey};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use tracing::debug;
     use zkaleido::ZkVmProgram;
 
     use super::*;
-    use crate::CounterproofMode;
+    use crate::{
+        test_utils::mock_transaction::{derive_master_pubkey, MockTransactionBuilder},
+        CounterproofMode,
+    };
 
     fn get_test_input() -> CounterproofInput {
-        use crate::statement::create_mock_transaction;
-
         // Create a proper mock transaction with inputs and OP_RETURN output
         let bridge_proof_master_key_bytes = [0x01; 32];
-
         let deposit_index = 32;
-        let (mock_tx, mock_prevouts) =
-            create_mock_transaction(bridge_proof_master_key_bytes, deposit_index);
+        let op_return_data = vec![0x42u8; 292];
 
-        let secp = Secp256k1::new();
-        let sk = secp256k1::SecretKey::from_slice(&bridge_proof_master_key_bytes).unwrap();
-        let kp = secp256k1::Keypair::from_secret_key(&secp, &sk);
-        let bridge_proof_master_key = XOnlyPublicKey::from_keypair(&kp).0;
+        let (mock_tx, mock_prevouts) = MockTransactionBuilder::new()
+            .master_key(bridge_proof_master_key_bytes)
+            .deposit_index(deposit_index)
+            .op_return_data(op_return_data)
+            .build();
 
-        // Convert to the format needed by CounterproofInput
-        // let bridge_proof_master_key =
-        //     secp256k1::XOnlyPublicKey::from_slice(&bridge_proof_master_key_bytes).unwrap();
+        let bridge_proof_master_key = derive_master_pubkey(&bridge_proof_master_key_bytes);
 
         CounterproofInput {
             bridge_proof_master_key,
