@@ -9779,7 +9779,6 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "borsh",
- "strata-bridge-common",
  "strata-crypto",
  "strata-primitives 0.2.0",
  "tracing",

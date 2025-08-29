@@ -82,7 +82,6 @@ pub fn get_native_host() -> NativeHost {
 mod tests {
     use std::sync::Arc;
 
-    use strata_bridge_common::logging::{self, LoggerConfig};
     use tracing::debug;
     use zkaleido::ZkVmProgram;
 
@@ -92,8 +91,7 @@ mod tests {
         CounterproofMode,
     };
 
-    fn get_test_input() -> CounterproofInput {
-        // Create a proper mock transaction with inputs and OP_RETURN output
+    fn run_counterproof_test(mode: CounterproofMode) {
         let bridge_proof_master_key_bytes = [0x01; 32];
         let deposit_index = 32;
         let op_return_data = vec![0x42u8; 292];
@@ -104,26 +102,28 @@ mod tests {
             .op_return_data(op_return_data)
             .build();
 
-        let bridge_proof_master_key = derive_master_pubkey(&bridge_proof_master_key_bytes);
-
-        CounterproofInput {
-            bridge_proof_master_key,
+        let counter_proof_input = CounterproofInput {
+            bridge_proof_master_key: derive_master_pubkey(&bridge_proof_master_key_bytes),
             deposit_index,
             bridge_proof_tx: mock_tx,
             bridge_proof_prevouts: Arc::from(mock_prevouts),
-            mode: CounterproofMode::InvalidBridgeProof,
+            mode,
+        };
+
+        let host = get_native_host();
+        match CounterproofProgram::prove(&counter_proof_input, &host) {
+            Ok(receipt) => debug!(?receipt, "received counter-proof receipt from native host"),
+            Err(e) => debug!(?e, "counter-proof failed as expected with dummy data"),
         }
     }
 
     #[test]
-    fn test_native() {
-        logging::init(LoggerConfig::new("test-counterproof-native".to_string()));
-        let input = get_test_input();
-        let host = get_native_host();
-        // Note: This test will likely fail due to dummy data, but demonstrates the structure
-        match CounterproofProgram::prove(&input, &host) {
-            Ok(receipt) => debug!(?receipt, "received counter-proof receipt from native host"),
-            Err(e) => debug!(?e, "counter-proof failed as expected with dummy data"),
-        }
+    fn test_invalid_bridge_proof_mode() {
+        run_counterproof_test(CounterproofMode::InvalidBridgeProof);
+    }
+
+    #[test]
+    fn test_heavier_chain_mode() {
+        run_counterproof_test(CounterproofMode::HeavierChain(vec![]));
     }
 }
