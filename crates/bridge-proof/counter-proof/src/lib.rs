@@ -85,3 +85,7 @@ pub fn process_counterproof_outer(zkvm: &impl ZkVmEnv) {
 }
 
 pub use program::{get_native_host, CounterproofProgram};
+
+/// Utilities for testing counter-proof functionality.
+#[cfg(test)]
+pub mod test_utils;
