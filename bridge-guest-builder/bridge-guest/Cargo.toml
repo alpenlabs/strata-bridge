@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [dependencies]
 strata-bridge-proof-protocol = { path = "../../crates/bridge-proof/protocol" }
-zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11", features = [
+zkaleido-sp1-guest-env = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc13", features = [
   "blake3",
 ] }
 
