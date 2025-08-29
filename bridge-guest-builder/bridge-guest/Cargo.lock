@@ -4401,7 +4401,7 @@ dependencies = [
  "strata-proofimpl-btc-blockspace",
  "strata-state",
  "thiserror 2.0.12",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
  "zkaleido-native-adapter",
 ]
 
@@ -4413,7 +4413,7 @@ dependencies = [
  "secp256k1",
  "sha2",
  "strata-primitives",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
  "zkaleido-risc0-groth16-verifier",
  "zkaleido-sp1-groth16-verifier",
 ]
@@ -4459,7 +4459,7 @@ dependencies = [
  "thiserror 2.0.12",
  "tracing",
  "zeroize",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -4475,7 +4475,7 @@ dependencies = [
  "strata-l1tx",
  "strata-primitives",
  "strata-state",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
  "zkaleido-native-adapter",
 ]
 
@@ -4497,7 +4497,7 @@ dependencies = [
  "strata-crypto",
  "strata-primitives",
  "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -5659,19 +5659,6 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
-dependencies = [
- "arbitrary",
- "async-trait",
- "bincode",
- "borsh",
- "serde",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "zkaleido"
-version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
 dependencies = [
  "arbitrary",
@@ -5690,7 +5677,7 @@ dependencies = [
  "bincode",
  "borsh",
  "serde",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -5702,7 +5689,7 @@ dependencies = [
  "risc0-binfmt",
  "risc0-groth16",
  "risc0-zkp",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
 ]
 
 [[package]]
@@ -5712,19 +5699,19 @@ source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d
 dependencies = [
  "hex",
  "sp1-verifier",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "zkaleido",
 ]
 
 [[package]]
 name = "zkaleido-sp1-guest-env"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
 dependencies = [
  "bincode",
  "cfg-if",
  "serde",
  "sp1-zkvm",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+ "zkaleido",
 ]
 
 [[package]]
