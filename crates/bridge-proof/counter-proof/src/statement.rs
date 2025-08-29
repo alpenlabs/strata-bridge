@@ -182,3 +182,38 @@ fn extract_op_return_data(txout: &bitcoin::TxOut) -> Result<&[u8], &'static str>
 
     Ok(data)
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::blockdata::{
+        opcodes::all::OP_RETURN,
+        script::{Builder, PushBytesBuf},
+    };
+
+    use super::*;
+
+    fn create_op_return_txout(value: bitcoin::Amount, payload: &[u8]) -> bitcoin::TxOut {
+        let mut push_data = PushBytesBuf::new();
+        push_data.extend_from_slice(payload).expect("should fit");
+
+        let script = Builder::new()
+            .push_opcode(OP_RETURN)
+            .push_slice(push_data)
+            .into_script();
+
+        bitcoin::TxOut {
+            value,
+            script_pubkey: script,
+        }
+    }
+
+    #[test]
+    fn test_extract_op_return_data_valid() {
+        let payload = [0x42u8; 292];
+        let txout = create_op_return_txout(bitcoin::Amount::ZERO, &payload);
+
+        let result = extract_op_return_data(&txout).unwrap();
+        assert_eq!(result.len(), 292);
+        assert!(result.iter().all(|&b| b == 0x42));
+    }
+}
