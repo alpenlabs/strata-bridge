@@ -22,29 +22,28 @@ build:
 
 # Run unit tests
 [group('test')]
-test-unit:
-    -cargo install cargo-nextest --locked
+test-unit: ensure-cargo-nextest
     ZKVM_MOCK=1 cargo nextest run {{unit_test_args}}
 
 # Run unit tests with coverage
 [group('test')]
-cov-unit:
+cov-unit: ensure-cargo-llvm-cov ensure-cargo-nextest
     rm -f {{cov_file}}
     cargo llvm-cov nextest --lcov --output-path {{cov_file}} {{unit_test_args}}
 
 # Generate an HTML coverage report and open it in the browser
 [group('test')]
-cov-report-html:
+cov-report-html: ensure-cargo-llvm-cov ensure-cargo-nextest
     cargo llvm-cov --open nextest {{unit_test_args}}
 
 # Runs `nextest` under `cargo-mutants`. Caution: This can take *really* long to run
 [group('test')]
-mutants-test:
+mutants-test: ensure-cargo-mutants
     cargo mutants --workspace -j2
 
 # Check for security advisories on any dependencies
 [group('test')]
-sec:
+sec: ensure-cargo-audit
     cargo audit
 
 # cargo clean
@@ -116,6 +115,46 @@ fmt-check-ws:
 [group('code-quality')]
 fmt-ws:
     cargo fmt --all
+
+# Check if cargo-audit is installed
+[group('prerequisites')]
+ensure-cargo-audit:
+    #!/usr/bin/env bash
+    if ! command -v cargo-audit &> /dev/null;
+    then
+        echo "cargo-audit not found. Please install it by running the command 'cargo install cargo-audit'"
+        exit 1
+    fi
+
+# Check if cargo-llvm-cov is installed
+[group('prerequisites')]
+ensure-cargo-llvm-cov:
+    #!/usr/bin/env bash
+    if ! command -v cargo-llvm-cov &> /dev/null;
+    then
+        echo "cargo-llvm-cov not found. Please install it by running the command 'cargo install cargo-llvm-cov --locked'"
+        exit 1
+    fi
+
+# Check if cargo-mutants is installed
+[group('prerequisites')]
+ensure-cargo-mutants:
+    #!/usr/bin/env bash
+    if ! command -v cargo-mutants &> /dev/null;
+    then
+        echo "cargo-mutants not found. Please install it by running the command 'cargo install cargo-mutants'"
+        exit 1
+    fi
+
+# Check if cargo-nextest is installed
+[group('prerequisites')]
+ensure-cargo-nextest:
+    #!/usr/bin/env bash
+    if ! command -v cargo-nextest &> /dev/null;
+    then
+        echo "cargo-nextest not found. Please install it by running the command 'cargo install cargo-nextest --locked'"
+        exit 1
+    fi
 
 # Check if taplo is installed
 [group('prerequisites')]
