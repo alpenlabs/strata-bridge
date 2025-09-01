@@ -53,7 +53,7 @@ jobs:
           toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install latest just release
-        uses: taiki-e/install-action@e8c1cf74a696e981aec979a6703471e61b400895 # v2.57.4
+        uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # v2.58.29
         with:
           tool: just
 
@@ -74,7 +74,7 @@ jobs:
         run: just migrate
 
       - name: Cache Docker layers
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: /tmp/.buildx-cache
           key: ${{ runner.os }}-buildx-${{ github.sha }}

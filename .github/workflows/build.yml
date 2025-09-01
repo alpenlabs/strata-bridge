@@ -45,12 +45,14 @@ jobs:
           toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install latest just release
-        uses: taiki-e/install-action@e8c1cf74a696e981aec979a6703471e61b400895 # v2.57.4
+        uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # v2.58.29
         with:
           tool: just
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@69810fea1670baa5ae2a69d28101209dc19bc23d # cargo-hack
+        uses: taiki-e/install-action@c0dee14250395ae6b1754a99f67c1d693138b102 # cargo-hack v2.58.30
+        with:
+          tool: cargo-hack
 
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
