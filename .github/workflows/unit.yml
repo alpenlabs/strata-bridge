@@ -74,12 +74,12 @@ jobs:
           toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
 
       - name: Install latest nextest release
-        uses: taiki-e/install-action@e8c1cf74a696e981aec979a6703471e61b400895 # v2.57.4
+        uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # v2.58.29
         with:
           tool: nextest
 
       - name: Install latest just release
-        uses: taiki-e/install-action@e8c1cf74a696e981aec979a6703471e61b400895 # v2.57.4
+        uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # v2.58.29
         with:
           tool: just
 
@@ -95,7 +95,7 @@ jobs:
           cargo prove --version
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@e8c1cf74a696e981aec979a6703471e61b400895 # v2.57.4
+        uses: taiki-e/install-action@14083e64ac8cf1f5e54356df00b9779b23e192a1 # v2.58.29
         with:
           tool: cargo-llvm-cov
 
@@ -126,7 +126,7 @@ jobs:
           paths: "target/nextest/ci/junit.xml"
 
       - name: Publish Test Coverage
-        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5.4.3
+        uses: codecov/codecov-action@fdcc8476540edceab3de004e990f80d881c6cc00 # v5.5.0
         with:
           files: lcov.info
         env:
