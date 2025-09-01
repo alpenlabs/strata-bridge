@@ -303,3 +303,5 @@ certs
 *.vk
 *.sp1vk
 *.hex
+
+.obsidian
