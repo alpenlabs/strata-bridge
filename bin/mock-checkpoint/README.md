@@ -15,6 +15,7 @@ mock-checkpoint --sequencer-xpriv <MASTER_XPRIV> [OPTIONS]
 - `--btc-url` - Bitcoin RPC endpoint (default: `http://localhost:18444/wallet/default`)
 - `--btc-user` - RPC username (default: `user`)
 - `--btc-pass` - RPC password (default: `password`)
+- `--rollup-name` - Rollup name/magic bytes as it appears in L1 txs (default: `alpn`)
 - `--fee-rate` - Fee rate in sats/vbyte (default: `100`)
 - `--sequencer-address` - Sequencer address (default: `bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080`)
 - `--network` - Bitcoin network: mainnet/testnet/signet/regtest (default: `regtest`)

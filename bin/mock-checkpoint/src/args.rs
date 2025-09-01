@@ -65,6 +65,10 @@ pub(crate) struct Args {
     /// Path to file containing JSON-serialized entries
     #[arg(long, value_parser = validate_deposit_entries)]
     pub deposit_entries: DepositEntries,
+
+    /// Rollup name
+    #[arg(long, default_value = "alpn")]
+    pub rollup_name: String,
 }
 
 pub(crate) fn validate_xpriv(str_buf: &str) -> anyhow::Result<Buf32> {

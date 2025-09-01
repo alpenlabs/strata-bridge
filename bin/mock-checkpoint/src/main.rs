@@ -183,6 +183,7 @@ mod tests {
             .unwrap_or(("".to_string(), "".to_string()));
         let seq_addr = "bcrt1qw508d6qejxtdg4y5r3zarvary0c5xw7kygt080";
         Args {
+            rollup_name: "alpn".to_string(),
             btc_url: format!("http://{}", node.params.rpc_socket),
             btc_user: user,
             btc_pass: password,

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use secp256k1::{Secp256k1, SecretKey};
+use strata_bridge_common::tracing::info;
 use strata_btcio::writer::builder::EnvelopeConfig;
 use strata_primitives::{
     block_credential::CredRule,
@@ -18,7 +19,7 @@ pub(crate) fn create_envelope_config(args: &Args) -> EnvelopeConfig {
     let op_pubkey = OperatorPubkeys::new(pubkey, pubkey);
     let rollup_params = Params {
         rollup: RollupParams {
-            rollup_name: "strata".to_string(),
+            rollup_name: args.rollup_name.clone(),
             block_time: 100,
             da_tag: args.da_tag.clone(),
             checkpoint_tag: args.checkpoint_tag.clone(),
@@ -44,6 +45,7 @@ pub(crate) fn create_envelope_config(args: &Args) -> EnvelopeConfig {
             l2_blocks_fetch_limit: 100,
         },
     };
+    info!(?rollup_params, "constructed rollup params");
     EnvelopeConfig::new(
         Arc::new(rollup_params),
         args.sequencer_address.clone(),
