@@ -19,8 +19,7 @@ use rkyv::{rancor::Error, util::AlignedVec};
 use secret_service_proto::{
     v2::{
         traits::{
-            Musig2Signer, P2PSigner, SchnorrSigner, SecretService, Server, StakeChainPreimages,
-            WotsSigner,
+            Musig2Signer, SchnorrSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
         },
         wire::{ClientMessage, ServerMessage, SignerTarget},
     },
@@ -166,13 +165,6 @@ where
     Ok(match msg {
         // this would be a separate function but tokio would start whining because !Sync
         VersionedClientMessage::V2(msg) => match msg {
-            ClientMessage::P2PSecretKey => {
-                let key = service.p2p_signer().secret_key().await;
-                ServerMessage::P2PSecretKey {
-                    key: key.secret_bytes(),
-                }
-            }
-
             ClientMessage::Musig2GetPubNonce { params } => {
                 let params = match params.try_into() {
                     Ok(params) => params,
@@ -237,6 +229,7 @@ where
                             .await
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign(&digest, tweak).await,
+                    SignerTarget::P2P => service.p2p_signer().sign(&digest, tweak).await,
                 };
                 ServerMessage::SchnorrSignerSign {
                     sig: sig.serialize(),
@@ -255,6 +248,7 @@ where
                             .await
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign_no_tweak(&digest).await,
+                    SignerTarget::P2P => service.p2p_signer().sign_no_tweak(&digest).await,
                 };
                 ServerMessage::SchnorrSignerSign {
                     sig: sig.serialize(),
@@ -272,6 +266,7 @@ where
                         .await
                         .serialize(),
                     SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
+                    SignerTarget::P2P => service.p2p_signer().pubkey().await.serialize(),
                 },
             },
 

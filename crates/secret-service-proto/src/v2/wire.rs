@@ -46,12 +46,6 @@ pub enum ServerMessage {
         pubkey: [u8; 32],
     },
 
-    /// Response for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
-    P2PSecretKey {
-        /// Serialized [`SecretKey`](bitcoin::secp256k1::SecretKey)
-        key: [u8; 32],
-    },
-
     /// Response for [`Musig2Signer::get_pub_nonce`](super::traits::Musig2Signer::get_pub_nonce).
     Musig2GetPubNonce(Result<[u8; 66], OurPubKeyIsNotInParams>),
 
@@ -107,9 +101,6 @@ pub enum ServerMessage {
 /// Various messages the client can send to the server.
 #[derive(Debug, Clone, Archive, Serialize, Deserialize)]
 pub enum ClientMessage {
-    /// Request for [`P2PSigner::secret_key`](super::traits::P2PSigner::secret_key).
-    P2PSecretKey,
-
     /// Request for [`SchnorrSigner::sign`](super::traits::SchnorrSigner::sign).
     SchnorrSignerSign {
         /// Which Schnorr key to use
@@ -288,6 +279,7 @@ pub enum SignerTarget {
     General,
     Stakechain,
     Musig2,
+    P2P,
 }
 
 #[derive(Debug, Clone, Copy, Archive, Serialize, Deserialize)]

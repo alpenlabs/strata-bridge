@@ -4,10 +4,7 @@ use std::future::Future;
 
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
-use musig2::{
-    secp256k1::{schnorr::Signature, SecretKey},
-    AggNonce, PartialSignature, PubNonce,
-};
+use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce};
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
@@ -30,7 +27,7 @@ where
     type StakechainWalletSigner: SchnorrSigner<O>;
 
     /// Implementation of the [`P2PSigner`] trait.
-    type P2PSigner: P2PSigner<O>;
+    type P2PSigner: SchnorrSigner<O>;
 
     /// Implementation of the [`Musig2Signer`] trait.
     type Musig2Signer: Musig2Signer<O>;
@@ -88,17 +85,6 @@ pub trait SchnorrSigner<O: Origin>: Send {
 
     /// Returns the public key of the operator's secret key.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
-}
-
-/// The P2P signer is used for signing messages between operators on the peer-to-peer network.
-///
-/// # Warning
-///
-/// The user should make sure the operator's secret key should have its own unique key that isn't
-/// used for any other purpose.
-pub trait P2PSigner<O: Origin>: Send {
-    /// Returns the [`SecretKey`] that should be used for signing P2P messages
-    fn secret_key(&self) -> impl Future<Output = O::Container<SecretKey>> + Send;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]
