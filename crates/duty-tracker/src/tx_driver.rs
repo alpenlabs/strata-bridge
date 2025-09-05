@@ -314,6 +314,10 @@ mod e2e_tests {
 
     use super::TxDriver;
 
+    // TODO(proofofkeags): once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
+    // due to a bug in rust-bitcoin.
+    pub(crate) const BIP34_MIN_BLOCKS: usize = 17;
+
     fn setup_fetcher(rpc_url: &str, cookie_file: PathBuf) -> impl BlockFetcher<Error = String> {
         struct Fetcher(corepc_node::Client);
 
@@ -360,6 +364,11 @@ mod e2e_tests {
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
         let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
+
+        bitcoind
+            .client
+            .generate_to_address(BIP34_MIN_BLOCKS, &bitcoind.client.new_address()?)?;
+
         debug!("corepc_node::Node initialized");
 
         let cfg = BtcZmqConfig::default()
