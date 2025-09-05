@@ -166,15 +166,8 @@ pub(crate) async fn bootstrap(
     )
     .await;
 
-    let current = bitcoin_rpc_client.get_block_count().await?;
-    let bury_height = current.saturating_sub(config.btc_zmq.bury_depth() as u64);
-
-    // we grab every block starting with the block after the bury_height all the way up to the
-    // current height and place it in the unburied blocks queue.
-    let mut unburied_blocks = VecDeque::new();
-    for height in bury_height + 1..=current {
-        unburied_blocks.push_front(bitcoin_rpc_client.get_block_at(height).await?);
-    }
+    // We have no awareness of what blocks are unburied at startup, so we start with an empty list.
+    let unburied_blocks = VecDeque::new();
     // Initialize the duty tracker.
     info!("initializing contract manager");
     let zmq_client = BtcZmqClient::new(&config.btc_zmq, unburied_blocks);
