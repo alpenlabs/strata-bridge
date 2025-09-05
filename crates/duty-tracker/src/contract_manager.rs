@@ -167,14 +167,17 @@ impl ContractManager {
             // contract state to disk.
             //
             // We take the minimum height that any state machine has observed since we want to
-            // re-feed chain events that they might have missed.
+            // re-feed chain events that they might have missed. We then start processing from the
+            // next block.
             let cursor = active_contracts
                 .values()
                 .min_by(|sm1, sm2| sm1.state().block_height.cmp(&sm2.state().block_height))
                 .map(|sm| sm.state().block_height)
-                .unwrap_or(current);
+                .unwrap_or(current.saturating_sub(1)) // -1 to nullify the +1 below
+                .saturating_add(1); // start at the next block
 
             let fetcher = BtcFetcher(rpc_client.clone());
+            info!(%cursor, %current, "establishing zmq client connection");
             let zmq_client = zmq_client
                 .connect(cursor, fetcher)
                 .await
