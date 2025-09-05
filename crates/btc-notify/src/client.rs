@@ -183,7 +183,12 @@ impl BtcZmqClient<Disconnected> {
                                 }
                                 Message::Block(block, _) => {
                                     trace!(%topic, "received event");
-                                    let mut blocks = Vec::new();
+
+                                    let received_height = block.bip34_block_height().unwrap_or(0);
+                                    if start_height > received_height {
+                                        warn!(%received_height, %start_height, "start height is in the future, skipping block");
+                                        continue;
+                                    }
 
                                     debug!("received block at height {received_height}, expected {cursor}");
 
@@ -201,11 +206,6 @@ impl BtcZmqClient<Disconnected> {
 
                                         cursor += 1;
                                         debug!(%cursor, "fetched skipped block and incremented cursor");
-                                    }
-
-                                    if cursor > received_height {
-                                        warn!(%cursor, %received_height, "cursor is ahead of received block height, this may indicate a reorg or a future start height");
-                                        continue;
                                     }
 
                                     blocks.push(block); // add the one from ZMQ
