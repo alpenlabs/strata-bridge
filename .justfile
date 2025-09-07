@@ -18,7 +18,7 @@ default:
 # Build the workspace into the `target` directory
 [group('build')]
 build:
-    cargo build --workspace --features "{{features}}" --profile "{{profile}}"
+    cargo build --workspace --features "{{features}}" --profile "{{profile}}" --lib --bins --examples --tests --benches
 
 # Run unit tests
 [group('test')]
