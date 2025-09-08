@@ -42,7 +42,15 @@ pub enum ServerMessage {
 
     /// Response for [`SchnorrSigner::pubkey`](super::traits::SchnorrSigner::pubkey).
     SchnorrSignerPubkey {
-        /// Serialized Schnorr [`XOnlyPublicKey`] for operator signatures.
+        /// Serialized Schnorr [`XOnlyPublicKey`] for P2P v2 signatures.
+        pubkey: [u8; 32],
+    },
+
+    /// Response for [`Ed25519Signer::sign`](super::traits::Ed25519Signer::sign).
+    Ed25519SignerSign { sig: [u8; 64] },
+
+    Ed25519SignerPubkey {
+        /// Serialized Ed25519 public key for P2P v2 signatures.
         pubkey: [u8; 32],
     },
 
@@ -127,6 +135,12 @@ pub enum ClientMessage {
         /// Which Schnorr key to use
         target: SignerTarget,
     },
+
+    /// Request for [`Ed25519Signer::sign`](super::traits::Ed25519Signer::sign).
+    Ed25519SignerSign { digest: [u8; 32] },
+
+    /// Request for [`Ed25519Signer::pubkey`](super::traits::Ed25519Signer::pubkey).
+    Ed25519SignerPubkey,
 
     /// Request for [`Musig2Signer::get_pub_nonce`](super::traits::Musig2Signer::get_pub_nonce).
     Musig2GetPubNonce {
@@ -279,7 +293,6 @@ pub enum SignerTarget {
     General,
     Stakechain,
     Musig2,
-    P2P,
 }
 
 #[derive(Debug, Clone, Copy, Archive, Serialize, Deserialize)]

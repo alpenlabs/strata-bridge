@@ -1,54 +1,40 @@
 //! In-memory persistence for operator's P2P secret data.
 
-use bitcoin::{
-    bip32::Xpriv,
-    key::{Keypair, TapTweak},
-    TapNodeHash, XOnlyPublicKey,
-};
-use musig2::secp256k1::{schnorr::Signature, Message, SECP256K1};
-use secret_service_proto::v2::traits::{Origin, SchnorrSigner, Server};
-use strata_bridge_primitives::secp::EvenSecretKey;
+use bitcoin::bip32::Xpriv;
+use ed25519::signature::Signer;
+use ed25519_dalek::SigningKey;
+use musig2::secp256k1::SECP256K1;
+use secret_service_proto::v2::traits::{Ed25519Signer, Origin, Server};
 
 use super::paths::P2P_KEY_PATH;
 
 /// Secret data for the P2P signer.
 #[derive(Debug)]
 pub struct ServerP2PSigner {
-    /// The [`SecretKey`] for the P2P signer.
-    kp: Keypair,
+    sk: SigningKey,
 }
 
 impl ServerP2PSigner {
-    /// Creates a new [`ServerP2PSigner`] with the given secret key.
+    /// Creates a new [`ServerP2PSigner`] with the given base xpriv.
     pub fn new(base: &Xpriv) -> Self {
-        let sk: EvenSecretKey = base
+        let seed = base
             .derive_priv(SECP256K1, &P2P_KEY_PATH)
             .expect("good child key")
-            .private_key
-            .into();
-        let kp = sk.keypair(SECP256K1);
-        Self { kp }
+            .to_priv()
+            .inner
+            .secret_bytes();
+
+        let sk = SigningKey::from_bytes(&seed);
+        Self { sk }
     }
 }
 
-impl SchnorrSigner<Server> for ServerP2PSigner {
-    async fn sign(
-        &self,
-        digest: &[u8; 32],
-        tweak: Option<TapNodeHash>,
-    ) -> <Server as Origin>::Container<Signature> {
-        self.kp
-            .tap_tweak(SECP256K1, tweak)
-            .to_keypair()
-            .sign_schnorr(Message::from_digest_slice(digest).expect("digest is 32 bytes"))
+impl Ed25519Signer<Server> for ServerP2PSigner {
+    async fn sign(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<ed25519::Signature> {
+        self.sk.sign(digest)
     }
 
-    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Server as Origin>::Container<Signature> {
-        self.kp
-            .sign_schnorr(Message::from_digest_slice(digest).expect("digest is exactly 32 bytes"))
-    }
-
-    async fn pubkey(&self) -> <Server as Origin>::Container<XOnlyPublicKey> {
-        self.kp.x_only_public_key().0
+    async fn pubkey(&self) -> <Server as Origin>::Container<[u8; 32]> {
+        self.sk.verifying_key().to_bytes()
     }
 }

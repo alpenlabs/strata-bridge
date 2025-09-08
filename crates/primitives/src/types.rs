@@ -39,3 +39,6 @@ impl TryFrom<PublickeyTable> for KeyAggContext {
         KeyAggContext::new(Into::<Vec<PublicKey>>::into(value))
     }
 }
+
+/// Public keys used for verifying P2P message signatures
+pub type P2POperatorPubKey = [u8; 32];

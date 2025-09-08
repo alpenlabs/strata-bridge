@@ -26,8 +26,8 @@ where
     /// Implementation of the [`SchnorrSigner`] trait for the stakechain wallet.
     type StakechainWalletSigner: SchnorrSigner<O>;
 
-    /// Implementation of the [`P2PSigner`] trait.
-    type P2PSigner: SchnorrSigner<O>;
+    /// Implementation of the [`Ed25519Signer`] trait for the P2P network.
+    type P2PSigner: Ed25519Signer<O>;
 
     /// Implementation of the [`Musig2Signer`] trait.
     type Musig2Signer: Musig2Signer<O>;
@@ -85,6 +85,17 @@ pub trait SchnorrSigner<O: Origin>: Send {
 
     /// Returns the public key of the operator's secret key.
     fn pubkey(&self) -> impl Future<Output = O::Container<XOnlyPublicKey>> + Send;
+}
+
+pub trait Ed25519Signer<O: Origin>: Send {
+    /// Signs a `digest` using the operator's [`SecretKey`].
+    fn sign(
+        &self,
+        digest: &[u8; 32],
+    ) -> impl Future<Output = O::Container<ed25519::Signature>> + Send;
+
+    /// Returns the public key of the operator's secret key.
+    fn pubkey(&self) -> impl Future<Output = O::Container<[u8; 32]>> + Send;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Archive, Serialize, Deserialize)]

@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 bitcoin.workspace = true
 bitvm.workspace = true
+ed25519.workspace = true
 musig2.workspace = true
 quinn.workspace = true
 rkyv.workspace = true

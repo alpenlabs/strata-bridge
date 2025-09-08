@@ -19,7 +19,8 @@ use rkyv::{rancor::Error, util::AlignedVec};
 use secret_service_proto::{
     v2::{
         traits::{
-            Musig2Signer, SchnorrSigner, SecretService, Server, StakeChainPreimages, WotsSigner,
+            Ed25519Signer, Musig2Signer, SchnorrSigner, SecretService, Server, StakeChainPreimages,
+            WotsSigner,
         },
         wire::{ClientMessage, ServerMessage, SignerTarget},
     },
@@ -229,7 +230,6 @@ where
                             .await
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign(&digest, tweak).await,
-                    SignerTarget::P2P => service.p2p_signer().sign(&digest, tweak).await,
                 };
                 ServerMessage::SchnorrSignerSign {
                     sig: sig.serialize(),
@@ -248,7 +248,6 @@ where
                             .await
                     }
                     SignerTarget::Musig2 => service.musig2_signer().sign_no_tweak(&digest).await,
-                    SignerTarget::P2P => service.p2p_signer().sign_no_tweak(&digest).await,
                 };
                 ServerMessage::SchnorrSignerSign {
                     sig: sig.serialize(),
@@ -266,9 +265,20 @@ where
                         .await
                         .serialize(),
                     SignerTarget::Musig2 => service.musig2_signer().pubkey().await.serialize(),
-                    SignerTarget::P2P => service.p2p_signer().pubkey().await.serialize(),
                 },
             },
+
+            ClientMessage::Ed25519SignerSign { digest } => {
+                let sig = service.p2p_signer().sign(&digest).await;
+                ServerMessage::Ed25519SignerSign {
+                    sig: sig.to_bytes(),
+                }
+            }
+
+            ClientMessage::Ed25519SignerPubkey => {
+                let pubkey = service.p2p_signer().pubkey().await;
+                ServerMessage::Ed25519SignerPubkey { pubkey }
+            }
 
             ClientMessage::WotsGet128SecretKey { specifier } => {
                 let txid = Txid::from_slice(&specifier.txid).expect("correct length");

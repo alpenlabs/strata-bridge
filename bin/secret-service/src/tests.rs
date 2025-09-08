@@ -103,6 +103,24 @@ async fn stakechain_preimg() {
 }
 
 #[tokio::test]
+async fn p2p_signer() {
+    use ed25519_dalek::Verifier;
+    let client = setup().await;
+
+    let p2p_signer = client.p2p_signer();
+    let p2p_pubkey = p2p_signer.pubkey().await.expect("good response");
+
+    for _ in 0..100 {
+        let to_sign = thread_rng().gen();
+        let sig = p2p_signer.sign(&to_sign).await.expect("good response");
+        ed25519_dalek::VerifyingKey::from_bytes(&p2p_pubkey)
+            .expect("good pubkey")
+            .verify(&to_sign, &sig)
+            .expect("good signature");
+    }
+}
+
+#[tokio::test]
 async fn schnorr_signers() {
     let client = setup().await;
 
@@ -121,17 +139,12 @@ async fn schnorr_signers() {
     let musig2_pubkey = musig2_signer.pubkey().await.expect("good response");
     let (musig2_tweaked_pubkey, _) = musig2_pubkey.tap_tweak(SECP256K1, None);
 
-    let p2p_signer = client.p2p_signer();
-    let p2p_pubkey = p2p_signer.pubkey().await.expect("good response");
-    let (p2p_tweaked_pubkey, _) = p2p_pubkey.tap_tweak(SECP256K1, None);
-
     let secp_ctx = Arc::new(Secp256k1::verification_only());
     let handles = (0..100)
         .map(|_| {
             let general_wallet_signer = general_wallet_signer.clone();
             let stakechain_wallet_signer = stakechain_wallet_signer.clone();
             let musig2_signer = musig2_signer.clone();
-            let p2p_signer = p2p_signer.clone();
             let secp_ctx = secp_ctx.clone();
             tokio::spawn(async move {
                 let to_sign = thread_rng().gen();
@@ -190,22 +203,6 @@ async fn schnorr_signers() {
                     .await
                     .expect("good response");
                 assert!(secp_ctx.verify_schnorr(&sig, &msg, &musig2_pubkey).is_ok());
-
-                // sign p2p
-                let sig = p2p_signer
-                    .sign(&to_sign, None)
-                    .await
-                    .expect("good response");
-                assert!(secp_ctx
-                    .verify_schnorr(&sig, &msg, &p2p_tweaked_pubkey.to_x_only_public_key())
-                    .is_ok());
-
-                // sign p2p no tweak
-                let sig = p2p_signer
-                    .sign_no_tweak(&to_sign)
-                    .await
-                    .expect("good response");
-                assert!(secp_ctx.verify_schnorr(&sig, &msg, &p2p_pubkey).is_ok());
             })
         })
         .collect::<Vec<_>>();

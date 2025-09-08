@@ -2,12 +2,10 @@
 
 use std::sync::Arc;
 
-use bitcoin::{hashes::Hash, TapNodeHash, XOnlyPublicKey};
-use musig2::secp256k1::schnorr::Signature;
 use quinn::Connection;
 use secret_service_proto::v2::{
-    traits::{Client, ClientError, Origin, SchnorrSigner},
-    wire::{ClientMessage, ServerMessage, SignerTarget},
+    traits::{Client, ClientError, Ed25519Signer, Origin},
+    wire::{ClientMessage, ServerMessage},
 };
 
 use crate::{make_v2_req, Config};
@@ -29,49 +27,24 @@ impl P2PClient {
     }
 }
 
-impl SchnorrSigner<Client> for P2PClient {
-    async fn sign(
-        &self,
-        digest: &[u8; 32],
-        tweak: Option<TapNodeHash>,
-    ) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::SchnorrSignerSign {
-            target: SignerTarget::P2P,
-            digest: *digest,
-            tweak: tweak.map(|t| t.to_raw_hash().to_byte_array()),
-        };
+impl Ed25519Signer<Client> for P2PClient {
+    async fn sign(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<ed25519::Signature> {
+        let msg = ClientMessage::Ed25519SignerSign { digest: *digest };
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
-        match res {
-            ServerMessage::SchnorrSignerSign { sig } => {
-                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
-            }
-            _ => Err(ClientError::WrongMessage(res.into())),
+        if let ServerMessage::Ed25519SignerSign { sig } = res {
+            Ok(ed25519::Signature::from_bytes(&sig))
+        } else {
+            Err(ClientError::WrongMessage(res.into()))
         }
     }
 
-    async fn sign_no_tweak(&self, digest: &[u8; 32]) -> <Client as Origin>::Container<Signature> {
-        let msg = ClientMessage::SchnorrSignerSignNoTweak {
-            target: SignerTarget::P2P,
-            digest: *digest,
-        };
+    async fn pubkey(&self) -> <Client as Origin>::Container<[u8; 32]> {
+        let msg = ClientMessage::Ed25519SignerPubkey;
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
-        match res {
-            ServerMessage::SchnorrSignerSign { sig } => {
-                Signature::from_slice(&sig).map_err(|_| ClientError::BadData)
-            }
-            _ => Err(ClientError::WrongMessage(res.into())),
+        if let ServerMessage::Ed25519SignerPubkey { pubkey } = res {
+            Ok(pubkey)
+        } else {
+            Err(ClientError::WrongMessage(res.into()))
         }
-    }
-
-    async fn pubkey(&self) -> <Client as Origin>::Container<XOnlyPublicKey> {
-        let msg = ClientMessage::SchnorrSignerPubkey {
-            target: SignerTarget::P2P,
-        };
-        let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
-        let ServerMessage::SchnorrSignerPubkey { pubkey } = res else {
-            return Err(ClientError::WrongMessage(res.into()));
-        };
-
-        XOnlyPublicKey::from_slice(&pubkey).map_err(|_| ClientError::WrongMessage(res.into()))
     }
 }
