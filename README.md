@@ -1,10 +1,11 @@
 # Strata Bridge
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache-blue.svg)](https://opensource.org/licenses/apache-2-0)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/alpenlabs/strata-bridge/blob/main/LICENSE-MIT)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache-blue.svg)](https://github.com/alpenlabs/strata-bridge/blob/main/LICENSE-APACHE)
 [![codecov](https://codecov.io/github/alpenlabs/strata-bridge/graph/badge.svg?token=UYZ5YPKGL2)](https://codecov.io/github/alpenlabs/strata-bridge)
 [![build](https://github.com/alpenlabs/strata-bridge/actions/workflows/build.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
 [![lint](https://github.com/alpenlabs/strata-bridge/actions/workflows/lint.yml/badge.svg?event=push)](https://github.com/alpenlabs/strata-bridge/actions)
+[![docs](https://github.com/alpenlabs/strata-bridge/actions/workflows/docs.yml/badge.svg)](https://github.com/alpenlabs/strata-bridge/actions/workflows/docs.yml)
 [![Release: v0.2.0](https://badgen.net/static/release/v0.2.0/yellow)](https://github.com/alpenlabs/strata-bridge/releases/tag/v0.2.0-rc3)
 
 A reference implementation of Strata Bridge by your friends at [Alpen Labs](https://www.alpenlabs.io/).
