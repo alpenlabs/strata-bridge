@@ -7,7 +7,7 @@ use std::{collections::VecDeque, error::Error, marker::PhantomData, sync::Arc, t
 
 use bitcoin::{Block, Transaction};
 use bitcoincore_zmq::{subscribe_async_wait_handshake, Message, SocketMessage};
-use futures::StreamExt;
+use futures::{future::join_all, StreamExt};
 use tokio::{
     sync::{mpsc, Mutex},
     task::{self, JoinHandle},
@@ -82,6 +82,9 @@ pub trait BlockFetcher {
     type Error;
 
     /// Fetches a block by its height.
+    ///
+    /// Implementations should handle their own retry strategies and only return
+    /// an error if all retries have been exhausted.
     async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error>;
 }
 
@@ -128,8 +131,8 @@ impl BtcZmqClient<Disconnected> {
         fetcher: F,
     ) -> Result<BtcZmqClient<Connected>, Box<dyn Error>>
     where
-        F: BlockFetcher + Send + 'static,
-        <F as BlockFetcher>::Error: std::fmt::Debug,
+        F: BlockFetcher + Send + Sync + 'static,
+        <F as BlockFetcher>::Error: std::fmt::Debug + Send,
     {
         trace!(sockets=?self.sockets, "subscribing to bitcoind");
 
@@ -159,6 +162,7 @@ impl BtcZmqClient<Disconnected> {
         let block_subs_thread = self.block_subs.clone();
         let tx_subs_thread = self.tx_subs.clone();
         let state_machine_thread = self.state_machine.clone();
+        let fetcher = Arc::new(fetcher);
 
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
@@ -192,21 +196,35 @@ impl BtcZmqClient<Disconnected> {
 
                                     debug!("received block at height {received_height}, expected {cursor}");
 
-                                    // check if the height of this block is the one that we expect.
-                                    // and then, backfill any skipped blocks.
-                                    let mut blocks = Vec::new();
-                                    while cursor < received_height {
-                                        match fetcher.fetch_block(cursor).await {
-                                            Ok(b) => blocks.push(b),
+                                    // Backfill any skipped blocks in the range:
+                                    // [cursor, received_height).
+                                    // FIXME: (@Rajil1213) This can consume a lot of resources if
+                                    // the node has been down for a long time. For example, if the
+                                    // node has been down for 1 week, this will consume 2Gb of
+                                    // memory (assuming 2Mb block size) which may trigger an OOM
+                                    // kill. Make sure that the node has enough resources after a
+                                    // prolonged downtime or fix this impl so that massive backlogs
+                                    // are processed in batches instead of all at once.
+                                    let mut blocks =
+                                        match join_all((cursor..received_height).map(|height| {
+                                            debug!(%height, "fetching lagged block");
+                                            let fetcher = fetcher.clone();
+                                            async move { fetcher.fetch_block(height).await }
+                                        }))
+                                        .await
+                                        .into_iter()
+                                        .collect::<Result<Vec<_>, _>>()
+                                        {
+                                            Ok(skipped_blocks) => skipped_blocks,
                                             Err(e) => {
-                                                error!(?e, %cursor, "failed to fetch skipped block");
+                                                error!(?e, "failed to backfill lagged blocks");
+                                                // if we can't fetch any of the skipped blocks,
+                                                // then we wait for the next ZMQ event and try
+                                                // again since returning intermediate/broken stream
+                                                // of blocks may introduce unpredictable weirdness.
                                                 continue;
                                             }
-                                        }
-
-                                        cursor += 1;
-                                        debug!(%cursor, "fetched skipped block and incremented cursor");
-                                    }
+                                        };
 
                                     blocks.push(block); // add the one from ZMQ
 
@@ -241,11 +259,10 @@ impl BtcZmqClient<Disconnected> {
                                         }
 
                                         all_tx_events.extend(tx_events);
-                                    }
 
-                                    // finally, increment the cursor after processing the latest
-                                    // block.
-                                    cursor += 1;
+                                        // increment the cursor with every block that is processed
+                                        cursor += 1;
+                                    }
 
                                     all_tx_events
                                 }
