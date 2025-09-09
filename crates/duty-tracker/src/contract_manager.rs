@@ -11,6 +11,7 @@ use std::{
     vec,
 };
 
+use algebra::retry::{retry_with, Strategy};
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, error::ClientError, traits::Reader};
@@ -516,7 +517,21 @@ impl BlockFetcher for BtcFetcher {
     type Error = ClientError;
 
     async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
-        self.0.get_block_at(height).await
+        // TODO: (@Rajil1213) make these configurable
+        const MAX_RETRIES: usize = 10;
+        const INITIAL_DELAY: Duration = Duration::from_secs(1);
+        const MAX_DELAY: Duration = Duration::from_secs(60);
+        const MULTIPLIER: f64 = 2.0;
+
+        let retry_strategy = Strategy::exponential_backoff(INITIAL_DELAY, MAX_DELAY, MULTIPLIER)
+            .with_max_retries(MAX_RETRIES);
+
+        let client = self.0.clone();
+        retry_with(retry_strategy, move || {
+            let client = client.clone();
+            async move { client.get_block_at(height).await }
+        })
+        .await
     }
 }
 
