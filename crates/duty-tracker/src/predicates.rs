@@ -9,7 +9,7 @@ use bitcoin::{
     Script, Transaction, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
-use btc_notify::TxPredicate;
+use btc_tracker::TxPredicate;
 use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     claim::CHALLENGE_VOUT, deposit::DepositRequestData, prelude::POST_ASSERT_INPUT_INDEX,

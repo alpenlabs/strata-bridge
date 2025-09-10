@@ -11,7 +11,7 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
-use btc_notify::{event::TxStatus, tx_driver::DriveErr};
+use btc_tracker::{event::TxStatus, tx_driver::DriveErr};
 use secret_service_proto::v2::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,

@@ -870,7 +870,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "bitcoind-async-client",
- "btc-notify",
+ "btc-tracker",
  "chrono",
  "clap",
  "duty-tracker",
@@ -2208,7 +2208,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "btc-notify"
+name = "btc-tracker"
 version = "0.1.0"
 dependencies = [
  "algebra",
@@ -3350,7 +3350,7 @@ dependencies = [
  "bitcoind-async-client",
  "bitvm",
  "borsh",
- "btc-notify",
+ "btc-tracker",
  "futures",
  "hex",
  "musig2",

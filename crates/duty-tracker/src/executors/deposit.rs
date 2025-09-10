@@ -10,7 +10,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid, XOnlyPublicKey,
 };
-use btc_notify::{event::TxStatus, tx_driver::TxDriver};
+use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
 use futures::FutureExt;
 use musig2::{aggregate_partial_signatures, AggNonce, PartialSignature, PubNonce};
 use secp256k1::{schnorr, Message, PublicKey};
