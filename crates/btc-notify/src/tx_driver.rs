@@ -12,10 +12,6 @@ use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
     Client as BitcoinClient,
 };
-use btc_notify::{
-    client::{BtcZmqClient, Connected, TxEvent, TxStatus},
-    subscription::Subscription,
-};
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
 use thiserror::Error;
 use tokio::{
@@ -25,6 +21,12 @@ use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info};
+
+use crate::{
+    client::{BtcZmqClient, Connected},
+    event::{TxEvent, TxStatus},
+    subscription::Subscription,
+};
 
 /// Error type for the TxDriver.
 #[derive(Debug, Error)]
@@ -206,7 +208,7 @@ impl TxDriver {
                     }
                     Some(event) = active_tx_subs.next().fuse() => {
                         match event.status {
-                            btc_notify::client::TxStatus::Unknown => {
+                            TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
                                 match rpc_client.send_raw_transaction(&event.rawtx).await {
                                     Ok(txid) => {
@@ -304,7 +306,6 @@ mod e2e_tests {
     use algebra::predicate;
     use bitcoin::Block;
     use bitcoind_async_client::Client as BitcoinClient;
-    use btc_notify::client::{BlockFetcher, BtcZmqClient, BtcZmqConfig, TxStatus};
     use corepc_node::{client::client_sync::Auth, CookieValues};
     use futures::join;
     use serial_test::serial;
@@ -312,7 +313,8 @@ mod e2e_tests {
     use strata_bridge_test_utils::prelude::wait_for_height;
     use tracing::{debug, info};
 
-    use super::TxDriver;
+    use super::*;
+    use crate::{client::BlockFetcher, config::BtcZmqConfig};
 
     // TODO(proofofkeags): once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
     // due to a bug in rust-bitcoin.

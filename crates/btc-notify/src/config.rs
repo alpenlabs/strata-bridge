@@ -1,3 +1,4 @@
+//! Configuration for the Bitcoin ZMQ client.
 use serde::{Deserialize, Serialize};
 
 use crate::constants::DEFAULT_BURY_DEPTH;

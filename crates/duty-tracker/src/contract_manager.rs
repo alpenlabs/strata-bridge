@@ -15,7 +15,11 @@ use algebra::retry::{retry_with, Strategy};
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, error::ClientError, traits::Reader};
-use btc_notify::client::{BlockFetcher, BlockStatus, BtcZmqClient};
+use btc_notify::{
+    client::{BlockFetcher, BtcZmqClient},
+    event::BlockStatus,
+    tx_driver::TxDriver,
+};
 use futures::{future::join_all, StreamExt};
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
@@ -51,7 +55,6 @@ use crate::{
     shutdown::ExecutionState,
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
-    tx_driver::TxDriver,
 };
 
 /// System that handles all of the chain and p2p events and forwards them to their respective

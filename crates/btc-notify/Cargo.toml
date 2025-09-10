@@ -7,12 +7,17 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+algebra.workspace = true
+
 async-trait.workspace = true
 bitcoin.workspace = true
 bitcoincore-zmq = { version = "1.5.2", features = ["async"] }
+bitcoind-async-client.workspace = true
 futures.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util"] }
+tokio-stream.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

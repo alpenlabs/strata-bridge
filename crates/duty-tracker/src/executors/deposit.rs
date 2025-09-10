@@ -10,7 +10,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot, FeeRate, OutPoint, Psbt, TapSighashType, Txid, XOnlyPublicKey,
 };
-use btc_notify::client::TxStatus;
+use btc_notify::{event::TxStatus, tx_driver::TxDriver};
 use futures::FutureExt;
 use musig2::{aggregate_partial_signatures, AggNonce, PartialSignature, PubNonce};
 use secp256k1::{schnorr, Message, PublicKey};
@@ -32,7 +32,6 @@ use crate::{
     contract_state_machine::TransitionErr,
     errors::ContractManagerErr,
     executors::wots_handler::get_wots_pks,
-    tx_driver::TxDriver,
 };
 
 /// Handles the duty to publish the stake chain exchange message to the p2p network upon genesis and
