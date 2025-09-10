@@ -19,7 +19,7 @@ use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
     Client as BitcoinClient,
 };
-use btc_tracker::client::BtcZmqClient;
+use btc_tracker::client::BtcNotifyClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
     shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
@@ -170,7 +170,7 @@ pub(crate) async fn bootstrap(
     let unburied_blocks = VecDeque::new();
     // Initialize the duty tracker.
     info!("initializing contract manager");
-    let zmq_client = BtcZmqClient::new(&config.btc_zmq, unburied_blocks);
+    let zmq_client = BtcNotifyClient::new(&config.btc_zmq, unburied_blocks);
 
     let pre_stake_pubkey = operator_wallet.stakechain_script_buf();
     let (contract_manager, contract_persister, stake_chain_persister) = init_duty_tracker(
@@ -441,7 +441,7 @@ async fn init_duty_tracker(
     operator_table: OperatorTable,
     pre_stake_pubkey: ScriptBuf,
     rpc_client: BitcoinClient,
-    zmq_client: BtcZmqClient,
+    zmq_client: BtcNotifyClient,
     s2_client: SecretServiceClient,
     p2p_handle: P2PHandle,
     operator_wallet: OperatorWallet,

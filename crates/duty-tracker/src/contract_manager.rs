@@ -16,7 +16,7 @@ use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChai
 use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, error::ClientError, traits::Reader};
 use btc_tracker::{
-    client::{BlockFetcher, BtcZmqClient},
+    client::{BlockFetcher, BtcNotifyClient},
     event::BlockStatus,
     tx_driver::TxDriver,
 };
@@ -89,7 +89,7 @@ impl ContractManager {
         // Genesis information
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
-        zmq_client: BtcZmqClient,
+        zmq_client: BtcNotifyClient,
         rpc_client: BitcoinClient,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,

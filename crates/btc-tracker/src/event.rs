@@ -1,4 +1,5 @@
-//! Events emitted by the `BtcZmqClient` in its `Connected` state.
+//! Events emitted by the [`BtcNotifyClient`](crate::client::BtcNotifyClient) in its `Connected`
+//! state.
 use std::fmt;
 
 use bitcoin::{Block, BlockHash, Transaction};
@@ -75,7 +76,7 @@ impl TxStatus {
 }
 
 /// Type that is emitted to Subscriptions created with
-/// [`crate::client::BtcZmqClient::subscribe_transactions`].
+/// [`crate::client::BtcNotifyClient::subscribe_transactions`].
 ///
 /// It contains the raw transaction data, and the status indicating the Transaction's most up to
 /// date status about its inclusion in the canonical history.

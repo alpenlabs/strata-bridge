@@ -1,7 +1,7 @@
-//! This module contains the top level BtcZmqClient implementation.
+//! This module contains the top level BtcNotifyClient implementation.
 //!
 //! Once the client is initialized, consumers of this API will create [`Subscription`]s with
-//! [`BtcZmqClient::subscribe_blocks`] or [`BtcZmqClient::subscribe_transactions`]. These
+//! [`BtcNotifyClient::subscribe_blocks`] or [`BtcNotifyClient::subscribe_transactions`]. These
 //! subscription objects can be primarily worked with via their [`futures::Stream`] trait API.
 use std::{collections::VecDeque, error::Error, marker::PhantomData, sync::Arc, time::Duration};
 
@@ -15,9 +15,9 @@ use tokio::{
 use tracing::{debug, error, info, trace, warn};
 
 use crate::{
-    config::BtcZmqConfig,
+    config::BtcNotifyConfig,
     event::{BlockEvent, BlockStatus, TxEvent},
-    state_machine::{BtcZmqSM, TxPredicate},
+    state_machine::{BtcNotifySM, TxPredicate},
     subscription::Subscription,
 };
 
@@ -51,23 +51,23 @@ impl std::fmt::Debug for TxSubscriptionDetails {
 /// to its subscribers.
 ///
 /// Uses the typestate pattern to enforce connection state at compile time.
-/// - `BtcZmqClient<Disconnected>`: Client is created but not connected to bitcoind
-/// - `BtcZmqClient<Connected>`: Client is connected and monitoring thread is active
+/// - `BtcNotifyClient<Disconnected>`: Client is created but not connected to bitcoind
+/// - `BtcNotifyClient<Connected>`: Client is connected and monitoring thread is active
 #[derive(Debug, Clone)]
-pub struct BtcZmqClient<State = Disconnected> {
+pub struct BtcNotifyClient<State = Disconnected> {
     bury_depth: usize,
     start_height: Option<u64>,
     sockets: Vec<String>,
     block_subs: Arc<Mutex<Vec<mpsc::UnboundedSender<BlockEvent>>>>,
     tx_subs: Arc<Mutex<Vec<TxSubscriptionDetails>>>,
-    state_machine: Arc<Mutex<BtcZmqSM>>,
+    state_machine: Arc<Mutex<BtcNotifySM>>,
     thread_handle: Option<Arc<JoinHandle<()>>>,
 
     _state: PhantomData<State>,
 }
 
 // Drop implementation for all states
-impl<State> Drop for BtcZmqClient<State> {
+impl<State> Drop for BtcNotifyClient<State> {
     fn drop(&mut self) {
         if let Some(handle) = self.thread_handle.take() {
             handle.abort();
@@ -89,12 +89,12 @@ pub trait BlockFetcher {
 }
 
 // Implementation for Disconnected state
-impl BtcZmqClient<Disconnected> {
+impl BtcNotifyClient<Disconnected> {
     /// Creates a new disconnected client.
     ///
     /// The client is initialized but not connected to bitcoind. Use `connect()` to establish
     /// the ZMQ subscription and transition to the Connected state.
-    pub fn new(cfg: &BtcZmqConfig, unburied_blocks: VecDeque<Block>) -> Self {
+    pub fn new(cfg: &BtcNotifyConfig, unburied_blocks: VecDeque<Block>) -> Self {
         let sockets = cfg
             .hashblock_connection_string
             .iter()
@@ -105,7 +105,10 @@ impl BtcZmqClient<Disconnected> {
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
 
-        let state_machine = Arc::new(Mutex::new(BtcZmqSM::init(cfg.bury_depth, unburied_blocks)));
+        let state_machine = Arc::new(Mutex::new(BtcNotifySM::init(
+            cfg.bury_depth,
+            unburied_blocks,
+        )));
         let block_subs = Arc::new(Mutex::new(Vec::new()));
         let tx_subs = Arc::new(Mutex::new(Vec::new()));
 
@@ -129,7 +132,7 @@ impl BtcZmqClient<Disconnected> {
         self,
         start_height: u64,
         fetcher: F,
-    ) -> Result<BtcZmqClient<Connected>, Box<dyn Error>>
+    ) -> Result<BtcNotifyClient<Connected>, Box<dyn Error>>
     where
         F: BlockFetcher + Send + Sync + 'static,
         <F as BlockFetcher>::Error: std::fmt::Debug + Send,
@@ -167,7 +170,7 @@ impl BtcZmqClient<Disconnected> {
         let mut cursor = start_height;
         let thread_handle = Arc::new(task::spawn(async move {
             loop {
-                // This loop has no break condition. It is only aborted when the BtcZmqClient is
+                // This loop has no break condition. It is only aborted when the BtcNotifyClient is
                 // dropped.
                 info!("listening for ZMQ events");
 
@@ -318,7 +321,7 @@ impl BtcZmqClient<Disconnected> {
 
         info!("subscribed to bitcoind");
 
-        Ok(BtcZmqClient {
+        Ok(BtcNotifyClient {
             bury_depth: self.bury_depth,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
@@ -332,17 +335,17 @@ impl BtcZmqClient<Disconnected> {
 }
 
 // Implementation for Connected state
-impl BtcZmqClient<Connected> {
+impl BtcNotifyClient<Connected> {
     /// Gracefully disconnects from bitcoind and transitions back to Disconnected state.
     ///
     /// Consumes the connected client and returns a disconnected client.
     /// The monitoring thread is aborted when this method is called.
-    pub fn disconnect(mut self) -> BtcZmqClient<Disconnected> {
+    pub fn disconnect(mut self) -> BtcNotifyClient<Disconnected> {
         if let Some(thread_handle) = self.thread_handle.take() {
             thread_handle.abort();
         }
 
-        BtcZmqClient {
+        BtcNotifyClient {
             bury_depth: self.bury_depth,
             sockets: self.sockets.clone(),
             block_subs: self.block_subs.clone(),
@@ -405,13 +408,13 @@ impl BtcZmqClient<Connected> {
     }
 
     /// Returns the number of active transaction subscriptions created with
-    /// [`BtcZmqClient::subscribe_transactions`].
+    /// [`BtcNotifyClient::subscribe_transactions`].
     pub async fn num_tx_subscriptions(&self) -> usize {
         self.tx_subs.lock().await.len()
     }
 
     /// Returns the number of active block subscriptions created with
-    /// [`BtcZmqClient::subscribe_blocks`].
+    /// [`BtcNotifyClient::subscribe_blocks`].
     pub async fn num_block_subscriptions(&self) -> usize {
         self.block_subs.lock().await.len()
     }
@@ -424,7 +427,7 @@ impl BtcZmqClient<Connected> {
 }
 
 // Shared methods available in both states
-impl<State> BtcZmqClient<State> {
+impl<State> BtcNotifyClient<State> {
     /// Returns the configured bury depth.
     pub const fn bury_depth(&self) -> usize {
         self.bury_depth
@@ -445,7 +448,8 @@ mod e2e_tests {
     use super::*;
     use crate::{constants::DEFAULT_BURY_DEPTH, event::TxStatus};
 
-    async fn setup_node() -> Result<(BtcZmqConfig, corepc_node::Node), Box<dyn std::error::Error>> {
+    async fn setup_node() -> Result<(BtcNotifyConfig, corepc_node::Node), Box<dyn std::error::Error>>
+    {
         let mut bitcoin_conf = corepc_node::Conf::default();
         bitcoin_conf.enable_zmq = true;
 
@@ -475,7 +479,7 @@ mod e2e_tests {
         bitcoind.client.generate_to_address(21, &address)?;
         wait_for_height(&bitcoind, 21).await?;
 
-        let cfg = BtcZmqConfig::default()
+        let cfg = BtcNotifyConfig::default()
             .with_bury_depth(DEFAULT_BURY_DEPTH)
             .with_hashblock_connection_string(hash_block_socket)
             .with_hashtx_connection_string(hash_tx_socket)
@@ -526,13 +530,13 @@ mod e2e_tests {
     }
 
     async fn setup_client(
-    ) -> Result<(BtcZmqClient<Connected>, corepc_node::Node), Box<dyn std::error::Error>> {
+    ) -> Result<(BtcNotifyClient<Connected>, corepc_node::Node), Box<dyn std::error::Error>> {
         let (cfg, bitcoind) = setup_node().await?;
         let cookie_file = bitcoind.params.cookie_file.clone();
         let start_height = bitcoind.client.get_block_count()?.0;
         let fetcher = setup_fetcher(&bitcoind.rpc_url(), cookie_file);
 
-        let client = BtcZmqClient::new(&cfg, VecDeque::new())
+        let client = BtcNotifyClient::new(&cfg, VecDeque::new())
             .connect(start_height, fetcher)
             .await?;
 
@@ -541,8 +545,8 @@ mod e2e_tests {
 
     async fn setup_two_clients() -> Result<
         (
-            BtcZmqClient<Connected>,
-            BtcZmqClient<Connected>,
+            BtcNotifyClient<Connected>,
+            BtcNotifyClient<Connected>,
             corepc_node::Node,
         ),
         Box<dyn std::error::Error>,
@@ -556,13 +560,13 @@ mod e2e_tests {
 
         info!("connecting to bitcoind with client 1");
         let fetcher_1 = setup_fetcher(&bitcoind.rpc_url(), cookie_file.clone());
-        let client_1 = BtcZmqClient::new(&cfg, VecDeque::new())
+        let client_1 = BtcNotifyClient::new(&cfg, VecDeque::new())
             .connect(start_height, fetcher_1)
             .await?;
 
         info!("connecting to bitcoind with client 2");
         let fetcher_2 = setup_fetcher(&bitcoind.rpc_url(), cookie_file);
-        let client_2 = BtcZmqClient::new(&cfg, VecDeque::new())
+        let client_2 = BtcNotifyClient::new(&cfg, VecDeque::new())
             .connect(start_height, fetcher_2)
             .await?;
 
@@ -1044,7 +1048,7 @@ mod e2e_tests {
             }
         }
 
-        // Drop the subscription to trigger its removal from the BtcZmqClient.
+        // Drop the subscription to trigger its removal from the BtcNotifyClient.
         drop(tx_sub);
 
         // Assert that we still have an active subscription because we haven't yet processed an
