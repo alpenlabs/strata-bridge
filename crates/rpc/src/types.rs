@@ -27,7 +27,7 @@ pub enum RpcDepositStatus {
     /// Deposit exists, but was never completed (can be reclaimed).
     Failed {
         /// Reason for the failure.
-        failure_reason: String,
+        reason: String,
     },
 
     /// Deposit has been fully processed and minted.

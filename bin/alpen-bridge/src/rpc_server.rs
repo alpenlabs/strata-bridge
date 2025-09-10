@@ -453,6 +453,9 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
             if deposit_request_txid == entry_deposit_request_txid {
                 let status = match &entry.0.state.state {
                     ContractState::Requested { .. } => RpcDepositStatus::InProgress,
+                    ContractState::Aborted => RpcDepositStatus::Failed {
+                        reason: "Deadline to convert to deposit passed".to_string(),
+                    },
                     _ => RpcDepositStatus::Complete {
                         deposit_txid: entry.0.deposit_txid,
                     },
