@@ -2,16 +2,14 @@
 
 use bdk_wallet::error::CreateTxError;
 use bitcoind_async_client::error::ClientError;
+use btc_notify::tx_driver::DriveErr;
 use strata_bridge_db::errors::DbError;
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_p2p_types::P2POperatorPubKey;
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, UnsignedGossipsubMsg};
 use thiserror::Error;
 
-use crate::{
-    contract_persister::ContractPersistErr, contract_state_machine::TransitionErr,
-    tx_driver::DriveErr,
-};
+use crate::{contract_persister::ContractPersistErr, contract_state_machine::TransitionErr};
 
 /// Unified error type for everything that can happen in the ContractManager.
 #[derive(Debug, Error)]

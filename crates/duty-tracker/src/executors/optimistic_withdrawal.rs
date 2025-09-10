@@ -11,7 +11,7 @@ use bitcoin::{
 };
 use bitcoin_bosd::Descriptor;
 use bitcoind_async_client::traits::Reader;
-use btc_notify::client::TxStatus;
+use btc_notify::{event::TxStatus, tx_driver::DriveErr};
 use secret_service_proto::v2::traits::*;
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC1, ConnectorCpfp, ConnectorK, ConnectorNOfN, ConnectorP, ConnectorStake,
@@ -43,7 +43,6 @@ use crate::{
         constants::{DEPOSIT_VOUT, WITHDRAWAL_FULFILLMENT_PK_IDX},
         wots_handler::get_withdrawal_fulfillment_wots_pk,
     },
-    tx_driver::DriveErr,
 };
 
 pub(crate) async fn handle_publish_first_stake(
