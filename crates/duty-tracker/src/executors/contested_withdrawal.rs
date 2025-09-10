@@ -1,7 +1,7 @@
 use algebra::predicate;
 use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::HASH_LEN};
-use btc_notify::event::TxStatus;
+use btc_tracker::event::TxStatus;
 use futures::future::join_all;
 use rand::thread_rng;
 use secp256k1::rand::{self, Rng};

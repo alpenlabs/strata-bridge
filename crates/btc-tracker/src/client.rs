@@ -572,7 +572,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn basic_subscribe_blocks_functionality() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -609,7 +609,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn multiple_subscribers_receive_same_events() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         info!("setting up two clients");
         let (client_1, client_2, bitcoind) = setup_two_clients().await?;
@@ -660,7 +660,7 @@ mod e2e_tests {
     #[serial]
     async fn basic_subscribe_transactions_functionality() -> Result<(), Box<dyn std::error::Error>>
     {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -704,7 +704,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn only_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -757,7 +757,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn all_matched_transactions_delivered() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -813,7 +813,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn exactly_one_mined_status_per_block() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -939,7 +939,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn mined_txs_eventually_buried() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -1004,7 +1004,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn dropped_tx_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;
@@ -1075,7 +1075,7 @@ mod e2e_tests {
     #[tokio::test]
     #[serial]
     async fn dropped_block_subscriptions_pruned() -> Result<(), Box<dyn std::error::Error>> {
-        logging::init(LoggerConfig::new("btc-notify".to_string()));
+        logging::init(LoggerConfig::new("btc-tracker".to_string()));
 
         // Set up new bitcoind and zmq client instance.
         let (client, bitcoind) = setup_client().await?;

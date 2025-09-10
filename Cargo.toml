@@ -16,7 +16,7 @@ members = [
   "crates/connectors",
   "crates/common",
   "crates/tx-graph",
-  "crates/btc-notify",
+  "crates/btc-tracker",
   "bridge-guest-builder",
   "crates/secret-service-proto",
   "crates/secret-service-client",
@@ -59,7 +59,7 @@ clippy.missing_const_for_fn = "deny"
 # deps in this workspace
 algebra = { path = "crates/algebra" }
 alpen-bridge-params = { path = "crates/params" }
-btc-notify = { path = "crates/btc-notify" }
+btc-tracker = { path = "crates/btc-tracker" }
 duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
@@ -124,7 +124,7 @@ bdk_esplora = { version = "0.20.1", features = [
 bdk_wallet = "1.1.0"
 bincode = "1.3.3"
 blake3 = "1.6.1"
-# TODO(proofofkeags): when updating `bitcoin` to >=0.33.0, go through `btc-notify` and `tx-driver` and update tests to no longer constrain heights.
+# TODO(proofofkeags): when updating `bitcoin` to >=0.33.0, go through `btc-tracker` and `tx-driver` and update tests to no longer constrain heights.
 bitcoin = { version = "0.32.6", features = ["rand-std", "serde"] }
 bitcoin-bosd = "0.4.0"
 bitcoin-script = { git = "https://github.com/BitVM/rust-bitcoin-script" }

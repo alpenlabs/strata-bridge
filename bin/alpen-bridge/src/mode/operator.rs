@@ -19,7 +19,7 @@ use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
     Client as BitcoinClient,
 };
-use btc_notify::client::BtcZmqClient;
+use btc_tracker::client::BtcZmqClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
     shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
