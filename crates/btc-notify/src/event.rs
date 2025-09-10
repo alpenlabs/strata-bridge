@@ -1,3 +1,4 @@
+//! Events emitted by the `BtcZmqClient` in its `Connected` state.
 use std::fmt;
 
 use bitcoin::{Block, BlockHash, Transaction};

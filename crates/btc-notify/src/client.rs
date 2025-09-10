@@ -14,12 +14,12 @@ use tokio::{
 };
 use tracing::{debug, error, info, trace, warn};
 
-pub use crate::{
+use crate::{
     config::BtcZmqConfig,
-    event::{BlockEvent, BlockStatus, TxEvent, TxStatus},
-    state_machine::TxPredicate,
+    event::{BlockEvent, BlockStatus, TxEvent},
+    state_machine::{BtcZmqSM, TxPredicate},
+    subscription::Subscription,
 };
-use crate::{state_machine::BtcZmqSM, subscription::Subscription};
 
 // State marker types for the typestate pattern
 
@@ -354,7 +354,8 @@ impl BtcZmqClient<Connected> {
         }
     }
 
-    /// Creates a new [`Subscription`] that emits new [`bitcoin::Transaction`] and [`TxStatus`]
+    /// Creates a new [`Subscription`] that emits new [`bitcoin::Transaction`] and
+    /// [`TxStatus`](crate::event::TxStatus)
     /// every time a transaction's status changes due to block or mempool events.
     ///
     /// Only available when the client is in the Connected state.

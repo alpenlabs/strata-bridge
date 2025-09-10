@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
-use btc_notify::client::BtcZmqConfig;
+use btc_notify::config::BtcZmqConfig;
 use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};

@@ -5,8 +5,12 @@
 #![feature(coverage_attribute)]
 
 pub mod client;
-mod config;
+pub mod config;
 mod constants;
-mod event;
+pub mod event;
 mod state_machine;
 pub mod subscription;
+pub mod tx_driver;
+
+// Re-exports
+pub use state_machine::TxPredicate;
