@@ -15,7 +15,7 @@ use algebra::retry::{retry_with, Strategy};
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, error::ClientError, traits::Reader};
-use btc_notify::{
+use btc_tracker::{
     client::{BlockFetcher, BtcZmqClient},
     event::BlockStatus,
     tx_driver::TxDriver,

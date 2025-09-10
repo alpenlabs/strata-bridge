@@ -2,7 +2,7 @@
 
 use bdk_wallet::error::CreateTxError;
 use bitcoind_async_client::error::ClientError;
-use btc_notify::tx_driver::DriveErr;
+use btc_tracker::tx_driver::DriveErr;
 use strata_bridge_db::errors::DbError;
 use strata_bridge_tx_graph::errors::TxGraphError;
 use strata_p2p_types::P2POperatorPubKey;
