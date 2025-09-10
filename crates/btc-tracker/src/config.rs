@@ -6,14 +6,14 @@ use crate::constants::DEFAULT_BURY_DEPTH;
 /// Main configuration type used to establish the connection with the ZMQ interface of Bitcoin.
 ///
 /// It accepts independent connection strings for each of the stream types. Any connection strings
-/// that are left as None when initializing the [`crate::client::BtcZmqClient`] will result in those
-/// streams going unmonitored. In the limit, this means that the default [`BtcZmqConfig`] will
-/// result in a [`crate::client::BtcZmqClient`] that does absolutely nothing (NOOP).
+/// that are left as None when initializing the [`crate::client::BtcNotifyClient`] will result in
+/// those streams going unmonitored. In the limit, this means that the default [`BtcNotifyConfig`]
+/// will result in a [`crate::client::BtcNotifyClient`] that does absolutely nothing (NOOP).
 ///
-/// You should construct a [`BtcZmqConfig`] with [`Default::default`] and modify it with the member
-/// methods on this struct.
+/// You should construct a [`BtcNotifyConfig`] with [`Default::default`] and modify it with the
+/// member methods on this struct.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BtcZmqConfig {
+pub struct BtcNotifyConfig {
     /// Depth at which a transaction is considered buried, defaults to [`DEFAULT_BURY_DEPTH`].
     pub(crate) bury_depth: usize,
 
@@ -33,8 +33,8 @@ pub struct BtcZmqConfig {
     pub(crate) sequence_connection_string: Option<String>,
 }
 
-impl BtcZmqConfig {
-    /// Updates the [`BtcZmqConfig`] with a `zmqpubhashblock` connection string and returns the
+impl BtcNotifyConfig {
+    /// Updates the [`BtcNotifyConfig`] with a `zmqpubhashblock` connection string and returns the
     /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
@@ -43,7 +43,7 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the [`BtcZmqConfig`] with a `zmqpubhashtx` connection string and returns the
+    /// Updates the [`BtcNotifyConfig`] with a `zmqpubhashtx` connection string and returns the
     /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
@@ -52,7 +52,7 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the [`BtcZmqConfig`] with a `zmqpubrawblock` connection string and returns the
+    /// Updates the [`BtcNotifyConfig`] with a `zmqpubrawblock` connection string and returns the
     /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
@@ -61,8 +61,8 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the [`BtcZmqConfig`] with a `zmqpubrawtx` connection string and returns the updated
-    /// config.
+    /// Updates the [`BtcNotifyConfig`] with a `zmqpubrawtx` connection string and returns the
+    /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     pub fn with_rawtx_connection_string(mut self, s: &str) -> Self {
@@ -70,7 +70,7 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the [`BtcZmqConfig`] with a `zmqpubsequence` connection string and returns the
+    /// Updates the [`BtcNotifyConfig`] with a `zmqpubsequence` connection string and returns the
     /// updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
@@ -79,7 +79,7 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Updates the [`BtcZmqConfig`] with a new bury depth and returns the updated config.
+    /// Updates the [`BtcNotifyConfig`] with a new bury depth and returns the updated config.
     ///
     /// Useful for a builder pattern with dotchaining.
     ///
@@ -92,15 +92,15 @@ impl BtcZmqConfig {
         self
     }
 
-    /// Returns the value configured with the [`BtcZmqConfig::with_bury_depth`] function.
+    /// Returns the value configured with the [`BtcNotifyConfig::with_bury_depth`] function.
     pub const fn bury_depth(&self) -> usize {
         self.bury_depth
     }
 }
 
-impl Default for BtcZmqConfig {
+impl Default for BtcNotifyConfig {
     fn default() -> Self {
-        BtcZmqConfig {
+        BtcNotifyConfig {
             bury_depth: DEFAULT_BURY_DEPTH,
             hashblock_connection_string: None,
             hashtx_connection_string: None,

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
-use btc_tracker::config::BtcZmqConfig;
+use btc_tracker::config::BtcNotifyConfig;
 use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
@@ -60,7 +60,7 @@ pub(crate) struct Config {
     pub rpc: RpcConfig,
 
     /// Configuration for the Bitcoin ZMQ client.
-    pub btc_zmq: BtcZmqConfig,
+    pub btc_zmq: BtcNotifyConfig,
 
     /// Configuration for retrying the publishing of stake chain transactions.
     pub stake_tx: StakeTxRetryConfig,

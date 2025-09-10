@@ -23,7 +23,7 @@ use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info};
 
 use crate::{
-    client::{BtcZmqClient, Connected},
+    client::{BtcNotifyClient, Connected},
     event::{TxEvent, TxStatus},
     subscription::Subscription,
 };
@@ -116,7 +116,7 @@ pub struct TxDriver {
 }
 impl TxDriver {
     /// Initializes the TxDriver.
-    pub async fn new(zmq_client: BtcZmqClient<Connected>, rpc_client: BitcoinClient) -> Self {
+    pub async fn new(zmq_client: BtcNotifyClient<Connected>, rpc_client: BitcoinClient) -> Self {
         let new_jobs = unbounded_channel::<TxDriveJob>();
         let new_jobs_sender = new_jobs.0;
         let mut block_subscription = zmq_client.subscribe_blocks().await;
@@ -314,7 +314,7 @@ mod e2e_tests {
     use tracing::{debug, info};
 
     use super::*;
-    use crate::{client::BlockFetcher, config::BtcZmqConfig};
+    use crate::{client::BlockFetcher, config::BtcNotifyConfig};
 
     // TODO(proofofkeags): once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
     // due to a bug in rust-bitcoin.
@@ -373,19 +373,19 @@ mod e2e_tests {
 
         debug!("corepc_node::Node initialized");
 
-        let cfg = BtcZmqConfig::default()
+        let cfg = BtcNotifyConfig::default()
             .with_hashblock_connection_string(hash_block_socket)
             .with_hashtx_connection_string(hash_tx_socket)
             .with_rawblock_connection_string(raw_block_socket)
             .with_rawtx_connection_string(raw_tx_socket)
             .with_sequence_connection_string(sequence_socket);
 
-        let zmq_client = BtcZmqClient::new(&cfg, VecDeque::new());
+        let zmq_client = BtcNotifyClient::new(&cfg, VecDeque::new());
         let start_height = bitcoind.client.get_block_count()?.0;
         let cookie_file = bitcoind.params.cookie_file.clone();
         let fetcher = setup_fetcher(&bitcoind.rpc_url(), cookie_file);
         let zmq_client = zmq_client.connect(start_height, fetcher).await?;
-        debug!("BtcZmqClient initialized");
+        debug!("BtcNotifyClient initialized");
 
         let CookieValues { user, password } = bitcoind
             .params
