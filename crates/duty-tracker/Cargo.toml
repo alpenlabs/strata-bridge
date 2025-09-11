@@ -29,6 +29,7 @@ strata-tasks.workspace = true
 
 ark-bn254.workspace = true
 ark-groth16.workspace = true
+async-trait.workspace = true
 bdk_wallet.workspace = true
 bincode.workspace = true
 bitcoin.workspace = true
@@ -36,7 +37,7 @@ bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
 bitvm.workspace = true
 borsh.workspace = true
-btc-notify.workspace = true
+btc-tracker.workspace = true
 futures.workspace = true
 musig2.workspace = true
 operator-wallet.workspace = true
@@ -48,14 +49,12 @@ serde_json.workspace = true
 sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
-tokio-stream = "0.1.17"
 tracing.workspace = true
 
 [dev-dependencies]
 strata-bridge-common.workspace = true
 strata-bridge-test-utils.workspace = true
 
-corepc-node.workspace = true
+async-trait.workspace = true
 hex.workspace = true
 proptest.workspace = true
-serial_test.workspace = true

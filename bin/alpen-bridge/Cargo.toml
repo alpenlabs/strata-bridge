@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 alpen-bridge-params.workspace = true
-btc-notify.workspace = true
+btc-tracker.workspace = true
 duty-tracker.workspace = true
 operator-wallet.workspace = true
 secret-service-client.workspace = true
