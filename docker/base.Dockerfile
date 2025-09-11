@@ -13,7 +13,8 @@ RUN apt-get install -y \
     pkg-config build-essential protobuf-compiler git
 
 COPY rust-toolchain.toml rust-toolchain.toml
-RUN cargo
+RUN rustup show
+RUN cargo --version
 
 # check sp1 is setup properly
 RUN cargo +succinct --version
