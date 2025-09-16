@@ -1,16 +1,16 @@
-network = "regtest"
+network = "signet"
 genesis_height = 101
 
 [keys]
 musig2 = [
-  "b49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d",
-  "1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4",
-  "a4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba",
+  "0759ede2038620132c7b7c499fed1cb99ee3d80e23cf62c7a13803491f06d2ed",
+  "1cd3c1756126c4573e6a2aba6933fb67f58d19fa57036961cfeb6d1785ebbd4c",
+  "37dbf3b01e45039bef73376dffa55bfac7c2212ad208eea5c1115d0d5d6a3263",
 ]
 p2p = [
-  "020b1251c1a11d65a3cf324c66b67e9333799d21490d2e2c95866aab76e3a0f301",
-  "0232a73fb8a00f677703e95ebc398d806147587746d02d1945f9eff8703ccab4d0",
-  "02e9343c08723ba25cfaa6296ffe8bf57be391cac683f13a3de33a31734655b777",
+  "022fb1879e0648db3f7a942c2c4904c8d7504fb8168dc19c1fa8b1d58664b0dcba",
+  "021f30a52c08a51bad16e7e2d8bc09bf61776618542066bbcc5e7d2900d5466db6",
+  "024bd4c06be2401bc7f246faac8e92dc34c875b9a369407f93827507386e315c9b",
 ]
 
 [tx_graph]
@@ -34,9 +34,9 @@ payout_timelock = 1_008
 [sidesystem]
 deposit_amount = 1_000_000_000
 operator_config.static = [
-  { signing_pk = "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000", wallet_pk = "0xb49092f76d06f8002e0b7f1c63b5058db23fd4465b4f6954b53e1f352a04754d" },
-  { signing_pk = "0x0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d", wallet_pk = "0x1e62d54af30569fd7269c14b6766f74d85ea00c911c4e1a423d4ba2ae4c34dc4" },
-  { signing_pk = "0x2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be", wallet_pk = "0xa4d869ccd09c470f8f86d3f1b0997fa2695933aaea001875b9db145ae9c1f4ba" },
+  { signing_pk = "0x8d86834e6fdb45ba6b7ffd067a27b9e1d67778047581d7ef757ed9e0fa474000", wallet_pk = "0x0759ede2038620132c7b7c499fed1cb99ee3d80e23cf62c7a13803491f06d2ed" },
+  { signing_pk = "0x0abb00b8b17e2798ddebd0ccbb858b6f624a1ff7d93ec15baa8a7be3f136474d", wallet_pk = "0x1cd3c1756126c4573e6a2aba6933fb67f58d19fa57036961cfeb6d1785ebbd4c" },
+  { signing_pk = "0x2a4b743dc2393a6ee038350a6ef3a55741e6c78ac6491478d832f4e2a23aa6be", wallet_pk = "0x37dbf3b01e45039bef73376dffa55bfac7c2212ad208eea5c1115d0d5d6a3263" },
 ]
 rollup_name = "strata"
 block_time = 5_000
@@ -54,4 +54,5 @@ rollup_vk.native = "0x0000000000000000000000000000000000000000000000000000000000
 dispatch_assignment_dur = 1000000
 proof_publish_mode.timeout = 30
 max_deposits_in_block = 16
-network = "regtest"
+network = "signet"
+

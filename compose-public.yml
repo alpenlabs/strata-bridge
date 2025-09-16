@@ -1,0 +1,122 @@
+x-base-secret-service: &base-secret-service
+  image: public.ecr.aws/r1l9t0r6/tn1/secret-service:292a08c
+  build:
+    context: .
+    dockerfile: ./docker/secret-service/Dockerfile
+  environment:
+    - SECRET_SERVICE_DEV=0 # use ./docker/gen_s2_tls.sh to gen tls certs
+    - RUST_LOG=info
+
+x-base-bridge-node: &base-bridge-node
+  image: public.ecr.aws/r1l9t0r6/tn1/alpen-bridge:292a08c
+  build:
+    context: .
+    dockerfile: ./docker/alpen-bridge/Dockerfile
+  environment:
+    - MODE=operator
+    - RUST_LOG=info,duty_tracker=debug,bitvm=error,btc_notify=warn,duty_tracker::contract_persister=warn,duty_tracker::stake_chain_persister=warn,strata_p2p=error
+    - LOG_FILE=0
+    - LOG_LINE_NUM=0
+    - RUST_BACKTRACE=full
+    - MULTI_THREAD_GRAPH_GEN=0 # 1 in order to use an OS thread per graph generation
+    - SP1_PROVER=$SP1_PROVER
+    - SP1_PROOF_STRATEGY=$SP1_PROOF_STRATEGY
+    - NETWORK_RPC_URL=$NETWORK_RPC_URL
+    - NETWORK_PRIVATE_KEY=$NETWORK_PRIVATE_KEY
+  depends_on:
+    - bitcoind
+
+services:
+  secret-service-1:
+    <<: *base-secret-service
+    ports:
+      - 11000:3000
+    volumes:
+      - ./docker/vol/secret-service-1:/app
+    networks:
+      bridge:
+        ipv4_address: 172.28.1.5
+  bridge-1:
+    <<: *base-bridge-node
+    ports:
+      - 15678:5678
+      - 15679:5679
+      - 13000:3000
+    volumes:
+      - ./docker/vol/alpen-bridge-1:/app
+      - ./migrations:/app/migrations
+    networks:
+      bridge:
+        ipv4_address: 172.28.0.5
+
+  secret-service-2:
+    <<: *base-secret-service
+    ports:
+      - 21000:3000
+    volumes:
+      - ./docker/vol/secret-service-2:/app
+    networks:
+      bridge:
+        ipv4_address: 172.28.1.6
+  bridge-2:
+    <<: *base-bridge-node
+    ports:
+      - 25678:5678
+      - 25679:5679
+      - 23000:3000
+    volumes:
+      - ./docker/vol/alpen-bridge-2:/app
+      - ./migrations:/app/migrations
+    networks:
+      bridge:
+        ipv4_address: 172.28.0.6
+
+  secret-service-3:
+    <<: *base-secret-service
+    ports:
+      - 31000:3000
+    volumes:
+      - ./docker/vol/secret-service-3:/app
+    networks:
+      bridge:
+        ipv4_address: 172.28.1.7
+  bridge-3:
+    <<: *base-bridge-node
+    ports:
+      - 35678:5678
+      - 35679:5679
+      - 33000:3000
+    volumes:
+      - ./docker/vol/alpen-bridge-3:/app
+      - ./migrations:/app/migrations
+    networks:
+      bridge:
+        ipv4_address: 172.28.0.7
+  bitcoind:
+    container_name: bitcoind
+    # pull_policy: always
+    image: public.ecr.aws/s6b4k6i9/strata/signet:435b83b
+    environment:
+      MINERENABLED: "0"
+      MAXTXFEE: "10"
+      SIGNETCHALLENGE: "0014c92a8c8bfd9bcbfe9120db4c0b11fe934cacf641"
+      ADDNODE: "bitcoin.development.stratabtc.org"
+      RPCUSER: user
+      RPCPASSWORD: password
+    env_file: ".env"
+    ports:
+      - 38332:38332
+      - 38333:38333
+      - 28332:28332
+      - 28333:28333
+      - 28334:28334
+      - 28335:28335
+      - 28336:28336
+    networks:
+      - bridge
+
+networks:
+  bridge:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
