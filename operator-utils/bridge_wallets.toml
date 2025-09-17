@@ -1,0 +1,21 @@
+# Bridge Wallet Addresses
+# Generated on Wed Sep 17 15:18:14 +0545 2025
+
+[funding]
+general_amount = 200.0
+stakechain_amount = 0.00027720
+
+[[bridges]]
+name = "bridge-1"
+general_wallet = "tb1p58ywf8hwaynvcw5sdkcu4d8tx4w2nmxwx5canlkcwuhgxv862d7skjkx7p"
+stakechain_wallet = "tb1px92fyg0ckccguad0q4r7tvm2anve4yx29q3new9673ls7wyhg53sv22kt8"
+
+[[bridges]]
+name = "bridge-2"
+general_wallet = "tb1pqz0kqw3rx0q6fsge2gm3dw35vv2c6sefhmlnnshxhrahsymrykzqhtqa4m"
+stakechain_wallet = "tb1pe869tkgw48l2298kacc638avcsqmx65ztjm9e6glc3xnm7wtnm9s384gnj"
+
+[[bridges]]
+name = "bridge-3"
+general_wallet = "tb1p4jdplk9hy7em6fxx9kphug0a6lslptlfuvdz642jjddgxs42p62sue0g8k"
+stakechain_wallet = "tb1pw04vdejejpz6s8y7h5w3qx3xujnxzpy2dp39vu6syg0mmlzlvrqqceh8wr"
