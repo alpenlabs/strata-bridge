@@ -82,8 +82,8 @@ echo
 echo -e "${BLUE}=== Funding General Wallets (${GENERAL_AMOUNT} BTC each) ===${NC}"
 
 for i in "${!BRIDGE_NAMES[@]}"; do
-    local bridge_name="${BRIDGE_NAMES[$i]}"
-    local general_wallet="${GENERAL_WALLETS[$i]}"
+    bridge_name="${BRIDGE_NAMES[$i]}"
+    general_wallet="${GENERAL_WALLETS[$i]}"
 
     if [[ -n "$general_wallet" ]]; then
         echo -e "${YELLOW}Funding ${bridge_name} general wallet: ${general_wallet}${NC}"
@@ -96,8 +96,8 @@ echo
 echo -e "${BLUE}=== Funding Stakechain Wallets (${STAKECHAIN_AMOUNT} BTC each) ===${NC}"
 
 for i in "${!BRIDGE_NAMES[@]}"; do
-    local bridge_name="${BRIDGE_NAMES[$i]}"
-    local stakechain_wallet="${STAKECHAIN_WALLETS[$i]}"
+    bridge_name="${BRIDGE_NAMES[$i]}"
+    stakechain_wallet="${STAKECHAIN_WALLETS[$i]}"
 
     if [[ -n "$stakechain_wallet" ]]; then
         echo -e "${YELLOW}Funding ${bridge_name} stakechain wallet: ${stakechain_wallet}${NC}"
