@@ -103,7 +103,7 @@ services:
       ADDNODE: "bitcoin.development.stratabtc.org"
       RPCUSER: user
       RPCPASSWORD: password
-    env_file: ".env"
+    env_file: ".env.example"
     ports:
       - 38332:38332
       - 38333:38333
