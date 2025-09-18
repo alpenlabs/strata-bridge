@@ -3,28 +3,26 @@
 # and initial implementation contributions
 
 # Global fallback: core bridge team
-* @Rajil1213 @storopoli @ProofOfKeags @Zk2u
+* @Rajil1213 @Zk2u
 
 # Bookkeeping
-*.toml @storopoli
-*.md @storopoli
-/rust-toolchain.toml @Rajil1213 @storopoli @ProofOfKeags @Zk2u
-**/Cargo.toml @Rajil1213 @storopoli @ProofOfKeags @Zk2u
-**/Cargo.lock @Rajil1213 @storopoli @ProofOfKeags @Zk2u
-**/Makefile @Rajil1213 @storopoli @Zk2u
-**/LICENSE* @Rajil1213 @storopoli @ProofOfKeags @Zk2u
-**/README.md @Rajil1213 @storopoli @ProofOfKeags @Zk2u
-**/.gitignore @storopoli
+/rust-toolchain.toml @Rajil1213 @Zk2u
+**/Cargo.toml @Rajil1213 @Zk2u
+**/Cargo.lock @Rajil1213 @Zk2u
+**/Makefile @Rajil1213 @Zk2u
+**/LICENSE* @Rajil1213 @Zk2u
+**/README.md @Rajil1213 @Zk2u
+**/.gitignore @Rajil1213 @Zk2u
 /migrations/ @Rajil1213
-/scripts/ @storopoli
+/scripts/ @Rajil1213
 /zizmor.yml @storopoli
 /assets/ @Rajil1213
 
 # Primitives and common components
-/crates/primitives/ @Rajil1213 @ProofOfKeags @storopoli
-/crates/common/ @Rajil1213 @ProofOfKeags @storopoli
-/crates/wots/ @storopoli @ProofOfKeags
-/crates/params/ @Rajil1213 @storopoli
+/crates/primitives/ @Rajil1213
+/crates/common/ @Rajil1213
+/crates/wots/ @Zk2u
+/crates/params/ @Rajil1213
 
 # Secret service components
 /crates/secret-service-client/ @Zk2u
@@ -34,31 +32,30 @@
 /**/secret-service/ @Zk2u
 
 # Duty tracker components
-/crates/btc-notify/ @ProofOfKeags
-/crates/duty-tracker/ @ProofOfKeags
+/crates/btc-notify/ @Rajil1213
+/crates/duty-tracker/ @Rajil1213
 
 # Transaction graph components
 /crates/tx-graph/ @Rajil1213
-/crates/stake-chain/ @storopoli
+/crates/stake-chain/ @Rajil1213
 /crates/connectors/ @Rajil1213
 
 # Main binary
-/bin/alpen-bridge/ @storopoli @Rajil1213 @ProofOfKeags
+/bin/alpen-bridge/ @Rajil1213
 
 # Prover things
 /crates/bridge-proof/ @Rajil1213 @prajwolrg
 /bridge-guest-builder/ @Rajil1213 @prajwolrg
 
 # Other components
-/crates/agent/ @Rajil1213 @prajwolrg
-/crates/db/ @Rajil1213 @storopoli
-/crates/p2p-service/ @storopoli
-/crates/rpc/ @storopoli
-/crates/operator-wallet/ @Zk2u @storopoli
+/crates/db/ @Rajil1213
+/crates/p2p-service/ @storopoli @Zk2u
+/crates/rpc/ @storopoli @Zk2u
+/crates/operator-wallet/ @Zk2u
 
 # Test utilities
-/crates/test-utils/ @storopoli
-/bin/dev-cli/ @Rajil1213 @storopoli
+/crates/test-utils/ @Rajil1213
+/bin/dev-cli/ @Rajil1213
 /bin/dev-bridge/ @Rajil1213
 /bin/assert-splitter/ @Rajil1213
 /test-data/ @Rajil1213
@@ -76,8 +73,8 @@
 /.codespellrc @Rajil1213
 
 # CI/CD
-/.github/ @storopoli
-/.codecov.yml @storopoli
+/.github/ @Rajil1213 @storopoli
+/.codecov.yml @Rajil1213 @storopoli
 
 # Nix
 **/*.nix @storopoli
