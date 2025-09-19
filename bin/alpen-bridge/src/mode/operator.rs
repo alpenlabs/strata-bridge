@@ -19,10 +19,10 @@ use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
     Client as BitcoinClient,
 };
-use btc_notify::client::BtcZmqClient;
+use btc_tracker::client::BtcNotifyClient;
 use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
-    shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister, tx_driver::TxDriver,
+    shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
 };
 use libp2p::{
     identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
@@ -166,20 +166,11 @@ pub(crate) async fn bootstrap(
     )
     .await;
 
-    let current = bitcoin_rpc_client.get_block_count().await?;
-    let bury_height = current.saturating_sub(config.btc_zmq.bury_depth() as u64);
-
-    // we grab every block starting with the block after the bury_height all the way up to the
-    // current height and place it in the unburied blocks queue.
-    let mut unburied_blocks = VecDeque::new();
-    for height in bury_height + 1..=current {
-        unburied_blocks.push_front(bitcoin_rpc_client.get_block_at(height).await?);
-    }
+    // We have no awareness of what blocks are unburied at startup, so we start with an empty list.
+    let unburied_blocks = VecDeque::new();
     // Initialize the duty tracker.
     info!("initializing contract manager");
-    let zmq_client = BtcZmqClient::connect(&config.btc_zmq, unburied_blocks)
-        .await
-        .expect("should be able to connect to zmq");
+    let zmq_client = BtcNotifyClient::new(&config.btc_zmq, unburied_blocks);
 
     let pre_stake_pubkey = operator_wallet.stakechain_script_buf();
     let (contract_manager, contract_persister, stake_chain_persister) = init_duty_tracker(
@@ -450,7 +441,7 @@ async fn init_duty_tracker(
     operator_table: OperatorTable,
     pre_stake_pubkey: ScriptBuf,
     rpc_client: BitcoinClient,
-    zmq_client: BtcZmqClient,
+    zmq_client: BtcNotifyClient,
     s2_client: SecretServiceClient,
     p2p_handle: P2PHandle,
     operator_wallet: OperatorWallet,
@@ -462,7 +453,6 @@ async fn init_duty_tracker(
     let pegout_graph_params = params.tx_graph;
     let stake_chain_params = params.stake_chain;
     let sidesystem_params = params.sidesystem.clone();
-    let tx_driver = TxDriver::new(zmq_client.clone(), rpc_client.clone()).await;
 
     let db_pool = db.pool().clone();
     info!("initializing contract persister");
@@ -494,7 +484,6 @@ async fn init_duty_tracker(
         pre_stake_pubkey,
         zmq_client,
         rpc_client,
-        tx_driver,
         p2p_handle,
         contract_persister,
         stake_chain_persister,

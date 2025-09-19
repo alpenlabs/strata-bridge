@@ -12,10 +12,6 @@ use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
     Client as BitcoinClient,
 };
-use btc_notify::{
-    client::{BtcZmqClient, TxEvent, TxStatus},
-    subscription::Subscription,
-};
 use futures::{channel::oneshot, stream::SelectAll, FutureExt, StreamExt};
 use thiserror::Error;
 use tokio::{
@@ -25,6 +21,12 @@ use tokio::{
 };
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tracing::{debug, error, info};
+
+use crate::{
+    client::{BtcNotifyClient, Connected},
+    event::{TxEvent, TxStatus},
+    subscription::Subscription,
+};
 
 /// Error type for the TxDriver.
 #[derive(Debug, Error)]
@@ -114,7 +116,7 @@ pub struct TxDriver {
 }
 impl TxDriver {
     /// Initializes the TxDriver.
-    pub async fn new(zmq_client: BtcZmqClient, rpc_client: BitcoinClient) -> Self {
+    pub async fn new(zmq_client: BtcNotifyClient<Connected>, rpc_client: BitcoinClient) -> Self {
         let new_jobs = unbounded_channel::<TxDriveJob>();
         let new_jobs_sender = new_jobs.0;
         let mut block_subscription = zmq_client.subscribe_blocks().await;
@@ -206,7 +208,7 @@ impl TxDriver {
                     }
                     Some(event) = active_tx_subs.next().fuse() => {
                         match event.status {
-                            btc_notify::client::TxStatus::Unknown => {
+                            TxStatus::Unknown => {
                                 // Transaction has been evicted, resubmit and see what happens
                                 match rpc_client.send_raw_transaction(&event.rawtx).await {
                                     Ok(txid) => {
@@ -297,20 +299,53 @@ impl Drop for TxDriver {
 mod e2e_tests {
     use std::{
         collections::{BTreeMap, VecDeque},
+        path::PathBuf,
         sync::Arc,
     };
 
     use algebra::predicate;
+    use bitcoin::Block;
     use bitcoind_async_client::Client as BitcoinClient;
-    use btc_notify::client::{BtcZmqClient, BtcZmqConfig, TxStatus};
-    use corepc_node::CookieValues;
+    use corepc_node::{client::client_sync::Auth, CookieValues};
     use futures::join;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::wait_for_height;
     use tracing::{debug, info};
 
-    use super::TxDriver;
+    use super::*;
+    use crate::{client::BlockFetcher, config::BtcNotifyConfig};
+
+    // TODO(proofofkeags): once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
+    // due to a bug in rust-bitcoin.
+    pub(crate) const BIP34_MIN_BLOCKS: usize = 17;
+
+    fn setup_fetcher(rpc_url: &str, cookie_file: PathBuf) -> impl BlockFetcher<Error = String> {
+        struct Fetcher(corepc_node::Client);
+
+        #[async_trait::async_trait]
+        impl BlockFetcher for Fetcher {
+            type Error = String;
+
+            async fn fetch_block(&self, height: u64) -> Result<Block, Self::Error> {
+                let hash = self
+                    .0
+                    .get_block_hash(height)
+                    .map_err(|e| e.to_string())?
+                    .block_hash()
+                    .expect("must be valid hash");
+                let block = self.0.get_block(hash).map_err(|e| e.to_string())?;
+
+                Ok(block)
+            }
+        }
+
+        let auth = Auth::CookieFile(cookie_file);
+        let client = corepc_node::Client::new_with_auth(rpc_url, auth)
+            .expect("must be able to create client");
+
+        Fetcher(client)
+    }
 
     async fn setup() -> Result<(TxDriver, corepc_node::Node), Box<dyn std::error::Error>> {
         let mut bitcoin_conf = corepc_node::Conf::default();
@@ -331,17 +366,26 @@ mod e2e_tests {
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
         let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;
+
+        bitcoind
+            .client
+            .generate_to_address(BIP34_MIN_BLOCKS, &bitcoind.client.new_address()?)?;
+
         debug!("corepc_node::Node initialized");
 
-        let cfg = BtcZmqConfig::default()
+        let cfg = BtcNotifyConfig::default()
             .with_hashblock_connection_string(hash_block_socket)
             .with_hashtx_connection_string(hash_tx_socket)
             .with_rawblock_connection_string(raw_block_socket)
             .with_rawtx_connection_string(raw_tx_socket)
             .with_sequence_connection_string(sequence_socket);
 
-        let zmq_client = BtcZmqClient::connect(&cfg, VecDeque::new()).await?;
-        debug!("BtcZmqClient initialized");
+        let zmq_client = BtcNotifyClient::new(&cfg, VecDeque::new());
+        let start_height = bitcoind.client.get_block_count()?.0;
+        let cookie_file = bitcoind.params.cookie_file.clone();
+        let fetcher = setup_fetcher(&bitcoind.rpc_url(), cookie_file);
+        let zmq_client = zmq_client.connect(start_height, fetcher).await?;
+        debug!("BtcNotifyClient initialized");
 
         let CookieValues { user, password } = bitcoind
             .params

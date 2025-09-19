@@ -870,7 +870,7 @@ dependencies = [
  "bincode",
  "bitcoin",
  "bitcoind-async-client",
- "btc-notify",
+ "btc-tracker",
  "chrono",
  "clap",
  "duty-tracker",
@@ -2208,11 +2208,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "btc-notify"
+name = "btc-tracker"
 version = "0.1.0"
 dependencies = [
+ "algebra",
+ "async-trait",
  "bitcoin",
  "bitcoincore-zmq",
+ "bitcoind-async-client",
  "corepc-node",
  "futures",
  "proptest",
@@ -2220,7 +2223,9 @@ dependencies = [
  "serial_test",
  "strata-bridge-common",
  "strata-bridge-test-utils",
+ "thiserror 2.0.12",
  "tokio",
+ "tokio-stream",
  "tracing",
 ]
 
@@ -3337,6 +3342,7 @@ dependencies = [
  "alpen-bridge-params",
  "ark-bn254",
  "ark-groth16",
+ "async-trait",
  "bdk_wallet",
  "bincode",
  "bitcoin",
@@ -3344,8 +3350,7 @@ dependencies = [
  "bitcoind-async-client",
  "bitvm",
  "borsh",
- "btc-notify",
- "corepc-node",
+ "btc-tracker",
  "futures",
  "hex",
  "musig2",
@@ -3356,7 +3361,6 @@ dependencies = [
  "secret-service-proto",
  "serde",
  "serde_json",
- "serial_test",
  "sqlx",
  "strata-bridge-common",
  "strata-bridge-connectors",
@@ -3378,7 +3382,6 @@ dependencies = [
  "strata-tasks",
  "thiserror 2.0.12",
  "tokio",
- "tokio-stream",
  "tracing",
 ]
 
