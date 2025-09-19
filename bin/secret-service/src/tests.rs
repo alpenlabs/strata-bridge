@@ -32,9 +32,6 @@ use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecre
 use crate::seeded_impl::Service;
 
 async fn setup() -> SecretServiceClient {
-    // Initialize default crypto provider for rustls
-    let _ = rustls::crypto::ring::default_provider().install_default();
-
     let port = thread_rng().gen_range(20_000..30_000);
     let server_addr: SocketAddr = SocketAddrV4::new(Ipv4Addr::new(127, 0, 0, 1), port).into();
     let server_host = "localhost".to_string();
