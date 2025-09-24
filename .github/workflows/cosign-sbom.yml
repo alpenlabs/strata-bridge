@@ -1,0 +1,129 @@
+name: SBOM • Cosign sign & attest
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        description: "Image reference to analyze (e.g. ghcr.io/OWNER/APP:tag)"
+        required: true
+        type: string
+      sbom-format:
+        description: "SBOM format: spdx-json | cyclonedx-json"
+        required: false
+        default: spdx-json
+        type: string
+      login-ghcr:
+        description: "If true, logs into GHCR with GITHUB_TOKEN"
+        required: false
+        default: false
+        type: boolean
+      aws-account-id:
+        description: "AWS Account id"
+        required: false
+        type: string        
+      oidc-role:
+        description: "AWS IAM role ARN to assume via OIDC (optional, for ECR access)"
+        required: false
+        type: string
+      aws-region:
+        description: "AWS region (used with oidc-role for ECR access)"
+        required: false
+        type: string        
+    outputs:
+      image_digest:
+        description: "Resolved image digest (sha256:...)"
+        value: ${{ jobs.sbom.outputs.image_digest }}
+
+permissions:
+  contents: read
+  id-token: write          # required for Cosign keyless signing
+  packages: write          # needed if image/signatures live in GHCR
+  actions: read
+
+jobs:
+  sbom:
+    name: Generate SBOM, sign image, attest SBOM
+    runs-on: ubuntu-latest
+    outputs:
+      image_digest: ${{ steps.resolve-digest.outputs.digest }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: (Optional) Login to GHCR
+        if: inputs.login-ghcr == true
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install Syft
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ inputs.aws-region }}
+          role-to-assume: arn:aws:iam::${{ inputs.aws-account-id }}:role/${{ inputs.oidc-role }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2     
+
+      - name: Pull image
+        run: docker pull "${{ inputs.image }}"
+ 
+
+      - name: Resolve image digest
+        id: resolve-digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          FULL_REF="$(docker inspect --format='{{index .RepoDigests 0}}' "${{ inputs.image }}")"
+          if [[ -z "$FULL_REF" ]]; then
+            echo "Could not resolve a RepoDigest for ${{ inputs.image }}" >&2
+            exit 1
+          fi
+          echo "Resolved: $FULL_REF"
+          DIGEST="${FULL_REF#*@}"            # extract part after '@'
+          SAFE="${DIGEST/:/-}"               # replace colon with dash
+
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+          echo "digest_safe=$SAFE" >> "$GITHUB_OUTPUT"
+          echo "full_ref=$FULL_REF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SBOM (Syft)
+        id: gen-sbom
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="sbom.${{ inputs.sbom_format }}.json"
+          syft "${{ inputs.image }}" -o "${{ inputs.sbom_format }}" > "$OUT"
+          echo "sbom_file=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Cosign sign image (keyless OIDC)
+        env:
+          COSIGN_EXPERIMENTAL: "1"
+          COSIGN_YES: "true"
+        run: cosign sign "${{ steps.resolve-digest.outputs.full_ref }}"
+
+      - name: Cosign attest SBOM
+        env:
+          COSIGN_EXPERIMENTAL: "1" # Required to enable keyless signing with OIDC.
+          COSIGN_YES: "true"
+        run: |
+          TYPE="spdx"
+          if [[ "${{ inputs.sbom_format }}" == "cyclonedx-json" ]]; then TYPE="cyclonedx"; fi
+          cosign attest --predicate "${{ steps.gen-sbom.outputs.sbom_file }}" --type "$TYPE" "${{ steps.resolve-digest.outputs.full_ref }}"
+
+      - name: Upload SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ steps.resolve-digest.outputs.digest_safe }}
+          path: ${{ steps.gen-sbom.outputs.sbom_file }}
+          if-no-files-found: error

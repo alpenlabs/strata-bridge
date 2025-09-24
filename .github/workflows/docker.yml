@@ -9,12 +9,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-
-env:
   AWS_REGION: us-east-1                 # <-- change to your AWS region
   AWS_ACCOUNT_ID: "888577024788"        # <-- change to your AWS account
   BRIDGE_ECR_REPOSITORY: tn1/alpen-bridge        # <-- change or keep
-  SECRET_SERVICE_CER_REPOSITORY: tn1/secret-service
+  SECRET_SERVICE_ECR_REPOSITORY: tn1/secret-service
   ROLE_NAME: gh-madan-oss-build-role
 
 permissions: {}
@@ -39,6 +37,14 @@ jobs:
     name: Test Docker builds
     runs-on: ubuntu-latest
     needs: extract-rust-version
+    permissions:
+      contents: read
+      id-token: write      
+    outputs:
+      bridge_image_ref: ${{ format('{0}:{1}', steps.refs.outputs.bridge_image_name, steps.refs.outputs.tag) }}
+      ss_image_ref:     ${{ format('{0}:{1}', steps.refs.outputs.ss_image_name,     steps.refs.outputs.tag) }}
+       
+
     timeout-minutes: 150 # 2.5h hours is enough for most builds
     env:
       DATABASE_URL: sqlite://./operator.db
@@ -133,3 +139,63 @@ jobs:
           # Move cache to avoid ever-growing cache
           rm -rf /tmp/.buildx-cache
           mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.ROLE_NAME }}
+
+      # 3) Login to Amazon ECR
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set image refs
+        id: refs
+        run: |
+          echo "registry=${{ steps.ecr-login.outputs.registry }}" >> "$GITHUB_OUTPUT"
+          echo "ss_image_name=${{ steps.ecr-login.outputs.registry }}/${{ env.SECRET_SERVICE_ECR_REPOSITORY }}" >> "$GITHUB_OUTPUT"
+          echo "bridge_image_name=${{ steps.ecr-login.outputs.registry }}/${{ env.BRIDGE_ECR_REPOSITORY }}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"        
+
+      - name: Check refs
+        run: |
+          echo "Short SHA is ${{ steps.refs.outputs.tag }}"        
+          echo "Short SHA is ${{ steps.refs.outputs.ss_image_name }}"        
+          echo "Short SHA is ${{ steps.refs.outputs.bridge_image_name }}"        
+
+      - name: Tag for ECR push
+        run: |
+          docker tag secret-service:latest ${{ steps.refs.outputs.ss_image_name }}:${{ steps.refs.outputs.tag }}
+          docker tag alpen-bridge:latest ${{ steps.refs.outputs.bridge_image_name }}:${{ steps.refs.outputs.tag }}
+          docker image ls
+
+      - name: ECR push
+        run: |
+          docker image ls
+          docker push ${{ steps.refs.outputs.ss_image_name }}:${{ steps.refs.outputs.tag }}
+          docker push ${{ steps.refs.outputs.bridge_image_name }}:${{ steps.refs.outputs.tag }}
+
+  cosign-sbom:
+    needs: docker-build
+    # These permissions are for the reusable workflow you call below (Cosign OIDC, artifacts, etc.)
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: write
+    uses: ./.github/workflows/cosign-sbom.yml
+    strategy:
+      matrix:
+        image:
+          - ${{ needs.docker-build.outputs.bridge_image_ref }}
+          - ${{ needs.docker-build.outputs.ss_image_ref }}
+    with:
+      # Pass the tag ref; the reusable workflow will pull and resolve the digest itself
+      image: ${{ matrix.image }}
+      sbom-format: spdx-json
+      login-ghcr: false
+      aws-account-id: "888577024788"
+      oidc-role: gh-madan-oss-build-role
+      aws-region: us-east-1
