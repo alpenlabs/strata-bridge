@@ -57,4 +57,4 @@ echo "Verifying SAN extension for secret-service certificate:"
 openssl x509 -in $S2_TLS_DIR/cert.pem -text -noout | grep -A1 "Subject Alternative Name"
 
 # Clean up
-rm *.csr $BRIDGE_TLS_DIR/*.srl $S2_TLS_DIR/*.srl *.cnf *ca.key
+rm -f *.csr $BRIDGE_TLS_DIR/*.srl $S2_TLS_DIR/*.srl *.cnf *ca.key
