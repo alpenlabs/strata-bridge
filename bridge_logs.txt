@@ -1,0 +1,385 @@
+2025-09-22 15:28:18.118 | 2025-09-22T09:43:18.116986Z  INFO alpen_bridge: starting bridge node mode=operator
+2025-09-22 15:28:18.157 | 2025-09-22T09:43:18.156723Z  INFO strata_tasks::manager: Starting critical async task name=operator
+2025-09-22 15:28:18.256 | 2025-09-22T09:43:18.255957Z  INFO alpen_bridge::mode::operator: p2p public key key=02938075d0a965749ed4ebf36392f91dbc994c6d6064be1950ca4baa1e2b92df54
+2025-09-22 15:28:18.257 | 2025-09-22T09:43:18.257485Z  INFO alpen_bridge::mode::operator: musig2 public key key=9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a
+2025-09-22 15:28:18.261 | 2025-09-22T09:43:18.260960Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+2025-09-22 15:28:18.294 | 2025-09-22T09:43:18.294241Z  INFO alpen_bridge::mode::operator: running migrations DB_NAME=bridge.db
+2025-09-22 15:28:18.334 | 2025-09-22T09:43:18.334339Z ERROR strata_tasks::manager: critical task exited with error name=operator err=could not build OperatorTable
+2025-09-22 15:28:18.345 | 2025-09-22T09:43:18.334655Z ERROR strata_tasks::manager: backtrace
+2025-09-22 15:28:18.345 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-22 15:28:18.345 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-22 15:28:18.345 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-22 15:28:18.345 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-22 15:28:18.345 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-22 15:28:18.345 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-22 15:28:18.345 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-22 15:28:18.345 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-22 15:28:18.345 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-22 15:28:18.345 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-22 15:28:18.345 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-22 15:28:18.345 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-22 15:28:18.345 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-22 15:28:18.345 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-22 15:28:18.345 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-22 15:28:18.345 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-22 15:28:18.345 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-22 15:28:18.345 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-22 15:28:18.345 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-22 15:28:18.345 |   19: <unknown>
+2025-09-22 15:28:18.345 |   20: clone
+2025-09-22 15:28:18.345 | 
+2025-09-22 15:28:18.351 | 
+2025-09-22 15:28:18.351 | thread 'main' panicked at bin/alpen-bridge/src/main.rs:102:9:
+2025-09-22 15:28:18.351 | bridge node crashed: TaskError { task_name: "operator", reason: Err(could not build OperatorTable
+2025-09-22 15:28:18.351 | 
+2025-09-22 15:28:18.351 | Stack backtrace:
+2025-09-22 15:28:18.351 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-22 15:28:18.351 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-22 15:28:18.351 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-22 15:28:18.351 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-22 15:28:18.351 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-22 15:28:18.351 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-22 15:28:18.351 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-22 15:28:18.351 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-22 15:28:18.351 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-22 15:28:18.351 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-22 15:28:18.351 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-22 15:28:18.351 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-22 15:28:18.351 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-22 15:28:18.351 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-22 15:28:18.351 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-22 15:28:18.351 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-22 15:28:18.351 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-22 15:28:18.351 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-22 15:28:18.351 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-22 15:28:18.351 |   19: <unknown>
+2025-09-22 15:28:18.351 |   20: clone) }
+2025-09-22 15:28:18.351 | stack backtrace:
+2025-09-22 15:28:18.351 |    0:     0x555559cb6472 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hd662187fa65adc29
+2025-09-22 15:28:18.351 |    1:     0x555559ce4523 - core::fmt::write::hd2e858ad8da95d8f
+2025-09-22 15:28:18.351 |    2:     0x555559cb1733 - std::io::Write::write_fmt::h5875566df214f71b
+2025-09-22 15:28:18.351 |    3:     0x555559cb62c2 - std::sys::backtrace::BacktraceLock::print::hcb48fa16d65f0ce5
+2025-09-22 15:28:18.351 |    4:     0x555559cb7782 - std::panicking::default_hook::{{closure}}::ha568e21decd2da2d
+2025-09-22 15:28:18.351 |    5:     0x555559cb7585 - std::panicking::default_hook::h8abddf8e14261018
+2025-09-22 15:28:18.351 |    6:     0x555559cb81a2 - std::panicking::rust_panic_with_hook::hd54c2d95158ab96f
+2025-09-22 15:28:18.351 |    7:     0x555559cb7f2a - std::panicking::begin_panic_handler::{{closure}}::hfd7f876baf1c59c7
+2025-09-22 15:28:18.351 |    8:     0x555559cb6969 - std::sys::backtrace::__rust_end_short_backtrace::h7f86266112cbeae7
+2025-09-22 15:28:18.351 |    9:     0x555559cb7bbd - __rustc[4ab717748c90b11f]::rust_begin_unwind
+2025-09-22 15:28:18.351 |   10:     0x555559ce1820 - core::panicking::panic_fmt::h04f727a682e30ffc
+2025-09-22 15:28:18.351 |   11:     0x555557a4c20c - alpen_bridge::main::he1e51196abd1dd94
+2025-09-22 15:28:18.351 |   12:     0x5555579348d3 - std::sys::backtrace::__rust_begin_short_backtrace::h0a97cc678091a40b
+2025-09-22 15:28:18.351 |   13:     0x555557a5bdb9 - std::rt::lang_start::{{closure}}::hd09b72b517f18318
+2025-09-22 15:28:18.351 |   14:     0x555559ca70f0 - std::rt::lang_start_internal::hd1729a5bee1f5e24
+2025-09-22 15:28:18.351 |   15:     0x555557a4e5c5 - main
+2025-09-22 15:28:18.351 |   16:     0x7fffff2441ca - <unknown>
+2025-09-22 15:28:18.351 |   17:     0x7fffff24428b - __libc_start_main
+2025-09-22 15:28:18.351 |   18:     0x5555577613a5 - _start
+2025-09-22 15:28:18.351 |   19:                0x0 - <unknown>
+2025-09-23 11:17:26.842 | 2025-09-23T05:32:26.840589Z  INFO alpen_bridge: starting bridge node mode=operator
+2025-09-23 11:17:26.881 | 2025-09-23T05:32:26.881177Z  INFO strata_tasks::manager: Starting critical async task name=operator
+2025-09-23 11:17:26.987 | 2025-09-23T05:32:26.986644Z  INFO alpen_bridge::mode::operator: p2p public key key=02938075d0a965749ed4ebf36392f91dbc994c6d6064be1950ca4baa1e2b92df54
+2025-09-23 11:17:26.988 | 2025-09-23T05:32:26.988364Z  INFO alpen_bridge::mode::operator: musig2 public key key=9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a
+2025-09-23 11:17:26.992 | 2025-09-23T05:32:26.992352Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+2025-09-23 11:17:27.032 | 2025-09-23T05:32:27.032758Z  INFO alpen_bridge::mode::operator: running migrations DB_NAME=bridge.db
+2025-09-23 11:17:27.054 | 2025-09-23T05:32:27.053653Z ERROR strata_tasks::manager: critical task exited with error name=operator err=could not build OperatorTable
+2025-09-23 11:17:27.071 | 2025-09-23T05:32:27.054334Z ERROR strata_tasks::manager: backtrace
+2025-09-23 11:17:27.071 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:17:27.071 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:17:27.071 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:17:27.071 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:17:27.071 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:17:27.071 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:17:27.071 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:17:27.071 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:17:27.071 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:17:27.071 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:17:27.071 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:17:27.071 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:17:27.071 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:17:27.071 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:17:27.071 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:17:27.071 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:17:27.071 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:17:27.071 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:17:27.071 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:17:27.071 |   19: <unknown>
+2025-09-23 11:17:27.071 |   20: clone
+2025-09-23 11:17:27.071 | 
+2025-09-23 11:17:27.073 | 
+2025-09-23 11:17:27.073 | thread 'main' panicked at bin/alpen-bridge/src/main.rs:102:9:
+2025-09-23 11:17:27.073 | bridge node crashed: TaskError { task_name: "operator", reason: Err(could not build OperatorTable
+2025-09-23 11:17:27.073 | 
+2025-09-23 11:17:27.073 | Stack backtrace:
+2025-09-23 11:17:27.073 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:17:27.073 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:17:27.073 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:17:27.073 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:17:27.073 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:17:27.073 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:17:27.073 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:17:27.073 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:17:27.073 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:17:27.073 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:17:27.073 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:17:27.073 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:17:27.073 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:17:27.073 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:17:27.073 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:17:27.073 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:17:27.073 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:17:27.073 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:17:27.073 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:17:27.073 |   19: <unknown>
+2025-09-23 11:17:27.073 |   20: clone) }
+2025-09-23 11:17:27.073 | stack backtrace:
+2025-09-23 11:17:27.073 |    0:     0x555559cb6472 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hd662187fa65adc29
+2025-09-23 11:17:27.073 |    1:     0x555559ce4523 - core::fmt::write::hd2e858ad8da95d8f
+2025-09-23 11:17:27.073 |    2:     0x555559cb1733 - std::io::Write::write_fmt::h5875566df214f71b
+2025-09-23 11:17:27.073 |    3:     0x555559cb62c2 - std::sys::backtrace::BacktraceLock::print::hcb48fa16d65f0ce5
+2025-09-23 11:17:27.073 |    4:     0x555559cb7782 - std::panicking::default_hook::{{closure}}::ha568e21decd2da2d
+2025-09-23 11:17:27.073 |    5:     0x555559cb7585 - std::panicking::default_hook::h8abddf8e14261018
+2025-09-23 11:17:27.073 |    6:     0x555559cb81a2 - std::panicking::rust_panic_with_hook::hd54c2d95158ab96f
+2025-09-23 11:17:27.073 |    7:     0x555559cb7f2a - std::panicking::begin_panic_handler::{{closure}}::hfd7f876baf1c59c7
+2025-09-23 11:17:27.073 |    8:     0x555559cb6969 - std::sys::backtrace::__rust_end_short_backtrace::h7f86266112cbeae7
+2025-09-23 11:17:27.074 |    9:     0x555559cb7bbd - __rustc[4ab717748c90b11f]::rust_begin_unwind
+2025-09-23 11:17:27.074 |   10:     0x555559ce1820 - core::panicking::panic_fmt::h04f727a682e30ffc
+2025-09-23 11:17:27.074 |   11:     0x555557a4c20c - alpen_bridge::main::he1e51196abd1dd94
+2025-09-23 11:17:27.074 |   12:     0x5555579348d3 - std::sys::backtrace::__rust_begin_short_backtrace::h0a97cc678091a40b
+2025-09-23 11:17:27.074 |   13:     0x555557a5bdb9 - std::rt::lang_start::{{closure}}::hd09b72b517f18318
+2025-09-23 11:17:27.074 |   14:     0x555559ca70f0 - std::rt::lang_start_internal::hd1729a5bee1f5e24
+2025-09-23 11:17:27.074 |   15:     0x555557a4e5c5 - main
+2025-09-23 11:17:27.074 |   16:     0x7fffff2441ca - <unknown>
+2025-09-23 11:17:27.074 |   17:     0x7fffff24428b - __libc_start_main
+2025-09-23 11:17:27.074 |   18:     0x5555577613a5 - _start
+2025-09-23 11:17:27.074 |   19:                0x0 - <unknown>
+2025-09-23 11:41:09.859 | 2025-09-23T05:56:09.858236Z  INFO alpen_bridge: starting bridge node mode=operator
+2025-09-23 11:41:09.893 | 2025-09-23T05:56:09.893417Z  INFO strata_tasks::manager: Starting critical async task name=operator
+2025-09-23 11:41:09.956 | 2025-09-23T05:56:09.956677Z  INFO alpen_bridge::mode::operator: p2p public key key=02938075d0a965749ed4ebf36392f91dbc994c6d6064be1950ca4baa1e2b92df54
+2025-09-23 11:41:09.958 | 2025-09-23T05:56:09.957884Z  INFO alpen_bridge::mode::operator: musig2 public key key=9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a
+2025-09-23 11:41:09.961 | 2025-09-23T05:56:09.961163Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+2025-09-23 11:41:09.989 | 2025-09-23T05:56:09.989829Z  INFO alpen_bridge::mode::operator: running migrations DB_NAME=bridge.db
+2025-09-23 11:41:10.002 | 2025-09-23T05:56:10.002648Z ERROR strata_tasks::manager: critical task exited with error name=operator err=could not build OperatorTable
+2025-09-23 11:41:10.011 | 2025-09-23T05:56:10.002869Z ERROR strata_tasks::manager: backtrace
+2025-09-23 11:41:10.011 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:41:10.011 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:41:10.011 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:41:10.011 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:41:10.011 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:41:10.011 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:41:10.011 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:41:10.011 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:41:10.011 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:41:10.011 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:41:10.011 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:41:10.011 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:41:10.011 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:41:10.011 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:41:10.011 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:41:10.011 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:41:10.011 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:41:10.011 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:41:10.011 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:41:10.011 |   19: <unknown>
+2025-09-23 11:41:10.011 |   20: clone
+2025-09-23 11:41:10.011 | 
+2025-09-23 11:41:10.013 | 
+2025-09-23 11:41:10.013 | thread 'main' panicked at bin/alpen-bridge/src/main.rs:102:9:
+2025-09-23 11:41:10.013 | bridge node crashed: TaskError { task_name: "operator", reason: Err(could not build OperatorTable
+2025-09-23 11:41:10.013 | 
+2025-09-23 11:41:10.013 | Stack backtrace:
+2025-09-23 11:41:10.013 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:41:10.013 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:41:10.013 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:41:10.013 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:41:10.013 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:41:10.013 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:41:10.013 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:41:10.013 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:41:10.013 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:41:10.013 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:41:10.013 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:41:10.013 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:41:10.013 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:41:10.013 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:41:10.013 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:41:10.013 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:41:10.013 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:41:10.013 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:41:10.013 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:41:10.013 |   19: <unknown>
+2025-09-23 11:41:10.013 |   20: clone) }
+2025-09-23 11:41:10.013 | stack backtrace:
+2025-09-23 11:41:10.013 |    0:     0x555559cb6472 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hd662187fa65adc29
+2025-09-23 11:41:10.013 |    1:     0x555559ce4523 - core::fmt::write::hd2e858ad8da95d8f
+2025-09-23 11:41:10.013 |    2:     0x555559cb1733 - std::io::Write::write_fmt::h5875566df214f71b
+2025-09-23 11:41:10.013 |    3:     0x555559cb62c2 - std::sys::backtrace::BacktraceLock::print::hcb48fa16d65f0ce5
+2025-09-23 11:41:10.013 |    4:     0x555559cb7782 - std::panicking::default_hook::{{closure}}::ha568e21decd2da2d
+2025-09-23 11:41:10.013 |    5:     0x555559cb7585 - std::panicking::default_hook::h8abddf8e14261018
+2025-09-23 11:41:10.013 |    6:     0x555559cb81a2 - std::panicking::rust_panic_with_hook::hd54c2d95158ab96f
+2025-09-23 11:41:10.013 |    7:     0x555559cb7f2a - std::panicking::begin_panic_handler::{{closure}}::hfd7f876baf1c59c7
+2025-09-23 11:41:10.013 |    8:     0x555559cb6969 - std::sys::backtrace::__rust_end_short_backtrace::h7f86266112cbeae7
+2025-09-23 11:41:10.013 |    9:     0x555559cb7bbd - __rustc[4ab717748c90b11f]::rust_begin_unwind
+2025-09-23 11:41:10.013 |   10:     0x555559ce1820 - core::panicking::panic_fmt::h04f727a682e30ffc
+2025-09-23 11:41:10.013 |   11:     0x555557a4c20c - alpen_bridge::main::he1e51196abd1dd94
+2025-09-23 11:41:10.014 |   12:     0x5555579348d3 - std::sys::backtrace::__rust_begin_short_backtrace::h0a97cc678091a40b
+2025-09-23 11:41:10.014 |   13:     0x555557a5bdb9 - std::rt::lang_start::{{closure}}::hd09b72b517f18318
+2025-09-23 11:41:10.014 |   14:     0x555559ca70f0 - std::rt::lang_start_internal::hd1729a5bee1f5e24
+2025-09-23 11:41:10.014 |   15:     0x555557a4e5c5 - main
+2025-09-23 11:41:10.014 |   16:     0x7fffff2441ca - <unknown>
+2025-09-23 11:41:10.014 |   17:     0x7fffff24428b - __libc_start_main
+2025-09-23 11:41:10.014 |   18:     0x5555577613a5 - _start
+2025-09-23 11:41:10.014 |   19:                0x0 - <unknown>
+2025-09-23 11:42:25.700 | 2025-09-23T05:57:25.697925Z  INFO alpen_bridge: starting bridge node mode=operator
+2025-09-23 11:42:25.742 | 2025-09-23T05:57:25.741912Z  INFO strata_tasks::manager: Starting critical async task name=operator
+2025-09-23 11:42:25.809 | 2025-09-23T05:57:25.809390Z  INFO alpen_bridge::mode::operator: p2p public key key=02938075d0a965749ed4ebf36392f91dbc994c6d6064be1950ca4baa1e2b92df54
+2025-09-23 11:42:25.811 | 2025-09-23T05:57:25.811238Z  INFO alpen_bridge::mode::operator: musig2 public key key=9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a
+2025-09-23 11:42:25.815 | 2025-09-23T05:57:25.814951Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+2025-09-23 11:42:25.849 | 2025-09-23T05:57:25.849404Z  INFO alpen_bridge::mode::operator: running migrations DB_NAME=bridge.db
+2025-09-23 11:42:25.863 | 2025-09-23T05:57:25.863347Z ERROR strata_tasks::manager: critical task exited with error name=operator err=could not build OperatorTable
+2025-09-23 11:42:25.873 | 2025-09-23T05:57:25.863612Z ERROR strata_tasks::manager: backtrace
+2025-09-23 11:42:25.873 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:42:25.873 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:42:25.873 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:42:25.873 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:42:25.873 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:42:25.873 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:42:25.873 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:42:25.873 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:42:25.873 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:42:25.873 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:42:25.873 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:42:25.873 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:42:25.873 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:42:25.873 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:42:25.873 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:42:25.873 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:42:25.873 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:42:25.873 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:42:25.873 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:42:25.873 |   19: <unknown>
+2025-09-23 11:42:25.873 |   20: clone
+2025-09-23 11:42:25.873 | 
+2025-09-23 11:42:25.875 | 
+2025-09-23 11:42:25.875 | thread 'main' panicked at bin/alpen-bridge/src/main.rs:102:9:
+2025-09-23 11:42:25.875 | bridge node crashed: TaskError { task_name: "operator", reason: Err(could not build OperatorTable
+2025-09-23 11:42:25.875 | 
+2025-09-23 11:42:25.875 | Stack backtrace:
+2025-09-23 11:42:25.875 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:42:25.875 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:42:25.875 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:42:25.875 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:42:25.875 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:42:25.875 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:42:25.875 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:42:25.875 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:42:25.875 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:42:25.875 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:42:25.875 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:42:25.875 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:42:25.875 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:42:25.875 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:42:25.875 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:42:25.875 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:42:25.875 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:42:25.875 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:42:25.875 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:42:25.875 |   19: <unknown>
+2025-09-23 11:42:25.875 |   20: clone) }
+2025-09-23 11:42:25.875 | stack backtrace:
+2025-09-23 11:42:25.875 |    0:     0x555559cb6472 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hd662187fa65adc29
+2025-09-23 11:42:25.875 |    1:     0x555559ce4523 - core::fmt::write::hd2e858ad8da95d8f
+2025-09-23 11:42:25.875 |    2:     0x555559cb1733 - std::io::Write::write_fmt::h5875566df214f71b
+2025-09-23 11:42:25.875 |    3:     0x555559cb62c2 - std::sys::backtrace::BacktraceLock::print::hcb48fa16d65f0ce5
+2025-09-23 11:42:25.875 |    4:     0x555559cb7782 - std::panicking::default_hook::{{closure}}::ha568e21decd2da2d
+2025-09-23 11:42:25.875 |    5:     0x555559cb7585 - std::panicking::default_hook::h8abddf8e14261018
+2025-09-23 11:42:25.875 |    6:     0x555559cb81a2 - std::panicking::rust_panic_with_hook::hd54c2d95158ab96f
+2025-09-23 11:42:25.875 |    7:     0x555559cb7f2a - std::panicking::begin_panic_handler::{{closure}}::hfd7f876baf1c59c7
+2025-09-23 11:42:25.875 |    8:     0x555559cb6969 - std::sys::backtrace::__rust_end_short_backtrace::h7f86266112cbeae7
+2025-09-23 11:42:25.876 |    9:     0x555559cb7bbd - __rustc[4ab717748c90b11f]::rust_begin_unwind
+2025-09-23 11:42:25.876 |   10:     0x555559ce1820 - core::panicking::panic_fmt::h04f727a682e30ffc
+2025-09-23 11:42:25.876 |   11:     0x555557a4c20c - alpen_bridge::main::he1e51196abd1dd94
+2025-09-23 11:42:25.876 |   12:     0x5555579348d3 - std::sys::backtrace::__rust_begin_short_backtrace::h0a97cc678091a40b
+2025-09-23 11:42:25.876 |   13:     0x555557a5bdb9 - std::rt::lang_start::{{closure}}::hd09b72b517f18318
+2025-09-23 11:42:25.876 |   14:     0x555559ca70f0 - std::rt::lang_start_internal::hd1729a5bee1f5e24
+2025-09-23 11:42:25.876 |   15:     0x555557a4e5c5 - main
+2025-09-23 11:42:25.876 |   16:     0x7fffff2441ca - <unknown>
+2025-09-23 11:42:25.876 |   17:     0x7fffff24428b - __libc_start_main
+2025-09-23 11:42:25.876 |   18:     0x5555577613a5 - _start
+2025-09-23 11:42:25.876 |   19:                0x0 - <unknown>
+2025-09-23 11:51:36.831 | 2025-09-23T06:06:36.829814Z  INFO alpen_bridge: starting bridge node mode=operator
+2025-09-23 11:51:36.868 | 2025-09-23T06:06:36.867537Z  INFO strata_tasks::manager: Starting critical async task name=operator
+2025-09-23 11:51:36.962 | 2025-09-23T06:06:36.962073Z  INFO alpen_bridge::mode::operator: p2p public key key=02938075d0a965749ed4ebf36392f91dbc994c6d6064be1950ca4baa1e2b92df54
+2025-09-23 11:51:36.963 | 2025-09-23T06:06:36.963755Z  INFO alpen_bridge::mode::operator: musig2 public key key=9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a
+2025-09-23 11:51:36.967 | 2025-09-23T06:06:36.966957Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+2025-09-23 11:51:37.002 | 2025-09-23T06:06:37.002280Z  INFO alpen_bridge::mode::operator: running migrations DB_NAME=bridge.db
+2025-09-23 11:51:37.016 | 2025-09-23T06:06:37.016608Z ERROR strata_tasks::manager: critical task exited with error name=operator err=could not build OperatorTable
+2025-09-23 11:51:37.027 | 2025-09-23T06:06:37.016861Z ERROR strata_tasks::manager: backtrace
+2025-09-23 11:51:37.027 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:51:37.027 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:51:37.027 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:51:37.027 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:51:37.027 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:51:37.027 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:51:37.027 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:51:37.027 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:51:37.027 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:51:37.027 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:51:37.027 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:51:37.027 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:51:37.027 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:51:37.027 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:51:37.027 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:51:37.027 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:51:37.027 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:51:37.027 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:51:37.027 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:51:37.027 |   19: <unknown>
+2025-09-23 11:51:37.027 |   20: clone
+2025-09-23 11:51:37.027 | 
+2025-09-23 11:51:37.029 | 
+2025-09-23 11:51:37.029 | thread 'main' panicked at bin/alpen-bridge/src/main.rs:102:9:
+2025-09-23 11:51:37.029 | bridge node crashed: TaskError { task_name: "operator", reason: Err(could not build OperatorTable
+2025-09-23 11:51:37.029 | 
+2025-09-23 11:51:37.029 | Stack backtrace:
+2025-09-23 11:51:37.029 |    0: anyhow::context::<impl anyhow::Context<T,core::convert::Infallible> for core::option::Option<T>>::context
+2025-09-23 11:51:37.029 |    1: alpen_bridge::mode::operator::bootstrap::{{closure}}
+2025-09-23 11:51:37.029 |    2: <core::panic::unwind_safe::AssertUnwindSafe<F> as core::future::future::Future>::poll
+2025-09-23 11:51:37.029 |    3: <futures_util::future::future::map::Map<Fut,F> as core::future::future::Future>::poll
+2025-09-23 11:51:37.029 |    4: <futures_util::future::future::flatten::Flatten<Fut,<Fut as core::future::future::Future>::Output> as core::future::future::Future>::poll
+2025-09-23 11:51:37.029 |    5: <core::pin::Pin<P> as core::future::future::Future>::poll
+2025-09-23 11:51:37.029 |    6: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:51:37.029 |    7: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:51:37.029 |    8: tokio::runtime::scheduler::multi_thread::worker::Context::run_task
+2025-09-23 11:51:37.029 |    9: tokio::runtime::scheduler::multi_thread::worker::Context::run
+2025-09-23 11:51:37.029 |   10: tokio::runtime::context::runtime::enter_runtime
+2025-09-23 11:51:37.029 |   11: tokio::runtime::scheduler::multi_thread::worker::run
+2025-09-23 11:51:37.029 |   12: <tokio::runtime::blocking::task::BlockingTask<T> as core::future::future::Future>::poll
+2025-09-23 11:51:37.029 |   13: tokio::runtime::task::core::Core<T,S>::poll
+2025-09-23 11:51:37.029 |   14: tokio::runtime::task::harness::Harness<T,S>::poll
+2025-09-23 11:51:37.029 |   15: tokio::runtime::blocking::pool::Inner::run
+2025-09-23 11:51:37.029 |   16: std::sys::backtrace::__rust_begin_short_backtrace
+2025-09-23 11:51:37.029 |   17: core::ops::function::FnOnce::call_once{{vtable.shim}}
+2025-09-23 11:51:37.029 |   18: std::sys::pal::unix::thread::Thread::new::thread_start
+2025-09-23 11:51:37.029 |   19: <unknown>
+2025-09-23 11:51:37.029 |   20: clone) }
+2025-09-23 11:51:37.029 | stack backtrace:
+2025-09-23 11:51:37.029 |    0:     0x555559cb6472 - <std::sys::backtrace::BacktraceLock::print::DisplayBacktrace as core::fmt::Display>::fmt::hd662187fa65adc29
+2025-09-23 11:51:37.029 |    1:     0x555559ce4523 - core::fmt::write::hd2e858ad8da95d8f
+2025-09-23 11:51:37.029 |    2:     0x555559cb1733 - std::io::Write::write_fmt::h5875566df214f71b
+2025-09-23 11:51:37.029 |    3:     0x555559cb62c2 - std::sys::backtrace::BacktraceLock::print::hcb48fa16d65f0ce5
+2025-09-23 11:51:37.029 |    4:     0x555559cb7782 - std::panicking::default_hook::{{closure}}::ha568e21decd2da2d
+2025-09-23 11:51:37.030 |    5:     0x555559cb7585 - std::panicking::default_hook::h8abddf8e14261018
+2025-09-23 11:51:37.030 |    6:     0x555559cb81a2 - std::panicking::rust_panic_with_hook::hd54c2d95158ab96f
+2025-09-23 11:51:37.030 |    7:     0x555559cb7f2a - std::panicking::begin_panic_handler::{{closure}}::hfd7f876baf1c59c7
+2025-09-23 11:51:37.030 |    8:     0x555559cb6969 - std::sys::backtrace::__rust_end_short_backtrace::h7f86266112cbeae7
+2025-09-23 11:51:37.030 |    9:     0x555559cb7bbd - __rustc[4ab717748c90b11f]::rust_begin_unwind
+2025-09-23 11:51:37.030 |   10:     0x555559ce1820 - core::panicking::panic_fmt::h04f727a682e30ffc
+2025-09-23 11:51:37.030 |   11:     0x555557a4c20c - alpen_bridge::main::he1e51196abd1dd94
+2025-09-23 11:51:37.030 |   12:     0x5555579348d3 - std::sys::backtrace::__rust_begin_short_backtrace::h0a97cc678091a40b
+2025-09-23 11:51:37.030 |   13:     0x555557a5bdb9 - std::rt::lang_start::{{closure}}::hd09b72b517f18318
+2025-09-23 11:51:37.030 |   14:     0x555559ca70f0 - std::rt::lang_start_internal::hd1729a5bee1f5e24
+2025-09-23 11:51:37.030 |   15:     0x555557a4e5c5 - main
+2025-09-23 11:51:37.030 |   16:     0x7fffff2441ca - <unknown>
+2025-09-23 11:51:37.030 |   17:     0x7fffff24428b - __libc_start_main
+2025-09-23 11:51:37.030 |   18:     0x5555577613a5 - _start
+2025-09-23 11:51:37.030 |   19:                0x0 - <unknown>

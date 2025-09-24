@@ -4,11 +4,18 @@ on:
   pull_request:
   merge_group:
   push:
-    branches: [main]
+    branches: ["main", "madan/ecr-cosign-sbom"] 
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+
+env:
+  AWS_REGION: us-east-1                 # <-- change to your AWS region
+  AWS_ACCOUNT_ID: "888577024788"        # <-- change to your AWS account
+  BRIDGE_ECR_REPOSITORY: tn1/alpen-bridge        # <-- change or keep
+  SECRET_SERVICE_CER_REPOSITORY: tn1/secret-service
+  ROLE_NAME: gh-madan-oss-build-role
 
 permissions: {}
 

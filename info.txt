@@ -1,0 +1,41 @@
+Brdige 1
+
+
+2025-09-22T05:17:33.613153Z  INFO alpen_bridge::mode::operator: p2p public key key=02938075d0a965749ed4ebf36392f91dbc994c6d6064be1950ca4baa1e2b92df54
+
+2025-09-22T05:17:33.614940Z  INFO alpen_bridge::mode::operator: musig2 public key key=9effefe15777e7089762079f895f2f0636035052d5124fbca553f04752e48a8a
+
+2025-09-22T05:17:33.619242Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+
+
+
+Bridge 2
+
+2025-09-18T18:55:43.500348Z  INFO alpen_bridge::mode::operator: p2p public key key=0281e577243fd203f9781acd568d7cbe97588d4efdcc1dc422c546e789929bbc17
+
+2025-09-18T18:55:43.502392Z  INFO alpen_bridge::mode::operator: musig2 public key key=2d2eefc1957d519357a1f69b243a2be8cb8ed1d5004eff6c2a0dc15136e96e41
+
+2025-09-18T18:55:43.505922Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+
+Bridge 3
+
+2025-09-22T05:17:33.612832Z  INFO alpen_bridge::mode::operator: p2p public key key=028657e9d26c0f506b49f39d452e08dca3f0735236ad4f72ae5262127f767d3578
+
+2025-09-22T05:17:33.614758Z  INFO alpen_bridge::mode::operator: musig2 public key key=887e79c5945c94e0715de84d47409d2cd46f4efead26bac89d42d26f934fd898
+
+2025-09-22T05:17:33.619249Z  INFO alpen_bridge::mode::operator: aggregated musig2 bridge key key=4c334add27c58c464f6f19c740c768fd983166f062714e2ddb19ae78f8015eff
+
+
+
+
+B1
+general wallet address: tb1pjvcemg6jgr3v5e995kjguplyxt4tykt4xzcvj5dl5sl0eu4e4zxqe6rcjx
+stakechain wallet address: tb1pwt0t27pjklxrwtda2v6gmrvxtt3pcrle58ex730z0cq8pfyhga4qln5kqu
+
+B2
+general wallet address: tb1p9cz2k8v8s8jaafj42ldmgck7ju7h43uy386jjvv8kfgwyr092a9q6u93xc
+stakechain wallet address: tb1pn8cpk657teytj23mmytfw5jfs8yfqxy3r6c5muz2k0sd293h6gnsu7zymg
+
+B3
+general wallet address: tb1pf4j035ygk7ffrzvtp5w75utx28gwj084m4knw468q7wxuuve933skkxj0g
+stakechain wallet address: tb1pn6702gemfgvmqqvnuqdfc3hnsq8h9r264ktexysyff8sph4tuxdsw5nkwk
