@@ -15,7 +15,7 @@ pub struct WithdrawalFulfillment(Transaction);
 /// Metadata to be posted in the withdrawal transaction.
 ///
 /// This metadata is used to identify the operator and deposit index in the bridge withdrawal proof.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WithdrawalMetadata {
     /// The tag used to mark the withdrawal metadata transaction.
     pub tag: Tag,
