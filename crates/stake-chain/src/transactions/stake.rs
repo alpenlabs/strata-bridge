@@ -67,7 +67,7 @@ pub struct Tail;
 /// As the first stake transaction is distinct in how it is spent from the rest of the transactions
 /// in the stake chain, this is a convenience enum used when a common semantics is desired when
 /// dealing with both types.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StakeTxKind {
     /// The head of the stake chain i.e., the first stake transaction.
     Head(StakeTx<Head>),

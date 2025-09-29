@@ -151,9 +151,13 @@ impl Arbitrary for Wots256PublicKey {
     type Parameters = ();
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        any::<[u8; std::mem::size_of::<Wots256PublicKey>()]>()
+        any::<[u8; std::mem::size_of::<<wots256 as Wots>::PublicKey>()]>()
             .no_shrink()
-            .prop_map(|arr| unsafe { std::mem::transmute(arr) })
+            .prop_map(|arr| {
+                Wots256PublicKey(Arc::new(unsafe {
+                    std::mem::transmute::<_, <wots256 as Wots>::PublicKey>(arr)
+                }))
+            })
             .boxed()
     }
 
@@ -370,9 +374,9 @@ impl Arbitrary for Groth16PublicKeys {
     type Parameters = ();
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        any::<[u8; std::mem::size_of::<Groth16PublicKeys>()]>()
+        any::<[u8; std::mem::size_of::<BitVmG16PublicKeys>()]>()
             .no_shrink()
-            .prop_map(|arr| unsafe { std::mem::transmute(arr) })
+            .prop_map(|arr| Groth16PublicKeys(Arc::new(unsafe { std::mem::transmute(arr) })))
             .boxed()
     }
 

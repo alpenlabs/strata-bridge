@@ -154,7 +154,7 @@ impl StakeChain {
 /// The WOTS public keys, stake hashes, and operator funds are needed to
 /// construct the transaction graph for the corresponding deposit to be claimed while using and
 /// advancing the [`StakeChain`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StakeChainInputs {
     /// Inputs required for individual stake transactions.
     pub stake_inputs: BTreeMap<u32, StakeTxData>,

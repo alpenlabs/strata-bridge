@@ -142,7 +142,7 @@ impl DepositRequestData {
 
 /// The Deposit Transaction constructed off of the information in the Deposit Request Transaction
 /// (aka [`DepositRequestData`]).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepositTx {
     psbt: Psbt,
     prevouts: [TxOut; 1],
