@@ -55,7 +55,7 @@ jobs:
         uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
 
       - name: Install Nix
-        uses: DeterminateSystems/determinate-nix-action@379b47b8e270e906339a489d56466ccfd2f69d8c # v3.8.5
+        uses: DeterminateSystems/determinate-nix-action@dbda91f6efef3ee627f56175120aa9543687d830 # v3.11.2
 
       - name: Cache Nix store
         uses: nix-community/cache-nix-action@135667ec418502fa5a3598af6fb9eb733888ce6a # v6.1.3
