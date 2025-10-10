@@ -7,6 +7,7 @@ members = [
   "crates/params",
   "crates/primitives",
   "crates/bridge-proof/protocol",
+  "crates/bridge-proof/glock-bridge-proof",
   "crates/bridge-proof/primitives",
   "crates/bridge-proof/snark",
   "crates/duty-tracker",
