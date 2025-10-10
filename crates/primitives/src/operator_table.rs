@@ -9,8 +9,8 @@ use algebra::category;
 use bitcoin::{Network, XOnlyPublicKey};
 use musig2::KeyAggContext;
 use serde::{Deserialize, Serialize};
+use strata_bridge_types::PublickeyTable;
 use strata_p2p_types::P2POperatorPubKey;
-use strata_primitives::bridge::PublickeyTable;
 
 use crate::{build_context::TxBuildContext, types::OperatorIdx};
 

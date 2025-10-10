@@ -32,18 +32,12 @@ members = [
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
-  "bin/mock-checkpoint",
 
   # test utilities
   "crates/test-utils",
 ]
 
-default-members = [
-  "bin/alpen-bridge",
-  "bin/dev-cli",
-  "bin/assert-splitter",
-  "bin/mock-checkpoint",
-]
+default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -82,18 +76,21 @@ strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
-strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-config = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-proofimpl-btc-blockspace = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-state = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
-strata-tasks = { git = "https://github.com/alpenlabs/alpen.git", tag = "v0.2.0-rc4" }
+strata-asm-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
+strata-tasks = { git = "https://github.com/alpenlabs/alpen.git", rev = "76aef015a1ffbe39a628d9e5f33ae0df3adb0c32" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
 strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }

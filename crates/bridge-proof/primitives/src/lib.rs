@@ -6,6 +6,8 @@
 //! `tokio` inside `bitvm` is resolved.
 
 mod tx;
+mod utils;
 
 mod tx_inclusion_proof;
 pub use tx_inclusion_proof::*;
+pub use utils::{compute_txid, witness_commitment_from_coinbase};

@@ -25,11 +25,12 @@ use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
     prelude::{AssertDataTxInput, CovenantTx},
 };
+use strata_bridge_types::DepositState;
+use strata_ol_chainstate_types::Chainstate;
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_primitives::params::RollupParams;
-use strata_state::{bridge_state::DepositState, chain_state::Chainstate};
 use tokio::{
     select,
     sync::{mpsc, oneshot, RwLock},
@@ -820,11 +821,17 @@ impl ContractManagerCtx {
                             continue;
                         };
 
-                        let l1_start_height = checkpoint.batch_info().l1_range.1.height() + 1;
+                        let l1_start_height = checkpoint
+                            .batch_info()
+                            .l1_range
+                            .1
+                            .height()
+                            .to_consensus_u32()
+                            + 1;
                         match sm.process_contract_event(ContractEvent::Assignment {
                             deposit_entry: entry.clone(),
                             stake_tx,
-                            l1_start_height,
+                            l1_start_height: l1_start_height as u64,
                         }) {
                             Ok(new_duties) if !new_duties.is_empty() => {
                                 duties.extend(new_duties);

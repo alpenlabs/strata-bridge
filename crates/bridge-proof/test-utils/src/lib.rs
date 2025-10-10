@@ -6,8 +6,8 @@ use std::fs;
 use bitcoin::{block::Header, Block};
 use borsh::BorshDeserialize;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
+use strata_ol_chainstate_types::Chainstate;
 use strata_primitives::{buf::Buf64, params::RollupParams};
-use strata_state::chain_state::Chainstate;
 
 /// Loads and deserializes a list of Bitcoin blocks from a binary test data file.
 pub fn load_test_blocks() -> Vec<Block> {

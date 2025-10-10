@@ -14,9 +14,9 @@ use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     claim::CHALLENGE_VOUT, deposit::DepositRequestData, prelude::POST_ASSERT_INPUT_INDEX,
 };
+use strata_checkpoint_types::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
 use strata_primitives::params::RollupParams;
-use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
 use tracing::warn;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
@@ -56,7 +56,7 @@ pub(crate) fn deposit_request_info(
         return None;
     }
 
-    let ee_address_size = sidesystem_params.address_length as usize;
+    let ee_address_size = sidesystem_params.max_address_length as usize;
     let tag = pegout_graph_params.tag.as_bytes();
 
     let (recovery_x_only_pk, el_addr) = magic_tagged_data(tag, &tx.output.get(1)?.script_pubkey)

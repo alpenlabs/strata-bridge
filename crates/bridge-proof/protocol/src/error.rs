@@ -1,4 +1,4 @@
-use strata_primitives::l1::L1VerificationError;
+use strata_asm_types::L1VerificationError;
 use thiserror::Error;
 
 /// Represents all possible errors that can occur during the verification of a bridge proof.

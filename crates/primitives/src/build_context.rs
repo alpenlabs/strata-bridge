@@ -2,7 +2,7 @@
 
 use bitcoin::Network;
 use secp256k1::XOnlyPublicKey;
-use strata_primitives::bridge::PublickeyTable;
+use strata_bridge_types::PublickeyTable;
 
 use crate::{scripts::general::get_aggregated_pubkey, types::OperatorIdx};
 

@@ -1,11 +1,10 @@
 use alpen_bridge_params::types::Tag;
 use bitcoin::{consensus, ScriptBuf, Transaction, Txid};
+use strata_checkpoint_types::{verify_signed_checkpoint_sig, SignedCheckpoint};
 use strata_crypto::groth16_verifier::verify_rollup_groth16_proof_receipt;
 use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
-use strata_primitives::{
-    batch::SignedCheckpoint, bridge::OperatorIdx, l1::BitcoinAmount, params::RollupParams,
-};
-use strata_state::{batch::verify_signed_checkpoint_sig, chain_state::Chainstate};
+use strata_ol_chainstate_types::Chainstate;
+use strata_primitives::{l1::BitcoinAmount, operator::OperatorIdx, params::RollupParams};
 
 use crate::error::{BridgeProofError, BridgeRelatedTx};
 
@@ -180,7 +179,7 @@ mod tests {
         load_test_rollup_params,
     };
     use strata_bridge_common::logging::{self, LoggerConfig};
-    use strata_proofimpl_btc_blockspace::tx::compute_txid;
+    use strata_bridge_proof_primitives::compute_txid;
     use tracing::info;
 
     use super::*;
@@ -195,7 +194,6 @@ mod tests {
         let checkpoint_inscribed_tx = checkpoint_inscribed_tx_bundle.transaction();
 
         let rollup_params = load_test_rollup_params();
-        let _tag = Tag::try_from(rollup_params.rollup_name.clone()).unwrap();
         let res = extract_valid_chainstate_from_checkpoint(checkpoint_inscribed_tx, &rollup_params);
         assert!(
             res.is_ok(),

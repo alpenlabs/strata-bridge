@@ -11,9 +11,8 @@ use strata_bridge_primitives::{
         general::{drt_take_back, get_aggregated_pubkey},
         prelude::{create_taproot_addr, SpendPath},
     },
-    types::OperatorIdx,
+    types::{OperatorIdx, PublickeyTable},
 };
-use strata_primitives::bridge::PublickeyTable;
 
 /// Generates a public key table from a slice of public keys.
 pub fn generate_pubkey_table(table: &[PublicKey]) -> PublickeyTable {

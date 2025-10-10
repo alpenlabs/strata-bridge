@@ -189,10 +189,10 @@ impl DepositTx {
         };
 
         // Validate EE address size
-        if data.el_address().len() != sidesystem_params.address_length as usize {
+        if data.el_address().len() != sidesystem_params.max_address_length as usize {
             return Err(DepositTransactionError::InvalidEeAddressSize(
                 data.el_address().len(),
-                sidesystem_params.address_length as usize,
+                sidesystem_params.max_address_length as usize,
             )
             .into());
         }

@@ -48,9 +48,9 @@ use strata_bridge_tx_graph::{
         },
     },
 };
+use strata_bridge_types::DepositEntry;
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_primitives::{buf::Buf32, params::RollupParams};
-use strata_state::bridge_state::{DepositEntry, DepositState};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -2444,7 +2444,7 @@ impl ContractSM {
         }
 
         match assignment.deposit_state() {
-            DepositState::Dispatched(dispatched_state) => {
+            DepositSetup::Dispatched(dispatched_state) => {
                 let assignee = dispatched_state.assignee();
                 debug!(%assignee, deposit_idx=%self.cfg.deposit_idx, "received withdrawal assignment");
 
@@ -3664,13 +3664,9 @@ mod prop_tests {
                     ).unwrap(),
                 l1_reorg_safe_depth: 6,
                 target_l2_batch_size: 3,
-                address_length: 20,
+                max_address_length: 20,
                 deposit_amount: peg_out_graph_params.deposit_amount.to_sat(),
-                rollup_vk: RollupVerifyingKey::NativeVerifyingKey(
-                    Buf32::from_str(
-                        "0000000000000000000000000000000000000000000000000000000000000000"
-                    ).unwrap(),
-                ),
+                rollup_vk: RollupVerifyingKey::NativeVerifyingKey,
                 dispatch_assignment_dur: 1000000,
                 proof_publish_mode: ProofPublishMode::Timeout(30),
                 max_deposits_in_block: 16,

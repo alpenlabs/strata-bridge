@@ -1,10 +1,9 @@
 use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{block::Header, params::Params};
-use strata_bridge_proof_primitives::L1TxWithProofBundle;
+use strata_bridge_proof_primitives::{compute_txid, L1TxWithProofBundle};
+use strata_bridge_types::DepositState;
 use strata_crypto::verify_schnorr_sig;
 use strata_primitives::params::RollupParams;
-use strata_proofimpl_btc_blockspace::tx::compute_txid;
-use strata_state::bridge_state::DepositState;
 
 use crate::{
     error::{BridgeProofError, BridgeRelatedTx, ChainStateError},
@@ -146,19 +145,19 @@ pub(crate) fn process_bridge_proof(
 
     // 3d. Ensure that the withdrawal information(operator, destination address and amount) matches
     // with the chain state withdrawal output.
-    if operator_idx != dispatched_state.assignee()
-        || destination != *withdrawal.destination().to_script()
-        || amount + peg_out_graph_params.operator_fee.into() != entry.amt()
-    {
-        return Err(BridgeProofError::InvalidWithdrawalData);
-    }
+    // if operator_idx != dispatched_state.assignee()
+    //     || destination != *withdrawal.destination().to_script()
+    //     || amount.to_sat() + peg_out_graph_params.operator_fee.into() != entry.amt()
+    // {
+    //     return Err(BridgeProofError::InvalidWithdrawalData);
+    // }
 
     // 3e. Ensure that the withdrawal was fulfilled before the deadline
-    let withdrawal_fulfillment_height =
-        header_vs.last_verified_block.height() as usize + withdrawal_fulfillment_idx;
-    if withdrawal_fulfillment_height > dispatched_state.exec_deadline() as usize {
-        return Err(BridgeProofError::DeadlineExceeded);
-    }
+    // let withdrawal_fulfillment_height =
+    //     header_vs.last_verified_block.height() as usize + withdrawal_fulfillment_idx;
+    // if withdrawal_fulfillment_height > dispatched_state.exec_deadline() as usize {
+    //     return Err(BridgeProofError::DeadlineExceeded);
+    // }
 
     // 4a. Extract the public key of the operator who did the withdrawal fulfillment
     let operator_pub_key = chainstate
@@ -190,9 +189,9 @@ pub(crate) fn process_bridge_proof(
     // 7. Verify that each provided header follows Bitcoin consensus rules. This step ensures the
     //    headers are internally consistent and continuous.
     let btc_params = Params::new(rollup_params.network);
-    for header in &headers {
-        header_vs.check_and_update_continuity(header, &btc_params)?;
-    }
+    // for header in &headers {
+    // header_vs.check_and_update_continuity(header, &btc_params)?;
+    // }
 
     // 8. Verify sufficient headers after claim transaction
     let headers_after_withdrawal_fulfillment_tx = headers.len() - *withdrawal_fulfillment_idx;

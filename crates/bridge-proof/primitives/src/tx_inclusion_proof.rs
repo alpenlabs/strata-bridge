@@ -2,14 +2,12 @@
 
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
-use strata_primitives::{
-    buf::Buf32,
-    hash::sha256d,
-    l1::{L1TxInclusionProof, L1TxProof, L1WtxProof, TxIdComputable, TxIdMarker, WtxIdMarker},
+use strata_asm_types::{
+    L1TxInclusionProof, L1TxProof, L1WtxProof, TxIdComputable, TxIdMarker, WtxIdMarker,
 };
-use strata_proofimpl_btc_blockspace::block::witness_commitment_from_coinbase;
+use strata_primitives::{buf::Buf32, hash::sha256d};
 
-use crate::tx::BitcoinTx;
+use crate::{tx::BitcoinTx, utils::witness_commitment_from_coinbase};
 
 /// A transaction along with its [L1TxInclusionProof], parameterized by a `Marker` type
 /// (either [`TxIdMarker`] or [`WtxIdMarker`]).

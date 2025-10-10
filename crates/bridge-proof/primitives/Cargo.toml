@@ -7,8 +7,8 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+strata-asm-types.workspace = true
 strata-primitives.workspace = true
-strata-proofimpl-btc-blockspace.workspace = true
 
 arbitrary.workspace = true
 bitcoin.workspace = true
