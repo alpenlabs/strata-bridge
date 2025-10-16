@@ -36,7 +36,10 @@ services:
     <<: *base-bridge-node
     ports:
       - 15678:5678
-      # map 5679 of your machine to 5679
+      # map 5679 of your machine to 5679 of container.
+      # *Do notice ports in bridge-2 & 3 are 15679.*
+      # For distributed bridge setup please use bridge-1 only for
+      # best compatibility with the [docs](https://www.notion.so/Bridge-Operator-Guide-268901ba000f8071a832ff35dd3247bf#268901ba000f8071a832ff35dd3247bf).
       - 5679:5679
       - 13000:3000
     volumes:
