@@ -4,6 +4,7 @@ use bitcoin::{
     sighash::Prevouts, transaction, Amount, OutPoint, Psbt, Sequence, TapSighashType, Transaction,
     TxOut, Txid,
 };
+use bitcoin_bosd::DescriptorError;
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -74,7 +75,7 @@ impl PreAssertTx {
             NUM_HASH_CONNECTORS_BATCH_2,
             NUM_HASH_ELEMS_PER_CONNECTOR_BATCH_2,
         >,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         const NUM_DUST_OUTPUTS_IN_CLAIM: u64 = 3;
         let input_amount: Amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_DUST_OUTPUTS_IN_CLAIM;
         assert!(
@@ -138,7 +139,7 @@ impl PreAssertTx {
 
         trace!(num_scripts=%scripts_and_amounts.len(), event = "added all bitcommitment connectors");
 
-        let cpfp_script = connector_cpfp.generate_taproot_address().script_pubkey();
+        let cpfp_script = connector_cpfp.generate_taproot_address()?.script_pubkey();
         let cpfp_amount = cpfp_script.minimal_non_dust();
         scripts_and_amounts.push((cpfp_script, cpfp_amount));
         trace!(event = "added cpfp connector");
@@ -184,7 +185,7 @@ impl PreAssertTx {
             "BUG: the number of tx_outs in the pre-assert must match"
         );
 
-        Self {
+        Ok(Self {
             psbt,
 
             prevouts,
@@ -194,7 +195,7 @@ impl PreAssertTx {
             witnesses: witness,
 
             connector_c0,
-        }
+        })
     }
 
     /// Gets the transaction outputs arranged in a specific order.

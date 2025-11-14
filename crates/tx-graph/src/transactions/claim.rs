@@ -1,6 +1,7 @@
 //! Constructs the claim transaction.
 
 use bitcoin::{transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid};
+use bitcoin_bosd::DescriptorError;
 use bitvm::signatures::{Wots, Wots32 as wots256};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{constants::FUNDING_AMOUNT, scripts::prelude::*};
@@ -48,7 +49,7 @@ impl ClaimTx {
         connector_c1: ConnectorC1,
         connector_n_of_n: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         let input_amount = FUNDING_AMOUNT;
 
         let tx_ins = create_tx_ins([data.stake_outpoint]);
@@ -59,7 +60,7 @@ impl ClaimTx {
         let c2_out = connector_n_of_n.create_taproot_address().script_pubkey();
         let c2_amt = c2_out.minimal_non_dust();
 
-        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_script = connector_cpfp.generate_locking_script()?;
         let cpfp_amt = cpfp_script.minimal_non_dust();
 
         let c0_out = connector_c0.generate_locking_script();
@@ -87,11 +88,11 @@ impl ClaimTx {
         psbt.inputs[0].witness_utxo = Some(prevout.clone());
         psbt.inputs[0].sighash_type = Some(TapSighashType::Default.into());
 
-        Self {
+        Ok(Self {
             psbt,
             output_amount: c0_amt,
             connector_k,
-        }
+        })
     }
 
     /// The underlying PSBT.

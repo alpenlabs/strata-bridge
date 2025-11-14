@@ -4,11 +4,14 @@ use bitcoin::{
     key::TapTweak, psbt::ExtractTxError, sighash::Prevouts, taproot, Address, Amount, Network,
     OutPoint, Psbt, Transaction, TxOut, Txid,
 };
-use secp256k1::XOnlyPublicKey;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
-use strata_bridge_primitives::scripts::{
-    prelude::{create_tx, create_tx_ins, create_tx_outs},
-    taproot::TaprootWitness,
+use strata_bridge_primitives::{
+    scripts::{
+        prelude::{create_tx, create_tx_ins, create_tx_outs},
+        taproot::TaprootWitness,
+    },
+    types::descriptor_to_x_only_pubkey,
 };
 
 use super::prelude::CovenantTx;
@@ -23,7 +26,7 @@ pub struct ChallengeTxInput {
     pub challenge_amt: Amount,
 
     /// The public key of the operator that locks the output of the challenge transaction.
-    pub operator_pubkey: XOnlyPublicKey,
+    pub operator_pubkey: Descriptor,
 
     /// The network where the constructed challenge transaction is valid.
     pub network: Network,
@@ -52,11 +55,14 @@ pub struct ChallengeTx {
 
 impl ChallengeTx {
     /// Constructs a new Challenge transaction.
-    pub fn new(input: ChallengeTxInput, challenge_connector: ConnectorC1) -> Self {
+    pub fn new(
+        input: ChallengeTxInput,
+        challenge_connector: ConnectorC1,
+    ) -> Result<Self, DescriptorError> {
         let tx_ins = create_tx_ins([input.claim_outpoint]);
 
         let operator_address = Address::p2tr_tweaked(
-            input.operator_pubkey.dangerous_assume_tweaked(),
+            descriptor_to_x_only_pubkey(&input.operator_pubkey)?.dangerous_assume_tweaked(),
             input.network,
         );
         let tx_outs = create_tx_outs([(operator_address.script_pubkey(), input.challenge_amt)]);
@@ -80,14 +86,14 @@ impl ChallengeTx {
         psbt.inputs[input_index].witness_utxo = Some(prevouts[0].clone());
         psbt.inputs[input_index].sighash_type = Some(sighash_type.into());
 
-        Self {
+        Ok(Self {
             psbt,
 
             prevouts,
             witnesses,
 
             connector: challenge_connector,
-        }
+        })
     }
 
     /// Finalizes the presigned input in the Challenge transaction.

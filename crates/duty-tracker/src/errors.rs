@@ -1,6 +1,7 @@
 //! Error types for the duty tracker.
 
 use bdk_wallet::error::CreateTxError;
+use bitcoin_bosd::DescriptorError;
 use bitcoind_async_client::error::ClientError;
 use btc_tracker::tx_driver::DriveErr;
 use strata_bridge_db::errors::DbError;
@@ -53,6 +54,10 @@ pub enum ContractManagerErr {
     /// Error during transaction creation
     #[error("error while creating transaction: {0:?}")]
     CreateTxErr(#[from] CreateTxError),
+
+    /// Error during descriptor parsing
+    #[error("descriptor error: {0}")]
+    DescriptorError(#[from] DescriptorError),
 
     /// General catch-all for errors.
     #[error("fatal error: {0}")]
@@ -108,6 +113,12 @@ pub enum StakeChainErr {
     /// Error indicating unexpected behavior in the stake chain state machine.
     #[error("unexpected problem with stake chain state machine: {0}")]
     Unexpected(String),
+}
+
+impl From<DescriptorError> for StakeChainErr {
+    fn from(err: DescriptorError) -> Self {
+        StakeChainErr::Unexpected(err.to_string())
+    }
 }
 
 /// Error type for shutdown operations.

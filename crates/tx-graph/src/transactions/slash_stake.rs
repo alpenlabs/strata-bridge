@@ -5,6 +5,7 @@ use bitcoin::{
     psbt::PsbtSighashType, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt,
     TapSighashType, Transaction, TxOut,
 };
+use bitcoin_bosd::DescriptorError;
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::{ConnectorNOfN, ConnectorStake, StakeSpendPath};
 use strata_bridge_primitives::{
@@ -57,7 +58,7 @@ impl SlashStakeTx {
         stake_chain_params: StakeChainParams,
         claim_out_conn: ConnectorNOfN,
         stake_conn: ConnectorStake,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         let utxos = [data.claim_outpoint, data.stake_outpoint];
 
         let tx_ins = create_tx_ins(utxos);
@@ -94,11 +95,11 @@ impl SlashStakeTx {
             },
             TxOut {
                 value: stake_chain_params.stake_amount,
-                script_pubkey: stake_conn.generate_address().script_pubkey(),
+                script_pubkey: stake_conn.generate_address()?.script_pubkey(),
             },
         ];
 
-        let tweak = stake_conn.generate_merkle_root();
+        let tweak = stake_conn.generate_merkle_root()?;
         let witnesses = [TaprootWitness::Key, TaprootWitness::Tweaked { tweak }];
 
         psbt.inputs
@@ -109,11 +110,11 @@ impl SlashStakeTx {
                 input.sighash_type = Some(PsbtSighashType::from(TapSighashType::Single));
             });
 
-        Self {
+        Ok(Self {
             psbt,
             prevouts,
             witnesses,
-        }
+        })
     }
 
     /// Finalizes the transaction.
@@ -123,7 +124,7 @@ impl SlashStakeTx {
         stake_sig: schnorr::Signature,
         claim_out_conn: ConnectorNOfN,
         stake_conn: ConnectorStake,
-    ) -> Transaction {
+    ) -> Result<Transaction, DescriptorError> {
         let claim_sig = taproot::Signature {
             signature: claim_sig,
             sighash_type: TapSighashType::Single,
@@ -140,11 +141,11 @@ impl SlashStakeTx {
         stake_conn.finalize_input(
             self.psbt_mut().inputs.get_mut(1).unwrap(),
             stake_spend_witness,
-        );
+        )?;
 
         // don't check for fees because this SIGHASH_SINGLE transaction where the final output will
         // be added later.
-        self.psbt.extract_tx_unchecked_fee_rate()
+        Ok(self.psbt.extract_tx_unchecked_fee_rate())
     }
 }
 
@@ -290,7 +291,8 @@ mod tests {
             stake_chain_params,
             n_of_n_connector,
             stake_connector,
-        );
+        )
+        .unwrap();
 
         let raw_slash_stake_tx = slash_stake_tx.psbt().unsigned_tx.clone();
         let mut sighash_cache = SighashCache::new(&raw_slash_stake_tx);

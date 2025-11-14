@@ -25,7 +25,7 @@ use strata_bridge_db::{
         sqlite::{execute_with_retries, SqliteDb},
     },
 };
-use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_primitives::{operator_table::OperatorTable, types::descriptor_to_x_only_pubkey};
 use strata_bridge_rpc::{
     traits::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
@@ -43,7 +43,7 @@ use strata_bridge_tx_graph::transactions::{
     prelude::{ChallengeTx, ChallengeTxInput},
 };
 use strata_p2p::swarm::handle::P2PHandle;
-use strata_primitives::buf::Buf32;
+use strata_primitives::{bitcoin_bosd::DescriptorError, buf::Buf32};
 use tokio::{
     sync::{oneshot, RwLock},
     time::interval,
@@ -778,7 +778,7 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     .state
                     .state
                     .graph_input(claim_txid)
-                    .map(|input| input.operator_pubkey);
+                    .map(|input| input.operator_pubkey.clone());
 
                 match (challenge_sig, reimbursement_key) {
                     (Some(challenge_sig), Some(reimbursement_key)) => {
@@ -811,9 +811,19 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     self.params.connectors.payout_optimistic_timelock,
                 );
 
-                ChallengeTx::new(challenge_input, challenge_connector)
-                    .finalize_presigned(ConnectorC1Path::Challenge(challenge_sig))
-            });
+                Ok::<_, DescriptorError>(
+                    ChallengeTx::new(challenge_input, challenge_connector)?
+                        .finalize_presigned(ConnectorC1Path::Challenge(challenge_sig)),
+                )
+            })
+            .transpose()
+            .map_err(|_| {
+                rpc_error(
+                    ErrorCode::InternalError,
+                    "Descriptor error",
+                    "Internal operator error",
+                )
+            })?;
 
         Ok(challenge_tx)
     }
@@ -854,7 +864,8 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     deposit_txid: contract.0.deposit_txid,
                     stake_outpoint: OutPoint::new(graph_summary.stake_txid, STAKE_VOUT),
                     stake_hash: graph_input.stake_hash,
-                    operator_pubkey: graph_input.operator_pubkey,
+                    operator_pubkey: descriptor_to_x_only_pubkey(&graph_input.operator_pubkey)
+                        .ok()?,
                     wots_public_keys: graph_input.wots_public_keys.clone(),
                     n_of_n_sig,
                 })
