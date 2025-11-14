@@ -13,8 +13,9 @@ use bitcoin::{
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, TapNodeHash,
 };
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{scripts::prelude::*, types::descriptor_to_x_only_pubkey};
 
 use crate::stake_path::StakeSpendPath;
 
@@ -51,13 +52,13 @@ use crate::stake_path::StakeSpendPath;
 /// preimage to the [`ConnectorStake`]. It is required that the preimage be securely derived and
 /// never reused under any circumstances
 // TODO: This should replace the `ConnectorS` struct above.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ConnectorStake {
     /// The N-of-N aggregated public key for the operator set.
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
     /// The operator's public key.
-    operator_pubkey: XOnlyPublicKey,
+    operator_pubkey: Descriptor,
 
     /// The hash of the `k`th stake preimage.
     ///
@@ -78,7 +79,7 @@ impl ConnectorStake {
     /// preimage, and the bitcoin network.
     pub const fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
-        operator_pubkey: XOnlyPublicKey,
+        operator_pubkey: Descriptor,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         network: Network,
@@ -108,9 +109,9 @@ impl ConnectorStake {
     /// <operator_pubkey> OP_CHECKSIGVERIFY OP_SIZE <20> OP_EQUALVERIFY OP_SHA256
     /// <stake_preimage> OP_EQUALVERIFY <ΔS> OP_CHECKSEQUENCEVERIFY
     /// ```
-    pub fn generate_script(&self) -> ScriptBuf {
+    pub fn generate_script(&self) -> Result<ScriptBuf, DescriptorError> {
         let locking_script = ScriptBuf::builder()
-            .push_slice(self.operator_pubkey.serialize())
+            .push_x_only_key(&descriptor_to_x_only_pubkey(&self.operator_pubkey)?)
             .push_opcode(OP_CHECKSIGVERIFY)
             .push_opcode(OP_SIZE)
             .push_int(0x20)
@@ -129,7 +130,7 @@ impl ConnectorStake {
             locking_script.push_opcode(OP_TRUE)
         };
 
-        locking_script.into_script()
+        Ok(locking_script.into_script())
     }
 
     /// Creates a P2TR address with key spend path for the given operator set and a single script
@@ -139,8 +140,8 @@ impl ConnectorStake {
     /// This is used to advance the stake chain, slash the stake, and disprove the stake.
     ///
     /// See [`Self::generate_script`] for the script implementation details.
-    pub fn generate_address(&self) -> Address {
-        let script = self.generate_script();
+    pub fn generate_address(&self) -> Result<Address, DescriptorError> {
+        let script = self.generate_script()?;
         let (taproot_address, _) = create_taproot_addr(
             &self.network,
             SpendPath::Both {
@@ -150,12 +151,12 @@ impl ConnectorStake {
         )
         .expect("should be able to create taproot address");
 
-        taproot_address
+        Ok(taproot_address)
     }
 
     /// Generates the spending info for the address.
-    pub fn generate_spend_info(&self) -> (ScriptBuf, ControlBlock) {
-        let script = self.generate_script();
+    pub fn generate_spend_info(&self) -> Result<(ScriptBuf, ControlBlock), DescriptorError> {
+        let script = self.generate_script()?;
         let (_, taproot_spending_info) = create_taproot_addr(
             &self.network,
             SpendPath::Both {
@@ -169,16 +170,16 @@ impl ConnectorStake {
             .control_block(&(script.clone(), LeafVersion::TapScript))
             .expect("script is always present in the address");
 
-        (script, control_block)
+        Ok((script, control_block))
     }
 
     /// Generates the merkle root for this connector.
     ///
     /// This can be used to tweak the public/private keys used for spending.
-    pub fn generate_merkle_root(&self) -> TapNodeHash {
-        let script = self.generate_script();
+    pub fn generate_merkle_root(&self) -> Result<TapNodeHash, DescriptorError> {
+        let script = self.generate_script()?;
 
-        TapNodeHash::from_script(&script, LeafVersion::TapScript)
+        Ok(TapNodeHash::from_script(&script, LeafVersion::TapScript))
     }
 
     /// Finalizes a psbt input where this connector is used with the provided `witness_data`.
@@ -191,7 +192,11 @@ impl ConnectorStake {
     /// validation to the caller.
     ///
     /// If the psbt input is already in the final state, then this method overrides the signature.
-    pub fn finalize_input(&self, input: &mut Input, witness_data: StakeSpendPath) {
+    pub fn finalize_input(
+        &self,
+        input: &mut Input,
+        witness_data: StakeSpendPath,
+    ) -> Result<(), DescriptorError> {
         match witness_data {
             StakeSpendPath::Disprove(signature) => {
                 finalize_input(input, [signature.serialize()]);
@@ -203,7 +208,7 @@ impl ConnectorStake {
                 signature,
                 preimage,
             } => {
-                let (script_buf, control_block) = self.generate_spend_info();
+                let (script_buf, control_block) = self.generate_spend_info()?;
 
                 finalize_input(
                     input,
@@ -220,6 +225,7 @@ impl ConnectorStake {
                 "only disprove, slash stake and stake advancement paths are supported"
             ),
         }
+        Ok(())
     }
 }
 

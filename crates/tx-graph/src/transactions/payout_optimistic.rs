@@ -4,7 +4,8 @@ use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
 };
-use secp256k1::{schnorr, XOnlyPublicKey};
+use bitcoin_bosd::{Descriptor, DescriptorError};
+use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorNOfN,
@@ -13,6 +14,7 @@ use strata_bridge_connectors::prelude::{
 use strata_bridge_primitives::{
     constants::{FUNDING_AMOUNT, SEGWIT_MIN_AMOUNT},
     scripts::prelude::*,
+    types::descriptor_to_x_only_pubkey,
 };
 
 use super::covenant_tx::CovenantTx;
@@ -37,7 +39,7 @@ pub struct PayoutOptimisticData {
 
     /// The operator's public key corresponding to the address that the operator wants to be paid
     /// to.
-    pub operator_key: XOnlyPublicKey,
+    pub operator_key: Descriptor,
 
     /// The bitcoin network on which the transaction is to be constructed.
     pub network: Network,
@@ -73,7 +75,7 @@ impl PayoutOptimisticTx {
         connector_n_of_n: ConnectorNOfN,
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         const NUM_OUTPUTS_IN_CLAIM_TX: u64 = 3;
         let input_amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_OUTPUTS_IN_CLAIM_TX;
         assert!(
@@ -110,12 +112,12 @@ impl PayoutOptimisticTx {
         let (operator_address, _) = create_taproot_addr(
             &data.network,
             SpendPath::KeySpend {
-                internal_key: data.operator_key,
+                internal_key: descriptor_to_x_only_pubkey(&data.operator_key)?,
             },
         )
         .expect("should be able to create taproot address");
 
-        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_script = connector_cpfp.generate_locking_script()?;
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
         let n_of_n_addr = connector_n_of_n.create_taproot_address();
@@ -179,7 +181,7 @@ impl PayoutOptimisticTx {
             },
         ];
 
-        Self {
+        Ok(Self {
             psbt,
 
             prevouts,
@@ -189,7 +191,7 @@ impl PayoutOptimisticTx {
             connector_c1,
             connector_n_of_n,
             connector_p,
-        }
+        })
     }
 
     /// Gets the output index for CPFP.

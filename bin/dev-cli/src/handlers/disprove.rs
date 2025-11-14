@@ -141,7 +141,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
 
     let connector_stake = ConnectorStake::new(
         agg_pubkey,
-        operator_pubkey,
+        operator_pubkey.into(),
         stake_hash,
         params.stake_chain_delta,
         params.network,
@@ -153,7 +153,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
         params.burn_amount,
         &connector_a3,
         connector_stake,
-    );
+    )?;
 
     let address = btc_client
         .get_new_address(None, Some(AddressType::Bech32m))?
@@ -167,7 +167,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
 
     let disprove_path = StakeSpendPath::Disprove(n_of_n_sig);
     let signed_disprove_tx =
-        disprove_tx.finalize(reward, disprove_path, disprove_leaf, connector_a3);
+        disprove_tx.finalize(reward, disprove_path, disprove_leaf, connector_a3)?;
     let disprove_txid = signed_disprove_tx.compute_txid();
     let disprove_tx_size = signed_disprove_tx.vsize();
 

@@ -63,7 +63,7 @@ pub(crate) async fn handle_publish_pre_assert(
         cfg.connector_params.pre_assert_timelock,
     );
 
-    let connector_cpfp = ConnectorCpfp::new(operator_key, network);
+    let connector_cpfp = ConnectorCpfp::new(operator_key.into(), network);
 
     info!(%deposit_idx, %deposit_txid, "getting wots public keys from s2");
     let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
@@ -78,7 +78,7 @@ pub(crate) async fn handle_publish_pre_assert(
         connector_cpfp,
         connector_a256_factory,
         connector_a_hash_factory,
-    );
+    )?;
 
     let signed_pre_assert_tx = pre_assert_tx.finalize(agg_sig.signature);
     info!(
@@ -153,10 +153,10 @@ pub(crate) async fn handle_publish_assert_data(
 
     let s2_client = &output_handles.s2_client.clone();
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    let connector_cpfp = ConnectorCpfp::new(general_key, cfg.network);
+    let connector_cpfp = ConnectorCpfp::new(general_key.into(), cfg.network);
 
     let assert_data_tx_batch =
-        AssertDataTxBatch::new(assert_data_input, connector_n_of_n, connector_cpfp);
+        AssertDataTxBatch::new(assert_data_input, connector_n_of_n, connector_cpfp)?;
 
     info!(%deposit_idx, %deposit_txid, "committing to assertions with WOTS");
     let wots_client = s2_client.wots_signer();
@@ -224,7 +224,7 @@ pub(crate) async fn handle_publish_post_assert(
     let s2_client = &output_handles.s2_client;
 
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    let connector_cpfp = ConnectorCpfp::new(general_key, cfg.network);
+    let connector_cpfp = ConnectorCpfp::new(general_key.into(), cfg.network);
 
     info!(%deposit_txid, "getting WOTS public keys from S2 for post-assert transaction");
     let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
@@ -241,7 +241,7 @@ pub(crate) async fn handle_publish_post_assert(
         connector_n_of_n,
         connector_a3,
         connector_cpfp,
-    );
+    )?;
 
     info!(%deposit_txid, "finalizing post-assert transaction with aggregated signatures");
     let signed_post_assert_tx = post_assert_tx.finalize(&agg_sigs.map(|agg_sig| agg_sig.signature));
@@ -278,7 +278,7 @@ pub(crate) async fn handle_publish_payout(
         claim_outpoint: OutPoint::new(claim_txid, CLAIM_TO_PAYOUT_VOUT),
         stake_outpoint: OutPoint::new(stake_txid, STAKE_TO_PAYOUT_VOUT),
         deposit_amount: cfg.pegout_graph_params.deposit_amount,
-        operator_key: reimbursement_key,
+        operator_key: reimbursement_key.into(),
         network: cfg.network,
     };
 
@@ -309,7 +309,7 @@ pub(crate) async fn handle_publish_payout(
         ))?;
     let connector_p = ConnectorP::new(agg_key, stake_data.hash, cfg.network);
 
-    let connector_cpfp = ConnectorCpfp::new(reimbursement_key, cfg.network);
+    let connector_cpfp = ConnectorCpfp::new(reimbursement_key.into(), cfg.network);
 
     let payout_tx = PayoutTx::new(
         payout_data,
@@ -317,7 +317,7 @@ pub(crate) async fn handle_publish_payout(
         connector_n_of_n,
         connector_p,
         connector_cpfp,
-    );
+    )?;
     let payout_txid = payout_tx.compute_txid();
 
     info!(%deposit_txid, %payout_txid, "finalizing payout transaction with aggregated signatures");

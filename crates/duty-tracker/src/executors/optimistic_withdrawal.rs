@@ -151,7 +151,7 @@ pub(crate) async fn handle_advance_stake_chain(
 
     let prev_connector_s = ConnectorStake::new(
         n_of_n_agg_pubkey,
-        operator_pubkey,
+        operator_pubkey.into(),
         prev_stake_hash,
         cfg.stake_chain_params.delta,
         cfg.network,
@@ -162,7 +162,7 @@ pub(crate) async fn handle_advance_stake_chain(
         funds_signature,
         stake_signature,
         prev_connector_s,
-    );
+    )?;
 
     info!(txid=%signed_stake_tx.compute_txid(), %stake_index, "broadcasting stake transaction");
     try_publish_stake_tx(
@@ -455,7 +455,7 @@ pub(crate) async fn handle_publish_claim(
         cfg.connector_params.payout_optimistic_timelock,
     );
     let connector_n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
-    let connector_cpfp = ConnectorCpfp::new(cpfp_key, network);
+    let connector_cpfp = ConnectorCpfp::new(cpfp_key.into(), network);
 
     let claim_tx = ClaimTx::new(
         claim_data,
@@ -464,7 +464,7 @@ pub(crate) async fn handle_publish_claim(
         connector_c1,
         connector_n_of_n,
         connector_cpfp,
-    );
+    )?;
 
     let wots_signature = wots_client
         .get_256_signature(
@@ -508,7 +508,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
         deposit_txid,
         stake_outpoint: OutPoint::new(stake_txid, PAYOUT_VOUT),
         deposit_amount: cfg.pegout_graph_params.deposit_amount,
-        operator_key,
+        operator_key: operator_key.into(),
         network,
     };
 
@@ -551,7 +551,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
 
     let connector_p = ConnectorP::new(n_of_n_agg_pubkey, stake_hash, network);
 
-    let connector_cpfp = ConnectorCpfp::new(operator_key, network);
+    let connector_cpfp = ConnectorCpfp::new(operator_key.into(), network);
 
     let payout_optimistic_tx = PayoutOptimisticTx::new(
         payout_optimistic_data,
@@ -560,7 +560,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
         connector_n_of_n,
         connector_p,
         connector_cpfp,
-    );
+    )?;
     let payout_optimistic_txid = payout_optimistic_tx.compute_txid();
 
     let signed_payout_optimistic_tx =

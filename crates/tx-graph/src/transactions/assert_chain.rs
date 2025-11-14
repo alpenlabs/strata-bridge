@@ -4,6 +4,7 @@ use core::fmt;
 use std::{marker::PhantomData, mem::MaybeUninit};
 
 use bitcoin::Txid;
+use bitcoin_bosd::DescriptorError;
 use serde::{
     de::{SeqAccess, Visitor},
     ser::SerializeTuple,
@@ -61,14 +62,14 @@ impl AssertChain {
             NUM_FIELD_CONNECTORS_BATCH_2,
             NUM_FIELD_ELEMS_PER_CONNECTOR_BATCH_2,
         >,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         let pre_assert = PreAssertTx::new(
             data.pre_assert_data,
             connector_c0,
-            connector_cpfp,
+            connector_cpfp.clone(),
             connector_a256_factory,
             connector_a_hash_factory,
-        );
+        )?;
         let pre_assert_txid = pre_assert.compute_txid();
         trace!(event = "created pre-assert tx", %pre_assert_txid);
 
@@ -87,7 +88,8 @@ impl AssertChain {
         };
 
         trace!(event = "constructed assert data input", ?assert_data_input);
-        let assert_data = AssertDataTxBatch::new(assert_data_input, connector_a2, connector_cpfp);
+        let assert_data =
+            AssertDataTxBatch::new(assert_data_input, connector_a2, connector_cpfp.clone())?;
 
         let assert_data_txids = assert_data.compute_txids().to_vec();
         trace!(event = "created assert_data tx batch", ?assert_data_txids);
@@ -98,15 +100,15 @@ impl AssertChain {
         };
 
         let post_assert =
-            PostAssertTx::new(post_assert_data, connector_a2, connector_a3, connector_cpfp);
+            PostAssertTx::new(post_assert_data, connector_a2, connector_a3, connector_cpfp)?;
 
         trace!(event = "created post_assert tx", post_assert_txid = ?post_assert.compute_txid());
 
-        Self {
+        Ok(Self {
             pre_assert,
             assert_data,
             post_assert,
-        }
+        })
     }
 }
 

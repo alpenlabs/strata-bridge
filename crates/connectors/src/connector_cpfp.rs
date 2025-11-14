@@ -2,26 +2,27 @@
 //!
 //! Reference: <https://bitcoinops.org/en/topics/cpfp/>
 
-use bitcoin::{key::TapTweak, psbt::Input, Address, Network, ScriptBuf};
-use secp256k1::{schnorr, XOnlyPublicKey};
+use bitcoin::{psbt::Input, Network, ScriptBuf};
+use bitcoin_bosd::{Descriptor, DescriptorError};
+use secp256k1::schnorr;
 use strata_bridge_primitives::scripts::taproot::finalize_input;
 
 /// Connector for adding outputs to a transaction for CPFP.
 ///
 /// It creates a taproot locking script with a public key that is assumed to be tweaked and expects
 /// a schnorr signature to finalize the input.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ConnectorCpfp {
     /// The bitcoin network for which to generate output addresses.
     network: Network,
 
     /// The public key used to create the child transaction in CPFP.
-    public_key: XOnlyPublicKey,
+    public_key: Descriptor,
 }
 
 impl ConnectorCpfp {
     /// Constructs a new CPFP connector.
-    pub const fn new(public_key: XOnlyPublicKey, network: Network) -> Self {
+    pub const fn new(public_key: Descriptor, network: Network) -> Self {
         Self {
             network,
             public_key,
@@ -29,8 +30,8 @@ impl ConnectorCpfp {
     }
 
     /// Returns the public key used to create the child transaction in CPFP.
-    pub const fn public_key(&self) -> XOnlyPublicKey {
-        self.public_key
+    pub const fn public_key(&self) -> &Descriptor {
+        &self.public_key
     }
 
     /// Returns the bitcoin network for which to generate output addresses.
@@ -41,13 +42,13 @@ impl ConnectorCpfp {
     /// Generates a taproot address for the child transaction.
     ///
     /// This taproot address uses a key-spend path with the public key of the connector.
-    pub fn generate_taproot_address(&self) -> bitcoin::Address {
-        Address::p2tr_tweaked(self.public_key.dangerous_assume_tweaked(), self.network)
+    pub fn generate_taproot_address(&self) -> Result<bitcoin::Address, DescriptorError> {
+        self.public_key.to_address(self.network)
     }
 
     /// Generates the locking script for the child transaction.
-    pub fn generate_locking_script(&self) -> ScriptBuf {
-        self.generate_taproot_address().script_pubkey()
+    pub fn generate_locking_script(&self) -> Result<ScriptBuf, DescriptorError> {
+        Ok(self.generate_taproot_address()?.script_pubkey())
     }
 
     /// Finalizes the connector using a schnorr signature.

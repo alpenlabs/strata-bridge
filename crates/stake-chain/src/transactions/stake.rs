@@ -9,6 +9,7 @@ use bitcoin::{
     transaction, Amount, OutPoint, Psbt, ScriptBuf, Sequence, TapLeafHash, TapSighashType,
     Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
+use bitcoin_bosd::DescriptorError;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{
@@ -171,7 +172,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         context: &impl BuildContext,
         params: &StakeChainParams,
         input: StakeTxData,
-    ) -> StakeTx<Tail> {
+    ) -> Result<StakeTx<Tail>, DescriptorError> {
         let prev_stake = OutPoint::new(self.compute_txid(), STAKE_VOUT);
 
         // The first input is the operator's funds.
@@ -183,12 +184,12 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_pubkey.into(),
             input.hash,
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -204,11 +205,11 @@ impl<StakeTxType> StakeTx<StakeTxType> {
                     .minimal_non_dust(),
             ),
             (
-                connector_s.generate_address().script_pubkey(),
+                connector_s.generate_address()?.script_pubkey(),
                 params.stake_amount,
             ),
             (
-                connector_cpfp.generate_taproot_address().script_pubkey(),
+                connector_cpfp.generate_taproot_address()?.script_pubkey(),
                 SEGWIT_MIN_AMOUNT,
             ),
         ];
@@ -226,19 +227,19 @@ impl<StakeTxType> StakeTx<StakeTxType> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_pubkey.into(),
             self.hash,
             params.delta,
             context.network(),
         );
         let prev_stake_out = TxOut {
-            script_pubkey: prev_stake_connector.generate_address().script_pubkey(),
+            script_pubkey: prev_stake_connector.generate_address()?.script_pubkey(),
             value: params.stake_amount,
         };
 
         psbt.inputs[1].witness_utxo = Some(prev_stake_out);
 
-        let (script_buf, control_block) = prev_stake_connector.generate_spend_info();
+        let (script_buf, control_block) = prev_stake_connector.generate_spend_info()?;
         let witnesses = [
             TaprootWitness::Key,
             TaprootWitness::Script {
@@ -247,11 +248,11 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             },
         ];
 
-        StakeTx::<Tail> {
+        Ok(StakeTx::<Tail> {
             psbt,
             hash: input.hash,
             witnesses,
-        }
+        })
     }
 
     fn compute_sighash_with_prevouts<const NUM_INPUTS: usize>(
@@ -318,7 +319,7 @@ impl StakeTx<Head> {
         pre_stake: OutPoint,
         operator_funds: OutPoint,
         operator_pubkey: XOnlyPublicKey,
-    ) -> StakeTx<Head> {
+    ) -> Result<StakeTx<Head>, DescriptorError> {
         // The first input is the operator's funds.
         let utxos = [operator_funds, pre_stake];
         let tx_ins = create_tx_ins(utxos);
@@ -329,17 +330,17 @@ impl StakeTx<Head> {
 
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_pubkey,
+            operator_pubkey.into(),
             hash,
             params.delta,
             context.network(),
         );
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let connector_p_addr = connector_p.generate_address();
-        let cpfp_addr = connector_cpfp.generate_taproot_address();
+        let cpfp_addr = connector_cpfp.generate_taproot_address()?;
         let scripts_and_amounts = [
             (
                 connector_k.create_taproot_address().script_pubkey(),
@@ -353,7 +354,7 @@ impl StakeTx<Head> {
                 connector_p_addr.script_pubkey().minimal_non_dust(),
             ),
             (
-                connector_s.generate_address().script_pubkey(),
+                connector_s.generate_address()?.script_pubkey(),
                 params.stake_amount,
             ),
             (
@@ -374,11 +375,11 @@ impl StakeTx<Head> {
             TaprootWitness::Key, // the first stake transaction spends via key-spend from PreStake.
         ];
 
-        StakeTx::<Head> {
+        Ok(StakeTx::<Head> {
             psbt,
             hash,
             witnesses,
-        }
+        })
     }
 
     /// Generates the transaction message sighash for the first stake transaction.
@@ -435,7 +436,7 @@ impl StakeTx<Tail> {
         input: StakeTxData,
         prev_hash: sha256::Hash,
         prev_stake: OutPoint,
-    ) -> StakeTx<Tail> {
+    ) -> Result<StakeTx<Tail>, DescriptorError> {
         // The first input is the operator's funds.
         let utxos = [input.operator_funds, prev_stake];
         let tx_ins = create_tx_ins(utxos);
@@ -445,12 +446,12 @@ impl StakeTx<Tail> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_pubkey.into(),
             input.hash,
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -466,11 +467,11 @@ impl StakeTx<Tail> {
                     .minimal_non_dust(),
             ),
             (
-                connector_s.generate_address().script_pubkey(),
+                connector_s.generate_address()?.script_pubkey(),
                 params.stake_amount,
             ),
             (
-                connector_cpfp.generate_taproot_address().script_pubkey(),
+                connector_cpfp.generate_taproot_address()?.script_pubkey(),
                 SEGWIT_MIN_AMOUNT,
             ),
         ];
@@ -488,19 +489,19 @@ impl StakeTx<Tail> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_pubkey.into(),
             prev_hash,
             params.delta,
             context.network(),
         );
         let prev_stake_out = TxOut {
-            script_pubkey: prev_stake_connector.generate_address().script_pubkey(),
+            script_pubkey: prev_stake_connector.generate_address()?.script_pubkey(),
             value: params.stake_amount,
         };
 
         psbt.inputs[1].witness_utxo = Some(prev_stake_out);
 
-        let (script_buf, control_block) = prev_stake_connector.generate_spend_info();
+        let (script_buf, control_block) = prev_stake_connector.generate_spend_info()?;
         let witnesses = [
             TaprootWitness::Key,
             TaprootWitness::Script {
@@ -509,11 +510,11 @@ impl StakeTx<Tail> {
             },
         ];
 
-        StakeTx::<Tail> {
+        Ok(StakeTx::<Tail> {
             psbt,
             hash: input.hash,
             witnesses,
-        }
+        })
     }
 
     /// Generates the transaction message sighash for the stake transaction.
@@ -563,9 +564,9 @@ impl StakeTx<Tail> {
         funds_signature: schnorr::Signature,
         stake_signature: schnorr::Signature,
         prev_connector_s: ConnectorStake,
-    ) -> Transaction {
+    ) -> Result<Transaction, DescriptorError> {
         // Get taproot spend info
-        let (locking_script, control_block) = prev_connector_s.generate_spend_info();
+        let (locking_script, control_block) = prev_connector_s.generate_spend_info()?;
 
         // Need to change the inputs
         finalize_input(
@@ -583,6 +584,6 @@ impl StakeTx<Tail> {
         );
 
         // Extract the transaction
-        self.psbt.extract_tx_unchecked_fee_rate()
+        Ok(self.psbt.extract_tx_unchecked_fee_rate())
     }
 }
