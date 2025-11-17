@@ -5,6 +5,7 @@ use bitcoin::{
     sighash::Prevouts,
     Amount, Network, OutPoint, Psbt, TapSighashType, Transaction, TxOut, Txid,
 };
+use bitcoin_bosd::DescriptorError;
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
     constants::{NUM_ASSERT_DATA_TX, SEGWIT_MIN_AMOUNT},
@@ -58,7 +59,7 @@ impl DisproveTx {
         burn_amount: Amount,
         connector_a3: &ConnectorA3,
         connector_stake: ConnectorStake,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         // This transaction spends the first output from the `PostAssertTx`.
         // The PostAssertTx has `NUM_ASSERT_DATA_TX` inputs each with `SEGWIT_MIN_AMOUNT`
         // One of these inputs is used in the CPFP output of the `PostAssertTx` itself.
@@ -94,7 +95,7 @@ impl DisproveTx {
         let prevouts = [
             TxOut {
                 value: stake_amount,
-                script_pubkey: connector_stake.generate_address().script_pubkey(),
+                script_pubkey: connector_stake.generate_address()?.script_pubkey(),
             },
             TxOut {
                 value: input_amount,
@@ -103,7 +104,7 @@ impl DisproveTx {
         ];
 
         let witnesses = [TaprootWitness::Tweaked {
-            tweak: connector_stake.generate_merkle_root(),
+            tweak: connector_stake.generate_merkle_root()?,
         }];
 
         for (input, utxo) in psbt.inputs.iter_mut().zip(prevouts.clone()) {
@@ -114,14 +115,14 @@ impl DisproveTx {
         // update the sighash type on the first input.
         psbt.inputs[0].sighash_type = Some(PsbtSighashType::from(TapSighashType::Single));
 
-        Self {
+        Ok(Self {
             psbt,
 
             prevouts,
             witnesses,
 
             connector_stake,
-        }
+        })
     }
 
     /// Finalizes the disprove transaction by adding the required witness and output data.
@@ -131,9 +132,9 @@ impl DisproveTx {
         stake_path: StakeSpendPath,
         disprove_leaf: ConnectorA3Leaf,
         connector_a3: ConnectorA3,
-    ) -> Transaction {
+    ) -> Result<Transaction, DescriptorError> {
         self.connector_stake
-            .finalize_input(&mut self.psbt.inputs[0], stake_path);
+            .finalize_input(&mut self.psbt.inputs[0], stake_path)?;
         connector_a3.finalize_input(&mut self.psbt.inputs[1], disprove_leaf);
 
         let tx = self.psbt.extract_tx();
@@ -142,7 +143,7 @@ impl DisproveTx {
             Ok(mut tx) => {
                 tx.output.push(reward);
 
-                tx
+                Ok(tx)
             }
             // this should not error at all but when it does,
             // extract actual error messages instead of using `expect` because these errors

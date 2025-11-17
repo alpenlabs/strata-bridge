@@ -6,6 +6,7 @@ use bitcoin::{
     hashes::Hash, transaction, Address, Amount, FeeRate, OutPoint, Psbt, ScriptBuf, Transaction,
     TxOut, Txid, Weight, Witness,
 };
+use bitcoin_bosd::DescriptorError;
 use secp256k1::schnorr;
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
@@ -131,7 +132,10 @@ impl Cpfp<Unfunded> {
     ///
     /// # NOTE:
     /// The created CPFP transaction is not yet funded and cannot be settled.
-    pub fn new(details: CpfpInput<'_>, connector_cpfp: ConnectorCpfp) -> Self {
+    pub fn new(
+        details: CpfpInput<'_>,
+        connector_cpfp: ConnectorCpfp,
+    ) -> Result<Self, DescriptorError> {
         // set dummy funding input for fee calculation
         let dummy_funding_outpoint = OutPoint {
             txid: Txid::from_slice(&[0u8; 32]).expect("must be able to create txid"),
@@ -160,7 +164,7 @@ impl Cpfp<Unfunded> {
 
         let parent_prevout = TxOut {
             value: details.parent_tx.output[details.vout as usize].value,
-            script_pubkey: connector_cpfp.generate_taproot_address().script_pubkey(),
+            script_pubkey: connector_cpfp.generate_taproot_address()?.script_pubkey(),
         };
 
         let mut prevouts: Vec<TxOut> = vec![TxOut::NULL; 2];
@@ -190,13 +194,13 @@ impl Cpfp<Unfunded> {
             .checked_sub(parent_output_amount)
             .expect("BUG: input amount must be at least equal to output amount");
 
-        Self {
+        Ok(Self {
             psbt,
             parent_weight: details.parent_tx.weight(),
             parent_fees,
 
             status: PhantomData,
-        }
+        })
     }
 
     /// A mutable reference to the underlying PSBT.
@@ -320,7 +324,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let pubkey = keypair.x_only_public_key().0;
-        let connector_cpfp = ConnectorCpfp::new(pubkey, network);
+        let connector_cpfp = ConnectorCpfp::new(pubkey.into(), network);
 
         let unspent = btc_client
             .call::<Vec<ListUnspent>>("listunspent", &[])
@@ -332,7 +336,10 @@ mod tests {
             vout: unspent.vout,
         };
 
-        let connector_cpfp_out = connector_cpfp.generate_taproot_address().script_pubkey();
+        let connector_cpfp_out = connector_cpfp
+            .generate_taproot_address()
+            .unwrap()
+            .script_pubkey();
         let parent_prevout_amount = connector_cpfp_out.minimal_non_dust();
 
         let tx_ins = create_tx_ins([parent_input_utxo]);
@@ -360,7 +367,7 @@ mod tests {
         let details =
             CpfpInput::new(&signed_parent_tx, unspent.amount, 0).expect("values must be valid");
 
-        let cpfp = Cpfp::new(details, connector_cpfp);
+        let cpfp = Cpfp::new(details, connector_cpfp.clone()).unwrap();
 
         let fee_rate = FeeRate::from_sat_per_kwu(10);
         let total_fee = cpfp

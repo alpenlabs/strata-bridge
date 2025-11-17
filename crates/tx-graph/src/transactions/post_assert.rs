@@ -4,6 +4,7 @@ use bitcoin::{
     sighash::Prevouts, transaction, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     Txid,
 };
+use bitcoin_bosd::DescriptorError;
 use secp256k1::schnorr::Signature;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -47,7 +48,7 @@ impl PostAssertTx {
         connector_a2: ConnectorNOfN,
         connector_a3: ConnectorA3,
         connector_cpfp: ConnectorCpfp,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         // all the dust outputs from assert-data transactions
         let input_amount: Amount = SEGWIT_MIN_AMOUNT * NUM_ASSERT_DATA_TX as u64;
 
@@ -67,7 +68,7 @@ impl PostAssertTx {
             size = connector_a31_script.len(),
         );
 
-        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_script = connector_cpfp.generate_locking_script()?;
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
         let net_amount = input_amount - cpfp_amount;
@@ -105,13 +106,13 @@ impl PostAssertTx {
             .try_into()
             .expect("vec must have exactly NUM_ASSERT_DATA_TX elements");
 
-        Self {
+        Ok(Self {
             psbt,
             output_amount: net_amount,
 
             prevouts,
             witnesses,
-        }
+        })
     }
 
     /// Returns the remaining stake after the post-assert transaction.
