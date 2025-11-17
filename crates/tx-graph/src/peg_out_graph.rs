@@ -5,7 +5,8 @@ use std::time::Instant;
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
 use bitcoin::{hashes::sha256, relative, OutPoint, TapSighashType, Txid};
-use secp256k1::{Message, XOnlyPublicKey};
+use bitcoin_bosd::{Descriptor, DescriptorError};
+use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
@@ -45,8 +46,7 @@ pub struct PegOutGraphInput {
     /// The public key of the operator.
     ///
     /// This key is used for CPFP outputs and for receiving reimbursements.
-    // TODO: Make this a [`descriptor`](bitcoin_bosd::Descriptor).
-    pub operator_pubkey: XOnlyPublicKey,
+    pub operator_pubkey: Descriptor,
 }
 
 /// The minimum necessary information to recognize all of the relevant transactions in a given
@@ -145,7 +145,7 @@ impl PegOutGraph {
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
-    ) -> (Self, PegOutGraphConnectors) {
+    ) -> Result<(Self, PegOutGraphConnectors), DescriptorError> {
         let total_start_time = Instant::now();
 
         let start_time = Instant::now();
@@ -153,7 +153,7 @@ impl PegOutGraph {
             context,
             deposit_txid,
             connector_params,
-            input.operator_pubkey,
+            input.operator_pubkey.clone(),
             input.stake_hash,
             stake_chain_params.delta,
             input.wots_public_keys.clone(),
@@ -170,8 +170,8 @@ impl PegOutGraph {
             connectors.claim_out_0,
             connectors.claim_out_1,
             connectors.n_of_n,
-            connectors.connector_cpfp,
-        );
+            connectors.connector_cpfp.clone(),
+        )?;
         let claim_txid = claim_tx.compute_txid();
         let time_taken = start_time.elapsed();
         debug!(event = "created claim tx", %claim_txid, ?time_taken);
@@ -180,10 +180,10 @@ impl PegOutGraph {
         let challenge_input = ChallengeTxInput {
             claim_outpoint: OutPoint::new(claim_txid, CHALLENGE_VOUT),
             challenge_amt: graph_params.challenge_cost,
-            operator_pubkey: input.operator_pubkey,
+            operator_pubkey: input.operator_pubkey.clone(),
             network: context.network(),
         };
-        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1)?;
         let time_taken = start_time.elapsed();
         debug!(event = "created challenge tx", ?time_taken);
 
@@ -196,7 +196,7 @@ impl PegOutGraph {
                 vout: 1,
             },
             deposit_amount: graph_params.deposit_amount,
-            operator_key: input.operator_pubkey,
+            operator_key: input.operator_pubkey.clone(),
             network: context.network(),
         };
 
@@ -206,8 +206,8 @@ impl PegOutGraph {
             connectors.claim_out_1,
             connectors.n_of_n,
             connectors.hashlock_payout,
-            connectors.connector_cpfp,
-        );
+            connectors.connector_cpfp.clone(),
+        )?;
         let time_taken = start_time.elapsed();
         debug!(event = "created payout optimistic tx", ?time_taken);
 
@@ -222,10 +222,10 @@ impl PegOutGraph {
             connectors.claim_out_0,
             connectors.n_of_n,
             connectors.post_assert_out_0.expensive_clone(),
-            connectors.connector_cpfp,
+            connectors.connector_cpfp.clone(),
             connectors.assert_data_hash_factory,
             connectors.assert_data256_factory,
-        );
+        )?;
         let time_taken = start_time.elapsed();
 
         let pre_assert_txid = assert_chain.pre_assert.compute_txid();
@@ -246,7 +246,7 @@ impl PegOutGraph {
                 vout: claim_tx.slash_stake_vout(),
             },
             deposit_amount: graph_params.deposit_amount,
-            operator_key: input.operator_pubkey,
+            operator_key: input.operator_pubkey.clone(),
             network: context.network(),
         };
 
@@ -255,8 +255,8 @@ impl PegOutGraph {
             &connectors.post_assert_out_0,
             connectors.n_of_n,
             connectors.hashlock_payout,
-            connectors.connector_cpfp,
-        );
+            connectors.connector_cpfp.clone(),
+        )?;
         let payout_txid = payout_tx.compute_txid();
         let time_taken = start_time.elapsed();
         debug!(event = "created payout tx", %payout_txid, ?time_taken);
@@ -274,8 +274,8 @@ impl PegOutGraph {
             stake_chain_params.stake_amount,
             stake_chain_params.burn_amount,
             &connectors.post_assert_out_0,
-            connectors.stake,
-        );
+            connectors.stake.clone(),
+        )?;
         let disprove_txid = disprove_tx.compute_txid();
         let time_taken = start_time.elapsed();
         debug!(event = "created disprove tx", %disprove_txid, ?time_taken);
@@ -296,10 +296,10 @@ impl PegOutGraph {
                     stake_data,
                     stake_chain_params,
                     connectors.n_of_n,
-                    connectors.stake,
+                    connectors.stake.clone(),
                 )
             })
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
         let time_taken = start_time.elapsed();
         info!(?time_taken, "created slash stake txs");
@@ -307,7 +307,7 @@ impl PegOutGraph {
         let time_taken = total_start_time.elapsed();
         info!(?time_taken, "generated peg out graph");
 
-        (
+        Ok((
             Self {
                 claim_tx,
                 challenge_tx,
@@ -318,7 +318,7 @@ impl PegOutGraph {
                 slash_stake_txs,
             },
             connectors,
-        )
+        ))
     }
 
     /// Summarizes the peg-out graph.
@@ -529,11 +529,11 @@ impl PegOutGraphConnectors {
             claim_out_0: self.claim_out_0,
             claim_out_1: self.claim_out_1,
             n_of_n: self.n_of_n,
-            connector_cpfp: self.connector_cpfp,
+            connector_cpfp: self.connector_cpfp.clone(),
             post_assert_out_0: self.post_assert_out_0.expensive_clone(),
             assert_data_hash_factory: self.assert_data_hash_factory,
             assert_data256_factory: self.assert_data256_factory,
-            stake: self.stake,
+            stake: self.stake.clone(),
             hashlock_payout: self.hashlock_payout,
         }
     }
@@ -547,7 +547,7 @@ impl PegOutGraphConnectors {
         build_context: &impl BuildContext,
         deposit_txid: Txid,
         params: ConnectorParams,
-        operator_pubkey: XOnlyPublicKey,
+        operator_pubkey: Descriptor,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         wots_public_keys: wots::PublicKeys,
@@ -567,7 +567,7 @@ impl PegOutGraphConnectors {
 
         let n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, network);
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.clone(), network);
         let post_assert_out_1 = ConnectorA3::new(
             network,
             deposit_txid,
@@ -748,7 +748,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids,
-        );
+        )
+        .unwrap();
 
         let PegOutGraph {
             claim_tx,
@@ -822,7 +823,7 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -958,7 +959,7 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -1140,12 +1141,14 @@ mod tests {
             script_pubkey: btc_addr.script_pubkey(),
         };
 
-        let signed_disprove_tx = disprove_tx.finalize(
-            reward,
-            disprove_witness,
-            input_disprove_leaf,
-            post_assert_out_0,
-        );
+        let signed_disprove_tx = disprove_tx
+            .finalize(
+                reward,
+                disprove_witness,
+                input_disprove_leaf,
+                post_assert_out_0,
+            )
+            .unwrap();
 
         info!(
             vsize = signed_disprove_tx.vsize(),
@@ -1227,7 +1230,7 @@ mod tests {
 
         let stake_chain_params = StakeChainParams::default();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
 
         info!("creating transaction to fund dust outputs");
         let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
@@ -1288,7 +1291,8 @@ mod tests {
             pre_stake,
             operator_funds,
             operator_pubkey,
-        );
+        )
+        .unwrap();
 
         info!("signing and broadcasting the first stake tx");
         let prevouts = [
@@ -1344,7 +1348,7 @@ mod tests {
                 },
                 stake_hash,
                 wots_public_keys,
-                operator_pubkey,
+                operator_pubkey: operator_pubkey.into(),
             },
             stake_preimage,
             first_stake,
@@ -1382,7 +1386,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        );
+        )
+        .unwrap();
 
         let PegOutGraph {
             claim_tx,
@@ -1416,7 +1421,7 @@ mod tests {
         let claim_child_tx = create_cpfp_child(
             btc_client,
             keypair,
-            connector_cpfp,
+            connector_cpfp.clone(),
             &signed_claim_tx,
             claim_input_amount,
             claim_cpfp_vout,
@@ -1448,11 +1453,11 @@ mod tests {
                 vout: 1, // challenge tx uses the second output of the claim tx
             },
             challenge_amt: CHALLENGE_COST,
-            operator_pubkey: keypair.x_only_public_key().0,
+            operator_pubkey: keypair.x_only_public_key().0.into(),
             network: context.network(),
         };
 
-        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1);
+        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1).unwrap();
 
         let input_index = challenge_leaf.get_input_index() as usize;
         let challenge_witness = &challenge_tx.witnesses()[input_index];
@@ -1502,7 +1507,7 @@ mod tests {
         let signed_pre_assert_cpfp = create_cpfp_child(
             btc_client,
             keypair,
-            connector_cpfp,
+            connector_cpfp.clone(),
             &signed_pre_assert,
             pre_assert_input_amount,
             pre_assert_cpfp_vout,
@@ -1570,7 +1575,7 @@ mod tests {
                 let signed_child_tx = create_cpfp_child(
                     btc_client,
                     keypair,
-                    connector_cpfp,
+                    connector_cpfp.clone(),
                     &tx,
                     input_amount,
                     assert_data_cpfp_vout,
@@ -1670,7 +1675,7 @@ mod tests {
         let btc_addr = btc_client.new_address().expect("must generate new address");
         let cpfp_details = CpfpInput::new(parent_tx, parent_input_amount, parent_output_index)
             .expect("inputs must be valid");
-        let assert_data_cpfp = Cpfp::new(cpfp_details, connector_cpfp);
+        let assert_data_cpfp = Cpfp::new(cpfp_details, connector_cpfp.clone()).unwrap();
 
         let funding_amount = assert_data_cpfp
             .estimate_package_fee(FEE_RATE)
@@ -1755,7 +1760,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        );
+        )
+        .unwrap();
 
         let PegOutGraph {
             claim_tx: ongoing_claim_tx,
@@ -1784,7 +1790,7 @@ mod tests {
         let claim_child_tx = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
-            connector_cpfp,
+            connector_cpfp.clone(),
             &signed_ongoing_claim_tx,
             claim_input_amount,
             claim_cpfp_vout,
@@ -1854,7 +1860,9 @@ mod tests {
             operator_pubkey,
         };
 
-        let new_stake_tx = first_stake_tx.advance(&context, &stake_chain_params, stake_data);
+        let new_stake_tx = first_stake_tx
+            .advance(&context, &stake_chain_params, stake_data)
+            .unwrap();
 
         let new_stake_txid = new_stake_tx.compute_txid();
         let input = PegOutGraphInput {
@@ -1868,7 +1876,7 @@ mod tests {
             },
             stake_hash: new_hash,
             wots_public_keys,
-            operator_pubkey,
+            operator_pubkey: operator_pubkey.into(),
         };
 
         let graph_params = PegOutGraphParams {
@@ -1888,7 +1896,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids.to_vec(),
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             new_graph.slash_stake_txs.len(),
@@ -1905,12 +1914,14 @@ mod tests {
         let stake_signature = SECP256K1.sign_schnorr(&messages[1], &n_of_n_keypair);
         let prev_connector_s = connectors.stake;
 
-        let signed_new_stake_tx = new_stake_tx.finalize_unchecked(
-            &stake_preimage,
-            funds_signature,
-            stake_signature,
-            prev_connector_s,
-        );
+        let signed_new_stake_tx = new_stake_tx
+            .finalize_unchecked(
+                &stake_preimage,
+                funds_signature,
+                stake_signature,
+                prev_connector_s,
+            )
+            .unwrap();
         let cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -1948,8 +1959,9 @@ mod tests {
 
         let stake_sig = generate_agg_signature(&sighashes[1], &n_of_n_keypair, &witnesses[1]);
 
-        let mut signed_slash_stake_tx =
-            slash_stake_tx.finalize(claim_sig, stake_sig, claim_out_conn, stake_conn);
+        let mut signed_slash_stake_tx = slash_stake_tx
+            .finalize(claim_sig, stake_sig, claim_out_conn, stake_conn)
+            .unwrap();
 
         signed_slash_stake_tx.output.push(TxOut {
             value: SLASH_STAKE_REWARD,

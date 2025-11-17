@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use alpen_bridge_params::stake_chain::StakeChainParams;
 use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, OutPoint};
+use bitcoin_bosd::DescriptorError;
 use strata_bridge_primitives::build_context::BuildContext;
 use tracing::warn;
 
@@ -63,14 +64,14 @@ impl StakeChain {
         context: &impl BuildContext,
         stake_chain_inputs: &StakeChainInputs,
         stake_chain_params: &StakeChainParams,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         let stake_inputs = &stake_chain_inputs.stake_inputs;
 
         let Some(first_stake_inputs) = stake_inputs.get(&0) else {
-            return Self {
+            return Ok(Self {
                 head: None,
                 tail: vec![],
-            };
+            });
         };
 
         let first_stake_tx = StakeTx::<Head>::new(
@@ -81,17 +82,17 @@ impl StakeChain {
             stake_chain_inputs.pre_stake_outpoint,
             first_stake_inputs.operator_funds,
             first_stake_inputs.operator_pubkey,
-        );
+        )?;
 
         let Some(next_stake_input) = stake_inputs.get(&1) else {
-            return Self {
+            return Ok(Self {
                 head: Some(first_stake_tx),
                 tail: vec![],
-            };
+            });
         };
 
         let next_stake_tx =
-            first_stake_tx.advance(context, stake_chain_params, next_stake_input.clone());
+            first_stake_tx.advance(context, stake_chain_params, next_stake_input.clone())?;
 
         let num_inputs = stake_inputs.len();
         let mut tail: Vec<StakeTx<Tail>> = Vec::with_capacity(num_inputs - 1);
@@ -104,7 +105,7 @@ impl StakeChain {
                 let next_stake_tx = tail
                     .last()
                     .expect("must have at least one element in every loop because it is initialized with one element")
-                    .advance(context, stake_chain_params, stake_input.clone());
+                    .advance(context, stake_chain_params, stake_input.clone())?;
 
                 tail.push(next_stake_tx);
             } else {
@@ -113,10 +114,10 @@ impl StakeChain {
             }
         }
 
-        Self {
+        Ok(Self {
             head: Some(first_stake_tx),
             tail,
-        }
+        })
     }
 
     /// Gets the first stake transaction in the chain.
@@ -335,8 +336,13 @@ mod tests {
         // The key path spend for the first input
         let stake_tx = stake_chain.tail()[index - 1].clone();
         // Recreate the connector s.
-        let connector_s =
-            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
+        let connector_s = ConnectorStake::new(
+            n_of_n_pubkey,
+            operator_pubkey.into(),
+            stake_hash,
+            delta,
+            network,
+        );
         // Create the prevouts
 
         let messages = stake_tx.sighashes(prevouts[0].script_pubkey.clone());
@@ -350,12 +356,14 @@ mod tests {
         trace!(%index, %stake_signature, "Signature stake_tx connector s");
         // Construct the witness stack
 
-        stake_tx.finalize_unchecked(
-            stake_preimage,
-            funds_signature,
-            stake_signature,
-            connector_s,
-        )
+        stake_tx
+            .finalize_unchecked(
+                stake_preimage,
+                funds_signature,
+                stake_signature,
+                connector_s,
+            )
+            .unwrap()
     }
 
     /// Creates an [`Address`] from a [`ConnectorStake`].
@@ -366,9 +374,14 @@ mod tests {
         delta: relative::LockTime,
         network: Network,
     ) -> Address {
-        let connect_s =
-            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
-        connect_s.generate_address()
+        let connect_s = ConnectorStake::new(
+            n_of_n_pubkey,
+            operator_pubkey.into(),
+            stake_hash,
+            delta,
+            network,
+        );
+        connect_s.generate_address().unwrap()
     }
 
     #[test]
@@ -679,7 +692,7 @@ mod tests {
             pre_stake_outpoint: pre_stake_prevout.previous_output,
         };
 
-        let stake_chain = StakeChain::new(&tx_build_context, &stake_chain_inputs, &params);
+        let stake_chain = StakeChain::new(&tx_build_context, &stake_chain_inputs, &params).unwrap();
 
         // Sign the StakeTx 0
         let prevouts = [
@@ -863,7 +876,8 @@ mod tests {
                 &build_context,
                 &stake_chain_inputs,
                 &StakeChainParams::default(),
-            );
+            )
+            .unwrap();
             let stop_time = std::time::Instant::now();
 
             let elapsed_time = stop_time.duration_since(start_time);

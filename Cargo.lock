@@ -9761,6 +9761,7 @@ dependencies = [
  "ark-serialize 0.5.0",
  "bincode",
  "bitcoin",
+ "bitcoin-bosd",
  "bitcoin-script",
  "bitcoind-async-client",
  "bitvm",
@@ -9921,6 +9922,7 @@ version = "0.1.0"
 dependencies = [
  "alpen-bridge-params",
  "bitcoin",
+ "bitcoin-bosd",
  "corepc-node",
  "secp256k1",
  "serde",

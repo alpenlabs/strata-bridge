@@ -5,6 +5,7 @@ use std::array;
 use bitcoin::{
     transaction, Amount, OutPoint, Psbt, ScriptBuf, TapSighashType, Transaction, TxOut, Txid,
 };
+use bitcoin_bosd::DescriptorError;
 use bitvm::{
     signatures::{Wots, Wots32 as wots256},
     treepp::*,
@@ -42,10 +43,10 @@ impl AssertDataTxBatch {
         input: AssertDataTxInput,
         connector_a2: ConnectorNOfN,
         connector_cpfp: ConnectorCpfp,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         let input_amount = SEGWIT_MIN_AMOUNT * 2;
 
-        Self(array::from_fn(|i| {
+        array::try_from_fn(|i| {
             let (outpoint, prevout) = input
                 .pre_assert_locking_scripts
                 .get(i)
@@ -69,7 +70,7 @@ impl AssertDataTxBatch {
             let output_amt = output_script.minimal_non_dust();
 
             let connector_cpfp_output_script =
-                connector_cpfp.generate_taproot_address().script_pubkey();
+                connector_cpfp.generate_taproot_address()?.script_pubkey();
             let connector_cpfp_output_amt = connector_cpfp_output_script.minimal_non_dust();
 
             let tx_outs = create_tx_outs([
@@ -84,8 +85,9 @@ impl AssertDataTxBatch {
             psbt.inputs[0].witness_utxo = Some(prevout);
             psbt.inputs[0].sighash_type = Some(TapSighashType::Default.into());
 
-            psbt
-        }))
+            Ok(psbt)
+        })
+        .map(Self)
     }
 
     /// Gets the PSBTs in the batch.
@@ -349,9 +351,11 @@ mod tests {
         };
 
         let connector_a2 = ConnectorNOfN::new(generate_keypair().x_only_public_key().0, network);
-        let connector_cpfp = ConnectorCpfp::new(generate_keypair().x_only_public_key().0, network);
+        let connector_cpfp =
+            ConnectorCpfp::new(generate_keypair().x_only_public_key().0.into(), network);
 
-        let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2, connector_cpfp);
+        let assert_data_tx_batch =
+            AssertDataTxBatch::new(input, connector_a2, connector_cpfp).unwrap();
 
         let msk = "test-assert-data-parse-witnesses";
         let g16_pks = Groth16PublicKeys::new(msk, generate_txid());
