@@ -1,0 +1,28 @@
+[package]
+edition = "2021"
+name = "p2p-types"
+version = "0.1.0"
+
+[features]
+default = []
+proptest = ["dep:proptest", "dep:proptest-derive"]
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+
+[dependencies]
+bitcoin.workspace = true
+hex = { workspace = true, features = ["serde"] }
+libp2p-identity = { workspace = true, features = ["secp256k1"] }
+proptest = { workspace = true, optional = true }
+proptest-derive = { workspace = true, optional = true }
+serde.workspace = true
+
+[dev-dependencies]
+bincode.workspace = true
+secp256k1 = { workspace = true, features = ["rand"] }
+serde_json.workspace = true
