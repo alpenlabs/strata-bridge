@@ -1,0 +1,21 @@
+[package]
+edition = "2021"
+name = "p2p-wire"
+version = "0.1.0"
+
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.unreachable_pub = "warn"
+rust.unused_crate_dependencies = "deny"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = { level = "deny", priority = -1 }
+
+[dependencies]
+bitcoin.workspace = true
+libp2p.workspace = true
+musig2.workspace = true
+prost.workspace = true
+p2p-types.workspace = true
+
+[build-dependencies]
+prost-build.workspace = true
