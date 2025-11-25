@@ -437,7 +437,7 @@ mod tests {
             .compute_txid();
 
         let operator_pubkey = operator_keypair.x_only_public_key().0;
-        let pubkey_table = BTreeMap::from([(0, operator_keypair.public_key())]);
+        let pubkey_table = BTreeMap::from([(0, operator_keypair.public_key().into())]);
         let tx_build_context = TxBuildContext::new(network, pubkey_table.into(), 0);
         let n_of_n_agg_pubkey = tx_build_context.aggregated_pubkey();
 
