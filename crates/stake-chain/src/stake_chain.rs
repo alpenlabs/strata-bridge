@@ -833,7 +833,7 @@ mod tests {
         for i in 0..ITER {
             info!(iteration = i, "generating stake chain");
             let (_sk, pk) = generate_keypair(&mut OsRng);
-            let pubkeys = BTreeMap::from([(0, pk)]);
+            let pubkeys = BTreeMap::from([(0, pk.into())]);
 
             let build_context = TxBuildContext::new(Network::Regtest, pubkeys.into(), 0);
             let stake_chain_inputs = StakeChainInputs {

@@ -35,7 +35,7 @@ pub fn witness_commitment_from_coinbase(coinbase: &Transaction) -> Option<Witnes
 ///
 /// This function hashes the transaction **excluding** the segwit data (i.e., the marker, flag
 /// bytes, and the witness fields themselves). For non-segwit transactions, which do not have any
-/// segwit data, this will be equal to [`compute_wtxid`].
+/// segwit data, this will simply produce the standard transaction ID.
 pub fn compute_txid(tx: &Transaction) -> Buf32 {
     let mut vec = Vec::new();
 
