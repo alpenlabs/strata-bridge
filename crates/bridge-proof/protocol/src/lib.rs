@@ -1,27 +1,34 @@
-//! # Bridge Proof Crate
+//! # Bridge Proof Crate (Deprecated)
 //!
-//! This crate provides the functionality necessary to prove the inclusion and validity of specific
-//! Bitcoin transactions as part of the Strata rollup bridge. It contains data structures and logic
-//! to:
+//! **This crate is deprecated and should not be used in new development.**
+//!
+//! It is retained **only for reference** and will be **removed once the Glock-based bridge proof
+//! system is implemented and validated.**
+//!
+//! ---
+//!
+//! Historically, this crate provided the functionality needed to prove inclusion and validity of
+//! specific Bitcoin transactions for the Strata rollup bridge. It included data structures and
+//! logic to:
 //!
 //! - Verify sequences of Bitcoin block headers and their corresponding transactions.
-//! - Validate checkpoints for the Strata rollup via zero-knowledge proofs.
+//! - Validate Strata rollup checkpoints via zero-knowledge proofs.
 //! - Prove deposits, claims, and withdrawals between Bitcoin and the Strata rollup.
+//!
+//! With the transition to the Glock-based bridge proof architecture, this implementation is now
+//! obsolete and preserved solely for reference during the migration.
 
 mod error;
 mod program;
 mod statement;
-mod tx_info;
 
 use alpen_bridge_params::prelude::PegOutGraphParams;
 use bitcoin::{block::Header, consensus::deserialize};
 use borsh::{BorshDeserialize, BorshSerialize};
 use statement::process_bridge_proof;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_primitives::{
-    buf::{Buf32, Buf64},
-    params::RollupParams,
-};
+use strata_params::RollupParams;
+use strata_primitives::buf::{Buf32, Buf64};
 use zkaleido::ZkVmEnv;
 
 /// Represents the private inputs required by the `BridgeProver` to generate a proof.

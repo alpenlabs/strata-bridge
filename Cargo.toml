@@ -81,12 +81,16 @@ strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
 # deps from original strata repo
+strata-asm-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
+strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
+strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
+strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
