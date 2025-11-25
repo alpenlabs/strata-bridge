@@ -48,9 +48,10 @@ use strata_bridge_tx_graph::{
         },
     },
 };
+use strata_bridge_types::{DepositEntry, DepositState};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
-use strata_primitives::{buf::Buf32, params::RollupParams};
-use strata_state::bridge_state::{DepositEntry, DepositState};
+use strata_params::RollupParams;
+use strata_primitives::buf::Buf32;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
@@ -2480,7 +2481,8 @@ impl ContractSM {
                     deposit_idx: self.cfg.deposit_idx,
                     deposit_txid,
                 };
-                let deadline = dispatched_state.exec_deadline();
+
+                let deadline = dispatched_state.fulfillment_deadline() as u64;
 
                 match &mut self.state.state {
                     // new assignment
@@ -3442,7 +3444,6 @@ fn verify_partials_from_peer(
 mod tests {
     use std::str::FromStr;
 
-    use bitcoin::hashes::Hash;
     use secp256k1::Parity;
     use strata_bridge_test_utils::prelude::generate_txid;
     use strata_bridge_tx_graph::transactions::{
