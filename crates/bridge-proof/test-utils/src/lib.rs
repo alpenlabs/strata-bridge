@@ -6,8 +6,8 @@ use std::fs;
 use bitcoin::{block::Header, Block};
 use borsh::BorshDeserialize;
 use strata_bridge_proof_primitives::L1TxWithProofBundle;
-use strata_primitives::{buf::Buf64, params::RollupParams};
-use strata_state::chain_state::Chainstate;
+use strata_params::RollupParams;
+use strata_primitives::buf::Buf64;
 
 /// Loads and deserializes a list of Bitcoin blocks from a binary test data file.
 pub fn load_test_blocks() -> Vec<Block> {
@@ -19,13 +19,6 @@ pub fn load_test_blocks() -> Vec<Block> {
 /// Extracts the headers from the test blocks.
 pub fn extract_test_headers() -> Vec<Header> {
     load_test_blocks().iter().map(|b| b.header).collect()
-}
-
-/// Loads and deserializes the chain state from a Borsh-encoded test data file.
-pub fn load_test_chainstate() -> Chainstate {
-    let chainstate_bytes =
-        fs::read("../../../test-data/chainstate.borsh").expect("Failed to read chainstate.borsh");
-    borsh::from_slice(&chainstate_bytes).expect("Failed to deserialize chainstate")
 }
 
 /// Loads the RollupParams from the json file.
