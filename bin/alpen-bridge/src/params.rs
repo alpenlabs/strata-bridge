@@ -3,14 +3,14 @@ use bitcoin::{hex::DisplayHex, Network};
 use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
-use strata_primitives::params::RollupParams;
+use strata_params::RollupParams;
 
 /// The consensus-critical parameters that dictate the behavior of the bridge node.
 ///
 /// These parameters are configurable and can be changed by the operator but note that differences
 /// in how these are configured among the bridge operators in the network will lead to different
 /// behavior that will prevent the bridge from functioning.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Params {
     /// The network on which the bridge is operating.
     pub network: Network,

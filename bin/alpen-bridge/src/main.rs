@@ -75,7 +75,7 @@ fn main() {
     let task_manager = TaskManager::new(runtime.handle().clone());
     task_manager.start_signal_listeners();
 
-    let executor = task_manager.executor();
+    let executor = task_manager.create_executor();
 
     match cli.mode {
         OperationMode::Operator => {
