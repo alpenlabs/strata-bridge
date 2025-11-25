@@ -215,7 +215,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let operator_pubkey = keypair.x_only_public_key().0;
-        let operator_pubkeys = BTreeMap::from([(0, keypair.public_key())]);
+        let operator_pubkeys = BTreeMap::from([(0, keypair.public_key().into())]);
 
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");

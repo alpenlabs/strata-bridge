@@ -205,7 +205,7 @@ mod tests {
         let n_of_n_keypair = generate_keypair();
         let operator_pubkey = n_of_n_keypair.public_key();
 
-        let pubkey_table = BTreeMap::from([(0, operator_pubkey)]);
+        let pubkey_table = BTreeMap::from([(0, operator_pubkey.into())]);
         let context = TxBuildContext::new(network, pubkey_table.into(), 0);
         let n_of_n_agg_pubkey = context.aggregated_pubkey();
 

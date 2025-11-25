@@ -216,7 +216,7 @@ mod tests {
         let msk = "test-parse-witness";
         let deposit_txid = generate_txid();
 
-        let pubkey_table = BTreeMap::from([(0, keypair.public_key())]);
+        let pubkey_table = BTreeMap::from([(0, keypair.public_key().into())]);
         let build_context = TxBuildContext::new(network, pubkey_table.into(), 0);
 
         let wots_public_key = wots::Wots256PublicKey::new(msk, deposit_txid);

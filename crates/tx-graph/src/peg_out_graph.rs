@@ -1182,7 +1182,7 @@ mod tests {
         let network = Network::from_str(&network).expect("network must be valid");
 
         let n_of_n_keypair = generate_keypair();
-        let pubkey_table = BTreeMap::from([(0, n_of_n_keypair.public_key())]);
+        let pubkey_table = BTreeMap::from([(0, n_of_n_keypair.public_key().into())]);
         let context = TxBuildContext::new(network, pubkey_table.into(), 0);
 
         let n_of_n_agg_pubkey = context.aggregated_pubkey();
