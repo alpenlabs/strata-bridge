@@ -8,8 +8,8 @@ workspace = true
 
 [dependencies]
 strata-bridge-proof-primitives.workspace = true
+strata-params.workspace = true
 strata-primitives.workspace = true
-strata-state.workspace = true
 
 bincode.workspace = true
 bitcoin.workspace = true

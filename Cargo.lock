@@ -7529,8 +7529,8 @@ dependencies = [
  "borsh",
  "serde_json",
  "strata-bridge-proof-primitives",
+ "strata-params",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
- "strata-state",
 ]
 
 [[package]]
