@@ -187,7 +187,7 @@ pub(crate) fn is_fulfillment_tx(
 ///
 /// TODO(ASM, @MdTeach): This is a temporary placeholder implementation and
 /// will be replaced once ASM integration is completed.
-pub(crate) fn parse_strata_checkpoint(
+pub(crate) const fn parse_strata_checkpoint(
     _tx: &Transaction,
     _rollup_params: &RollupParams,
 ) -> Option<Checkpoint> {
@@ -264,6 +264,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore] // NOTE: Skipping this since we don't do checkpoint parsing until ASM integration
     fn test_checkpoint_predicate() {
         let rollup_params = std::fs::read_to_string("../../test-data/rollup_params.json").unwrap();
         let rollup_params: RollupParams = serde_json::from_str(&rollup_params).unwrap();

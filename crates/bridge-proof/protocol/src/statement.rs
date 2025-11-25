@@ -45,10 +45,12 @@ pub(crate) fn process_bridge_proof(
         .saturating_sub(input.withdrawal_fulfillment_tx.1 + 1);
 
     if headers_after_withdrawal < REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX {
-        return Err(BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
-            REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
-            headers_after_withdrawal,
-        ));
+        return Err(
+            BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
+                REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
+                headers_after_withdrawal,
+            ),
+        );
     }
 
     let output = BridgeProofPublicOutput {
