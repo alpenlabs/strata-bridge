@@ -31,7 +31,7 @@ members = [
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
-  "bin/mock-checkpoint",
+  # "bin/mock-checkpoint",
 
   # test utilities
   "crates/test-utils",
@@ -41,7 +41,7 @@ default-members = [
   "bin/alpen-bridge",
   "bin/dev-cli",
   "bin/assert-splitter",
-  "bin/mock-checkpoint",
+  # "bin/mock-checkpoint",
 ]
 
 [workspace.lints]

@@ -14,9 +14,8 @@ use strata_bridge_primitives::{build_context::BuildContext, types::OperatorIdx};
 use strata_bridge_tx_graph::transactions::{
     claim::CHALLENGE_VOUT, deposit::DepositRequestData, prelude::POST_ASSERT_INPUT_INDEX,
 };
-use strata_l1tx::{envelope::parser::parse_envelope_payloads, filter::types::TxFilterConfig};
-use strata_primitives::params::RollupParams;
-use strata_state::batch::{verify_signed_checkpoint_sig, Checkpoint, SignedCheckpoint};
+use strata_checkpoint_types::Checkpoint;
+use strata_params::RollupParams;
 use tracing::warn;
 
 fn op_return_data(script: &Script) -> Option<&[u8]> {
@@ -56,7 +55,7 @@ pub(crate) fn deposit_request_info(
         return None;
     }
 
-    let ee_address_size = sidesystem_params.address_length as usize;
+    let ee_address_size = sidesystem_params.max_address_length as usize;
     let tag = pegout_graph_params.tag.as_bytes();
 
     let (recovery_x_only_pk, el_addr) = magic_tagged_data(tag, &tx.output.get(1)?.script_pubkey)
@@ -184,34 +183,15 @@ pub(crate) fn is_fulfillment_tx(
     })
 }
 
+/// Parses a Strata checkpoint from the given transaction.
+///
+/// TODO(ASM, @MdTeach): This is a temporary placeholder implementation and
+/// will be replaced once ASM integration is completed.
 pub(crate) fn parse_strata_checkpoint(
-    tx: &Transaction,
-    rollup_params: &RollupParams,
+    _tx: &Transaction,
+    _rollup_params: &RollupParams,
 ) -> Option<Checkpoint> {
-    let filter_config =
-        TxFilterConfig::derive_from(rollup_params).expect("rollup params must be valid");
-
-    let script = tx.input[0].witness.taproot_leaf_script()?.script.to_bytes();
-
-    let Ok(inscriptions) = parse_envelope_payloads(&script.into(), &filter_config) else {
-        return None;
-    };
-
-    if inscriptions.is_empty() {
-        return None;
-    }
-
-    let Ok(signed_checkpoint) = borsh::from_slice::<SignedCheckpoint>(inscriptions[0].data())
-    else {
-        return None;
-    };
-
-    let cred_rule = &rollup_params.cred_rule;
-    if !verify_signed_checkpoint_sig(&signed_checkpoint, cred_rule) {
-        return None;
-    }
-
-    Some(signed_checkpoint.into())
+    None
 }
 
 #[cfg(test)]
@@ -223,7 +203,7 @@ mod tests {
     use strata_bridge_tx_graph::transactions::prelude::{
         WithdrawalFulfillment, WithdrawalMetadata,
     };
-    use strata_primitives::params::RollupParams;
+    use strata_params::RollupParams;
 
     use super::parse_strata_checkpoint;
     use crate::predicates::is_fulfillment_tx;

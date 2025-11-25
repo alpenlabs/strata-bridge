@@ -9,7 +9,6 @@ use crate::{error::BridgeProofError, BridgeProofInputBorsh, BridgeProofPublicOut
 ///
 /// This is essentially the number of headers in the chain fragment used in the proof.
 /// The longer it is the harder it is to mine privately.
-// TODO: (@prajwolrg, @Rajil1213) update this once this is finalized.
 // It's fine to have a smaller value in testnet-I since we run the bridge nodes and they're
 // incapable of constructing a private fork but this needs to be higher for mainnet (at least in the
 // BitVM-based bridge design).
@@ -36,11 +35,22 @@ pub const REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX: usize = 10;
 /// - `BridgeProofOutput` containing essential proof-related output data.
 /// - `BatchCheckpoint` representing the Strata checkpoint.
 pub(crate) fn process_bridge_proof(
-    _input: BridgeProofInputBorsh,
-    _headers: Vec<Header>,
+    input: BridgeProofInputBorsh,
+    headers: Vec<Header>,
     _rollup_params: RollupParams,
     _peg_out_graph_params: PegOutGraphParams,
 ) -> Result<BridgeProofPublicOutput, BridgeProofError> {
+    let headers_after_withdrawal = headers
+        .len()
+        .saturating_sub(input.withdrawal_fulfillment_tx.1 + 1);
+
+    if headers_after_withdrawal < REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX {
+        return Err(BridgeProofError::InsufficientBlocksAfterWithdrawalFulfillment(
+            REQUIRED_NUM_OF_HEADERS_AFTER_WITHDRAWAL_FULFILLMENT_TX,
+            headers_after_withdrawal,
+        ));
+    }
+
     let output = BridgeProofPublicOutput {
         deposit_txid: Default::default(),
         withdrawal_fulfillment_txid: Default::default(),

@@ -13,7 +13,7 @@ use strata_bridge_db::{
 };
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_tx_graph::transactions::{deposit::DepositTx, prelude::CovenantTx};
-use strata_primitives::params::RollupParams;
+use strata_params::RollupParams;
 use thiserror::Error;
 use tracing::{debug, error};
 
