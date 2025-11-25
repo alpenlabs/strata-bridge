@@ -458,7 +458,7 @@ dependencies = [
  "futures",
  "futures-utils-wasm",
  "lru 0.13.0",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "reqwest",
  "serde",
@@ -481,7 +481,7 @@ dependencies = [
  "alloy-transport",
  "bimap",
  "futures",
- "parking_lot",
+ "parking_lot 0.12.4",
  "serde",
  "serde_json",
  "tokio",
@@ -779,7 +779,7 @@ dependencies = [
  "derive_more 2.0.1",
  "futures",
  "futures-utils-wasm",
- "parking_lot",
+ "parking_lot 0.12.4",
  "serde",
  "serde_json",
  "thiserror 2.0.12",
@@ -897,8 +897,7 @@ dependencies = [
  "strata-bridge-tx-graph",
  "strata-p2p",
  "strata-p2p-types",
- "strata-primitives 0.2.0",
- "strata-tasks",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "tikv-jemallocator",
  "tokio",
  "toml",
@@ -2834,7 +2833,7 @@ dependencies = [
  "crossterm_winapi",
  "libc",
  "mio 0.8.11",
- "parking_lot",
+ "parking_lot 0.12.4",
  "signal-hook",
  "signal-hook-mio",
  "winapi 0.3.9",
@@ -2970,7 +2969,7 @@ dependencies = [
  "hashbrown 0.14.5",
  "lock_api",
  "once_cell",
- "parking_lot_core",
+ "parking_lot_core 0.9.11",
 ]
 
 [[package]]
@@ -3078,6 +3077,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "deadpool"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3095,6 +3095,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "092966b41edc516079bdf31ec78a2e0588d1d0c08f78b91d8307215928642b2b"
 
 [[package]]
+=======
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 name = "der"
 version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3377,7 +3379,7 @@ dependencies = [
  "strata-p2p",
  "strata-p2p-types",
  "strata-p2p-wire",
- "strata-primitives 0.2.0",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
  "strata-tasks",
  "thiserror 2.0.12",
@@ -3604,12 +3606,6 @@ dependencies = [
  "home",
  "windows-sys 0.48.0",
 ]
-
-[[package]]
-name = "ethnum"
-version = "1.5.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca81e6b4777c89fd810c25a4be2b1bd93ea034fbe58e6a75216a34c6b82c539b"
 
 [[package]]
 name = "event-listener"
@@ -3841,6 +3837,25 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "fs2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
+name = "fs_extra"
+version = "1.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
+
+[[package]]
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 name = "fuchsia-zircon"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3923,7 +3938,7 @@ checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot",
+ "parking_lot 0.12.4",
 ]
 
 [[package]]
@@ -4009,6 +4024,15 @@ name = "futures-utils-wasm"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
+
+[[package]]
+name = "fxhash"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c31b6d751ae2c7f11320402d34e41349dd1016f8d5d45e48c4312bc8625af50c"
+dependencies = [
+ "byteorder",
+]
 
 [[package]]
 name = "gcd"
@@ -4356,8 +4380,13 @@ dependencies = [
  "ipconfig",
  "moka",
  "once_cell",
+<<<<<<< HEAD
  "parking_lot",
  "rand 0.9.1",
+=======
+ "parking_lot 0.12.4",
+ "rand 0.9.2",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "resolv-conf",
  "smallvec",
  "thiserror 2.0.12",
@@ -4834,6 +4863,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "int-enum"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e366a1634cccc76b4cfd3e7580de9b605e4d93f1edac48d786c1f867c0def495"
+dependencies = [
+ "proc-macro2",
+ "proc-macro2-diagnostics",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
 name = "interprocess"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5072,7 +5113,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "jsonrpsee-types",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.8.5",
  "rustc-hash 2.1.1",
@@ -5355,7 +5396,7 @@ dependencies = [
  "multiaddr",
  "multihash",
  "multistream-select",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "quick-protobuf",
  "rand 0.8.5",
@@ -5377,7 +5418,7 @@ dependencies = [
  "hickory-resolver",
  "libp2p-core",
  "libp2p-identity",
- "parking_lot",
+ "parking_lot 0.12.4",
  "smallvec",
  "tracing",
 ]
@@ -5677,6 +5718,10 @@ checksum = "1580801010e535496706ba011c15f8532df6b42297d2e471fec38ceadd8c0638"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
+<<<<<<< HEAD
+=======
+ "redox_syscall 0.5.17",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
@@ -5978,9 +6023,9 @@ dependencies = [
  "secp256k1",
  "strata-bridge-common",
  "strata-btcio",
- "strata-key-derivation 0.2.0",
+ "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-l1tx",
- "strata-primitives 0.2.0",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
  "tokio",
 ]
@@ -5995,7 +6040,7 @@ dependencies = [
  "crossbeam-epoch",
  "crossbeam-utils",
  "loom",
- "parking_lot",
+ "parking_lot 0.12.4",
  "portable-atomic",
  "rustc_version 0.4.1",
  "smallvec",
@@ -6549,20 +6594,6 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "570074cc999d1a58184080966e5bd3bf3a9a4af650c3b05047c2621e7405cd17"
-dependencies = [
- "futures-core",
- "futures-sink",
- "js-sys",
- "once_cell",
- "pin-project-lite",
- "thiserror 1.0.69",
-]
-
-[[package]]
-name = "opentelemetry"
 version = "0.29.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e87237e2775f74896f9ad219d26a2081751187eb7c9f5c58dde20a23b95d16c"
@@ -6584,27 +6615,9 @@ dependencies = [
  "async-trait",
  "bytes",
  "http 1.3.1",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "reqwest",
  "tracing",
-]
-
-[[package]]
-name = "opentelemetry-otlp"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "29e1f9c8b032d4f635c730c0efcf731d5e2530ea13fa8bef7939ddc8420696bd"
-dependencies = [
- "async-trait",
- "futures-core",
- "http 1.3.1",
- "opentelemetry 0.26.0",
- "opentelemetry-proto 0.26.1",
- "opentelemetry_sdk 0.26.0",
- "prost",
- "thiserror 1.0.69",
- "tokio",
- "tonic",
 ]
 
 [[package]]
@@ -6615,10 +6628,10 @@ checksum = "d899720fe06916ccba71c01d04ecd77312734e2de3467fd30d9d580c8ce85656"
 dependencies = [
  "futures-core",
  "http 1.3.1",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "opentelemetry-http",
- "opentelemetry-proto 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry-proto",
+ "opentelemetry_sdk",
  "prost",
  "reqwest",
  "thiserror 2.0.12",
@@ -6629,47 +6642,14 @@ dependencies = [
 
 [[package]]
 name = "opentelemetry-proto"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c9d3968ce3aefdcca5c27e3c4ea4391b37547726a70893aab52d3de95d5f8b34"
-dependencies = [
- "opentelemetry 0.26.0",
- "opentelemetry_sdk 0.26.0",
- "prost",
- "tonic",
-]
-
-[[package]]
-name = "opentelemetry-proto"
 version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c40da242381435e18570d5b9d50aca2a4f4f4d8e146231adb4e7768023309b3"
 dependencies = [
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "prost",
  "tonic",
-]
-
-[[package]]
-name = "opentelemetry_sdk"
-version = "0.26.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2c627d9f4c9cdc1f21a29ee4bfbd6028fcb8bcf2a857b43f3abdf72c9c862f3"
-dependencies = [
- "async-trait",
- "futures-channel",
- "futures-executor",
- "futures-util",
- "glob",
- "once_cell",
- "opentelemetry 0.26.0",
- "percent-encoding",
- "rand 0.8.5",
- "serde_json",
- "thiserror 1.0.69",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -6682,7 +6662,7 @@ dependencies = [
  "futures-executor",
  "futures-util",
  "glob",
- "opentelemetry 0.29.1",
+ "opentelemetry",
  "percent-encoding",
  "rand 0.9.1",
  "serde_json",
@@ -7020,12 +7000,37 @@ checksum = "f38d5652c16fde515bb1ecef450ab0f6a219d619a7274976324d5e377f7dceba"
 
 [[package]]
 name = "parking_lot"
+version = "0.11.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d17b78036a60663b797adeaee46f5c9dfebb86948d1255007a1d6be0271ff99"
+dependencies = [
+ "instant",
+ "lock_api",
+ "parking_lot_core 0.8.6",
+]
+
+[[package]]
+name = "parking_lot"
 version = "0.12.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "70d58bf43669b5795d1576d0641cfb6fbb2057bf629506267a92807158584a13"
 dependencies = [
  "lock_api",
- "parking_lot_core",
+ "parking_lot_core 0.9.11",
+]
+
+[[package]]
+name = "parking_lot_core"
+version = "0.8.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60a2cfe6f0ad2bfc16aefa463b497d5c7a5ecd44a23efa72aa342d90177356dc"
+dependencies = [
+ "cfg-if 1.0.3",
+ "instant",
+ "libc",
+ "redox_syscall 0.2.16",
+ "smallvec",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -7036,7 +7041,7 @@ checksum = "bc838d2a56b5b1a6c25f55575dfc605fabb63bb2365f6c2353ef9159aa69e4a5"
 dependencies = [
  "cfg-if 1.0.1",
  "libc",
- "redox_syscall",
+ "redox_syscall 0.5.17",
  "smallvec",
  "windows-targets 0.52.6",
 ]
@@ -7398,6 +7403,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "proc-macro2-diagnostics"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af066a9c399a26e020ada66a034357a868728e72cd426f3adcd35f80d88d88c8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.106",
+ "version_check",
+]
+
+[[package]]
 name = "prometheus-client"
 version = "0.22.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7405,7 +7422,7 @@ checksum = "504ee9ff529add891127c4827eb481bd69dc0ebc72e9a682e187db4caa60c3ca"
 dependencies = [
  "dtoa",
  "itoa",
- "parking_lot",
+ "parking_lot 0.12.4",
  "prometheus-client-derive-encode",
 ]
 
@@ -7512,7 +7529,7 @@ dependencies = [
  "borsh",
  "serde_json",
  "strata-bridge-proof-primitives",
- "strata-primitives 0.2.0",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
 ]
 
@@ -7794,7 +7811,20 @@ checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
 
 [[package]]
 name = "redox_syscall"
+<<<<<<< HEAD
 version = "0.5.13"
+=======
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a58c1855b4b6819d59012155603f0b22ad30cad752600aadfcb695265519a"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
+name = "redox_syscall"
+version = "0.5.17"
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0d04b7d0ee6b4a0207a0a7adb104d23ecb0b47d6beae7152d0fa34b692b29fd6"
 dependencies = [
@@ -7990,18 +8020,32 @@ dependencies = [
 
 [[package]]
 name = "risc0-binfmt"
+<<<<<<< HEAD
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f4fe7599ac55ad77515608ec42a9727001559fe4f579c533cb7c973b54800c05"
 dependencies = [
  "anyhow",
  "borsh",
+=======
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c8f97f81bcdead4101bca06469ecef481a2695cd04e7e877b49dea56a7f6f2a"
+dependencies = [
+ "anyhow",
+ "borsh",
+ "bytemuck",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "derive_more 2.0.1",
  "elf",
  "lazy_static",
  "postcard",
  "risc0-zkp",
  "risc0-zkvm-platform",
+<<<<<<< HEAD
+=======
+ "ruint",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "semver 1.0.26",
  "serde",
  "tracing",
@@ -8009,6 +8053,7 @@ dependencies = [
 
 [[package]]
 name = "risc0-core"
+<<<<<<< HEAD
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "317bbf70a8750b64d4fd7a2bdc9d7d5f30d8bb305cae486962c797ef35c8d08e"
@@ -8016,17 +8061,35 @@ dependencies = [
  "bytemuck",
  "bytemuck_derive",
  "rand_core 0.6.4",
+=======
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80f2723fedace48c6c5a505bd8f97ac4e1712bc4cb769083e10536d862b66987"
+dependencies = [
+ "bytemuck",
+ "rand_core 0.9.3",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
 name = "risc0-groth16"
+<<<<<<< HEAD
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4b31cb7b2a46f0cdaf71803ea7e0389af9f5bc1aea2531106f2972b241f26e98"
+=======
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "724285dc79604abfb2d40feaefe3e335420a6b293511661f77d6af62f1f5fae9"
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 dependencies = [
  "anyhow",
  "ark-bn254",
  "ark-ec",
+<<<<<<< HEAD
+=======
+ "ark-ff 0.5.0",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "ark-groth16",
  "ark-serialize 0.5.0",
  "bytemuck",
@@ -8036,26 +8099,43 @@ dependencies = [
  "risc0-binfmt",
  "risc0-zkp",
  "serde",
+<<<<<<< HEAD
  "stability",
+=======
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
 name = "risc0-zkp"
+<<<<<<< HEAD
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa210a232361fd671b30918469856b64d715f2564956d0a5df97ab6cb116d28b"
+=======
+version = "3.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ffb6bf356f469bb8744f72a07a37134c5812c1d55d6271bba80e87bdb7a58c8e"
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 dependencies = [
  "anyhow",
  "blake2",
  "borsh",
  "bytemuck",
+<<<<<<< HEAD
  "cfg-if 1.0.1",
+=======
+ "cfg-if 1.0.3",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "digest 0.10.7",
  "hex",
  "hex-literal",
  "metal",
  "paste",
+<<<<<<< HEAD
  "rand_core 0.6.4",
+=======
+ "rand_core 0.9.3",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "risc0-core",
  "risc0-zkvm-platform",
  "serde",
@@ -8570,7 +8650,7 @@ dependencies = [
  "serde",
  "sha2",
  "strata-bridge-primitives",
- "strata-key-derivation 0.3.0-alpha.1",
+ "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
  "terrors",
  "tikv-jemallocator",
  "tokio",
@@ -8821,7 +8901,7 @@ dependencies = [
  "futures",
  "log",
  "once_cell",
- "parking_lot",
+ "parking_lot 0.12.4",
  "scc",
  "serial_test_derive",
 ]
@@ -8957,6 +9037,22 @@ name = "slab"
 version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
+
+[[package]]
+name = "sled"
+version = "0.34.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f96b4737c2ce5987354855aed3797279def4ebf734436c6aa4552cf8e169935"
+dependencies = [
+ "crc32fast",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "fs2",
+ "fxhash",
+ "libc",
+ "log",
+ "parking_lot 0.11.2",
+]
 
 [[package]]
 name = "smallvec"
@@ -9709,6 +9805,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "ssz"
+version = "0.6.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.6.1#14be3e5316ff8e4d63e1dc8f14b4c485c5cf5cfe"
+dependencies = [
+ "itertools 0.13.0",
+ "smallvec",
+ "ssz_primitives",
+]
+
+[[package]]
+name = "ssz_derive"
+version = "0.6.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.6.1#14be3e5316ff8e4d63e1dc8f14b4c485c5cf5cfe"
+dependencies = [
+ "darling 0.20.11",
+ "quote",
+ "syn 2.0.106",
+]
+
+[[package]]
+name = "ssz_primitives"
+version = "0.6.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.6.1#14be3e5316ff8e4d63e1dc8f14b4c485c5cf5cfe"
+dependencies = [
+ "hex",
+ "rand 0.8.5",
+ "ruint",
+]
+
+[[package]]
 name = "stability"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9743,15 +9869,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 
 [[package]]
+name = "strata-asm-common"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "bitcoin",
+ "borsh",
+ "serde",
+ "strata-asm-types",
+ "strata-btc-types",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+ "strata-merkle",
+ "strata-msg-fmt",
+ "thiserror 2.0.16",
+ "tracing",
+]
+
+[[package]]
+name = "strata-asm-stf"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "bitcoin",
+ "strata-asm-common",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+]
+
+[[package]]
+name = "strata-asm-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "strata-btc-types",
+ "strata-btc-verification",
+]
+
+[[package]]
 name = "strata-bridge-common"
 version = "0.1.0"
 dependencies = [
- "opentelemetry 0.29.1",
- "opentelemetry-otlp 0.29.0",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry-otlp",
+ "opentelemetry_sdk",
  "tracing",
+<<<<<<< HEAD
  "tracing-opentelemetry 0.30.0",
  "tracing-subscriber 0.3.19",
+=======
+ "tracing-opentelemetry",
+ "tracing-subscriber 0.3.20",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
@@ -9844,8 +10013,13 @@ dependencies = [
  "serde_json",
  "sha2",
  "strata-p2p-types",
+<<<<<<< HEAD
  "strata-primitives 0.2.0",
  "thiserror 2.0.12",
+=======
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
@@ -9857,8 +10031,7 @@ dependencies = [
  "bitcoin",
  "borsh",
  "strata-bridge-test-utils",
- "strata-primitives 0.2.0",
- "strata-proofimpl-btc-blockspace",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
 ]
 
 [[package]]
@@ -9873,13 +10046,12 @@ dependencies = [
  "strata-bridge-proof-primitives",
  "strata-crypto",
  "strata-l1tx",
- "strata-primitives 0.2.0",
- "strata-proofimpl-btc-blockspace",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
  "thiserror 2.0.12",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
- "zkaleido-native-adapter 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
+ "zkaleido-native-adapter",
 ]
 
 [[package]]
@@ -9912,7 +10084,7 @@ dependencies = [
  "jsonrpsee",
  "serde",
  "strata-bridge-primitives",
- "strata-primitives 0.2.0",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
 ]
 
 [[package]]
@@ -9947,7 +10119,7 @@ dependencies = [
  "serde",
  "serde_json",
  "strata-bridge-primitives",
- "strata-primitives 0.2.0",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "tokio",
  "tracing",
 ]
@@ -9976,31 +10148,99 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-stake-chain",
  "strata-bridge-test-utils",
+<<<<<<< HEAD
  "strata-primitives 0.2.0",
  "thiserror 2.0.12",
+=======
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "tokio",
  "tracing",
 ]
 
 [[package]]
+name = "strata-bridge-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "musig2",
+ "rand 0.8.5",
+ "serde",
+ "sha2",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "strata-btc-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "borsh",
+ "digest 0.10.7",
+ "num_enum 0.7.4",
+ "rand 0.8.5",
+ "secp256k1 0.29.1",
+ "serde",
+ "sha2",
+ "ssz",
+ "ssz_derive",
+ "strata-checkpoint-types",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+ "thiserror 2.0.16",
+ "tree_hash",
+]
+
+[[package]]
+name = "strata-btc-verification"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "serde",
+ "strata-btc-types",
+ "strata-identifiers",
+ "thiserror 2.0.16",
+]
+
+[[package]]
 name = "strata-btcio"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "anyhow",
  "bitcoin",
  "bitcoind-async-client",
  "borsh",
  "hex",
- "musig2",
  "rand 0.8.5",
  "reqwest",
+<<<<<<< HEAD
  "secp256k1",
  "strata-common",
+=======
+ "strata-asm-types",
+ "strata-checkpoint-types",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "strata-config",
- "strata-db",
+ "strata-csm-types",
+ "strata-db-types",
+ "strata-l1-envelope-fmt",
+ "strata-l1-txfmt",
  "strata-l1tx",
- "strata-primitives 0.2.0",
+ "strata-ol-chainstate-types",
+ "strata-params",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
  "strata-status",
  "strata-storage",
@@ -10012,27 +10252,37 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-common"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+name = "strata-checkpoint-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
- "bitcoin",
- "deadpool",
- "jsonrpsee",
- "opentelemetry 0.26.0",
- "opentelemetry-otlp 0.26.0",
- "opentelemetry_sdk 0.26.0",
+ "arbitrary",
+ "borsh",
  "serde",
+<<<<<<< HEAD
  "strata-primitives 0.2.0",
  "tracing",
  "tracing-opentelemetry 0.27.0",
  "tracing-subscriber 0.3.19",
+=======
+ "strata-crypto",
+ "strata-identifiers",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17)",
+]
+
+[[package]]
+name = "strata-codec"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
 name = "strata-config"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "bitcoin",
  "serde",
@@ -10040,47 +10290,110 @@ dependencies = [
 
 [[package]]
 name = "strata-crypto"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
+<<<<<<< HEAD
  "secp256k1",
  "sha2",
  "strata-primitives 0.2.0",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
  "zkaleido-risc0-groth16-verifier",
  "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+=======
+ "arbitrary",
+ "bitvec",
+ "borsh",
+ "hex",
+ "k256",
+ "musig2",
+ "secp256k1 0.29.1",
+ "serde",
+ "strata-identifiers",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
-name = "strata-db"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+name = "strata-csm-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "const-hex",
+ "serde",
+ "strata-btc-types",
+ "strata-checkpoint-types",
+ "strata-identifiers",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+]
+
+[[package]]
+name = "strata-db-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "anyhow",
  "arbitrary",
  "bitcoin",
  "borsh",
- "hex",
- "musig2",
- "parking_lot",
  "serde",
- "strata-mmr",
- "strata-primitives 0.2.0",
+ "strata-asm-types",
+ "strata-checkpoint-types",
+ "strata-csm-types",
+ "strata-ol-chain-types",
+ "strata-ol-chainstate-types",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
+<<<<<<< HEAD
  "thiserror 2.0.12",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+=======
+ "strata-storage-common",
+ "thiserror 2.0.16",
+ "typed-sled",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17)",
+]
+
+[[package]]
+name = "strata-identifiers"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "const-hex",
+ "digest 0.10.7",
+ "hex",
+ "int-enum",
+ "serde",
+ "sha2",
+ "ssz",
+ "ssz_derive",
+ "strata-codec",
+ "tree_hash",
+ "zeroize",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
 name = "strata-key-derivation"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "bitcoin",
+<<<<<<< HEAD
  "secp256k1",
  "strata-primitives 0.2.0",
  "thiserror 2.0.12",
+=======
+ "secp256k1 0.29.1",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "zeroize",
 ]
 
@@ -10090,39 +10403,124 @@ version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
 dependencies = [
  "bitcoin",
+<<<<<<< HEAD
  "secp256k1",
  "strata-primitives 0.3.0-alpha.1",
  "thiserror 2.0.12",
+=======
+ "secp256k1 0.29.1",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "zeroize",
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "strata-l1-envelope-fmt"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "bitcoin",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "strata-l1-txfmt"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#53b79d1fd710a9d3516cfdf94bfa8a5cda43c949"
+dependencies = [
+ "bitcoin",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 name = "strata-l1tx"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "anyhow",
  "bitcoin",
  "borsh",
+<<<<<<< HEAD
  "musig2",
  "secp256k1",
  "strata-primitives 0.2.0",
+=======
+ "secp256k1 0.29.1",
+ "strata-asm-types",
+ "strata-bridge-types",
+ "strata-checkpoint-types",
+ "strata-crypto",
+ "strata-l1-envelope-fmt",
+ "strata-ol-chainstate-types",
+ "strata-params",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.16",
+ "tracing",
+]
+
+[[package]]
+name = "strata-merkle"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "borsh",
+ "digest 0.10.7",
+ "serde",
+ "sha2",
+ "strata-codec",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "strata-msg-fmt"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "strata-ol-chain-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "strata-asm-types",
+ "strata-crypto",
+ "strata-params",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "strata-state",
  "thiserror 2.0.12",
  "tracing",
 ]
 
 [[package]]
-name = "strata-mmr"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+name = "strata-ol-chainstate-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "arbitrary",
+ "bitcoin",
  "borsh",
+<<<<<<< HEAD
  "digest 0.10.7",
  "hex",
  "sha2",
  "thiserror 2.0.12",
+=======
+ "strata-asm-types",
+ "strata-bridge-types",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-state",
+ "tracing",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
@@ -10171,16 +10569,46 @@ dependencies = [
 ]
 
 [[package]]
-name = "strata-primitives"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+name = "strata-params"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
- "anyhow",
- "arbitrary",
  "bincode",
+ "bitcoin",
+ "borsh",
+ "serde",
+ "strata-bridge-types",
+ "strata-btc-types",
+ "strata-identifiers",
+ "strata-l1-txfmt",
+ "strata-predicate",
+ "thiserror 2.0.16",
+]
+
+[[package]]
+name = "strata-predicate"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "borsh",
+ "hex",
+ "k256",
+ "serde",
+ "signature",
+ "thiserror 2.0.16",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17)",
+]
+
+[[package]]
+name = "strata-primitives"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "arbitrary",
  "bitcoin",
  "bitcoin-bosd",
  "borsh",
+<<<<<<< HEAD
  "const-hex",
  "digest 0.10.7",
  "hex",
@@ -10194,8 +10622,15 @@ dependencies = [
  "sha2",
  "thiserror 2.0.12",
  "tracing",
+=======
+ "secp256k1 0.29.1",
+ "serde",
+ "strata-btc-types",
+ "strata-crypto",
+ "strata-identifiers",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "zeroize",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
 ]
 
 [[package]]
@@ -10220,6 +10655,7 @@ dependencies = [
  "sha2",
  "thiserror 2.0.12",
  "zeroize",
+<<<<<<< HEAD
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
@@ -10258,53 +10694,83 @@ dependencies = [
 ]
 
 [[package]]
+=======
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15)",
+ "zkaleido-risc0-groth16-verifier",
+ "zkaleido-sp1-groth16-verifier 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15)",
+]
+
+[[package]]
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 name = "strata-state"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "anyhow",
  "arbitrary",
  "async-trait",
- "bitcoin",
  "borsh",
- "digest 0.10.7",
- "ethnum",
- "hex",
  "serde",
- "sha2",
- "strata-crypto",
- "strata-primitives 0.2.0",
- "tracing",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+ "strata-asm-common",
+ "strata-asm-stf",
+ "strata-asm-types",
+ "strata-bridge-types",
+ "strata-csm-types",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
 ]
 
 [[package]]
 name = "strata-status"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
+<<<<<<< HEAD
  "strata-primitives 0.2.0",
  "strata-rpc-types",
  "strata-state",
  "thiserror 2.0.12",
+=======
+ "strata-bridge-types",
+ "strata-csm-types",
+ "strata-ol-chain-types",
+ "strata-ol-chainstate-types",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.16",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
  "tokio",
  "tracing",
 ]
 
 [[package]]
 name = "strata-storage"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
  "anyhow",
  "async-trait",
- "bitcoin",
- "lru 0.12.5",
- "parking_lot",
- "paste",
- "strata-db",
- "strata-primitives 0.2.0",
+ "futures",
+ "strata-asm-types",
+ "strata-checkpoint-types",
+ "strata-csm-types",
+ "strata-db-types",
+ "strata-ol-chain-types",
+ "strata-ol-chainstate-types",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-state",
+ "strata-storage-common",
+ "threadpool",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "strata-storage-common"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
+dependencies = [
+ "lru 0.12.5",
+ "paste",
+ "thiserror 2.0.16",
  "threadpool",
  "tokio",
  "tracing",
@@ -10312,8 +10778,8 @@ dependencies = [
 
 [[package]]
 name = "strata-tasks"
-version = "0.2.0"
-source = "git+https://github.com/alpenlabs/alpen.git?tag=v0.2.0-rc4#dd4f4d71171a0f8aa401fc4cb464a69aac679cc2"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
 dependencies = [
  "anyhow",
  "futures-util",
@@ -10725,7 +11191,7 @@ dependencies = [
  "io-uring",
  "libc",
  "mio 1.0.4",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project-lite",
  "signal-hook-registry",
  "slab",
@@ -11054,6 +11520,7 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
+<<<<<<< HEAD
 version = "0.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc58af5d3f6c5811462cabb3289aec0093f7338e367e5a33d28c0433b3c7360b"
@@ -11072,14 +11539,16 @@ dependencies = [
 
 [[package]]
 name = "tracing-opentelemetry"
+=======
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd8e764bd6f5813fd8bebc3117875190c5b0415be8f7f8059bffb6ecd979c444"
 dependencies = [
  "js-sys",
  "once_cell",
- "opentelemetry 0.29.1",
- "opentelemetry_sdk 0.29.0",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "smallvec",
  "tracing",
  "tracing-core",
@@ -11113,6 +11582,18 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tree_hash"
+version = "0.6.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.6.1#14be3e5316ff8e4d63e1dc8f14b4c485c5cf5cfe"
+dependencies = [
+ "digest 0.10.7",
+ "sha2",
+ "smallvec",
+ "ssz",
+ "ssz_primitives",
 ]
 
 [[package]]
@@ -11160,6 +11641,16 @@ dependencies = [
  "tokio",
  "tower 0.5.2",
  "url",
+]
+
+[[package]]
+name = "typed-sled"
+version = "0.1.1"
+source = "git+https://github.com/alpenlabs/typed-sled#9062bff3067ffb31fc6582ad7c659fc6e26ccd78"
+dependencies = [
+ "dashmap",
+ "sled",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -11473,7 +11964,7 @@ checksum = "d8d49b5d6c64e8558d9b1b065014426f35c18de636895d24893dbbd329743446"
 dependencies = [
  "futures",
  "js-sys",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-utils",
  "slab",
  "wasm-bindgen",
@@ -12202,7 +12693,7 @@ dependencies = [
  "futures",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.8.5",
  "static_assertions",
@@ -12217,7 +12708,7 @@ dependencies = [
  "futures",
  "log",
  "nohash-hasher",
- "parking_lot",
+ "parking_lot 0.12.4",
  "pin-project",
  "rand 0.9.1",
  "static_assertions",
@@ -12377,7 +12868,7 @@ dependencies = [
 [[package]]
 name = "zkaleido"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15#c4201477c9b1b10eb4b0a7ac40732689eedccfb0"
 dependencies = [
  "arbitrary",
  "async-trait",
@@ -12388,6 +12879,22 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
+=======
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17#3cd4f232d2807fa61b6545847f695a7119841adb"
+dependencies = [
+ "arbitrary",
+ "async-trait",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 name = "zkaleido-native-adapter"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11#a1c73b01641b1a46c73acb4851a8e913a2ce216d"
@@ -12399,6 +12906,7 @@ dependencies = [
 ]
 
 [[package]]
+<<<<<<< HEAD
 name = "zkaleido-native-adapter"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
@@ -12419,6 +12927,20 @@ dependencies = [
  "risc0-groth16",
  "risc0-zkp",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+=======
+name = "zkaleido-risc0-groth16-verifier"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15#c4201477c9b1b10eb4b0a7ac40732689eedccfb0"
+dependencies = [
+ "bytemuck",
+ "risc0-binfmt",
+ "risc0-groth16",
+ "risc0-zkp",
+ "serde",
+ "sha2",
+ "thiserror 1.0.69",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15)",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
@@ -12434,11 +12956,39 @@ dependencies = [
 [[package]]
 name = "zkaleido-sp1-groth16-verifier"
 version = "0.1.0"
+<<<<<<< HEAD
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13#3daf4d485756ee1618598d6129c5288e18715b2d"
 dependencies = [
  "hex",
  "sp1-verifier",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc13)",
+=======
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15#c4201477c9b1b10eb4b0a7ac40732689eedccfb0"
+dependencies = [
+ "blake3",
+ "borsh",
+ "hex",
+ "serde",
+ "sha2",
+ "substrate-bn",
+ "thiserror 1.0.69",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc15)",
+]
+
+[[package]]
+name = "zkaleido-sp1-groth16-verifier"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17#3cd4f232d2807fa61b6545847f695a7119841adb"
+dependencies = [
+ "blake3",
+ "borsh",
+ "hex",
+ "serde",
+ "sha2",
+ "substrate-bn",
+ "thiserror 1.0.69",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17)",
+>>>>>>> 20c57f1 (fix: strata-bridge-proof-primitives compilation)
 ]
 
 [[package]]
