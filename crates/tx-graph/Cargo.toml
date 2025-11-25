@@ -10,7 +10,7 @@ workspace = true
 alpen-bridge-params.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
-
+strata-params.workspace = true
 strata-primitives.workspace = true
 
 algebra.workspace = true
@@ -30,6 +30,8 @@ strata-bridge-common.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-test-utils.workspace = true
+strata-bridge-types.workspace = true
+
 
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true

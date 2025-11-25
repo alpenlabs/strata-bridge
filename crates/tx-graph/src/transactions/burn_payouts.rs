@@ -134,7 +134,7 @@ mod tests {
 
         let n_of_n_keypair = generate_keypair();
         let operator_pubkey = n_of_n_keypair.public_key();
-        let operator_pubkeys = BTreeMap::from([(0, operator_pubkey)]);
+        let operator_pubkeys = BTreeMap::from([(0, operator_pubkey.into())]);
         let context = TxBuildContext::new(network, operator_pubkeys.into(), 0);
         let n_of_n_agg_pubkey = context.aggregated_pubkey();
 

@@ -18,7 +18,7 @@ use strata_bridge_primitives::{
         taproot::{create_taproot_addr, SpendPath},
     },
 };
-use strata_primitives::params::RollupParams;
+use strata_params::RollupParams;
 
 use super::prelude::CovenantTx;
 
@@ -189,10 +189,10 @@ impl DepositTx {
         };
 
         // Validate EE address size
-        if data.el_address().len() != sidesystem_params.address_length as usize {
+        if data.el_address().len() != sidesystem_params.max_address_length as usize {
             return Err(DepositTransactionError::InvalidEeAddressSize(
                 data.el_address().len(),
-                sidesystem_params.address_length as usize,
+                sidesystem_params.max_address_length as usize,
             )
             .into());
         }
@@ -286,7 +286,8 @@ mod tests {
     use strata_bridge_test_utils::prelude::{
         create_drt_taproot_output, generate_keypairs, generate_pubkey_table, generate_xonly_pubkey,
     };
-    use strata_primitives::{operator::OperatorPubkeys, params::OperatorConfig};
+    use strata_bridge_types::OperatorPubkeys;
+    use strata_params::OperatorConfig;
 
     use super::*;
 
@@ -481,7 +482,9 @@ mod tests {
 
         let (operator_pubkeys, _) = generate_keypairs(5);
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
-        let sidesystem_params = test_sidesystem_params(Some(operator_pubkeys.0.values().copied()));
+        let sidesystem_params = test_sidesystem_params(Some(
+            operator_pubkeys.0.values().map(|k| k.as_ref()).copied(),
+        ));
 
         let tx_build_context = TxBuildContext::new(network, operator_pubkeys, 0);
 
