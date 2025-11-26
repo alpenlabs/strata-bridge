@@ -151,7 +151,7 @@ pub(crate) async fn handle_advance_stake_chain(
 
     let prev_connector_s = ConnectorStake::new(
         n_of_n_agg_pubkey,
-        operator_pubkey.into(),
+        operator_pubkey,
         prev_stake_hash,
         cfg.stake_chain_params.delta,
         cfg.network,

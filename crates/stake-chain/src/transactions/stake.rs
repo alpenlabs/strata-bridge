@@ -19,6 +19,7 @@ use strata_bridge_primitives::{
         prelude::{create_tx, create_tx_ins, create_tx_outs},
         taproot::{finalize_input, TaprootWitness},
     },
+    types::descriptor_to_x_only_pubkey,
     wots::Wots256PublicKey,
 };
 
@@ -184,7 +185,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey.into(),
+            input.operator_pubkey,
             input.hash,
             params.delta,
             context.network(),
@@ -224,7 +225,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey.into(),
+            input.operator_pubkey,
             self.hash,
             params.delta,
             context.network(),
@@ -327,7 +328,8 @@ impl StakeTx<Head> {
 
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_descriptor.clone(),
+            // TODO: (@sistemd) Return error instead of unwrapping in the next commit
+            descriptor_to_x_only_pubkey(&operator_descriptor).unwrap(),
             hash,
             params.delta,
             context.network(),
@@ -443,7 +445,7 @@ impl StakeTx<Tail> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey.into(),
+            input.operator_pubkey,
             input.hash,
             params.delta,
             context.network(),
@@ -483,7 +485,7 @@ impl StakeTx<Tail> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey.into(),
+            input.operator_pubkey,
             prev_hash,
             params.delta,
             context.network(),

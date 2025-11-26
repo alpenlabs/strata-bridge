@@ -239,7 +239,7 @@ mod tests {
 
         let stake_connector = ConnectorStake::new(
             n_of_n_agg_pubkey,
-            operator_pubkey.into(),
+            operator_pubkey,
             stake_hash,
             delta,
             network,

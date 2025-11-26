@@ -242,7 +242,6 @@ mod tests {
         sighash::{self, Prevouts, SighashCache},
         transaction, Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
     };
-    use bitcoin_bosd::Descriptor;
     use corepc_node::{Conf, Node};
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -336,13 +335,8 @@ mod tests {
         // The key path spend for the first input
         let stake_tx = stake_chain.tail()[index - 1].clone();
         // Recreate the connector s.
-        let connector_s = ConnectorStake::new(
-            n_of_n_pubkey,
-            operator_pubkey.into(),
-            stake_hash,
-            delta,
-            network,
-        );
+        let connector_s =
+            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
         // Create the prevouts
 
         let messages = stake_tx.sighashes(prevouts[0].script_pubkey.clone());
@@ -367,18 +361,13 @@ mod tests {
     /// Creates an [`Address`] from a [`ConnectorStake`].
     fn create_connector_stake(
         n_of_n_pubkey: XOnlyPublicKey,
-        operator_descriptor: Descriptor,
+        operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         network: Network,
     ) -> Address {
-        let connect_s = ConnectorStake::new(
-            n_of_n_pubkey,
-            operator_descriptor,
-            stake_hash,
-            delta,
-            network,
-        );
+        let connect_s =
+            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
         connect_s.generate_address()
     }
 
@@ -732,7 +721,7 @@ mod tests {
         // Sign the StakeTx 1
         let connector_s = create_connector_stake(
             n_of_n_agg_pubkey,
-            operator_pubkey.into(),
+            operator_pubkey,
             stake_hashes[0],
             delta,
             network,
@@ -779,7 +768,7 @@ mod tests {
 
         let connector_s = create_connector_stake(
             n_of_n_agg_pubkey,
-            operator_pubkey.into(),
+            operator_pubkey,
             stake_hashes[1],
             delta,
             network,
