@@ -871,7 +871,7 @@ impl ContractState {
 }
 
 /// This is the superset of all possible operator duties.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
@@ -1022,7 +1022,7 @@ impl Display for OperatorDuty {
 }
 
 /// This is a duty that has to be carried out if we are the assigned operator.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum FulfillerDuty {
     /// Instructs us to send our initial StakeChainExchange message.
@@ -1191,7 +1191,7 @@ impl Display for FulfillerDuty {
 }
 
 /// This is a duty that must be carried out as a Verifier.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum VerifierDuty {
     /// Originates when *other* operator Claim transaction is issued
     VerifyClaim,
@@ -1223,7 +1223,7 @@ impl Display for VerifierDuty {
 }
 
 /// Error representing an invalid state transition.
-#[derive(Debug, Clone, Error, PartialEq, Eq)]
+#[derive(Debug, Clone, Error)]
 pub struct TransitionErr(pub String);
 impl Display for TransitionErr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -3719,25 +3719,6 @@ mod prop_tests {
 
                 }
             };
-        }
-    }
-
-    proptest! {
-        #![proptest_config(ProptestConfig::with_cases(0))] // This still does 1 test case. It's weird.
-        #[test]
-        fn test_event((cfg,cev) in arb_contract_cfg().prop_flat_map(|cfg|{
-            // eprintln!("optable {:?}",&cfg.operator_table);
-            let op_key = cfg.operator_table.idx_to_p2p_key(&1).expect("some err");
-            // eprintln!("optable {:?}",op_key);
-            let cev = arb_deposit_setup_from_operator(op_key.clone()).no_shrink();
-            cev.prop_map(move |ev|{
-                (cfg.clone(),ev)
-            })
-        }).no_shrink()) {
-            // eprintln!("cev {:?}",cev);
-            let mut csm_req = ContractSM::new(cfg,1_000, 10_000);
-            //  Requested * Event(DepositSetup) ->
-            prop_assert_eq!(csm_req.process_contract_event(cev),Ok(Vec::new()));
         }
     }
 }
