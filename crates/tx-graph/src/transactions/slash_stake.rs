@@ -239,7 +239,7 @@ mod tests {
 
         let stake_connector = ConnectorStake::new(
             n_of_n_agg_pubkey,
-            operator_pubkey,
+            operator_pubkey.into(),
             stake_hash,
             delta,
             network,
@@ -289,7 +289,7 @@ mod tests {
             slash_stake_data,
             stake_chain_params,
             n_of_n_connector,
-            stake_connector,
+            stake_connector.clone(),
         );
 
         let raw_slash_stake_tx = slash_stake_tx.psbt().unsigned_tx.clone();

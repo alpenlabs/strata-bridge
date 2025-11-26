@@ -4,7 +4,8 @@ use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
 };
-use secp256k1::{schnorr, XOnlyPublicKey};
+use bitcoin_bosd::Descriptor;
+use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
     ConnectorA3, ConnectorA3Leaf, ConnectorCpfp, ConnectorNOfN, ConnectorP, StakeSpendPath,
@@ -12,6 +13,7 @@ use strata_bridge_connectors::prelude::{
 use strata_bridge_primitives::{
     constants::{NUM_ASSERT_DATA_TX, SEGWIT_MIN_AMOUNT},
     scripts::prelude::*,
+    types::descriptor_to_x_only_pubkey,
 };
 
 use super::covenant_tx::CovenantTx;
@@ -37,9 +39,8 @@ pub struct PayoutData {
     /// operator.
     pub deposit_amount: Amount,
 
-    /// The operator's public key corresponding to the address that the operator wants to be paid
-    /// to.
-    pub operator_key: XOnlyPublicKey,
+    /// The operator's descriptor that the operator wants to be paid to.
+    pub operator_descriptor: Descriptor,
 
     /// The bitcoin network on which the transaction is to be constructed.
     pub network: Network,
@@ -99,7 +100,8 @@ impl PayoutTx {
         let (operator_address, _) = create_taproot_addr(
             &data.network,
             SpendPath::KeySpend {
-                internal_key: data.operator_key,
+                // TODO Return error in follow-up commit
+                internal_key: descriptor_to_x_only_pubkey(&data.operator_descriptor).unwrap(),
             },
         )
         .expect("should be able to create taproot address");

@@ -773,16 +773,16 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     .get(&claim_txid)
                     .map(|sigs| sigs.challenge);
 
-                let reimbursement_key = contract
+                let reimbursement_descriptor = contract
                     .0
                     .state
                     .state
                     .graph_input(claim_txid)
-                    .map(|input| input.operator_pubkey);
+                    .map(|input| input.operator_descriptor.clone());
 
-                match (challenge_sig, reimbursement_key) {
-                    (Some(challenge_sig), Some(reimbursement_key)) => {
-                        Some((challenge_sig, reimbursement_key))
+                match (challenge_sig, reimbursement_descriptor) {
+                    (Some(challenge_sig), Some(reimbursement_descriptor)) => {
+                        Some((challenge_sig, reimbursement_descriptor))
                     }
                     _ => None, // No challenge transaction available for this claim
                 }
@@ -791,7 +791,7 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                 let challenge_input = ChallengeTxInput {
                     claim_outpoint: OutPoint::new(claim_txid, CHALLENGE_VOUT),
                     challenge_amt: self.params.tx_graph.challenge_cost,
-                    operator_pubkey: reimbursement_key,
+                    operator_descriptor: reimbursement_key,
                     network: self.params.network,
                 };
 
@@ -854,7 +854,7 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     deposit_txid: contract.0.deposit_txid,
                     stake_outpoint: OutPoint::new(graph_summary.stake_txid, STAKE_VOUT),
                     stake_hash: graph_input.stake_hash,
-                    operator_pubkey: graph_input.operator_pubkey,
+                    operator_descriptor: graph_input.operator_descriptor.clone(),
                     wots_public_keys: graph_input.wots_public_keys.clone(),
                     n_of_n_sig,
                 })

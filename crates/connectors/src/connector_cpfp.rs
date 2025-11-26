@@ -2,35 +2,46 @@
 //!
 //! Reference: <https://bitcoinops.org/en/topics/cpfp/>
 
-use bitcoin::{key::TapTweak, psbt::Input, Address, Network, ScriptBuf};
-use secp256k1::{schnorr, XOnlyPublicKey};
+use bitcoin::{psbt::Input, Address, Network, ScriptBuf};
+use bitcoin_bosd::Descriptor;
+use secp256k1::schnorr;
 use strata_bridge_primitives::scripts::taproot::finalize_input;
 
 /// Connector for adding outputs to a transaction for CPFP.
 ///
 /// It creates a taproot locking script with a public key that is assumed to be tweaked and expects
 /// a schnorr signature to finalize the input.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ConnectorCpfp {
     /// The bitcoin network for which to generate output addresses.
     network: Network,
 
-    /// The public key used to create the child transaction in CPFP.
-    public_key: XOnlyPublicKey,
+    /// The descriptor used to create the child transaction in CPFP.
+    descriptor: Descriptor,
+
+    /// The address corresponding to the descriptor.
+    descriptor_address: Address,
 }
 
 impl ConnectorCpfp {
     /// Constructs a new CPFP connector.
-    pub const fn new(public_key: XOnlyPublicKey, network: Network) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the descriptor cannot be converted to an address.
+    pub fn new(descriptor: Descriptor, network: Network) -> Self {
+        // TODO Return error instead of unwrapping in next commit
+        let descriptor_address = descriptor.to_address(network).unwrap();
         Self {
             network,
-            public_key,
+            descriptor,
+            descriptor_address,
         }
     }
 
-    /// Returns the public key used to create the child transaction in CPFP.
-    pub const fn public_key(&self) -> XOnlyPublicKey {
-        self.public_key
+    /// Returns the descriptor used to create the child transaction in CPFP.
+    pub const fn descriptor(&self) -> &Descriptor {
+        &self.descriptor
     }
 
     /// Returns the bitcoin network for which to generate output addresses.
@@ -38,16 +49,16 @@ impl ConnectorCpfp {
         self.network
     }
 
-    /// Generates a taproot address for the child transaction.
+    /// Generates an address for the child transaction.
     ///
-    /// This taproot address uses a key-spend path with the public key of the connector.
-    pub fn generate_taproot_address(&self) -> bitcoin::Address {
-        Address::p2tr_tweaked(self.public_key.dangerous_assume_tweaked(), self.network)
+    /// This address uses a key-spend path with the public key of the connector.
+    pub fn generate_address(&self) -> Address {
+        self.descriptor_address.clone()
     }
 
     /// Generates the locking script for the child transaction.
     pub fn generate_locking_script(&self) -> ScriptBuf {
-        self.generate_taproot_address().script_pubkey()
+        self.descriptor_address.script_pubkey()
     }
 
     /// Finalizes the connector using a schnorr signature.
@@ -104,7 +115,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let xonly_pubkey = keypair.x_only_public_key().0;
-        let connector = ConnectorCpfp::new(xonly_pubkey, network);
+        let connector = ConnectorCpfp::new(xonly_pubkey.into(), network);
 
         let output_address =
             Address::p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked(), network);
@@ -125,7 +136,7 @@ mod tests {
         let starting_tx_ins = create_tx_ins([utxo]);
         let starting_tx_outs = create_tx_outs([
             (
-                connector.generate_taproot_address().script_pubkey(),
+                connector.generate_address().script_pubkey(),
                 Amount::from_sat(0), // set amount later
             ),
             (wallet_addr.script_pubkey(), unspent.amount),
@@ -171,7 +182,7 @@ mod tests {
         let parent_tx_outs = vec![TxOut {
             value: signed_starting_tx.output[input_utxo_vout].value, /* same output as input (0
                                                                       * fees) */
-            script_pubkey: connector.generate_taproot_address().script_pubkey(),
+            script_pubkey: connector.generate_address().script_pubkey(),
         }];
         let mut parent_tx = create_tx(parent_tx_ins, parent_tx_outs);
         parent_tx.version = Version(3);
@@ -213,7 +224,7 @@ mod tests {
 
         let funding_tx_ins = create_tx_ins([utxo]);
         let funding_tx_outs = create_tx_outs([
-            (connector.generate_taproot_address().script_pubkey(), FEES),
+            (connector.generate_address().script_pubkey(), FEES),
             (wallet_addr.script_pubkey(), unspent.amount - FEES - FEES),
         ]);
         let funding_tx = create_tx(funding_tx_ins, funding_tx_outs);

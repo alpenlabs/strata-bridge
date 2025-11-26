@@ -1,10 +1,10 @@
 //! Module to construct the Challenge Transaction.
 
 use bitcoin::{
-    key::TapTweak, psbt::ExtractTxError, sighash::Prevouts, taproot, Address, Amount, Network,
-    OutPoint, Psbt, Transaction, TxOut, Txid,
+    psbt::ExtractTxError, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt, Transaction,
+    TxOut, Txid,
 };
-use secp256k1::XOnlyPublicKey;
+use bitcoin_bosd::Descriptor;
 use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
 use strata_bridge_primitives::scripts::{
     prelude::{create_tx, create_tx_ins, create_tx_outs},
@@ -22,8 +22,8 @@ pub struct ChallengeTxInput {
     /// The output amount on the challenge transaction.
     pub challenge_amt: Amount,
 
-    /// The public key of the operator that locks the output of the challenge transaction.
-    pub operator_pubkey: XOnlyPublicKey,
+    /// The descriptor of the operator that locks the output of the challenge transaction.
+    pub operator_descriptor: Descriptor,
 
     /// The network where the constructed challenge transaction is valid.
     pub network: Network,
@@ -55,10 +55,8 @@ impl ChallengeTx {
     pub fn new(input: ChallengeTxInput, challenge_connector: ConnectorC1) -> Self {
         let tx_ins = create_tx_ins([input.claim_outpoint]);
 
-        let operator_address = Address::p2tr_tweaked(
-            input.operator_pubkey.dangerous_assume_tweaked(),
-            input.network,
-        );
+        // TODO Return error in next commit
+        let operator_address = input.operator_descriptor.to_address(input.network).unwrap();
         let tx_outs = create_tx_outs([(operator_address.script_pubkey(), input.challenge_amt)]);
 
         let tx = create_tx(tx_ins, tx_outs);
@@ -242,7 +240,7 @@ mod tests {
                 vout: input_index as u32,
             },
             challenge_amt: PegOutGraphParams::default().challenge_cost,
-            operator_pubkey: n_of_n_keypair.x_only_public_key().0,
+            operator_descriptor: n_of_n_keypair.x_only_public_key().0.into(),
             network,
         };
 

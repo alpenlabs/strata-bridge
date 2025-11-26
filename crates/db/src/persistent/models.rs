@@ -9,9 +9,9 @@ use sqlx::{self};
 use strata_bridge_stake_chain::transactions::stake::StakeTxData;
 
 use super::types::{
-    DbAggNonce, DbAmount, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig, DbPubNonce,
-    DbScriptBuf, DbSecNonce, DbSignature, DbTaprootWitness, DbTxid, DbWots256PublicKey,
-    DbWotsPublicKeys, DbWotsSignatures, DbXOnlyPublicKey,
+    DbAggNonce, DbAmount, DbDescriptor, DbHash, DbInputIndex, DbOperatorIdx, DbPartialSig,
+    DbPubNonce, DbScriptBuf, DbSecNonce, DbSignature, DbTaprootWitness, DbTxid, DbWots256PublicKey,
+    DbWotsPublicKeys, DbWotsSignatures,
 };
 
 /// The model for WOTS public keys stored in the database.
@@ -80,8 +80,8 @@ pub(super) struct DbStakeTxData {
     /// The WOTS public key used to commit to the withdrawal fulfillment transaction.
     pub(super) withdrawal_fulfillment_pk: DbWots256PublicKey,
 
-    /// The public key of the operator that is used to lock the stake.
-    pub(super) operator_pubkey: DbXOnlyPublicKey,
+    /// The descriptor of the operator that is used to lock the stake.
+    pub(super) operator_descriptor: DbDescriptor,
 }
 
 impl DbStakeTxData {
@@ -92,7 +92,7 @@ impl DbStakeTxData {
             funding_vout: stake_tx_data.operator_funds.vout.into(),
             hash: stake_tx_data.hash.into(),
             withdrawal_fulfillment_pk: stake_tx_data.withdrawal_fulfillment_pk.into(),
-            operator_pubkey: stake_tx_data.operator_pubkey.into(),
+            operator_descriptor: stake_tx_data.operator_descriptor.into(),
         }
     }
 }
@@ -106,7 +106,7 @@ impl From<DbStakeTxData> for StakeTxData {
             },
             hash: *db_stake_tx_data.hash,
             withdrawal_fulfillment_pk: db_stake_tx_data.withdrawal_fulfillment_pk.deref().clone(),
-            operator_pubkey: *db_stake_tx_data.operator_pubkey,
+            operator_descriptor: (*db_stake_tx_data.operator_descriptor).clone(),
         }
     }
 }

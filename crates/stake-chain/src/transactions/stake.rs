@@ -7,8 +7,9 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::LeafVersion,
     transaction, Amount, OutPoint, Psbt, ScriptBuf, Sequence, TapLeafHash, TapSighashType,
-    Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
+    Transaction, TxIn, TxOut, Txid,
 };
+use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{
@@ -39,9 +40,9 @@ pub struct StakeTxData {
     /// Transaction.
     pub withdrawal_fulfillment_pk: Wots256PublicKey,
 
-    /// The [`XOnlyPublicKey`] of the operator that is used to lock the stake (along with the
+    /// The [`Descriptor`] of the operator that is used to lock the stake (along with the
     /// hashlock).
-    pub operator_pubkey: XOnlyPublicKey,
+    pub operator_descriptor: Descriptor,
 }
 
 impl std::hash::Hash for StakeTxData {
@@ -183,12 +184,13 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_descriptor.clone(),
             input.hash,
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey, context.network());
+        let connector_cpfp =
+            ConnectorCpfp::new(input.operator_descriptor.clone(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -208,7 +210,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
                 params.stake_amount,
             ),
             (
-                connector_cpfp.generate_taproot_address().script_pubkey(),
+                connector_cpfp.generate_address().script_pubkey(),
                 SEGWIT_MIN_AMOUNT,
             ),
         ];
@@ -226,7 +228,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_descriptor,
             self.hash,
             params.delta,
             context.network(),
@@ -308,8 +310,8 @@ impl StakeTx<Head> {
     ///   transaction spends.
     /// - `operator_funds`: The [`OutPoint`] with the amount necessary to fund the dust outputs for
     ///   tx-graph as well as those in the state transaction.
-    /// - `operator_pubkey`: The operator's public key used to create the [`ConnectorStake`] output
-    ///   that is spent by the next stake transaction in the chain.
+    /// - `operator_descriptor`: The operator's descriptor used to create the [`ConnectorStake`]
+    ///   output that is spent by the next stake transaction in the chain.
     pub fn new(
         context: &impl BuildContext,
         params: &StakeChainParams,
@@ -317,7 +319,7 @@ impl StakeTx<Head> {
         withdrawal_fulfillment_pk: Wots256PublicKey,
         pre_stake: OutPoint,
         operator_funds: OutPoint,
-        operator_pubkey: XOnlyPublicKey,
+        operator_descriptor: Descriptor,
     ) -> StakeTx<Head> {
         // The first input is the operator's funds.
         let utxos = [operator_funds, pre_stake];
@@ -329,17 +331,17 @@ impl StakeTx<Head> {
 
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            operator_pubkey,
+            operator_descriptor.clone(),
             hash,
             params.delta,
             context.network(),
         );
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey, context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_descriptor, context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let connector_p_addr = connector_p.generate_address();
-        let cpfp_addr = connector_cpfp.generate_taproot_address();
+        let cpfp_addr = connector_cpfp.generate_address();
         let scripts_and_amounts = [
             (
                 connector_k.create_taproot_address().script_pubkey(),
@@ -445,12 +447,13 @@ impl StakeTx<Tail> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_descriptor.clone(),
             input.hash,
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey, context.network());
+        let connector_cpfp =
+            ConnectorCpfp::new(input.operator_descriptor.clone(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -470,7 +473,7 @@ impl StakeTx<Tail> {
                 params.stake_amount,
             ),
             (
-                connector_cpfp.generate_taproot_address().script_pubkey(),
+                connector_cpfp.generate_address().script_pubkey(),
                 SEGWIT_MIN_AMOUNT,
             ),
         ];
@@ -488,7 +491,7 @@ impl StakeTx<Tail> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_pubkey,
+            input.operator_descriptor,
             prev_hash,
             params.delta,
             context.network(),

@@ -219,7 +219,7 @@ impl StakeChainSM {
                     let stake_hash = first_input.hash;
                     let withdrawal_fulfillment_pk = first_input.withdrawal_fulfillment_pk.clone();
                     let operator_funds = first_input.operator_funds;
-                    let operator_pubkey = first_input.operator_pubkey;
+                    let operator_pubkey = first_input.operator_descriptor.clone();
 
                     let first_stake = StakeTx::<Head>::new(
                         &context,
