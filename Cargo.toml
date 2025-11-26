@@ -80,7 +80,7 @@ strata-bridge-stake-chain = { path = "crates/stake-chain" }
 strata-bridge-test-utils = { path = "crates/test-utils" }
 strata-bridge-tx-graph = { path = "crates/tx-graph" }
 
-# deps from original strata repo
+# Dependencies from alpenlabs/alpen pinned to commit dbffc47d (main @ 2024-05-11)
 strata-asm-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-bridge-tx-builder = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-bridge-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
@@ -96,7 +96,9 @@ strata-primitives = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbf
 strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
-strata-tasks = { git = "https://github.com/alpenlabs/strata-common" }
+
+# Dependencies from alpenlabs/strata-common pinned to commit f25751bd (main @ 2024-11-23)
+strata-tasks = { git = "https://github.com/alpenlabs/strata-common", rev = "f25751bd58cec1c343a9d2044215e57b4850f66e" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
 strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }

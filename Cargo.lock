@@ -10064,7 +10064,7 @@ dependencies = [
 [[package]]
 name = "strata-tasks"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+source = "git+https://github.com/alpenlabs/strata-common?rev=f25751bd58cec1c343a9d2044215e57b4850f66e#f25751bd58cec1c343a9d2044215e57b4850f66e"
 dependencies = [
  "anyhow",
  "futures-util",
