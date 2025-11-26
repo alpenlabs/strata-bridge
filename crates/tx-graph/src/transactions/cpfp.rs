@@ -160,7 +160,7 @@ impl Cpfp<Unfunded> {
 
         let parent_prevout = TxOut {
             value: details.parent_tx.output[details.vout as usize].value,
-            script_pubkey: connector_cpfp.generate_address().script_pubkey(),
+            script_pubkey: connector_cpfp.generate_locking_script(),
         };
 
         let mut prevouts: Vec<TxOut> = vec![TxOut::NULL; 2];
@@ -332,7 +332,7 @@ mod tests {
             vout: unspent.vout,
         };
 
-        let connector_cpfp_out = connector_cpfp.generate_address().script_pubkey();
+        let connector_cpfp_out = connector_cpfp.generate_locking_script();
         let parent_prevout_amount = connector_cpfp_out.minimal_non_dust();
 
         let tx_ins = create_tx_ins([parent_input_utxo]);

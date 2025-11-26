@@ -68,7 +68,7 @@ impl AssertDataTxBatch {
             let output_script = connector_a2.create_taproot_address().script_pubkey();
             let output_amt = output_script.minimal_non_dust();
 
-            let connector_cpfp_output_script = connector_cpfp.generate_address().script_pubkey();
+            let connector_cpfp_output_script = connector_cpfp.generate_locking_script();
             let connector_cpfp_output_amt = connector_cpfp_output_script.minimal_non_dust();
 
             let tx_outs = create_tx_outs([
