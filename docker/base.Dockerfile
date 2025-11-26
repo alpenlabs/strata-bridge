@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 ghcr.io/succinctlabs/sp1:latest AS builder
+FROM --platform=linux/amd64 ghcr.io/succinctlabs/sp1:nightly AS builder
 
 WORKDIR /app
 
