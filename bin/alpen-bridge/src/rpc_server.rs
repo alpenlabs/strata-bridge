@@ -25,7 +25,7 @@ use strata_bridge_db::{
         sqlite::{execute_with_retries, SqliteDb},
     },
 };
-use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_primitives::{operator_table::OperatorTable, types::descriptor_to_x_only_pubkey};
 use strata_bridge_rpc::{
     traits::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
@@ -854,7 +854,9 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     deposit_txid: contract.0.deposit_txid,
                     stake_outpoint: OutPoint::new(graph_summary.stake_txid, STAKE_VOUT),
                     stake_hash: graph_input.stake_hash,
-                    operator_descriptor: graph_input.operator_descriptor.clone(),
+                    // TODO: (@sistemd) Return error instead of unwrapping in next commit
+                    operator_pubkey: descriptor_to_x_only_pubkey(&graph_input.operator_descriptor)
+                        .unwrap(),
                     wots_public_keys: graph_input.wots_public_keys.clone(),
                     n_of_n_sig,
                 })

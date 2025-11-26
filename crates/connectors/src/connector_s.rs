@@ -13,9 +13,8 @@ use bitcoin::{
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, TapNodeHash,
 };
-use bitcoin_bosd::Descriptor;
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_primitives::{scripts::prelude::*, types::descriptor_to_x_only_pubkey};
+use strata_bridge_primitives::scripts::prelude::*;
 
 use crate::stake_path::StakeSpendPath;
 
@@ -81,15 +80,13 @@ impl ConnectorStake {
     /// # Errors
     ///
     /// Returns an error if the operator descriptor is not a P2TR address.
-    pub fn new(
+    pub const fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
-        operator_descriptor: Descriptor,
+        operator_pubkey: XOnlyPublicKey,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         network: Network,
     ) -> Self {
-        // TODO Return error instead in follow-up commit
-        let operator_pubkey = descriptor_to_x_only_pubkey(&operator_descriptor).unwrap();
         Self {
             n_of_n_agg_pubkey,
             operator_pubkey,
@@ -298,13 +295,8 @@ mod tests {
         let delta = relative::LockTime::from_height(10);
 
         // Create connector
-        let connector_s = ConnectorStake::new(
-            n_of_n_pubkey,
-            operator_pubkey.into(),
-            stake_hash,
-            delta,
-            network,
-        );
+        let connector_s =
+            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
 
         // Generate address and script
         let taproot_script = connector_s.generate_address().script_pubkey();

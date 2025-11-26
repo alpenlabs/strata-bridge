@@ -10,7 +10,8 @@ use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
 use strata_bridge_primitives::{
-    build_context::BuildContext, constants::*, scripts::taproot::TaprootWitness, wots,
+    build_context::BuildContext, constants::*, scripts::taproot::TaprootWitness,
+    types::descriptor_to_x_only_pubkey, wots,
 };
 use tracing::{debug, info};
 
@@ -599,7 +600,8 @@ impl PegOutGraphConnectors {
 
         let stake = ConnectorStake::new(
             n_of_n_agg_pubkey,
-            operator_descriptor,
+            // TODO: (@sistemd) Return error instead of unwrapping in next commit
+            descriptor_to_x_only_pubkey(&operator_descriptor).unwrap(),
             stake_hash,
             delta,
             network,
