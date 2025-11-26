@@ -9,9 +9,9 @@ use bitcoin::{
     consensus,
     hashes::sha256,
     hex::{DisplayHex, FromHex},
-    secp256k1::XOnlyPublicKey,
     Amount, ScriptBuf, Transaction, Txid,
 };
+use bitcoin_bosd::Descriptor;
 use musig2::{BinaryEncoding, PartialSignature, PubNonce, SecNonce};
 use rkyv::rancor::Error as RkyvError;
 use secp256k1::schnorr::Signature;
@@ -158,39 +158,39 @@ impl<'q> sqlx::Encode<'q, Sqlite> for DbHash {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct DbXOnlyPublicKey(XOnlyPublicKey);
+pub(super) struct DbDescriptor(Descriptor);
 
-impl Deref for DbXOnlyPublicKey {
-    type Target = XOnlyPublicKey;
+impl Deref for DbDescriptor {
+    type Target = Descriptor;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<XOnlyPublicKey> for DbXOnlyPublicKey {
-    fn from(value: XOnlyPublicKey) -> Self {
+impl From<Descriptor> for DbDescriptor {
+    fn from(value: Descriptor) -> Self {
         Self(value)
     }
 }
 
-impl sqlx::Type<Sqlite> for DbXOnlyPublicKey {
+impl sqlx::Type<Sqlite> for DbDescriptor {
     fn type_info() -> sqlx::sqlite::SqliteTypeInfo {
         <String as sqlx::Type<Sqlite>>::type_info()
     }
 }
 
-impl<'r> sqlx::Decode<'r, Sqlite> for DbXOnlyPublicKey {
+impl<'r> sqlx::Decode<'r, Sqlite> for DbDescriptor {
     fn decode(value: SqliteValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let pubkey_str: String = sqlx::decode::Decode::<'r, Sqlite>::decode(value)?;
-        let pubkey = XOnlyPublicKey::from_str(&pubkey_str)
-            .map_err(|_| sqlx::Error::Decode("Failed to decode XOnlyPublicKey".into()))?;
+        let descriptor = Descriptor::from_str(&pubkey_str)
+            .map_err(|_| sqlx::Error::Decode("Failed to decode Descriptor".into()))?;
 
-        Ok(DbXOnlyPublicKey(pubkey))
+        Ok(DbDescriptor(descriptor))
     }
 }
 
-impl<'q> sqlx::Encode<'q, Sqlite> for DbXOnlyPublicKey {
+impl<'q> sqlx::Encode<'q, Sqlite> for DbDescriptor {
     fn encode_by_ref(
         &self,
         buf: &mut Vec<sqlx::sqlite::SqliteArgumentValue<'q>>,

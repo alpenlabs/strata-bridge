@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS operator_stake_data (
     funding_txid TEXT NOT NULL,                -- Store as hex string
     funding_vout INTEGER NOT NULL,
     hash TEXT NOT NULL,                        -- Store as hex string
-    operator_pubkey TEXT NOT NULL,             -- Store as hex string
+    operator_descriptor TEXT NOT NULL,         -- Store as hex string
     withdrawal_fulfillment_pk BLOB NOT NULL,   -- Serialized with rkyv
 
     PRIMARY KEY (operator_idx, deposit_idx)     -- Compound primary key

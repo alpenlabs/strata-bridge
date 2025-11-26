@@ -88,7 +88,7 @@ impl DepositSetup {
             withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(Arc::new(
                 self.wots_pks.withdrawal_fulfillment.0,
             )),
-            operator_pubkey: self.operator_pk,
+            operator_descriptor: self.operator_pk.into(),
         }
     }
 }
@@ -1393,10 +1393,10 @@ impl ContractSM {
     pub fn retrieve_graph(&mut self, input: &PegOutGraphInput) -> PegOutGraph {
         let stake_txid = input.stake_outpoint.txid;
         if let Some(pog) = self.pog.get(&stake_txid) {
-            debug!(reimbursement_key = %input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
+            debug!(reimbursement_key = %input.operator_descriptor, %stake_txid,"retrieving peg out graph from cache");
             pog.clone()
         } else {
-            debug!(reimbursement_key = %input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
+            debug!(reimbursement_key = %input.operator_descriptor, %stake_txid,"generating and caching peg out graph");
             let pog = self.cfg.build_graph(input);
             self.pog.insert(stake_txid, pog.clone());
             pog
@@ -1678,7 +1678,7 @@ impl ContractSM {
                         withdrawal_fulfillment_outpoint: new_withdrawal_fulfillment_outpoint,
                         stake_hash: new_stake_hash,
                         wots_public_keys: new_wots_keys,
-                        operator_pubkey,
+                        operator_descriptor: operator_pubkey.into(),
                     });
 
                 if peg_out_graph_inputs.len() != self.cfg.operator_table.cardinality() {
@@ -1742,10 +1742,10 @@ impl ContractSM {
                                 // are different.
 
                                 if let Some(pog) = self.pog.get(&stake_txid){
-                                    debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"retrieving peg out graph from cache");
+                                    debug!(reimbursement_key = %pog_input.operator_descriptor, %stake_txid,"retrieving peg out graph from cache");
                                     pog.clone()
                                 } else {
-                                    debug!(reimbursement_key = %pog_input.operator_pubkey, %stake_txid,"generating and caching peg out graph");
+                                    debug!(reimbursement_key = %pog_input.operator_descriptor, %stake_txid,"generating and caching peg out graph");
                                     let pog = self.cfg.build_graph(pog_input);
                                     self.pog.insert(stake_txid, pog.clone());
                                     pog
@@ -1881,10 +1881,10 @@ impl ContractSM {
                     // different.
                     let stake_txid = pog_input.stake_outpoint.txid;
                     let pog = if let Some(pog) = self.pog.get(&stake_txid) {
-                        debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "retrieving peg out graph from cache");
+                        debug!(reimbursement_key=%pog_input.operator_descriptor, %stake_txid, "retrieving peg out graph from cache");
                         pog.clone()
                     } else {
-                        debug!(reimbursement_key=%pog_input.operator_pubkey, %stake_txid, "generating and caching peg out graph");
+                        debug!(reimbursement_key=%pog_input.operator_descriptor, %stake_txid, "generating and caching peg out graph");
                         let pog = self.cfg.build_graph(pog_input);
                         self.pog.insert(stake_txid, pog.clone());
 

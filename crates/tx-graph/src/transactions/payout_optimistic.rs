@@ -4,7 +4,8 @@ use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
 };
-use secp256k1::{schnorr, XOnlyPublicKey};
+use bitcoin_bosd::Descriptor;
+use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
     ConnectorC0, ConnectorC0Path, ConnectorC1, ConnectorC1Path, ConnectorCpfp, ConnectorNOfN,
@@ -35,9 +36,8 @@ pub struct PayoutOptimisticData {
     /// operator.
     pub deposit_amount: Amount,
 
-    /// The operator's public key corresponding to the address that the operator wants to be paid
-    /// to.
-    pub operator_key: XOnlyPublicKey,
+    /// The operator's descriptor that the operator wants to be paid to.
+    pub operator_descriptor: Descriptor,
 
     /// The bitcoin network on which the transaction is to be constructed.
     pub network: Network,
@@ -107,13 +107,11 @@ impl PayoutOptimisticTx {
         let c1_input = &mut tx_ins[c1_input as usize];
         c1_input.sequence = Sequence::from_height(connector_c1.payout_optimistic_timelock() as u16);
 
-        let (operator_address, _) = create_taproot_addr(
-            &data.network,
-            SpendPath::KeySpend {
-                internal_key: data.operator_key,
-            },
-        )
-        .expect("should be able to create taproot address");
+        let operator_address = data
+            .operator_descriptor
+            .to_address(data.network)
+            // TODO Return error in follow-up commit
+            .unwrap();
 
         let cpfp_script = connector_cpfp.generate_locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();

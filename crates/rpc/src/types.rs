@@ -1,9 +1,9 @@
 //! Types for the RPC server.
 
-use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, taproot, OutPoint, Txid};
+use bitcoin::{hashes::sha256, taproot, OutPoint, Txid};
 use serde::{Deserialize, Serialize};
 use strata_bridge_primitives::{types::OperatorIdx, wots};
-use strata_primitives::buf::Buf32;
+use strata_primitives::{bitcoin_bosd::Descriptor, buf::Buf32};
 
 /// Enum representing the status of a bridge operator
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,7 +165,7 @@ pub struct RpcDisproveData {
     pub stake_hash: sha256::Hash,
 
     /// The operator key that locks the stake transaction.
-    pub operator_pubkey: XOnlyPublicKey,
+    pub operator_descriptor: Descriptor,
 
     /// The WOTS public keys whose private keys were used by the operator to sign their proof
     /// assertions.

@@ -138,7 +138,7 @@ impl PreAssertTx {
 
         trace!(num_scripts=%scripts_and_amounts.len(), event = "added all bitcommitment connectors");
 
-        let cpfp_script = connector_cpfp.generate_taproot_address().script_pubkey();
+        let cpfp_script = connector_cpfp.generate_address().script_pubkey();
         let cpfp_amount = cpfp_script.minimal_non_dust();
         scripts_and_amounts.push((cpfp_script, cpfp_amount));
         trace!(event = "added cpfp connector");

@@ -65,7 +65,7 @@ impl AssertChain {
         let pre_assert = PreAssertTx::new(
             data.pre_assert_data,
             connector_c0,
-            connector_cpfp,
+            connector_cpfp.clone(),
             connector_a256_factory,
             connector_a_hash_factory,
         );
@@ -87,7 +87,8 @@ impl AssertChain {
         };
 
         trace!(event = "constructed assert data input", ?assert_data_input);
-        let assert_data = AssertDataTxBatch::new(assert_data_input, connector_a2, connector_cpfp);
+        let assert_data =
+            AssertDataTxBatch::new(assert_data_input, connector_a2, connector_cpfp.clone());
 
         let assert_data_txids = assert_data.compute_txids().to_vec();
         trace!(event = "created assert_data tx batch", ?assert_data_txids);

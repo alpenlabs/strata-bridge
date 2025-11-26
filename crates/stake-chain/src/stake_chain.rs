@@ -4,7 +4,8 @@
 use std::collections::BTreeMap;
 
 use alpen_bridge_params::stake_chain::StakeChainParams;
-use bitcoin::{hashes::sha256, secp256k1::XOnlyPublicKey, OutPoint};
+use bitcoin::{hashes::sha256, OutPoint};
+use bitcoin_bosd::Descriptor;
 use strata_bridge_primitives::build_context::BuildContext;
 use tracing::warn;
 
@@ -80,7 +81,7 @@ impl StakeChain {
             first_stake_inputs.withdrawal_fulfillment_pk.clone(),
             stake_chain_inputs.pre_stake_outpoint,
             first_stake_inputs.operator_funds,
-            first_stake_inputs.operator_pubkey,
+            first_stake_inputs.operator_descriptor.clone(),
         );
 
         let Some(next_stake_input) = stake_inputs.get(&1) else {
@@ -214,12 +215,12 @@ impl StakeChainInputs {
             .map(|v| v.operator_funds)
     }
 
-    /// Operator's [`XOnlyPublicKey`] use to lock the stake.
-    pub fn operator_pubkey(&self) -> Option<XOnlyPublicKey> {
+    /// Operator's [`Descriptor`] use to lock the stake.
+    pub fn operator_descriptor(&self) -> Option<&Descriptor> {
         self.stake_inputs
             .values()
             .next()
-            .map(|input| input.operator_pubkey)
+            .map(|input| &input.operator_descriptor)
     }
 
     /// Prevout of the first stake transaction.
@@ -335,8 +336,13 @@ mod tests {
         // The key path spend for the first input
         let stake_tx = stake_chain.tail()[index - 1].clone();
         // Recreate the connector s.
-        let connector_s =
-            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
+        let connector_s = ConnectorStake::new(
+            n_of_n_pubkey,
+            operator_pubkey.into(),
+            stake_hash,
+            delta,
+            network,
+        );
         // Create the prevouts
 
         let messages = stake_tx.sighashes(prevouts[0].script_pubkey.clone());
@@ -361,13 +367,18 @@ mod tests {
     /// Creates an [`Address`] from a [`ConnectorStake`].
     fn create_connector_stake(
         n_of_n_pubkey: XOnlyPublicKey,
-        operator_pubkey: XOnlyPublicKey,
+        operator_descriptor: Descriptor,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         network: Network,
     ) -> Address {
-        let connect_s =
-            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
+        let connect_s = ConnectorStake::new(
+            n_of_n_pubkey,
+            operator_descriptor,
+            stake_hash,
+            delta,
+            network,
+        );
         connect_s.generate_address()
     }
 
@@ -668,7 +679,7 @@ mod tests {
                         operator_funds: operator_funds[i].previous_output,
                         hash: stake_hashes[i],
                         withdrawal_fulfillment_pk: wots_public_keys[i].clone(),
-                        operator_pubkey,
+                        operator_descriptor: operator_pubkey.into(),
                     },
                 )
             })
@@ -721,7 +732,7 @@ mod tests {
         // Sign the StakeTx 1
         let connector_s = create_connector_stake(
             n_of_n_agg_pubkey,
-            operator_pubkey,
+            operator_pubkey.into(),
             stake_hashes[0],
             delta,
             network,
@@ -768,7 +779,7 @@ mod tests {
 
         let connector_s = create_connector_stake(
             n_of_n_agg_pubkey,
-            operator_pubkey,
+            operator_pubkey.into(),
             stake_hashes[1],
             delta,
             network,
@@ -848,7 +859,7 @@ mod tests {
                                     "0",
                                     Txid::from_raw_hash(sha256d::Hash::hash(&[0; 32])),
                                 ),
-                                operator_pubkey: pk.x_only_public_key().0,
+                                operator_descriptor: pk.x_only_public_key().0.into(),
                             },
                         )
                     })

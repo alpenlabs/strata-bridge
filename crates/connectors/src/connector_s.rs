@@ -13,8 +13,9 @@ use bitcoin::{
     taproot::{ControlBlock, LeafVersion},
     Address, Network, ScriptBuf, TapNodeHash,
 };
+use bitcoin_bosd::Descriptor;
 use secp256k1::XOnlyPublicKey;
-use strata_bridge_primitives::scripts::prelude::*;
+use strata_bridge_primitives::{scripts::prelude::*, types::descriptor_to_x_only_pubkey};
 
 use crate::stake_path::StakeSpendPath;
 
@@ -51,12 +52,12 @@ use crate::stake_path::StakeSpendPath;
 /// preimage to the [`ConnectorStake`]. It is required that the preimage be securely derived and
 /// never reused under any circumstances
 // TODO: This should replace the `ConnectorS` struct above.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct ConnectorStake {
     /// The N-of-N aggregated public key for the operator set.
     n_of_n_agg_pubkey: XOnlyPublicKey,
 
-    /// The operator's public key.
+    /// The operator's pubkey.
     operator_pubkey: XOnlyPublicKey,
 
     /// The hash of the `k`th stake preimage.
@@ -76,13 +77,19 @@ pub struct ConnectorStake {
 impl ConnectorStake {
     /// Creates a new [`ConnectorStake`] with the given N-of-N aggregated public key, `k`th stake
     /// preimage, and the bitcoin network.
-    pub const fn new(
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the operator descriptor is not a P2TR address.
+    pub fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
-        operator_pubkey: XOnlyPublicKey,
+        operator_descriptor: Descriptor,
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         network: Network,
     ) -> Self {
+        // TODO Return error instead in follow-up commit
+        let operator_pubkey = descriptor_to_x_only_pubkey(&operator_descriptor).unwrap();
         Self {
             n_of_n_agg_pubkey,
             operator_pubkey,
@@ -291,8 +298,13 @@ mod tests {
         let delta = relative::LockTime::from_height(10);
 
         // Create connector
-        let connector_s =
-            ConnectorStake::new(n_of_n_pubkey, operator_pubkey, stake_hash, delta, network);
+        let connector_s = ConnectorStake::new(
+            n_of_n_pubkey,
+            operator_pubkey.into(),
+            stake_hash,
+            delta,
+            network,
+        );
 
         // Generate address and script
         let taproot_script = connector_s.generate_address().script_pubkey();

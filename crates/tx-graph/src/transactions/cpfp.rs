@@ -160,7 +160,7 @@ impl Cpfp<Unfunded> {
 
         let parent_prevout = TxOut {
             value: details.parent_tx.output[details.vout as usize].value,
-            script_pubkey: connector_cpfp.generate_taproot_address().script_pubkey(),
+            script_pubkey: connector_cpfp.generate_address().script_pubkey(),
         };
 
         let mut prevouts: Vec<TxOut> = vec![TxOut::NULL; 2];
@@ -320,7 +320,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let pubkey = keypair.x_only_public_key().0;
-        let connector_cpfp = ConnectorCpfp::new(pubkey, network);
+        let connector_cpfp = ConnectorCpfp::new(pubkey.into(), network);
 
         let unspent = btc_client
             .call::<Vec<ListUnspent>>("listunspent", &[])
@@ -332,7 +332,7 @@ mod tests {
             vout: unspent.vout,
         };
 
-        let connector_cpfp_out = connector_cpfp.generate_taproot_address().script_pubkey();
+        let connector_cpfp_out = connector_cpfp.generate_address().script_pubkey();
         let parent_prevout_amount = connector_cpfp_out.minimal_non_dust();
 
         let tx_ins = create_tx_ins([parent_input_utxo]);
@@ -360,7 +360,7 @@ mod tests {
         let details =
             CpfpInput::new(&signed_parent_tx, unspent.amount, 0).expect("values must be valid");
 
-        let cpfp = Cpfp::new(details, connector_cpfp);
+        let cpfp = Cpfp::new(details, connector_cpfp.clone());
 
         let fee_rate = FeeRate::from_sat_per_kwu(10);
         let total_fee = cpfp

@@ -100,7 +100,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
         post_assert_txid,
         deposit_txid,
         stake_outpoint,
-        operator_pubkey,
+        operator_descriptor: operator_pubkey,
         stake_hash,
         wots_public_keys,
         n_of_n_sig,
