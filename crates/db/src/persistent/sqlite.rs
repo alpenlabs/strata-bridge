@@ -18,8 +18,8 @@ use super::{
     errors::StorageError,
     models::DbStakeTxData,
     types::{
-        DbAggNonce, DbDescriptor, DbHash, DbInputIndex, DbPartialSig, DbSignature,
-        DbTaprootWitness, DbTxid, DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures,
+        DbAggNonce, DbHash, DbInputIndex, DbPartialSig, DbSignature, DbTaprootWitness, DbTxid,
+        DbWots256PublicKey, DbWotsPublicKeys, DbWotsSignatures, DbXOnlyPublicKey,
     },
 };
 use crate::{
@@ -401,14 +401,14 @@ impl PublicDb for SqliteDb {
 
                 sqlx::query!(
                     "INSERT OR IGNORE INTO operator_stake_data
-                        (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_descriptor, withdrawal_fulfillment_pk)
+                        (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
                         VALUES ($1, $2, $3, $4, $5, $6, $7)",
                     operator_idx,
                     stake_index,
                     stake_data.funding_txid,
                     stake_data.funding_vout,
                     stake_data.hash,
-                    stake_data.operator_descriptor,
+                    stake_data.operator_pubkey,
                     stake_data.withdrawal_fulfillment_pk,
                 )
                 .execute(&mut *tx)
@@ -435,7 +435,7 @@ impl PublicDb for SqliteDb {
                     funding_txid AS "funding_txid: DbTxid",
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
-                    operator_descriptor AS "operator_descriptor: DbDescriptor",
+                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey"
                     FROM operator_stake_data
                     WHERE operator_idx = $1 AND deposit_idx = $2"#,
@@ -461,14 +461,14 @@ impl PublicDb for SqliteDb {
                     let stake_data = DbStakeTxData::new(deposit_idx, stake_data);
                     sqlx::query!(
                         "INSERT OR IGNORE INTO operator_stake_data
-                            (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_descriptor, withdrawal_fulfillment_pk)
+                            (operator_idx, deposit_idx, funding_txid, funding_vout, hash, operator_pubkey, withdrawal_fulfillment_pk)
                             VALUES ($1, $2, $3, $4, $5, $6, $7)",
                         operator_idx,
                         deposit_idx,
                         stake_data.funding_txid,
                         stake_data.funding_vout,
                         stake_data.hash,
-                        stake_data.operator_descriptor,
+                        stake_data.operator_pubkey,
                         stake_data.withdrawal_fulfillment_pk,
                     )
                     .execute(&mut *tx)
@@ -496,7 +496,7 @@ impl PublicDb for SqliteDb {
                     funding_vout AS "funding_vout: DbInputIndex",
                     hash AS "hash: DbHash",
                     withdrawal_fulfillment_pk AS "withdrawal_fulfillment_pk: DbWots256PublicKey",
-                    operator_descriptor AS "operator_descriptor: DbDescriptor"
+                    operator_pubkey AS "operator_pubkey: DbXOnlyPublicKey"
                     FROM operator_stake_data
                     WHERE operator_idx = $1
                     ORDER BY deposit_idx ASC"#,
@@ -1254,7 +1254,7 @@ mod tests {
                 },
                 hash: stake_hash,
                 withdrawal_fulfillment_pk: withdrawal_fulfillment_pk.clone(),
-                operator_descriptor: generate_xonly_pubkey().into(),
+                operator_pubkey: generate_xonly_pubkey(),
             };
 
             assert!(

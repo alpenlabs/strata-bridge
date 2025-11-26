@@ -88,7 +88,7 @@ impl DepositSetup {
             withdrawal_fulfillment_pk: strata_bridge_primitives::wots::Wots256PublicKey(Arc::new(
                 self.wots_pks.withdrawal_fulfillment.0,
             )),
-            operator_descriptor: self.operator_pk.into(),
+            operator_pubkey: self.operator_pk,
         }
     }
 }

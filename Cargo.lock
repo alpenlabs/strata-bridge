@@ -9541,7 +9541,6 @@ dependencies = [
  "arbitrary",
  "async-trait",
  "bitcoin",
- "bitcoin-bosd",
  "musig2",
  "rkyv",
  "secp256k1",
