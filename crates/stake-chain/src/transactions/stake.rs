@@ -209,10 +209,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
                 connector_s.generate_address().script_pubkey(),
                 params.stake_amount,
             ),
-            (
-                connector_cpfp.generate_address().script_pubkey(),
-                SEGWIT_MIN_AMOUNT,
-            ),
+            (connector_cpfp.generate_locking_script(), SEGWIT_MIN_AMOUNT),
         ];
 
         let tx_outs = create_tx_outs(scripts_and_amounts);
@@ -472,10 +469,7 @@ impl StakeTx<Tail> {
                 connector_s.generate_address().script_pubkey(),
                 params.stake_amount,
             ),
-            (
-                connector_cpfp.generate_address().script_pubkey(),
-                SEGWIT_MIN_AMOUNT,
-            ),
+            (connector_cpfp.generate_locking_script(), SEGWIT_MIN_AMOUNT),
         ];
 
         let tx_outs = create_tx_outs(scripts_and_amounts);

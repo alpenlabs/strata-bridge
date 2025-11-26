@@ -134,7 +134,7 @@ mod tests {
         let starting_tx_ins = create_tx_ins([utxo]);
         let starting_tx_outs = create_tx_outs([
             (
-                connector.generate_address().script_pubkey(),
+                connector.generate_locking_script(),
                 Amount::from_sat(0), // set amount later
             ),
             (wallet_addr.script_pubkey(), unspent.amount),
@@ -180,7 +180,7 @@ mod tests {
         let parent_tx_outs = vec![TxOut {
             value: signed_starting_tx.output[input_utxo_vout].value, /* same output as input (0
                                                                       * fees) */
-            script_pubkey: connector.generate_address().script_pubkey(),
+            script_pubkey: connector.generate_locking_script(),
         }];
         let mut parent_tx = create_tx(parent_tx_ins, parent_tx_outs);
         parent_tx.version = Version(3);
@@ -222,7 +222,7 @@ mod tests {
 
         let funding_tx_ins = create_tx_ins([utxo]);
         let funding_tx_outs = create_tx_outs([
-            (connector.generate_address().script_pubkey(), FEES),
+            (connector.generate_locking_script(), FEES),
             (wallet_addr.script_pubkey(), unspent.amount - FEES - FEES),
         ]);
         let funding_tx = create_tx(funding_tx_ins, funding_tx_outs);
