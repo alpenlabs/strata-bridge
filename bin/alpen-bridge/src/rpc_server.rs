@@ -787,11 +787,11 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                     _ => None, // No challenge transaction available for this claim
                 }
             })
-            .map(|(challenge_sig, reimbursement_key)| {
+            .map(|(challenge_sig, operator_descriptor)| {
                 let challenge_input = ChallengeTxInput {
                     claim_outpoint: OutPoint::new(claim_txid, CHALLENGE_VOUT),
                     challenge_amt: self.params.tx_graph.challenge_cost,
-                    operator_descriptor: reimbursement_key,
+                    operator_descriptor,
                     network: self.params.network,
                 };
 
