@@ -72,4 +72,11 @@ mod tests {
         let actual = descriptor_to_x_only_pubkey(&descriptor).unwrap();
         assert_eq!(expected, actual);
     }
+
+    #[test]
+    fn converting_non_x_only_pubkey_descriptor_fails() {
+        let err = descriptor_to_x_only_pubkey(&Descriptor::new_op_return(&[1, 2, 3]).unwrap())
+            .unwrap_err();
+        assert!(matches!(err, DescriptorError::InvalidDescriptorType(_)));
+    }
 }
