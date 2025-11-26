@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // NOTE: Skipping this since we don't do checkpoint parsing until ASM integration
+    #[ignore = "skipping this since we don't do checkpoint parsing until ASM integration"]
     fn test_checkpoint_predicate() {
         let rollup_params = std::fs::read_to_string("../../test-data/rollup_params.json").unwrap();
         let rollup_params: RollupParams = serde_json::from_str(&rollup_params).unwrap();
