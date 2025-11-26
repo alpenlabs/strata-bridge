@@ -4,8 +4,7 @@
 use std::collections::BTreeMap;
 
 use alpen_bridge_params::stake_chain::StakeChainParams;
-use bitcoin::{hashes::sha256, OutPoint};
-use bitcoin_bosd::Descriptor;
+use bitcoin::{hashes::sha256, OutPoint, XOnlyPublicKey};
 use strata_bridge_primitives::build_context::BuildContext;
 use tracing::warn;
 
@@ -81,7 +80,7 @@ impl StakeChain {
             first_stake_inputs.withdrawal_fulfillment_pk.clone(),
             stake_chain_inputs.pre_stake_outpoint,
             first_stake_inputs.operator_funds,
-            first_stake_inputs.operator_descriptor.clone(),
+            first_stake_inputs.operator_pubkey.into(),
         );
 
         let Some(next_stake_input) = stake_inputs.get(&1) else {
@@ -215,12 +214,12 @@ impl StakeChainInputs {
             .map(|v| v.operator_funds)
     }
 
-    /// Operator's [`Descriptor`] use to lock the stake.
-    pub fn operator_descriptor(&self) -> Option<&Descriptor> {
+    /// Operator's [`XOnlyPublicKey`] used to lock the stake.
+    pub fn operator_pubkey(&self) -> Option<&XOnlyPublicKey> {
         self.stake_inputs
             .values()
             .next()
-            .map(|input| &input.operator_descriptor)
+            .map(|input| &input.operator_pubkey)
     }
 
     /// Prevout of the first stake transaction.
@@ -243,6 +242,7 @@ mod tests {
         sighash::{self, Prevouts, SighashCache},
         transaction, Address, Amount, BlockHash, Network, OutPoint, Transaction, TxIn, TxOut, Txid,
     };
+    use bitcoin_bosd::Descriptor;
     use corepc_node::{Conf, Node};
     use secp256k1::{generate_keypair, rand::rngs::OsRng, Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -679,7 +679,7 @@ mod tests {
                         operator_funds: operator_funds[i].previous_output,
                         hash: stake_hashes[i],
                         withdrawal_fulfillment_pk: wots_public_keys[i].clone(),
-                        operator_descriptor: operator_pubkey.into(),
+                        operator_pubkey,
                     },
                 )
             })
@@ -859,7 +859,7 @@ mod tests {
                                     "0",
                                     Txid::from_raw_hash(sha256d::Hash::hash(&[0; 32])),
                                 ),
-                                operator_descriptor: pk.x_only_public_key().0.into(),
+                                operator_pubkey: pk.x_only_public_key().0,
                             },
                         )
                     })

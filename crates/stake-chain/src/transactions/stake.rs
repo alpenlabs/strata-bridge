@@ -7,7 +7,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     taproot::LeafVersion,
     transaction, Amount, OutPoint, Psbt, ScriptBuf, Sequence, TapLeafHash, TapSighashType,
-    Transaction, TxIn, TxOut, Txid,
+    Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
 use bitcoin_bosd::Descriptor;
 use serde::{Deserialize, Serialize};
@@ -40,9 +40,9 @@ pub struct StakeTxData {
     /// Transaction.
     pub withdrawal_fulfillment_pk: Wots256PublicKey,
 
-    /// The [`Descriptor`] of the operator that is used to lock the stake (along with the
+    /// The [`XOnlyPublicKey`] of the operator that is used to lock the stake (along with the
     /// hashlock).
-    pub operator_descriptor: Descriptor,
+    pub operator_pubkey: XOnlyPublicKey,
 }
 
 impl std::hash::Hash for StakeTxData {
@@ -184,13 +184,12 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_descriptor.clone(),
+            input.operator_pubkey.into(),
             input.hash,
             params.delta,
             context.network(),
         );
-        let connector_cpfp =
-            ConnectorCpfp::new(input.operator_descriptor.clone(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -225,7 +224,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_descriptor,
+            input.operator_pubkey.into(),
             self.hash,
             params.delta,
             context.network(),
@@ -444,13 +443,12 @@ impl StakeTx<Tail> {
             ConnectorP::new(context.aggregated_pubkey(), input.hash, context.network());
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_descriptor.clone(),
+            input.operator_pubkey.into(),
             input.hash,
             params.delta,
             context.network(),
         );
-        let connector_cpfp =
-            ConnectorCpfp::new(input.operator_descriptor.clone(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -485,7 +483,7 @@ impl StakeTx<Tail> {
 
         let prev_stake_connector = ConnectorStake::new(
             context.aggregated_pubkey(),
-            input.operator_descriptor,
+            input.operator_pubkey.into(),
             prev_hash,
             params.delta,
             context.network(),

@@ -224,7 +224,7 @@ pub(crate) async fn handle_publish_deposit_setup(
         operator_funds: funding_utxo,
         hash: stakechain_preimg_hash,
         withdrawal_fulfillment_pk: wots_pks.withdrawal_fulfillment.into(),
-        operator_descriptor: operator_pk.into(),
+        operator_pubkey: operator_pk,
     };
 
     output_handles

@@ -1851,7 +1851,7 @@ mod tests {
             operator_funds: funding_outpoint,
             hash: new_hash,
             withdrawal_fulfillment_pk: new_withdrawal_fulfillment_pk,
-            operator_descriptor: operator_pubkey.into(),
+            operator_pubkey,
         };
 
         let new_stake_tx = first_stake_tx.advance(&context, &stake_chain_params, stake_data);
