@@ -50,8 +50,6 @@ impl ConnectorCpfp {
     }
 
     /// Generates an address for the child transaction.
-    ///
-    /// This address uses a key-spend path with the public key of the connector.
     pub fn generate_address(&self) -> Address {
         self.descriptor_address.clone()
     }
