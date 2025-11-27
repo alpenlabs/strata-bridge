@@ -142,8 +142,9 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
 
     let connector_stake = ConnectorStake::new(
         agg_pubkey,
-        // TODO: (@sistemd) Handle error in next commit
-        descriptor_to_x_only_pubkey(&operator_descriptor).unwrap(),
+        descriptor_to_x_only_pubkey(&operator_descriptor).map_err(|e| {
+            anyhow!("could not extract x-only pubkey from operator descriptor: {e}")
+        })?,
         stake_hash,
         params.stake_chain_delta,
         params.network,

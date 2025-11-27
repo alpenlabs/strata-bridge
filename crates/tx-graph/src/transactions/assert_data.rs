@@ -349,7 +349,8 @@ mod tests {
 
         let connector_a2 = ConnectorNOfN::new(generate_keypair().x_only_public_key().0, network);
         let connector_cpfp =
-            ConnectorCpfp::new(generate_keypair().x_only_public_key().0.into(), network);
+            ConnectorCpfp::new(generate_keypair().x_only_public_key().0.into(), network)
+                .expect("should be able to create cpfp connector");
 
         let assert_data_tx_batch = AssertDataTxBatch::new(input, connector_a2, connector_cpfp);
 

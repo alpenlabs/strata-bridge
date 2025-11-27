@@ -16,7 +16,7 @@ use bitcoin::{
     },
     taproot, Network, OutPoint, ScriptBuf, TapSighashType, Transaction, Txid, XOnlyPublicKey,
 };
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use musig2::{
     aggregate_partial_signatures, errors::VerifyError, secp256k1::Message, verify_partial,
     AggNonce, PartialSignature, PubNonce,
@@ -1263,7 +1263,10 @@ pub struct ContractCfg {
 
 impl ContractCfg {
     /// Builds a [`PegOutGraph`] from a [`PegOutGraphInput`].
-    pub fn build_graph(&self, graph_input: &PegOutGraphInput) -> PegOutGraph {
+    pub fn build_graph(
+        &self,
+        graph_input: &PegOutGraphInput,
+    ) -> Result<PegOutGraph, DescriptorError> {
         PegOutGraph::generate(
             graph_input,
             &self.operator_table.tx_build_context(self.network),
@@ -1273,7 +1276,7 @@ impl ContractCfg {
             self.stake_chain_params,
             Vec::new(),
         )
-        .0
+        .map(|(g, _)| g)
     }
 
     /// Builds a TxBuildContext from the ContractCfg.
@@ -1390,16 +1393,19 @@ impl ContractSM {
     ///
     /// If the peg out graph is already cached, it will be returned. Otherwise, it will be built and
     /// cached.
-    pub fn retrieve_graph(&mut self, input: &PegOutGraphInput) -> PegOutGraph {
+    pub fn retrieve_graph(
+        &mut self,
+        input: &PegOutGraphInput,
+    ) -> Result<PegOutGraph, DescriptorError> {
         let stake_txid = input.stake_outpoint.txid;
         if let Some(pog) = self.pog.get(&stake_txid) {
             debug!(reimbursement_key = %input.operator_descriptor, %stake_txid,"retrieving peg out graph from cache");
-            pog.clone()
+            Ok(pog.clone())
         } else {
             debug!(reimbursement_key = %input.operator_descriptor, %stake_txid,"generating and caching peg out graph");
-            let pog = self.cfg.build_graph(input);
+            let pog = self.cfg.build_graph(input)?;
             self.pog.insert(stake_txid, pog.clone());
-            pog
+            Ok(pog)
         }
     }
 
@@ -1723,12 +1729,12 @@ impl ContractSM {
 
                     jobs.into_iter()
                         .map(|(signer, job)| {
-                            (
+                            Ok((
                                 signer,
-                                job.join().expect("peg out graph generation panic'ed"),
-                            )
+                                job.join().expect("peg out graph generation panic'ed")?,
+                            ))
                         })
-                        .collect::<BTreeMap<_, _>>()
+                        .collect::<Result<BTreeMap<_, _>, _>>()
                 } else {
                     peg_out_graph_inputs
                         .iter()
@@ -1746,16 +1752,19 @@ impl ContractSM {
                                     pog.clone()
                                 } else {
                                     debug!(reimbursement_key = %pog_input.operator_descriptor, %stake_txid,"generating and caching peg out graph");
-                                    let pog = self.cfg.build_graph(pog_input);
+                                    let pog = self.cfg.build_graph(pog_input)?;
                                     self.pog.insert(stake_txid, pog.clone());
                                     pog
                                 }
                             };
 
-                            (signer, pog)
+                            Ok((signer, pog))
                         })
-                        .collect::<BTreeMap<_, _>>()
+                        .collect::<Result<BTreeMap<_, _>, _>>()
                 };
+                let graphs = graphs.map_err(|e: DescriptorError| {
+                    TransitionErr(format!("could not build peg out graphs: {}", e))
+                })?;
 
                 let duties = graphs
                     .values()
@@ -1885,7 +1894,11 @@ impl ContractSM {
                         pog.clone()
                     } else {
                         debug!(reimbursement_key=%pog_input.operator_descriptor, %stake_txid, "generating and caching peg out graph");
-                        let pog = self.cfg.build_graph(pog_input);
+                        let pog = self.cfg.build_graph(pog_input).map_err(|e| {
+                            TransitionErr(format!(
+                                "could not build peg out graph for claim_txid ({claim_txid}): {e}"
+                            ))
+                        })?;
                         self.pog.insert(stake_txid, pog.clone());
 
                         pog
@@ -1993,7 +2006,13 @@ impl ContractSM {
                 let pog = pog_cache
                     .get(&graph_input.stake_outpoint.txid)
                     .cloned()
-                    .unwrap_or_else(|| cfg.build_graph(graph_input));
+                    .map(Ok)
+                    .unwrap_or_else(|| cfg.build_graph(graph_input))
+                    .map_err(|e| {
+                        TransitionErr(format!(
+                            "could not build peg out graph for claim_txid ({claim_txid}): {e}"
+                        ))
+                    })?;
 
                 if !verify_partials_from_peer(
                     &cfg,
@@ -2043,9 +2062,15 @@ impl ContractSM {
                         self.pog
                             .get(&stake_txid)
                             .cloned()
+                            .map(Ok)
                             .unwrap_or_else(|| cfg.build_graph(graph_input))
                     })
-                    .collect::<Vec<_>>();
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|e| {
+                        TransitionErr(format!(
+                            "could not build peg out graphs while processing signatures: {e}"
+                        ))
+                    })?;
 
                 let aux_data = pogs
                     .iter()

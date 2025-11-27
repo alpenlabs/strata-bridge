@@ -4,7 +4,7 @@ use bitcoin::{
     psbt::ExtractTxError, sighash::Prevouts, taproot, Amount, Network, OutPoint, Psbt, Transaction,
     TxOut, Txid,
 };
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use strata_bridge_connectors::prelude::{ConnectorC1, ConnectorC1Path};
 use strata_bridge_primitives::scripts::{
     prelude::{create_tx, create_tx_ins, create_tx_outs},
@@ -52,11 +52,13 @@ pub struct ChallengeTx {
 
 impl ChallengeTx {
     /// Constructs a new Challenge transaction.
-    pub fn new(input: ChallengeTxInput, challenge_connector: ConnectorC1) -> Self {
+    pub fn new(
+        input: ChallengeTxInput,
+        challenge_connector: ConnectorC1,
+    ) -> Result<Self, DescriptorError> {
         let tx_ins = create_tx_ins([input.claim_outpoint]);
 
-        // TODO Return error in next commit
-        let operator_address = input.operator_descriptor.to_address(input.network).unwrap();
+        let operator_address = input.operator_descriptor.to_address(input.network)?;
         let tx_outs = create_tx_outs([(operator_address.script_pubkey(), input.challenge_amt)]);
 
         let tx = create_tx(tx_ins, tx_outs);
@@ -78,14 +80,14 @@ impl ChallengeTx {
         psbt.inputs[input_index].witness_utxo = Some(prevouts[0].clone());
         psbt.inputs[input_index].sighash_type = Some(sighash_type.into());
 
-        Self {
+        Ok(Self {
             psbt,
 
             prevouts,
             witnesses,
 
             connector: challenge_connector,
-        }
+        })
     }
 
     /// Finalizes the presigned input in the Challenge transaction.
@@ -244,7 +246,8 @@ mod tests {
             network,
         };
 
-        let challenge_tx = ChallengeTx::new(challenge_input, challenge_connector);
+        let challenge_tx = ChallengeTx::new(challenge_input, challenge_connector)
+            .expect("must be able to create partially signed challenge tx");
         let input_index = challenge_leaf.get_input_index() as usize;
 
         let unsigned_challenged_tx = challenge_tx.psbt.unsigned_tx.clone();

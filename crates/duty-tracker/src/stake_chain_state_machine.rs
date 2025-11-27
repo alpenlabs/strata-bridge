@@ -51,34 +51,38 @@ impl StakeChainSM {
         let p2p_keys = operator_table.p2p_keys();
 
         debug!("reconstructing stake txids");
-        let stake_txids = p2p_keys
-            .iter()
-            .filter_map(|p2p_key| stake_chains.get(p2p_key))
-            .map(|inputs| {
-                StakeChain::new(&operator_table.tx_build_context(network), inputs, &params)
-            })
-            .map(|chain| {
-                let mut txids = BTreeMap::new();
+        let stake_txids =
+            p2p_keys
+                .iter()
+                .filter_map(|p2p_key| stake_chains.get(p2p_key))
+                .map(|inputs| {
+                    StakeChain::new(&operator_table.tx_build_context(network), inputs, &params)
+                })
+                .map(|chain| {
+                    chain.map(|chain| {
+                        let mut txids = BTreeMap::new();
 
-                let Some(first_stake_txid) = chain.head().map(|stake_tx| stake_tx.compute_txid())
-                else {
-                    return txids;
-                };
+                        let Some(first_stake_txid) =
+                            chain.head().map(|stake_tx| stake_tx.compute_txid())
+                        else {
+                            return txids;
+                        };
 
-                txids.insert(0, first_stake_txid);
-                txids.extend(
-                    chain
-                        .tail()
-                        .iter()
-                        .enumerate()
-                        .map(|(index, stake_tx)| (index as u32 + 1, stake_tx.compute_txid())),
-                );
+                        txids.insert(0, first_stake_txid);
+                        txids.extend(
+                            chain.tail().iter().enumerate().map(|(index, stake_tx)| {
+                                (index as u32 + 1, stake_tx.compute_txid())
+                            }),
+                        );
 
-                txids
-            })
-            .zip(p2p_keys.iter())
-            .map(|(stake_txids, p2p_key)| (p2p_key.clone(), stake_txids))
-            .collect();
+                        txids
+                    })
+                })
+                .zip(p2p_keys.iter())
+                .map(|(stake_txids, p2p_key)| {
+                    stake_txids.map(|stake_txids| (p2p_key.clone(), stake_txids))
+                })
+                .collect::<Result<_, _>>()?;
 
         let sm = StakeChainSM {
             network,
@@ -229,7 +233,7 @@ impl StakeChainSM {
                         pre_stake,
                         operator_funds,
                         operator_pubkey.into(),
-                    );
+                    )?;
 
                     return Ok(Some(StakeTxKind::Head(first_stake)));
                 }
@@ -259,7 +263,7 @@ impl StakeChainSM {
                     input.clone(),
                     prev_input.hash,
                     prev_stake,
-                );
+                )?;
 
                 Ok(Some(StakeTxKind::Tail(stake_tx)))
             }

@@ -25,7 +25,7 @@ use strata_bridge_db::{
         sqlite::{execute_with_retries, SqliteDb},
     },
 };
-use strata_bridge_primitives::{operator_table::OperatorTable, types::descriptor_to_x_only_pubkey};
+use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_rpc::{
     traits::{
         StrataBridgeControlApiServer, StrataBridgeDaApiServer, StrataBridgeMonitoringApiServer,
@@ -762,7 +762,7 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         debug!(%claim_txid, "getting challenge transaction");
 
         let contracts = self.cached_contracts.read().await;
-        let challenge_tx = contracts
+        contracts
             .iter()
             .find_map(|contract| {
                 let challenge_sig = contract
@@ -812,10 +812,17 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                 );
 
                 ChallengeTx::new(challenge_input, challenge_connector)
-                    .finalize_presigned(ConnectorC1Path::Challenge(challenge_sig))
-            });
-
-        Ok(challenge_tx)
+                    .map(|tx| tx.finalize_presigned(ConnectorC1Path::Challenge(challenge_sig)))
+            })
+            .transpose()
+            .map_err(|e| {
+                error!(?e, "failed to construct challenge transaction");
+                rpc_error(
+                    ErrorCode::InternalError,
+                    "Failed to construct challenge transaction",
+                    e.to_string(),
+                )
+            })
     }
 
     async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {

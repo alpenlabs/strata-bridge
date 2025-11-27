@@ -9,7 +9,7 @@ use bitcoin::{
     transaction, Amount, OutPoint, Psbt, ScriptBuf, Sequence, TapLeafHash, TapSighashType,
     Transaction, TxIn, TxOut, Txid, XOnlyPublicKey,
 };
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{ConnectorCpfp, ConnectorK, ConnectorP, ConnectorStake};
 use strata_bridge_primitives::{
@@ -173,7 +173,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         context: &impl BuildContext,
         params: &StakeChainParams,
         input: StakeTxData,
-    ) -> StakeTx<Tail> {
+    ) -> Result<StakeTx<Tail>, DescriptorError> {
         let prev_stake = OutPoint::new(self.compute_txid(), STAKE_VOUT);
 
         // The first input is the operator's funds.
@@ -190,7 +190,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network())?;
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -246,11 +246,11 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             },
         ];
 
-        StakeTx::<Tail> {
+        Ok(StakeTx::<Tail> {
             psbt,
             hash: input.hash,
             witnesses,
-        }
+        })
     }
 
     fn compute_sighash_with_prevouts<const NUM_INPUTS: usize>(
@@ -317,7 +317,7 @@ impl StakeTx<Head> {
         pre_stake: OutPoint,
         operator_funds: OutPoint,
         operator_descriptor: Descriptor,
-    ) -> StakeTx<Head> {
+    ) -> Result<StakeTx<Head>, DescriptorError> {
         // The first input is the operator's funds.
         let utxos = [operator_funds, pre_stake];
         let tx_ins = create_tx_ins(utxos);
@@ -328,14 +328,13 @@ impl StakeTx<Head> {
 
         let connector_s = ConnectorStake::new(
             context.aggregated_pubkey(),
-            // TODO: (@sistemd) Return error instead of unwrapping in the next commit
-            descriptor_to_x_only_pubkey(&operator_descriptor).unwrap(),
+            descriptor_to_x_only_pubkey(&operator_descriptor)?,
             hash,
             params.delta,
             context.network(),
         );
 
-        let connector_cpfp = ConnectorCpfp::new(operator_descriptor, context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_descriptor, context.network())?;
 
         // The outputs are the `TxOut`s created from the connectors.
         let connector_p_addr = connector_p.generate_address();
@@ -373,11 +372,11 @@ impl StakeTx<Head> {
             TaprootWitness::Key, // the first stake transaction spends via key-spend from PreStake.
         ];
 
-        StakeTx::<Head> {
+        Ok(Self {
             psbt,
             hash,
             witnesses,
-        }
+        })
     }
 
     /// Generates the transaction message sighash for the first stake transaction.
@@ -434,7 +433,7 @@ impl StakeTx<Tail> {
         input: StakeTxData,
         prev_hash: sha256::Hash,
         prev_stake: OutPoint,
-    ) -> StakeTx<Tail> {
+    ) -> Result<StakeTx<Tail>, DescriptorError> {
         // The first input is the operator's funds.
         let utxos = [input.operator_funds, prev_stake];
         let tx_ins = create_tx_ins(utxos);
@@ -449,7 +448,7 @@ impl StakeTx<Tail> {
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network())?;
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -505,11 +504,11 @@ impl StakeTx<Tail> {
             },
         ];
 
-        StakeTx::<Tail> {
+        Ok(StakeTx::<Tail> {
             psbt,
             hash: input.hash,
             witnesses,
-        }
+        })
     }
 
     /// Generates the transaction message sighash for the stake transaction.

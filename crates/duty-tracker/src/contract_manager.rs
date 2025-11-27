@@ -1191,10 +1191,10 @@ impl ContractManagerCtx {
                 self.process_deposit_setup_request(scope)
             }
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
-                Ok(self.process_musig2_nonces_exchange_request(session_id))
+                self.process_musig2_nonces_exchange_request(session_id)
             }
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
-                Ok(self.process_musig2_signatures_exchange_request(session_id))
+                self.process_musig2_signatures_exchange_request(session_id)
             }
         }
     }
@@ -1246,7 +1246,7 @@ impl ContractManagerCtx {
     fn process_musig2_nonces_exchange_request(
         &mut self,
         session_id: SessionId,
-    ) -> Option<OperatorDuty> {
+    ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
         trace!(claims = ?self.state.claim_txids, "get nonces exchange");
@@ -1265,15 +1265,18 @@ impl ContractManagerCtx {
             .values()
             .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
         {
-            Self::process_root_nonces_request(session_id_as_txid, csm)
+            Ok(Self::process_root_nonces_request(session_id_as_txid, csm))
         } else {
             // otherwise ignore this message.
             warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
-            None
+            Ok(None)
         }
     }
 
-    fn process_graph_nonces_request(claim_txid: Txid, csm: &ContractSM) -> Option<OperatorDuty> {
+    fn process_graph_nonces_request(
+        claim_txid: Txid,
+        csm: &ContractSM,
+    ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         info!(%claim_txid, "received request for graph nonces");
 
         if let ContractState::Requested {
@@ -1284,7 +1287,9 @@ impl ContractManagerCtx {
         {
             info!(%claim_txid, "received nag for graph nonces");
 
-            let graph_owner = csm.state().state.claim_to_operator(&claim_txid)?;
+            let Some(graph_owner) = csm.state().state.claim_to_operator(&claim_txid) else {
+                return Ok(None);
+            };
 
             let input = peg_out_graph_inputs
                 .get(&graph_owner)
@@ -1293,11 +1298,12 @@ impl ContractManagerCtx {
             let (pog_prevouts, pog_witnesses) = csm
                 .pog()
                 .get(&input.stake_outpoint.txid)
-                .map(|pog| (pog.musig_inpoints(), pog.musig_witnesses()))
+                .map(|pog| Ok((pog.musig_inpoints(), pog.musig_witnesses())))
                 .unwrap_or_else(|| {
-                    let pog = csm.cfg().build_graph(input);
-                    (pog.musig_inpoints(), pog.musig_witnesses())
-                });
+                    csm.cfg()
+                        .build_graph(input)
+                        .map(|pog| (pog.musig_inpoints(), pog.musig_witnesses()))
+                })?;
 
             // Get nonces from state if they exist for this claim txid
             let existing_nonces = graph_nonces
@@ -1307,15 +1313,15 @@ impl ContractManagerCtx {
                 })
                 .cloned();
 
-            Some(OperatorDuty::PublishGraphNonces {
+            Ok(Some(OperatorDuty::PublishGraphNonces {
                 claim_txid,
                 pog_prevouts,
                 pog_witnesses,
                 nonces: existing_nonces,
-            })
+            }))
         } else {
             warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
-            None
+            Ok(None)
         }
     }
 
@@ -1357,7 +1363,7 @@ impl ContractManagerCtx {
     fn process_musig2_signatures_exchange_request(
         &mut self,
         session_id: SessionId,
-    ) -> Option<OperatorDuty> {
+    ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
         trace!(claims = ?self.state.claim_txids, "get signatures exchange");
@@ -1376,11 +1382,14 @@ impl ContractManagerCtx {
             .values()
             .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
         {
-            Self::process_root_signatures_request(session_id_as_txid, csm)
+            Ok(Self::process_root_signatures_request(
+                session_id_as_txid,
+                csm,
+            ))
         } else {
             // otherwise ignore this message.
             warn!(txid=%session_id_as_txid, "received a musig2 signatures exchange for an unknown session");
-            None
+            Ok(None)
         }
     }
 
@@ -1388,7 +1397,7 @@ impl ContractManagerCtx {
         cfg: &ExecutionConfig,
         claim_txid: Txid,
         csm: &ContractSM,
-    ) -> Option<OperatorDuty> {
+    ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         if let ContractState::Requested {
             peg_out_graph_inputs,
             graph_partials,
@@ -1405,7 +1414,9 @@ impl ContractManagerCtx {
                 .and_then(|session_partials| session_partials.get(our_p2p_key))
                 .cloned();
 
-            let graph_owner = csm.state().state.claim_to_operator(&claim_txid)?;
+            let Some(graph_owner) = csm.state().state.claim_to_operator(&claim_txid) else {
+                return Ok(None);
+            };
 
             let input = &peg_out_graph_inputs
                 .get(&graph_owner)
@@ -1415,34 +1426,37 @@ impl ContractManagerCtx {
                 .pog()
                 .get(&input.stake_outpoint.txid)
                 .map(|cached_graph| {
-                    (
+                    Ok((
                         cached_graph.musig_inpoints(),
                         cached_graph.musig_sighashes(),
                         cached_graph.musig_witnesses(),
-                    )
+                    ))
                 })
                 .unwrap_or_else(|| {
-                    let pog = csm.cfg().build_graph(input);
-                    (
-                        pog.musig_inpoints(),
-                        pog.musig_sighashes(),
-                        pog.musig_witnesses(),
-                    )
-                });
+                    csm.cfg().build_graph(input).map(|pog| {
+                        (
+                            pog.musig_inpoints(),
+                            pog.musig_sighashes(),
+                            pog.musig_witnesses(),
+                        )
+                    })
+                })?;
 
-            let aggnonces = agg_nonces.get(&claim_txid)?.clone();
+            let Some(aggnonces) = agg_nonces.get(&claim_txid).cloned() else {
+                return Ok(None);
+            };
 
-            Some(OperatorDuty::PublishGraphSignatures {
+            Ok(Some(OperatorDuty::PublishGraphSignatures {
                 claim_txid,
                 aggnonces,
                 pog_prevouts,
                 pog_sighashes,
                 witnesses: pog_witnesses,
                 partial_signatures: existing_partials,
-            })
+            }))
         } else {
             warn!("nagged for nonces on a ContractSM that is not in a Requested state");
-            None
+            Ok(None)
         }
     }
 

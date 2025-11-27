@@ -3,7 +3,7 @@
 //! Reference: <https://bitcoinops.org/en/topics/cpfp/>
 
 use bitcoin::{psbt::Input, Address, Network, ScriptBuf};
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use secp256k1::schnorr;
 use strata_bridge_primitives::scripts::taproot::finalize_input;
 
@@ -29,14 +29,13 @@ impl ConnectorCpfp {
     /// # Errors
     ///
     /// Returns an error if the descriptor cannot be converted to an address.
-    pub fn new(descriptor: Descriptor, network: Network) -> Self {
-        // TODO Return error instead of unwrapping in next commit
-        let descriptor_address = descriptor.to_address(network).unwrap();
-        Self {
+    pub fn new(descriptor: Descriptor, network: Network) -> Result<Self, DescriptorError> {
+        let descriptor_address = descriptor.to_address(network)?;
+        Ok(Self {
             network,
             descriptor,
             descriptor_address,
-        }
+        })
     }
 
     /// Returns the descriptor used to create the child transaction in CPFP.
@@ -108,7 +107,8 @@ mod tests {
 
         let keypair = generate_keypair();
         let xonly_pubkey = keypair.x_only_public_key().0;
-        let connector = ConnectorCpfp::new(xonly_pubkey.into(), network);
+        let connector =
+            ConnectorCpfp::new(xonly_pubkey.into(), network).expect("must create connector");
 
         let output_address =
             Address::p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked(), network);
