@@ -339,7 +339,6 @@ impl StakeTx<Head> {
 
         // The outputs are the `TxOut`s created from the connectors.
         let connector_p_addr = connector_p.generate_address();
-        let cpfp_addr = connector_cpfp.generate_address();
         let scripts_and_amounts = [
             (
                 connector_k.create_taproot_address().script_pubkey(),
@@ -357,8 +356,8 @@ impl StakeTx<Head> {
                 params.stake_amount,
             ),
             (
-                cpfp_addr.script_pubkey(),
-                cpfp_addr.script_pubkey().minimal_non_dust(),
+                connector_cpfp.generate_locking_script(),
+                connector_cpfp.generate_locking_script().minimal_non_dust(),
             ),
         ];
         let tx_outs = create_tx_outs(scripts_and_amounts);
