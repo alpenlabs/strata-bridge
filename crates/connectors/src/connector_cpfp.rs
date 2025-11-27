@@ -49,11 +49,6 @@ impl ConnectorCpfp {
         self.network
     }
 
-    /// Generates an address for the child transaction.
-    pub fn generate_address(&self) -> Address {
-        self.descriptor_address.clone()
-    }
-
     /// Generates the locking script for the child transaction.
     pub fn generate_locking_script(&self) -> ScriptBuf {
         self.descriptor_address.script_pubkey()
