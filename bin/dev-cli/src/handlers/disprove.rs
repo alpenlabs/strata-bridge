@@ -19,6 +19,7 @@ use strata_bridge_connectors::{
 };
 use strata_bridge_primitives::{
     constants::NUM_ASSERT_DATA_TX,
+    types::descriptor_to_x_only_pubkey,
     wots::{self, Groth16Sigs, Wots256Sig},
 };
 use strata_bridge_proof_protocol::BridgeProofPublicOutput;
@@ -100,7 +101,7 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
         post_assert_txid,
         deposit_txid,
         stake_outpoint,
-        operator_pubkey,
+        operator_descriptor,
         stake_hash,
         wots_public_keys,
         n_of_n_sig,
@@ -141,7 +142,8 @@ pub(crate) async fn handle_disprove(args: cli::DisproveArgs) -> anyhow::Result<(
 
     let connector_stake = ConnectorStake::new(
         agg_pubkey,
-        operator_pubkey,
+        // TODO: (@sistemd) Handle error in next commit
+        descriptor_to_x_only_pubkey(&operator_descriptor).unwrap(),
         stake_hash,
         params.stake_chain_delta,
         params.network,
