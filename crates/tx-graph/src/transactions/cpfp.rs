@@ -320,7 +320,8 @@ mod tests {
 
         let keypair = generate_keypair();
         let pubkey = keypair.x_only_public_key().0;
-        let connector_cpfp = ConnectorCpfp::new(pubkey.into(), network);
+        let connector_cpfp =
+            ConnectorCpfp::new(pubkey.into(), network).expect("must create cpfp connector");
 
         let unspent = btc_client
             .call::<Vec<ListUnspent>>("listunspent", &[])

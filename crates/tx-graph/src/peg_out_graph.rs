@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use alpen_bridge_params::{connectors::*, prelude::StakeChainParams, tx_graph::PegOutGraphParams};
 use bitcoin::{hashes::sha256, relative, OutPoint, TapSighashType, Txid};
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use secp256k1::Message;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::*;
@@ -146,7 +146,7 @@ impl PegOutGraph {
         connector_params: ConnectorParams,
         stake_chain_params: StakeChainParams,
         prev_claim_txids: Vec<Txid>,
-    ) -> (Self, PegOutGraphConnectors) {
+    ) -> Result<(Self, PegOutGraphConnectors), DescriptorError> {
         let total_start_time = Instant::now();
 
         let start_time = Instant::now();
@@ -158,7 +158,7 @@ impl PegOutGraph {
             input.stake_hash,
             stake_chain_params.delta,
             input.wots_public_keys.clone(),
-        );
+        )?;
 
         let claim_data = ClaimData {
             stake_outpoint: input.withdrawal_fulfillment_outpoint,
@@ -184,7 +184,7 @@ impl PegOutGraph {
             operator_descriptor: input.operator_descriptor.clone(),
             network: context.network(),
         };
-        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1)?;
         let time_taken = start_time.elapsed();
         debug!(event = "created challenge tx", ?time_taken);
 
@@ -208,7 +208,7 @@ impl PegOutGraph {
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp.clone(),
-        );
+        )?;
         let time_taken = start_time.elapsed();
         debug!(event = "created payout optimistic tx", ?time_taken);
 
@@ -257,7 +257,7 @@ impl PegOutGraph {
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp.clone(),
-        );
+        )?;
         let payout_txid = payout_tx.compute_txid();
         let time_taken = start_time.elapsed();
         debug!(event = "created payout tx", %payout_txid, ?time_taken);
@@ -308,7 +308,7 @@ impl PegOutGraph {
         let time_taken = total_start_time.elapsed();
         info!(?time_taken, "generated peg out graph");
 
-        (
+        Ok((
             Self {
                 claim_tx,
                 challenge_tx,
@@ -319,7 +319,7 @@ impl PegOutGraph {
                 slash_stake_txs,
             },
             connectors,
-        )
+        ))
     }
 
     /// Summarizes the peg-out graph.
@@ -552,7 +552,7 @@ impl PegOutGraphConnectors {
         stake_hash: sha256::Hash,
         delta: relative::LockTime,
         wots_public_keys: wots::PublicKeys,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         let n_of_n_agg_pubkey = build_context.aggregated_pubkey();
         let network = build_context.network();
 
@@ -568,7 +568,7 @@ impl PegOutGraphConnectors {
 
         let n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
 
-        let connector_cpfp = ConnectorCpfp::new(operator_descriptor.clone(), network);
+        let connector_cpfp = ConnectorCpfp::new(operator_descriptor.clone(), network)?;
         let post_assert_out_1 = ConnectorA3::new(
             network,
             deposit_txid,
@@ -600,8 +600,7 @@ impl PegOutGraphConnectors {
 
         let stake = ConnectorStake::new(
             n_of_n_agg_pubkey,
-            // TODO: (@sistemd) Return error instead of unwrapping in next commit
-            descriptor_to_x_only_pubkey(&operator_descriptor).unwrap(),
+            descriptor_to_x_only_pubkey(&operator_descriptor)?,
             stake_hash,
             delta,
             network,
@@ -609,7 +608,7 @@ impl PegOutGraphConnectors {
 
         let hashlock_payout = ConnectorP::new(n_of_n_agg_pubkey, stake_hash, network);
 
-        Self {
+        Ok(Self {
             kickoff,
             claim_out_0,
             claim_out_1,
@@ -622,7 +621,7 @@ impl PegOutGraphConnectors {
             // stake chain connectors
             stake,
             hashlock_payout,
-        }
+        })
     }
 }
 
@@ -750,7 +749,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids,
-        );
+        )
+        .expect("must be able to generate peg out graph");
 
         let PegOutGraph {
             claim_tx,
@@ -824,7 +824,8 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network())
+            .expect("must create cpfp connector");
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -927,7 +928,8 @@ mod tests {
             connector_params,
             assertions,
         )
-        .await;
+        .await
+        .expect("must be able to submit assertions");
 
         let witnesses = payout_tx.witnesses();
 
@@ -960,7 +962,8 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network())
+            .expect("must create cpfp connector");
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -1073,7 +1076,8 @@ mod tests {
             connector_params,
             faulty_assertions,
         )
-        .await;
+        .await
+        .expect("must be able to submit assertions");
 
         let signed_assert_txs = signed_post_assert
             .input
@@ -1229,7 +1233,8 @@ mod tests {
 
         let stake_chain_params = StakeChainParams::default();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network())
+            .expect("must be able to create connector cpfp from operator descriptor");
 
         info!("creating transaction to fund dust outputs");
         let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
@@ -1290,7 +1295,8 @@ mod tests {
             pre_stake,
             operator_funds,
             operator_pubkey.into(),
-        );
+        )
+        .expect("must be able to create first stake tx");
 
         info!("signing and broadcasting the first stake tx");
         let prevouts = [
@@ -1371,7 +1377,7 @@ mod tests {
         graph_params: PegOutGraphParams,
         connector_params: ConnectorParams,
         assertions: Assertions,
-    ) -> SubmitAssertionsResult {
+    ) -> Result<SubmitAssertionsResult, DescriptorError> {
         let btc_addr = btc_client.new_address().expect("must generate new address");
 
         let stake_chain_params = StakeChainParams::default();
@@ -1384,7 +1390,7 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        );
+        )?;
 
         let PegOutGraph {
             claim_tx,
@@ -1454,7 +1460,7 @@ mod tests {
             network: context.network(),
         };
 
-        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1);
+        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1)?;
 
         let input_index = challenge_leaf.get_input_index() as usize;
         let challenge_witness = &challenge_tx.witnesses()[input_index];
@@ -1651,13 +1657,13 @@ mod tests {
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine post-assert tx");
 
-        SubmitAssertionsResult {
+        Ok(SubmitAssertionsResult {
             signed_claim_tx,
             signed_post_assert,
             payout_tx,
             post_assert_out_0,
             disprove_tx,
-        }
+        })
     }
 
     /// Creates a funded child transaction for CPFP.
@@ -1757,7 +1763,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        );
+        )
+        .expect("must be able to generate peg-out graph");
 
         let PegOutGraph {
             claim_tx: ongoing_claim_tx,
@@ -1856,7 +1863,9 @@ mod tests {
             operator_pubkey,
         };
 
-        let new_stake_tx = first_stake_tx.advance(&context, &stake_chain_params, stake_data);
+        let new_stake_tx = first_stake_tx
+            .advance(&context, &stake_chain_params, stake_data)
+            .expect("must be able to create new stake tx");
 
         let new_stake_txid = new_stake_tx.compute_txid();
         let input = PegOutGraphInput {
@@ -1890,7 +1899,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             prev_claim_txids.to_vec(),
-        );
+        )
+        .expect("must be able to generate new peg-out graph");
 
         assert_eq!(
             new_graph.slash_stake_txs.len(),

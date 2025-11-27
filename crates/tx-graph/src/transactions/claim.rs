@@ -234,7 +234,7 @@ mod tests {
             ConnectorC0::new(pubkey, network, pre_assert_timelock),
             ConnectorC1::new(pubkey, network, payout_optimistic_timelock),
             ConnectorNOfN::new(build_context.aggregated_pubkey(), network),
-            ConnectorCpfp::new(pubkey.into(), network),
+            ConnectorCpfp::new(pubkey.into(), network).expect("must create connector"),
         );
 
         let withdrawal_fulfillment_txid = generate_txid();

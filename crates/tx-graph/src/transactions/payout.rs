@@ -4,7 +4,7 @@ use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
 };
-use bitcoin_bosd::Descriptor;
+use bitcoin_bosd::{Descriptor, DescriptorError};
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
@@ -70,7 +70,7 @@ impl PayoutTx {
         connector_n_of_n: ConnectorNOfN,
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
-    ) -> Self {
+    ) -> Result<Self, DescriptorError> {
         // 1 dust output is used for cpfp-ing the post-assert transaction itself.
         let input_from_post_assert: Amount = SEGWIT_MIN_AMOUNT * (NUM_ASSERT_DATA_TX - 1) as u64;
 
@@ -100,8 +100,7 @@ impl PayoutTx {
         let (operator_address, _) = create_taproot_addr(
             &data.network,
             SpendPath::KeySpend {
-                // TODO Return error in follow-up commit
-                internal_key: descriptor_to_x_only_pubkey(&data.operator_descriptor).unwrap(),
+                internal_key: descriptor_to_x_only_pubkey(&data.operator_descriptor)?,
             },
         )
         .expect("should be able to create taproot address");
@@ -163,7 +162,7 @@ impl PayoutTx {
             },
         ];
 
-        Self {
+        Ok(Self {
             psbt,
 
             prevouts,
@@ -171,7 +170,7 @@ impl PayoutTx {
 
             connector_n_of_n,
             connector_p,
-        }
+        })
     }
 
     /// Gets the output index for CPFP.
