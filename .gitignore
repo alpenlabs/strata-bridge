@@ -312,3 +312,6 @@ certs
 *.hex
 
 .obsidian
+
+# local regressions
+**/proptest-regressions/*
