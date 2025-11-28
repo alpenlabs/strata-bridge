@@ -92,7 +92,7 @@ impl StakeChain {
         };
 
         let next_stake_tx =
-            first_stake_tx.advance(context, stake_chain_params, next_stake_input.clone())?;
+            first_stake_tx.advance(context, stake_chain_params, next_stake_input.clone());
 
         let num_inputs = stake_inputs.len();
         let mut tail: Vec<StakeTx<Tail>> = Vec::with_capacity(num_inputs - 1);
@@ -105,7 +105,7 @@ impl StakeChain {
                 let next_stake_tx = tail
                     .last()
                     .expect("must have at least one element in every loop because it is initialized with one element")
-                    .advance(context, stake_chain_params, stake_input.clone())?;
+                    .advance(context, stake_chain_params, stake_input.clone());
 
                 tail.push(next_stake_tx);
             } else {

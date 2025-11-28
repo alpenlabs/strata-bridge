@@ -455,7 +455,7 @@ pub(crate) async fn handle_publish_claim(
         cfg.connector_params.payout_optimistic_timelock,
     );
     let connector_n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
-    let connector_cpfp = ConnectorCpfp::new(cpfp_key.into(), network)?;
+    let connector_cpfp = ConnectorCpfp::new(cpfp_key.into(), network);
 
     let claim_tx = ClaimTx::new(
         claim_data,
@@ -551,7 +551,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
 
     let connector_p = ConnectorP::new(n_of_n_agg_pubkey, stake_hash, network);
 
-    let connector_cpfp = ConnectorCpfp::new(operator_key.into(), network)?;
+    let connector_cpfp = ConnectorCpfp::new(operator_key.into(), network);
 
     let payout_optimistic_tx = PayoutOptimisticTx::new(
         payout_optimistic_data,

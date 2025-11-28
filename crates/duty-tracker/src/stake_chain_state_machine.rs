@@ -263,7 +263,7 @@ impl StakeChainSM {
                     input.clone(),
                     prev_input.hash,
                     prev_stake,
-                )?;
+                );
 
                 Ok(Some(StakeTxKind::Tail(stake_tx)))
             }
