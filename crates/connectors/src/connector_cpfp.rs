@@ -2,7 +2,7 @@
 //!
 //! Reference: <https://bitcoinops.org/en/topics/cpfp/>
 
-use bitcoin::{psbt::Input, Address, Network, ScriptBuf};
+use bitcoin::{psbt::Input, Network, ScriptBuf};
 use bitcoin_bosd::{Descriptor, DescriptorError};
 use secp256k1::schnorr;
 use strata_bridge_primitives::scripts::taproot::finalize_input;
@@ -16,11 +16,8 @@ pub struct ConnectorCpfp {
     /// The bitcoin network for which to generate output addresses.
     network: Network,
 
-    /// The descriptor used to create the child transaction in CPFP.
-    descriptor: Descriptor,
-
-    /// The address corresponding to the descriptor.
-    descriptor_address: Address,
+    /// The locking script for the child transaction in CPFP.
+    locking_script: ScriptBuf,
 }
 
 impl ConnectorCpfp {
@@ -30,17 +27,11 @@ impl ConnectorCpfp {
     ///
     /// Returns an error if the descriptor cannot be converted to an address.
     pub fn new(descriptor: Descriptor, network: Network) -> Result<Self, DescriptorError> {
-        let descriptor_address = descriptor.to_address(network)?;
+        let locking_script = descriptor.to_address(network)?.script_pubkey();
         Ok(Self {
             network,
-            descriptor,
-            descriptor_address,
+            locking_script,
         })
-    }
-
-    /// Returns the descriptor used to create the child transaction in CPFP.
-    pub const fn descriptor(&self) -> &Descriptor {
-        &self.descriptor
     }
 
     /// Returns the bitcoin network for which to generate output addresses.
@@ -49,8 +40,8 @@ impl ConnectorCpfp {
     }
 
     /// Generates the locking script for the child transaction.
-    pub fn generate_locking_script(&self) -> ScriptBuf {
-        self.descriptor_address.script_pubkey()
+    pub fn locking_script(&self) -> ScriptBuf {
+        self.locking_script.clone()
     }
 
     /// Finalizes the connector using a schnorr signature.
@@ -129,7 +120,7 @@ mod tests {
         let starting_tx_ins = create_tx_ins([utxo]);
         let starting_tx_outs = create_tx_outs([
             (
-                connector.generate_locking_script(),
+                connector.locking_script(),
                 Amount::from_sat(0), // set amount later
             ),
             (wallet_addr.script_pubkey(), unspent.amount),
@@ -175,7 +166,7 @@ mod tests {
         let parent_tx_outs = vec![TxOut {
             value: signed_starting_tx.output[input_utxo_vout].value, /* same output as input (0
                                                                       * fees) */
-            script_pubkey: connector.generate_locking_script(),
+            script_pubkey: connector.locking_script(),
         }];
         let mut parent_tx = create_tx(parent_tx_ins, parent_tx_outs);
         parent_tx.version = Version(3);
@@ -217,7 +208,7 @@ mod tests {
 
         let funding_tx_ins = create_tx_ins([utxo]);
         let funding_tx_outs = create_tx_outs([
-            (connector.generate_locking_script(), FEES),
+            (connector.locking_script(), FEES),
             (wallet_addr.script_pubkey(), unspent.amount - FEES - FEES),
         ]);
         let funding_tx = create_tx(funding_tx_ins, funding_tx_outs);

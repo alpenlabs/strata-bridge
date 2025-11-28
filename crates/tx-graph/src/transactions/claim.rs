@@ -59,7 +59,7 @@ impl ClaimTx {
         let c2_out = connector_n_of_n.create_taproot_address().script_pubkey();
         let c2_amt = c2_out.minimal_non_dust();
 
-        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_script = connector_cpfp.locking_script();
         let cpfp_amt = cpfp_script.minimal_non_dust();
 
         let c0_out = connector_c0.generate_locking_script();

@@ -105,7 +105,7 @@ impl PayoutTx {
         )
         .expect("should be able to create taproot address");
 
-        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_script = connector_cpfp.locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
         let n_of_n_addr = connector_n_of_n.create_taproot_address();

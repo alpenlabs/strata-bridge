@@ -67,7 +67,7 @@ impl PostAssertTx {
             size = connector_a31_script.len(),
         );
 
-        let cpfp_script = connector_cpfp.generate_locking_script();
+        let cpfp_script = connector_cpfp.locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
         let net_amount = input_amount - cpfp_amount;
