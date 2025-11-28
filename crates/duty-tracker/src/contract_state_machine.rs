@@ -1684,6 +1684,8 @@ impl ContractSM {
                         withdrawal_fulfillment_outpoint: new_withdrawal_fulfillment_outpoint,
                         stake_hash: new_stake_hash,
                         wots_public_keys: new_wots_keys,
+                        // FIXME: (@sistemd) Add an operator_descriptor field in
+                        // UnsignedPublishMessage::DepositSetup
                         operator_descriptor: operator_pubkey.into(),
                     });
 
