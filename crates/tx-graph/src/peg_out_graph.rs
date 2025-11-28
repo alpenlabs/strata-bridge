@@ -568,7 +568,7 @@ impl PegOutGraphConnectors {
 
         let n_of_n = ConnectorNOfN::new(n_of_n_agg_pubkey, network);
 
-        let connector_cpfp = ConnectorCpfp::new(operator_descriptor.clone(), network)?;
+        let connector_cpfp = ConnectorCpfp::new(operator_descriptor.clone(), network);
         let post_assert_out_1 = ConnectorA3::new(
             network,
             deposit_txid,
@@ -824,8 +824,7 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network())
-            .expect("must create cpfp connector");
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -962,8 +961,7 @@ mod tests {
         let payout_amount = signed_payout_tx.output[0].value;
         let payout_txid = signed_payout_tx.compute_txid().to_string();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network())
-            .expect("must create cpfp connector");
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
         let signed_payout_cpfp_child = create_cpfp_child(
             btc_client,
             &n_of_n_keypair,
@@ -1233,8 +1231,7 @@ mod tests {
 
         let stake_chain_params = StakeChainParams::default();
 
-        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network())
-            .expect("must be able to create connector cpfp from operator descriptor");
+        let connector_cpfp = ConnectorCpfp::new(operator_pubkey.into(), context.network());
 
         info!("creating transaction to fund dust outputs");
         let operator_address = Address::p2tr(SECP256K1, operator_pubkey, None, context.network());
@@ -1863,9 +1860,7 @@ mod tests {
             operator_pubkey,
         };
 
-        let new_stake_tx = first_stake_tx
-            .advance(&context, &stake_chain_params, stake_data)
-            .expect("must be able to create new stake tx");
+        let new_stake_tx = first_stake_tx.advance(&context, &stake_chain_params, stake_data);
 
         let new_stake_txid = new_stake_tx.compute_txid();
         let input = PegOutGraphInput {

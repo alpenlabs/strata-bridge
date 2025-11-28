@@ -173,7 +173,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
         context: &impl BuildContext,
         params: &StakeChainParams,
         input: StakeTxData,
-    ) -> Result<StakeTx<Tail>, DescriptorError> {
+    ) -> StakeTx<Tail> {
         let prev_stake = OutPoint::new(self.compute_txid(), STAKE_VOUT);
 
         // The first input is the operator's funds.
@@ -190,7 +190,7 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network())?;
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -246,11 +246,11 @@ impl<StakeTxType> StakeTx<StakeTxType> {
             },
         ];
 
-        Ok(StakeTx::<Tail> {
+        StakeTx::<Tail> {
             psbt,
             hash: input.hash,
             witnesses,
-        })
+        }
     }
 
     fn compute_sighash_with_prevouts<const NUM_INPUTS: usize>(
@@ -334,7 +334,7 @@ impl StakeTx<Head> {
             context.network(),
         );
 
-        let connector_cpfp = ConnectorCpfp::new(operator_descriptor, context.network())?;
+        let connector_cpfp = ConnectorCpfp::new(operator_descriptor, context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let connector_p_addr = connector_p.generate_address();
@@ -433,7 +433,7 @@ impl StakeTx<Tail> {
         input: StakeTxData,
         prev_hash: sha256::Hash,
         prev_stake: OutPoint,
-    ) -> Result<StakeTx<Tail>, DescriptorError> {
+    ) -> StakeTx<Tail> {
         // The first input is the operator's funds.
         let utxos = [input.operator_funds, prev_stake];
         let tx_ins = create_tx_ins(utxos);
@@ -448,7 +448,7 @@ impl StakeTx<Tail> {
             params.delta,
             context.network(),
         );
-        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network())?;
+        let connector_cpfp = ConnectorCpfp::new(input.operator_pubkey.into(), context.network());
 
         // The outputs are the `TxOut`s created from the connectors.
         let scripts_and_amounts = [
@@ -504,11 +504,11 @@ impl StakeTx<Tail> {
             },
         ];
 
-        Ok(StakeTx::<Tail> {
+        StakeTx::<Tail> {
             psbt,
             hash: input.hash,
             witnesses,
-        })
+        }
     }
 
     /// Generates the transaction message sighash for the stake transaction.

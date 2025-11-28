@@ -63,7 +63,7 @@ pub(crate) async fn handle_publish_pre_assert(
         cfg.connector_params.pre_assert_timelock,
     );
 
-    let connector_cpfp = ConnectorCpfp::new(operator_key.into(), network)?;
+    let connector_cpfp = ConnectorCpfp::new(operator_key.into(), network);
 
     info!(%deposit_idx, %deposit_txid, "getting wots public keys from s2");
     let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
@@ -153,7 +153,7 @@ pub(crate) async fn handle_publish_assert_data(
 
     let s2_client = &output_handles.s2_client.clone();
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    let connector_cpfp = ConnectorCpfp::new(general_key.into(), cfg.network)?;
+    let connector_cpfp = ConnectorCpfp::new(general_key.into(), cfg.network);
 
     let assert_data_tx_batch =
         AssertDataTxBatch::new(assert_data_input, connector_n_of_n, connector_cpfp);
@@ -224,7 +224,7 @@ pub(crate) async fn handle_publish_post_assert(
     let s2_client = &output_handles.s2_client;
 
     let general_key = s2_client.general_wallet_signer().pubkey().await?;
-    let connector_cpfp = ConnectorCpfp::new(general_key.into(), cfg.network)?;
+    let connector_cpfp = ConnectorCpfp::new(general_key.into(), cfg.network);
 
     info!(%deposit_txid, "getting WOTS public keys from S2 for post-assert transaction");
     let wots_pks = get_wots_pks(deposit_txid, s2_client).await?;
@@ -309,7 +309,7 @@ pub(crate) async fn handle_publish_payout(
         ))?;
     let connector_p = ConnectorP::new(agg_key, stake_data.hash, cfg.network);
 
-    let connector_cpfp = ConnectorCpfp::new(reimbursement_key.into(), cfg.network)?;
+    let connector_cpfp = ConnectorCpfp::new(reimbursement_key.into(), cfg.network);
 
     let payout_tx = PayoutTx::new(
         payout_data,

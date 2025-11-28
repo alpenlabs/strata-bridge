@@ -3,7 +3,7 @@
 //! Reference: <https://bitcoinops.org/en/topics/cpfp/>
 
 use bitcoin::{psbt::Input, Network, ScriptBuf};
-use bitcoin_bosd::{Descriptor, DescriptorError};
+use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use strata_bridge_primitives::scripts::taproot::finalize_input;
 
@@ -26,12 +26,12 @@ impl ConnectorCpfp {
     /// # Errors
     ///
     /// Returns an error if the descriptor cannot be converted to an address.
-    pub fn new(descriptor: Descriptor, network: Network) -> Result<Self, DescriptorError> {
-        let locking_script = descriptor.to_address(network)?.script_pubkey();
-        Ok(Self {
+    pub fn new(descriptor: Descriptor, network: Network) -> Self {
+        let locking_script = descriptor.to_script();
+        Self {
             network,
             locking_script,
-        })
+        }
     }
 
     /// Returns the bitcoin network for which to generate output addresses.
@@ -98,8 +98,7 @@ mod tests {
 
         let keypair = generate_keypair();
         let xonly_pubkey = keypair.x_only_public_key().0;
-        let connector =
-            ConnectorCpfp::new(xonly_pubkey.into(), network).expect("must create connector");
+        let connector = ConnectorCpfp::new(xonly_pubkey.into(), network);
 
         let output_address =
             Address::p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked(), network);
