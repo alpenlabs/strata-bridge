@@ -22,10 +22,6 @@ pub struct ConnectorCpfp {
 
 impl ConnectorCpfp {
     /// Constructs a new CPFP connector.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the descriptor cannot be converted to an address.
     pub fn new(descriptor: Descriptor, network: Network) -> Self {
         let locking_script = descriptor.to_script();
         Self {
