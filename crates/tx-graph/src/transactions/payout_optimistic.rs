@@ -4,7 +4,7 @@ use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
 };
-use bitcoin_bosd::{Descriptor, DescriptorError};
+use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
@@ -73,7 +73,7 @@ impl PayoutOptimisticTx {
         connector_n_of_n: ConnectorNOfN,
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
-    ) -> Result<Self, DescriptorError> {
+    ) -> Self {
         const NUM_OUTPUTS_IN_CLAIM_TX: u64 = 3;
         let input_amount = FUNDING_AMOUNT - SEGWIT_MIN_AMOUNT * NUM_OUTPUTS_IN_CLAIM_TX;
         assert!(
@@ -107,8 +107,6 @@ impl PayoutOptimisticTx {
         let c1_input = &mut tx_ins[c1_input as usize];
         c1_input.sequence = Sequence::from_height(connector_c1.payout_optimistic_timelock() as u16);
 
-        let operator_address = data.operator_descriptor.to_address(data.network)?;
-
         let cpfp_script = connector_cpfp.locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
@@ -141,7 +139,7 @@ impl PayoutOptimisticTx {
 
         let payout_amount = prevouts.iter().map(|out| out.value).sum::<Amount>() - cpfp_amount;
         let tx_outs = create_tx_outs([
-            (operator_address.script_pubkey(), payout_amount),
+            (data.operator_descriptor.to_script(), payout_amount),
             (cpfp_script, cpfp_amount),
         ]);
 
@@ -173,7 +171,7 @@ impl PayoutOptimisticTx {
             },
         ];
 
-        Ok(Self {
+        Self {
             psbt,
 
             prevouts,
@@ -183,7 +181,7 @@ impl PayoutOptimisticTx {
             connector_c1,
             connector_n_of_n,
             connector_p,
-        })
+        }
     }
 
     /// Gets the output index for CPFP.

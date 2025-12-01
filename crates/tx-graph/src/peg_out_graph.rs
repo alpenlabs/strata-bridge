@@ -184,7 +184,7 @@ impl PegOutGraph {
             operator_descriptor: input.operator_descriptor.clone(),
             network: context.network(),
         };
-        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1)?;
+        let challenge_tx = ChallengeTx::new(challenge_input, connectors.claim_out_1);
         let time_taken = start_time.elapsed();
         debug!(event = "created challenge tx", ?time_taken);
 
@@ -208,7 +208,7 @@ impl PegOutGraph {
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp.clone(),
-        )?;
+        );
         let time_taken = start_time.elapsed();
         debug!(event = "created payout optimistic tx", ?time_taken);
 
@@ -927,8 +927,7 @@ mod tests {
             connector_params,
             assertions,
         )
-        .await
-        .expect("must be able to submit assertions");
+        .await;
 
         let witnesses = payout_tx.witnesses();
 
@@ -1074,8 +1073,7 @@ mod tests {
             connector_params,
             faulty_assertions,
         )
-        .await
-        .expect("must be able to submit assertions");
+        .await;
 
         let signed_assert_txs = signed_post_assert
             .input
@@ -1374,7 +1372,7 @@ mod tests {
         graph_params: PegOutGraphParams,
         connector_params: ConnectorParams,
         assertions: Assertions,
-    ) -> Result<SubmitAssertionsResult, DescriptorError> {
+    ) -> SubmitAssertionsResult {
         let btc_addr = btc_client.new_address().expect("must generate new address");
 
         let stake_chain_params = StakeChainParams::default();
@@ -1387,7 +1385,8 @@ mod tests {
             connector_params,
             stake_chain_params,
             vec![],
-        )?;
+        )
+        .expect("must be able to generate peg out graph");
 
         let PegOutGraph {
             claim_tx,
@@ -1457,7 +1456,7 @@ mod tests {
             network: context.network(),
         };
 
-        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1)?;
+        let challenge_tx = ChallengeTx::new(challenge_tx_input, claim_out_1);
 
         let input_index = challenge_leaf.get_input_index() as usize;
         let challenge_witness = &challenge_tx.witnesses()[input_index];
@@ -1654,13 +1653,13 @@ mod tests {
             .generate_to_address(6, &btc_addr)
             .expect("must be able to mine post-assert tx");
 
-        Ok(SubmitAssertionsResult {
+        SubmitAssertionsResult {
             signed_claim_tx,
             signed_post_assert,
             payout_tx,
             post_assert_out_0,
             disprove_tx,
-        })
+        }
     }
 
     /// Creates a funded child transaction for CPFP.
