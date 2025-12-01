@@ -560,7 +560,7 @@ pub(crate) async fn handle_publish_payout_optimistic(
         connector_n_of_n,
         connector_p,
         connector_cpfp,
-    )?;
+    );
     let payout_optimistic_txid = payout_optimistic_tx.compute_txid();
 
     let signed_payout_optimistic_tx =

@@ -762,7 +762,7 @@ impl StrataBridgeDaApiServer for BridgeRpc {
         debug!(%claim_txid, "getting challenge transaction");
 
         let contracts = self.cached_contracts.read().await;
-        contracts
+        let challenge_tx = contracts
             .iter()
             .find_map(|contract| {
                 let challenge_sig = contract
@@ -812,17 +812,9 @@ impl StrataBridgeDaApiServer for BridgeRpc {
                 );
 
                 ChallengeTx::new(challenge_input, challenge_connector)
-                    .map(|tx| tx.finalize_presigned(ConnectorC1Path::Challenge(challenge_sig)))
-            })
-            .transpose()
-            .map_err(|e| {
-                error!(?e, "failed to construct challenge transaction");
-                rpc_error(
-                    ErrorCode::InternalError,
-                    "Failed to construct challenge transaction",
-                    e.to_string(),
-                )
-            })
+                    .finalize_presigned(ConnectorC1Path::Challenge(challenge_sig))
+            });
+        Ok(challenge_tx)
     }
 
     async fn get_challenge_signature(&self, claim_txid: Txid) -> RpcResult<Option<Signature>> {
