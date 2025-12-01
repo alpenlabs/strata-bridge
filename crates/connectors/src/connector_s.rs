@@ -76,10 +76,6 @@ pub struct ConnectorStake {
 impl ConnectorStake {
     /// Creates a new [`ConnectorStake`] with the given N-of-N aggregated public key, `k`th stake
     /// preimage, and the bitcoin network.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the operator descriptor is not a P2TR address.
     pub const fn new(
         n_of_n_agg_pubkey: XOnlyPublicKey,
         operator_pubkey: XOnlyPublicKey,
