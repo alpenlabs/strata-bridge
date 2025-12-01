@@ -164,7 +164,7 @@ pub struct RpcDisproveData {
     /// The hash for the hashlock in the stake transaction.
     pub stake_hash: sha256::Hash,
 
-    /// The operator descriptor that locks the stake transaction.
+    /// The operator descriptor that the operator uses for reimbursements and whose key is used to lock the stake.
     pub operator_descriptor: Descriptor,
 
     /// The WOTS public keys whose private keys were used by the operator to sign their proof
