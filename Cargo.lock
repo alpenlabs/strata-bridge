@@ -9742,6 +9742,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-tx-graph2"
+version = "0.1.0"
+
+[[package]]
 name = "strata-bridge-types"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"

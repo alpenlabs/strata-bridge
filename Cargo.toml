@@ -16,6 +16,7 @@ members = [
   "crates/connectors",
   "crates/common",
   "crates/tx-graph",
+  "crates/tx-graph2",
   "crates/btc-tracker",
   "bridge-guest-builder",
   "crates/secret-service-proto",
