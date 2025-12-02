@@ -114,7 +114,7 @@ pub enum StakeChainErr {
 
     /// Error indicating a problem with the operator descriptor.
     #[error("descriptor error: {0}")]
-    DescriptorError(Arc<DescriptorError>),
+    InvalidOperatorDescriptor(Arc<DescriptorError>),
 
     /// Error indicating unexpected behavior in the stake chain state machine.
     #[error("unexpected problem with stake chain state machine: {0}")]
@@ -123,7 +123,7 @@ pub enum StakeChainErr {
 
 impl From<DescriptorError> for StakeChainErr {
     fn from(err: DescriptorError) -> Self {
-        Self::DescriptorError(Arc::new(err))
+        Self::InvalidOperatorDescriptor(Arc::new(err))
     }
 }
 
