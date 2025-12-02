@@ -257,7 +257,7 @@ impl PegOutGraph {
             connectors.n_of_n,
             connectors.hashlock_payout,
             connectors.connector_cpfp.clone(),
-        )?;
+        );
         let payout_txid = payout_tx.compute_txid();
         let time_taken = start_time.elapsed();
         debug!(event = "created payout tx", %payout_txid, ?time_taken);
