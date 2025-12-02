@@ -1,5 +1,7 @@
 //! Error types for the duty tracker.
 
+use std::sync::Arc;
+
 use bdk_wallet::error::CreateTxError;
 use bitcoin_bosd::DescriptorError;
 use bitcoind_async_client::error::ClientError;
@@ -110,6 +112,10 @@ pub enum StakeChainErr {
     #[error("stake tx not found for operator: {0} and deposit: {1}")]
     StakeTxNotFound(P2POperatorPubKey, u32),
 
+    /// Error indicating a problem with the operator descriptor.
+    #[error("descriptor error: {0}")]
+    DescriptorError(Arc<DescriptorError>),
+
     /// Error indicating unexpected behavior in the stake chain state machine.
     #[error("unexpected problem with stake chain state machine: {0}")]
     Unexpected(String),
@@ -117,7 +123,7 @@ pub enum StakeChainErr {
 
 impl From<DescriptorError> for StakeChainErr {
     fn from(err: DescriptorError) -> Self {
-        Self::Unexpected(format!("operator descriptor error: {err}"))
+        Self::DescriptorError(Arc::new(err))
     }
 }
 
