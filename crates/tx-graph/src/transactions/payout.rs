@@ -13,7 +13,6 @@ use strata_bridge_connectors::prelude::{
 use strata_bridge_primitives::{
     constants::{NUM_ASSERT_DATA_TX, SEGWIT_MIN_AMOUNT},
     scripts::prelude::*,
-    types::descriptor_to_x_only_pubkey,
 };
 
 use super::covenant_tx::CovenantTx;
@@ -97,14 +96,6 @@ impl PayoutTx {
             "must set relative timelock on the second input of payout tx"
         );
 
-        let (operator_address, _) = create_taproot_addr(
-            &data.network,
-            SpendPath::KeySpend {
-                internal_key: descriptor_to_x_only_pubkey(&data.operator_descriptor)?,
-            },
-        )
-        .expect("should be able to create taproot address");
-
         let cpfp_script = connector_cpfp.locking_script();
         let cpfp_amount = cpfp_script.minimal_non_dust();
 
@@ -134,7 +125,7 @@ impl PayoutTx {
         let payout_amount = prevouts.iter().map(|out| out.value).sum::<Amount>() - cpfp_amount;
 
         let tx_outs = create_tx_outs([
-            (operator_address.script_pubkey(), payout_amount),
+            (data.operator_descriptor.to_script(), payout_amount),
             (cpfp_script, cpfp_amount),
         ]);
 
