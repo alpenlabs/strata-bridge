@@ -317,7 +317,7 @@ pub(crate) async fn handle_publish_payout(
         connector_n_of_n,
         connector_p,
         connector_cpfp,
-    )?;
+    );
     let payout_txid = payout_tx.compute_txid();
 
     info!(%deposit_txid, %payout_txid, "finalizing payout transaction with aggregated signatures");

@@ -4,7 +4,7 @@ use bitcoin::{
     sighash::Prevouts, taproot, transaction, Amount, Network, OutPoint, Psbt, Sequence,
     TapSighashType, Transaction, TxOut, Txid,
 };
-use bitcoin_bosd::{Descriptor, DescriptorError};
+use bitcoin_bosd::Descriptor;
 use secp256k1::schnorr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_connectors::prelude::{
@@ -69,7 +69,7 @@ impl PayoutTx {
         connector_n_of_n: ConnectorNOfN,
         connector_p: ConnectorP,
         connector_cpfp: ConnectorCpfp,
-    ) -> Result<Self, DescriptorError> {
+    ) -> Self {
         // 1 dust output is used for cpfp-ing the post-assert transaction itself.
         let input_from_post_assert: Amount = SEGWIT_MIN_AMOUNT * (NUM_ASSERT_DATA_TX - 1) as u64;
 
@@ -153,7 +153,7 @@ impl PayoutTx {
             },
         ];
 
-        Ok(Self {
+        Self {
             psbt,
 
             prevouts,
@@ -161,7 +161,7 @@ impl PayoutTx {
 
             connector_n_of_n,
             connector_p,
-        })
+        }
     }
 
     /// Gets the output index for CPFP.
