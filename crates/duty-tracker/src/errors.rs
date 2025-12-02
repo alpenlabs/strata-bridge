@@ -1,7 +1,5 @@
 //! Error types for the duty tracker.
 
-use std::sync::Arc;
-
 use bdk_wallet::error::CreateTxError;
 use bitcoin_bosd::DescriptorError;
 use bitcoind_async_client::error::ClientError;
@@ -83,7 +81,7 @@ impl From<&str> for ContractManagerErr {
 }
 
 /// Error type for problems arising in maintaining or querying stake chain data.
-#[derive(Debug, Clone, Error)]
+#[derive(Debug, Error)]
 pub enum StakeChainErr {
     /// Error indicating that the operator p2p key not found in the operator table.
     #[error("operator p2p key invalid: {0}")]
@@ -114,17 +112,11 @@ pub enum StakeChainErr {
 
     /// Error indicating a problem with the operator descriptor.
     #[error("descriptor error: {0}")]
-    InvalidOperatorDescriptor(Arc<DescriptorError>),
+    InvalidOperatorDescriptor(#[from] DescriptorError),
 
     /// Error indicating unexpected behavior in the stake chain state machine.
     #[error("unexpected problem with stake chain state machine: {0}")]
     Unexpected(String),
-}
-
-impl From<DescriptorError> for StakeChainErr {
-    fn from(err: DescriptorError) -> Self {
-        Self::InvalidOperatorDescriptor(Arc::new(err))
-    }
 }
 
 /// Error type for shutdown operations.
