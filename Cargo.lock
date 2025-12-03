@@ -9744,6 +9744,16 @@ dependencies = [
 [[package]]
 name = "strata-bridge-tx-graph2"
 version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "bitcoind-async-client",
+ "corepc-node",
+ "secp256k1",
+ "strata-bridge-common",
+ "strata-bridge-primitives",
+ "strata-bridge-test-utils",
+ "tracing",
+]
 
 [[package]]
 name = "strata-bridge-types"
