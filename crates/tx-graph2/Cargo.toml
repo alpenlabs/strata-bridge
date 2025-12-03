@@ -7,5 +7,15 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+strata-bridge-primitives.workspace = true
+
+bitcoin = { workspace = true, features = ["rand-std"] }
+secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 
 [dev-dependencies]
+strata-bridge-test-utils.workspace = true
+strata-bridge-common.workspace = true
+
+tracing.workspace = true
+bitcoind-async-client.workspace = true
+corepc-node.workspace = true
