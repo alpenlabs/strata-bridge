@@ -1,4 +1,4 @@
-datadir = "/app/data"
+datadir = "~/Users/abishekbashyal/Desktop/temp/b1-data"
 is_faulty = false
 nag_interval = { secs = 30, nanos = 0 }
 min_withdrawal_fulfillment_window = 144
@@ -6,15 +6,15 @@ stake_funding_pool_size = 32
 shutdown_timeout = { secs = 30, nanos = 0 }
 
 [secret_service_client]
-server_addr = "172.28.1.5:69"
+server_addr = "127.0.0.1:69"
 server_hostname = "secret-service"
 timeout = 1000
-cert = "/app/tls/cert.pem"
-key = "/app/tls/key.pem"
-service_ca = "/app/tls/s2.ca.pem"
+cert = "/Users/abishekbashyal/Desktop/temp/s1/tls/cert.pem"
+key = "/Users/abishekbashyal/Desktop/temp/s1/tls/key.pem"
+service_ca = "/Users/abishekbashyal/Desktop/temp/s1/tls/s2.ca.pem"
 
 [btc_client]
-url = "http://host.docker.internal:18443"
+url = "http://127.0.0.1:18443"
 user = "user"
 pass = "password"
 retry_count = 3
@@ -26,8 +26,8 @@ backoff_period = { secs = 1000, nanos = 0 }
 
 [p2p]
 idle_connection_timeout = { secs = 1000, nanos = 0 }
-listening_addr = "/ip4/172.28.0.5/tcp/5679"
-connect_to = ["/ip4/172.28.0.6/tcp/5679", "/ip4/172.28.0.7/tcp/5679"]
+listening_addr = "/ip4/127.0.0.1/tcp/5679"
+connect_to = []
 num_threads = 4
 dial_timeout = { secs = 0, nanos = 250_000_000 }
 general_timeout = { secs = 0, nanos = 250_000_000 }
@@ -39,11 +39,16 @@ refresh_interval = { secs = 600, nanos = 0 }
 
 [btc_zmq]
 bury_depth = 2
-hashblock_connection_string = "tcp://host.docker.internal:28332"
-hashtx_connection_string = "tcp://host.docker.internal:28333"
-rawblock_connection_string = "tcp://host.docker.internal:28334"
-rawtx_connection_string = "tcp://host.docker.internal:28335"
-sequence_connection_string = "tcp://host.docker.internal:28336"
+# hashblock_connection_string = "tcp://host.docker.internal:28332"
+# hashtx_connection_string = "tcp://host.docker.internal:28333"
+# rawblock_connection_string = "tcp://host.docker.internal:28334"
+# rawtx_connection_string = "tcp://host.docker.internal:28335"
+# sequence_connection_string = "tcp://host.docker.internal:28336"
+hashblock_connection_string = "tcp://127.0.0.1:28332"
+hashtx_connection_string = "tcp://127.0.0.1:28333"
+rawblock_connection_string = "tcp://127.0.0.1:28334"
+rawtx_connection_string = "tcp://127.0.0.1:28335"
+sequence_connection_string = "tcp://127.0.0.1:28336"
 
 [stake_tx]
 max_retries = 10

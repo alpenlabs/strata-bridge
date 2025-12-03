@@ -48,6 +48,8 @@ impl OperatorTable {
             .find(category::comp_as_ref_mut(Deref::deref, is_us))
             .map(|entry| entry.0)?;
 
+        println!("Abishek pong...");
+
         for entry in entries {
             if idx_key
                 .insert(entry.0, (entry.1.clone(), entry.2))

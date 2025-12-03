@@ -121,6 +121,7 @@ pub(crate) async fn bootstrap(
         .map(|x| x.public_key(Parity::Even));
     let zipped = p2p_keys.zip(musig_keys);
     let indexed = zipped.enumerate().map(|(i, (op, btc))| (i as u32, op, btc));
+    println!("Abishek my key, {:?} ", my_btc_pk);
     let operator_table = OperatorTable::new(
         indexed.collect(),
         OperatorTable::select_btc_x_only(my_btc_pk),

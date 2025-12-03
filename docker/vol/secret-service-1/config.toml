@@ -1,10 +1,10 @@
-seed = "/app/seed"
+seed = "/Users/abishekbashyal/Desktop/temp/seed"
 network = "regtest"
 
 [tls]
-key = "/app/tls/key.pem"
-cert = "/app/tls/cert.pem"
-ca = "/app/tls/bridge.ca.pem"
+key = "/Users/abishekbashyal/Desktop/temp/s2/tls/key.pem"
+cert = "/Users/abishekbashyal/Desktop/temp/s2/tls/cert.pem"
+ca = "/Users/abishekbashyal/Desktop/temp/s2/tls/bridge.ca.pem"
 
 [transport]
 addr = "0.0.0.0:69"

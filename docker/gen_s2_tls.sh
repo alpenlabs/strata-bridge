@@ -5,7 +5,7 @@ S2_BASE_DIR=${2:-docker/vol/secret-service}
 
 S2_TLS_DIR=${S2_BASE_DIR}/tls
 BRIDGE_TLS_DIR=${BRIDGE_BASE_DIR}/tls
-IP=172.28.1.6
+IP=127.0.0.1
 
 rm -rf $S2_TLS_DIR $BRIDGE_TLS_DIR
 mkdir -p $S2_TLS_DIR $BRIDGE_TLS_DIR
