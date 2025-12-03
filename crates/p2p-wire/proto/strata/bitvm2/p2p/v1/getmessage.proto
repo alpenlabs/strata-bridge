@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package strata.bitvm2.p2p.v1;
+
+import "strata/bitvm2/p2p/v1/gossipsub.proto";
+
+// Request for WOTS PKs.
+message DepositRequestKey {
+  // 32-byte hash of the deposit data.
+  bytes scope = 1;
+
+  // Public key of target operator.
+  bytes operator = 2;
+}
+
+// Request for Musig2 (public) nonces or (partial) signatures.
+message Musig2RequestKey {
+  // 32-byte hash of the deposit data.
+  bytes session_id = 1;
+
+  // Public key of target operator.
+  bytes operator = 2;
+}
+
+// Request for Stake Chain information.
+message StakeChainRequestKey {
+  // 32-byte hash of the stake chain data.
+  bytes stake_chain_id = 1;
+
+  // Public key of target operator.
+  bytes operator = 2;
+}
+
+// Catch-all message type for all messages.
+message GetMessageRequest {
+  oneof body {
+    DepositRequestKey deposit_setup = 1;
+    Musig2RequestKey nonces = 2;
+    Musig2RequestKey sigs = 3;
+    StakeChainRequestKey stake_chain = 4;
+  }
+}
+
+// `GetMessageRequest` batch.
+message GetMessageRequestBatch {
+  repeated GetMessageRequest requests = 1;
+}
+
+// The reply from an operator.
+message GetMessageResponse {
+  repeated GossipsubMsg msg = 1;
+}
