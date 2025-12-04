@@ -1,4 +1,4 @@
-//! This module contains the connector between `Claim`, `UncontestedPayout`, and `Contest`.
+//! This module contains the claim contest connector.
 
 use bitcoin::{
     opcodes,
