@@ -4,7 +4,10 @@ use bitcoin::{transaction, Amount, OutPoint, Transaction, TxOut};
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
-use crate::connectors::{prelude::ClaimContestConnector, Connector};
+use crate::connectors::{
+    prelude::{ClaimContestConnector, ClaimPayoutConnector},
+    Connector,
+};
 
 /// Data that is needed to construct a [`ClaimTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -18,22 +21,29 @@ pub struct ClaimData {
 pub struct ClaimTx(Transaction);
 
 const CLAIM_CONTEST_VOUT: usize = 0;
-const CLAIM_CPFP_VOUT: usize = 1;
+const CLAIM_PAYOUT_VOUT: usize = 1;
+const CLAIM_CPFP_VOUT: usize = 2;
 
 impl ClaimTx {
     /// Creates a claim transaction.
     pub fn new(
         data: ClaimData,
         claim_contest_connector: ClaimContestConnector,
+        claim_payout_connector: ClaimPayoutConnector,
         cpfp_connector: ConnectorCpfp,
     ) -> Self {
         let claim_funds = data.claim_funds;
         let claim_contest_tx_out = claim_contest_connector.tx_out();
+        let claim_payout_tx_out = claim_payout_connector.tx_out();
 
         let tx_ins = create_tx_ins([claim_funds]);
         let scripts_and_amounts = [
             (
                 claim_contest_tx_out.script_pubkey,
+                claim_contest_tx_out.value,
+            ),
+            (
+                claim_payout_tx_out.script_pubkey,
                 claim_contest_tx_out.value,
             ),
             (cpfp_connector.locking_script(), Amount::ZERO),
@@ -54,6 +64,11 @@ impl ClaimTx {
     /// Accesses the contest transaction output.
     pub fn contest_tx_out(&self) -> &TxOut {
         &self.0.output[CLAIM_CONTEST_VOUT]
+    }
+
+    /// Accesses the payout transaction output.
+    pub fn payout_tx_out(&self) -> &TxOut {
+        &self.0.output[CLAIM_PAYOUT_VOUT]
     }
 
     /// Accesses the CPFP transaction output.
