@@ -15,10 +15,7 @@ pub struct ClaimData {
 
 /// The claim transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ClaimTx {
-    /// The claim transaction itself.
-    tx: Transaction,
-}
+pub struct ClaimTx(Transaction);
 
 const CLAIM_CONTEST_VOUT: usize = 0;
 const CLAIM_CPFP_VOUT: usize = 1;
@@ -46,21 +43,21 @@ impl ClaimTx {
         let mut tx = create_tx(tx_ins, tx_outs);
         tx.version = transaction::Version(3);
 
-        Self { tx }
+        Self(tx)
     }
 
-    /// Accesses the claim transaction itself.
+    /// Accesses the claim transaction.
     pub const fn tx(&self) -> &Transaction {
-        &self.tx
+        &self.0
     }
 
     /// Accesses the contest transaction output.
     pub fn contest_tx_out(&self) -> &TxOut {
-        &self.tx.output[CLAIM_CONTEST_VOUT]
+        &self.0.output[CLAIM_CONTEST_VOUT]
     }
 
     /// Accesses the CPFP transaction output.
     pub fn cpfp_tx_out(&self) -> &TxOut {
-        &self.tx.output[CLAIM_CPFP_VOUT]
+        &self.0.output[CLAIM_CPFP_VOUT]
     }
 }
