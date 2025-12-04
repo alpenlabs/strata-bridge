@@ -36,7 +36,7 @@ impl ClaimTx {
                 claim_contest_tx_out.script_pubkey,
                 claim_contest_tx_out.value,
             ),
-            (cpfp_connector.generate_locking_script(), Amount::ZERO),
+            (cpfp_connector.locking_script(), Amount::ZERO),
         ];
         let tx_outs = create_tx_outs(scripts_and_amounts);
 
