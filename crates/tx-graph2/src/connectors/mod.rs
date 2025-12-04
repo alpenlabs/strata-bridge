@@ -1,6 +1,7 @@
 //! This module contains connectors for the Glock transaction graph.
 
 pub mod claim_contest_connector;
+pub mod claim_payout_connector;
 pub mod prelude;
 
 #[cfg(test)]
