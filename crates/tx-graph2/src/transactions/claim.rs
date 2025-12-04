@@ -1,10 +1,10 @@
 //! This module contains the claim transaction.
 
 use bitcoin::{transaction, Amount, OutPoint, Transaction, TxOut};
-use strata_bridge_connectors::connector_cpfp::ConnectorCpfp;
+use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
-use crate::connectors::claim_contest_connector::ClaimContestConnector;
+use crate::connectors::prelude::ClaimContestConnector;
 
 /// Data that is needed to construct a [`ClaimTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
