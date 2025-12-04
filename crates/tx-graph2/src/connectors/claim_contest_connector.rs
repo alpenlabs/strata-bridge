@@ -3,12 +3,13 @@
 use bitcoin::{
     opcodes,
     psbt::Input,
-    relative,
+    relative, script,
     taproot::{LeafVersion, TaprootSpendInfo},
     Network, ScriptBuf, TxOut,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::prelude::{create_taproot_addr, finalize_input, SpendPath};
+use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 /// Connector output between `Claim` and:
 /// 1. `UncontestedPayout`, and
@@ -18,7 +19,7 @@ pub struct ClaimContestConnector {
     network: Network,
     n_of_n_pubkey: XOnlyPublicKey,
     watchtower_pubkeys: Vec<XOnlyPublicKey>,
-    delta_contest: relative::LockTime,
+    contest_timelock: relative::LockTime,
 }
 
 impl ClaimContestConnector {
@@ -27,13 +28,13 @@ impl ClaimContestConnector {
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         watchtower_pubkeys: Vec<XOnlyPublicKey>,
-        delta_contest: relative::LockTime,
+        contest_timelock: relative::LockTime,
     ) -> Self {
         Self {
             network,
             n_of_n_pubkey,
             watchtower_pubkeys,
-            delta_contest,
+            contest_timelock,
         }
     }
 
@@ -42,12 +43,12 @@ impl ClaimContestConnector {
         self.watchtower_pubkeys.len()
     }
 
-    /// Returns the delta contest relative timelock of the connector.
+    /// Returns the relative contest timelock of the connector.
     ///
     /// The sequence of the input and the global locktime must be
     /// large enough to cover this value.
-    pub const fn delta_contest(&self) -> relative::LockTime {
-        self.delta_contest
+    pub const fn contest_timelock(&self) -> relative::LockTime {
+        self.contest_timelock
     }
 
     /// Generates a vector of all leaf scripts of the connector.
@@ -55,29 +56,29 @@ impl ClaimContestConnector {
         let mut scripts = Vec::new();
 
         for watchtower_pubkey in &self.watchtower_pubkeys {
-            let script = bitcoin::script::Builder::new()
+            let contest_script = script::Builder::new()
                 .push_slice(self.n_of_n_pubkey.serialize())
                 .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
                 .push_slice(watchtower_pubkey.serialize())
                 .push_opcode(opcodes::all::OP_CHECKSIG)
                 .into_script();
-            scripts.push(script);
+            scripts.push(contest_script);
         }
 
-        let script = bitcoin::script::Builder::new()
+        let uncontested_payout_script = script::Builder::new()
             .push_slice(self.n_of_n_pubkey.serialize())
             .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
-            .push_sequence(self.delta_contest.to_sequence())
+            .push_sequence(self.contest_timelock.to_sequence())
             .push_opcode(opcodes::all::OP_CSV)
             .into_script();
-        scripts.push(script);
+        scripts.push(uncontested_payout_script);
 
         scripts
     }
 
     /// Generates the bitcoin address and taproot spending info of the connector.
     pub fn address_and_spend_info(&self) -> (bitcoin::Address, TaprootSpendInfo) {
-        let internal_key = self.n_of_n_pubkey;
+        let internal_key = *UNSPENDABLE_PUBLIC_KEY;
         let scripts = self.leaf_scripts();
         create_taproot_addr(
             &self.network,
@@ -92,9 +93,10 @@ impl ClaimContestConnector {
     /// Generates the txout of the connector.
     pub fn tx_out(&self) -> TxOut {
         let script_pubkey = self.address_and_spend_info().0.script_pubkey();
-        let dust = script_pubkey.minimal_non_dust();
-        // TODO: Replace magic number 3 with constant from contest transaction, once the code exists
-        let value = dust * (3 * self.n_watchtowers() as u64);
+        let minimal_non_dust = script_pubkey.minimal_non_dust();
+        // TODO (@uncomputable): Replace magic number 3 with constant from contest transaction,
+        // once the code exists
+        let value = minimal_non_dust * (3 * self.n_watchtowers() as u64);
 
         TxOut {
             value,
@@ -121,11 +123,7 @@ impl ClaimContestConnector {
             } => watchtower_index as usize,
             ClaimContestSpendPath::Uncontested => self.n_watchtowers(),
         };
-        let leaf_script = self
-            .leaf_scripts()
-            .into_iter()
-            .nth(leaf_index)
-            .expect("leaf script exists");
+        let leaf_script = self.leaf_scripts().remove(leaf_index);
         let script_ver = (leaf_script, LeafVersion::TapScript);
         let control_block = taproot_spend_info
             .control_block(&script_ver)
@@ -260,7 +258,7 @@ mod tests {
     }
 
     fn spend_connector(connector: ClaimContestConnector, signer: Signer, leaf_index: usize) {
-        logging::init(LoggerConfig::new("connector-p-script-path".to_string()));
+        logging::init(LoggerConfig::new("claim-contest-connector".to_string()));
 
         // Setup Bitcoin node
         let mut conf = Conf::default();
@@ -298,7 +296,6 @@ mod tests {
 
         let input = vec![TxIn {
             previous_output: funding_input,
-            script_sig: funded_address.script_pubkey(),
             ..Default::default()
         }];
 
@@ -308,11 +305,7 @@ mod tests {
                 script_pubkey: connector.tx_out().script_pubkey,
             },
             TxOut {
-                value: coinbase_amount
-                    .checked_sub(funding_amount)
-                    .unwrap()
-                    .checked_sub(fees)
-                    .unwrap(),
+                value: coinbase_amount - funding_amount - fees,
                 script_pubkey: change_address.script_pubkey(),
             },
         ];
@@ -332,7 +325,10 @@ mod tests {
             )
             .expect("must be able to sign transaction");
 
-        assert!(signed_funding_tx.complete);
+        assert!(
+            signed_funding_tx.complete,
+            "funding transaction should be complete"
+        );
         let signed_funding_tx =
             consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
 
@@ -356,7 +352,7 @@ mod tests {
         };
 
         let spending_output = TxOut {
-            value: funding_amount.checked_sub(fees).unwrap(),
+            value: funding_amount - fees,
             script_pubkey: change_address.script_pubkey(),
         };
 
@@ -374,8 +370,8 @@ mod tests {
         // This influences the sighash!
         if leaf_index == connector.n_watchtowers() {
             spending_tx.lock_time =
-                absolute::LockTime::from_consensus(connector.delta_contest().to_consensus_u32());
-            spending_tx.input[0].sequence = connector.delta_contest().to_sequence();
+                absolute::LockTime::from_consensus(connector.contest_timelock().to_consensus_u32());
+            spending_tx.input[0].sequence = connector.contest_timelock().to_sequence();
         }
 
         let mut sighash_cache = SighashCache::new(&spending_tx);
