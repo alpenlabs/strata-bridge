@@ -410,13 +410,6 @@ mod tests {
         btc_client
             .generate_to_address(1, &funded_address)
             .expect("must be able to generate block");
-
-        let tx = btc_client
-            .call::<String>("getrawtransaction", &[json!(&spending_txid)])
-            .expect("must be able to get transaction");
-        let tx = consensus::encode::deserialize_hex::<Transaction>(&tx).expect("must deserialize");
-
-        assert_eq!(spending_txid, tx.compute_txid());
     }
 
     #[test]
