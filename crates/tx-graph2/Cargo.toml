@@ -7,7 +7,6 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
 strata-primitives.workspace = true
 

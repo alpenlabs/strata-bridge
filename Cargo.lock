@@ -9750,7 +9750,6 @@ dependencies = [
  "corepc-node",
  "secp256k1",
  "strata-bridge-common",
- "strata-bridge-connectors",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
