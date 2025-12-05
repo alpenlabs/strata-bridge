@@ -50,8 +50,13 @@ pub trait Connector {
         .0
     }
 
+    /// Generates the script pubkey of the connector.
+    fn script_pubkey(&self) -> ScriptBuf {
+        self.address().script_pubkey()
+    }
+
     /// Generates the transaction output of the connector.
-    fn output(&self) -> TxOut {
+    fn tx_out(&self) -> TxOut {
         TxOut {
             value: self.value(),
             script_pubkey: self.address().script_pubkey(),

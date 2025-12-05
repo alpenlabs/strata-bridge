@@ -4,7 +4,7 @@ use bitcoin::{transaction, Amount, OutPoint, Transaction, TxOut};
 use strata_bridge_connectors::prelude::ConnectorCpfp;
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
-use crate::connectors::prelude::ClaimContestConnector;
+use crate::connectors::{prelude::ClaimContestConnector, Connector};
 
 /// Data that is needed to construct a [`ClaimTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
