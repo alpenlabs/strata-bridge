@@ -38,9 +38,6 @@ impl ClaimContestConnector {
     }
 
     /// Returns the relative contest timelock of the connector.
-    ///
-    /// The sequence of the input and the global locktime must be
-    /// large enough to cover this value.
     pub const fn contest_timelock(&self) -> relative::LockTime {
         self.contest_timelock
     }
@@ -124,6 +121,11 @@ pub enum ClaimContestSpendPath {
         watchtower_signature: schnorr::Signature,
     },
     /// The connector is spent in the `UncontestedPayout` transaction.
+    ///
+    /// # Warning
+    ///
+    /// The sequence number of the transaction input needs to be large enough to cover
+    /// [`ClaimContestConnector::contest_timelock()`].
     Uncontested,
 }
 
@@ -131,57 +133,57 @@ pub enum ClaimContestSpendPath {
 mod tests {
     use std::cmp::Ordering;
 
-    use bitcoin::{
-        absolute, consensus,
-        sighash::{Prevouts, SighashCache},
-        transaction, Amount, BlockHash, OutPoint, Psbt, TapSighashType, Transaction, TxIn, TxOut,
-    };
-    use bitcoind_async_client::types::SignRawTransactionWithWallet;
-    use corepc_node::{serde_json::json, Conf, Node};
     use secp256k1::{Keypair, Message};
-    use strata_bridge_common::logging::{self, LoggerConfig};
-    use strata_bridge_primitives::scripts::taproot::create_script_spend_hash;
     use strata_bridge_test_utils::prelude::generate_keypair;
-    use tracing::info;
 
     use super::*;
+    use crate::connectors::test_utils::Signer;
 
     const N_WATCHTOWERS: usize = 10;
     const DELTA_CONTEST: relative::LockTime = relative::LockTime::from_height(10);
 
-    struct Signer {
+    struct ClaimContestSigner {
         n_of_n_keypair: Keypair,
         watchtower_keypairs: Vec<Keypair>,
     }
 
-    impl Signer {
-        fn generate() -> Self {
-            let n_of_n_keypair = generate_keypair();
-            let watchtower_keypairs = (0..N_WATCHTOWERS).map(|_| generate_keypair()).collect();
+    impl Signer for ClaimContestSigner {
+        type Connector = ClaimContestConnector;
 
+        fn generate() -> Self {
             Self {
-                n_of_n_keypair,
-                watchtower_keypairs,
+                n_of_n_keypair: generate_keypair(),
+                watchtower_keypairs: (0..N_WATCHTOWERS).map(|_| generate_keypair()).collect(),
             }
         }
 
-        fn get_connector(&self) -> ClaimContestConnector {
-            let n_of_n_pubkey = self.n_of_n_keypair.x_only_public_key().0;
-            let watchtower_pubkeys: Vec<_> = self
-                .watchtower_keypairs
-                .iter()
-                .map(|key| key.x_only_public_key().0)
-                .collect();
-
-            ClaimContestConnector::new(
-                Network::Regtest,
-                n_of_n_pubkey,
-                watchtower_pubkeys,
-                DELTA_CONTEST,
-            )
+        fn get_connector(&self) -> Self::Connector {
+            ClaimContestConnector {
+                network: Network::Regtest,
+                n_of_n_pubkey: self.n_of_n_keypair.x_only_public_key().0,
+                watchtower_pubkeys: self
+                    .watchtower_keypairs
+                    .iter()
+                    .map(|key| key.x_only_public_key().0)
+                    .collect(),
+                contest_timelock: DELTA_CONTEST,
+            }
         }
 
-        fn sign_leaf(&self, leaf_index: usize, sighash: Message) -> ClaimContestWitness {
+        fn get_connector_name(&self) -> &'static str {
+            "claim-contest"
+        }
+
+        fn get_relative_timelock(&self, leaf_index: usize) -> Option<relative::LockTime> {
+            (leaf_index == self.watchtower_keypairs.len()).then_some(DELTA_CONTEST)
+        }
+
+        fn sign_leaf(
+            &self,
+            leaf_index: Option<usize>,
+            sighash: Message,
+        ) -> <Self::Connector as Connector>::Witness {
+            let leaf_index = leaf_index.expect("connector has no key-path spend");
             let n_of_n_signature = self.n_of_n_keypair.sign_schnorr(sighash);
 
             match leaf_index.cmp(&self.watchtower_keypairs.len()) {
@@ -206,172 +208,15 @@ mod tests {
         }
     }
 
-    fn spend_connector(connector: ClaimContestConnector, signer: Signer, leaf_index: usize) {
-        logging::init(LoggerConfig::new("claim-contest-connector".to_string()));
-
-        // Setup Bitcoin node
-        let mut conf = Conf::default();
-        conf.args.push("-txindex=1");
-        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
-        let btc_client = &bitcoind.client;
-
-        // Mine until maturity
-        let funded_address = btc_client.new_address().unwrap();
-        let change_address = btc_client.new_address().unwrap();
-        let coinbase_block = btc_client
-            .generate_to_address(101, &funded_address)
-            .expect("must be able to generate blocks")
-            .0
-            .first()
-            .expect("must be able to get the blocks")
-            .parse::<BlockHash>()
-            .expect("must parse");
-        let coinbase_txid = btc_client
-            .get_block(coinbase_block)
-            .expect("must be able to get coinbase block")
-            .coinbase()
-            .expect("must be able to get the coinbase transaction")
-            .compute_txid();
-
-        // Create funding transaction
-        let funding_input = OutPoint {
-            txid: coinbase_txid,
-            vout: 0,
-        };
-
-        let coinbase_amount = Amount::from_btc(50.0).expect("must be valid amount");
-        let funding_amount = Amount::from_sat(50_000);
-        let fees = Amount::from_sat(1_000);
-
-        let input = vec![TxIn {
-            previous_output: funding_input,
-            ..Default::default()
-        }];
-
-        let output = vec![
-            TxOut {
-                value: funding_amount,
-                script_pubkey: connector.script_pubkey(),
-            },
-            TxOut {
-                value: coinbase_amount - funding_amount - fees,
-                script_pubkey: change_address.script_pubkey(),
-            },
-        ];
-
-        let funding_tx = Transaction {
-            version: transaction::Version(2),
-            lock_time: absolute::LockTime::ZERO,
-            input,
-            output,
-        };
-
-        // Sign and broadcast funding transaction
-        let signed_funding_tx = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(consensus::encode::serialize_hex(&&funding_tx))],
-            )
-            .expect("must be able to sign transaction");
-
-        assert!(
-            signed_funding_tx.complete,
-            "funding transaction should be complete"
-        );
-        let signed_funding_tx =
-            consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
-
-        let funding_txid = btc_client
-            .send_raw_transaction(&signed_funding_tx)
-            .expect("must be able to broadcast transaction")
-            .txid()
-            .expect("must have txid");
-
-        info!(%funding_txid, "Funding transaction broadcasted");
-
-        // Mine the funding transaction
-        let _ = btc_client
-            .generate_to_address(10, &funded_address)
-            .expect("must be able to generate blocks");
-
-        // Create spending transaction that spends the connector p
-        let spending_input = OutPoint {
-            txid: funding_txid,
-            vout: 0,
-        };
-
-        let spending_output = TxOut {
-            value: funding_amount - fees,
-            script_pubkey: change_address.script_pubkey(),
-        };
-
-        let mut spending_tx = Transaction {
-            version: transaction::Version(2),
-            lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: spending_input,
-                ..Default::default()
-            }],
-            output: vec![spending_output],
-        };
-
-        // Update locktime and sequence for uncontested spend
-        // This influences the sighash!
-        if leaf_index == connector.n_watchtowers() {
-            spending_tx.lock_time =
-                absolute::LockTime::from_consensus(connector.contest_timelock().to_consensus_u32());
-            spending_tx.input[0].sequence = connector.contest_timelock().to_sequence();
-        }
-
-        let mut sighash_cache = SighashCache::new(&spending_tx);
-        let prevouts = [funding_tx.output[0].clone()];
-        let leaf_scripts = connector.leaf_scripts();
-        let sighash = create_script_spend_hash(
-            &mut sighash_cache,
-            &leaf_scripts[leaf_index],
-            Prevouts::All(&prevouts),
-            TapSighashType::Default,
-            0,
-        )
-        .expect("should be able to compute sighash");
-
-        // Set the witness in the transaction
-        let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
-        psbt.inputs[0].witness_utxo = Some(TxOut {
-            value: funding_amount,
-            script_pubkey: connector.script_pubkey(),
-        });
-
-        let witness = signer.sign_leaf(leaf_index, sighash);
-        connector.finalize_input(&mut psbt.inputs[0], &witness);
-        let spending_tx = psbt.extract_tx().expect("must be signed");
-
-        // Broadcast spending transaction
-        let spending_txid = btc_client
-            .send_raw_transaction(&spending_tx)
-            .expect("must be able to broadcast spending transaction")
-            .txid()
-            .expect("must have txid");
-
-        info!(%spending_txid, "Spending transaction broadcasted");
-
-        // Verify the transaction was mined
-        btc_client
-            .generate_to_address(1, &funded_address)
-            .expect("must be able to generate block");
-    }
-
     #[test]
     fn contested_spend() {
-        let signer = Signer::generate();
-        let connector = signer.get_connector();
-        spend_connector(connector, signer, 0);
+        let leaf_index = Some(0);
+        ClaimContestSigner::assert_connector_is_spendable(leaf_index);
     }
 
     #[test]
     fn uncontested_spend() {
-        let signer = Signer::generate();
-        let connector = signer.get_connector();
-        spend_connector(connector, signer, N_WATCHTOWERS);
+        let leaf_index = Some(N_WATCHTOWERS);
+        ClaimContestSigner::assert_connector_is_spendable(leaf_index);
     }
 }
