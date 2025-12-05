@@ -1,15 +1,9 @@
 //! This module contains the claim contest connector.
 
-use bitcoin::{
-    opcodes,
-    psbt::Input,
-    relative, script,
-    taproot::{LeafVersion, TaprootSpendInfo},
-    Network, ScriptBuf, TxOut,
-};
+use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
-use strata_bridge_primitives::scripts::prelude::{create_taproot_addr, finalize_input, SpendPath};
-use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
+
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Connector output between `Claim` and:
 /// 1. `UncontestedPayout`, and
@@ -50,9 +44,16 @@ impl ClaimContestConnector {
     pub const fn contest_timelock(&self) -> relative::LockTime {
         self.contest_timelock
     }
+}
 
-    /// Generates a vector of all leaf scripts of the connector.
-    pub fn leaf_scripts(&self) -> Vec<ScriptBuf> {
+impl Connector for ClaimContestConnector {
+    type Witness = ClaimContestWitness;
+
+    fn network(&self) -> Network {
+        self.network
+    }
+
+    fn leaf_scripts(&self) -> Vec<ScriptBuf> {
         let mut scripts = Vec::new();
 
         for watchtower_pubkey in &self.watchtower_pubkeys {
@@ -76,81 +77,29 @@ impl ClaimContestConnector {
         scripts
     }
 
-    /// Generates the bitcoin address and taproot spending info of the connector.
-    pub fn address_and_spend_info(&self) -> (bitcoin::Address, TaprootSpendInfo) {
-        let internal_key = *UNSPENDABLE_PUBLIC_KEY;
-        let scripts = self.leaf_scripts();
-        create_taproot_addr(
-            &self.network,
-            SpendPath::Both {
-                internal_key,
-                scripts: scripts.as_slice(),
-            },
-        )
-        .expect("tap tree is valid")
-    }
-
-    /// Generates the txout of the connector.
-    pub fn tx_out(&self) -> TxOut {
-        let script_pubkey = self.address_and_spend_info().0.script_pubkey();
-        let minimal_non_dust = script_pubkey.minimal_non_dust();
+    fn value(&self) -> Amount {
+        let minimal_non_dust = self.script_pubkey().minimal_non_dust();
         // TODO (@uncomputable): Replace magic number 3 with constant from contest transaction,
         // once the code exists
-        let value = minimal_non_dust * (3 * self.n_watchtowers() as u64);
-
-        TxOut {
-            value,
-            script_pubkey,
-        }
+        minimal_non_dust * (3 * self.n_watchtowers() as u64)
     }
 
-    /// Finalizes the PSBT `input` where the connector is used, using the provided `witness`.
-    ///
-    /// # Warning
-    ///
-    /// If [`ClaimContestSpendPath::Uncontested`] is used, then the sequence of the transaction
-    /// input must be set accordingly. Also, the global locktime has to be set accordingly.
-    pub fn finalize_input(&self, input: &mut Input, witness: ClaimContestWitness) {
-        let ClaimContestWitness {
-            n_of_n_signature,
-            spend_path,
-        } = witness;
-        let taproot_spend_info = self.address_and_spend_info().1;
-        let leaf_index = match spend_path {
+    fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
+        match witness.spend_path {
             ClaimContestSpendPath::Contested {
                 watchtower_index,
-                watchtower_signature: _,
-            } => watchtower_index as usize,
-            ClaimContestSpendPath::Uncontested => self.n_watchtowers(),
-        };
-        let leaf_script = self.leaf_scripts().remove(leaf_index);
-        let script_ver = (leaf_script, LeafVersion::TapScript);
-        let control_block = taproot_spend_info
-            .control_block(&script_ver)
-            .expect("leaf script exists");
-        let leaf_script = script_ver.0;
-
-        match spend_path {
-            ClaimContestSpendPath::Contested {
-                watchtower_index: _,
                 watchtower_signature,
-            } => {
-                let witness = [
+            } => TaprootWitness::Script {
+                leaf_index: watchtower_index as usize,
+                script_inputs: vec![
                     watchtower_signature.serialize().to_vec(),
-                    n_of_n_signature.serialize().to_vec(),
-                    leaf_script.to_bytes(),
-                    control_block.serialize(),
-                ];
-                finalize_input(input, witness);
-            }
-            ClaimContestSpendPath::Uncontested => {
-                let witness = [
-                    n_of_n_signature.serialize().to_vec(),
-                    leaf_script.to_bytes(),
-                    control_block.serialize(),
-                ];
-                finalize_input(input, witness);
-            }
+                    witness.n_of_n_signature.serialize().to_vec(),
+                ],
+            },
+            ClaimContestSpendPath::Uncontested => TaprootWitness::Script {
+                leaf_index: self.n_watchtowers(),
+                script_inputs: vec![witness.n_of_n_signature.serialize().to_vec()],
+            },
         }
     }
 }
@@ -302,7 +251,7 @@ mod tests {
         let output = vec![
             TxOut {
                 value: funding_amount,
-                script_pubkey: connector.tx_out().script_pubkey,
+                script_pubkey: connector.script_pubkey(),
             },
             TxOut {
                 value: coinbase_amount - funding_amount - fees,
@@ -390,11 +339,11 @@ mod tests {
         let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
         psbt.inputs[0].witness_utxo = Some(TxOut {
             value: funding_amount,
-            script_pubkey: connector.tx_out().script_pubkey,
+            script_pubkey: connector.script_pubkey(),
         });
 
         let witness = signer.sign_leaf(leaf_index, sighash);
-        connector.finalize_input(&mut psbt.inputs[0], witness);
+        connector.finalize_input(&mut psbt.inputs[0], &witness);
         let spending_tx = psbt.extract_tx().expect("must be signed");
 
         // Broadcast spending transaction
