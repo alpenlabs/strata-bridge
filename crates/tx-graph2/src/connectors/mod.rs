@@ -2,6 +2,7 @@
 
 pub mod claim_contest_connector;
 pub mod claim_payout_connector;
+pub mod cpfp_connector;
 pub mod n_of_n_connector;
 pub mod prelude;
 
