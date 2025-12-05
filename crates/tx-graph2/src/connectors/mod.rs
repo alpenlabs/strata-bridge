@@ -3,6 +3,9 @@
 pub mod claim_contest_connector;
 pub mod prelude;
 
+#[cfg(test)]
+pub mod test_utils;
+
 use bitcoin::{
     psbt::Input,
     taproot::{LeafVersion, TaprootSpendInfo},
