@@ -1,0 +1,12 @@
+[project]
+name = "functional-tests"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = ["flexitest", "bitcoinlib>=0.7.5,<0.8", "websockets~=15.0"]
+
+[tool.uv]
+[tool.uv.sources]
+flexitest = { git = "https://codeberg.org/treyd/flexitest.git" }
+strata_utils = { path = "../crates/util/python-utils", editable = true }
