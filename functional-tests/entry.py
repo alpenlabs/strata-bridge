@@ -6,6 +6,7 @@ from factory.bitcoin import BitcoinFactory
 from factory.s2 import S2Factory
 from factory.bridge_operator import BridgeOperatorFactory
 from envs import BasicEnv
+import subprocess
 
 
 def main(argv):
@@ -14,6 +15,18 @@ def main(argv):
 
     # Create datadir.
     datadir_root = flexitest.create_datadir_in_workspace(os.path.join(root_dir, "_dd"))
+
+    # gen mtls info
+    script_file_path = os.path.abspath(
+        os.path.join(root_dir, "..", "docker", "gen_s2_tls.sh")
+    )
+
+    # generate cred
+    operator_cred = os.path.abspath(os.path.join(datadir_root, "operator_cred"))
+    s2_cred = os.path.abspath(os.path.join(datadir_root, "s2_cred"))
+    subprocess.run(
+        ["bash", script_file_path, operator_cred, s2_cred, "127.0.0.1"], check=True
+    )
 
     # Probe tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
