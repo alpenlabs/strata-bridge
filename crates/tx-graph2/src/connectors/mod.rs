@@ -5,6 +5,7 @@ pub mod claim_payout_connector;
 pub mod cpfp_connector;
 pub mod n_of_n_connector;
 pub mod prelude;
+pub mod timelocked_n_of_nr;
 
 #[cfg(test)]
 pub mod test_utils;
