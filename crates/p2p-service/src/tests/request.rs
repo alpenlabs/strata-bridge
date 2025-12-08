@@ -3,8 +3,10 @@
 use anyhow::bail;
 use futures::SinkExt;
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
-use p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
-use prost::Message;
+use p2p_wire::p2p::v1::{
+    ArchivedGetMessageRequest, ArchivedGossipsubMsg, GetMessageRequest, GossipsubMsg,
+    UnsignedGossipsubMsg,
+};
 use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_p2p::{
     commands::{GossipCommand, RequestResponseCommand},
@@ -83,11 +85,14 @@ async fn request_response() -> anyhow::Result<()> {
     };
 
     // Send stake chain request and handle response from the last operator
+    let mut data = Vec::new();
+    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&command_stake_chain, &mut data)
+        .expect("must be able to serialize get message request to archived data");
     operators[OPERATORS_NUM - 1]
         .req_resp_handle
         .send(RequestResponseCommand {
             target_transport_id: command_stake_chain.peer_id(),
-            data: command_stake_chain.into_msg().encode_to_vec(),
+            data,
         })
         .await?;
 
@@ -99,8 +104,11 @@ async fn request_response() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no req_resp_handle event"))?;
     match event {
         ReqRespEvent::ReceivedRequest(raw_request, _) => {
-            let request = prost::Message::decode(raw_request.as_slice())
-                .and_then(GetMessageRequest::from_msg)?;
+            let archived =
+                rkyv::access::<ArchivedGetMessageRequest, rkyv::rancor::Error>(&raw_request)
+                    .expect("must be able to access archived data");
+            let request = rkyv::deserialize::<GetMessageRequest, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize archived data");
             match request {
                 GetMessageRequest::StakeChainExchange {
                     stake_chain_id: req_stake_chain_id,
@@ -108,7 +116,10 @@ async fn request_response() -> anyhow::Result<()> {
                 } if req_stake_chain_id == stake_chain_id && req_operator_pk == operator_pk => {
                     // Construct and send response
                     let mock_msg = mock_stake_chain_info(&operators[0].kp.clone(), stake_chain_id);
-                    let data = GossipsubMsg::from(mock_msg).into_raw().encode_to_vec();
+                    let msg = GossipsubMsg::from(mock_msg);
+                    let mut data = Vec::new();
+                    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+                        .expect("must be able to serialize gossipsub message to archived data");
                     operators[0]
                         .gossip_handle
                         .send(GossipCommand { data })
@@ -127,7 +138,10 @@ async fn request_response() -> anyhow::Result<()> {
         .await?;
     match event {
         GossipEvent::ReceivedMessage(raw_msg) => {
-            let msg = GossipsubMsg::from_bytes(&raw_msg)?;
+            let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+                .expect("must be able to access archived data");
+            let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize archived data");
             match &msg.unsigned {
                 UnsignedGossipsubMsg::StakeChainExchange {
                     stake_chain_id: received_id,
@@ -141,11 +155,14 @@ async fn request_response() -> anyhow::Result<()> {
     }
 
     // Send deposit setup request and handle response from the last operator
+    let mut data = Vec::new();
+    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&command_deposit_setup, &mut data)
+        .expect("must be able to serialize get message request to archived data");
     operators[OPERATORS_NUM - 1]
         .req_resp_handle
         .send(RequestResponseCommand {
             target_transport_id: command_deposit_setup.peer_id(),
-            data: command_deposit_setup.into_msg().encode_to_vec(),
+            data,
         })
         .await?;
 
@@ -157,8 +174,11 @@ async fn request_response() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no req_resp_handle event"))?;
     match event {
         ReqRespEvent::ReceivedRequest(raw_request, _) => {
-            let request = prost::Message::decode(raw_request.as_slice())
-                .and_then(GetMessageRequest::from_msg)?;
+            let archived =
+                rkyv::access::<ArchivedGetMessageRequest, rkyv::rancor::Error>(&raw_request)
+                    .expect("must be able to access archived data");
+            let request = rkyv::deserialize::<GetMessageRequest, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize archived data");
             match request {
                 GetMessageRequest::DepositSetup {
                     scope: req_scope,
@@ -166,7 +186,10 @@ async fn request_response() -> anyhow::Result<()> {
                 } if req_scope == scope && req_operator_pk == operator_pk => {
                     // Construct and send response
                     let mock_msg = mock_deposit_setup(&operators[0].kp.clone(), scope);
-                    let data = GossipsubMsg::from(mock_msg).into_raw().encode_to_vec();
+                    let msg = GossipsubMsg::from(mock_msg);
+                    let mut data = Vec::new();
+                    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+                        .expect("must be able to serialize gossipsub message to archived data");
                     operators[0]
                         .gossip_handle
                         .send(GossipCommand { data })
@@ -183,7 +206,10 @@ async fn request_response() -> anyhow::Result<()> {
         .gossip_handle
         .next_event()
         .await?;
-    let msg = GossipsubMsg::from_bytes(raw_msg.as_slice())?;
+    let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+        .expect("must be able to access archived data");
+    let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+        .expect("must be able to deserialize archived data");
     match &msg.unsigned {
         UnsignedGossipsubMsg::DepositSetup {
             scope: received_scope,
@@ -195,11 +221,14 @@ async fn request_response() -> anyhow::Result<()> {
     }
 
     // Send deposit nonces request and handle response from the last operator
+    let mut data = Vec::new();
+    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&command_deposit_nonces, &mut data)
+        .expect("must be able to serialize get message request to archived data");
     operators[OPERATORS_NUM - 1]
         .req_resp_handle
         .send(RequestResponseCommand {
             target_transport_id: command_deposit_nonces.peer_id(),
-            data: command_deposit_nonces.into_msg().encode_to_vec(),
+            data,
         })
         .await?;
 
@@ -211,8 +240,11 @@ async fn request_response() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no req_resp_handle event"))?;
     match event {
         ReqRespEvent::ReceivedRequest(raw_request, _) => {
-            let request = prost::Message::decode(raw_request.as_slice())
-                .and_then(GetMessageRequest::from_msg)?;
+            let archived =
+                rkyv::access::<ArchivedGetMessageRequest, rkyv::rancor::Error>(&raw_request)
+                    .expect("must be able to access archived data");
+            let request = rkyv::deserialize::<GetMessageRequest, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize archived data");
             match request {
                 GetMessageRequest::Musig2NoncesExchange {
                     session_id: req_session_id,
@@ -220,7 +252,10 @@ async fn request_response() -> anyhow::Result<()> {
                 } if req_session_id == session_id && req_operator_pk == operator_pk => {
                     // Construct and send response
                     let mock_msg = mock_deposit_nonces(&operators[0].kp.clone(), session_id);
-                    let data = GossipsubMsg::from(mock_msg).into_raw().encode_to_vec();
+                    let msg = GossipsubMsg::from(mock_msg);
+                    let mut data = Vec::new();
+                    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+                        .expect("must be able to serialize gossipsub message to archived data");
                     operators[0]
                         .gossip_handle
                         .send(GossipCommand { data })
@@ -237,7 +272,10 @@ async fn request_response() -> anyhow::Result<()> {
         .gossip_handle
         .next_event()
         .await?;
-    let msg = GossipsubMsg::from_bytes(&raw_msg)?;
+    let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+        .expect("must be able to access archived data");
+    let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+        .expect("must be able to deserialize archived data");
     match &msg.unsigned {
         UnsignedGossipsubMsg::Musig2NoncesExchange {
             session_id: received_session_id,
@@ -249,11 +287,14 @@ async fn request_response() -> anyhow::Result<()> {
     }
 
     // Send deposit signatures request and handle response from the last operator
+    let mut data = Vec::new();
+    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&command_deposit_sigs, &mut data)
+        .expect("must be able to serialize get message request to archived data");
     operators[OPERATORS_NUM - 1]
         .req_resp_handle
         .send(RequestResponseCommand {
             target_transport_id: command_deposit_sigs.peer_id(),
-            data: command_deposit_sigs.into_msg().encode_to_vec(),
+            data,
         })
         .await?;
 
@@ -265,8 +306,11 @@ async fn request_response() -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no req_resp_handle event"))?;
     match event {
         ReqRespEvent::ReceivedRequest(raw_request, _) => {
-            let request = prost::Message::decode(raw_request.as_slice())
-                .and_then(GetMessageRequest::from_msg)?;
+            let archived =
+                rkyv::access::<ArchivedGetMessageRequest, rkyv::rancor::Error>(&raw_request)
+                    .expect("must be able to access archived data");
+            let request = rkyv::deserialize::<GetMessageRequest, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize archived data");
             match request {
                 GetMessageRequest::Musig2SignaturesExchange {
                     session_id: req_session_id,
@@ -274,7 +318,10 @@ async fn request_response() -> anyhow::Result<()> {
                 } if req_session_id == session_id && req_operator_pk == operator_pk => {
                     // Construct and send response
                     let mock_msg = mock_deposit_sigs(&operators[0].kp.clone(), session_id);
-                    let data = GossipsubMsg::from(mock_msg).into_raw().encode_to_vec();
+                    let msg = GossipsubMsg::from(mock_msg);
+                    let mut data = Vec::new();
+                    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+                        .expect("must be able to serialize gossipsub message to archived data");
                     operators[0]
                         .gossip_handle
                         .send(GossipCommand { data })
@@ -291,7 +338,10 @@ async fn request_response() -> anyhow::Result<()> {
         .gossip_handle
         .next_event()
         .await?;
-    let msg = GossipsubMsg::from_bytes(&raw_msg)?;
+    let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+        .expect("must be able to access archived data");
+    let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+        .expect("must be able to deserialize archived data");
     match &msg.unsigned {
         UnsignedGossipsubMsg::Musig2SignaturesExchange {
             session_id: received_session_id,

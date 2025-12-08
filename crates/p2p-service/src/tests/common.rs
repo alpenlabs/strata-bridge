@@ -14,8 +14,7 @@ use libp2p::{
     Multiaddr, PeerId,
 };
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
-use prost::Message;
+use p2p_wire::p2p::v1::{ArchivedGossipsubMsg, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
 use strata_p2p::{
     commands::GossipCommand,
@@ -307,14 +306,20 @@ pub(crate) async fn exchange_stake_chain_info(
 ) -> anyhow::Result<()> {
     for operator in operators.iter_mut() {
         let msg = mock_stake_chain_info(&operator.kp, stake_chain_id);
-        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        let msg = GossipsubMsg::from(msg);
+        let mut data = Vec::new();
+        rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+            .expect("must be able to serialize msg");
         operator.gossip_handle.send(GossipCommand { data }).await?;
     }
     for operator in operators.iter_mut() {
         // received stake chain info from other n-1 operators
         for _ in 0..operators_num - 1 {
             let GossipEvent::ReceivedMessage(raw_msg) = operator.gossip_handle.next_event().await?;
-            let msg = GossipsubMsg::from_bytes(&raw_msg)?;
+            let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+                .expect("must be able to deserialize msg");
+            let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize msg");
 
             if !matches!(
                 msg,
@@ -340,14 +345,20 @@ pub(crate) async fn exchange_deposit_setup(
 ) -> anyhow::Result<()> {
     for operator in operators.iter_mut() {
         let msg = mock_deposit_setup(&operator.kp, scope);
-        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        let msg = GossipsubMsg::from(msg);
+        let mut data = Vec::new();
+        rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+            .expect("must be able to serialize msg");
         operator.gossip_handle.send(GossipCommand { data }).await?;
     }
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
             let GossipEvent::ReceivedMessage(raw_msg) =
                 operator.gossip_handle.next_event().await.unwrap();
-            let msg = GossipsubMsg::from_bytes(&raw_msg).unwrap();
+            let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+                .expect("must be able to deserialize msg");
+            let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize msg");
             if !matches!(
                 msg,
                 GossipsubMsg {
@@ -371,14 +382,20 @@ pub(crate) async fn exchange_deposit_nonces(
 ) -> anyhow::Result<()> {
     for operator in operators.iter_mut() {
         let msg = mock_deposit_nonces(&operator.kp, session_id);
-        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        let msg = GossipsubMsg::from(msg);
+        let mut data = Vec::new();
+        rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+            .expect("must be able to serialize msg");
         operator.gossip_handle.send(GossipCommand { data }).await?;
     }
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
             let GossipEvent::ReceivedMessage(raw_msg) =
                 operator.gossip_handle.next_event().await.unwrap();
-            let msg = GossipsubMsg::from_bytes(&raw_msg).unwrap();
+            let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+                .expect("must be able to deserialize msg");
+            let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize msg");
             if !matches!(
                 msg,
                 GossipsubMsg {
@@ -402,7 +419,10 @@ pub(crate) async fn exchange_deposit_sigs(
 ) -> anyhow::Result<()> {
     for operator in operators.iter_mut() {
         let msg = mock_deposit_sigs(&operator.kp, session_id);
-        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        let msg = GossipsubMsg::from(msg);
+        let mut data = Vec::new();
+        rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+            .expect("must be able to serialize msg");
         operator.gossip_handle.send(GossipCommand { data }).await?;
     }
 
@@ -410,7 +430,10 @@ pub(crate) async fn exchange_deposit_sigs(
         for _ in 0..operators_num - 1 {
             let GossipEvent::ReceivedMessage(raw_msg) =
                 operator.gossip_handle.next_event().await.unwrap();
-            let msg = GossipsubMsg::from_bytes(&raw_msg).unwrap();
+            let archived = rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg)
+                .expect("must be able to deserialize msg");
+            let msg = rkyv::deserialize::<GossipsubMsg, rkyv::rancor::Error>(archived)
+                .expect("must be able to deserialize msg");
             if !matches!(
                 msg,
                 GossipsubMsg {

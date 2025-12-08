@@ -10,7 +10,18 @@ use libp2p_identity::secp256k1::PublicKey;
 ///
 /// De facto this is a wrapper over [`PublicKey`].
 #[derive(
-    serde::Serialize, serde::Deserialize, Debug, Clone, Eq, PartialEq, Hash, Ord, PartialOrd,
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    Eq,
+    PartialEq,
+    Hash,
+    Ord,
+    PartialOrd,
+    rkyv::Archive,
+    rkyv::Serialize,
+    rkyv::Deserialize,
 )]
 pub struct P2POperatorPubKey(#[serde(with = "hex::serde")] Vec<u8>);
 

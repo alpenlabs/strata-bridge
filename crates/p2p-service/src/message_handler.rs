@@ -342,8 +342,8 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 pre_stake_vout,
             } => UnsignedGossipsubMsg::StakeChainExchange {
                 stake_chain_id,
-                operator_pk,
-                pre_stake_txid,
+                operator_pk: operator_pk.into(),
+                pre_stake_txid: pre_stake_txid.into(),
                 pre_stake_vout,
             },
 
@@ -358,10 +358,10 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
             } => UnsignedGossipsubMsg::DepositSetup {
                 scope,
                 index,
-                hash,
-                funding_txid,
+                hash: hash.into(),
+                funding_txid: funding_txid.into(),
                 funding_vout,
-                operator_pk,
+                operator_pk: operator_pk.into(),
                 wots_pks,
             },
 
@@ -370,7 +370,7 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 pub_nonces,
             } => UnsignedGossipsubMsg::Musig2NoncesExchange {
                 session_id,
-                nonces: pub_nonces,
+                nonces: pub_nonces.into_iter().map(Into::into).collect(),
             },
 
             UnsignedPublishMessage::Musig2SignaturesExchange {
@@ -378,7 +378,7 @@ impl From<UnsignedPublishMessage> for UnsignedGossipsubMsg {
                 partial_sigs,
             } => UnsignedGossipsubMsg::Musig2SignaturesExchange {
                 session_id,
-                signatures: partial_sigs,
+                signatures: partial_sigs.into_iter().map(Into::into).collect(),
             },
         }
     }
