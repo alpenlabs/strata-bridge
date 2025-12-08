@@ -5,7 +5,7 @@ import sys
 
 import flexitest
 
-from envs import BasicEnv
+from envs import BasicEnv, BridgeNetworkEnv
 from factory.bitcoin import BitcoinFactory
 from factory.bridge_operator import BridgeOperatorFactory
 from factory.s2 import S2Factory
@@ -28,12 +28,11 @@ def main(argv):
         os.path.join(root_dir, "..", "docker", "gen_s2_tls.sh")
     )
 
-    # generate cred
-    operator_cred = os.path.abspath(os.path.join(datadir_root, "operator_cred"))
-    s2_cred = os.path.abspath(os.path.join(datadir_root, "s2_cred"))
-    subprocess.run(
-        ["bash", gen_s2_tls_script_path, operator_cred, s2_cred, "127.0.0.1"], check=True
-    )
+    # generate mtls cred
+    generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 0)
+    generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 1)
+    generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 2)
+    # generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 3)
 
     # Probe tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
@@ -45,9 +44,12 @@ def main(argv):
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
     factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac}
 
+    p2p_gen = generate_p2p_ports()
+
     # Register envs
-    basic_env = BasicEnv()
-    env_configs = {"basic": basic_env}
+    basic_env = BasicEnv(num_operators=1, p2p_port_generator=p2p_gen)
+    network_env = BridgeNetworkEnv(num_operators=3, p2p_port_generator=p2p_gen)
+    env_configs = {"basic": basic_env ,"network":network_env}
 
     # Set up the runtime and prepare tests.
     rt = flexitest.TestRuntime(env_configs, datadir_root, factories)
@@ -63,6 +65,30 @@ def main(argv):
     flexitest.dump_results(results)
     flexitest.fail_on_error(results)
     return 0
+
+
+def generate_p2p_ports(start_port=12600):
+    """P2P port generator to avoid port conflicts."""
+    port = start_port
+    while True:
+        yield f"/ip4/127.0.0.1/tcp/{port}"
+        port += 1
+
+
+def generate_mtls_credentials(gen_script_path: str, datadir_root: str, operator_index: int) -> None:
+    """
+    Generate credentials for an operator using the gen_s2_tls.sh script.
+
+    Args:
+        gen_script_path: Path to the gen_s2_tls.sh script
+        datadir_root: Root directory for data files
+        operator_index: Operator index to generate credentials for
+    """
+    operator_dir = os.path.join(datadir_root, f"mtls_cred/operator_{operator_index}")
+    bridge_node_path = os.path.abspath(os.path.join(operator_dir, "bridge_node"))
+    secret_service_path = os.path.abspath(os.path.join(operator_dir, "secret_service"))
+    cmd = ["bash", gen_script_path, bridge_node_path, secret_service_path, "127.0.0.1"]
+    subprocess.run(cmd, check=True)
 
 
 def migrate_migrations(root_dir: str) -> None:
