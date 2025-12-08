@@ -314,12 +314,18 @@ fn read_cert(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
     }
 }
 
+/// Results of initializing the P2P system.
 #[derive(Debug)]
 struct P2PHandles {
+    /// Handle to send commands to the P2P swarm.
     command_handle: CommandHandle,
+    /// Handle to the gossip subsystem.
     gossip_handle: GossipHandle,
+    /// Handle to the request-response subsystem.
     req_resp_handle: ReqRespHandle,
+    /// Task handle for the p2p node listener.
     listen_task: JoinHandle<()>,
+    /// [`Keypair`] used as [`PeerId`].
     keypair: Keypair,
 }
 
