@@ -1,23 +1,20 @@
 # Tests server can start correctly
 
 import flexitest
-import time
+from utils.utils import wait_until_bridge_ready
 
 
 @flexitest.register
-class Test(flexitest.Test):
+class BridgeRpcTest(flexitest.Test):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env("basic")
 
     def main(self, ctx: flexitest.RunContext):
         bo = ctx.get_service("bo")
-        time.sleep(6)
         borpc = bo.create_rpc()
+        wait_until_bridge_ready(borpc)
 
         operators = borpc.stratabridge_bridgeOperators()
-        operator = operators[0]
-
-        op_info = borpc.stratabridge_operatorStatus(operator)
-        print("op info: ", op_info)
+        assert len(operators) == 1
 
         return True
