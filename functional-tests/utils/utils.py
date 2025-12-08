@@ -31,3 +31,66 @@ def generate_task(rpc: BitcoindClient, wait_dur, addr):
         except Exception as ex:
             logging.warning(f"{ex} while generating to address {addr}")
             return
+
+
+def wait_until(
+    condition,
+    timeout: int = 120,
+    step: int = 1,
+    error_msg: str = "Condition not met within timeout",
+):
+    """
+    Generic wait function that polls a condition until it's met or timeout occurs.
+
+    Args:
+        condition: A callable that returns True when the condition is met.
+        timeout: Timeout in seconds (default: 120).
+        step: Poll interval in seconds (default: 1).
+        error_msg: Custom error message for timeout.
+    """
+    end_time = time.time() + timeout
+
+    while time.time() < end_time:
+        time.sleep(step)  # sleep first
+
+        try:
+            if condition():
+                return
+        except Exception:
+            pass
+
+    raise TimeoutError(f"{error_msg} (timeout: {timeout}s)")
+
+
+def wait_until_bridge_ready(rpc_client, timeout: int = 120, step: int = 1):
+    """
+    Waits until the bridge client reports readiness.
+
+    Args:
+        rpc_client: The RPC client to check for readiness
+        timeout: Timeout in seconds (default 120 seconds)
+        step: Poll interval in seconds (default 1 second)
+    """
+    wait_until(
+        lambda: rpc_client.stratabridge_uptime() is not None,
+        timeout=timeout,
+        step=step,
+        error_msg="Bridge did not start within timeout",
+    )
+
+
+def wait_until_bitcoind_ready(rpc_client, timeout: int = 120, step: int = 1):
+    """
+    Waits until the bitcoin client reports readiness.
+
+    Args:
+        rpc_client: The RPC client to check for readiness
+        timeout: Timeout in seconds (default 120 seconds)
+        step: Poll interval in seconds (default 1 second)
+    """
+    wait_until(
+        lambda: rpc_client.proxy.getblockcount() is not None,
+        timeout=timeout,
+        step=step,
+        error_msg="Bitcoind did not start within timeout",
+    )

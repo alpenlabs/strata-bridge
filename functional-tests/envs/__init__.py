@@ -1,6 +1,9 @@
 import flexitest
-from utils import generate_blocks, BLOCK_GENERATION_INTERVAL_SECS
-import time
+from utils import (
+    generate_blocks,
+    BLOCK_GENERATION_INTERVAL_SECS,
+    wait_until_bitcoind_ready,
+)
 
 
 class BasicEnv(flexitest.EnvConfig):
@@ -20,14 +23,15 @@ class BasicEnv(flexitest.EnvConfig):
         svcs["s2"] = s2
 
         bitcoind = btc_fac.create_regtest_bitcoin()
-        # automie blocks
-        time.sleep(1)
         brpc = bitcoind.create_rpc()
+        wait_until_bitcoind_ready(brpc, timeout=10)
+
         # mine 101 blocks to have some usable funds
         brpc.proxy.generatetoaddress(
             101, "bcrt1pz3lhscydysketvdtdw57320wqeflea8avz3vwxvhlg64cse558lqkyycgz"
         )
-        time.sleep(1)
+
+        # automie blocks
         generate_blocks(
             brpc,
             BLOCK_GENERATION_INTERVAL_SECS,

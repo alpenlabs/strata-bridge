@@ -1,7 +1,6 @@
 import sys
 import os
 import flexitest
-import time
 from utils import TEST_DIR
 from factory.bitcoin import BitcoinFactory
 from factory.s2 import S2Factory
@@ -10,7 +9,6 @@ from envs import BasicEnv
 
 
 def main(argv):
-    print("Sid got here")
     root_dir = os.path.dirname(os.path.abspath(__file__))
     test_dir = os.path.join(root_dir, TEST_DIR)
 
@@ -24,7 +22,7 @@ def main(argv):
     bfac = BitcoinFactory([12300 + i for i in range(100)])
     s2fac = S2Factory([12400 + i for i in range(100)])
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
-    factories = {"bitcoin": bfac, "s2": s2fac, "bofac":bofac}
+    factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac}
 
     basic_env = BasicEnv()
     env_configs = {"basic": basic_env}
