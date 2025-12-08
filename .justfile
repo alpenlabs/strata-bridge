@@ -2,6 +2,8 @@
 git_tag := `git describe --tags --abbrev=0 2>/dev/null || echo "no-tag"`
 timestamp := `date +%s`
 build_path := "target"
+functional_tests_dir := "functional-tests"
+functional_tests_datadir := "_dd"
 docker_dir := "docker"
 docker_datadir := "data"
 profile := env("PROFILE", "dev")
@@ -162,6 +164,16 @@ ensure-taplo:
     #!/usr/bin/env bash
     if ! command -v taplo &> /dev/null; then
         echo "taplo not found. Please install it by following the instructions from: https://taplo.tamasfe.dev/cli/installation/binary.html"
+        exit 1
+    fi
+
+# Check if uv is installed
+[group('prerequisites')]
+ensure-uv:
+    #!/usr/bin/env bash
+    if ! command -v uv &> /dev/null;
+    then
+        echo "uv not found. Please install it by following the instructions from: https://docs.astral.sh/uv/"
         exit 1
     fi
 
@@ -395,3 +407,20 @@ leak-deposit-setup:
     done
     sleep 10
     docker compose start bridge-{1,2,3}
+
+
+# Activate uv environment for integration tests
+[group('functional-tests')]
+activate-uv: ensure-uv
+    cd {{functional_tests_dir}} && uv venv --clear
+    @if [ -n "${FISH_VERSION:-}" ]; then source {{functional_tests_dir}}/.venv/bin/activate.fish; else source {{functional_tests_dir}}/.venv/bin/activate; fi
+
+# Remove the data directory used by functional tests
+[group('functional-tests')]
+clean-dd:
+    rm -rf {{functional_tests_dir}}/{{functional_tests_datadir}} 2>/dev/null || true
+
+# Runs functional tests
+[group('functional-tests')]
+test-functional: ensure-uv activate-uv clean-dd
+    cd {{functional_tests_dir}} && ./run_test.sh
