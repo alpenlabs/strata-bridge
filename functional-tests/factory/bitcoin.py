@@ -46,6 +46,7 @@ class BitcoinFactory(flexitest.Factory):
         props = {
             "rpc_user": BD_USERNAME,
             "rpc_password": BD_PASSWORD,
+            "walletname": "testwallet",
         }
 
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile)

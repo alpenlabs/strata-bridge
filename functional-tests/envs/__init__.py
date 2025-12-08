@@ -26,20 +26,30 @@ class BasicEnv(flexitest.EnvConfig):
         brpc = bitcoind.create_rpc()
         wait_until_bitcoind_ready(brpc, timeout=10)
 
+
+        # create new wallet
+        brpc.proxy.createwallet(bitcoind.get_prop("walletname"))
+        wallet_addr = brpc.proxy.getnewaddress()
+
         # mine 101 blocks to have some usable funds
         brpc.proxy.generatetoaddress(
-            101, "bcrt1pz3lhscydysketvdtdw57320wqeflea8avz3vwxvhlg64cse558lqkyycgz"
+            101, wallet_addr
         )
 
         # automie blocks
         generate_blocks(
             brpc,
             BLOCK_GENERATION_INTERVAL_SECS,
-            "bcrt1pz3lhscydysketvdtdw57320wqeflea8avz3vwxvhlg64cse558lqkyycgz",
+            wallet_addr,
         )
         svcs["bitcoin"] = bitcoind
 
         # run the bridge
         bo = bo_fac.create_server("bridge")
         svcs["bo"] = bo
+
+        # fund stakechain wallet
+        sc_wallet_address = bo.get_prop("sc_wallet_address")
+        brpc.proxy.sendtoaddress(sc_wallet_address, 10.01)
+
         return flexitest.LiveEnv(svcs)

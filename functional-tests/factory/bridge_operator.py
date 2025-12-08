@@ -1,6 +1,7 @@
 import os
 import flexitest
 from rpc import inject_service_create_rpc
+from utils.constants import WALLETS
 
 
 class BridgeOperatorFactory(flexitest.Factory):
@@ -24,7 +25,8 @@ class BridgeOperatorFactory(flexitest.Factory):
         rpc_url = "http://0.0.0.0:5678"
         props = {
             "rpc_port": rpc_port,
-            "logfile": logfile_path
+            "logfile": logfile_path,
+            "sc_wallet_address":WALLETS["OP1"]["STAKE_CHAIN_WALLET"],
         }
 
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile_path)
