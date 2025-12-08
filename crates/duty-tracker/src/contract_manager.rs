@@ -273,7 +273,7 @@ impl ContractManager {
                     ouroboros_msg = ouroboros_msg_receiver.recv() => match ouroboros_msg {
                         Some(msg) => {
                             match ctx.process_unsigned_gossip_msg(
-                                msg.clone().into(),
+                                msg.publish.clone().into(),
                                 cfg.operator_table.pov_p2p_key().clone(),
                                 cfg.operator_table.pov_idx()
                             ).await {
@@ -287,9 +287,20 @@ impl ContractManager {
                                         duties.extend(ouroboros_duties);
                                     }
 
+                                    // If peer is specified, then send only to that peer. Otherwise
+                                    // broadcast the message.
+                                    if let Some(peer) = msg.peer {
+                                        let msg = UnsignedGossipsubMsg::from(msg.publish);
+                                        let data = msg.content();
+                                        if peer.send(data).is_err() {
+                                            error!("failed to send ouroboros message to peer");
+                                        }
+                                        continue;
+                                    }
+
                                     // If we successfully handle the processing of our message, we
                                     // can forward it to the rest of the p2p network.
-                                    let signed = msg.sign_secp256k1(&keypair);
+                                    let signed = msg.publish.sign_secp256k1(&keypair);
                                     let data = GossipsubMsg::from(signed).into_raw().encode_to_vec();
                                     if let Err(e) = gossip_handle.send(GossipCommand { data }).await {
                                         error!(%e, "failed to forward ouroboros message to gossip handler");
@@ -335,7 +346,7 @@ impl ContractManager {
                         Some(req) => {
                             if req.operator_pubkey() == cfg.operator_table.pov_p2p_key() {
                                 // Peel off requests that were directed at ourselves.
-                                match ctx.process_p2p_request(req.clone()).await {
+                                match ctx.process_p2p_request(req.clone(), None).await {
                                     Ok(p2p_req_duties) => {
                                         duties.extend(p2p_req_duties);
                                     },
@@ -443,20 +454,20 @@ impl ContractManager {
                         }
                     },
 
-                    Some(ReqRespEvent::ReceivedRequest(raw_req, sender)) = req_resp_handle.next_event() => {
+                    Some(ReqRespEvent::ReceivedRequest(raw_req, peer)) = req_resp_handle.next_event() => {
                         match Message::decode(raw_req.as_slice()).and_then(GetMessageRequest::from_msg) {
                             Ok(req) => {
-                                match ctx.process_p2p_request(req.clone()).await {
+                                match ctx.process_p2p_request(req.clone(), Some(peer)).await {
                                     Ok(p2p_duties) => duties.extend(p2p_duties),
                                     Err(e) => {
-                                        error!(?req, ?sender, %e, "failed to process p2p request");
+                                        error!(?req, %e, "failed to process p2p request");
                                         // in case an error occurs, the requester will just nag again
                                         // so no need to break out of the event loop
                                     },
                                 }
                             }
                             Err(e) => {
-                                error!(%e, ?sender, "failed to decode p2p request");
+                                error!(%e, "failed to decode p2p request");
                             }
                         }
                     },
@@ -487,8 +498,9 @@ impl ContractManager {
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
-                    if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
-                        error!(%e, %duty, "failed to execute duty");
+                    let duty_str = duty.to_string();
+                    if let Err(e) = execute_duty(cfg, output_handles, duty).await {
+                        error!(%e, duty=duty_str, "failed to execute duty");
                     }
                 }
             }
@@ -725,6 +737,7 @@ impl ContractManagerCtx {
                     deposit_txid: cfg.deposit_tx.compute_txid(),
                     deposit_idx: cfg.deposit_idx,
                     stake_chain_inputs,
+                    peer: None,
                 };
 
                 let sm = ContractSM::new(
@@ -1208,33 +1221,38 @@ impl ContractManagerCtx {
     async fn process_p2p_request(
         &mut self,
         req: GetMessageRequest,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         match req {
             GetMessageRequest::StakeChainExchange { .. } => {
-                Ok(self.process_stake_chain_exchange_request())
+                Ok(self.process_stake_chain_exchange_request(peer))
             }
             GetMessageRequest::DepositSetup { scope, .. } => {
-                self.process_deposit_setup_request(scope)
+                self.process_deposit_setup_request(scope, peer)
             }
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
-                self.process_musig2_nonces_exchange_request(session_id)
+                self.process_musig2_nonces_exchange_request(session_id, peer)
             }
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
-                self.process_musig2_signatures_exchange_request(session_id)
+                self.process_musig2_signatures_exchange_request(session_id, peer)
             }
         }
     }
 
-    fn process_stake_chain_exchange_request(&self) -> Option<OperatorDuty> {
+    fn process_stake_chain_exchange_request(
+        &self,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) -> Option<OperatorDuty> {
         info!("received request for stake chain exchange");
         // TODO(proofofkeags): actually choose the correct stake chain
         // inputs based off the stake chain id we receive.
-        Some(OperatorDuty::PublishStakeChainExchange)
+        Some(OperatorDuty::PublishStakeChainExchange(peer))
     }
 
     fn process_deposit_setup_request(
         &self,
         scope: Scope,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let deposit_txid = Txid::from_byte_array(*scope.as_ref());
 
@@ -1257,6 +1275,7 @@ impl ContractManagerCtx {
                 deposit_txid,
                 deposit_idx,
                 stake_chain_inputs,
+                peer,
             }))
         } else {
             warn!(%deposit_txid, "received deposit setup request for unknown contract");
@@ -1272,6 +1291,7 @@ impl ContractManagerCtx {
     fn process_musig2_nonces_exchange_request(
         &mut self,
         session_id: SessionId,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
@@ -1280,7 +1300,7 @@ impl ContractManagerCtx {
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
             if let Some(csm) = self.state.active_contracts.get(deposit_txid) {
-                return Self::process_graph_nonces_request(session_id_as_txid, csm);
+                return Self::process_graph_nonces_request(session_id_as_txid, csm, peer);
             }
         }
 
@@ -1291,7 +1311,11 @@ impl ContractManagerCtx {
             .values()
             .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
         {
-            Ok(Self::process_root_nonces_request(session_id_as_txid, csm))
+            Ok(Self::process_root_nonces_request(
+                session_id_as_txid,
+                csm,
+                peer,
+            ))
         } else {
             // otherwise ignore this message.
             warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
@@ -1302,6 +1326,7 @@ impl ContractManagerCtx {
     fn process_graph_nonces_request(
         claim_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         info!(%claim_txid, "received request for graph nonces");
 
@@ -1344,6 +1369,7 @@ impl ContractManagerCtx {
                 pog_prevouts,
                 pog_witnesses,
                 nonces: existing_nonces,
+                peer,
             }))
         } else {
             warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1354,6 +1380,7 @@ impl ContractManagerCtx {
     fn process_root_nonces_request(
         deposit_request_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Option<OperatorDuty> {
         info!(%deposit_request_txid, "received nag for root nonces");
 
@@ -1379,6 +1406,7 @@ impl ContractManagerCtx {
                 deposit_request_txid,
                 witness,
                 nonce: existing_nonce,
+                peer,
             })
         } else {
             warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1389,6 +1417,7 @@ impl ContractManagerCtx {
     fn process_musig2_signatures_exchange_request(
         &mut self,
         session_id: SessionId,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
@@ -1397,7 +1426,12 @@ impl ContractManagerCtx {
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
             if let Some(csm) = self.state.active_contracts.get(deposit_txid) {
-                return Self::process_graph_signatures_request(&self.cfg, session_id_as_txid, csm);
+                return Self::process_graph_signatures_request(
+                    &self.cfg,
+                    session_id_as_txid,
+                    csm,
+                    peer,
+                );
             }
         }
 
@@ -1411,6 +1445,7 @@ impl ContractManagerCtx {
             Ok(Self::process_root_signatures_request(
                 session_id_as_txid,
                 csm,
+                peer,
             ))
         } else {
             // otherwise ignore this message.
@@ -1423,6 +1458,7 @@ impl ContractManagerCtx {
         cfg: &ExecutionConfig,
         claim_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         if let ContractState::Requested {
             peg_out_graph_inputs,
@@ -1479,6 +1515,7 @@ impl ContractManagerCtx {
                 pog_sighashes,
                 witnesses: pog_witnesses,
                 partial_signatures: existing_partials,
+                peer,
             }))
         } else {
             warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1489,6 +1526,7 @@ impl ContractManagerCtx {
     fn process_root_signatures_request(
         deposit_request_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Option<OperatorDuty> {
         info!(%deposit_request_txid, "received nag for root signatures");
 
@@ -1521,6 +1559,7 @@ impl ContractManagerCtx {
                 sighash,
                 witness,
                 partial_signature: existing_partial,
+                peer,
             })
         } else {
             warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1766,25 +1805,36 @@ async fn execute_duty(
         error!(%error, "failed to execute {duty_description}");
     };
     match duty {
-        OperatorDuty::PublishStakeChainExchange => {
-            handle_publish_stake_chain_exchange(&cfg, &outs.s2_client, &outs.db, &outs.msg_handler)
-                .await
-                .inspect_err(log_error)
-        }
+        OperatorDuty::PublishStakeChainExchange(peer) => handle_publish_stake_chain_exchange(
+            &cfg,
+            &outs.s2_client,
+            &outs.db,
+            &outs.msg_handler,
+            peer,
+        )
+        .await
+        .inspect_err(log_error),
 
         OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
             stake_chain_inputs,
-        } => {
-            handle_publish_deposit_setup(&cfg, outs, deposit_txid, deposit_idx, stake_chain_inputs)
-                .await
-                .inspect_err(log_error)
-        }
+            peer,
+        } => handle_publish_deposit_setup(
+            &cfg,
+            outs,
+            deposit_txid,
+            deposit_idx,
+            stake_chain_inputs,
+            peer,
+        )
+        .await
+        .inspect_err(log_error),
         OperatorDuty::PublishRootNonce {
             deposit_request_txid,
             witness,
             nonce,
+            peer,
         } => handle_publish_root_nonce(
             &outs.s2_client,
             cfg.operator_table
@@ -1796,6 +1846,7 @@ async fn execute_duty(
             OutPoint::new(deposit_request_txid, 0),
             witness,
             nonce,
+            peer,
         )
         .await
         .inspect_err(log_error),
@@ -1805,6 +1856,7 @@ async fn execute_duty(
             pog_prevouts: pog_inputs,
             pog_witnesses,
             nonces,
+            peer,
         } => handle_publish_graph_nonces(
             &outs.s2_client,
             cfg.operator_table
@@ -1817,6 +1869,7 @@ async fn execute_duty(
             pog_inputs,
             pog_witnesses,
             nonces,
+            peer,
         )
         .await
         .inspect_err(log_error),
@@ -1828,6 +1881,7 @@ async fn execute_duty(
             pog_sighashes,
             witnesses,
             partial_signatures,
+            peer,
         } => {
             let input = aggnonces
                 .zip(pog_outpoints)
@@ -1853,6 +1907,7 @@ async fn execute_duty(
                 claim_txid,
                 input,
                 partial_signatures,
+                peer,
             )
             .await
             .inspect_err(log_error)
@@ -1864,6 +1919,7 @@ async fn execute_duty(
             sighash,
             witness,
             partial_signature,
+            peer,
         } => handle_publish_root_signature(
             &outs.s2_client,
             cfg.operator_table
@@ -1877,6 +1933,7 @@ async fn execute_duty(
             sighash,
             witness,
             partial_signature,
+            peer,
         )
         .await
         .inspect_err(log_error),
