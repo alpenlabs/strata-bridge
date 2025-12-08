@@ -72,9 +72,11 @@ async fn main() {
     .expect("good service");
 
     info!("Running on {}", config.addr.to_string().bold());
+    println!("Abishek i'm running");
     match config.connection_limit {
         Some(conn_limit) => info!("Connection limit: {}", conn_limit.to_string().bold()),
         None => info!("No connection limit"),
     }
+    println!("Abishek running server");
     run_server(config, service.into()).await.unwrap();
 }
