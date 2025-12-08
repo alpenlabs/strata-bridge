@@ -31,7 +31,6 @@ members = [
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
-  # "bin/mock-checkpoint",
 
   # test utilities
   "crates/test-utils",
