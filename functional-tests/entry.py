@@ -5,7 +5,6 @@ import sys
 
 import flexitest
 
-from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
 from envs import BasicEnv, BridgeNetworkEnv
 from factory.bitcoin import BitcoinFactory
 from factory.bridge_operator import BridgeOperatorFactory
@@ -29,8 +28,10 @@ def main(argv):
     )
 
     # generate mtls cred
-    for operator_idx in range(BRIDGE_NETWORK_SIZE):
-        generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, operator_idx)
+    generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 0)
+    generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 1)
+    generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 2)
+    # generate_mtls_credentials(gen_s2_tls_script_path, datadir_root, 3)
 
     # Probe tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
@@ -45,9 +46,9 @@ def main(argv):
     p2p_gen = generate_p2p_ports()
 
     # Register envs
-    basic_env = BasicEnv(p2p_port_generator=p2p_gen)
-    network_env = BridgeNetworkEnv(p2p_port_generator=p2p_gen)
-    env_configs = {"basic": basic_env, "network": network_env}
+    basic_env = BasicEnv(num_operators=1, p2p_port_generator=p2p_gen)
+    network_env = BridgeNetworkEnv(num_operators=3, p2p_port_generator=p2p_gen)
+    env_configs = {"basic": basic_env ,"network":network_env}
 
     # Set up the runtime and prepare tests.
     rt = flexitest.TestRuntime(env_configs, datadir_root, factories)
