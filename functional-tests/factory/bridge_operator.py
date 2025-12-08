@@ -56,7 +56,7 @@ def write_config_toml(output_path: str, datadir: str, tls_dir: str):
         "stake_funding_pool_size": 32,
         "shutdown_timeout": {"secs": 30, "nanos": 0},
         "secret_service_client": {
-            "server_addr": "127.0.0.1:69",
+            "server_addr": "127.0.0.1:1069",
             "server_hostname": "secret-service",
             "timeout": 1000,
             "cert": str(mtls_dir / "cert.pem"),
@@ -115,12 +115,8 @@ def write_params_toml(output_path: str):
         "network": "regtest",
         "genesis_height": 101,
         "keys": {
-            "musig2": [
-                "ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2"
-            ],
-            "p2p": [
-                "0242f6ae559d2dc46b83fc820e9ba32f6ac8c387daac77f2805e930e924e3a127d"
-            ],
+            "musig2": ["ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2"],
+            "p2p": ["0242f6ae559d2dc46b83fc820e9ba32f6ac8c387daac77f2805e930e924e3a127d"],
         },
         "tx_graph": {
             "tag": "alpn",

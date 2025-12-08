@@ -118,6 +118,27 @@ fmt-check-ws:
 fmt-ws:
     cargo fmt --all
 
+# Check formatting of python files inside `test` directory
+[group('code-quality')]
+fmt-check-func-tests: ensure-uv activate-uv
+    cd {{functional_tests_dir}} && uv run ruff format --check
+
+# Apply formatting of python files inside `test` directory
+[group('code-quality')]
+fmt-func-tests: ensure-uv activate-uv
+    cd {{functional_tests_dir}} && uv run ruff format
+
+# Lints the functional tests and applies fixes where possible
+[group('code-quality')]
+lint-fix-func-tests: ensure-uv activate-uv
+    cd {{functional_tests_dir}} && uv run ruff check --fix
+
+
+# Lints the functional tests
+[group('code-quality')]
+lint-check-func-tests: ensure-uv activate-uv
+    cd {{functional_tests_dir}} && uv run ruff check
+
 # Check if cargo-audit is installed
 [group('prerequisites')]
 ensure-cargo-audit:

@@ -2,6 +2,15 @@ import os
 import flexitest
 import toml
 from pathlib import Path
+from dataclasses import dataclass, asdict
+
+
+@dataclass
+class S2Config:
+    seed: str
+    network: str = "regtest"
+    tls: dict = None
+    transport: dict = None
 
 
 class S2Factory(flexitest.Factory):
@@ -17,7 +26,7 @@ class S2Factory(flexitest.Factory):
         config_toml = str((base / "s2" / "config.toml").resolve())
         seed_file = str((base / "s2" / "seed").resolve())
         write_s2_seed(seed_file)
-        write_config_toml(config_toml, mtls_cred, seed_file)
+        generate_s2_config(config_toml, mtls_cred, seed_file)
 
         # Dynamic ports
         p2p_port = self.next_port()
@@ -39,30 +48,30 @@ class S2Factory(flexitest.Factory):
         return svc
 
 
-def write_config_toml(output_path: str, mtls_cred: str, seed_file: str):
+def generate_s2_config(output_path: str, mtls_cred: str, seed_file: str):
     """
-    Generate a TOML config file with hardcoded values except for TLS paths.
+    Generate S2 service TOML config file using dataclass configuration.
 
     Args:
         output_path (str): Path to write the TOML file to.
         mtls_cred (str): Directory containing TLS credentials.
                          Expected files: key.pem, cert.pem, bridge.ca.pem
+        seed_file (str): Path to the seed file.
     """
     mtls_dir = Path(mtls_cred)
-
-    config = {
-        "seed": seed_file,
-        "network": "regtest",
-        "tls": {
+    
+    s2_config = S2Config(
+        seed=seed_file,
+        tls={
             "key": str(mtls_dir / "key.pem"),
             "cert": str(mtls_dir / "cert.pem"),
-            "ca": str(mtls_dir / "bridge.ca.pem"),
+            "ca": str(mtls_dir / "bridge.ca.pem")
         },
-        "transport": {"addr": "0.0.0.0:69"},
-    }
-
+        transport={"addr": "0.0.0.0:1069"}
+    )
+    
     with open(output_path, "w") as f:
-        toml.dump(config, f)
+        toml.dump(asdict(s2_config), f)
 
 
 def write_s2_seed(output_path: str):

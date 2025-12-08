@@ -51,21 +51,31 @@ pub async fn run_server<Service>(
 where
     Service: SecretService<Server> + Sync + 'static,
 {
+    println!("Abishek 1");
     let quic_server_config = ServerConfig::with_crypto(Arc::new(
         QuicServerConfig::try_from(c.tls_config).map_err(OneOf::new)?,
     ));
+    println!("Abishek 2");
+    println!("Abishek addrs {:?} {:?}", c.addr, quic_server_config);
     let endpoint = Endpoint::server(quic_server_config, c.addr).map_err(OneOf::new)?;
+    println!("Abishek 3");
     while let Some(incoming) = endpoint.accept().await {
+        println!("Abishek 4");
         let span = span!(Level::INFO,
             "connection",
             cid = %incoming.orig_dst_cid(),
             remote = %incoming.remote_address(),
             remote_validated = %incoming.remote_address_validated()
         );
+        println!("Abishek 5");
         if matches!(c.connection_limit, Some(n) if endpoint.open_connections() >= n) {
+            println!("Abishek 5.1");
             incoming.refuse();
+            println!("Abishek 5.6");
         } else {
+            println!("Abishek 5.6.1");
             tokio::spawn(conn_handler(incoming, service.clone()).instrument(span));
+            println!("Abishek 5.6.2");
         }
     }
     Ok(())
