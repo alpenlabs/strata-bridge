@@ -1,4 +1,4 @@
-seed = "/Users/abishekbashyal/Codes/strata-bridge/functional-tests/config/seed"
+seed = "/Users/abishekbashyal/Codes/strata-bridge/functional-tests/config/s2_seed"
 network = "regtest"
 
 [tls]
