@@ -115,12 +115,12 @@ where
     pub const SIZE: usize = MSG_LEN_BYTES;
 
     /// Creates a new WOTS public key from a byte array.
-    pub fn new(bytes: [[u8; WOTS_SINGLE]; MSG_LEN_BYTES]) -> Self {
+    pub const fn new(bytes: [[u8; WOTS_SINGLE]; MSG_LEN_BYTES]) -> Self {
         Self(bytes)
     }
 
     /// Converts the public key to a byte array.
-    pub fn to_bytes(self) -> [[u8; WOTS_SINGLE]; MSG_LEN_BYTES] {
+    pub const fn to_bytes(self) -> [[u8; WOTS_SINGLE]; MSG_LEN_BYTES] {
         self.0
     }
 
