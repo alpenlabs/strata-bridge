@@ -12,7 +12,51 @@ dependencies = [
   "pathlib",
 ]
 
+[dependency-groups]
+dev = ["ruff==0.14.5"]
+
+
 [tool.uv]
 [tool.uv.sources]
 flexitest = { git = "https://codeberg.org/treyd/flexitest.git" }
 strata_utils = { path = "../crates/util/python-utils", editable = true }
+
+
+[tool.ruff]
+line-length = 100
+indent-width = 4
+# Disabled for the entire file because of monkey-patching.
+# Ignoring lint for the block of code is not currently supported:
+# https://github.com/astral-sh/ruff/issues/3711
+# exclude = ["entry.py"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
+
+[tool.ruff.lint]
+select = [
+  # pycodestyle
+  "E",
+  # Pyflakes
+  "F",
+  # pyupgrade
+  "UP",
+  # flake8-bugbear
+  "B",
+  # flake8-simplify
+  "SIM",
+  # isort
+  "I",
+]
+ignore = [
+  # related to star imports
+  "F405",
+  "F403",
+  # if block stuff
+  "SIM102",
+]
+
+[tool.ruff.lint.pycodestyle]
+max-line-length = 100
