@@ -1,14 +1,18 @@
 //! Utilities to test connectors.
 
 use bitcoin::{
-    absolute, consensus, relative,
+    absolute, consensus,
+    hashes::Hash,
+    relative,
     sighash::{Prevouts, SighashCache},
-    transaction, Amount, BlockHash, OutPoint, Psbt, TapSighashType, Transaction, TxIn, TxOut,
+    taproot::LeafVersion,
+    transaction, Amount, BlockHash, OutPoint, Psbt, TapLeafHash, TapSighashType, Transaction, TxIn,
+    TxOut,
 };
 use bitcoind_async_client::types::SignRawTransactionWithWallet;
 use corepc_node::{serde_json::json, Conf, Node};
+use secp256k1::Message;
 use strata_bridge_common::logging::{self, LoggerConfig};
-use strata_bridge_primitives::scripts::taproot::{create_key_spend_hash, create_script_spend_hash};
 use tracing::info;
 
 use crate::connectors::Connector;
@@ -38,12 +42,75 @@ pub trait Signer: Sized {
     ///
     /// # Warning
     ///
-    /// The sighash has to be computed based on the chosen key-path or script-path spend.
+    /// The `sighash` has to be computed based on the chosen key-path or script-path spend.
     fn sign_leaf(
         &self,
         leaf_index: Option<usize>,
-        sighash: secp256k1::Message,
+        sighash: Message,
     ) -> <Self::Connector as Connector>::Witness;
+
+    /// Generates a witness for the given `leaf_index` using the provided `sighashes`.
+    ///
+    /// # OP_CODESEPARATOR positions
+    ///
+    /// Each `OP_CHECKSIG(VERIFY)` operation checks a signature based on a sighash.
+    /// The sighash is computed based on the position of the last executed `OP_CODESEPARATOR`.
+    /// If there is no executed OP_CODESEPARATOR, then the position is set to `u32::MAX`.
+    ///
+    /// - All `OP_CHECKSIG(VERIFY)` operations in front of the first `OP_CODESEPARATOR` use position
+    ///   `u32::MAX`.
+    /// - All `OP_CHECKSIG(VERIFY)` operations between the first and the second `OP_CODESEPARATOR`
+    ///   use the position of the first `OP_CODESEPARATOR`.
+    /// - ...
+    /// - All `OP_CHECKSIG(VERIFY)` operations after the last `OP_CODESEPARATOR` use the position of
+    ///   the last `OP_CODESEPARATOR`.
+    ///
+    /// # Calling this method
+    ///
+    /// `sighashes` should be computed via [`Connector::code_separator_positions()`].
+    /// There should be 1 sighash per code separator position.
+    ///
+    /// # Implementing this method
+    ///
+    /// Assume there is 1 sighash per code separator position.
+    /// This includes the default position `u32::MAX` at the front!
+    ///
+    /// When multiple `OP_CHECKSIG(VERIFY)` operations are between the same code separators,
+    /// then they use the same sighash. Keep this in mind when creating signatures for the
+    /// respective `OP_CHECKSIG(VERIFY)` operation.
+    ///
+    /// In the following trivial example, `#1` and `#2` use the same sighash.
+    ///
+    /// ```text
+    /// OP_CHECKSIGVERIFY #1
+    /// OP_CHECKSIG #2
+    /// ```
+    ///
+    /// In the following more elaborate example, `#2` and `#3` use the same sighash.
+    /// `#1` uses a different sighash.
+    ///
+    /// ```text
+    /// OP_CHECKSIGVERIFY #1
+    /// OP_CODESEPARATOR
+    /// OP_CHECKSIGVERIFY #2
+    /// OP_CHECKSIG #3
+    /// ```
+    ///
+    /// # See
+    ///
+    /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
+    fn sign_leaf_with_code_separator(
+        &self,
+        leaf_index: Option<usize>,
+        sighashes: &[Message],
+    ) -> <Self::Connector as Connector>::Witness {
+        dbg!(sighashes.len());
+        assert!(
+            sighashes.len() == 1,
+            "You need to manually implement this method to handle multiple sighashes"
+        );
+        self.sign_leaf(leaf_index, sighashes[0])
+    }
 
     /// Asserts that the connector is spendable at the given `leaf_index`.
     ///
@@ -166,31 +233,49 @@ pub trait Signer: Sized {
             output: vec![spending_output],
         };
 
-        // Update locktime and sequence
+        // Update the sequence number
         // This influences the sighash!
         if let Some(timelock) = leaf_index.and_then(|i| signer.get_relative_timelock(i)) {
             spending_tx.input[0].sequence = timelock.to_sequence();
         }
 
         let mut sighash_cache = SighashCache::new(&spending_tx);
+
+        let input_index = 0;
         let utxos = [funding_tx.output[0].clone()];
         let prevouts = Prevouts::All(&utxos);
+        let annex = None;
         let sighash_type = TapSighashType::Default;
-        let input_index = 0;
 
-        let sighash = if let Some(leaf_index) = leaf_index {
-            let leaf_scripts = connector.leaf_scripts();
-            create_script_spend_hash(
-                &mut sighash_cache,
-                &leaf_scripts[leaf_index],
-                prevouts,
-                sighash_type,
-                input_index,
-            )
-        } else {
-            create_key_spend_hash(&mut sighash_cache, prevouts, sighash_type, input_index)
-        }
-        .expect("should be able to compute sighash");
+        // Key-path spend: There is 1 sighash.
+        // Script-path spend: There is 1 sighash for each code separator position.
+        let leaf_hash_code_separators: Vec<_> = match leaf_index {
+            Some(i) => {
+                let leaf_scripts = connector.leaf_scripts();
+                let leaf_hash = TapLeafHash::from_script(&leaf_scripts[i], LeafVersion::TapScript);
+                connector
+                    .code_separator_positions(i)
+                    .into_iter()
+                    .map(|pos| Some((leaf_hash, pos)))
+                    .collect()
+            }
+            None => vec![None],
+        };
+        let sighashes: Vec<Message> = leaf_hash_code_separators
+            .into_iter()
+            .map(|leaf_hash_code_separator| {
+                let sighash = sighash_cache
+                    .taproot_signature_hash(
+                        input_index,
+                        &prevouts,
+                        annex.clone(),
+                        leaf_hash_code_separator,
+                        sighash_type,
+                    )
+                    .expect("should be able to compute sighash");
+                Message::from_digest(sighash.to_raw_hash().to_byte_array())
+            })
+            .collect();
 
         // Set the witness in the transaction
         let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
@@ -199,7 +284,7 @@ pub trait Signer: Sized {
             script_pubkey: connector.script_pubkey(),
         });
 
-        let witness = signer.sign_leaf(leaf_index, sighash);
+        let witness = signer.sign_leaf_with_code_separator(leaf_index, &sighashes);
         connector.finalize_input(&mut psbt.inputs[0], &witness);
         let spending_tx = psbt.extract_tx().expect("must be signed");
 

@@ -11,7 +11,9 @@ pub mod timelocked_n_of_nr;
 pub mod test_utils;
 
 use bitcoin::{
+    opcodes,
     psbt::Input,
+    script,
     taproot::{LeafVersion, TaprootSpendInfo},
     Address, Amount, Network, ScriptBuf, TxOut,
 };
@@ -43,6 +45,34 @@ pub trait Connector {
 
     /// Returns the value of the connector.
     fn value(&self) -> Amount;
+
+    /// Returns a vector of all `OP_CODESEPARATOR` positions in the leaf script
+    /// at the given index.
+    ///
+    /// This method returns at least the default position `u32::MAX`,
+    /// followed by 1 position for each `OP_CODESEPARATOR` in the leaf script.
+    /// The returned vector is never empty.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the leaf index is out of bounds.
+    ///
+    /// # See
+    ///
+    /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
+    fn code_separator_positions(&self, leaf_index: usize) -> Vec<u32> {
+        let script = &self.leaf_scripts()[leaf_index];
+        let mut positions = vec![u32::MAX];
+
+        for (opcode_index, instruction) in script.instructions().enumerate() {
+            if let Ok(script::Instruction::Op(opcodes::all::OP_CODESEPARATOR)) = instruction {
+                // Cast safety: script will not be larger than u32::MAX
+                positions.push(opcode_index as u32);
+            }
+        }
+
+        positions
+    }
 
     /// Generates the address of the connector.
     fn address(&self) -> Address {
