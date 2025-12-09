@@ -6,7 +6,7 @@ pub mod contest_counterproof;
 pub mod cpfp;
 pub mod n_of_n;
 pub mod prelude;
-pub mod timelocked_n_of_nr;
+pub mod timelocked_n_of_n;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -103,6 +103,7 @@ pub trait Connector {
 
     /// Generates the taproot spend info of the connector.
     fn spend_info(&self) -> TaprootSpendInfo {
+        // Note (@uncomputable)
         // It seems wasteful to have almost the same function body as [`Connector::address`],
         // but in practice we only ever need one of the two: the address or the spend info.
         // We may want to reimplement `create_taproot_addr` to reduce code duplication.
@@ -125,8 +126,11 @@ pub trait Connector {
     /// # Warning
     ///
     /// If the connector uses relative timelocks,
-    /// then the **sequence** field of the transaction input
-    /// and the **locktime** field of the transaction must be updated accordingly.
+    /// then the **sequence** field of the transaction input must be updated accordingly.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the leaf index in the `witness` is out of bounds.
     fn finalize_input(&self, input: &mut Input, witness: &Self::Witness) {
         match self.get_taproot_witness(witness) {
             TaprootWitness::Key {

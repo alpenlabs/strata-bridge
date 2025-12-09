@@ -19,6 +19,8 @@ pub struct ClaimPayoutConnector {
 
 impl ClaimPayoutConnector {
     /// Creates a new connector.
+    ///
+    /// The preimage of `unstaking_image` must be 32 bytes long.
     pub const fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,

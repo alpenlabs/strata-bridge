@@ -16,15 +16,6 @@ use crate::connectors::{Connector, TaprootWitness};
 /// Generic connector output that is locked in a tap tree:
 /// 1. (key path) internal key
 /// 2. (single tap leaf) N/N + relative timelock.
-///
-/// The internal key of the **contest proof** connector,
-/// is the N/N key tweaked with the game index.
-///
-/// The internal key of the **contest payout** connector
-/// and of the **contest slash** connector is just the N/N key.
-///
-/// The internal key of the **counterproof_i** connector is
-/// `wt_i_fault * G`, where `G` is the generator point.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct TimelockedNOfNConnector {
     network: Network,
@@ -51,9 +42,17 @@ impl TimelockedNOfNConnector {
 
     /// Creates a new contest proof connector.
     ///
+    /// The internal key is the operator key tweaked with the game index.
+    ///
+    /// # Operator key tweak
+    ///
+    /// The game index is used as the least significant bytes of a secp scalar (all big endian).
+    /// This means that the numeric value of the game index is equal to the numeric value of the
+    /// resulting scalar. The scalar is then used to tweak the operator key.
+    ///
     /// # Panics
     ///
-    /// The game index must be less than the secp curve order.
+    /// This method panics if the game index is greater than or equal to the secp curve order.
     pub fn new_contest_proof(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
@@ -82,6 +81,8 @@ impl TimelockedNOfNConnector {
     }
 
     /// Creates a new contest payout connector.
+    ///
+    /// The internal key is the N/N key.
     pub const fn new_contest_payout(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
@@ -96,6 +97,8 @@ impl TimelockedNOfNConnector {
     }
 
     /// Creates a new contest slash connector.
+    ///
+    /// The internal key is the N/N key.
     pub const fn new_contest_slash(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
@@ -110,6 +113,8 @@ impl TimelockedNOfNConnector {
     }
 
     /// Creates a new counterproof_i connector.
+    ///
+    /// The internal key is `wt_i_fault * G`, where `G` is the generator point.
     pub const fn new_counterproof_i(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,

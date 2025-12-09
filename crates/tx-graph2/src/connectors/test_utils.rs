@@ -104,7 +104,6 @@ pub trait Signer: Sized {
         leaf_index: Option<usize>,
         sighashes: &[Message],
     ) -> <Self::Connector as Connector>::Witness {
-        dbg!(sighashes.len());
         assert!(
             sighashes.len() == 1,
             "You need to manually implement this method to handle multiple sighashes"
@@ -288,18 +287,9 @@ pub trait Signer: Sized {
         connector.finalize_input(&mut psbt.inputs[0], &witness);
         let spending_tx = psbt.extract_tx().expect("must be signed");
 
-        // Broadcast spending transaction
-        let spending_txid = btc_client
-            .send_raw_transaction(&spending_tx)
-            .expect("must be able to broadcast spending transaction")
-            .txid()
-            .expect("must have txid");
-
-        info!(%spending_txid, "Spending transaction broadcasted");
-
-        // Verify the transaction was mined
+        // Broadcast the spending transaction
         btc_client
-            .generate_to_address(1, &funded_address)
-            .expect("must be able to generate block");
+            .send_raw_transaction(&spending_tx)
+            .expect("must be able to broadcast spending transaction");
     }
 }
