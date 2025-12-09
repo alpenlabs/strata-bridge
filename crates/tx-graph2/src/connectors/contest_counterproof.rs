@@ -9,9 +9,6 @@ use crate::connectors::{Connector, TaprootWitness};
 
 /// Output between `Contest` and `Watchtower i Counterproof`.
 ///
-/// Strictly speaking, this is not a connector output.
-/// However, we still implement the [`Connector`] trait for convenience.
-///
 /// The output requires a series of operator signatures for spending.
 /// Each operator signature comes from an adaptor,
 /// which publishes one byte of Mosaic data.
@@ -50,6 +47,8 @@ impl ContestCounterproofOutput {
     }
 }
 
+// Strictly speaking, this is not a connector output.
+// However, we still implement the [`Connector`] trait for convenience.
 impl Connector for ContestCounterproofOutput {
     type Witness = ContestCounterproofWitness;
 
