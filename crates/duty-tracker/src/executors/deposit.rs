@@ -37,7 +37,7 @@ use crate::{
 
 /// Handles the duty to publish the stake chain exchange message to the p2p network upon genesis and
 /// when nagged.
-pub(crate) async fn handle_publish_stake_chain_exchange(
+pub(crate) async fn handle_send_stake_chain_exchange(
     cfg: &ExecutionConfig,
     s2_client: &SecretServiceClient,
     db: &SqliteDb,
@@ -81,7 +81,7 @@ pub(crate) async fn handle_publish_stake_chain_exchange(
 
 /// Constructs and broadcasts the data required to generate this operator's
 /// [`PegOutGraph`](strata_bridge_tx_graph::peg_out_graph::PegOutGraph) to the p2p network.
-pub(crate) async fn handle_publish_deposit_setup(
+pub(crate) async fn handle_send_deposit_setup(
     cfg: &ExecutionConfig,
     output_handles: Arc<OutputHandles>,
     deposit_txid: Txid,
@@ -319,7 +319,7 @@ async fn finalize_claim_funding_tx(
 /// transaction ID of its claim transaction.
 // TODO(@storopoli): This also commits the graph nonces to the database in the `pub_nonces` table.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn handle_publish_graph_nonces(
+pub(crate) async fn handle_send_graph_nonces(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     message_handler: &MessageHandler,
@@ -393,7 +393,7 @@ pub(crate) struct GenPartialsInput {
 /// by the transaction ID of its claim transaction.
 // TODO(@storopoli): This also commits the graph partial signatures to the database in the
 // `partial_signatures` table.
-pub(crate) async fn handle_publish_graph_sigs(
+pub(crate) async fn handle_send_graph_sigs(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     message_handler: &MessageHandler,
@@ -458,7 +458,7 @@ pub(crate) async fn handle_publish_graph_sigs(
 /// Handles the duty to publish the root nonce for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
 // TODO(@storopoli): This also commits the root nonce to the database in the `pub_nonces` table.
-pub(crate) async fn handle_publish_root_nonce(
+pub(crate) async fn handle_send_root_nonce(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     msg_handler: &MessageHandler,
@@ -512,7 +512,7 @@ pub(crate) async fn handle_publish_root_nonce(
 // TODO(@storopoli): This also commits the root signature to the database in the
 // `partial_signatures` table.
 #[expect(clippy::too_many_arguments)]
-pub(crate) async fn handle_publish_root_signature(
+pub(crate) async fn handle_send_root_signature(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     msg_handler: &MessageHandler,
