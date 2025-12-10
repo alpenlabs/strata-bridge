@@ -94,7 +94,7 @@ services:
         ipv4_address: 172.28.0.7
 
   bitcoind:
-    image: bitcoin/bitcoin:29
+    image: bitcoin/bitcoin:30
     volumes:
       - ./docker/bitcoin/entrypoint.sh:/entrypoint.sh
     ports:
