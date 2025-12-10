@@ -15,9 +15,16 @@ class BridgeOperatorFactory(flexitest.Factory):
 
     @flexitest.with_ectx("ectx")
     def create_server(
-        self, name: str, operator_key: OperatorKeyInfo, ectx: flexitest.EnvContext
+        self,
+        name: str,
+        bitcoind_props: dict,
+        s2_props: dict,
+        operator_key: OperatorKeyInfo,
+        ectx: flexitest.EnvContext,
     ) -> flexitest.Service:
+        print("Abishek running with ", bitcoind_props, s2_props)
         rpc_port = self.next_port()
+        p2p_port = self.next_port()
         dd = ectx.make_service_dir(name)
 
         base = Path(ectx.envdd_path)
@@ -25,7 +32,9 @@ class BridgeOperatorFactory(flexitest.Factory):
 
         # write bridge operator config
         config_toml_path = str((base / name / "config.toml").resolve())
-        generate_config_toml(config_toml_path, dd, mtls_cred)
+        generate_config_toml(
+            bitcoind_props, s2_props, rpc_port, p2p_port, config_toml_path, dd, mtls_cred
+        )
 
         # write bridge operator params
         params_toml_path = str((base / name / "params.toml").resolve())
@@ -40,7 +49,7 @@ class BridgeOperatorFactory(flexitest.Factory):
             config_toml_path,
         ]
 
-        rpc_url = "http://0.0.0.0:5678"
+        rpc_url = f"http://0.0.0.0:{rpc_port}"
         props = {
             "rpc_port": rpc_port,
             "logfile": logfile_path,

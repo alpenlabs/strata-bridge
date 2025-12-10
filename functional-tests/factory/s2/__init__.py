@@ -23,17 +23,17 @@ class S2Factory(flexitest.Factory):
         base = Path(ctx.envdd_path)
         mtls_cred = str((base / "../s2_cred/tls").resolve())
 
+        # Dynamic ports
+        s2_port = self.next_port()
+
         # write seed file
         seed_file = str((base / name / "seed").resolve())
         write_s2_seed(seed_file, operator_key)
 
         # write s2 config
         config_toml = str((base / name / "config.toml").resolve())
-        generate_s2_config(config_toml, mtls_cred, seed_file)
+        generate_s2_config(config_toml, mtls_cred, seed_file, s2_port)
 
-        # Dynamic ports
-        p2p_port = self.next_port()
-        rpc_port = self.next_port()
         logfile = os.path.join(datadir, "service.log")
 
         cmd = [
@@ -42,8 +42,7 @@ class S2Factory(flexitest.Factory):
         ]
 
         props = {
-            "p2p_port": p2p_port,
-            "rpc_port": rpc_port,
+            "s2_port": s2_port,
         }
 
         svc = flexitest.service.ProcService(props, cmd, stdout=logfile)
@@ -51,7 +50,7 @@ class S2Factory(flexitest.Factory):
         return svc
 
 
-def generate_s2_config(output_path: str, mtls_cred: str, seed_file: str):
+def generate_s2_config(output_path: str, mtls_cred: str, seed_file: str, s2_port: int):
     """
     Generate S2 service TOML config file using dataclass configuration.
 
@@ -70,7 +69,7 @@ def generate_s2_config(output_path: str, mtls_cred: str, seed_file: str):
             cert=str(mtls_dir / "cert.pem"),
             ca=str(mtls_dir / "bridge.ca.pem"),
         ),
-        transport=TransportConfig(addr="0.0.0.0:1069"),
+        transport=TransportConfig(addr=f"0.0.0.0:{s2_port}"),
     )
 
     with open(output_path, "w") as f:

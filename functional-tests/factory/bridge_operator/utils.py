@@ -19,7 +19,15 @@ from .config_cfg import (
 from .params_cfg import BridgeOperatorParams, Connectors, Keys, Sidesystem, StakeChain, TxGraph
 
 
-def generate_config_toml(output_path: str, datadir: str, tls_dir: str):
+def generate_config_toml(
+    bitcoind_props: dict,
+    s2_props: dict,
+    rpc_port: int,
+    p2p_port: int,
+    output_path: str,
+    datadir: str,
+    tls_dir: str,
+):
     mtls_dir = Path(tls_dir)
 
     config = BridgeOperatorConfig(
@@ -30,7 +38,7 @@ def generate_config_toml(output_path: str, datadir: str, tls_dir: str):
         stake_funding_pool_size=32,
         shutdown_timeout=Duration(secs=30, nanos=0),
         secret_service_client=SecretServiceClientConfig(
-            server_addr="127.0.0.1:1069",
+            server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
             timeout=1000,
             cert=str(mtls_dir / "cert.pem"),
@@ -38,7 +46,7 @@ def generate_config_toml(output_path: str, datadir: str, tls_dir: str):
             service_ca=str(mtls_dir / "s2.ca.pem"),
         ),
         btc_client=BtcClientConfig(
-            url="http://127.0.0.1:18443",
+            url=f"http://127.0.0.1:{bitcoind_props.get('rpc_port')}",
             user="user",
             pass_="password",
             retry_count=3,
@@ -47,21 +55,23 @@ def generate_config_toml(output_path: str, datadir: str, tls_dir: str):
         db=DbConfig(max_retry_count=3, backoff_period=Duration(secs=1000, nanos=0)),
         p2p=P2pConfig(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
-            listening_addr="/ip4/127.0.0.1/tcp/5679",
+            listening_addr=f"/ip4/127.0.0.1/tcp/{p2p_port}",
             connect_to=[],
             num_threads=4,
             dial_timeout=Duration(secs=0, nanos=250_000_000),
             general_timeout=Duration(secs=0, nanos=250_000_000),
             connection_check_interval=Duration(secs=0, nanos=500_000_000),
         ),
-        rpc=RpcConfig(rpc_addr="127.0.0.1:5678", refresh_interval=Duration(secs=600, nanos=0)),
+        rpc=RpcConfig(
+            rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=600, nanos=0)
+        ),
         btc_zmq=BtcZmqConfig(
             bury_depth=2,
-            hashblock_connection_string="tcp://127.0.0.1:28332",
-            hashtx_connection_string="tcp://127.0.0.1:28333",
-            rawblock_connection_string="tcp://127.0.0.1:28334",
-            rawtx_connection_string="tcp://127.0.0.1:28335",
-            sequence_connection_string="tcp://127.0.0.1:28336",
+            hashblock_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_hashblock')}",
+            hashtx_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_hashtx')}",
+            rawblock_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_rawblock')}",
+            rawtx_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_rawtx')}",
+            sequence_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_sequence')}",
         ),
         stake_tx=StakeTxConfig(max_retries=10, retry_delay=Duration(secs=5, nanos=0)),
     )
