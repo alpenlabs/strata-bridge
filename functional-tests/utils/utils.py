@@ -1,9 +1,42 @@
-from bitcoinlib.services.bitcoind import BitcoindClient
-from utils.constants import *
-import time
+import json
 import logging
-
+import time
+from dataclasses import dataclass
+from pathlib import Path
 from threading import Thread
+
+from bitcoinlib.services.bitcoind import BitcoindClient
+
+from utils.constants import *
+
+
+@dataclass
+class OperatorKeyInfo:
+    """Type definition for operator keys."""
+
+    SEED: str
+    GENERAL_WALLET: str
+    STAKE_CHAIN_WALLET: str
+    MUSIG2_KEY: str
+    P2P_KEY: str
+
+
+def read_operator_key(operator_idx: int) -> OperatorKeyInfo:
+    """
+    Get operator keys from artifacts/keys.json
+
+    Args:
+        operator_idx: Index of the operator (0-based)
+
+    Returns:
+        OperatorKeyInfo containing all operator key data
+    """
+    keys_path = Path(__file__).parent.parent / "artifacts" / "keys.json"
+    with open(keys_path) as f:
+        keys_data = json.load(f)
+
+    raw_keys = keys_data[operator_idx]
+    return OperatorKeyInfo(**raw_keys)
 
 
 def generate_blocks(

@@ -1,6 +1,7 @@
 # Tests server can start correctly
 
 import flexitest
+
 from utils.utils import wait_until_bridge_ready
 
 
