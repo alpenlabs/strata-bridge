@@ -50,9 +50,9 @@ pub trait Connector {
     /// Returns a vector of all `OP_CODESEPARATOR` positions in the leaf script
     /// at the given index.
     ///
-    /// This method returns at least the default position `u32::MAX`,
-    /// followed by 1 position for each `OP_CODESEPARATOR` in the leaf script.
-    /// The returned vector is never empty.
+    /// The vector starts with the default position `u32::MAX`,
+    /// followed by the position of each code separator in order.
+    /// The vector is never empty.
     ///
     /// # Panics
     ///
@@ -62,6 +62,10 @@ pub trait Connector {
     ///
     /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
     fn code_separator_positions(&self, leaf_index: usize) -> Vec<u32> {
+        // Note (@uncomputable)
+        // The default position u32::MAX is included to facilitate signing.
+        // Using the return value of code_separator_positions() for signing always works.
+        // It generalizes nicely; we don't have to remind callers to include u32::MAX.
         let script = &self.leaf_scripts()[leaf_index];
         let mut positions = vec![u32::MAX];
 
