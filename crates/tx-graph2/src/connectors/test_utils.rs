@@ -49,6 +49,8 @@ pub trait Signer: Sized {
         sighash: Message,
     ) -> <Self::Connector as Connector>::Witness;
 
+    // TODO (@uncomputable) Consider moving this doc to the method
+    //                      that computes the sighashes of a whole transaction.
     /// Generates a witness for the given `leaf_index` using the provided `sighashes`.
     ///
     /// # OP_CODESEPARATOR positions
