@@ -48,7 +48,7 @@ class BasicEnv(flexitest.EnvConfig):
         svcs["bitcoin"] = bitcoind
 
         # run the bridge
-        bo = bo_fac.create_server("bridge_1", operator_key)
+        bo = bo_fac.create_server("bridge_1", bitcoind.props, s2.props, operator_key)
         svcs["bo"] = bo
 
         # fund operator wallet
