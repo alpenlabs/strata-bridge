@@ -1,12 +1,14 @@
-import sys
 import os
-import flexitest
-from utils import TEST_DIR
-from factory.bitcoin import BitcoinFactory
-from factory.s2 import S2Factory
-from factory.bridge_operator import BridgeOperatorFactory
-from envs import BasicEnv
 import subprocess
+import sys
+
+import flexitest
+
+from envs import BasicEnv
+from factory.bitcoin import BitcoinFactory
+from factory.bridge_operator import BridgeOperatorFactory
+from factory.s2 import S2Factory
+from utils import TEST_DIR
 
 
 def main(argv):
@@ -17,22 +19,28 @@ def main(argv):
     datadir_root = flexitest.create_datadir_in_workspace(os.path.join(root_dir, "_dd"))
 
     # gen mtls info
-    script_file_path = os.path.abspath(os.path.join(root_dir, "..", "docker", "gen_s2_tls.sh"))
+    gen_s2_tls_script_path = os.path.abspath(
+        os.path.join(root_dir, "..", "docker", "gen_s2_tls.sh")
+    )
 
     # generate cred
     operator_cred = os.path.abspath(os.path.join(datadir_root, "operator_cred"))
     s2_cred = os.path.abspath(os.path.join(datadir_root, "s2_cred"))
-    subprocess.run(["bash", script_file_path, operator_cred, s2_cred, "127.0.0.1"], check=True)
+    subprocess.run(
+        ["bash", gen_s2_tls_script_path, operator_cred, s2_cred, "127.0.0.1"], check=True
+    )
 
     # Probe tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
     tests = flexitest.runtime.load_candidate_modules(modules)
 
+    # Register factory
     bfac = BitcoinFactory([12300 + i for i in range(100)])
     s2fac = S2Factory([12400 + i for i in range(100)])
     bofac = BridgeOperatorFactory([12500 + i for i in range(100)])
     factories = {"bitcoin": bfac, "s2": s2fac, "bofac": bofac}
 
+    # Register envs
     basic_env = BasicEnv()
     env_configs = {"basic": basic_env}
 

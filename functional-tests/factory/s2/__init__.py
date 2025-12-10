@@ -1,16 +1,13 @@
 import os
+from dataclasses import asdict
+from pathlib import Path
+
 import flexitest
 import toml
-from pathlib import Path
-from dataclasses import dataclass, asdict
 
+from utils.utils import OperatorKeyInfo
 
-@dataclass
-class S2Config:
-    seed: str
-    network: str = "regtest"
-    tls: dict = None
-    transport: dict = None
+from .config_cfg import S2Config, TlsConfig, TransportConfig
 
 
 class S2Factory(flexitest.Factory):
@@ -18,14 +15,20 @@ class S2Factory(flexitest.Factory):
         super().__init__(port_range)
 
     @flexitest.with_ectx("ctx")
-    def create_s2_service(self, ctx: flexitest.EnvContext) -> flexitest.Service:
-        datadir = ctx.make_service_dir("s2")
+    def create_s2_service(
+        self, name: str, operator_key: OperatorKeyInfo, ctx: flexitest.EnvContext
+    ) -> flexitest.Service:
+        datadir = ctx.make_service_dir(name)
 
         base = Path(ctx.envdd_path)
         mtls_cred = str((base / "../s2_cred/tls").resolve())
-        config_toml = str((base / "s2" / "config.toml").resolve())
-        seed_file = str((base / "s2" / "seed").resolve())
-        write_s2_seed(seed_file)
+
+        # write seed file
+        seed_file = str((base / name / "seed").resolve())
+        write_s2_seed(seed_file, operator_key)
+
+        # write s2 config
+        config_toml = str((base / name / "config.toml").resolve())
         generate_s2_config(config_toml, mtls_cred, seed_file)
 
         # Dynamic ports
@@ -59,24 +62,30 @@ def generate_s2_config(output_path: str, mtls_cred: str, seed_file: str):
         seed_file (str): Path to the seed file.
     """
     mtls_dir = Path(mtls_cred)
-    
+
     s2_config = S2Config(
         seed=seed_file,
-        tls={
-            "key": str(mtls_dir / "key.pem"),
-            "cert": str(mtls_dir / "cert.pem"),
-            "ca": str(mtls_dir / "bridge.ca.pem")
-        },
-        transport={"addr": "0.0.0.0:1069"}
+        tls=TlsConfig(
+            key=str(mtls_dir / "key.pem"),
+            cert=str(mtls_dir / "cert.pem"),
+            ca=str(mtls_dir / "bridge.ca.pem"),
+        ),
+        transport=TransportConfig(addr="0.0.0.0:1069"),
     )
-    
+
     with open(output_path, "w") as f:
         toml.dump(asdict(s2_config), f)
 
 
-def write_s2_seed(output_path: str):
-    hex_seed = "195a61de8fdac38f9c97e493c03718c98a3c85a977b49192ceac32e429f6c409"
+def write_s2_seed(output_path: str, operator_key: OperatorKeyInfo):
+    """
+    Write S2 seed file using operator keys.
 
+    Args:
+        output_path: Path to write the seed file
+        operator_key: OperatorKeyInfo containing the SEED hex string
+    """
+    hex_seed = operator_key.SEED
     data = bytes.fromhex(hex_seed)
 
     with open(output_path, "wb") as f:
