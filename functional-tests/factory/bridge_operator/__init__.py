@@ -22,7 +22,6 @@ class BridgeOperatorFactory(flexitest.Factory):
         operator_key: OperatorKeyInfo,
         ectx: flexitest.EnvContext,
     ) -> flexitest.Service:
-        print("Abishek running with ", bitcoind_props, s2_props)
         rpc_port = self.next_port()
         p2p_port = self.next_port()
         dd = ectx.make_service_dir(name)
