@@ -12,14 +12,18 @@ pub mod timelocked_n_of_n;
 pub mod test_utils;
 
 use bitcoin::{
+    hashes::Hash,
     opcodes,
     psbt::Input,
     script,
-    taproot::{LeafVersion, TaprootSpendInfo},
-    Address, Amount, Network, ScriptBuf, TxOut,
+    sighash::{Prevouts, SighashCache},
+    taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
+    Address, Amount, Network, ScriptBuf, TapSighashType, Transaction, TxOut,
 };
-use secp256k1::{schnorr, XOnlyPublicKey};
-use strata_bridge_primitives::scripts::prelude::{create_taproot_addr, finalize_input, SpendPath};
+use secp256k1::{schnorr, Message, XOnlyPublicKey};
+use strata_bridge_primitives::scripts::prelude::{
+    create_key_spend_hash, create_script_spend_hash, create_taproot_addr, finalize_input, SpendPath,
+};
 use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 /// A connector output.
@@ -120,6 +124,100 @@ pub trait Connector {
         )
         .expect("tap tree is valid")
         .1
+    }
+
+    /// Computes the sighash of an input that spends the connector.
+    fn compute_sighash(
+        &self,
+        leaf_index: Option<usize>,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> Message {
+        // Note (@uncomputable)
+        // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
+        // There is no reason to make the sighash type variable.
+        let sighash_type = TapSighashType::Default;
+        match leaf_index {
+            None => create_key_spend_hash(cache, prevouts, sighash_type, input_index),
+            Some(leaf_index) => {
+                let leaf_script = &self.leaf_scripts()[leaf_index];
+                create_script_spend_hash(cache, leaf_script, prevouts, sighash_type, input_index)
+            }
+        }
+        .expect("should be able to compute the sighash")
+    }
+
+    /// Computes the sighashes of an input that spends the connector,
+    /// taking into account the code separator positions.
+    ///
+    /// # Code separator positions
+    ///
+    /// Each `OP_CHECKSIG(VERIFY)` operation checks a signature based on a sighash.
+    /// The sighash is computed based on the position of the last executed `OP_CODESEPARATOR`.
+    ///
+    /// - All `OP_CHECKSIG(VERIFY)` operations in front of the first `OP_CODESEPARATOR` use the
+    ///   default position `u32::MAX`.
+    /// - All `OP_CHECKSIG(VERIFY)` operations between the first and the second `OP_CODESEPARATOR`
+    ///   use the position of the first `OP_CODESEPARATOR`.
+    /// - ...
+    /// - All `OP_CHECKSIG(VERIFY)` operations after the last `OP_CODESEPARATOR` use the position of
+    ///   the last `OP_CODESEPARATOR`.
+    ///
+    /// # Choosing the right sighash
+    ///
+    /// When multiple `OP_CHECKSIG(VERIFY)` operations are between the same code separators,
+    /// then they use the same sighash.
+    ///
+    /// In the following trivial example, `#1` and `#2` use the same sighash.
+    ///
+    /// ```text
+    /// OP_CHECKSIGVERIFY #1
+    /// OP_CHECKSIG #2
+    /// ```
+    ///
+    /// In the following more elaborate example, `#2` and `#3` use the same sighash.
+    /// `#1` uses a different sighash.
+    ///
+    /// ```text
+    /// OP_CHECKSIGVERIFY #1
+    /// OP_CODESEPARATOR
+    /// OP_CHECKSIGVERIFY #2
+    /// OP_CHECKSIG #3
+    /// ```
+    ///
+    /// # See
+    ///
+    /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
+    fn compute_sighashes_with_code_separator(
+        &self,
+        leaf_index: usize,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> Vec<Message> {
+        // Note (@uncomputable)
+        // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
+        // There is no reason to make the sighash type variable.
+        let sighash_type = TapSighashType::Default;
+        let leaf_script = &self.leaf_scripts()[leaf_index];
+        let leaf_hash = TapLeafHash::from_script(leaf_script, LeafVersion::TapScript);
+        self.code_separator_positions(leaf_index)
+            .into_iter()
+            .map(|pos| Some((leaf_hash, pos)))
+            .map(|leaf_hash_code_separator| {
+                let sighash = cache
+                    .taproot_signature_hash(
+                        input_index,
+                        &prevouts,
+                        None,
+                        leaf_hash_code_separator,
+                        sighash_type,
+                    )
+                    .expect("should be able to compute the sighash");
+                Message::from_digest(sighash.to_raw_hash().to_byte_array())
+            })
+            .collect()
     }
 
     /// Converts the witness into a generic taproot witness.
