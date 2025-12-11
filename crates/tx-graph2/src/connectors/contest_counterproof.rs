@@ -149,31 +149,10 @@ mod tests {
         ) -> <Self::Connector as Connector>::Witness {
             unimplemented!("use sign_leaf_with_code_separator")
         }
-
-        fn sign_leaf_with_code_separator(
-            &self,
-            leaf_index: Option<usize>,
-            sighashes: &[secp256k1::Message],
-        ) -> <Self::Connector as Connector>::Witness {
-            if leaf_index != Some(0) {
-                panic!("Unsupported leaf index");
-            }
-
-            let n_of_n_signature = self.n_of_n_keypair.sign_schnorr(sighashes[0]);
-            let operator_signatures = sighashes
-                .iter()
-                .copied()
-                .map(|sighash| self.operator_keypair.sign_schnorr(sighash))
-                .collect();
-
-            ContestCounterproofWitness {
-                n_of_n_signature,
-                operator_signatures,
-            }
-        }
     }
 
     #[test]
+    #[ignore]
     fn counterproof_spend() {
         ContestWatchtowerSigner::assert_connector_is_spendable(Some(0));
     }

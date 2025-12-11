@@ -1,18 +1,17 @@
 //! Utilities to test connectors.
 
+use std::collections::VecDeque;
+
 use bitcoin::{
-    absolute, consensus,
-    hashes::Hash,
-    relative,
+    absolute, consensus, relative,
     sighash::{Prevouts, SighashCache},
-    taproot::LeafVersion,
-    transaction, Amount, BlockHash, OutPoint, Psbt, TapLeafHash, TapSighashType, Transaction, TxIn,
-    TxOut,
+    transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
 };
 use bitcoind_async_client::types::SignRawTransactionWithWallet;
-use corepc_node::{serde_json::json, Conf, Node};
+use corepc_node::{serde_json::json, Client, Conf, Node};
 use secp256k1::Message;
 use strata_bridge_common::logging::{self, LoggerConfig};
+use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use tracing::info;
 
 use crate::connectors::Connector;
@@ -49,70 +48,6 @@ pub trait Signer: Sized {
         sighash: Message,
     ) -> <Self::Connector as Connector>::Witness;
 
-    // TODO (@uncomputable) Consider moving this doc to the method
-    //                      that computes the sighashes of a whole transaction.
-    /// Generates a witness for the given `leaf_index` using the provided `sighashes`.
-    ///
-    /// # OP_CODESEPARATOR positions
-    ///
-    /// Each `OP_CHECKSIG(VERIFY)` operation checks a signature based on a sighash.
-    /// The sighash is computed based on the position of the last executed `OP_CODESEPARATOR`.
-    /// If there is no executed OP_CODESEPARATOR, then the position is set to `u32::MAX`.
-    ///
-    /// - All `OP_CHECKSIG(VERIFY)` operations in front of the first `OP_CODESEPARATOR` use position
-    ///   `u32::MAX`.
-    /// - All `OP_CHECKSIG(VERIFY)` operations between the first and the second `OP_CODESEPARATOR`
-    ///   use the position of the first `OP_CODESEPARATOR`.
-    /// - ...
-    /// - All `OP_CHECKSIG(VERIFY)` operations after the last `OP_CODESEPARATOR` use the position of
-    ///   the last `OP_CODESEPARATOR`.
-    ///
-    /// # Calling this method
-    ///
-    /// `sighashes` should be computed via [`Connector::code_separator_positions()`].
-    /// There should be 1 sighash per code separator position.
-    ///
-    /// # Implementing this method
-    ///
-    /// Assume there is 1 sighash per code separator position.
-    /// This includes the default position `u32::MAX` at the front!
-    ///
-    /// When multiple `OP_CHECKSIG(VERIFY)` operations are between the same code separators,
-    /// then they use the same sighash. Keep this in mind when creating signatures for the
-    /// respective `OP_CHECKSIG(VERIFY)` operation.
-    ///
-    /// In the following trivial example, `#1` and `#2` use the same sighash.
-    ///
-    /// ```text
-    /// OP_CHECKSIGVERIFY #1
-    /// OP_CHECKSIG #2
-    /// ```
-    ///
-    /// In the following more elaborate example, `#2` and `#3` use the same sighash.
-    /// `#1` uses a different sighash.
-    ///
-    /// ```text
-    /// OP_CHECKSIGVERIFY #1
-    /// OP_CODESEPARATOR
-    /// OP_CHECKSIGVERIFY #2
-    /// OP_CHECKSIG #3
-    /// ```
-    ///
-    /// # See
-    ///
-    /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
-    fn sign_leaf_with_code_separator(
-        &self,
-        leaf_index: Option<usize>,
-        sighashes: &[Message],
-    ) -> <Self::Connector as Connector>::Witness {
-        assert!(
-            sighashes.len() == 1,
-            "You need to manually implement this method to handle multiple sighashes"
-        );
-        self.sign_leaf(leaf_index, sighashes[0])
-    }
-
     /// Asserts that the connector is spendable at the given `leaf_index`.
     ///
     /// A random signer is generated using [`Signer::generate`].
@@ -127,57 +62,24 @@ pub trait Signer: Sized {
         )));
 
         let connector = signer.get_connector();
+        let mut node = BitcoinNode::new();
+        let fee = Amount::from_sat(1_000);
 
-        // Setup Bitcoin node
-        let mut conf = Conf::default();
-        conf.args.push("-txindex=1");
-        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
-        let btc_client = &bitcoind.client;
-
-        // Mine until maturity
-        let funded_address = btc_client.new_address().unwrap();
-        let change_address = btc_client.new_address().unwrap();
-        let coinbase_block = btc_client
-            .generate_to_address(101, &funded_address)
-            .expect("must be able to generate blocks")
-            .0
-            .first()
-            .expect("must be able to get the blocks")
-            .parse::<BlockHash>()
-            .expect("must parse");
-        let coinbase_txid = btc_client
-            .get_block(coinbase_block)
-            .expect("must be able to get coinbase block")
-            .coinbase()
-            .expect("must be able to get the coinbase transaction")
-            .compute_txid();
-
-        // Create funding transaction
-        let funding_input = OutPoint {
-            txid: coinbase_txid,
-            vout: 0,
-        };
-
-        let coinbase_amount = Amount::from_btc(50.0).expect("must be valid amount");
-        let funding_amount = Amount::from_sat(50_000);
-        let fees = Amount::from_sat(1_000);
-
-        let input = vec![TxIn {
-            previous_output: funding_input,
-            ..Default::default()
-        }];
-
+        // Create a transaction that funds the connector.
+        //
+        // inputs        | outputs
+        // --------------+------------------------
+        // N sat: wallet | M sat: connector
+        //               |------------------------
+        //               | N - M - fee sat: wallet
+        let input = create_tx_ins([node.next_coinbase_outpoint()]);
         let output = vec![
+            connector.tx_out(),
             TxOut {
-                value: funding_amount,
-                script_pubkey: connector.script_pubkey(),
-            },
-            TxOut {
-                value: coinbase_amount - funding_amount - fees,
-                script_pubkey: change_address.script_pubkey(),
+                value: node.coinbase_amount() - connector.value() - fee,
+                script_pubkey: node.wallet_address().script_pubkey(),
             },
         ];
-
         let funding_tx = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
@@ -185,53 +87,33 @@ pub trait Signer: Sized {
             output,
         };
 
-        // Sign and broadcast funding transaction
-        let signed_funding_tx = btc_client
-            .call::<SignRawTransactionWithWallet>(
-                "signrawtransactionwithwallet",
-                &[json!(consensus::encode::serialize_hex(&&funding_tx))],
-            )
-            .expect("must be able to sign transaction");
+        let funding_txid = node.sign_and_broadcast(&funding_tx);
+        info!(%funding_txid, "Funding transaction was broadcasted");
+        node.mine_blocks(10);
 
-        assert!(
-            signed_funding_tx.complete,
-            "funding transaction should be complete"
-        );
-        let signed_funding_tx =
-            consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
-
-        let funding_txid = btc_client
-            .send_raw_transaction(&signed_funding_tx)
-            .expect("must be able to broadcast transaction")
-            .txid()
-            .expect("must have txid");
-
-        info!(%funding_txid, "Funding transaction broadcasted");
-
-        // Mine the funding transaction
-        let _ = btc_client
-            .generate_to_address(10, &funded_address)
-            .expect("must be able to generate blocks");
-
-        // Create spending transaction that spends the connector p
-        let spending_input = OutPoint {
-            txid: funding_txid,
-            vout: 0,
-        };
-
-        let spending_output = TxOut {
-            value: funding_amount - fees,
-            script_pubkey: change_address.script_pubkey(),
-        };
-
+        // Create a transaction that spends the connector.
+        //
+        // inputs           | outputs
+        // -----------------+------------------------
+        // M sat: connector | N + M - fee sat: wallet
+        // -----------------|
+        // N sat: wallet    |
+        let input = create_tx_ins([
+            OutPoint {
+                txid: funding_txid,
+                vout: 0,
+            },
+            node.next_coinbase_outpoint(),
+        ]);
+        let output = vec![TxOut {
+            value: node.coinbase_amount() + connector.value() - fee,
+            script_pubkey: node.wallet_address().script_pubkey(),
+        }];
         let mut spending_tx = Transaction {
             version: transaction::Version(2),
             lock_time: absolute::LockTime::ZERO,
-            input: vec![TxIn {
-                previous_output: spending_input,
-                ..Default::default()
-            }],
-            output: vec![spending_output],
+            input,
+            output,
         };
 
         // Update the sequence number
@@ -240,58 +122,177 @@ pub trait Signer: Sized {
             spending_tx.input[0].sequence = timelock.to_sequence();
         }
 
-        let mut sighash_cache = SighashCache::new(&spending_tx);
-
-        let input_index = 0;
-        let utxos = [funding_tx.output[0].clone()];
+        // Sign the spending transaction
+        let utxos = [connector.tx_out(), node.coinbase_tx_out()];
+        let mut cache = SighashCache::new(&spending_tx);
         let prevouts = Prevouts::All(&utxos);
-        let annex = None;
-        let sighash_type = TapSighashType::Default;
+        let input_index = 0;
+        let sighash = connector.compute_sighash(leaf_index, &mut cache, prevouts, input_index);
+        let witness = signer.sign_leaf(leaf_index, sighash);
 
-        // Key-path spend: There is 1 sighash.
-        // Script-path spend: There is 1 sighash for each code separator position.
-        let leaf_hash_code_separators: Vec<_> = match leaf_index {
-            Some(i) => {
-                let leaf_scripts = connector.leaf_scripts();
-                let leaf_hash = TapLeafHash::from_script(&leaf_scripts[i], LeafVersion::TapScript);
-                connector
-                    .code_separator_positions(i)
-                    .into_iter()
-                    .map(|pos| Some((leaf_hash, pos)))
-                    .collect()
-            }
-            None => vec![None],
+        let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(connector.tx_out());
+        psbt.inputs[1].witness_utxo = Some(node.coinbase_tx_out());
+        connector.finalize_input(&mut psbt.inputs[0], &witness);
+        info!(%funding_txid, "Spending transaction was signed");
+
+        let spending_tx = psbt.extract_tx().expect("should be able to extract tx");
+        let _ = node.sign_and_broadcast(&spending_tx);
+    }
+}
+
+/// Bitcoin Core node in regtest mode.
+#[derive(Debug)]
+pub struct BitcoinNode {
+    node: Node,
+    wallet_address: Address,
+    coinbase_txids: VecDeque<Txid>,
+}
+
+impl Default for BitcoinNode {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BitcoinNode {
+    /// Creates a new bitcoin node.
+    pub fn new() -> Self {
+        let mut conf = Conf::default();
+        conf.args.push("-txindex=1");
+        let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
+        let client = &bitcoind.client;
+
+        let mut node = Self {
+            wallet_address: client.new_address().unwrap(),
+            node: bitcoind,
+            coinbase_txids: VecDeque::new(),
         };
-        let sighashes: Vec<Message> = leaf_hash_code_separators
+        // Mine 200 blocks so coinbases of blocks 0..100 become mature
+        //
+        // Note (@uncomputable)
+        // 100 spendable coinbase outputs should be enough for most unit tests.
+        // Tests that run out of coinbases can mine more blocks.
+        node.mine_blocks(200);
+        node
+    }
+
+    /// Accesses the bitcoin client.
+    pub fn client(&self) -> &Client {
+        &self.node.client
+    }
+
+    /// Returns the coinbase amount for blocks of the first halving epoch.
+    pub const fn coinbase_amount(&self) -> Amount {
+        Amount::from_sat(50 * 100_000_000)
+    }
+
+    /// Accesses the wallet address.
+    ///
+    /// The node can automatically sign inputs that spend from this address.
+    pub fn wallet_address(&self) -> &Address {
+        &self.wallet_address
+    }
+
+    /// Returns the outpoint of a fresh coinbase transaction.
+    ///
+    /// This method implements an iterator,
+    /// so it returns a fresh coinbase outpoint on each call.
+    ///
+    /// The order of coinbase transactions does not follow the block height.
+    /// Assume an arbitrary order.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if there are no more coinbases.
+    /// In this case, you have to mine more blocks.
+    pub fn next_coinbase_outpoint(&mut self) -> OutPoint {
+        OutPoint {
+            txid: self.coinbase_txids.pop_front().expect("no more coinbases"),
+            vout: 0,
+        }
+    }
+
+    /// Returns the transaction output of any coinbase transaction.
+    ///
+    /// This node sends coinbase funds always to the wallet address,
+    /// so the coinbase output is the same regardless of block height.
+    /// regardless of block height.
+    pub fn coinbase_tx_out(&self) -> TxOut {
+        TxOut {
+            value: self.coinbase_amount(),
+            script_pubkey: self.wallet_address.script_pubkey(),
+        }
+    }
+
+    /// Mines the given number of blocks.
+    ///
+    /// Funds go to the wallet address.
+    pub fn mine_blocks(&mut self, n_blocks: usize) {
+        let coinbase_txids: Vec<Txid> = self
+            .client()
+            .generate_to_address(n_blocks, self.wallet_address())
+            .expect("must be able to generate blocks")
+            .0
             .into_iter()
-            .map(|leaf_hash_code_separator| {
-                let sighash = sighash_cache
-                    .taproot_signature_hash(
-                        input_index,
-                        &prevouts,
-                        annex.clone(),
-                        leaf_hash_code_separator,
-                        sighash_type,
-                    )
-                    .expect("should be able to compute sighash");
-                Message::from_digest(sighash.to_raw_hash().to_byte_array())
+            .map(|block_hash| block_hash.parse::<BlockHash>().expect("must parse"))
+            .map(|block_hash| {
+                self.client()
+                    .get_block(block_hash)
+                    .expect("must be able to get coinbase block")
+                    .coinbase()
+                    .expect("must be able to get the coinbase transaction")
+                    .compute_txid()
             })
             .collect();
+        self.coinbase_txids.extend(coinbase_txids);
+    }
 
-        // Set the witness in the transaction
-        let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
-        psbt.inputs[0].witness_utxo = Some(TxOut {
-            value: funding_amount,
-            script_pubkey: connector.script_pubkey(),
-        });
+    /// Signs the inputs that the wallet controls and returns the resulting transaction.
+    pub fn sign(&self, partially_signed_tx: &Transaction) -> Transaction {
+        let signed_tx = self
+            .client()
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[json!(consensus::encode::serialize_hex(
+                    &partially_signed_tx
+                ))],
+            )
+            .expect("should be able to sign the transaction inputs");
+        consensus::encode::deserialize_hex(&signed_tx.hex).expect("must deserialize")
+    }
 
-        let witness = signer.sign_leaf_with_code_separator(leaf_index, &sighashes);
-        connector.finalize_input(&mut psbt.inputs[0], &witness);
-        let spending_tx = psbt.extract_tx().expect("must be signed");
+    /// Signs the inputs that the wallet controls and broadcasts the transaction.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the transaction is not accepted by the mempool.
+    pub fn sign_and_broadcast(&self, partially_signed_tx: &Transaction) -> Txid {
+        let signed_tx = self.sign(partially_signed_tx);
+        self.client()
+            .send_raw_transaction(&signed_tx)
+            .expect("Cannot broadcast. Is the transaction invalid?")
+            .txid()
+            .expect("should be able to extract the txid")
+    }
 
-        // Broadcast the spending transaction
-        btc_client
-            .send_raw_transaction(&spending_tx)
-            .expect("must be able to broadcast spending transaction");
+    /// Submits a package of transactions to the mempool.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the package is not accepted by the mempool.
+    pub fn submit_package(&self, transactions: &[Transaction]) {
+        let result = self
+            .client()
+            .submit_package(transactions, None, None)
+            .expect("should be able to submit package");
+        assert!(
+            result.package_msg == "success",
+            "Package submission failed. Is the package invalid?"
+        );
+        assert!(
+            result.tx_results.len() == 2,
+            "tx_results should have 2 elements"
+        );
     }
 }
