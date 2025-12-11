@@ -13,7 +13,7 @@ workspace = true
 [dependencies]
 bitcoin.workspace = true
 hex = { workspace = true, features = ["serde"] }
-libp2p-identity = { workspace = true, features = ["secp256k1"] }
+libp2p-identity = { workspace = true, features = ["ed25519"] }
 musig2.workspace = true
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }

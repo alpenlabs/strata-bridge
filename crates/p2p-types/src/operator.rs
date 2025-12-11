@@ -4,7 +4,7 @@
 use std::fmt;
 
 use hex::ToHex;
-use libp2p_identity::secp256k1::PublicKey;
+use libp2p_identity::ed25519::PublicKey;
 
 /// P2P [`P2POperatorPubKey`] serves as an identifier of protocol entity.
 ///
