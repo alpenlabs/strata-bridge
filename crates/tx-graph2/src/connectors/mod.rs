@@ -18,7 +18,7 @@ use bitcoin::{
     script,
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
-    Address, Amount, Network, ScriptBuf, TapSighashType, Transaction, TxOut,
+    Address, Amount, Network, ScriptBuf, TapNodeHash, TapSighashType, Transaction, TxOut,
 };
 use secp256k1::{schnorr, Message, XOnlyPublicKey};
 use strata_bridge_primitives::scripts::prelude::{
@@ -124,6 +124,13 @@ pub trait Connector {
         )
         .expect("tap tree is valid")
         .1
+    }
+
+    /// Returns the tap tweak that transforms the internal key into the output key.
+    ///
+    /// The tap tweak is equal to the merkle root of the tap tree.
+    fn tweak(&self) -> Option<TapNodeHash> {
+        self.spend_info().merkle_root()
     }
 
     /// Computes the sighash of an input that spends the connector.
