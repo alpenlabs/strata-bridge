@@ -106,11 +106,18 @@ pub struct ContestCounterproofWitness {
 
 #[cfg(test)]
 mod tests {
+    use bitcoin::{
+        absolute,
+        psbt::Psbt,
+        sighash::{Prevouts, SighashCache},
+        transaction, OutPoint, Transaction, TxOut,
+    };
     use secp256k1::Keypair;
+    use strata_bridge_primitives::scripts::prelude::create_tx_ins;
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::test_utils::Signer;
+    use crate::connectors::test_utils::BitcoinNode;
 
     const N_DATA: NonZero<usize> = NonZero::new(10).unwrap();
 
@@ -119,9 +126,7 @@ mod tests {
         operator_keypair: Keypair,
     }
 
-    impl Signer for ContestWatchtowerSigner {
-        type Connector = ContestCounterproofOutput;
-
+    impl ContestWatchtowerSigner {
         fn generate() -> Self {
             Self {
                 n_of_n_keypair: generate_keypair(),
@@ -129,7 +134,7 @@ mod tests {
             }
         }
 
-        fn get_connector(&self) -> Self::Connector {
+        fn get_connector(&self) -> ContestCounterproofOutput {
             ContestCounterproofOutput {
                 network: Network::Regtest,
                 n_of_n_pubkey: self.n_of_n_keypair.x_only_public_key().0,
@@ -138,22 +143,99 @@ mod tests {
             }
         }
 
-        fn get_connector_name(&self) -> &'static str {
-            "contest-counterproof"
-        }
+        fn sign_leaf(&self, sighashes: &[secp256k1::Message]) -> ContestCounterproofWitness {
+            assert!(sighashes.len() == N_DATA.get());
+            let n_of_n_signature = self.n_of_n_keypair.sign_schnorr(sighashes[0]);
+            let operator_signatures = sighashes
+                .iter()
+                .copied()
+                .map(|sighash| self.operator_keypair.sign_schnorr(sighash))
+                .collect();
 
-        fn sign_leaf(
-            &self,
-            _leaf_index: Option<usize>,
-            _sighash: secp256k1::Message,
-        ) -> <Self::Connector as Connector>::Witness {
-            unimplemented!("use sign_leaf_with_code_separator")
+            ContestCounterproofWitness {
+                n_of_n_signature,
+                operator_signatures,
+            }
         }
     }
 
     #[test]
-    #[ignore]
     fn counterproof_spend() {
-        ContestWatchtowerSigner::assert_connector_is_spendable(Some(0));
+        let mut node = BitcoinNode::new();
+        let signer = ContestWatchtowerSigner::generate();
+        let connector = signer.get_connector();
+        let fee = Amount::from_sat(1_000);
+
+        // Create a transaction that funds the connector.
+        //
+        // inputs        | outputs
+        // --------------+------------------------
+        // N sat: wallet | M sat: connector
+        //               |------------------------
+        //               | N - M - fee sat: wallet
+        let input = create_tx_ins([node.next_coinbase_outpoint()]);
+        let output = vec![
+            connector.tx_out(),
+            TxOut {
+                value: node.coinbase_amount() - connector.value() - fee,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            },
+        ];
+        let funding_tx = Transaction {
+            version: transaction::Version(2),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+
+        let funding_txid = node.sign_and_broadcast(&funding_tx);
+        node.mine_blocks(10);
+
+        // Create a transaction that spends the connector.
+        //
+        // inputs           | outputs
+        // -----------------+------------------------
+        // M sat: connector | N + M - fee sat: wallet
+        // -----------------|
+        // N sat: wallet    |
+        let input = create_tx_ins([
+            OutPoint {
+                txid: funding_txid,
+                vout: 0,
+            },
+            node.next_coinbase_outpoint(),
+        ]);
+        let output = vec![TxOut {
+            value: node.coinbase_amount() + connector.value() - fee,
+            script_pubkey: node.wallet_address().script_pubkey(),
+        }];
+        let spending_tx = Transaction {
+            version: transaction::Version(2),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+
+        // Sign the spending transaction
+        let leaf_index = 0;
+        let mut cache = SighashCache::new(&spending_tx);
+        let utxos = [connector.tx_out(), node.coinbase_tx_out()];
+        let prevouts = Prevouts::All(&utxos);
+        let input_index = 0;
+        let sighashes = connector.compute_sighashes_with_code_separator(
+            leaf_index,
+            &mut cache,
+            prevouts,
+            input_index,
+        );
+        let witness = signer.sign_leaf(&sighashes);
+
+        let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(connector.tx_out());
+        psbt.inputs[1].witness_utxo = Some(node.coinbase_tx_out());
+        connector.finalize_input(&mut psbt.inputs[0], &witness);
+
+        let spending_tx = psbt.extract_tx().expect("should be able to extract tx");
+        let _ = node.sign_and_broadcast(&spending_tx);
     }
 }
