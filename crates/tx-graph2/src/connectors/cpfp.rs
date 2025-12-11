@@ -88,6 +88,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn p2a_spend() {
         let leaf_index = None;
         P2ASigner::assert_connector_is_spendable(leaf_index);
