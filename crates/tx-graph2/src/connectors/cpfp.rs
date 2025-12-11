@@ -1,6 +1,8 @@
 //! This module contains the CPFP connector.
 
-use bitcoin::{taproot::TaprootSpendInfo, Address, Amount, Network, ScriptBuf, WitnessProgram};
+use bitcoin::{
+    taproot::TaprootSpendInfo, Address, Amount, Network, ScriptBuf, Witness, WitnessProgram,
+};
 
 use crate::connectors::{Connector, TaprootWitness};
 
@@ -47,50 +49,77 @@ impl Connector for CpfpConnector {
         panic!("P2A is not a taproot output")
     }
 
-    fn finalize_input(&self, _input: &mut bitcoin::psbt::Input, _witness: &Self::Witness) {
-        // Do nothing
+    fn finalize_input(&self, input: &mut bitcoin::psbt::Input, _witness: &Self::Witness) {
+        input.final_script_witness = Some(Witness::default());
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use secp256k1::Message;
+    use bitcoin::{absolute, transaction, OutPoint, Transaction, TxOut};
+    use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
     use super::*;
-    use crate::connectors::test_utils::Signer;
-
-    struct P2ASigner;
-
-    impl Signer for P2ASigner {
-        type Connector = CpfpConnector;
-
-        fn generate() -> Self {
-            Self
-        }
-
-        fn get_connector(&self) -> Self::Connector {
-            CpfpConnector {
-                network: Network::Regtest,
-            }
-        }
-
-        fn get_connector_name(&self) -> &'static str {
-            "p2a"
-        }
-
-        fn sign_leaf(
-            &self,
-            _leaf_index: Option<usize>,
-            _sighash: Message,
-        ) -> <Self::Connector as Connector>::Witness {
-            // Return unit
-        }
-    }
+    use crate::connectors::test_utils::BitcoinNode;
 
     #[test]
-    #[ignore]
     fn p2a_spend() {
-        let leaf_index = None;
-        P2ASigner::assert_connector_is_spendable(leaf_index);
+        let mut node = BitcoinNode::new();
+
+        // Create the parent transaction that funds the P2A connector.
+        // The parent transaction is v3 and has zero fees.
+        //
+        // inputs        | outputs
+        // --------------+--------------
+        // N sat: wallet | N sat: wallet
+        //               |--------------
+        //               | 0 sat: P2A
+        let connector = CpfpConnector::new(Network::Regtest);
+        let input = create_tx_ins([node.next_coinbase_outpoint()]);
+        let output = vec![
+            TxOut {
+                value: node.coinbase_amount(),
+                script_pubkey: node.wallet_address().script_pubkey(),
+            },
+            connector.tx_out(),
+        ];
+        let parent_tx = Transaction {
+            version: transaction::Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+        let signed_parent_tx = node.sign(&parent_tx);
+
+        // Create the child transaction that spends the P2A connector of the parent transaction.
+        // The child transaction is v3 and pays 2 * fees: for the itself and for the parent.
+        //
+        // inputs        | outputs
+        // --------------+------------------------
+        // 0 sat: P2A    | N - fee * 2 sat: wallet
+        // --------------|
+        // N sat: wallet |
+        let input = create_tx_ins([
+            OutPoint {
+                txid: signed_parent_tx.compute_txid(),
+                vout: 1,
+            },
+            node.next_coinbase_outpoint(),
+        ]);
+        let fee = Amount::from_sat(1_000);
+        let output = vec![TxOut {
+            value: node.coinbase_amount() - fee * 2,
+            script_pubkey: node.wallet_address().script_pubkey(),
+        }];
+        let child_tx = Transaction {
+            version: transaction::Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+        let signed_child_tx = node.sign(&child_tx);
+
+        // Submit parent and child in the same package
+        node.submit_package(&[signed_parent_tx, signed_child_tx]);
     }
 }
