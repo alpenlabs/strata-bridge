@@ -20,8 +20,14 @@ use btc_tracker::{
     event::BlockStatus,
     tx_driver::TxDriver,
 };
-use futures::{future::join_all, StreamExt};
+use futures::{future::join_all, SinkExt, StreamExt};
+use libp2p_identity::ed25519::Keypair;
 use operator_wallet::OperatorWallet;
+use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use p2p_wire::p2p::v1::{
+    ArchivedGetMessageRequest, ArchivedGossipsubMsg, GetMessageRequest, GossipsubMsg,
+    UnsignedGossipsubMsg,
+};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
@@ -32,9 +38,12 @@ use strata_bridge_tx_graph::transactions::{
 };
 use strata_bridge_types::DepositState;
 use strata_ol_chainstate_types::Chainstate;
-use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
+use strata_p2p::{
+    self,
+    commands::{GossipCommand, RequestResponseCommand},
+    events::{GossipEvent, ReqRespEvent},
+    swarm::handle::{GossipHandle, ReqRespHandle},
+};
 use strata_params::RollupParams;
 use tokio::{
     select,
@@ -77,6 +86,7 @@ impl ContractManager {
     pub fn new(
         // Static Config Parameters
         network: Network,
+        keypair: Keypair,
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
@@ -92,7 +102,8 @@ impl ContractManager {
         // Subsystem Handles
         zmq_client: BtcNotifyClient,
         rpc_client: BitcoinClient,
-        mut p2p_handle: P2PHandle,
+        mut gossip_handle: GossipHandle,
+        mut req_resp_handle: ReqRespHandle,
         contract_persister: ContractPersister,
         stake_chain_persister: StakeChainPersister,
         s2_client: SecretServiceClient,
@@ -264,7 +275,7 @@ impl ContractManager {
                     ouroboros_msg = ouroboros_msg_receiver.recv() => match ouroboros_msg {
                         Some(msg) => {
                             match ctx.process_unsigned_gossip_msg(
-                                msg.clone().into(),
+                                msg.publish.clone().into(),
                                 cfg.operator_table.pov_p2p_key().clone(),
                                 cfg.operator_table.pov_idx()
                             ).await {
@@ -278,10 +289,27 @@ impl ContractManager {
                                         duties.extend(ouroboros_duties);
                                     }
 
+                                    // If peer is specified, then send only to that peer. Otherwise
+                                    // broadcast the message.
+                                    if let Some(peer) = msg.peer {
+                                        let msg = UnsignedGossipsubMsg::from(msg.publish);
+                                        let data = msg.content();
+                                        if peer.send(data).is_err() {
+                                            error!("failed to send ouroboros message to peer");
+                                        }
+                                        continue;
+                                    }
+
                                     // If we successfully handle the processing of our message, we
                                     // can forward it to the rest of the p2p network.
-                                    let signed = p2p_handle.sign_message(msg);
-                                    p2p_handle.send_command(Command::PublishMessage(signed)).await;
+                                    let signed = msg.publish.sign_ed25519(&keypair);
+                                    let msg = GossipsubMsg::from(signed);
+                                    let mut data = Vec::new();
+                                    rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
+                                        .expect("must be able to serialize message");
+                                    if let Err(e) = gossip_handle.send(GossipCommand { data }).await {
+                                        error!(%e, "failed to forward ouroboros message to gossip handler");
+                                    }
                                 }
                                 Err(e) => {
                                     error!(%e, "CRITICAL: failed to process ouroboros message");
@@ -323,7 +351,7 @@ impl ContractManager {
                         Some(req) => {
                             if req.operator_pubkey() == cfg.operator_table.pov_p2p_key() {
                                 // Peel off requests that were directed at ourselves.
-                                match ctx.process_p2p_request(req.clone()).await {
+                                match ctx.process_p2p_request(req.clone(), None).await {
                                     Ok(p2p_req_duties) => {
                                         duties.extend(p2p_req_duties);
                                     },
@@ -336,7 +364,15 @@ impl ContractManager {
                             } else {
                                 // If it wasn't meant for us we can forward the request to the p2p
                                 // network
-                                p2p_handle.send_command(Command::RequestMessage(req)).await;
+                                let mut data = Vec::new();
+                                rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&req, &mut data)
+                                    .expect("must be able to serialize request message");
+                                if let Err(e) = req_resp_handle.send(RequestResponseCommand {
+                                    target_transport_id: req.peer_id(),
+                                    data,
+                                }).await {
+                                    error!(%e, "failed to forward ouroboros p2p request to req/resp handler");
+                                }
                             }
                         },
                         None => {
@@ -405,35 +441,59 @@ impl ContractManager {
                     // Finally, we process peer messages. We do this last so we have the best chance of
                     // servicing peer requests and can sidestep the processing of unnecessary peer
                     // messages.
-                    Some(event) = p2p_handle.next() => match event {
-                        Ok(Event::ReceivedMessage(msg)) => {
-                            match ctx.process_p2p_message(msg.clone()).await {
-                                Ok(msg_duties) if !msg_duties.is_empty() => {
-                                    duties.extend(msg_duties);
-                                },
-                                Ok(_) => {},
-                                Err(e) => {
-                                    error!(?msg, %e, "failed to process p2p msg");
-                                    // in case an error occurs, we will just nag again
-                                    // so no need to break out of the event loop
+                    Ok(GossipEvent::ReceivedMessage(raw_msg)) = gossip_handle.next_event() => {
+                        let archived_msg  = match rkyv::access::<ArchivedGossipsubMsg, rkyv::rancor::Error>(&raw_msg) {
+                            Ok(msg) => msg,
+                            Err(e) => {
+                                error!(%e, "failed to access archived p2p msg");
+                                continue;
+                            }
+                        };
+                        match rkyv::deserialize::<_, rkyv::rancor::Error>(archived_msg) {
+                            Ok(msg) => {
+                                match ctx.process_p2p_message(msg.clone()).await {
+                                    Ok(msg_duties) if !msg_duties.is_empty() => {
+                                        duties.extend(msg_duties);
+                                    },
+                                    Ok(_) => {},
+                                    Err(e) => {
+                                        error!(?msg, %e, "failed to process p2p msg");
+                                        // in case an error occurs, we will just nag again
+                                        // so no need to break out of the event loop
+                                    }
                                 }
                             }
-                        },
-                        Ok(Event::ReceivedRequest(req)) => {
-                            match ctx.process_p2p_request(req.clone()).await {
-                                Ok(p2p_duties) => duties.extend(p2p_duties),
-                                Err(e) => {
-                                    error!(?req, %e, "failed to process p2p request");
-                                    // in case an error occurs, the requester will just nag again
-                                    // so no need to break out of the event loop
-                                },
+                            Err(e) => {
+                                error!(%e, "failed to decode p2p msg");
                             }
-                        },
-                        Err(e) => {
-                            error!(%e, "error while polling for p2p messages");
-                            // this could be a transient issue, so no need to break immediately
                         }
                     },
+
+                    Some(ReqRespEvent::ReceivedRequest(raw_req, peer)) = req_resp_handle.next_event() => {
+                        let archived = match rkyv::access::<ArchivedGetMessageRequest, rkyv::rancor::Error>(&raw_req) {
+                            Ok(req) => req,
+                            Err(e) => {
+                                error!(%e, "failed to access archived p2p request");
+                                continue;
+                            }
+                        };
+                        match rkyv::deserialize::<_, rkyv::rancor::Error>(archived) {
+                            Ok(req) => {
+                                match ctx.process_p2p_request(req.clone(), Some(peer)).await {
+                                    Ok(p2p_duties) => duties.extend(p2p_duties),
+                                    Err(e) => {
+                                        error!(?req, %e, "failed to process p2p request");
+                                        // in case an error occurs, the requester will just nag again
+                                        // so no need to break out of the event loop
+                                    },
+                                }
+                            }
+                            Err(e) => {
+                                error!(%e, "failed to decode p2p request");
+                            }
+                        }
+                    },
+
                     _instant = interval.tick() => {
                         debug!("nagging peers for necessary p2p messages");
 
@@ -452,7 +512,6 @@ impl ContractManager {
                         });
 
                         join_all(nags).await;
-
                     }
                 }
 
@@ -461,8 +520,9 @@ impl ContractManager {
 
                     let cfg = ctx.cfg.clone();
                     let output_handles = output_handles.clone();
-                    if let Err(e) = execute_duty(cfg, output_handles, duty.clone()).await {
-                        error!(%e, %duty, "failed to execute duty");
+                    let duty_str = duty.to_string();
+                    if let Err(e) = execute_duty(cfg, output_handles, duty).await {
+                        error!(%e, duty=duty_str, "failed to execute duty");
                     }
                 }
             }
@@ -695,10 +755,11 @@ impl ContractManagerCtx {
                     deposit_tx,
                 };
 
-                let duty = OperatorDuty::PublishDepositSetup {
+                let duty = OperatorDuty::SendDepositSetup {
                     deposit_txid: cfg.deposit_tx.compute_txid(),
                     deposit_idx: cfg.deposit_idx,
                     stake_chain_inputs,
+                    peer: None,
                 };
 
                 let sm = ContractSM::new(
@@ -916,11 +977,14 @@ impl ContractManagerCtx {
             } => {
                 self.state
                     .stake_chains
-                    .process_exchange(key, OutPoint::new(pre_stake_txid, pre_stake_vout))?;
+                    .process_exchange(key, OutPoint::new(pre_stake_txid.into(), pre_stake_vout))?;
 
                 self.state_handles
                     .stake_chain_persister
-                    .commit_prestake(sender_id, OutPoint::new(pre_stake_txid, pre_stake_vout))
+                    .commit_prestake(
+                        sender_id,
+                        OutPoint::new(pre_stake_txid.into(), pre_stake_vout),
+                    )
                     .await?;
 
                 Ok(vec![])
@@ -935,14 +999,16 @@ impl ContractManagerCtx {
                 wots_pks,
             } => {
                 let deposit_txid = Txid::from_byte_array(*scope.as_ref());
-                info!(%sender_id, %index, %deposit_txid, %operator_pk, "received deposit setup message");
+                info!(%sender_id, %index, %deposit_txid, operator_pk=operator_pk.to_lower_hex_string(), "received deposit setup message");
 
                 if let Some(contract) = self.state.active_contracts.get_mut(&deposit_txid) {
                     let setup = DepositSetup {
                         index,
-                        hash,
-                        funding_outpoint: OutPoint::new(funding_txid, funding_vout),
-                        operator_pk,
+                        hash: hash.into(),
+                        funding_outpoint: OutPoint::new(funding_txid.into(), funding_vout),
+                        operator_pk: operator_pk
+                            .try_into()
+                            .map_err(|_| ContractManagerErr::InvalidOperatorPubkey)?,
                         wots_pks: wots_pks.clone(),
                     };
 
@@ -992,8 +1058,10 @@ impl ContractManagerCtx {
                     let deposit_setup_duties =
                         contract.process_contract_event(ContractEvent::DepositSetup {
                             operator_p2p_key: key.clone(),
-                            operator_btc_key: operator_pk,
-                            stake_hash: hash,
+                            operator_btc_key: operator_pk
+                                .try_into()
+                                .map_err(|_| ContractManagerErr::InvalidOperatorPubkey)?,
+                            stake_hash: hash.into(),
                             stake_txid: stake_tx.compute_txid(),
                             wots_keys,
                         })?;
@@ -1001,7 +1069,7 @@ impl ContractManagerCtx {
                     for duty in deposit_setup_duties.iter() {
                         // we need a way to feed the claim txids back into the manager's index so we
                         // skim it off of the publish graph nonces duty.
-                        if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
+                        if let OperatorDuty::SendGraphNonces { claim_txid, .. } = duty {
                             self.state.claim_txids.insert(*claim_txid, deposit_txid);
                         }
                     }
@@ -1042,11 +1110,20 @@ impl ContractManagerCtx {
                     .and_then(|deposit_txid| self.state.active_contracts.get_mut(deposit_txid))
                 {
                     let claim_txid = txid;
-                    duties.extend(contract.process_contract_event(ContractEvent::GraphNonces {
-                        signer: key,
-                        claim_txid,
-                        pubnonces: nonces,
-                    })?);
+                    duties.extend(
+                        contract.process_contract_event(ContractEvent::GraphNonces {
+                            signer: key,
+                            claim_txid,
+                            pubnonces: nonces
+                                .into_iter()
+                                .map(|nonce| {
+                                    nonce
+                                        .try_into()
+                                        .map_err(|_| ContractManagerErr::InvalidPubNonces)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?,
+                        })?,
+                    );
                 } else if let Some((_, contract)) = self
                     .state
                     .active_contracts
@@ -1064,7 +1141,12 @@ impl ContractManagerCtx {
                         )));
                     }
                     duties.extend(
-                        contract.process_contract_event(ContractEvent::RootNonce(key, nonce))?,
+                        contract.process_contract_event(ContractEvent::RootNonce(
+                            key,
+                            nonce
+                                .try_into()
+                                .map_err(|_| ContractManagerErr::InvalidPubNonces)?,
+                        ))?,
                     );
                 }
 
@@ -1086,7 +1168,14 @@ impl ContractManagerCtx {
                         contract.process_contract_event(ContractEvent::GraphSigs {
                             signer: key,
                             claim_txid: txid,
-                            signatures: signatures.clone(),
+                            signatures: signatures
+                                .iter()
+                                .cloned()
+                                .map(|s| {
+                                    s.try_into()
+                                        .map_err(|_| ContractManagerErr::InvalidPartialSignature)
+                                })
+                                .collect::<Result<Vec<_>, _>>()?,
                         })?;
 
                     // this is a critical state transition as signatures are aggregated here, so
@@ -1123,7 +1212,12 @@ impl ContractManagerCtx {
                         .expect("must exist due to the length check above");
 
                     duties.extend(
-                        contract.process_contract_event(ContractEvent::RootSig(key, *sig))?,
+                        contract.process_contract_event(ContractEvent::RootSig(
+                            key,
+                            (*sig)
+                                .try_into()
+                                .map_err(|_| ContractManagerErr::InvalidPartialSignature)?,
+                        ))?,
                     );
                 }
 
@@ -1182,33 +1276,38 @@ impl ContractManagerCtx {
     async fn process_p2p_request(
         &mut self,
         req: GetMessageRequest,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         match req {
             GetMessageRequest::StakeChainExchange { .. } => {
-                Ok(self.process_stake_chain_exchange_request())
+                Ok(self.process_stake_chain_exchange_request(peer))
             }
             GetMessageRequest::DepositSetup { scope, .. } => {
-                self.process_deposit_setup_request(scope)
+                self.process_deposit_setup_request(scope, peer)
             }
             GetMessageRequest::Musig2NoncesExchange { session_id, .. } => {
-                self.process_musig2_nonces_exchange_request(session_id)
+                self.process_musig2_nonces_exchange_request(session_id, peer)
             }
             GetMessageRequest::Musig2SignaturesExchange { session_id, .. } => {
-                self.process_musig2_signatures_exchange_request(session_id)
+                self.process_musig2_signatures_exchange_request(session_id, peer)
             }
         }
     }
 
-    fn process_stake_chain_exchange_request(&self) -> Option<OperatorDuty> {
+    fn process_stake_chain_exchange_request(
+        &self,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
+    ) -> Option<OperatorDuty> {
         info!("received request for stake chain exchange");
         // TODO(proofofkeags): actually choose the correct stake chain
         // inputs based off the stake chain id we receive.
-        Some(OperatorDuty::PublishStakeChainExchange)
+        Some(OperatorDuty::SendStakeChainExchange(peer))
     }
 
     fn process_deposit_setup_request(
         &self,
         scope: Scope,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let deposit_txid = Txid::from_byte_array(*scope.as_ref());
 
@@ -1227,10 +1326,11 @@ impl ContractManagerCtx {
             .get(&deposit_txid)
             .map(|sm| sm.cfg().deposit_idx)
         {
-            Ok(Some(OperatorDuty::PublishDepositSetup {
+            Ok(Some(OperatorDuty::SendDepositSetup {
                 deposit_txid,
                 deposit_idx,
                 stake_chain_inputs,
+                peer,
             }))
         } else {
             warn!(%deposit_txid, "received deposit setup request for unknown contract");
@@ -1246,6 +1346,7 @@ impl ContractManagerCtx {
     fn process_musig2_nonces_exchange_request(
         &mut self,
         session_id: SessionId,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
@@ -1254,7 +1355,7 @@ impl ContractManagerCtx {
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
             if let Some(csm) = self.state.active_contracts.get(deposit_txid) {
-                return Self::process_graph_nonces_request(session_id_as_txid, csm);
+                return Self::process_graph_nonces_request(session_id_as_txid, csm, peer);
             }
         }
 
@@ -1265,7 +1366,11 @@ impl ContractManagerCtx {
             .values()
             .find(|sm| sm.deposit_request_txid() == session_id_as_txid)
         {
-            Ok(Self::process_root_nonces_request(session_id_as_txid, csm))
+            Ok(Self::process_root_nonces_request(
+                session_id_as_txid,
+                csm,
+                peer,
+            ))
         } else {
             // otherwise ignore this message.
             warn!(txid=%session_id_as_txid, "received a musig2 nonces exchange for an unknown session");
@@ -1276,6 +1381,7 @@ impl ContractManagerCtx {
     fn process_graph_nonces_request(
         claim_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         info!(%claim_txid, "received request for graph nonces");
 
@@ -1313,11 +1419,12 @@ impl ContractManagerCtx {
                 })
                 .cloned();
 
-            Ok(Some(OperatorDuty::PublishGraphNonces {
+            Ok(Some(OperatorDuty::SendGraphNonces {
                 claim_txid,
                 pog_prevouts,
                 pog_witnesses,
                 nonces: existing_nonces,
+                peer,
             }))
         } else {
             warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1328,6 +1435,7 @@ impl ContractManagerCtx {
     fn process_root_nonces_request(
         deposit_request_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Option<OperatorDuty> {
         info!(%deposit_request_txid, "received nag for root nonces");
 
@@ -1349,10 +1457,11 @@ impl ContractManagerCtx {
                 .get(csm.cfg().operator_table.pov_p2p_key())
                 .cloned();
 
-            Some(OperatorDuty::PublishRootNonce {
+            Some(OperatorDuty::SendRootNonce {
                 deposit_request_txid,
                 witness,
                 nonce: existing_nonce,
+                peer,
             })
         } else {
             warn!(deposit_idx=%csm.cfg().deposit_idx, "nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1363,6 +1472,7 @@ impl ContractManagerCtx {
     fn process_musig2_signatures_exchange_request(
         &mut self,
         session_id: SessionId,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         let session_id_as_txid = Txid::from_byte_array(*session_id.as_ref());
 
@@ -1371,7 +1481,12 @@ impl ContractManagerCtx {
         // First try to find by claim_txid
         if let Some(deposit_txid) = self.state.claim_txids.get(&session_id_as_txid) {
             if let Some(csm) = self.state.active_contracts.get(deposit_txid) {
-                return Self::process_graph_signatures_request(&self.cfg, session_id_as_txid, csm);
+                return Self::process_graph_signatures_request(
+                    &self.cfg,
+                    session_id_as_txid,
+                    csm,
+                    peer,
+                );
             }
         }
 
@@ -1385,6 +1500,7 @@ impl ContractManagerCtx {
             Ok(Self::process_root_signatures_request(
                 session_id_as_txid,
                 csm,
+                peer,
             ))
         } else {
             // otherwise ignore this message.
@@ -1397,6 +1513,7 @@ impl ContractManagerCtx {
         cfg: &ExecutionConfig,
         claim_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Result<Option<OperatorDuty>, ContractManagerErr> {
         if let ContractState::Requested {
             peg_out_graph_inputs,
@@ -1446,13 +1563,14 @@ impl ContractManagerCtx {
                 return Ok(None);
             };
 
-            Ok(Some(OperatorDuty::PublishGraphSignatures {
+            Ok(Some(OperatorDuty::SendGraphSignatures {
                 claim_txid,
                 aggnonces,
                 pog_prevouts,
                 pog_sighashes,
                 witnesses: pog_witnesses,
                 partial_signatures: existing_partials,
+                peer,
             }))
         } else {
             warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1463,6 +1581,7 @@ impl ContractManagerCtx {
     fn process_root_signatures_request(
         deposit_request_txid: Txid,
         csm: &ContractSM,
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) -> Option<OperatorDuty> {
         info!(%deposit_request_txid, "received nag for root signatures");
 
@@ -1489,12 +1608,13 @@ impl ContractManagerCtx {
                 .into_values()
                 .sum();
 
-            Some(OperatorDuty::PublishRootSignature {
+            Some(OperatorDuty::SendRootSignature {
                 deposit_request_txid,
                 aggnonce,
                 sighash,
                 witness,
                 partial_signature: existing_partial,
+                peer,
             })
         } else {
             warn!("nagged for nonces on a ContractSM that is not in a Requested state");
@@ -1740,26 +1860,37 @@ async fn execute_duty(
         error!(%error, "failed to execute {duty_description}");
     };
     match duty {
-        OperatorDuty::PublishStakeChainExchange => {
-            handle_publish_stake_chain_exchange(&cfg, &outs.s2_client, &outs.db, &outs.msg_handler)
-                .await
-                .inspect_err(log_error)
-        }
+        OperatorDuty::SendStakeChainExchange(peer) => handle_send_stake_chain_exchange(
+            &cfg,
+            &outs.s2_client,
+            &outs.db,
+            &outs.msg_handler,
+            peer,
+        )
+        .await
+        .inspect_err(log_error),
 
-        OperatorDuty::PublishDepositSetup {
+        OperatorDuty::SendDepositSetup {
             deposit_idx,
             deposit_txid,
             stake_chain_inputs,
-        } => {
-            handle_publish_deposit_setup(&cfg, outs, deposit_txid, deposit_idx, stake_chain_inputs)
-                .await
-                .inspect_err(log_error)
-        }
-        OperatorDuty::PublishRootNonce {
+            peer,
+        } => handle_send_deposit_setup(
+            &cfg,
+            outs,
+            deposit_txid,
+            deposit_idx,
+            stake_chain_inputs,
+            peer,
+        )
+        .await
+        .inspect_err(log_error),
+        OperatorDuty::SendRootNonce {
             deposit_request_txid,
             witness,
             nonce,
-        } => handle_publish_root_nonce(
+            peer,
+        } => handle_send_root_nonce(
             &outs.s2_client,
             cfg.operator_table
                 .btc_keys()
@@ -1770,16 +1901,18 @@ async fn execute_duty(
             OutPoint::new(deposit_request_txid, 0),
             witness,
             nonce,
+            peer,
         )
         .await
         .inspect_err(log_error),
 
-        OperatorDuty::PublishGraphNonces {
+        OperatorDuty::SendGraphNonces {
             claim_txid,
             pog_prevouts: pog_inputs,
             pog_witnesses,
             nonces,
-        } => handle_publish_graph_nonces(
+            peer,
+        } => handle_send_graph_nonces(
             &outs.s2_client,
             cfg.operator_table
                 .btc_keys()
@@ -1791,17 +1924,19 @@ async fn execute_duty(
             pog_inputs,
             pog_witnesses,
             nonces,
+            peer,
         )
         .await
         .inspect_err(log_error),
 
-        OperatorDuty::PublishGraphSignatures {
+        OperatorDuty::SendGraphSignatures {
             claim_txid,
             aggnonces,
             pog_prevouts: pog_outpoints,
             pog_sighashes,
             witnesses,
             partial_signatures,
+            peer,
         } => {
             let input = aggnonces
                 .zip(pog_outpoints)
@@ -1816,7 +1951,7 @@ async fn execute_duty(
                     },
                 );
 
-            handle_publish_graph_sigs(
+            handle_send_graph_sigs(
                 &outs.s2_client,
                 cfg.operator_table
                     .btc_keys()
@@ -1827,18 +1962,20 @@ async fn execute_duty(
                 claim_txid,
                 input,
                 partial_signatures,
+                peer,
             )
             .await
             .inspect_err(log_error)
         }
 
-        OperatorDuty::PublishRootSignature {
+        OperatorDuty::SendRootSignature {
             aggnonce,
             deposit_request_txid,
             sighash,
             witness,
             partial_signature,
-        } => handle_publish_root_signature(
+            peer,
+        } => handle_send_root_signature(
             &outs.s2_client,
             cfg.operator_table
                 .btc_keys()
@@ -1851,6 +1988,7 @@ async fn execute_duty(
             sighash,
             witness,
             partial_signature,
+            peer,
         )
         .await
         .inspect_err(log_error),

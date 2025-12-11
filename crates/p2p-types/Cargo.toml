@@ -1,0 +1,26 @@
+[package]
+edition = "2021"
+name = "p2p-types"
+version = "0.1.0"
+
+[features]
+default = []
+proptest = ["dep:proptest", "dep:proptest-derive"]
+
+[lints]
+workspace = true
+
+[dependencies]
+bitcoin.workspace = true
+hex = { workspace = true, features = ["serde"] }
+libp2p-identity = { workspace = true, features = ["ed25519"] }
+musig2.workspace = true
+proptest = { workspace = true, optional = true }
+proptest-derive = { workspace = true, optional = true }
+rkyv.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+bincode.workspace = true
+secp256k1 = { workspace = true, features = ["rand"] }
+serde_json.workspace = true
