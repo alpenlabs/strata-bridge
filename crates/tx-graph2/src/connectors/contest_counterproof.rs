@@ -100,7 +100,7 @@ pub struct ContestCounterproofWitness {
     pub n_of_n_signature: schnorr::Signature,
     /// Operator signatures.
     ///
-    /// There is 1 operator signature per byte of data.
+    /// There is 1 operator signature per byte of data that will be published onchain.
     pub operator_signatures: Vec<schnorr::Signature>,
 }
 
