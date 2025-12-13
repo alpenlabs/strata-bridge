@@ -1,6 +1,7 @@
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Thread
@@ -67,7 +68,7 @@ def generate_task(rpc: BitcoindClient, wait_dur, addr):
 
 
 def wait_until(
-    condition,
+    condition: Callable[[], bool],
     timeout: int = 120,
     step: int = 1,
     error_msg: str = "Condition not met within timeout",
