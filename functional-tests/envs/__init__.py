@@ -1,3 +1,9 @@
+"""Environment configurations for functional testing.
+
+This module provides environment configurations used by the flexitest framework
+to set up and manage test environments for the Strata Bridge system.
+"""
+
 import flexitest
 
 from utils import (

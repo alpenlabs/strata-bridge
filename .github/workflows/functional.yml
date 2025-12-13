@@ -89,7 +89,7 @@ jobs:
 
       - name: Install bitcoind
         env:
-          BITCOIND_VERSION: "29.0"
+          BITCOIND_VERSION: "30.0"
           BITCOIND_ARCH: "x86_64-linux-gnu"
         run: |
           curl -fsSLO --proto "=https" --tlsv1.2 "https://bitcoincore.org/bin/bitcoin-core-$BITCOIND_VERSION/bitcoin-$BITCOIND_VERSION-$BITCOIND_ARCH.tar.gz"
@@ -143,9 +143,7 @@ jobs:
 
       - name: Build Cargo project
         run: |
-          # Build bridge bin
           cargo build --bin alpen-bridge
-          # Build s2 bin
           cargo build -p secret-service --bin secret-service
 
       - name: Run functional tests
