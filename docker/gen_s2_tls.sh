@@ -2,10 +2,10 @@
 
 BRIDGE_BASE_DIR=${1:-docker/vol/alpen-bridge}
 S2_BASE_DIR=${2:-docker/vol/secret-service}
+IP=${3:-172.28.1.6}
 
 S2_TLS_DIR=${S2_BASE_DIR}/tls
 BRIDGE_TLS_DIR=${BRIDGE_BASE_DIR}/tls
-IP=172.28.1.6
 
 rm -rf $S2_TLS_DIR $BRIDGE_TLS_DIR
 mkdir -p $S2_TLS_DIR $BRIDGE_TLS_DIR

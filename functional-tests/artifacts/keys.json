@@ -1,0 +1,9 @@
+[
+    {
+        "SEED": "195a61de8fdac38f9c97e493c03718c98a3c85a977b49192ceac32e429f6c409",
+        "GENERAL_WALLET": "bcrt1pz3lhscydysketvdtdw57320wqeflea8avz3vwxvhlg64cse558lqkyycgz",
+        "STAKE_CHAIN_WALLET": "bcrt1pfzkntpr2g4353zuafe2lwe5ag2v5w3sth0lfwz7z9k70uzhjmtyqc69eun",
+        "MUSIG2_KEY": "ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
+        "P2P_KEY": "0242f6ae559d2dc46b83fc820e9ba32f6ac8c387daac77f2805e930e924e3a127d"
+    }
+]
