@@ -3,6 +3,7 @@ use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::HASH_LEN};
 use btc_tracker::event::TxStatus;
 use futures::future::join_all;
+use p2p_types::WotsPublicKeys;
 use rand::thread_rng;
 use secp256k1::rand::{self, Rng};
 use secret_service_proto::v2::traits::*;
@@ -22,7 +23,6 @@ use strata_bridge_tx_graph::transactions::{
         PreAssertData, PreAssertTx,
     },
 };
-use strata_p2p_types::WotsPublicKeys;
 use tracing::{info, warn};
 
 use crate::{

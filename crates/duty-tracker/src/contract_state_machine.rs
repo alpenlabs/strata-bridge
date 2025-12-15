@@ -21,6 +21,7 @@ use musig2::{
     aggregate_partial_signatures, errors::VerifyError, secp256k1::Message, verify_partial,
     AggNonce, PartialSignature, PubNonce,
 };
+use p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use secp256k1::schnorr;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_bridge_primitives::{
@@ -49,10 +50,10 @@ use strata_bridge_tx_graph::{
         },
     },
 };
-use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_params::RollupParams;
 use strata_primitives::buf::Buf32;
 use thiserror::Error;
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
@@ -871,17 +872,20 @@ impl ContractState {
 }
 
 /// This is the superset of all possible operator duties.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[expect(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
 
-    /// Instructs us to publish our pre-stake data.
-    PublishStakeChainExchange,
+    /// Instructs us to send out our pre-stake data.
+    ///
+    /// Provides an optional oneshot channel, representing the specific peer to send to. If `None`,
+    /// the data will be broadcast to all peers.
+    SendStakeChainExchange(Option<oneshot::Sender<Vec<u8>>>),
 
-    /// Instructs us to publish the setup data for this contract.
-    PublishDepositSetup {
+    /// Instructs us to send out the setup data for this contract.
+    SendDepositSetup {
         /// Transaction ID of the DT
         deposit_txid: Txid,
 
@@ -890,10 +894,14 @@ pub enum OperatorDuty {
 
         /// The data about the stake transaction.
         stake_chain_inputs: StakeChainInputs,
+
+        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
+        /// the data will be broadcast to all peers.
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
-    /// Instructs us to publish our graph nonces for this contract.
-    PublishGraphNonces {
+    /// Instructs us to send out our graph nonces for this contract.
+    SendGraphNonces {
         /// Claim Transaction ID of the Graph being signed.
         claim_txid: Txid,
 
@@ -908,10 +916,14 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new nonces if [`None`] is passed.
         nonces: Option<PogMusigF<PubNonce>>,
+
+        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
+        /// the data will be broadcast to all peers.
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
-    PublishGraphSignatures {
+    SendGraphSignatures {
         /// Transaction ID of the DT.
         claim_txid: Txid,
 
@@ -931,10 +943,14 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new partial signatures if [`None`] is passed.
         partial_signatures: Option<PogMusigF<PartialSignature>>,
+
+        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
+        /// the data will be broadcast to all peers.
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
-    PublishRootNonce {
+    SendRootNonce {
         /// Transaction ID of the DRT
         deposit_request_txid: Txid,
 
@@ -945,10 +961,14 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new nonce if [`None`] is passed.
         nonce: Option<PubNonce>,
+
+        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
+        /// the data will be broadcast to all peers.
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
-    PublishRootSignature {
+    SendRootSignature {
         /// Transaction ID of the DRT
         deposit_request_txid: Txid,
 
@@ -965,6 +985,10 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new partial signature if [`None`] is passed.
         partial_signature: Option<PartialSignature>,
+
+        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
+        /// the data will be broadcast to all peers.
+        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -990,26 +1014,26 @@ impl Display for OperatorDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OperatorDuty::Abort => write!(f, "Abort"),
-            OperatorDuty::PublishStakeChainExchange => write!(f, "PublishStakeChainExchange"),
-            OperatorDuty::PublishDepositSetup {
+            OperatorDuty::SendStakeChainExchange(_) => write!(f, "SendStakeChainExchange"),
+            OperatorDuty::SendDepositSetup {
                 deposit_txid,
                 deposit_idx,
                 ..
-            } => write!(f, "PublishDepositSetup ({deposit_txid}, {deposit_idx})"),
-            OperatorDuty::PublishGraphNonces { claim_txid, .. } => {
-                write!(f, "PublishGraphNonces ({claim_txid})")
+            } => write!(f, "SendDepositSetup ({deposit_txid}, {deposit_idx})"),
+            OperatorDuty::SendGraphNonces { claim_txid, .. } => {
+                write!(f, "SendGraphNonces ({claim_txid})")
             }
-            OperatorDuty::PublishGraphSignatures { claim_txid, .. } => {
-                write!(f, "PublishGraphSignatures ({claim_txid})")
+            OperatorDuty::SendGraphSignatures { claim_txid, .. } => {
+                write!(f, "SendGraphSignatures ({claim_txid})")
             }
-            OperatorDuty::PublishRootNonce {
+            OperatorDuty::SendRootNonce {
                 deposit_request_txid,
                 ..
-            } => write!(f, "PublishRootNonce ({deposit_request_txid})"),
-            OperatorDuty::PublishRootSignature {
+            } => write!(f, "SendRootNonce ({deposit_request_txid})"),
+            OperatorDuty::SendRootSignature {
                 deposit_request_txid,
                 ..
-            } => write!(f, "PublishRootSignature ({deposit_request_txid})"),
+            } => write!(f, "SendRootSignature ({deposit_request_txid})"),
             OperatorDuty::PublishDeposit { deposit_tx, .. } => {
                 write!(f, "PublishDeposit ({})", deposit_tx.compute_txid())
             }
@@ -1770,11 +1794,12 @@ impl ContractSM {
 
                 let duties = graphs
                     .values()
-                    .map(|graph| OperatorDuty::PublishGraphNonces {
+                    .map(|graph| OperatorDuty::SendGraphNonces {
                         claim_txid: graph.claim_tx.compute_txid(),
                         pog_prevouts: graph.musig_inpoints(),
                         pog_witnesses: graph.musig_witnesses(),
                         nonces: None,
+                        peer: None,
                     })
                     .collect::<Vec<_>>();
 
@@ -1920,13 +1945,14 @@ impl ContractSM {
                         )));
                     };
 
-                    duties.push(OperatorDuty::PublishGraphSignatures {
+                    duties.push(OperatorDuty::SendGraphSignatures {
                         claim_txid: *claim_txid,
                         aggnonces,
                         pog_prevouts: pog.musig_inpoints(),
                         pog_sighashes: pog.musig_sighashes(),
                         witnesses: pog.musig_witnesses(),
                         partial_signatures: existing_partials,
+                        peer: None,
                     })
                 }
 
@@ -2099,10 +2125,11 @@ impl ContractSM {
                 let witness = cfg.deposit_tx.witnesses()[0].clone();
                 let existing_nonce = root_nonces.get(cfg.operator_table.pov_p2p_key()).cloned();
 
-                Ok(Some(OperatorDuty::PublishRootNonce {
+                Ok(Some(OperatorDuty::SendRootNonce {
                     deposit_request_txid: self.deposit_request_txid(),
                     witness,
                     nonce: existing_nonce,
+                    peer: None,
                 }))
             }
             _ => Err(TransitionErr(format!(
@@ -2128,10 +2155,11 @@ impl ContractSM {
                 let witness = cfg.deposit_tx.witnesses()[0].clone();
                 let existing_nonce = root_nonces.get(cfg.operator_table.pov_p2p_key()).cloned();
 
-                Ok(vec![OperatorDuty::PublishRootNonce {
+                Ok(vec![OperatorDuty::SendRootNonce {
                     deposit_request_txid: self.deposit_request_txid(),
                     witness,
                     nonce: existing_nonce,
+                    peer: None,
                 }])
             }
             _ => Err(TransitionErr(format!(
@@ -2181,12 +2209,13 @@ impl ContractSM {
                             })
                             .sum();
 
-                        Some(OperatorDuty::PublishRootSignature {
+                        Some(OperatorDuty::SendRootSignature {
                             aggnonce,
                             deposit_request_txid: self.deposit_request_txid(),
                             sighash,
                             partial_signature: None,
                             witness: witness.clone(),
+                            peer: None,
                         })
                     } else {
                         None
@@ -3560,6 +3589,7 @@ mod prop_tests {
         hashes::{sha256, sha256d, Hash},
         Network, Txid,
     };
+    use p2p_types::P2POperatorPubKey;
     use proptest::{prelude::*, prop_compose};
     use prover_test_utils::load_test_rollup_params;
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -3571,7 +3601,6 @@ mod prop_tests {
     use strata_bridge_tx_graph::transactions::deposit::{
         prop_tests::arb_deposit_request_data, DepositTx,
     };
-    use strata_p2p_types::P2POperatorPubKey;
     use tracing::{error, info};
 
     use super::{ContractCfg, ContractEvent, ContractSM, MachineState};

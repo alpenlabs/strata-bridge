@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 
 use alpen_bridge_params::prelude::StakeChainParams;
 use bitcoin::{Network, OutPoint, Txid};
+use p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::{
     prelude::{StakeTx, STAKE_VOUT},
@@ -10,7 +11,6 @@ use strata_bridge_stake_chain::{
     transactions::stake::{Head, StakeTxKind, Tail},
     StakeChain,
 };
-use strata_p2p_types::P2POperatorPubKey;
 use tracing::{debug, info, span, warn, Level};
 
 use crate::{contract_state_machine::DepositSetup, errors::StakeChainErr};
