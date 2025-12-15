@@ -92,7 +92,7 @@ strata-btcio = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d
 strata-checkpoint-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-config = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-crypto = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
-strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
+strata-key-derivation = { git = "https://github.com/alpenlabs/alpen.git", rev = "24d1fc71bd14caf0b4e173ef8177dd64547cd1a8" }
 strata-l1tx = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-ol-chainstate-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-params = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
@@ -150,6 +150,7 @@ chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.7.1", features = ["28_0"] }
 dotenvy = "0.15.7"
+ed25519-dalek = "2.1.1"
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
   "async-https-rustls",
