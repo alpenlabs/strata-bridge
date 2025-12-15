@@ -250,12 +250,12 @@ mod tests {
         }
 
         fn get_connector(&self) -> Self::Connector {
-            TimelockedNOfNConnector {
-                network: Network::Regtest,
-                internal_pubkey: self.internal_keypair.x_only_public_key().0,
-                n_of_n_pubkey: self.n_of_n_keypair.x_only_public_key().0,
-                timelock: TIMELOCK,
-            }
+            TimelockedNOfNConnector::new(
+                Network::Regtest,
+                self.internal_keypair.x_only_public_key().0,
+                self.n_of_n_keypair.x_only_public_key().0,
+                TIMELOCK,
+            )
         }
 
         fn get_connector_name(&self) -> &'static str {

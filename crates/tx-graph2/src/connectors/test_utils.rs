@@ -17,11 +17,11 @@ use tracing::info;
 use crate::connectors::Connector;
 
 /// Generator of witness data for a given [`Connector`].
-pub trait Signer: Sized {
+pub(crate) trait Signer: Sized {
     /// Connector of the signer.
     type Connector: Connector;
 
-    // TODO (@uncomputable) Replace with arbitrary::Arbitrary
+    // TODO: (@uncomputable) Replace with arbitrary::Arbitrary
     /// Generates a random signer instance.
     fn generate() -> Self;
 
@@ -143,7 +143,7 @@ pub trait Signer: Sized {
 
 /// Bitcoin Core node in regtest mode.
 #[derive(Debug)]
-pub struct BitcoinNode {
+pub(crate) struct BitcoinNode {
     node: Node,
     wallet_address: Address,
     coinbase_txids: VecDeque<Txid>,
@@ -156,8 +156,14 @@ impl Default for BitcoinNode {
 }
 
 impl BitcoinNode {
+    // TODO: (@uncomputable) Pass Option<Conf> argument?
     /// Creates a new bitcoin node.
-    pub fn new() -> Self {
+    ///
+    /// 200 blocks are mined, so the coinbases of blocks 0..100 become mature.
+    /// These coinbases are owned by the wallet and can be used to fund transaction inputs.
+    // NOTE: 100 spendable coinbase outputs should be enough for most unit tests.
+    //       Tests that run out of coinbases can mine more blocks.
+    pub(crate) fn new() -> Self {
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
         let bitcoind = Node::with_conf("bitcoind", &conf).unwrap();
@@ -168,29 +174,24 @@ impl BitcoinNode {
             node: bitcoind,
             coinbase_txids: VecDeque::new(),
         };
-        // Mine 200 blocks so coinbases of blocks 0..100 become mature
-        //
-        // Note (@uncomputable)
-        // 100 spendable coinbase outputs should be enough for most unit tests.
-        // Tests that run out of coinbases can mine more blocks.
         node.mine_blocks(200);
         node
     }
 
     /// Accesses the bitcoin client.
-    pub fn client(&self) -> &Client {
+    pub(crate) fn client(&self) -> &Client {
         &self.node.client
     }
 
     /// Returns the coinbase amount for blocks of the first halving epoch.
-    pub const fn coinbase_amount(&self) -> Amount {
+    pub(crate) const fn coinbase_amount(&self) -> Amount {
         Amount::from_sat(50 * 100_000_000)
     }
 
     /// Accesses the wallet address.
     ///
     /// The node can automatically sign inputs that spend from this address.
-    pub fn wallet_address(&self) -> &Address {
+    pub(crate) fn wallet_address(&self) -> &Address {
         &self.wallet_address
     }
 
@@ -206,7 +207,7 @@ impl BitcoinNode {
     ///
     /// This method panics if there are no more coinbases.
     /// In this case, you have to mine more blocks.
-    pub fn next_coinbase_outpoint(&mut self) -> OutPoint {
+    pub(crate) fn next_coinbase_outpoint(&mut self) -> OutPoint {
         OutPoint {
             txid: self.coinbase_txids.pop_front().expect("no more coinbases"),
             vout: 0,
@@ -218,7 +219,7 @@ impl BitcoinNode {
     /// This node sends coinbase funds always to the wallet address,
     /// so the coinbase output is the same regardless of block height.
     /// regardless of block height.
-    pub fn coinbase_tx_out(&self) -> TxOut {
+    pub(crate) fn coinbase_tx_out(&self) -> TxOut {
         TxOut {
             value: self.coinbase_amount(),
             script_pubkey: self.wallet_address.script_pubkey(),
@@ -228,7 +229,7 @@ impl BitcoinNode {
     /// Mines the given number of blocks.
     ///
     /// Funds go to the wallet address.
-    pub fn mine_blocks(&mut self, n_blocks: usize) {
+    pub(crate) fn mine_blocks(&mut self, n_blocks: usize) {
         let coinbase_txids: Vec<Txid> = self
             .client()
             .generate_to_address(n_blocks, self.wallet_address())
@@ -249,7 +250,7 @@ impl BitcoinNode {
     }
 
     /// Signs the inputs that the wallet controls and returns the resulting transaction.
-    pub fn sign(&self, partially_signed_tx: &Transaction) -> Transaction {
+    pub(crate) fn sign(&self, partially_signed_tx: &Transaction) -> Transaction {
         let signed_tx = self
             .client()
             .call::<SignRawTransactionWithWallet>(
@@ -267,11 +268,11 @@ impl BitcoinNode {
     /// # Panics
     ///
     /// This method panics if the transaction is not accepted by the mempool.
-    pub fn sign_and_broadcast(&self, partially_signed_tx: &Transaction) -> Txid {
+    pub(crate) fn sign_and_broadcast(&self, partially_signed_tx: &Transaction) -> Txid {
         let signed_tx = self.sign(partially_signed_tx);
         self.client()
             .send_raw_transaction(&signed_tx)
-            .expect("Cannot broadcast. Is the transaction invalid?")
+            .unwrap()
             .txid()
             .expect("should be able to extract the txid")
     }
@@ -281,10 +282,10 @@ impl BitcoinNode {
     /// # Panics
     ///
     /// This method panics if the package is not accepted by the mempool.
-    pub fn submit_package(&self, transactions: &[Transaction]) {
+    pub(crate) fn submit_package(&self, transactions: [Transaction; 2]) {
         let result = self
             .client()
-            .submit_package(transactions, None, None)
+            .submit_package(&transactions, None, None)
             .expect("should be able to submit package");
         assert!(
             result.package_msg == "success",

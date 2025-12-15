@@ -1,7 +1,8 @@
 //! This module contains the CPFP connector.
 
 use bitcoin::{
-    taproot::TaprootSpendInfo, Address, Amount, Network, ScriptBuf, Witness, WitnessProgram,
+    psbt::Input, taproot::TaprootSpendInfo, Address, Amount, Network, ScriptBuf, Witness,
+    WitnessProgram,
 };
 
 use crate::connectors::{Connector, TaprootWitness};
@@ -19,8 +20,12 @@ impl CpfpConnector {
     }
 }
 
-// We want to implement the [`Connector`] trait because it provides a unit testing interface.
-// Because P2A is not a Taproot output, we have to be creative in how we implement the methods.
+// TODO: (@uncomputable) Split `Connector` into multiple traits? Generic output, taproot output, ...
+//                       Or remove `Connector` implementation? The answer depends on how
+//                       `CpfpConnector` will be used in the transaction code.
+//
+// We want to implement the [`Connector`] trait because it provides convenience methods.
+// P2A is not a Taproot output, so we have to be creative in how we implement the methods.
 impl Connector for CpfpConnector {
     type Witness = ();
 
@@ -36,7 +41,7 @@ impl Connector for CpfpConnector {
         Address::from_witness_program(WitnessProgram::p2a(), self.network)
     }
 
-    fn script_pubkey(&self) -> bitcoin::ScriptBuf {
+    fn script_pubkey(&self) -> ScriptBuf {
         let witness_program = WitnessProgram::p2a();
         ScriptBuf::new_witness_program(&witness_program)
     }
@@ -49,7 +54,7 @@ impl Connector for CpfpConnector {
         panic!("P2A is not a taproot output")
     }
 
-    fn finalize_input(&self, input: &mut bitcoin::psbt::Input, _witness: &Self::Witness) {
+    fn finalize_input(&self, input: &mut Input, _witness: &Self::Witness) {
         input.final_script_witness = Some(Witness::default());
     }
 }
@@ -73,7 +78,7 @@ mod tests {
         // --------------+--------------
         // N sat: wallet | N sat: wallet
         //               |--------------
-        //               | 0 sat: P2A
+        //               | 0 sat: P2A (CPFP)
         let connector = CpfpConnector::new(Network::Regtest);
         let input = create_tx_ins([node.next_coinbase_outpoint()]);
         let output = vec![
@@ -120,6 +125,6 @@ mod tests {
         let signed_child_tx = node.sign(&child_tx);
 
         // Submit parent and child in the same package
-        node.submit_package(&[signed_parent_tx, signed_child_tx]);
+        node.submit_package([signed_parent_tx, signed_child_tx]);
     }
 }

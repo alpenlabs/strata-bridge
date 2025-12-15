@@ -11,7 +11,7 @@ use crate::connectors::{Connector, TaprootWitness};
 ///
 /// The output requires a series of operator signatures for spending.
 /// Each operator signature comes from an adaptor,
-/// which publishes one byte of Mosaic data.
+/// which publishes one byte of counterproof data (including public values).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofOutput {
     network: Network,
@@ -23,7 +23,7 @@ pub struct ContestCounterproofOutput {
 impl ContestCounterproofOutput {
     /// Creates a new connector.
     ///
-    /// `n_data` is the length of the data that will be published onchain.
+    /// `n_data` is the length of the serialized counterproof (including public values).
     /// This is equal to the number of required operator signatures.
     pub const fn new(
         network: Network,
@@ -39,7 +39,7 @@ impl ContestCounterproofOutput {
         }
     }
 
-    /// Returns the length of the data that will be published onchain.
+    /// Returns the length of the serialized counterproof (including public values).
     ///
     /// This is 1 operator signature per byte of data.
     pub const fn n_data(&self) -> NonZero<usize> {
@@ -135,12 +135,12 @@ mod tests {
         }
 
         fn get_connector(&self) -> ContestCounterproofOutput {
-            ContestCounterproofOutput {
-                network: Network::Regtest,
-                n_of_n_pubkey: self.n_of_n_keypair.x_only_public_key().0,
-                operator_pubkey: self.operator_keypair.x_only_public_key().0,
-                n_data: N_DATA,
-            }
+            ContestCounterproofOutput::new(
+                Network::Regtest,
+                self.n_of_n_keypair.x_only_public_key().0,
+                self.operator_keypair.x_only_public_key().0,
+                N_DATA,
+            )
         }
 
         fn sign_leaf(&self, sighashes: &[secp256k1::Message]) -> ContestCounterproofWitness {

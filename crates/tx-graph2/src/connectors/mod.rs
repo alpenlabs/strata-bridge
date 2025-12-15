@@ -9,7 +9,7 @@ pub mod prelude;
 pub mod timelocked_n_of_n;
 
 #[cfg(test)]
-pub mod test_utils;
+pub(crate) mod test_utils;
 
 use bitcoin::{
     hashes::Hash,
@@ -66,7 +66,7 @@ pub trait Connector {
     ///
     /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
     fn code_separator_positions(&self, leaf_index: usize) -> Vec<u32> {
-        // Note (@uncomputable)
+        // NOTE: (@uncomputable)
         // The default position u32::MAX is included to facilitate signing.
         // Using the return value of code_separator_positions() for signing always works.
         // It generalizes nicely; we don't have to remind callers to include u32::MAX.
@@ -111,7 +111,7 @@ pub trait Connector {
 
     /// Generates the taproot spend info of the connector.
     fn spend_info(&self) -> TaprootSpendInfo {
-        // Note (@uncomputable)
+        // NOTE: (@uncomputable)
         // It seems wasteful to have almost the same function body as [`Connector::address`],
         // but in practice we only ever need one of the two: the address or the spend info.
         // We may want to reimplement `create_taproot_addr` to reduce code duplication.
@@ -134,7 +134,7 @@ pub trait Connector {
         prevouts: Prevouts<'_, TxOut>,
         input_index: usize,
     ) -> Message {
-        // Note (@uncomputable)
+        // NOTE: (@uncomputable)
         // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
         let sighash_type = TapSighashType::Default;
@@ -196,7 +196,7 @@ pub trait Connector {
         prevouts: Prevouts<'_, TxOut>,
         input_index: usize,
     ) -> Vec<Message> {
-        // Note (@uncomputable)
+        // NOTE: (@uncomputable)
         // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
         let sighash_type = TapSighashType::Default;
@@ -267,8 +267,6 @@ pub trait Connector {
 }
 
 /// Generic Taproot witness data.
-///
-/// The leaf script and control block are supplied by the connector.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TaprootWitness {
     /// Key-path spend.
@@ -276,7 +274,9 @@ pub enum TaprootWitness {
         /// Signature of the output key.
         output_key_signature: schnorr::Signature,
     },
-    /// Script-path spend
+    /// Script-path spend.
+    ///
+    /// The leaf script and control block are supplied by the connector.
     Script {
         /// Leaf index.
         leaf_index: usize,
