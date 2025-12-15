@@ -133,7 +133,7 @@ mod tests {
 
             [keys]
             musig2 = ["c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164", "d57243dbb3ef14caeac8f724fea1449d802133495ef1675f210b074206ff9275"]
-            p2p = ["ab1d0c44056036dce1b783d2db0c42876b60948c7ae2002476fcb61e15d6f7d7"]
+            p2p = ["ab1d0c44056036dce1b783d2db0c42876b60948c7ae2002476fcb61e15d6f7d7", "6f83c5863297da5f9d859898cfeb66f8a1cb719b6e8f599301788481c0d8f523"]
 
             [tx_graph]
             tag = "alpn"
