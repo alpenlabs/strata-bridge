@@ -25,11 +25,15 @@ use duty_tracker::{
     shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
 };
 use libp2p::{
-    identity::{secp256k1::PublicKey as LibP2pSecpPublicKey, PublicKey as LibP2pPublicKey},
+    identity::{
+        secp256k1::{Keypair, PublicKey as LibP2pSecpPublicKey},
+        PublicKey as LibP2pPublicKey,
+    },
     PeerId,
 };
 use musig2::KeyAggContext;
 use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
+use p2p_types::{P2POperatorPubKey, StakeChainId};
 use secp256k1::{Parity, SECP256K1};
 use secret_service_client::{
     rustls::{
@@ -51,8 +55,7 @@ use strata_bridge_primitives::{
     constants::SEGWIT_MIN_AMOUNT, operator_table::OperatorTable, types::OperatorIdx,
 };
 use strata_bridge_stake_chain::prelude::OPERATOR_FUNDS;
-use strata_p2p::swarm::handle::P2PHandle;
-use strata_p2p_types::{P2POperatorPubKey, StakeChainId};
+use strata_p2p::swarm::handle::{CommandHandle, GossipHandle, ReqRespHandle};
 use strata_tasks::TaskExecutor;
 use tokio::{net::lookup_host, select, sync::mpsc, task::JoinHandle};
 use tracing::{debug, error, info};
@@ -152,9 +155,9 @@ pub(crate) async fn bootstrap(
 
     // Initialize the P2P handle.
     info!("initializing p2p handle");
-    let (p2p_handle, p2p_task) = init_p2p_handle(&config, &params, p2p_sk).await?;
+    let p2p_handles = init_p2p_handles(&config, &params, p2p_sk).await?;
     debug!("p2p handle initialized");
-    let p2p_handle_rpc = p2p_handle.clone();
+    let command_handle_rpc = p2p_handles.command_handle.clone();
 
     // Handle the stakechain genesis.
     handle_stakechain_genesis(
@@ -176,12 +179,14 @@ pub(crate) async fn bootstrap(
     let (contract_manager, contract_persister, stake_chain_persister) = init_duty_tracker(
         &params,
         &config,
+        p2p_handles.keypair,
         operator_table,
         pre_stake_pubkey.clone(),
         bitcoin_rpc_client.clone(),
         zmq_client,
         s2_client,
-        p2p_handle,
+        p2p_handles.gossip_handle,
+        p2p_handles.req_resp_handle,
         operator_wallet,
         db,
     )
@@ -196,12 +201,13 @@ pub(crate) async fn bootstrap(
     let rpc_params = params.clone();
     let rpc_addr = rpc_config.rpc_addr.clone();
     executor.spawn_critical_async_with_shutdown("rpc_server", |_| async move {
-        let rpc_client = BridgeRpc::new(db_rpc, p2p_handle_rpc, rpc_params, rpc_config);
+        let rpc_client = BridgeRpc::new(db_rpc, command_handle_rpc, rpc_params, rpc_config);
         start_rpc(&rpc_client, rpc_addr.as_str()).await
     });
     debug!("rpc server started");
 
     info!("starting p2p service");
+    let p2p_task = p2p_handles.listen_task;
     executor.spawn_critical_async_with_shutdown("p2p_service", |_| async move {
         p2p_task.await.map_err(anyhow::Error::from)
     });
@@ -308,14 +314,23 @@ fn read_cert(path: &Path) -> io::Result<Vec<CertificateDer<'static>>> {
     }
 }
 
+#[derive(Debug)]
+struct P2PHandles {
+    command_handle: CommandHandle,
+    gossip_handle: GossipHandle,
+    req_resp_handle: ReqRespHandle,
+    listen_task: JoinHandle<()>,
+    keypair: Keypair,
+}
+
 /// Initialize the P2P handle.
 ///
 /// Needs a secret key and configuration.
-async fn init_p2p_handle(
+async fn init_p2p_handles(
     config: &Config,
     params: &Params,
     sk: SecretKey,
-) -> anyhow::Result<(P2PHandle, JoinHandle<()>)> {
+) -> anyhow::Result<P2PHandles> {
     let my_key = LibP2pSecpPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
         .expect("infallible");
     let other_operators: Vec<LibP2pSecpPublicKey> = params
@@ -358,8 +373,14 @@ async fn init_p2p_handle(
         general_timeout,
         connection_check_interval,
     );
-    let (p2p_handle, _cancel, listen_task) = p2p_bootstrap(&config).await?;
-    Ok((p2p_handle, listen_task))
+    let handles = p2p_bootstrap(&config).await?;
+    Ok(P2PHandles {
+        command_handle: handles.command_handle,
+        gossip_handle: handles.gossip_handle,
+        req_resp_handle: handles.req_resp_handle,
+        listen_task: handles.listen_task,
+        keypair: config.keypair,
+    })
 }
 
 async fn init_database_handle(config: &Config) -> SqliteDb {
@@ -438,12 +459,14 @@ fn create_db_file(datadir: impl AsRef<Path>, db_name: &str) -> PathBuf {
 async fn init_duty_tracker(
     params: &Params,
     config: &Config,
+    keypair: Keypair,
     operator_table: OperatorTable,
     pre_stake_pubkey: ScriptBuf,
     rpc_client: BitcoinClient,
     zmq_client: BtcNotifyClient,
     s2_client: SecretServiceClient,
-    p2p_handle: P2PHandle,
+    gossip_handle: GossipHandle,
+    req_resp_handle: ReqRespHandle,
     operator_wallet: OperatorWallet,
     db: SqliteDb,
 ) -> anyhow::Result<(ContractManager, ContractPersister, StakeChainPersister)> {
@@ -471,6 +494,7 @@ async fn init_duty_tracker(
 
     let contract_manager = ContractManager::new(
         network,
+        keypair,
         nag_interval,
         connector_params,
         pegout_graph_params,
@@ -484,7 +508,8 @@ async fn init_duty_tracker(
         pre_stake_pubkey,
         zmq_client,
         rpc_client,
-        p2p_handle,
+        gossip_handle,
+        req_resp_handle,
         contract_persister,
         stake_chain_persister,
         s2_client,
