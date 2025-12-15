@@ -76,7 +76,7 @@ impl Connector for ClaimContestConnector {
 
     fn value(&self) -> Amount {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
-        // TODO (@uncomputable): Replace magic number 3 with constant from contest transaction,
+        // TODO: (@uncomputable): Replace magic number 3 with constant from contest transaction,
         // once the code exists
         minimal_non_dust * (3 * self.n_watchtowers() as u64)
     }
@@ -158,16 +158,15 @@ mod tests {
         }
 
         fn get_connector(&self) -> Self::Connector {
-            ClaimContestConnector {
-                network: Network::Regtest,
-                n_of_n_pubkey: self.n_of_n_keypair.x_only_public_key().0,
-                watchtower_pubkeys: self
-                    .watchtower_keypairs
+            ClaimContestConnector::new(
+                Network::Regtest,
+                self.n_of_n_keypair.x_only_public_key().0,
+                self.watchtower_keypairs
                     .iter()
                     .map(|key| key.x_only_public_key().0)
                     .collect(),
-                contest_timelock: DELTA_CONTEST,
-            }
+                DELTA_CONTEST,
+            )
         }
 
         fn get_connector_name(&self) -> &'static str {

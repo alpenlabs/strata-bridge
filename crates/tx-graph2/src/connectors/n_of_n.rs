@@ -48,14 +48,14 @@ impl Connector for NOfNConnector {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::key::TapTweak;
+    use bitcoin::{key::TapTweak, Amount};
     use secp256k1::{Keypair, Message, SECP256K1};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
     use crate::connectors::test_utils::{self, Signer};
 
-    const CONNECTOR_VALUE: bitcoin::Amount = bitcoin::Amount::from_sat(330);
+    const CONNECTOR_VALUE: Amount = Amount::from_sat(330);
 
     struct NOfNSigner(Keypair);
 
@@ -67,11 +67,11 @@ mod tests {
         }
 
         fn get_connector(&self) -> Self::Connector {
-            NOfNConnector {
-                network: Network::Regtest,
-                n_of_n_pubkey: self.0.x_only_public_key().0,
-                value: CONNECTOR_VALUE,
-            }
+            NOfNConnector::new(
+                Network::Regtest,
+                self.0.x_only_public_key().0,
+                CONNECTOR_VALUE,
+            )
         }
 
         fn get_connector_name(&self) -> &'static str {
