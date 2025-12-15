@@ -51,12 +51,12 @@ pub trait Connector {
     /// Returns the value of the connector.
     fn value(&self) -> Amount;
 
-    /// Returns a vector of all `OP_CODESEPARATOR` positions in the leaf script
+    /// Returns an iterator over all `OP_CODESEPARATOR` positions in the leaf script
     /// at the given index.
     ///
-    /// The vector starts with the default position `u32::MAX`,
+    /// The iterator starts with the default position `u32::MAX`,
     /// followed by the position of each code separator in order.
-    /// The vector is never empty.
+    /// The iterator is never empty.
     ///
     /// # Panics
     ///
@@ -65,7 +65,7 @@ pub trait Connector {
     /// # See
     ///
     /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
-    fn code_separator_positions(&self, leaf_index: usize) -> Vec<u32> {
+    fn code_separator_positions(&self, leaf_index: usize) -> impl IntoIterator<Item = u32> {
         // NOTE: (@uncomputable)
         // The default position u32::MAX is included to facilitate signing.
         // Using the return value of code_separator_positions() for signing always works.
@@ -148,8 +148,7 @@ pub trait Connector {
         .expect("should be able to compute the sighash")
     }
 
-    /// Computes the sighashes of an input that spends the connector,
-    /// taking into account the code separator positions.
+    /// Returns an iterator over the sighashes of each code separator position.
     ///
     /// # Code separator positions
     ///
@@ -195,7 +194,7 @@ pub trait Connector {
         cache: &mut SighashCache<&Transaction>,
         prevouts: Prevouts<'_, TxOut>,
         input_index: usize,
-    ) -> Vec<Message> {
+    ) -> impl IntoIterator<Item = Message> {
         // NOTE: (@uncomputable)
         // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
@@ -204,8 +203,8 @@ pub trait Connector {
         let leaf_hash = TapLeafHash::from_script(leaf_script, LeafVersion::TapScript);
         self.code_separator_positions(leaf_index)
             .into_iter()
-            .map(|pos| Some((leaf_hash, pos)))
-            .map(|leaf_hash_code_separator| {
+            .map(move |pos| Some((leaf_hash, pos)))
+            .map(move |leaf_hash_code_separator| {
                 let sighash = cache
                     .taproot_signature_hash(
                         input_index,
@@ -217,7 +216,6 @@ pub trait Connector {
                     .expect("should be able to compute the sighash");
                 Message::from_digest(sighash.to_raw_hash().to_byte_array())
             })
-            .collect()
     }
 
     /// Converts the witness into a generic taproot witness.

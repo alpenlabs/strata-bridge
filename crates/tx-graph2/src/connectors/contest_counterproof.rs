@@ -112,7 +112,7 @@ mod tests {
         sighash::{Prevouts, SighashCache},
         transaction, OutPoint, Transaction, TxOut,
     };
-    use secp256k1::Keypair;
+    use secp256k1::{Keypair, Message};
     use strata_bridge_primitives::scripts::prelude::create_tx_ins;
     use strata_bridge_test_utils::prelude::generate_keypair;
 
@@ -143,12 +143,15 @@ mod tests {
             )
         }
 
-        fn sign_leaf(&self, sighashes: &[secp256k1::Message]) -> ContestCounterproofWitness {
-            assert!(sighashes.len() == N_DATA.get());
-            let n_of_n_signature = self.n_of_n_keypair.sign_schnorr(sighashes[0]);
-            let operator_signatures = sighashes
-                .iter()
-                .copied()
+        fn sign_leaf(
+            &self,
+            sighashes: impl IntoIterator<Item = Message>,
+        ) -> ContestCounterproofWitness {
+            let mut it = sighashes.into_iter().peekable();
+            let n_of_n_signature = self
+                .n_of_n_keypair
+                .sign_schnorr(it.peek().copied().unwrap());
+            let operator_signatures = it
                 .map(|sighash| self.operator_keypair.sign_schnorr(sighash))
                 .collect();
 
@@ -228,7 +231,7 @@ mod tests {
             prevouts,
             input_index,
         );
-        let witness = signer.sign_leaf(&sighashes);
+        let witness = signer.sign_leaf(sighashes);
 
         let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
         psbt.inputs[0].witness_utxo = Some(connector.tx_out());
