@@ -4,12 +4,12 @@
 //! the DepositSM across multiple state transition functions.
 
 use bitcoin::OutPoint;
+use p2p_types::P2POperatorPubKey;
 use proptest::prelude::*;
 use secp256k1::{SECP256K1, SecretKey};
 use strata_bridge_primitives::{
     operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
 };
-use strata_p2p_types::P2POperatorPubKey;
 
 use super::{
     events::DepositEvent,

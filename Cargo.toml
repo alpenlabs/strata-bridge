@@ -5,19 +5,22 @@ members = [
   "crates/algebra",
   "crates/asm-events",
   "crates/asm-rpc",
+  "crates/bridge-exec",
   "crates/bridge-proof/primitives",
   "crates/bridge-proof/protocol",
   "crates/bridge-proof/snark",
-  "crates/bridge-proof/test-utils",
   "crates/bridge-sm",
   "crates/btc-tracker",
   "crates/common",
   "crates/connectors",
+  "crates/connectors2",
   "crates/db",
   "crates/duty-tracker",
   "crates/memory_pprof",
   "crates/operator-wallet",
   "crates/p2p-service",
+  "crates/p2p-wire",
+  "crates/p2p-types",
   "crates/params",
   "crates/primitives",
   "crates/rpc",
@@ -25,9 +28,6 @@ members = [
   "crates/secret-service-proto",
   "crates/secret-service-server",
   "crates/stake-chain",
-  "crates/connectors",
-  "crates/connectors2",
-  "crates/common",
   "crates/tx-graph",
   "crates/tx-graph2",
   "crates/wots",
@@ -42,15 +42,10 @@ members = [
 
   # test utilities
   "crates/test-utils",
-  "crates/bridge-exec",
+  "crates/bridge-proof/test-utils",
 ]
 
-default-members = [
-  "bin/alpen-bridge",
-  "bin/dev-cli",
-  "bin/assert-splitter",
-  # "bin/mock-checkpoint",
-]
+default-members = ["bin/alpen-bridge", "bin/dev-cli", "bin/assert-splitter"]
 
 [workspace.lints]
 rust.missing_debug_implementations = "warn"
@@ -70,6 +65,8 @@ alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
 duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
+p2p-types = { path = "crates/p2p-types" }
+p2p-wire = { path = "crates/p2p-wire" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
@@ -117,9 +114,13 @@ strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc2" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc2" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
-strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
-strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.1", features = [
+  # TODO(sistemd): BYOS (bring your own signer) is not enabled yet - open a ticket for this
+  "quic",
+  "request-response",
+  "gossipsub",
+  "kad",
+], default-features = false }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
@@ -159,6 +160,7 @@ chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.10.1", features = ["29_0"] }
 dotenvy = "0.15.7"
+ed25519-dalek = "2.1.1"
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
   "async-https-rustls",
@@ -182,6 +184,7 @@ libp2p = { version = "0.55.0", features = [
   "yamux",
   "identify",
 ] }
+libp2p-identity = "0.2.10"
 miniscript = "12.3.0"
 musig2 = { version = "0.1.0", features = [
   "serde",
