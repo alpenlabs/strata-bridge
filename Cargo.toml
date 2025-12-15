@@ -27,6 +27,8 @@ members = [
   "crates/wots",
   "crates/memory_pprof",
   "crates/bridge-sm",
+  "crates/p2p-wire",
+  "crates/p2p-types",
 
   # binaries listed separately
   "bin/secret-service",
@@ -65,6 +67,8 @@ btc-tracker = { path = "crates/btc-tracker" }
 duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
+p2p-types = { path = "crates/p2p-types" }
+p2p-wire = { path = "crates/p2p-wire" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
@@ -109,9 +113,13 @@ strata-tasks = { git = "https://github.com/alpenlabs/strata-common", rev = "f257
 strata-codec = { git = "https://github.com/alpenlabs/strata-common", rev = "7d14bce8341e4b4c18adb27dd3af726fdb05e18c" }
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", rev = "7d14bce8341e4b4c18adb27dd3af726fdb05e18c" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
-strata-p2p-types = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
-strata-p2p-wire = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.1.0" }
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.1", features = [
+  # TODO(sistemd): BYOS (bring your own signer) is not enabled yet - open a ticket for this
+  "quic",
+  "request-response",
+  "gossipsub",
+  "kad",
+], default-features = false }
 
 zkaleido = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
 zkaleido-native-adapter = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
@@ -151,6 +159,7 @@ chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
 corepc-node = { version = "0.7.1", features = ["28_0"] }
 dotenvy = "0.15.7"
+ed25519-dalek = "2.1.1"
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
   "async-https-rustls",
@@ -174,6 +183,7 @@ libp2p = { version = "0.55.0", features = [
   "yamux",
   "identify",
 ] }
+libp2p-identity = "0.2.10"
 miniscript = "12.3.0"
 musig2 = { version = "0.1.0", features = [
   "serde",
