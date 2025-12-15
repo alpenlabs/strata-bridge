@@ -7,26 +7,34 @@ use bitcoin::{
     hashes::{sha256, Hash},
     Txid, XOnlyPublicKey,
 };
-use futures::future::join_all;
+use futures::{future::join_all, SinkExt};
 use libp2p::{
     build_multiaddr,
     identity::{secp256k1::Keypair as SecpKeypair, Keypair},
     Multiaddr, PeerId,
 };
+use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
+use prost::Message;
 use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
 use strata_p2p::{
-    commands::{Command, UnsignedPublishMessage},
-    events::Event,
-    swarm::{self, handle::P2PHandle, P2PConfig, P2P},
+    commands::GossipCommand,
+    events::GossipEvent,
+    swarm::{
+        self,
+        handle::{GossipHandle, ReqRespHandle},
+        P2PConfig, P2P,
+    },
 };
-use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use strata_p2p_wire::p2p::v1::{GossipsubMsg, UnsignedGossipsubMsg};
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use tracing::{info, trace};
 
+use crate::message_handler::{PublishMessage, UnsignedPublishMessage};
+
 pub(crate) struct Operator {
     pub(crate) p2p: P2P,
-    pub(crate) handle: P2PHandle,
+    pub(crate) gossip_handle: GossipHandle,
+    pub(crate) req_resp_handle: ReqRespHandle,
     pub(crate) kp: SecpKeypair,
 }
 
@@ -34,33 +42,56 @@ impl Operator {
     #[expect(clippy::too_many_arguments)]
     pub(crate) fn new(
         keypair: SecpKeypair,
-        allowlist: Vec<PeerId>,
+        #[allow(unused)] allowlist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
-        signers_allowlist: Vec<P2POperatorPubKey>,
+        #[allow(unused)] signers_allowlist: Vec<P2POperatorPubKey>,
         dial_timeout: Option<Duration>,
         general_timeout: Option<Duration>,
         connection_check_interval: Option<Duration>,
     ) -> anyhow::Result<Self> {
         let config = P2PConfig {
-            keypair: keypair.clone(),
+            transport_keypair: keypair.clone().into(),
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: Some(5),
-            listening_addr: local_addr,
-            allowlist,
+            listening_addrs: vec![local_addr],
+            //allowlist,
             connect_to,
-            signers_allowlist,
+            //signers_allowlist,
             dial_timeout,
             general_timeout,
             connection_check_interval,
+            protocol_name: None,
+            channel_timeout: None,
+            gossipsub_topic: None,
+            gossipsub_max_transmit_size: None,
+            gossipsub_score_params: None,
+            gossipsub_score_thresholds: None,
+            gossip_event_buffer_size: None,
+            commands_event_buffer_size: None,
+            command_buffer_size: None,
+            handle_default_timeout: None,
+            req_resp_event_buffer_size: None,
+            req_resp_command_buffer_size: None,
+            request_max_bytes: None,
+            response_max_bytes: None,
+            gossip_command_buffer_size: None,
+            envelope_max_age: None,
+            max_clock_skew: None,
+            kad_protocol_name: None,
+            kad_record_ttl: None,
+            kad_timer_putrecorderror: None,
+            conn_limits: Default::default(),
         };
 
         let swarm = swarm::with_inmemory_transport(&config)?;
-        let (p2p, handle) = P2P::from_config(config, cancel, swarm, None)?;
+        let (p2p, req_resp_handle) = P2P::from_config(config, cancel, swarm, None, None)?;
+        let gossip_handle = p2p.new_gossip_handle();
 
         Ok(Self {
-            handle,
+            gossip_handle,
+            req_resp_handle,
             p2p,
             kp: keypair,
         })
@@ -69,7 +100,8 @@ impl Operator {
 
 /// Auxiliary structure to control operators from outside.
 pub(crate) struct OperatorHandle {
-    pub(crate) handle: P2PHandle,
+    pub(crate) gossip_handle: GossipHandle,
+    pub(crate) req_resp_handle: ReqRespHandle,
     pub(crate) peer_id: PeerId,
     pub(crate) kp: SecpKeypair,
 }
@@ -211,7 +243,8 @@ impl Setup {
             tasks.spawn(operator.p2p.listen());
 
             levers.push(OperatorHandle {
-                handle: operator.handle,
+                gossip_handle: operator.gossip_handle,
+                req_resp_handle: operator.req_resp_handle,
                 peer_id,
                 kp: operator.kp,
             });
@@ -222,7 +255,10 @@ impl Setup {
     }
 }
 
-pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChainId) -> Command {
+pub(crate) fn mock_stake_chain_info(
+    kp: &SecpKeypair,
+    stake_chain_id: StakeChainId,
+) -> PublishMessage {
     let kind = UnsignedPublishMessage::StakeChainExchange {
         stake_chain_id,
         // some random point
@@ -230,10 +266,10 @@ pub(crate) fn mock_stake_chain_info(kp: &SecpKeypair, stake_chain_id: StakeChain
         pre_stake_txid: Txid::all_zeros(),
         pre_stake_vout: 0,
     };
-    kind.sign_secp256k1(kp).into()
+    kind.sign_secp256k1(kp)
 }
 
-pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
+pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> PublishMessage {
     let mock_bytes = [0u8; 1_360 + 362_960];
     let mock_index = 0;
     let unsigned = UnsignedPublishMessage::DepositSetup {
@@ -245,23 +281,23 @@ pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> Command {
         operator_pk: XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap(),
         wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
     };
-    unsigned.sign_secp256k1(kp).into()
+    unsigned.sign_secp256k1(kp)
 }
 
-pub(crate) fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> Command {
+pub(crate) fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> PublishMessage {
     let unsigned = UnsignedPublishMessage::Musig2NoncesExchange {
         session_id,
         pub_nonces: (0..5).map(|_| generate_pubnonce()).collect(),
     };
-    unsigned.sign_secp256k1(kp).into()
+    unsigned.sign_secp256k1(kp)
 }
 
-pub(crate) fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> Command {
+pub(crate) fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> PublishMessage {
     let unsigned = UnsignedPublishMessage::Musig2SignaturesExchange {
         session_id,
         partial_sigs: (0..5).map(|_| generate_partial_signature()).collect(),
     };
-    unsigned.sign_secp256k1(kp).into()
+    unsigned.sign_secp256k1(kp)
 }
 
 pub(crate) async fn exchange_stake_chain_info(
@@ -269,29 +305,29 @@ pub(crate) async fn exchange_stake_chain_info(
     operators_num: usize,
     stake_chain_id: StakeChainId,
 ) -> anyhow::Result<()> {
-    for operator in operators.iter() {
-        operator
-            .handle
-            .send_command(mock_stake_chain_info(&operator.kp, stake_chain_id))
-            .await;
+    for operator in operators.iter_mut() {
+        let msg = mock_stake_chain_info(&operator.kp, stake_chain_id);
+        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        operator.gossip_handle.send(GossipCommand { data }).await?;
     }
     for operator in operators.iter_mut() {
         // received stake chain info from other n-1 operators
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await?;
+            let GossipEvent::ReceivedMessage(raw_msg) = operator.gossip_handle.next_event().await?;
+            let msg = GossipsubMsg::from_bytes(&raw_msg)?;
 
             if !matches!(
-                event,
-                Event::ReceivedMessage(GossipsubMsg {
+                msg,
+                GossipsubMsg {
                     unsigned: UnsignedGossipsubMsg::StakeChainExchange { .. },
                     ..
-                })
+                }
             ) {
-                bail!("Got event other than 'stake_chain_info' - {:?}", event);
+                bail!("Got event other than 'stake_chain_info' - {:?}", msg);
             }
         }
 
-        assert!(operator.handle.events_is_empty());
+        assert!(operator.gossip_handle.events_is_empty());
     }
 
     Ok(())
@@ -302,27 +338,28 @@ pub(crate) async fn exchange_deposit_setup(
     operators_num: usize,
     scope: Scope,
 ) -> anyhow::Result<()> {
-    for operator in operators.iter() {
-        operator
-            .handle
-            .send_command(mock_deposit_setup(&operator.kp, scope))
-            .await;
+    for operator in operators.iter_mut() {
+        let msg = mock_deposit_setup(&operator.kp, scope);
+        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        operator.gossip_handle.send(GossipCommand { data }).await?;
     }
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await.unwrap();
+            let GossipEvent::ReceivedMessage(raw_msg) =
+                operator.gossip_handle.next_event().await.unwrap();
+            let msg = GossipsubMsg::from_bytes(&raw_msg).unwrap();
             if !matches!(
-                event,
-                Event::ReceivedMessage(GossipsubMsg {
+                msg,
+                GossipsubMsg {
                     unsigned: UnsignedGossipsubMsg::DepositSetup { .. },
                     ..
-                })
+                }
             ) {
-                bail!("Got event other than 'deposit_setup' - {:?}", event);
+                bail!("Got event other than 'deposit_setup' - {:?}", msg);
             }
             info!(to=%operator.peer_id, "Got deposit setup");
         }
-        assert!(operator.handle.events_is_empty());
+        assert!(operator.gossip_handle.events_is_empty());
     }
     Ok(())
 }
@@ -332,27 +369,28 @@ pub(crate) async fn exchange_deposit_nonces(
     operators_num: usize,
     session_id: SessionId,
 ) -> anyhow::Result<()> {
-    for operator in operators.iter() {
-        operator
-            .handle
-            .send_command(mock_deposit_nonces(&operator.kp, session_id))
-            .await;
+    for operator in operators.iter_mut() {
+        let msg = mock_deposit_nonces(&operator.kp, session_id);
+        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        operator.gossip_handle.send(GossipCommand { data }).await?;
     }
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await.unwrap();
+            let GossipEvent::ReceivedMessage(raw_msg) =
+                operator.gossip_handle.next_event().await.unwrap();
+            let msg = GossipsubMsg::from_bytes(&raw_msg).unwrap();
             if !matches!(
-                event,
-                Event::ReceivedMessage(GossipsubMsg {
+                msg,
+                GossipsubMsg {
                     unsigned: UnsignedGossipsubMsg::Musig2NoncesExchange { .. },
                     ..
-                })
+                }
             ) {
-                bail!("Got event other than 'deposit_nonces' - {:?}", event);
+                bail!("Got event other than 'deposit_nonces' - {:?}", msg);
             }
             info!(to=%operator.peer_id, "Got deposit setup");
         }
-        assert!(operator.handle.events_is_empty());
+        assert!(operator.gossip_handle.events_is_empty());
     }
     Ok(())
 }
@@ -362,28 +400,29 @@ pub(crate) async fn exchange_deposit_sigs(
     operators_num: usize,
     session_id: SessionId,
 ) -> anyhow::Result<()> {
-    for operator in operators.iter() {
-        operator
-            .handle
-            .send_command(mock_deposit_sigs(&operator.kp, session_id))
-            .await;
+    for operator in operators.iter_mut() {
+        let msg = mock_deposit_sigs(&operator.kp, session_id);
+        let data = GossipsubMsg::from(msg).into_raw().encode_to_vec();
+        operator.gossip_handle.send(GossipCommand { data }).await?;
     }
 
     for operator in operators.iter_mut() {
         for _ in 0..operators_num - 1 {
-            let event = operator.handle.next_event().await.unwrap();
+            let GossipEvent::ReceivedMessage(raw_msg) =
+                operator.gossip_handle.next_event().await.unwrap();
+            let msg = GossipsubMsg::from_bytes(&raw_msg).unwrap();
             if !matches!(
-                event,
-                Event::ReceivedMessage(GossipsubMsg {
+                msg,
+                GossipsubMsg {
                     unsigned: UnsignedGossipsubMsg::Musig2SignaturesExchange { .. },
                     ..
-                })
+                }
             ) {
-                bail!("Got event other than 'deposit_sigs' - {:?}", event);
+                bail!("Got event other than 'deposit_sigs' - {:?}", msg);
             }
             info!(to=%operator.peer_id, "Got deposit sigs");
         }
-        assert!(operator.handle.events_is_empty());
+        assert!(operator.gossip_handle.events_is_empty());
     }
 
     Ok(())
