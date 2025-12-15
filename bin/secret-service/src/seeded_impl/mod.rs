@@ -4,6 +4,7 @@ use std::path::Path;
 
 use bitcoin::{bip32::Xpriv, Network};
 use colored::Colorize;
+use libp2p_identity::ed25519::SecretKey;
 use musig2::Ms2Signer;
 use p2p::ServerP2PSigner;
 use rand::Rng;
@@ -95,7 +96,9 @@ impl SecretService<Server> for Service {
     }
 
     fn p2p_signer(&self) -> Self::P2PSigner {
-        ServerP2PSigner::new(self.keys.base_xpriv())
+        let mut key = self.keys.message_signing_key().clone().to_bytes();
+        let key = SecretKey::try_from_bytes(&mut key).expect("valid ed25519 key");
+        ServerP2PSigner::new(key)
     }
 
     fn musig2_signer(&self) -> Self::Musig2Signer {
