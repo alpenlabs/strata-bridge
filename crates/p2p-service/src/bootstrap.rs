@@ -38,13 +38,7 @@ pub async fn bootstrap(config: &Configuration) -> anyhow::Result<BootstrapHandle
             .unwrap_or(Duration::from_secs(DEFAULT_IDLE_CONNECTION_TIMEOUT)),
         max_retries: None,
         listening_addrs: vec![config.listening_addr.clone()],
-        // TODO(sistemd): This will be passed into the P2PConfig struct once byos is enabled -
-        // reference the ticket
-        // allowlist: config.allowlist.clone(),
         connect_to: config.connect_to.clone(),
-        // TODO(sistemd): This will be passed into the P2P object once byos is enabled - reference
-        // the ticket
-        // signers_allowlist: config.signers_allowlist.clone(),
         dial_timeout: Some(config.dial_timeout.unwrap_or(DEFAULT_DIAL_TIMEOUT)),
         general_timeout: Some(config.general_timeout.unwrap_or(DEFAULT_GENERAL_TIMEOUT)),
         connection_check_interval: Some(

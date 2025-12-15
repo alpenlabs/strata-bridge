@@ -874,6 +874,7 @@ dependencies = [
  "chrono",
  "clap",
  "duty-tracker",
+ "ed25519-dalek",
  "hex",
  "jsonrpsee",
  "libp2p",
@@ -2519,7 +2520,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117725a109d387c937a1533ce01b450cbde6b88abceea8473c4d7a85853cda3c"
 dependencies = [
  "lazy_static",
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -2528,7 +2529,7 @@ version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fde0e0ec90c9dfb3b4b1a0891a7dcd0e2bffde2f7efed5fe7c9bb00e5bfb915e"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -3328,7 +3329,7 @@ dependencies = [
  "strata-bridge-test-utils",
  "strata-bridge-tx-graph",
  "strata-bridge-types",
- "strata-checkpoint-types",
+ "strata-checkpoint-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-ol-chainstate-types",
  "strata-p2p",
  "strata-params",
@@ -3533,7 +3534,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "778e2ac28f6c47af28e4907f13ffd1e1ddbd400980a9abd7c8df189bf578a5ad"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -5198,7 +5199,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.1",
- "windows-targets 0.53.2",
+ "windows-targets 0.48.5",
 ]
 
 [[package]]
@@ -6337,7 +6338,7 @@ version = "0.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77e878c846a8abae00dd069496dbe8751b16ac1c3d6bd2a7283a938e8228f90d"
 dependencies = [
- "proc-macro-crate 3.3.0",
+ "proc-macro-crate 1.3.1",
  "proc-macro2",
  "quote",
  "syn 2.0.104",
@@ -7446,7 +7447,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -7995,7 +7996,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8062,7 +8063,7 @@ dependencies = [
  "security-framework 3.2.0",
  "security-framework-sys",
  "webpki-root-certs 0.26.11",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -8290,6 +8291,7 @@ dependencies = [
  "cache-advisor",
  "colored 3.0.0",
  "hkdf",
+ "libp2p-identity",
  "make_buf",
  "memory_pprof",
  "musig2",
@@ -8318,6 +8320,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "bitvm",
+ "libp2p-identity",
  "musig2",
  "quinn",
  "rkyv",
@@ -8332,6 +8335,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "bitvm",
+ "libp2p-identity",
  "musig2",
  "quinn",
  "rkyv",
@@ -8683,6 +8687,14 @@ name = "size"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fed904c7fb2856d868b92464fc8fa597fce366edea1a9cbfaa8cb5fe080bd6d"
+
+[[package]]
+name = "sizzle-parser"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "thiserror 2.0.12",
+]
 
 [[package]]
 name = "slab"
@@ -9447,13 +9459,54 @@ source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.6.1#14be3e5316ff8e4d63
 dependencies = [
  "itertools 0.13.0",
  "smallvec",
- "ssz_primitives",
+ "ssz_primitives 0.6.0",
+]
+
+[[package]]
+name = "ssz"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "hex",
+ "itertools 0.13.0",
+ "serde",
+ "smallvec",
+ "ssz_primitives 0.9.0",
+]
+
+[[package]]
+name = "ssz_codegen"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "serde",
+ "sizzle-parser",
+ "ssz 0.9.0",
+ "ssz_derive 0.9.0",
+ "ssz_types",
+ "syn 2.0.104",
+ "toml",
+ "tree_hash 0.9.0",
+ "tree_hash_derive",
 ]
 
 [[package]]
 name = "ssz_derive"
 version = "0.6.0"
 source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.6.1#14be3e5316ff8e4d63e1dc8f14b4c485c5cf5cfe"
+dependencies = [
+ "darling",
+ "quote",
+ "syn 2.0.104",
+]
+
+[[package]]
+name = "ssz_derive"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
 dependencies = [
  "darling",
  "quote",
@@ -9468,6 +9521,29 @@ dependencies = [
  "hex",
  "rand 0.8.5",
  "ruint",
+]
+
+[[package]]
+name = "ssz_primitives"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "hex",
+ "rand 0.8.5",
+ "ruint",
+]
+
+[[package]]
+name = "ssz_types"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "itertools 0.13.0",
+ "serde",
+ "serde_derive",
+ "ssz 0.9.0",
+ "ssz_primitives 0.9.0",
+ "tree_hash 0.9.0",
 ]
 
 [[package]]
@@ -9503,8 +9579,8 @@ dependencies = [
  "borsh",
  "serde",
  "strata-asm-types",
- "strata-btc-types",
- "strata-identifiers",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-l1-txfmt",
  "strata-merkle",
  "strata-msg-fmt",
@@ -9519,7 +9595,7 @@ source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814e
 dependencies = [
  "bitcoin",
  "strata-asm-common",
- "strata-identifiers",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-l1-txfmt",
 ]
 
@@ -9528,7 +9604,7 @@ name = "strata-asm-types"
 version = "0.3.0-alpha.1"
 source = "git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6#dbffc47d8bde81fc713814ee314ea8ab86c98be6"
 dependencies = [
- "strata-btc-types",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-btc-verification",
 ]
 
@@ -9822,13 +9898,38 @@ dependencies = [
  "secp256k1",
  "serde",
  "sha2",
- "ssz",
- "ssz_derive",
- "strata-checkpoint-types",
- "strata-identifiers",
+ "ssz 0.6.0",
+ "ssz_derive 0.6.0",
+ "strata-checkpoint-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-l1-txfmt",
  "thiserror 2.0.12",
- "tree_hash",
+ "tree_hash 0.6.0",
+]
+
+[[package]]
+name = "strata-btc-types"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen#24d1fc71bd14caf0b4e173ef8177dd64547cd1a8"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "bitcoin-bosd",
+ "borsh",
+ "digest 0.10.7",
+ "num_enum 0.7.4",
+ "rand 0.8.5",
+ "secp256k1",
+ "serde",
+ "sha2",
+ "ssz 0.9.0",
+ "ssz_derive 0.9.0",
+ "strata-checkpoint-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
+ "strata-codec",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen)",
+ "strata-l1-txfmt",
+ "thiserror 2.0.12",
+ "tree_hash 0.9.0",
 ]
 
 [[package]]
@@ -9840,8 +9941,8 @@ dependencies = [
  "bitcoin",
  "borsh",
  "serde",
- "strata-btc-types",
- "strata-identifiers",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "thiserror 2.0.12",
 ]
 
@@ -9853,9 +9954,22 @@ dependencies = [
  "arbitrary",
  "borsh",
  "serde",
- "strata-crypto",
- "strata-identifiers",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17)",
+]
+
+[[package]]
+name = "strata-checkpoint-types"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen#24d1fc71bd14caf0b4e173ef8177dd64547cd1a8"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "serde",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen)",
+ "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18)",
 ]
 
 [[package]]
@@ -9863,7 +9977,17 @@ name = "strata-codec"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
 dependencies = [
+ "strata-codec-derive",
  "thiserror 2.0.12",
+]
+
+[[package]]
+name = "strata-codec-derive"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -9879,7 +10003,23 @@ dependencies = [
  "musig2",
  "secp256k1",
  "serde",
- "strata-identifiers",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "thiserror 2.0.12",
+]
+
+[[package]]
+name = "strata-crypto"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen#24d1fc71bd14caf0b4e173ef8177dd64547cd1a8"
+dependencies = [
+ "arbitrary",
+ "borsh",
+ "hex",
+ "k256",
+ "musig2",
+ "secp256k1",
+ "serde",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen)",
  "thiserror 2.0.12",
 ]
 
@@ -9892,9 +10032,9 @@ dependencies = [
  "borsh",
  "const-hex",
  "serde",
- "strata-btc-types",
- "strata-checkpoint-types",
- "strata-identifiers",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-checkpoint-types 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
 ]
 
@@ -9912,19 +10052,44 @@ dependencies = [
  "int-enum",
  "serde",
  "sha2",
- "ssz",
- "ssz_derive",
+ "ssz 0.6.0",
+ "ssz_derive 0.6.0",
  "strata-codec",
- "tree_hash",
+ "tree_hash 0.6.0",
+ "zeroize",
+]
+
+[[package]]
+name = "strata-identifiers"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/alpen#24d1fc71bd14caf0b4e173ef8177dd64547cd1a8"
+dependencies = [
+ "arbitrary",
+ "bitcoin",
+ "borsh",
+ "const-hex",
+ "digest 0.10.7",
+ "hex",
+ "int-enum",
+ "serde",
+ "sha2",
+ "ssz 0.9.0",
+ "ssz_codegen",
+ "ssz_derive 0.9.0",
+ "ssz_types",
+ "strata-codec",
+ "tree_hash 0.9.0",
+ "tree_hash_derive",
  "zeroize",
 ]
 
 [[package]]
 name = "strata-key-derivation"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen#24d1fc71bd14caf0b4e173ef8177dd64547cd1a8"
 dependencies = [
  "bitcoin",
+ "ed25519-dalek",
  "secp256k1",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
  "thiserror 2.0.12",
@@ -10002,8 +10167,8 @@ dependencies = [
  "borsh",
  "serde",
  "strata-bridge-types",
- "strata-btc-types",
- "strata-identifiers",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-l1-txfmt",
  "strata-predicate",
  "thiserror 2.0.12",
@@ -10034,9 +10199,9 @@ dependencies = [
  "borsh",
  "secp256k1",
  "serde",
- "strata-btc-types",
- "strata-crypto",
- "strata-identifiers",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "thiserror 2.0.12",
  "zeroize",
 ]
@@ -10044,26 +10209,20 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen#eb0956f66731e51c1cbe5d2f0c9d13d80f85192b"
+source = "git+https://github.com/alpenlabs/alpen#24d1fc71bd14caf0b4e173ef8177dd64547cd1a8"
 dependencies = [
  "arbitrary",
- "bincode",
  "bitcoin",
  "bitcoin-bosd",
  "borsh",
- "const-hex",
- "digest 0.10.7",
  "hex",
- "k256",
- "musig2",
- "num_enum 0.7.4",
- "rand 0.8.5",
  "secp256k1",
  "serde",
- "sha2",
+ "strata-btc-types 0.1.0 (git+https://github.com/alpenlabs/alpen)",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
+ "strata-identifiers 0.1.0 (git+https://github.com/alpenlabs/alpen)",
  "thiserror 2.0.12",
  "zeroize",
- "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
 ]
 
 [[package]]
@@ -10336,7 +10495,7 @@ dependencies = [
  "getrandom 0.3.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -10892,8 +11051,30 @@ dependencies = [
  "digest 0.10.7",
  "sha2",
  "smallvec",
- "ssz",
- "ssz_primitives",
+ "ssz 0.6.0",
+ "ssz_primitives 0.6.0",
+]
+
+[[package]]
+name = "tree_hash"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "digest 0.10.7",
+ "sha2",
+ "smallvec",
+ "ssz 0.9.0",
+ "ssz_primitives 0.9.0",
+]
+
+[[package]]
+name = "tree_hash_derive"
+version = "0.9.0"
+source = "git+https://github.com/alpenlabs/ssz-gen?tag=v0.9.0#b9ae1d98994ed8fe635fad022441c013f4a1f06a"
+dependencies = [
+ "darling",
+ "quote",
+ "syn 2.0.104",
 ]
 
 [[package]]
@@ -11397,7 +11578,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -11593,15 +11774,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "windows-sys"
-version = "0.60.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
-dependencies = [
- "windows-targets 0.53.2",
-]
-
-[[package]]
 name = "windows-targets"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11640,27 +11812,11 @@ dependencies = [
  "windows_aarch64_gnullvm 0.52.6",
  "windows_aarch64_msvc 0.52.6",
  "windows_i686_gnu 0.52.6",
- "windows_i686_gnullvm 0.52.6",
+ "windows_i686_gnullvm",
  "windows_i686_msvc 0.52.6",
  "windows_x86_64_gnu 0.52.6",
  "windows_x86_64_gnullvm 0.52.6",
  "windows_x86_64_msvc 0.52.6",
-]
-
-[[package]]
-name = "windows-targets"
-version = "0.53.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c66f69fcc9ce11da9966ddb31a40968cad001c5bedeb5c2b82ede4253ab48aef"
-dependencies = [
- "windows_aarch64_gnullvm 0.53.0",
- "windows_aarch64_msvc 0.53.0",
- "windows_i686_gnu 0.53.0",
- "windows_i686_gnullvm 0.53.0",
- "windows_i686_msvc 0.53.0",
- "windows_x86_64_gnu 0.53.0",
- "windows_x86_64_gnullvm 0.53.0",
- "windows_x86_64_msvc 0.53.0",
 ]
 
 [[package]]
@@ -11691,12 +11847,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3"
 
 [[package]]
-name = "windows_aarch64_gnullvm"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "86b8d5f90ddd19cb4a147a5fa63ca848db3df085e25fee3cc10b39b6eebae764"
-
-[[package]]
 name = "windows_aarch64_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11713,12 +11863,6 @@ name = "windows_aarch64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469"
-
-[[package]]
-name = "windows_aarch64_msvc"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7651a1f62a11b8cbd5e0d42526e55f2c99886c77e007179efff86c2b137e66c"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -11739,22 +11883,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b"
 
 [[package]]
-name = "windows_i686_gnu"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c1dc67659d35f387f5f6c479dc4e28f1d4bb90ddd1a5d3da2e5d97b42d6272c3"
-
-[[package]]
 name = "windows_i686_gnullvm"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66"
-
-[[package]]
-name = "windows_i686_gnullvm"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ce6ccbdedbf6d6354471319e781c0dfef054c81fbc7cf83f338a4296c0cae11"
 
 [[package]]
 name = "windows_i686_msvc"
@@ -11775,12 +11907,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66"
 
 [[package]]
-name = "windows_i686_msvc"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "581fee95406bb13382d2f65cd4a908ca7b1e4c2f1917f143ba16efe98a589b5d"
-
-[[package]]
 name = "windows_x86_64_gnu"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11797,12 +11923,6 @@ name = "windows_x86_64_gnu"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78"
-
-[[package]]
-name = "windows_x86_64_gnu"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e55b5ac9ea33f2fc1716d1742db15574fd6fc8dadc51caab1c16a3d3b4190ba"
 
 [[package]]
 name = "windows_x86_64_gnullvm"
@@ -11823,12 +11943,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d"
 
 [[package]]
-name = "windows_x86_64_gnullvm"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a6e035dd0599267ce1ee132e51c27dd29437f63325753051e71dd9e42406c57"
-
-[[package]]
 name = "windows_x86_64_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11845,12 +11959,6 @@ name = "windows_x86_64_msvc"
 version = "0.52.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.53.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "271414315aff87387382ec3d271b52d7ae78726f5d44ac98b4f4030c91880486"
 
 [[package]]
 name = "winnow"
@@ -12171,6 +12279,19 @@ dependencies = [
 name = "zkaleido"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17#3cd4f232d2807fa61b6545847f695a7119841adb"
+dependencies = [
+ "arbitrary",
+ "async-trait",
+ "bincode",
+ "borsh",
+ "serde",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "zkaleido"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc18#cd7839e5bbed46d8304cd95a20e956af56e22dfc"
 dependencies = [
  "arbitrary",
  "async-trait",

@@ -52,6 +52,7 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
+ed25519-dalek.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 memory_pprof = { path = "../../crates/memory_pprof", optional = true }
