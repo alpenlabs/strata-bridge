@@ -1,6 +1,6 @@
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hex::DisplayHex, Network};
-use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
+use libp2p::identity::ed25519::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
 use strata_params::RollupParams;
@@ -107,6 +107,7 @@ where
         .p2p
         .into_iter()
         .map(|key| {
+            dbg!(&key);
             let key = hex::decode(key).expect("Failed to decode hex key");
             Libp2pKey::try_from_bytes(&key).expect("Failed to decode Libp2pKey from slice")
         })
@@ -132,7 +133,7 @@ mod tests {
 
             [keys]
             musig2 = ["c46132cbb3ef14caeac8f724fea1449d802133495ef1675f210b0742f5ee8164", "d57243dbb3ef14caeac8f724fea1449d802133495ef1675f210b074206ff9275"]
-            p2p = ["02e68354ebb3ef14caeac8f724fea1449d802133495ef1675f210b07421700a386", "03f79465fcc3ef14caeac8f724fea1449d802133495ef1675f210b07421811b497"]
+            p2p = ["ab1d0c44056036dce1b783d2db0c42876b60948c7ae2002476fcb61e15d6f7d7", "6f83c5863297da5f9d859898cfeb66f8a1cb719b6e8f599301788481c0d8f523"]
 
             [tx_graph]
             tag = "alpn"

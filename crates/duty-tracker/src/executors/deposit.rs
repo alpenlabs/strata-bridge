@@ -13,6 +13,7 @@ use bitcoin::{
 use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
 use futures::FutureExt;
 use musig2::{aggregate_partial_signatures, AggNonce, PartialSignature, PubNonce};
+use p2p_types::{Scope, SessionId, StakeChainId};
 use secp256k1::{schnorr, Message, PublicKey};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
@@ -24,7 +25,7 @@ use strata_bridge_tx_graph::{
     pog_musig_functor::PogMusigF,
     transactions::{deposit::DepositTx, prelude::CovenantTx},
 };
-use strata_p2p_types::{Scope, SessionId, StakeChainId};
+use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -36,11 +37,12 @@ use crate::{
 
 /// Handles the duty to publish the stake chain exchange message to the p2p network upon genesis and
 /// when nagged.
-pub(crate) async fn handle_publish_stake_chain_exchange(
+pub(crate) async fn handle_send_stake_chain_exchange(
     cfg: &ExecutionConfig,
     s2_client: &SecretServiceClient,
     db: &SqliteDb,
     msg_handler: &MessageHandler,
+    peer: Option<oneshot::Sender<Vec<u8>>>,
 ) -> Result<(), ContractManagerErr> {
     let pov_idx = cfg.operator_table.pov_idx();
     let general_key = s2_client
@@ -58,7 +60,13 @@ pub(crate) async fn handle_publish_stake_chain_exchange(
         info!(%stake_chain_id, "broadcasting pre-stake information");
 
         msg_handler
-            .send_stake_chain_exchange(stake_chain_id, general_key, pre_stake.txid, pre_stake.vout)
+            .send_stake_chain_exchange(
+                stake_chain_id,
+                general_key,
+                pre_stake.txid,
+                pre_stake.vout,
+                peer,
+            )
             .await;
 
         return Ok(());
@@ -73,12 +81,13 @@ pub(crate) async fn handle_publish_stake_chain_exchange(
 
 /// Constructs and broadcasts the data required to generate this operator's
 /// [`PegOutGraph`](strata_bridge_tx_graph::peg_out_graph::PegOutGraph) to the p2p network.
-pub(crate) async fn handle_publish_deposit_setup(
+pub(crate) async fn handle_send_deposit_setup(
     cfg: &ExecutionConfig,
     output_handles: Arc<OutputHandles>,
     deposit_txid: Txid,
     deposit_idx: u32,
     stake_chain_inputs: StakeChainInputs,
+    peer: Option<oneshot::Sender<Vec<u8>>>,
 ) -> Result<(), ContractManagerErr> {
     info!(%deposit_txid, "executing duty to publish deposit setup");
 
@@ -114,6 +123,7 @@ pub(crate) async fn handle_publish_deposit_setup(
                 funding_outpoint,
                 operator_pk,
                 wots_pks,
+                peer,
             )
             .await;
 
@@ -247,6 +257,7 @@ pub(crate) async fn handle_publish_deposit_setup(
             funding_utxo,
             operator_pk,
             wots_pks.clone(),
+            peer,
         )
         .await;
 
@@ -307,7 +318,8 @@ async fn finalize_claim_funding_tx(
 /// Handles the duty to publish the graph nonces for the given peg out graph identified by the
 /// transaction ID of its claim transaction.
 // TODO(@storopoli): This also commits the graph nonces to the database in the `pub_nonces` table.
-pub(crate) async fn handle_publish_graph_nonces(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_send_graph_nonces(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     message_handler: &MessageHandler,
@@ -315,6 +327,7 @@ pub(crate) async fn handle_publish_graph_nonces(
     pog_outpoints: PogMusigF<OutPoint>,
     pog_witnesses: PogMusigF<TaprootWitness>,
     pre_generated_nonces: Option<PogMusigF<PubNonce>>,
+    peer: Option<oneshot::Sender<Vec<u8>>>,
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph nonces");
 
@@ -352,6 +365,7 @@ pub(crate) async fn handle_publish_graph_nonces(
         .send_musig2_nonces(
             SessionId::from_bytes(claim_txid.to_byte_array()),
             nonces.pack(),
+            peer,
         )
         .await;
 
@@ -379,13 +393,14 @@ pub(crate) struct GenPartialsInput {
 /// by the transaction ID of its claim transaction.
 // TODO(@storopoli): This also commits the graph partial signatures to the database in the
 // `partial_signatures` table.
-pub(crate) async fn handle_publish_graph_sigs(
+pub(crate) async fn handle_send_graph_sigs(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     message_handler: &MessageHandler,
     claim_txid: Txid,
     input_data: PogMusigF<GenPartialsInput>,
     pre_generated_partial_signatures: Option<PogMusigF<PartialSignature>>,
+    peer: Option<oneshot::Sender<Vec<u8>>>,
 ) -> Result<(), ContractManagerErr> {
     info!(%claim_txid, "executing duty to publish graph signatures");
 
@@ -433,6 +448,7 @@ pub(crate) async fn handle_publish_graph_sigs(
         .send_musig2_signatures(
             SessionId::from_bytes(claim_txid.to_byte_array()),
             partial_sigs.pack(),
+            peer,
         )
         .await;
 
@@ -442,13 +458,14 @@ pub(crate) async fn handle_publish_graph_sigs(
 /// Handles the duty to publish the root nonce for the given deposit request identified by the
 /// its prevout i.e., the outpoint of the Deposit Request Transaction.
 // TODO(@storopoli): This also commits the root nonce to the database in the `pub_nonces` table.
-pub(crate) async fn handle_publish_root_nonce(
+pub(crate) async fn handle_send_root_nonce(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     msg_handler: &MessageHandler,
     prevout: OutPoint,
     witness: TaprootWitness,
     pre_generated_nonce: Option<PubNonce>,
+    peer: Option<oneshot::Sender<Vec<u8>>>,
 ) -> Result<(), ContractManagerErr> {
     let deposit_request_txid = prevout.txid;
     let deposit_request_vout = prevout.vout;
@@ -483,6 +500,7 @@ pub(crate) async fn handle_publish_root_nonce(
         .send_musig2_nonces(
             SessionId::from_bytes(deposit_request_txid.to_byte_array()),
             vec![nonce],
+            peer,
         )
         .await;
 
@@ -494,7 +512,7 @@ pub(crate) async fn handle_publish_root_nonce(
 // TODO(@storopoli): This also commits the root signature to the database in the
 // `partial_signatures` table.
 #[expect(clippy::too_many_arguments)]
-pub(crate) async fn handle_publish_root_signature(
+pub(crate) async fn handle_send_root_signature(
     s2_client: &SecretServiceClient,
     musig_pubkeys: Vec<XOnlyPublicKey>,
     msg_handler: &MessageHandler,
@@ -503,6 +521,7 @@ pub(crate) async fn handle_publish_root_signature(
     sighash: Message,
     witness: TaprootWitness,
     pre_generated_partial_signature: Option<PartialSignature>,
+    peer: Option<oneshot::Sender<Vec<u8>>>,
 ) -> Result<(), ContractManagerErr> {
     let deposit_request_txid = prevout.txid;
     let deposit_request_vout = prevout.vout;
@@ -536,6 +555,7 @@ pub(crate) async fn handle_publish_root_signature(
         .send_musig2_signatures(
             SessionId::from_bytes(prevout.txid.as_raw_hash().to_byte_array()),
             vec![partial_sig],
+            peer,
         )
         .await;
 

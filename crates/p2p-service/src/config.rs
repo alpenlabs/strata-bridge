@@ -2,18 +2,17 @@
 
 use std::time::Duration;
 
-use bitcoin::{secp256k1::SecretKey, PublicKey, XOnlyPublicKey};
 use libp2p::{
-    identity::secp256k1::{Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey},
+    identity::ed25519::{Keypair as Libp2pEdKeypair, SecretKey as Libp2pEdSecretKey},
     Multiaddr, PeerId,
 };
-use strata_p2p_types::P2POperatorPubKey;
+use p2p_types::P2POperatorPubKey;
 
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]
 pub struct Configuration {
-    /// [`Libp2pSecpKeypair`] used as [`PeerId`].
-    pub keypair: Libp2pSecpKeypair,
+    /// [`Libp2pEdKeypair`] used as [`PeerId`].
+    pub keypair: Libp2pEdKeypair,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Option<Duration>,
@@ -53,10 +52,10 @@ pub struct Configuration {
 }
 
 impl Configuration {
-    /// Creates a new [`Configuration`] by using a [`SecretKey`].
+    /// Creates a new [`Configuration`] by using a [`Libp2pEdSecretKey`].
     #[expect(clippy::too_many_arguments)]
     pub fn new_with_secret_key(
-        sk: SecretKey,
+        sk: Libp2pEdSecretKey,
         idle_connection_timeout: Option<Duration>,
         listening_addr: Multiaddr,
         allowlist: Vec<PeerId>,
@@ -67,8 +66,7 @@ impl Configuration {
         general_timeout: Option<Duration>,
         connection_check_interval: Option<Duration>,
     ) -> Self {
-        let sk = Libp2pSecpSecretKey::try_from_bytes(sk.secret_bytes()).expect("infallible");
-        let keypair = Libp2pSecpKeypair::from(sk);
+        let keypair = Libp2pEdKeypair::from(sk);
         Self {
             keypair,
             idle_connection_timeout,
@@ -82,30 +80,16 @@ impl Configuration {
             connection_check_interval,
         }
     }
-
-    /// Returns the [`PublicKey`] related to this [`Configuration`].
-    pub fn public_key(&self) -> PublicKey {
-        PublicKey::from_slice(&self.keypair.public().to_bytes()).expect("infallible")
-    }
-
-    /// Returns the [`XOnlyPublicKey`] related to this [`Configuration`].
-    pub fn x_only_public_key(&self) -> XOnlyPublicKey {
-        XOnlyPublicKey::from_slice(&self.keypair.public().to_bytes()[1..]).expect("infallible")
-    }
 }
 
 #[cfg(test)]
 mod tests {
-    use strata_bridge_test_utils::prelude::generate_keypair;
-
     use super::*;
 
     #[test]
     fn new_with_secret_key_works() {
-        let keypair = generate_keypair();
-        let sk = keypair.secret_key();
-        let pk = keypair.public_key();
-        let x_only_pk = keypair.x_only_public_key().0;
+        let keypair = Libp2pEdKeypair::generate();
+        let sk = keypair.secret();
         let config = Configuration::new_with_secret_key(
             sk,
             None,
@@ -118,7 +102,6 @@ mod tests {
             None,
             None,
         );
-        assert_eq!(config.public_key().inner, pk);
-        assert_eq!(config.x_only_public_key(), x_only_pk);
+        assert_eq!(config.keypair.to_bytes(), keypair.to_bytes());
     }
 }
