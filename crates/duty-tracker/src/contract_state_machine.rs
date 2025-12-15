@@ -21,6 +21,7 @@ use musig2::{
     aggregate_partial_signatures, errors::VerifyError, secp256k1::Message, verify_partial,
     AggNonce, PartialSignature, PubNonce,
 };
+use p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use secp256k1::schnorr;
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
@@ -49,7 +50,6 @@ use strata_bridge_tx_graph::{
     },
 };
 use strata_bridge_types::{DepositEntry, DepositState};
-use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_params::RollupParams;
 use strata_primitives::buf::Buf32;
 use thiserror::Error;
@@ -3591,6 +3591,7 @@ mod prop_tests {
         hashes::{sha256, sha256d, Hash},
         Network, Txid,
     };
+    use p2p_types::P2POperatorPubKey;
     use proptest::{prelude::*, prop_compose};
     use prover_test_utils::load_test_rollup_params;
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -3602,7 +3603,6 @@ mod prop_tests {
     use strata_bridge_tx_graph::transactions::deposit::{
         prop_tests::arb_deposit_request_data, DepositTx,
     };
-    use strata_p2p_types::P2POperatorPubKey;
     use tracing::{error, info};
 
     use super::{ContractCfg, ContractEvent, ContractSM, MachineState};

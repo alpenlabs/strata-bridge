@@ -880,6 +880,7 @@ dependencies = [
  "memory_pprof",
  "musig2",
  "operator-wallet",
+ "p2p-types",
  "rustls-pemfile",
  "secp256k1",
  "secret-service-client",
@@ -896,7 +897,6 @@ dependencies = [
  "strata-bridge-stake-chain",
  "strata-bridge-tx-graph",
  "strata-p2p",
- "strata-p2p-types",
  "strata-params",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-tasks",
@@ -2882,6 +2882,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cynosure"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72e545892537ed04ec26b5fbbedcc05d95a0c5a7704fbb93a0b1a22ef344ff70"
+dependencies = [
+ "futures",
+]
+
+[[package]]
 name = "darling"
 version = "0.20.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3293,9 +3302,13 @@ dependencies = [
  "btc-tracker",
  "futures",
  "hex",
+ "libp2p-identity",
  "musig2",
  "operator-wallet",
+ "p2p-types",
+ "p2p-wire",
  "proptest",
+ "prost",
  "prover-test-utils",
  "secp256k1",
  "secret-service-client",
@@ -3318,8 +3331,6 @@ dependencies = [
  "strata-checkpoint-types",
  "strata-ol-chainstate-types",
  "strata-p2p",
- "strata-p2p-types",
- "strata-p2p-wire",
  "strata-params",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "strata-tasks",
@@ -3689,6 +3700,19 @@ checksum = "4a3d7db9596fecd151c5f638c0ee5d5bd487b6e0ea232e5dc96d5250f6f94b1d"
 dependencies = [
  "crc32fast",
  "miniz_oxide",
+]
+
+[[package]]
+name = "flexbuffers"
+version = "25.9.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e6701cb4a12d88a63f83ac41a11aa61286b5a678445a1a5ab9bc8e38654910a"
+dependencies = [
+ "bitflags 1.3.2",
+ "byteorder",
+ "num_enum 0.5.11",
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
@@ -5207,6 +5231,7 @@ dependencies = [
  "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-identity",
+ "libp2p-kad",
  "libp2p-mdns",
  "libp2p-metrics",
  "libp2p-noise",
@@ -5312,6 +5337,7 @@ dependencies = [
  "quick-protobuf-codec",
  "rand 0.8.5",
  "regex",
+ "serde",
  "sha2",
  "tracing",
  "web-time",
@@ -5352,10 +5378,39 @@ dependencies = [
  "multihash",
  "quick-protobuf",
  "rand 0.8.5",
+ "serde",
  "sha2",
  "thiserror 2.0.12",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "libp2p-kad"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2bab0466a27ebe955bcbc27328fae5429c5b48c915fd6174931414149802ec23"
+dependencies = [
+ "asynchronous-codec",
+ "bytes",
+ "either",
+ "fnv",
+ "futures",
+ "futures-bounded",
+ "futures-timer",
+ "libp2p-core",
+ "libp2p-identity",
+ "libp2p-swarm",
+ "quick-protobuf",
+ "quick-protobuf-codec",
+ "rand 0.8.5",
+ "serde",
+ "sha2",
+ "smallvec",
+ "thiserror 2.0.12",
+ "tracing",
+ "uint 0.10.0",
+ "web-time",
 ]
 
 [[package]]
@@ -5388,6 +5443,7 @@ dependencies = [
  "libp2p-gossipsub",
  "libp2p-identify",
  "libp2p-identity",
+ "libp2p-kad",
  "libp2p-ping",
  "libp2p-swarm",
  "pin-project",
@@ -5900,6 +5956,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6b430e7953c29dd6a09afc29ff0bb69c6e306329ee6794700aee27b76a1aea8d"
 dependencies = [
  "core2",
+ "serde",
  "unsigned-varint 0.8.0",
 ]
 
@@ -6513,6 +6570,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "p2p-types"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "bitcoin",
+ "hex",
+ "libp2p-identity",
+ "proptest",
+ "proptest-derive",
+ "secp256k1",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "p2p-wire"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "libp2p",
+ "musig2",
+ "p2p-types",
+ "prost",
+ "prost-build",
+]
+
+[[package]]
 name = "p3-air"
 version = "0.2.3-succinct"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7093,7 +7177,7 @@ checksum = "0b34d9fd68ae0b74a41b21c03c2f62847aa0ffea044eee893b4c140b37e244e2"
 dependencies = [
  "fixed-hash",
  "impl-codec",
- "uint",
+ "uint 0.9.5",
 ]
 
 [[package]]
@@ -9571,11 +9655,12 @@ dependencies = [
  "futures",
  "libp2p",
  "musig2",
+ "p2p-types",
+ "p2p-wire",
+ "prost",
  "strata-bridge-common",
  "strata-bridge-test-utils",
  "strata-p2p",
- "strata-p2p-types",
- "strata-p2p-wire",
  "tokio",
  "tokio-util",
  "tracing",
@@ -9594,6 +9679,7 @@ dependencies = [
  "bitvm",
  "miniscript",
  "musig2",
+ "p2p-types",
  "proptest",
  "proptest-derive",
  "rkyv",
@@ -9602,7 +9688,6 @@ dependencies = [
  "serde_json",
  "sha2",
  "strata-bridge-types",
- "strata-p2p-types",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "thiserror 2.0.12",
 ]
@@ -9944,47 +10029,18 @@ dependencies = [
 
 [[package]]
 name = "strata-p2p"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.1.0#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
+version = "0.3.1"
+source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.3.1#2310e25f16748e3be271b76d6cb18d0b3cb30ea3"
 dependencies = [
- "async-trait",
- "bitcoin",
+ "cynosure",
+ "flexbuffers",
  "futures",
  "libp2p",
- "musig2",
- "prost",
- "strata-p2p-types",
- "strata-p2p-wire",
+ "serde",
  "thiserror 2.0.12",
  "tokio",
  "tokio-util",
  "tracing",
-]
-
-[[package]]
-name = "strata-p2p-types"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.1.0#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
-dependencies = [
- "bitcoin",
- "hex",
- "libp2p-identity",
- "proptest",
- "proptest-derive",
- "serde",
-]
-
-[[package]]
-name = "strata-p2p-wire"
-version = "0.1.0"
-source = "git+https://github.com/alpenlabs/strata-p2p.git?tag=v0.1.0#d7f4d4acddd4d36a2962e948ffa03c1f0d01685a"
-dependencies = [
- "bitcoin",
- "libp2p",
- "musig2",
- "prost",
- "prost-build",
- "strata-p2p-types",
 ]
 
 [[package]]
@@ -10955,6 +11011,18 @@ name = "uint"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76f64bba2c53b04fcab63c01a7d7427eadc821e3bc48c34dc9ba29c501164b52"
+dependencies = [
+ "byteorder",
+ "crunchy",
+ "hex",
+ "static_assertions",
+]
+
+[[package]]
+name = "uint"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "909988d098b2f738727b161a106cfc7cab00c539c2687a8836f8e565976fb53e"
 dependencies = [
  "byteorder",
  "crunchy",
