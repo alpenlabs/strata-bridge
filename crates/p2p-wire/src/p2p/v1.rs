@@ -6,7 +6,7 @@ use std::fmt;
 
 use bitcoin::hex::DisplayHex;
 use libp2p::{
-    identity::{secp256k1::PublicKey as LibP2pSecp256k1PublicKey, PublicKey as LibP2pPublicKey},
+    identity::{ed25519::PublicKey as LibP2pEdPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
 use p2p_types::{
@@ -74,8 +74,8 @@ impl GetMessageRequest {
             | Self::Musig2NoncesExchange { operator_pk, .. }
             | Self::Musig2SignaturesExchange { operator_pk, .. } => {
                 // convert P2POperatorPubKey into LibP2P secp256k1 PK
-                let pk = LibP2pSecp256k1PublicKey::try_from_bytes(operator_pk.as_ref())
-                    .expect("infallible");
+                let pk =
+                    LibP2pEdPublicKey::try_from_bytes(operator_pk.as_ref()).expect("infallible");
                 let pk: LibP2pPublicKey = pk.into();
                 pk.into()
             }
