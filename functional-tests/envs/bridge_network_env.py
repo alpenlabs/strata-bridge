@@ -34,4 +34,8 @@ class BridgeNetworkEnv(BaseEnv):
             # Fund operator
             self.fund_operator(brpc, bridge_operator.props, wallet_addr)
 
+            # HACK: Find this fix
+            import time
+            time.sleep(5)
+
         return flexitest.LiveEnv(svcs)
