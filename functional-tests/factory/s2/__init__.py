@@ -17,9 +17,7 @@ class S2Factory(flexitest.Factory):
 
     @flexitest.with_ectx("ctx")
     def create_s2_service(
-        self,
-        operator_idx:int,
-        operator_key: OperatorKeyInfo, ctx: flexitest.EnvContext
+        self, operator_idx: int, operator_key: OperatorKeyInfo, ctx: flexitest.EnvContext
     ) -> flexitest.Service:
         bridge_operator_name = get_operator_service_name(operator_idx, SECRET_SERVICE_DIR)
         datadir = ctx.make_service_dir(bridge_operator_name)

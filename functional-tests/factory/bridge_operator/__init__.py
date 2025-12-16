@@ -17,7 +17,7 @@ class BridgeOperatorFactory(flexitest.Factory):
     @flexitest.with_ectx("ectx")
     def create_server(
         self,
-        operator_idx:int,
+        operator_idx: int,
         bitcoind_props: dict,
         s2_props: dict,
         operator_key_infos: list[OperatorKeyInfo],
@@ -40,8 +40,14 @@ class BridgeOperatorFactory(flexitest.Factory):
         # write bridge operator config
         config_toml_path = str((envdd_path / bridge_operator_name / "config.toml").resolve())
         generate_config_toml(
-            bitcoind_props, s2_props, rpc_port, my_p2p_addr, other_p2p_addrs, 
-            config_toml_path, dd, mtls_cred_path
+            bitcoind_props,
+            s2_props,
+            rpc_port,
+            my_p2p_addr,
+            other_p2p_addrs,
+            config_toml_path,
+            dd,
+            mtls_cred_path,
         )
 
         # write bridge operator params

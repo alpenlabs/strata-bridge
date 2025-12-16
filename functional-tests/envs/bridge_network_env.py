@@ -12,7 +12,7 @@ class BridgeNetworkEnv(BaseEnv):
         p2p_port_generator,
         funding_amount=5.01,
         initial_blocks=101,
-        finalization_blocks=10
+        finalization_blocks=10,
     ):
         super().__init__(
             num_operators, p2p_port_generator, funding_amount, initial_blocks, finalization_blocks
@@ -35,9 +35,3 @@ class BridgeNetworkEnv(BaseEnv):
             self.fund_operator(brpc, bridge_operator.props, wallet_addr)
 
         return flexitest.LiveEnv(svcs)
-
-
-
-
-
-
