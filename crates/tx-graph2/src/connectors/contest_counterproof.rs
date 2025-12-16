@@ -2,10 +2,14 @@
 
 use std::num::NonZero;
 
-use bitcoin::{opcodes, script, Amount, Network, ScriptBuf};
+use bitcoin::{
+    opcodes, script,
+    sighash::{Prevouts, SighashCache},
+    Amount, Network, ScriptBuf, Transaction, TxOut,
+};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
 /// Output between `Contest` and `Watchtower i Counterproof`.
 ///
@@ -44,6 +48,23 @@ impl ContestCounterproofOutput {
     /// This is 1 operator signature per byte of data.
     pub const fn n_data(&self) -> NonZero<usize> {
         self.n_data
+    }
+
+    /// Returns the signing infos for the single spend path.
+    ///
+    /// There is one signing info for each byte of data.
+    pub fn signing_infos<'a>(
+        &'a self,
+        cache: &'a mut SighashCache<&'a Transaction>,
+        prevouts: Prevouts<'a, TxOut>,
+        input_index: usize,
+    ) -> impl Iterator<Item = SigningInfo> + 'a {
+        self.compute_sighashes_with_code_separator(0, cache, prevouts, input_index)
+            .into_iter()
+            .map(move |sighash| SigningInfo {
+                sighash,
+                tweak: None,
+            })
     }
 }
 
@@ -97,10 +118,13 @@ impl Connector for ContestCounterproofOutput {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofWitness {
     /// N/N signature.
-    pub n_of_n_signature: schnorr::Signature,
-    /// Operator signatures.
     ///
-    /// There is 1 operator signature per byte of data that will be published onchain.
+    /// This signature signs the first sighash.
+    pub n_of_n_signature: schnorr::Signature,
+    /// 1 operator signature for each byte of data that is published onchain.
+    ///
+    /// Each byte of data comes with a unique sighash.
+    /// The first operator signature uses **the same sighash** as the N/N signature.
     pub operator_signatures: Vec<schnorr::Signature>,
 }
 
@@ -112,7 +136,6 @@ mod tests {
         sighash::{Prevouts, SighashCache},
         transaction, OutPoint, Transaction, TxOut,
     };
-    use secp256k1::{Keypair, Message};
     use strata_bridge_primitives::scripts::prelude::create_tx_ins;
     use strata_bridge_test_utils::prelude::generate_keypair;
 
@@ -120,54 +143,19 @@ mod tests {
     use crate::connectors::test_utils::BitcoinNode;
 
     const N_DATA: NonZero<usize> = NonZero::new(10).unwrap();
-
-    struct ContestWatchtowerSigner {
-        n_of_n_keypair: Keypair,
-        operator_keypair: Keypair,
-    }
-
-    impl ContestWatchtowerSigner {
-        fn generate() -> Self {
-            Self {
-                n_of_n_keypair: generate_keypair(),
-                operator_keypair: generate_keypair(),
-            }
-        }
-
-        fn get_connector(&self) -> ContestCounterproofOutput {
-            ContestCounterproofOutput::new(
-                Network::Regtest,
-                self.n_of_n_keypair.x_only_public_key().0,
-                self.operator_keypair.x_only_public_key().0,
-                N_DATA,
-            )
-        }
-
-        fn sign_leaf(
-            &self,
-            sighashes: impl IntoIterator<Item = Message>,
-        ) -> ContestCounterproofWitness {
-            let mut it = sighashes.into_iter().peekable();
-            let n_of_n_signature = self
-                .n_of_n_keypair
-                .sign_schnorr(it.peek().copied().unwrap());
-            let operator_signatures = it
-                .map(|sighash| self.operator_keypair.sign_schnorr(sighash))
-                .collect();
-
-            ContestCounterproofWitness {
-                n_of_n_signature,
-                operator_signatures,
-            }
-        }
-    }
+    const FEE: Amount = Amount::from_sat(1_000);
 
     #[test]
     fn counterproof_spend() {
         let mut node = BitcoinNode::new();
-        let signer = ContestWatchtowerSigner::generate();
-        let connector = signer.get_connector();
-        let fee = Amount::from_sat(1_000);
+        let n_of_n_keypair = generate_keypair();
+        let operator_keypair = generate_keypair();
+        let connector = ContestCounterproofOutput::new(
+            Network::Regtest,
+            n_of_n_keypair.x_only_public_key().0,
+            operator_keypair.x_only_public_key().0,
+            N_DATA,
+        );
 
         // Create a transaction that funds the connector.
         //
@@ -180,7 +168,7 @@ mod tests {
         let output = vec![
             connector.tx_out(),
             TxOut {
-                value: node.coinbase_amount() - connector.value() - fee,
+                value: node.coinbase_amount() - connector.value() - FEE,
                 script_pubkey: node.wallet_address().script_pubkey(),
             },
         ];
@@ -192,7 +180,7 @@ mod tests {
         };
 
         let funding_txid = node.sign_and_broadcast(&funding_tx);
-        node.mine_blocks(10);
+        node.mine_blocks(1);
 
         // Create a transaction that spends the connector.
         //
@@ -209,7 +197,7 @@ mod tests {
             node.next_coinbase_outpoint(),
         ]);
         let output = vec![TxOut {
-            value: node.coinbase_amount() + connector.value() - fee,
+            value: node.coinbase_amount() + connector.value() - FEE,
             script_pubkey: node.wallet_address().script_pubkey(),
         }];
         let spending_tx = Transaction {
@@ -220,18 +208,19 @@ mod tests {
         };
 
         // Sign the spending transaction
-        let leaf_index = 0;
         let mut cache = SighashCache::new(&spending_tx);
         let utxos = [connector.tx_out(), node.coinbase_tx_out()];
         let prevouts = Prevouts::All(&utxos);
         let input_index = 0;
-        let sighashes = connector.compute_sighashes_with_code_separator(
-            leaf_index,
-            &mut cache,
-            prevouts,
-            input_index,
-        );
-        let witness = signer.sign_leaf(sighashes);
+        let mut it = connector
+            .signing_infos(&mut cache, prevouts, input_index)
+            .peekable();
+        let n_of_n_signature = it.peek().copied().unwrap().sign(&n_of_n_keypair);
+        let operator_signatures = it.map(|x| x.sign(&operator_keypair)).collect();
+        let witness = ContestCounterproofWitness {
+            n_of_n_signature,
+            operator_signatures,
+        };
 
         let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
         psbt.inputs[0].witness_utxo = Some(connector.tx_out());

@@ -1,9 +1,12 @@
 //! This module contains a generic N/N connector.
 
-use bitcoin::{Amount, Network};
+use bitcoin::{
+    sighash::{Prevouts, SighashCache},
+    Amount, Network, Transaction, TxOut,
+};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
 /// Generic N/N connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -20,6 +23,19 @@ impl NOfNConnector {
             network,
             n_of_n_pubkey,
             value,
+        }
+    }
+
+    /// Returns the signing info for the single spend path.
+    pub fn signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(None, cache, prevouts, input_index),
+            tweak: Some(self.tweak()),
         }
     }
 }

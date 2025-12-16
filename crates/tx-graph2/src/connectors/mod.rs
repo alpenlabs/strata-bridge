@@ -13,6 +13,7 @@ pub(crate) mod test_utils;
 
 use bitcoin::{
     hashes::Hash,
+    key::TapTweak,
     opcodes,
     psbt::Input,
     script,
@@ -20,7 +21,7 @@ use bitcoin::{
     taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
     Address, Amount, Network, ScriptBuf, TapNodeHash, TapSighashType, Transaction, TxOut,
 };
-use secp256k1::{schnorr, Message, XOnlyPublicKey};
+use secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
 use strata_bridge_primitives::scripts::prelude::{
     create_key_spend_hash, create_script_spend_hash, create_taproot_addr, finalize_input, SpendPath,
 };
@@ -288,4 +289,32 @@ pub enum TaprootWitness {
         /// Inputs to the leaf script.
         script_inputs: Vec<Vec<u8>>,
     },
+}
+
+/// Information that is required to make a signature for a Taproot transaction input.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SigningInfo {
+    /// Sighash of the transaction input.
+    ///
+    /// All inputs implicitly use SIGHASH_DEFAULT (aka SIGHASH_ALL).
+    pub sighash: Message,
+    /// Optional tap tweak of the signing key:
+    ///
+    /// - `None` for a script-path spend. No tweaking is required.
+    /// - `Some(merkle_root)` for a key-path spend where the tap tree has the given [Merkle root](https://docs.rs/bitcoin/latest/bitcoin/taproot/struct.TaprootSpendInfo.html#method.merkle_root).
+    ///   The internal key is tap-tweaked to become the output key.
+    pub tweak: Option<Option<TapNodeHash>>,
+}
+
+impl SigningInfo {
+    /// Create a signature for the given signing info.
+    pub fn sign(self, keypair: &Keypair) -> schnorr::Signature {
+        match self.tweak {
+            Some(tweak) => keypair
+                .tap_tweak(SECP256K1, tweak)
+                .to_keypair()
+                .sign_schnorr(self.sighash),
+            None => keypair.sign_schnorr(self.sighash),
+        }
+    }
 }

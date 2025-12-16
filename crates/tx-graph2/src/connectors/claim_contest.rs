@@ -1,9 +1,13 @@
 //! This module contains the claim contest connector.
 
-use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
+use bitcoin::{
+    opcodes, relative, script,
+    sighash::{Prevouts, SighashCache},
+    Amount, Network, ScriptBuf, Transaction, TxOut,
+};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
 /// Connector output between `Claim` and:
 /// 1. `UncontestedPayout`, and
@@ -40,6 +44,33 @@ impl ClaimContestConnector {
     /// Returns the relative contest timelock of the connector.
     pub const fn contest_timelock(&self) -> relative::LockTime {
         self.contest_timelock
+    }
+
+    /// Returns the signing info for the contested spend path.
+    pub fn contested_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+        watchtower_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(Some(watchtower_index), cache, prevouts, input_index),
+            tweak: None,
+        }
+    }
+
+    /// Returns the signing info for the uncontested spend path.
+    pub fn uncontested_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(Some(self.n_watchtowers()), cache, prevouts, input_index),
+            tweak: None,
+        }
     }
 }
 
@@ -104,7 +135,9 @@ impl Connector for ClaimContestConnector {
 /// Witness data to spend a [`ClaimContestConnector`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimContestWitness {
-    /// N/N signature of the transaction that spends the connector.
+    /// N/N signature.
+    ///
+    /// This signature is required for all spending paths.
     pub n_of_n_signature: schnorr::Signature,
     /// Used spending path.
     pub spend_path: ClaimContestSpendPath,

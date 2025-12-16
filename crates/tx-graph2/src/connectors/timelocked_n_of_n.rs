@@ -8,10 +8,14 @@
 
 use std::num::NonZero;
 
-use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
+use bitcoin::{
+    opcodes, relative, script,
+    sighash::{Prevouts, SighashCache},
+    Amount, Network, ScriptBuf, Transaction, TxOut,
+};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
 /// Generic connector output that is locked in a tap tree:
 /// 1. (key path) internal key
@@ -137,6 +141,32 @@ impl TimelockedNOfNConnector {
     /// - For the **counterproof_i** connector, this is the **nack** timelock.
     pub const fn timelock(&self) -> relative::LockTime {
         self.timelock
+    }
+
+    /// Returns the signing info for the normal spend path.
+    pub fn normal_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(None, cache, prevouts, input_index),
+            tweak: Some(self.tweak()),
+        }
+    }
+
+    /// Returns the signing info for the timeout spend path.
+    pub fn timeout_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(Some(0), cache, prevouts, input_index),
+            tweak: None,
+        }
     }
 }
 

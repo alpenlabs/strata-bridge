@@ -2,11 +2,13 @@
 
 use bitcoin::{
     hashes::{sha256, Hash},
-    opcodes, Amount, Network, ScriptBuf,
+    opcodes,
+    sighash::{Prevouts, SighashCache},
+    Amount, Network, ScriptBuf, Transaction, TxOut,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
 /// Connector output between `Claim` and the payouts.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -32,6 +34,45 @@ impl ClaimPayoutConnector {
             n_of_n_pubkey,
             admin_pubkey,
             unstaking_image,
+        }
+    }
+
+    /// Returns the signing info for the payout spend path.
+    pub fn payout_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(None, cache, prevouts, input_index),
+            tweak: Some(self.tweak()),
+        }
+    }
+
+    /// Returns the signing info for the admin burn spend path.
+    pub fn admin_burn_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(Some(0), cache, prevouts, input_index),
+            tweak: None,
+        }
+    }
+
+    /// Returns the signing info for the unstaking burn spend path.
+    pub fn unstaking_burn_signing_info(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+        input_index: usize,
+    ) -> SigningInfo {
+        SigningInfo {
+            sighash: self.compute_sighash(Some(1), cache, prevouts, input_index),
+            tweak: None,
         }
     }
 }
