@@ -47,9 +47,9 @@ def main(argv):
     p2p_gen = generate_p2p_ports()
 
     # Register envs
-    basic_env = BasicEnv(num_operators=1, p2p_port_generator=p2p_gen)
+    basic_env = BasicEnv(p2p_port_generator=p2p_gen)
     network_env = BridgeNetworkEnv(num_operators=3, p2p_port_generator=p2p_gen)
-    env_configs = {"basic": basic_env ,"network":network_env}
+    env_configs = {"basic": basic_env, "network": network_env}
 
     # Set up the runtime and prepare tests.
     rt = flexitest.TestRuntime(env_configs, datadir_root, factories)

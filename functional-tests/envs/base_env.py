@@ -17,14 +17,14 @@ class BaseEnv(flexitest.EnvConfig):
         p2p_port_generator,
         funding_amount=5.01,
         initial_blocks=101,
-        finalization_blocks=10
+        finalization_blocks=10,
     ):
         super().__init__()
         self.num_operators = num_operators
         self.funding_amount = funding_amount
         self.initial_blocks = initial_blocks
         self.finalization_blocks = finalization_blocks
-        
+
         # Generate P2P ports for this environment
         self.p2p_ports = [next(p2p_port_generator) for _ in range(num_operators)]
 
