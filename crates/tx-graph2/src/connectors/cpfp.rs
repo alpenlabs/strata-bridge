@@ -1,11 +1,6 @@
 //! This module contains the CPFP connector.
 
-use bitcoin::{
-    psbt::Input, taproot::TaprootSpendInfo, Address, Amount, Network, ScriptBuf, Witness,
-    WitnessProgram,
-};
-
-use crate::connectors::{Connector, TaprootWitness};
+use bitcoin::{psbt::Input, Address, Amount, Network, ScriptBuf, TxOut, Witness, WitnessProgram};
 
 /// CPFP connector that uses the P2A locking script.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -18,43 +13,37 @@ impl CpfpConnector {
     pub const fn new(network: Network) -> Self {
         Self { network }
     }
-}
 
-// TODO: (@uncomputable) Split `Connector` into multiple traits? Generic output, taproot output, ...
-//                       Or remove `Connector` implementation? The answer depends on how
-//                       `CpfpConnector` will be used in the transaction code.
-//
-// We want to implement the [`Connector`] trait because it provides convenience methods.
-// P2A is not a Taproot output, so we have to be creative in how we implement the methods.
-impl Connector for CpfpConnector {
-    type Witness = ();
-
-    fn network(&self) -> Network {
+    /// Returns the network of the connector.
+    pub const fn network(&self) -> Network {
         self.network
     }
 
-    fn value(&self) -> Amount {
+    /// Returns the value of the connector.
+    pub const fn value(&self) -> Amount {
         Amount::ZERO
     }
 
-    fn address(&self) -> Address {
+    /// Generates the address of the connector.
+    pub fn address(&self) -> Address {
         Address::from_witness_program(WitnessProgram::p2a(), self.network)
     }
 
-    fn script_pubkey(&self) -> ScriptBuf {
-        let witness_program = WitnessProgram::p2a();
-        ScriptBuf::new_witness_program(&witness_program)
+    /// Generates the script pubkey of the connector.
+    pub fn script_pubkey(&self) -> ScriptBuf {
+        ScriptBuf::new_p2a()
     }
 
-    fn spend_info(&self) -> TaprootSpendInfo {
-        panic!("P2A is not a taproot output")
+    /// Generates the transaction output of the connector.
+    pub fn tx_out(&self) -> TxOut {
+        TxOut {
+            value: self.value(),
+            script_pubkey: self.address().script_pubkey(),
+        }
     }
 
-    fn get_taproot_witness(&self, _witness: &Self::Witness) -> TaprootWitness {
-        panic!("P2A is not a taproot output")
-    }
-
-    fn finalize_input(&self, input: &mut Input, _witness: &Self::Witness) {
+    /// Finalizes the PSBT `input` where the connector is used.
+    pub fn finalize_input(&self, input: &mut Input) {
         input.final_script_witness = Some(Witness::default());
     }
 }

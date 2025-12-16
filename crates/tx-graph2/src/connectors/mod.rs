@@ -26,7 +26,7 @@ use strata_bridge_primitives::scripts::prelude::{
 };
 use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
-/// A connector output.
+/// A Taproot connector output.
 pub trait Connector {
     /// Witness data that is required to spend the connector.
     type Witness;
