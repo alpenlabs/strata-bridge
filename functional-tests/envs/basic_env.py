@@ -1,14 +1,15 @@
 import flexitest
 
 from utils.service_names import get_operator_dir_name
+
 from .base_env import BaseEnv
 
 
 class BasicEnv(BaseEnv):
     """Environment running a single bridge operator connected to S2 instance and a Bitcoin node."""
 
-    def __init__(self):
-        super().__init__(num_operators=1)
+    def __init__(self, p2p_port_generator):
+        super().__init__(num_operators=1, p2p_port_generator=p2p_port_generator)
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs = {}

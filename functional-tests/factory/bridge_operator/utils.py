@@ -23,7 +23,8 @@ def generate_config_toml(
     bitcoind_props: dict,
     s2_props: dict,
     rpc_port: int,
-    p2p_port: int,
+    my_p2p_addr: str,
+    other_p2p_addrs: list[str],
     output_path: str,
     datadir: str,
     tls_dir: str,
@@ -55,8 +56,8 @@ def generate_config_toml(
         db=DbConfig(max_retry_count=3, backoff_period=Duration(secs=1000, nanos=0)),
         p2p=P2pConfig(
             idle_connection_timeout=Duration(secs=1000, nanos=0),
-            listening_addr=f"/ip4/127.0.0.1/tcp/{p2p_port}",
-            connect_to=[],
+            listening_addr=my_p2p_addr,
+            connect_to=other_p2p_addrs,
             num_threads=4,
             dial_timeout=Duration(secs=0, nanos=250_000_000),
             general_timeout=Duration(secs=0, nanos=250_000_000),
@@ -83,20 +84,20 @@ def generate_config_toml(
         toml.dump(config_dict, f)
 
 
-def generate_params_toml(output_path: str, operator_key: OperatorKeyInfo):
+def generate_params_toml(output_path: str, operator_key_infos: list[OperatorKeyInfo]):
     """
     Generate bridge operator params.toml file using operator keys.
 
     Args:
         output_path: Path to write the params.toml file
-        operator_key: OperatorKeys containing MUSIG2_KEY and P2P_KEY
+        operator_key_infos: List of OperatorKeys containing MUSIG2_KEY and P2P_KEY
     """
     params = BridgeOperatorParams(
         network="regtest",
         genesis_height=101,
         keys=Keys(
-            musig2=[operator_key.MUSIG2_KEY],
-            p2p=[operator_key.P2P_KEY],
+            musig2=[key.MUSIG2_KEY for key in operator_key_infos],
+            p2p=[key.P2P_KEY for key in operator_key_infos],
         ),
         tx_graph=TxGraph(
             tag="alpn",
