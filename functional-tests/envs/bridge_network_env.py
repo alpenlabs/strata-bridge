@@ -1,10 +1,5 @@
 import flexitest
 
-from utils import (
-    BLOCK_GENERATION_INTERVAL_SECS,
-    generate_blocks,
-    wait_until_bitcoind_ready,
-)
 from utils.utils import read_operator_key
 
 
@@ -17,9 +12,9 @@ class BridgeNetworkEnv(flexitest.EnvConfig):
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs = {}
 
-        btc_fac = ectx.get_factory("bitcoin")
+        ectx.get_factory("bitcoin")
         s2_fac = ectx.get_factory("s2")
-        bo_fac = ectx.get_factory("bofac")
+        ectx.get_factory("bofac")
 
         # TODO: @MdTeach make random seed for each operator and derive relevant keys
         op1 = read_operator_key(0)

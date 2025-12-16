@@ -5,6 +5,7 @@ from utils import (
     generate_blocks,
     wait_until_bitcoind_ready,
 )
+from utils.service_names import get_operator_dir_name
 from utils.utils import read_operator_key
 
 
@@ -25,7 +26,12 @@ class BasicEnv(flexitest.EnvConfig):
         # Get operator key for first operator (OP1)
         operator_key = read_operator_key(0)
 
-        s2 = s2_fac.create_s2_service("s2_op1", operator_key)
+        # Make dir
+        operator_idx = 1
+        bridge_operator_name = get_operator_dir_name(operator_idx)
+        ectx.make_service_dir(bridge_operator_name)
+
+        s2 = s2_fac.create_s2_service(1, operator_key)
         svcs["s2"] = s2
 
         bitcoind = btc_fac.create_regtest_bitcoin()
@@ -48,7 +54,7 @@ class BasicEnv(flexitest.EnvConfig):
         svcs["bitcoin"] = bitcoind
 
         # run the bridge
-        bo = bo_fac.create_server("bridge_1", bitcoind.props, s2.props, operator_key)
+        bo = bo_fac.create_server(1, bitcoind.props, s2.props, operator_key)
         svcs["bo"] = bo
 
         # fund operator wallet
