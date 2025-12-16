@@ -14,6 +14,6 @@ class BridgeRpcTest(flexitest.Test):
             borpc = bo.create_rpc()
             wait_until_bridge_ready(borpc)
             operators = borpc.stratabridge_bridgeOperators()
-            assert len(operators) == 1
+            assert len(operators) == 3
 
         return True

@@ -13,7 +13,8 @@ class BaseEnv(flexitest.EnvConfig):
 
     def __init__(
         self,
-        num_operators=1,
+        num_operators,
+        p2p_port_generator,
         funding_amount=5.01,
         initial_blocks=101,
         finalization_blocks=10
@@ -23,6 +24,12 @@ class BaseEnv(flexitest.EnvConfig):
         self.funding_amount = funding_amount
         self.initial_blocks = initial_blocks
         self.finalization_blocks = finalization_blocks
+        
+        # Generate P2P ports for this environment
+        self.p2p_ports = [next(p2p_port_generator) for _ in range(num_operators)]
+
+        # Load all operator keys
+        self.operator_key_infos = [read_operator_key(i) for i in range(num_operators)]
 
     def setup_bitcoin(self, ectx: flexitest.EnvContext):
         """Setup Bitcoin node with wallet and initial funding."""
@@ -48,11 +55,12 @@ class BaseEnv(flexitest.EnvConfig):
         s2_fac = ectx.get_factory("s2")
         bo_fac = ectx.get_factory("bofac")
 
-        # TODO: @MdTeach make random seed for each operator and derive relevant keys
-        operator_key = read_operator_key(operator_idx)
+        # Use pre-loaded operator key
+        operator_key = self.operator_key_infos[operator_idx]
+
         s2_service = s2_fac.create_s2_service(operator_idx, operator_key)
         bridge_operator = bo_fac.create_server(
-            operator_idx, bitcoind_props, s2_service.props, operator_key
+            operator_idx, bitcoind_props, s2_service.props, self.operator_key_infos, self.p2p_ports
         )
 
         return s2_service, bridge_operator

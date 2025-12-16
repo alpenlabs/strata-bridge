@@ -4,12 +4,19 @@ from .base_env import BaseEnv
 
 
 class BridgeNetworkEnv(BaseEnv):
-    """Environment running configurable bridge operators connected to S2 instances and a Bitcoin node."""
+    """Env running configurable bridge operators connected to S2 instances and a Bitcoin node."""
 
     def __init__(
-        self, num_operators=3, funding_amount=5.01, initial_blocks=101, finalization_blocks=10
+        self,
+        num_operators,
+        p2p_port_generator,
+        funding_amount=5.01,
+        initial_blocks=101,
+        finalization_blocks=10
     ):
-        super().__init__(num_operators, funding_amount, initial_blocks, finalization_blocks)
+        super().__init__(
+            num_operators, p2p_port_generator, funding_amount, initial_blocks, finalization_blocks
+        )
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs = {}
