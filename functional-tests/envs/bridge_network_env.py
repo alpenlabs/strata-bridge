@@ -1,32 +1,36 @@
 import flexitest
 
-from utils.utils import read_operator_key
+from .base_env import BaseEnv
 
 
-class BridgeNetworkEnv(flexitest.EnvConfig):
-    """Environment running a single bridge operator connected to S2 instance and a Bitcoin node."""
+class BridgeNetworkEnv(BaseEnv):
+    """Environment running configurable bridge operators connected to S2 instances and a Bitcoin node."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(
+        self, num_operators=3, funding_amount=5.01, initial_blocks=101, finalization_blocks=10
+    ):
+        super().__init__(num_operators, funding_amount, initial_blocks, finalization_blocks)
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:
         svcs = {}
 
-        ectx.get_factory("bitcoin")
-        s2_fac = ectx.get_factory("s2")
-        ectx.get_factory("bofac")
+        # Setup Bitcoin node
+        bitcoind, brpc, wallet_addr = self.setup_bitcoin(ectx)
+        svcs["bitcoin"] = bitcoind
 
-        # TODO: @MdTeach make random seed for each operator and derive relevant keys
-        op1 = read_operator_key(0)
-        op2 = read_operator_key(1)
-        op3 = read_operator_key(2)
+        # Create operators dynamically based on configuration
+        for i in range(self.num_operators):
+            s2_service, bridge_operator = self.create_operator(ectx, i, bitcoind.props)
+            svcs[f"s2_{i}"] = s2_service
+            svcs[f"bo_{i}"] = bridge_operator
+
+            # Fund operator
+            self.fund_operator(brpc, bridge_operator.props, wallet_addr)
+
+        return flexitest.LiveEnv(svcs)
 
 
-        s2_1 = s2_fac.create_s2_service("s2_op1", op1)
-        s2_2 = s2_fac.create_s2_service("s2_op2", op2)
-        s2_3 = s2_fac.create_s2_service("s2_op3", op3)
-        svcs["s2_1"] = s2_1
-        svcs["s2_2"] = s2_2
-        svcs["s2_3"] = s2_3
+
+
 
 
