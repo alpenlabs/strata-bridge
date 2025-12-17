@@ -52,7 +52,7 @@ pub struct Configuration {
 }
 
 impl Configuration {
-    /// Creates a new [`Configuration`] by using a [`Libp2pEdSecretKey`].
+    /// Creates a new [`Configuration`] by using a [`SecretKey`].
     #[expect(clippy::too_many_arguments)]
     pub fn new_with_secret_key(
         sk: Libp2pEdSecretKey,
