@@ -9739,6 +9739,8 @@ dependencies = [
  "strata-bridge-common",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
+ "strata-codec",
+ "strata-l1-txfmt",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "tracing",
 ]
