@@ -5,6 +5,7 @@ from pathlib import Path
 import flexitest
 import toml
 
+from utils.service_names import SECRET_SERVICE_DIR, get_mtls_cred_path, get_operator_service_name
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import S2Config, TlsConfig, TransportConfig
@@ -16,23 +17,26 @@ class S2Factory(flexitest.Factory):
 
     @flexitest.with_ectx("ctx")
     def create_s2_service(
-        self, name: str, operator_key: OperatorKeyInfo, ctx: flexitest.EnvContext
+        self, operator_idx: int, operator_key: OperatorKeyInfo, ctx: flexitest.EnvContext
     ) -> flexitest.Service:
-        datadir = ctx.make_service_dir(name)
+        bridge_operator_name = get_operator_service_name(operator_idx, SECRET_SERVICE_DIR)
+        datadir = ctx.make_service_dir(bridge_operator_name)
 
-        base = Path(ctx.envdd_path)
-        mtls_cred = str((base / "../s2_cred/tls").resolve())
+        envdd_path = Path(ctx.envdd_path)
+        mtls_cred_path = str(
+            (envdd_path / get_mtls_cred_path(operator_idx, SECRET_SERVICE_DIR)).resolve()
+        )
 
         # Dynamic ports
         s2_port = self.next_port()
 
         # write seed file
-        seed_file = str((base / name / "seed").resolve())
+        seed_file = str((envdd_path / bridge_operator_name / "seed").resolve())
         write_s2_seed(seed_file, operator_key)
 
         # write s2 config
-        config_toml = str((base / name / "config.toml").resolve())
-        generate_s2_config(config_toml, mtls_cred, seed_file, s2_port)
+        config_toml = str((envdd_path / bridge_operator_name / "config.toml").resolve())
+        generate_s2_config(config_toml, mtls_cred_path, seed_file, s2_port)
 
         logfile = os.path.join(datadir, "service.log")
 
