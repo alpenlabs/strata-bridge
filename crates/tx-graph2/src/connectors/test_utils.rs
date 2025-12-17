@@ -290,10 +290,10 @@ impl BitcoinNode {
             .client()
             .submit_package(&transactions, None, None)
             .expect("should be able to submit package");
-        assert!(
-            result.package_msg == "success",
-            "Package submission failed. Is the package invalid?"
-        );
+        if result.package_msg != "success" {
+            dbg!(result);
+            panic!("Package submission failed. Is the package invalid?");
+        }
         assert!(
             result.tx_results.len() == 2,
             "tx_results should have 2 elements"
