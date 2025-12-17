@@ -4,6 +4,7 @@ use bitcoin::{OutPoint, TxOut};
 
 use crate::connectors::SigningInfo;
 
+pub mod bridge_proof;
 pub mod claim;
 pub mod contest;
 pub mod deposit;
