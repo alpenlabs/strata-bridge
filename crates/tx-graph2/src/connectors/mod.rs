@@ -16,7 +16,7 @@ use bitcoin::{
     key::TapTweak,
     opcodes,
     psbt::Input,
-    script,
+    relative, script,
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
     Address, Amount, Network, ScriptBuf, TapNodeHash, TapSighashType, Transaction, TxOut,
@@ -29,6 +29,8 @@ use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
 
 /// A Taproot connector output.
 pub trait Connector {
+    /// Names of available spending paths.
+    type SpendPath: Copy;
     /// Witness data that is required to spend the connector.
     type Witness;
 
@@ -51,6 +53,11 @@ pub trait Connector {
 
     /// Returns the value of the connector.
     fn value(&self) -> Amount;
+
+    /// Converts the given spend path into a leaf index.
+    ///
+    /// This method returns `None` for a key-path spend.
+    fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize>;
 
     /// Returns an iterator over all `OP_CODESEPARATOR` positions in the leaf script
     /// at the given index.
@@ -134,29 +141,48 @@ pub trait Connector {
         self.spend_info().merkle_root()
     }
 
-    /// Computes the sighash of an input that spends the connector.
-    fn compute_sighash(
+    /// Returns the relative timelock for the given spend path,
+    /// if there is a timelock.
+    fn relative_timelock(&self, _spend_path: Self::SpendPath) -> Option<relative::LockTime> {
+        None
+    }
+
+    /// Computes the signing info of an input that spends the connector
+    /// via the given spending path.
+    fn get_signing_info(
         &self,
-        leaf_index: Option<usize>,
+        spend_path: Self::SpendPath,
         cache: &mut SighashCache<&Transaction>,
         prevouts: Prevouts<'_, TxOut>,
         input_index: usize,
-    ) -> Message {
+    ) -> SigningInfo {
         // NOTE: (@uncomputable)
         // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
         let sighash_type = TapSighashType::Default;
-        match leaf_index {
+        let leaf_index = self.to_leaf_index(spend_path);
+        let sighash = match leaf_index {
             None => create_key_spend_hash(cache, prevouts, sighash_type, input_index),
             Some(leaf_index) => {
                 let leaf_script = &self.leaf_scripts()[leaf_index];
                 create_script_spend_hash(cache, leaf_script, prevouts, sighash_type, input_index)
             }
         }
-        .expect("should be able to compute the sighash")
+        .expect("should be able to compute the sighash");
+
+        SigningInfo {
+            sighash,
+            tweak: leaf_index.is_none().then_some(self.tweak()),
+        }
     }
 
-    /// Returns an iterator over the sighashes of each code separator position.
+    /// Returns an iterator over the sighashes for each code separator position.
+    ///
+    /// The signing key doesn't need to be tweaked, since this is a script-path spend.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the chosen spending path is a key-path spend.
     ///
     /// # Code separator positions
     ///
@@ -196,9 +222,9 @@ pub trait Connector {
     /// # See
     ///
     /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
-    fn compute_sighashes_with_code_separator(
+    fn get_sighashes_with_code_separator(
         &self,
-        leaf_index: usize,
+        spend_path: Self::SpendPath,
         cache: &mut SighashCache<&Transaction>,
         prevouts: Prevouts<'_, TxOut>,
         input_index: usize,
@@ -207,6 +233,9 @@ pub trait Connector {
         // All of our transactions use SIGHASH_ALL aka SIGHASH_DEFAULT.
         // There is no reason to make the sighash type variable.
         let sighash_type = TapSighashType::Default;
+        let leaf_index = self
+            .to_leaf_index(spend_path)
+            .expect("spend path must be a script-path spend");
         let leaf_script = &self.leaf_scripts()[leaf_index];
         let leaf_hash = TapLeafHash::from_script(leaf_script, LeafVersion::TapScript);
         self.code_separator_positions(leaf_index)
@@ -222,6 +251,7 @@ pub trait Connector {
                         sighash_type,
                     )
                     .expect("should be able to compute the sighash");
+
                 Message::from_digest(sighash.to_raw_hash().to_byte_array())
             })
     }

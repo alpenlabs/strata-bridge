@@ -2,14 +2,10 @@
 
 use std::num::NonZero;
 
-use bitcoin::{
-    opcodes, script,
-    sighash::{Prevouts, SighashCache},
-    Amount, Network, ScriptBuf, Transaction, TxOut,
-};
+use bitcoin::{opcodes, script, Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, SigningInfo, TaprootWitness};
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Output between `Contest` and `Watchtower i Counterproof`.
 ///
@@ -49,28 +45,12 @@ impl ContestCounterproofOutput {
     pub const fn n_data(&self) -> NonZero<usize> {
         self.n_data
     }
-
-    /// Returns the signing infos for the single spend path.
-    ///
-    /// There is one signing info for each byte of data.
-    pub fn signing_infos<'a>(
-        &'a self,
-        cache: &'a mut SighashCache<&'a Transaction>,
-        prevouts: Prevouts<'a, TxOut>,
-        input_index: usize,
-    ) -> impl Iterator<Item = SigningInfo> + 'a {
-        self.compute_sighashes_with_code_separator(0, cache, prevouts, input_index)
-            .into_iter()
-            .map(move |sighash| SigningInfo {
-                sighash,
-                tweak: None,
-            })
-    }
 }
 
 // Strictly speaking, this is not a connector output.
 // However, we still implement the [`Connector`] trait for convenience.
 impl Connector for ContestCounterproofOutput {
+    type SpendPath = ContestCounterproofSpend;
     type Witness = ContestCounterproofWitness;
 
     fn network(&self) -> Network {
@@ -98,6 +78,10 @@ impl Connector for ContestCounterproofOutput {
         self.script_pubkey().minimal_non_dust()
     }
 
+    fn to_leaf_index(&self, _spend_path: Self::SpendPath) -> Option<usize> {
+        Some(0)
+    }
+
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         TaprootWitness::Script {
             leaf_index: 0,
@@ -113,6 +97,10 @@ impl Connector for ContestCounterproofOutput {
         }
     }
 }
+
+/// Single spend path of a [`ContestCounterproofOutput`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct ContestCounterproofSpend;
 
 /// Witness data to spend a [`ContestCounterproofOutput`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -212,11 +200,18 @@ mod tests {
         let utxos = [connector.tx_out(), node.coinbase_tx_out()];
         let prevouts = Prevouts::All(&utxos);
         let input_index = 0;
+
         let mut it = connector
-            .signing_infos(&mut cache, prevouts, input_index)
+            .get_sighashes_with_code_separator(
+                ContestCounterproofSpend,
+                &mut cache,
+                prevouts,
+                input_index,
+            )
+            .into_iter()
             .peekable();
-        let n_of_n_signature = it.peek().copied().unwrap().sign(&n_of_n_keypair);
-        let operator_signatures = it.map(|x| x.sign(&operator_keypair)).collect();
+        let n_of_n_signature = n_of_n_keypair.sign_schnorr(it.peek().copied().unwrap());
+        let operator_signatures = it.map(|x| operator_keypair.sign_schnorr(x)).collect();
         let witness = ContestCounterproofWitness {
             n_of_n_signature,
             operator_signatures,

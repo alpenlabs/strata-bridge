@@ -11,14 +11,10 @@
 
 use std::num::NonZero;
 
-use bitcoin::{
-    opcodes, relative, script,
-    sighash::{Prevouts, SighashCache},
-    Amount, Network, ScriptBuf, Transaction, TxOut,
-};
+use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
-use crate::connectors::{Connector, SigningInfo, TaprootWitness};
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Generic timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -30,35 +26,8 @@ struct TimelockedConnector {
     value: Amount,
 }
 
-impl TimelockedConnector {
-    /// Returns the signing info for the normal spend path.
-    fn normal_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(None, cache, prevouts, input_index),
-            tweak: Some(self.tweak()),
-        }
-    }
-
-    /// Returns the signing info for the timeout spend path.
-    fn timeout_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(Some(0), cache, prevouts, input_index),
-            tweak: None,
-        }
-    }
-}
-
 impl Connector for TimelockedConnector {
+    type SpendPath = TimelockedSpendPath;
     type Witness = TimelockedWitness;
 
     fn network(&self) -> Network {
@@ -87,6 +56,17 @@ impl Connector for TimelockedConnector {
         self.value
     }
 
+    fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
+        match spend_path {
+            TimelockedSpendPath::Normal => None,
+            TimelockedSpendPath::Timeout => Some(0),
+        }
+    }
+
+    fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
+        matches!(spend_path, TimelockedSpendPath::Timeout).then_some(self.timelock)
+    }
+
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         match witness {
             TimelockedWitness::Normal {
@@ -106,73 +86,25 @@ impl Connector for TimelockedConnector {
 
 /// Creates a newtype wrapper around [`TimelockedConnector`].
 ///
-/// This macro generates the struct definition with the standard derives, a [`Connector`]
-/// implementation that delegates all methods to the inner [`TimelockedConnector`],
-/// and timelock/signing info accessor methods with custom names and documentation.
-///
 /// # Example
 ///
 /// ```ignore
 /// impl_timelocked_connector! {
 ///     $(#[doc = "Struct-level documentation."])*
 ///     struct MyConnector;
-///
-///     $(#[doc = "Documentation for the timelock method."])*
-///     timelock = my_timelock,
-///
-///     $(#[doc = "Documentation for the normal signing info method."])*
-///     normal_signing_info = my_normal_signing_info,
-///
-///     $(#[doc = "Documentation for the timeout signing info method."])*
-///     timeout_signing_info = my_timeout_signing_info,
 /// }
 /// ```
 macro_rules! impl_timelocked_connector {
     (
         $(#[$struct_attr:meta])*
         pub struct $name:ident;
-
-        $(#[$timelock_attr:meta])*
-        timelock = $timelock_name:ident,
-
-        $(#[$normal_signing_info_attr:meta])*
-        normal_signing_info = $normal_signing_info_name:ident,
-
-        $(#[$timeout_signing_info_attr:meta])*
-        timeout_signing_info = $timeout_signing_info_name:ident,
     ) => {
         $(#[$struct_attr])*
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
         pub struct $name(TimelockedConnector);
 
-        impl $name {
-            $(#[$timelock_attr])*
-            pub const fn $timelock_name(&self) -> relative::LockTime {
-                self.0.timelock
-            }
-
-            $(#[$normal_signing_info_attr])*
-            pub fn $normal_signing_info_name(
-                &self,
-                cache: &mut SighashCache<&Transaction>,
-                prevouts: Prevouts<'_, TxOut>,
-                input_index: usize,
-            ) -> SigningInfo {
-                self.0.normal_signing_info(cache, prevouts, input_index)
-            }
-
-            $(#[$timeout_signing_info_attr])*
-            pub fn $timeout_signing_info_name(
-                &self,
-                cache: &mut SighashCache<&Transaction>,
-                prevouts: Prevouts<'_, TxOut>,
-                input_index: usize,
-            ) -> SigningInfo {
-                self.0.timeout_signing_info(cache, prevouts, input_index)
-            }
-        }
-
         impl Connector for $name {
+            type SpendPath = TimelockedSpendPath;
             type Witness = TimelockedWitness;
 
             fn network(&self) -> Network {
@@ -191,6 +123,14 @@ macro_rules! impl_timelocked_connector {
                 self.0.value()
             }
 
+            fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
+                self.0.to_leaf_index(spend_path)
+            }
+
+            fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
+                self.0.relative_timelock(spend_path)
+            }
+
             fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
                 self.0.get_taproot_witness(witness)
             }
@@ -199,7 +139,9 @@ macro_rules! impl_timelocked_connector {
 }
 
 impl_timelocked_connector! {
-    /// Connector output between `Contest` and `Bridge Proof` / `Bridge Proof Timeout`.
+    /// Connector output between `Contest` and:
+    /// 1. `Bridge Proof` (normal)
+    /// 2. `Bridge Proof Timeout` (timeout).
     ///
     /// The internal key is the operator key tweaked with the game index.
     ///
@@ -209,15 +151,6 @@ impl_timelocked_connector! {
     /// This means that the numeric value of the game index is equal to the numeric value of the
     /// resulting scalar. The scalar is then used to tweak the operator key.
     pub struct ContestProofConnector;
-
-    /// Returns the relative proof timelock of the connector.
-    timelock = proof_timelock,
-
-    /// Returns the signing info for the `Bridge Proof` spend path.
-    normal_signing_info = proof_signing_info,
-
-    /// Returns the signing info for the `Bridge Proof Timeout` spend path.
-    timeout_signing_info = proof_timeout_signing_info,
 }
 
 impl ContestProofConnector {
@@ -258,22 +191,13 @@ impl ContestProofConnector {
 }
 
 impl_timelocked_connector! {
-    /// Connector output between `Contest` and
-    /// `Bridge Proof Timeout` / `Watchtower i Ack` / `Contested Payout`.
+    /// Connector output between `Contest` and:
+    /// 1. `Bridge Proof Timeout` / `Watchtower i Ack` (normal)
+    /// 2. `Contested Payout` (timeout).
     ///
     /// The internal key is the N/N key.
     /// The timelocked key is also the N/N key.
     pub struct ContestPayoutConnector;
-
-    /// Returns the relative ack timelock of the connector.
-    timelock = ack_timelock,
-
-    /// Returns the signing info for the `Bridge Proof Timeout`
-    /// or the `Watchtower i Ack` spend path.
-    normal_signing_info = ack_signing_info,
-
-    /// Returns the signing info for the `Contested Payout` spend path.
-    timeout_signing_info = contested_payout_signing_info,
 }
 
 impl ContestPayoutConnector {
@@ -296,20 +220,13 @@ impl ContestPayoutConnector {
 }
 
 impl_timelocked_connector! {
-    /// Connector output between `Contest` and `Contested Payout` / `Slash`.
+    /// Connector output between `Contest` and:
+    /// 1. `Contested Payout` (normal)
+    /// 2. `Slash` (timeout).
     ///
     /// The internal key is the N/N key.
     /// The timelocked key is also the N/N key.
     pub struct ContestSlashConnector;
-
-    /// Returns the relative contested payout timelock of the connector.
-    timelock = contested_payout_timelock,
-
-    /// Returns the signing info for the `Contested Payout` spend path.
-    normal_signing_info = contested_payout_signing_info,
-
-    /// Returns the signing info for the `Slash` spend path.
-    timeout_signing_info = slash_signing_info,
 }
 
 impl ContestSlashConnector {
@@ -332,20 +249,13 @@ impl ContestSlashConnector {
 }
 
 impl_timelocked_connector! {
-    /// Connector output between `Contest` and `Watchtower i Nack` / `Watchtower i Ack`.
+    /// Connector output between `Contest` and:
+    /// 1. `Watchtower i Nack` (normal)
+    /// 2. `Watchtower i Ack` (timeout).
     ///
     /// The internal key is `wt_i_fault * G`, where `G` is the generator point.
     /// The timelocked key is the N/N key.
     pub struct CounterproofConnector;
-
-    /// Returns the relative nack timelock of the connector.
-    timelock = nack_timelock,
-
-    /// Returns the signing info for the `Watchtower i Nack` spend path.
-    normal_signing_info = nack_signing_info,
-
-    /// Returns the signing info for the `Watchtower i Ack` spend path.
-    timeout_signing_info = ack_signing_info,
 }
 
 impl CounterproofConnector {
@@ -369,20 +279,13 @@ impl CounterproofConnector {
 }
 
 impl_timelocked_connector! {
-    /// Connector output between `DepositRequest` and `Deposit` / a refund transaction.
+    /// Connector output between `DepositRequest` and:
+    /// 1. `Deposit` (normal)
+    /// 2. refund transaction (timeout).
     ///
     /// The internal key is the N/N key.
     /// The timelocked key is the depositor key.
     pub struct DepositRequestConnector;
-
-    /// Returns the relative deposit timelock of the connector.
-    timelock = deposit_timelock,
-
-    /// Returns the signing info for the `Deposit` spend path.
-    normal_signing_info = deposit_signing_info,
-
-    /// Returns the signing info for the refund spend path.
-    timeout_signing_info = refund_signing_info,
 }
 
 impl DepositRequestConnector {
@@ -402,6 +305,15 @@ impl DepositRequestConnector {
             value: deposit_amount,
         })
     }
+}
+
+/// Available spending paths for a timelocked connector.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum TimelockedSpendPath {
+    /// The connector is spent before the timeout.
+    Normal,
+    /// The connector is spent after the timeout.
+    Timeout,
 }
 
 // NOTE: (@uncomputable) Sharing the same witness type across connectors
@@ -432,12 +344,11 @@ pub enum TimelockedWitness {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::key::TapTweak;
-    use secp256k1::{Keypair, Message, SECP256K1};
+    use secp256k1::Keypair;
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::test_utils::Signer;
+    use crate::connectors::{test_utils::Signer, SigningInfo};
 
     const TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
 
@@ -472,45 +383,29 @@ mod tests {
             "timelocked-n-of-n"
         }
 
-        fn get_relative_timelock(&self, leaf_index: usize) -> Option<relative::LockTime> {
-            (leaf_index == 0).then_some(TIMELOCK)
-        }
-
         fn sign_leaf(
             &self,
-            leaf_index: Option<usize>,
-            sighash: Message,
+            spend_path: <Self::Connector as Connector>::SpendPath,
+            signing_info: SigningInfo,
         ) -> <Self::Connector as Connector>::Witness {
-            match leaf_index {
-                None => {
-                    let connector = self.get_connector();
-                    let merkle_root = connector.spend_info().merkle_root();
-                    let output_keypair = self
-                        .internal_keypair
-                        .tap_tweak(SECP256K1, merkle_root)
-                        .to_keypair();
-
-                    TimelockedWitness::Normal {
-                        output_key_signature: output_keypair.sign_schnorr(sighash),
-                    }
-                }
-                Some(0) => TimelockedWitness::Timeout {
-                    timelocked_key_signature: self.n_of_n_keypair.sign_schnorr(sighash),
+            match spend_path {
+                TimelockedSpendPath::Normal => TimelockedWitness::Normal {
+                    output_key_signature: signing_info.sign(&self.internal_keypair),
                 },
-                Some(_) => panic!("Leaf index is out of bounds"),
+                TimelockedSpendPath::Timeout => TimelockedWitness::Timeout {
+                    timelocked_key_signature: signing_info.sign(&self.n_of_n_keypair),
+                },
             }
         }
     }
 
     #[test]
     fn normal_spend() {
-        let leaf_index = None;
-        TimelockedNOfNSigner::assert_connector_is_spendable(leaf_index);
+        TimelockedNOfNSigner::assert_connector_is_spendable(TimelockedSpendPath::Normal);
     }
 
     #[test]
     fn timeout_spend() {
-        let leaf_index = Some(0);
-        TimelockedNOfNSigner::assert_connector_is_spendable(leaf_index);
+        TimelockedNOfNSigner::assert_connector_is_spendable(TimelockedSpendPath::Timeout);
     }
 }

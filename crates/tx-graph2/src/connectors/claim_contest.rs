@@ -1,13 +1,9 @@
 //! This module contains the claim contest connector.
 
-use bitcoin::{
-    opcodes, relative, script,
-    sighash::{Prevouts, SighashCache},
-    Amount, Network, ScriptBuf, Transaction, TxOut,
-};
+use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, SigningInfo, TaprootWitness};
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Connector output between `Claim` and:
 /// 1. `UncontestedPayout`, and
@@ -45,36 +41,10 @@ impl ClaimContestConnector {
     pub const fn contest_timelock(&self) -> relative::LockTime {
         self.contest_timelock
     }
-
-    /// Returns the signing info for the contested spend path.
-    pub fn contested_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-        watchtower_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(Some(watchtower_index), cache, prevouts, input_index),
-            tweak: None,
-        }
-    }
-
-    /// Returns the signing info for the uncontested spend path.
-    pub fn uncontested_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(Some(self.n_watchtowers()), cache, prevouts, input_index),
-            tweak: None,
-        }
-    }
 }
 
 impl Connector for ClaimContestConnector {
+    type SpendPath = ClaimContestSpendPath;
     type Witness = ClaimContestWitness;
 
     fn network(&self) -> Network {
@@ -112,35 +82,43 @@ impl Connector for ClaimContestConnector {
         minimal_non_dust * (3 * self.n_watchtowers() as u64)
     }
 
+    fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
+        match spend_path {
+            ClaimContestSpendPath::Contested { watchtower_index } => {
+                // cast safety: 32-bit machine or higher
+                assert!(
+                    (watchtower_index as usize) < self.n_watchtowers(),
+                    "Watchtower index is out of bounds"
+                );
+                Some(watchtower_index as usize)
+            }
+            ClaimContestSpendPath::Uncontested => Some(self.n_watchtowers()),
+        }
+    }
+
+    fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
+        matches!(spend_path, ClaimContestSpendPath::Uncontested).then_some(self.contest_timelock)
+    }
+
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
-        match witness.spend_path {
-            ClaimContestSpendPath::Contested {
+        match witness {
+            ClaimContestWitness::Contested {
+                n_of_n_signature,
                 watchtower_index,
                 watchtower_signature,
             } => TaprootWitness::Script {
-                leaf_index: watchtower_index as usize,
+                leaf_index: *watchtower_index as usize,
                 script_inputs: vec![
                     watchtower_signature.serialize().to_vec(),
-                    witness.n_of_n_signature.serialize().to_vec(),
+                    n_of_n_signature.serialize().to_vec(),
                 ],
             },
-            ClaimContestSpendPath::Uncontested => TaprootWitness::Script {
+            ClaimContestWitness::Uncontested { n_of_n_signature } => TaprootWitness::Script {
                 leaf_index: self.n_watchtowers(),
-                script_inputs: vec![witness.n_of_n_signature.serialize().to_vec()],
+                script_inputs: vec![n_of_n_signature.serialize().to_vec()],
             },
         }
     }
-}
-
-/// Witness data to spend a [`ClaimContestConnector`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ClaimContestWitness {
-    /// N/N signature.
-    ///
-    /// This signature is required for all spending paths.
-    pub n_of_n_signature: schnorr::Signature,
-    /// Used spending path.
-    pub spend_path: ClaimContestSpendPath,
 }
 
 /// Available spending paths for a [`ClaimContestConnector`].
@@ -148,6 +126,25 @@ pub struct ClaimContestWitness {
 pub enum ClaimContestSpendPath {
     /// The connector is spent in the `Contest` transaction.
     Contested {
+        /// Index of the spending watchtower.
+        watchtower_index: u32,
+    },
+    /// The connector is spent in the `UncontestedPayout` transaction.
+    Uncontested,
+}
+
+// NOTE: (@uncomputable) I understand that this is not the highest form of data normalization,
+// since `n_of_n_signature` is replicated across all enum variants. However, since this is the
+// only part in the code where this happens, it seems fine. Introducing a separate inner type
+// seems complicated. For example, we cannot name the inner type `ClaimContestSpendPath`,
+// because that name is already taken.
+/// Witness data to spend a [`ClaimContestConnector`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ClaimContestWitness {
+    /// The connector is spent in the `Contest` transaction.
+    Contested {
+        /// N/N signature.
+        n_of_n_signature: schnorr::Signature,
         /// Index of the spending watchtower.
         watchtower_index: u32,
         /// Signature of the spending watchtower.
@@ -159,18 +156,19 @@ pub enum ClaimContestSpendPath {
     ///
     /// The sequence number of the transaction input needs to be large enough to cover
     /// [`ClaimContestConnector::contest_timelock()`].
-    Uncontested,
+    Uncontested {
+        /// N/N signature.
+        n_of_n_signature: schnorr::Signature,
+    },
 }
 
 #[cfg(test)]
 mod tests {
-    use std::cmp::Ordering;
-
-    use secp256k1::{Keypair, Message};
+    use secp256k1::Keypair;
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::test_utils::Signer;
+    use crate::connectors::{test_utils::Signer, SigningInfo};
 
     const N_WATCHTOWERS: usize = 10;
     const DELTA_CONTEST: relative::LockTime = relative::LockTime::from_height(10);
@@ -206,49 +204,38 @@ mod tests {
             "claim-contest"
         }
 
-        fn get_relative_timelock(&self, leaf_index: usize) -> Option<relative::LockTime> {
-            (leaf_index == self.watchtower_keypairs.len()).then_some(DELTA_CONTEST)
-        }
-
         fn sign_leaf(
             &self,
-            leaf_index: Option<usize>,
-            sighash: Message,
+            spend_path: <Self::Connector as Connector>::SpendPath,
+            signing_info: SigningInfo,
         ) -> <Self::Connector as Connector>::Witness {
-            let leaf_index = leaf_index.expect("connector has no key-path spend");
-            let n_of_n_signature = self.n_of_n_keypair.sign_schnorr(sighash);
+            let n_of_n_signature = signing_info.sign(&self.n_of_n_keypair);
 
-            match leaf_index.cmp(&self.watchtower_keypairs.len()) {
-                Ordering::Less => {
-                    let watchtower_signature =
-                        self.watchtower_keypairs[leaf_index].sign_schnorr(sighash);
-                    let spend_path = ClaimContestSpendPath::Contested {
-                        watchtower_index: leaf_index as u32,
-                        watchtower_signature,
-                    };
-                    ClaimContestWitness {
+            match spend_path {
+                ClaimContestSpendPath::Contested { watchtower_index } => {
+                    ClaimContestWitness::Contested {
                         n_of_n_signature,
-                        spend_path,
+                        watchtower_index,
+                        watchtower_signature: signing_info
+                            .sign(&self.watchtower_keypairs[watchtower_index as usize]),
                     }
                 }
-                Ordering::Equal => ClaimContestWitness {
-                    n_of_n_signature,
-                    spend_path: ClaimContestSpendPath::Uncontested,
-                },
-                Ordering::Greater => panic!("Leaf index is out of bounds"),
+                ClaimContestSpendPath::Uncontested => {
+                    ClaimContestWitness::Uncontested { n_of_n_signature }
+                }
             }
         }
     }
 
     #[test]
     fn contested_spend() {
-        let leaf_index = Some(0);
-        ClaimContestSigner::assert_connector_is_spendable(leaf_index);
+        ClaimContestSigner::assert_connector_is_spendable(ClaimContestSpendPath::Contested {
+            watchtower_index: 0,
+        });
     }
 
     #[test]
     fn uncontested_spend() {
-        let leaf_index = Some(N_WATCHTOWERS);
-        ClaimContestSigner::assert_connector_is_spendable(leaf_index);
+        ClaimContestSigner::assert_connector_is_spendable(ClaimContestSpendPath::Uncontested);
     }
 }

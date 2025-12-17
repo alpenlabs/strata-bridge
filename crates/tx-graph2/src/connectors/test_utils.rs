@@ -3,7 +3,7 @@
 use std::collections::VecDeque;
 
 use bitcoin::{
-    absolute, consensus, relative,
+    absolute, consensus,
     sighash::{Prevouts, SighashCache},
     transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
 };
@@ -12,12 +12,14 @@ use corepc_node::{
     serde_json::{self, json},
     Client, Conf, Node,
 };
-use secp256k1::Message;
 use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use tracing::info;
 
-use crate::{connectors::Connector, transactions::ParentTx};
+use crate::{
+    connectors::{Connector, SigningInfo},
+    transactions::ParentTx,
+};
 
 /// Generator of witness data for a given [`Connector`].
 pub(crate) trait Signer: Sized {
@@ -34,29 +36,19 @@ pub(crate) trait Signer: Sized {
     /// Returns the name of the connector.
     fn get_connector_name(&self) -> &'static str;
 
-    /// Returns the relative timelock for the given `leaf_index`,
-    /// if there is a timelock.
-    fn get_relative_timelock(&self, _leaf_index: usize) -> Option<relative::LockTime> {
-        None
-    }
-
-    /// Generates a witness for the given `leaf_index` using the provided `sighash`.
-    ///
-    /// # Warning
-    ///
-    /// The `sighash` has to be computed based on the chosen key-path or script-path spend.
+    /// Generates a witness for the given `spend_path` using the provided `signing_info`.
     fn sign_leaf(
         &self,
-        leaf_index: Option<usize>,
-        sighash: Message,
+        spend_path: <Self::Connector as Connector>::SpendPath,
+        signing_info: SigningInfo,
     ) -> <Self::Connector as Connector>::Witness;
 
-    /// Asserts that the connector is spendable at the given `leaf_index`.
+    /// Asserts that the connector is spendable via the given `spend_path`.
     ///
     /// A random signer is generated using [`Signer::generate`].
     /// The signer generates the connector and a witness automatically.
     /// Bitcoin Core is used to check transaction validity.
-    fn assert_connector_is_spendable(leaf_index: Option<usize>) {
+    fn assert_connector_is_spendable(spend_path: <Self::Connector as Connector>::SpendPath) {
         let signer = Self::generate();
 
         logging::init(LoggerConfig::new(format!(
@@ -121,7 +113,7 @@ pub(crate) trait Signer: Sized {
 
         // Update the sequence number
         // This influences the sighash!
-        if let Some(timelock) = leaf_index.and_then(|i| signer.get_relative_timelock(i)) {
+        if let Some(timelock) = connector.relative_timelock(spend_path) {
             spending_tx.input[0].sequence = timelock.to_sequence();
         }
 
@@ -130,8 +122,9 @@ pub(crate) trait Signer: Sized {
         let mut cache = SighashCache::new(&spending_tx);
         let prevouts = Prevouts::All(&utxos);
         let input_index = 0;
-        let sighash = connector.compute_sighash(leaf_index, &mut cache, prevouts, input_index);
-        let witness = signer.sign_leaf(leaf_index, sighash);
+        let signing_info =
+            connector.get_signing_info(spend_path, &mut cache, prevouts, input_index);
+        let witness = signer.sign_leaf(spend_path, signing_info);
 
         let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();
         psbt.inputs[0].witness_utxo = Some(connector.tx_out());

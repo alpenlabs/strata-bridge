@@ -2,13 +2,11 @@
 
 use bitcoin::{
     hashes::{sha256, Hash},
-    opcodes,
-    sighash::{Prevouts, SighashCache},
-    Amount, Network, ScriptBuf, Transaction, TxOut,
+    opcodes, Amount, Network, ScriptBuf,
 };
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, SigningInfo, TaprootWitness};
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Connector output between `Claim` and the payouts.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -36,48 +34,10 @@ impl ClaimPayoutConnector {
             unstaking_image,
         }
     }
-
-    /// Returns the signing info for the payout spend path.
-    pub fn payout_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(None, cache, prevouts, input_index),
-            tweak: Some(self.tweak()),
-        }
-    }
-
-    /// Returns the signing info for the admin burn spend path.
-    pub fn admin_burn_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(Some(0), cache, prevouts, input_index),
-            tweak: None,
-        }
-    }
-
-    /// Returns the signing info for the unstaking burn spend path.
-    pub fn unstaking_burn_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(Some(1), cache, prevouts, input_index),
-            tweak: None,
-        }
-    }
 }
 
 impl Connector for ClaimPayoutConnector {
+    type SpendPath = ClaimPayoutSpendPath;
     type Witness = ClaimPayoutWitness;
 
     fn network(&self) -> Network {
@@ -114,6 +74,14 @@ impl Connector for ClaimPayoutConnector {
         self.script_pubkey().minimal_non_dust()
     }
 
+    fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
+        match spend_path {
+            ClaimPayoutSpendPath::Payout => None,
+            ClaimPayoutSpendPath::AdminBurn => Some(0),
+            ClaimPayoutSpendPath::UnstakingBurn => Some(1),
+        }
+    }
+
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         match witness {
             ClaimPayoutWitness::Payout {
@@ -133,22 +101,35 @@ impl Connector for ClaimPayoutConnector {
     }
 }
 
+/// Available spending paths for a [`ClaimPayoutConnector`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum ClaimPayoutSpendPath {
+    /// The connector is spent in the `Uncontested Payout`
+    /// or in the `Contested Payout` transaction.
+    Payout,
+    /// The connector is spent in the `Admin Burn` transaction.
+    AdminBurn,
+    /// The connector is spent in the `Unstaking Burn` transaction.
+    UnstakingBurn,
+}
+
 /// Witness data to spend a [`ClaimPayoutConnector`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum ClaimPayoutWitness {
-    /// The connector is spent in a payout transaction.
+    /// The connector is spent in the `Uncontested Payout`
+    /// or in the `Contested Payout` transaction.
     Payout {
         /// Output key signature (key-path spend).
         ///
         /// The output key is the N/N key tweaked with the tap tree merkle root.
         output_key_signature: schnorr::Signature,
     },
-    /// The connector is spent in the admin burn transaction.
+    /// The connector is spent in the `Admin Burn` transaction.
     AdminBurn {
         /// Admin signature.
         admin_signature: schnorr::Signature,
     },
-    /// The connector is spent in the unstaking burn transaction.
+    /// The connector is spent in the `Unstaking Burn` transaction.
     UnstakingBurn {
         /// Preimage that is revealed when the operator posts the unstaking intent transaction.
         unstaking_preimage: [u8; 32],
@@ -157,12 +138,11 @@ pub enum ClaimPayoutWitness {
 
 #[cfg(test)]
 mod tests {
-    use bitcoin::key::TapTweak;
-    use secp256k1::{rand::random, Keypair, SECP256K1};
+    use secp256k1::{rand::random, Keypair};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::test_utils::Signer;
+    use crate::connectors::{test_utils::Signer, SigningInfo};
 
     struct ClaimPayoutSigner {
         n_of_n_keypair: Keypair,
@@ -196,44 +176,35 @@ mod tests {
 
         fn sign_leaf(
             &self,
-            leaf_index: Option<usize>,
-            sighash: secp256k1::Message,
+            spend_path: <Self::Connector as Connector>::SpendPath,
+            signing_info: SigningInfo,
         ) -> <Self::Connector as Connector>::Witness {
-            match leaf_index {
-                None => {
-                    let connector = self.get_connector();
-                    let merkle_root = connector.spend_info().merkle_root();
-                    let output_keypair = self
-                        .n_of_n_keypair
-                        .tap_tweak(SECP256K1, merkle_root)
-                        .to_keypair();
-                    ClaimPayoutWitness::Payout {
-                        output_key_signature: output_keypair.sign_schnorr(sighash),
-                    }
-                }
-                Some(0) => ClaimPayoutWitness::AdminBurn {
-                    admin_signature: self.admin_keypair.sign_schnorr(sighash),
+            match spend_path {
+                ClaimPayoutSpendPath::Payout => ClaimPayoutWitness::Payout {
+                    output_key_signature: signing_info.sign(&self.n_of_n_keypair),
                 },
-                Some(1) => ClaimPayoutWitness::UnstakingBurn {
+                ClaimPayoutSpendPath::AdminBurn => ClaimPayoutWitness::AdminBurn {
+                    admin_signature: signing_info.sign(&self.admin_keypair),
+                },
+                ClaimPayoutSpendPath::UnstakingBurn => ClaimPayoutWitness::UnstakingBurn {
                     unstaking_preimage: self.unstaking_preimage,
                 },
-                _ => panic!("Invalid tap leaf"),
             }
         }
     }
 
     #[test]
     fn payout_spend() {
-        ClaimPayoutSigner::assert_connector_is_spendable(None);
+        ClaimPayoutSigner::assert_connector_is_spendable(ClaimPayoutSpendPath::Payout);
     }
 
     #[test]
     fn admin_burn_spend() {
-        ClaimPayoutSigner::assert_connector_is_spendable(Some(0));
+        ClaimPayoutSigner::assert_connector_is_spendable(ClaimPayoutSpendPath::AdminBurn);
     }
 
     #[test]
     fn unstaking_burn_spend() {
-        ClaimPayoutSigner::assert_connector_is_spendable(Some(1));
+        ClaimPayoutSigner::assert_connector_is_spendable(ClaimPayoutSpendPath::UnstakingBurn);
     }
 }
