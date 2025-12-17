@@ -1,7 +1,7 @@
 //! Message handler for the Strata Bridge P2P.
 
 use bitcoin::{hashes::sha256, OutPoint, Txid, XOnlyPublicKey};
-use libp2p::identity::ed25519;
+use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
@@ -316,12 +316,12 @@ impl From<PublishMessage> for GossipsubMsg {
 }
 
 impl UnsignedPublishMessage {
-    /// Signs `self` using supplied [`ed25519::Keypair`]. Returns a `Command`
-    /// with resulting signature and public key from [`ed25519::Keypair`].
-    pub fn sign_ed25519(&self, keypair: &ed25519::Keypair) -> PublishMessage {
+    /// Signs `self` using supplied [`secp256k1::Keypair`]. Returns a `Command`
+    /// with resulting signature and public key from [`secp256k1::Keypair`].
+    pub fn sign_secp256k1(&self, keypair: &secp256k1::Keypair) -> PublishMessage {
         let kind: UnsignedGossipsubMsg = self.clone().into();
         let msg = kind.content();
-        let signature = keypair.sign(&msg);
+        let signature = keypair.secret().sign(&msg);
 
         PublishMessage {
             key: keypair.public().clone().into(),

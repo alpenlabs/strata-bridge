@@ -10,7 +10,7 @@ use bitcoin::{
 use futures::{future::join_all, SinkExt};
 use libp2p::{
     build_multiaddr,
-    identity::{ed25519::Keypair as EdKeypair, Keypair},
+    identity::{secp256k1::Keypair as SecpKeypair, Keypair},
     Multiaddr, PeerId,
 };
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
@@ -34,12 +34,12 @@ pub(crate) struct Operator {
     pub(crate) p2p: P2P,
     pub(crate) gossip_handle: GossipHandle,
     pub(crate) req_resp_handle: ReqRespHandle,
-    pub(crate) kp: EdKeypair,
+    pub(crate) kp: SecpKeypair,
 }
 
 impl Operator {
     pub(crate) fn new(
-        keypair: EdKeypair,
+        keypair: SecpKeypair,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
@@ -97,7 +97,7 @@ pub(crate) struct OperatorHandle {
     pub(crate) gossip_handle: GossipHandle,
     pub(crate) req_resp_handle: ReqRespHandle,
     pub(crate) peer_id: PeerId,
-    pub(crate) kp: EdKeypair,
+    pub(crate) kp: SecpKeypair,
 }
 
 pub(crate) struct Setup {
@@ -197,8 +197,8 @@ impl Setup {
     /// addresses.
     fn setup_keys_ids_addrs_of_n_operators(
         n: usize,
-    ) -> (Vec<EdKeypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
-        let keypairs = (0..n).map(|_| EdKeypair::generate()).collect::<Vec<_>>();
+    ) -> (Vec<SecpKeypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
+        let keypairs = (0..n).map(|_| SecpKeypair::generate()).collect::<Vec<_>>();
         let peer_ids = keypairs
             .iter()
             .map(|key| PeerId::from_public_key(&Keypair::from(key.clone()).public()))
@@ -241,7 +241,7 @@ impl Setup {
 }
 
 pub(crate) fn mock_stake_chain_info(
-    kp: &EdKeypair,
+    kp: &SecpKeypair,
     stake_chain_id: StakeChainId,
 ) -> PublishMessage {
     let kind = UnsignedPublishMessage::StakeChainExchange {
@@ -251,10 +251,10 @@ pub(crate) fn mock_stake_chain_info(
         pre_stake_txid: Txid::all_zeros(),
         pre_stake_vout: 0,
     };
-    kind.sign_ed25519(kp)
+    kind.sign_secp256k1(kp)
 }
 
-pub(crate) fn mock_deposit_setup(kp: &EdKeypair, scope: Scope) -> PublishMessage {
+pub(crate) fn mock_deposit_setup(kp: &SecpKeypair, scope: Scope) -> PublishMessage {
     let mock_bytes = [0u8; 1_360 + 362_960];
     let mock_index = 0;
     let unsigned = UnsignedPublishMessage::DepositSetup {
@@ -266,23 +266,23 @@ pub(crate) fn mock_deposit_setup(kp: &EdKeypair, scope: Scope) -> PublishMessage
         operator_pk: XOnlyPublicKey::from_slice(&[2u8; 32]).unwrap(),
         wots_pks: WotsPublicKeys::from_flattened_bytes(&mock_bytes),
     };
-    unsigned.sign_ed25519(kp)
+    unsigned.sign_secp256k1(kp)
 }
 
-pub(crate) fn mock_deposit_nonces(kp: &EdKeypair, session_id: SessionId) -> PublishMessage {
+pub(crate) fn mock_deposit_nonces(kp: &SecpKeypair, session_id: SessionId) -> PublishMessage {
     let unsigned = UnsignedPublishMessage::Musig2NoncesExchange {
         session_id,
         pub_nonces: (0..5).map(|_| generate_pubnonce()).collect(),
     };
-    unsigned.sign_ed25519(kp)
+    unsigned.sign_secp256k1(kp)
 }
 
-pub(crate) fn mock_deposit_sigs(kp: &EdKeypair, session_id: SessionId) -> PublishMessage {
+pub(crate) fn mock_deposit_sigs(kp: &SecpKeypair, session_id: SessionId) -> PublishMessage {
     let unsigned = UnsignedPublishMessage::Musig2SignaturesExchange {
         session_id,
         partial_sigs: (0..5).map(|_| generate_partial_signature()).collect(),
     };
-    unsigned.sign_ed25519(kp)
+    unsigned.sign_secp256k1(kp)
 }
 
 pub(crate) async fn exchange_stake_chain_info(

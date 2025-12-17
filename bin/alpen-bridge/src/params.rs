@@ -1,6 +1,6 @@
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
 use bitcoin::{hex::DisplayHex, Network};
-use libp2p::identity::ed25519::PublicKey as Libp2pKey;
+use libp2p::identity::secp256k1::PublicKey as Libp2pKey;
 use musig2::secp256k1::XOnlyPublicKey as Musig2Key;
 use serde::{Deserialize, Deserializer, Serialize};
 use strata_params::RollupParams;

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use bitcoin::{secp256k1::SecretKey, PublicKey, XOnlyPublicKey};
 use libp2p::{
-    identity::ed25519::{Keypair as Libp2pEdKeypair, SecretKey as Libp2pEdSecretKey},
+    identity::secp256k1::{Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey},
     Multiaddr, PeerId,
 };
 use p2p_types::P2POperatorPubKey;
@@ -12,8 +12,8 @@ use p2p_types::P2POperatorPubKey;
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]
 pub struct Configuration {
-    /// [`Libp2pEdKeypair`] used as [`PeerId`].
-    pub keypair: Libp2pEdKeypair,
+    /// [`Libp2pSecpKeypair`] used as [`PeerId`].
+    pub keypair: Libp2pSecpKeypair,
 
     /// Idle connection timeout.
     pub idle_connection_timeout: Option<Duration>,
@@ -67,8 +67,8 @@ impl Configuration {
         general_timeout: Option<Duration>,
         connection_check_interval: Option<Duration>,
     ) -> Self {
-        let sk = Libp2pEdSecretKey::try_from_bytes(sk.secret_bytes()).expect("infallible");
-        let keypair = Libp2pEdKeypair::from(sk);
+        let sk = Libp2pSecpSecretKey::try_from_bytes(sk.secret_bytes()).expect("infallible");
+        let keypair = Libp2pSecpKeypair::from(sk);
         Self {
             keypair,
             idle_connection_timeout,
