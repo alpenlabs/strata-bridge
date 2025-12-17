@@ -1,4 +1,4 @@
-//! This module contains the claim transaction.
+//! This module contains the uncontested payout transaction.
 
 use bitcoin::{
     absolute,
@@ -19,25 +19,26 @@ use crate::{
         },
         Connector,
     },
-    transactions::{deposit::DepositTx, prelude::ClaimTx, ParentTx, PresignedTx, SigningInfo},
+    transactions::{
+        prelude::{ClaimTx, DepositTx},
+        ParentTx, PresignedTx, SigningInfo,
+    },
 };
 
 /// Data that is needed to construct a [`UncontestedPayoutTx`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct UncontestedPayoutData {
     /// ID of the claim transaction.
     pub claim_txid: Txid,
     /// ID of the deposit transaction.
     pub deposit_txid: Txid,
-    /// Descriptor where the operator receives the payout.
-    pub operator_descriptor: Descriptor,
 }
 
 /// The uncontested payout transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct UncontestedPayoutTx {
     psbt: Psbt,
-    prevouts: [TxOut; 3],
+    prevouts: [TxOut; Self::N_INPUTS],
     deposit_connector: NOfNConnector,
     claim_contest_connector: ClaimContestConnector,
     claim_payout_connector: ClaimPayoutConnector,
@@ -46,6 +47,8 @@ pub struct UncontestedPayoutTx {
 impl UncontestedPayoutTx {
     /// Index of the CPFP output.
     pub const CPFP_VOUT: u32 = 0;
+    /// Number of transaction inputs.
+    pub const N_INPUTS: usize = 3;
 
     /// Creates an uncontested payout transaction.
     pub fn new(
@@ -53,6 +56,7 @@ impl UncontestedPayoutTx {
         deposit_connector: NOfNConnector,
         claim_contest_connector: ClaimContestConnector,
         claim_payout_connector: ClaimPayoutConnector,
+        operator_descriptor: Descriptor,
     ) -> Self {
         let utxos = [
             OutPoint {
@@ -78,7 +82,7 @@ impl UncontestedPayoutTx {
         input[1].sequence = claim_contest_connector.contest_timelock().to_sequence();
 
         let output = create_tx_outs([(
-            data.operator_descriptor.to_script(),
+            operator_descriptor.to_script(),
             deposit_connector.value()
                 + claim_contest_connector.value()
                 + claim_payout_connector.value(),
@@ -105,7 +109,7 @@ impl UncontestedPayoutTx {
     }
 
     /// Finalizes the transaction with the given witness data.
-    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; 3]) -> Transaction {
+    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; Self::N_INPUTS]) -> Transaction {
         let mut psbt = self.psbt;
 
         let deposit_witness = n_of_n_signatures[0];
@@ -140,8 +144,8 @@ impl ParentTx for UncontestedPayoutTx {
     }
 }
 
-impl PresignedTx<3> for UncontestedPayoutTx {
-    fn signing_info(&self) -> [SigningInfo; 3] {
+impl PresignedTx<{ Self::N_INPUTS }> for UncontestedPayoutTx {
+    fn signing_info(&self) -> [SigningInfo; Self::N_INPUTS] {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
         [
             self.deposit_connector.get_signing_info(
@@ -322,17 +326,17 @@ mod tests {
         // (3 + ω)ε sat: claim contest connector |
         // --------------------------------------|
         // ε sat: claim payout connector         |
-        let descriptor = Descriptor::from(node.wallet_address().clone());
+        let operator_descriptor = Descriptor::from(node.wallet_address().clone());
         let data = UncontestedPayoutData {
             claim_txid,
             deposit_txid,
-            operator_descriptor: descriptor.clone(),
         };
         let uncontested_payout_tx = UncontestedPayoutTx::new(
             data,
             deposit_connector,
             claim_contest_connector,
             claim_payout_connector,
+            operator_descriptor,
         );
 
         let signing_info = uncontested_payout_tx.signing_info();
