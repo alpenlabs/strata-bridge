@@ -1,7 +1,7 @@
 //! This module contains the claim transaction.
 
-use bitcoin::{transaction, OutPoint, Transaction, TxOut};
-use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
+use bitcoin::{absolute, transaction::Version, OutPoint, Transaction, TxOut};
+use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
     connectors::{
@@ -40,27 +40,18 @@ impl ClaimTx {
         claim_payout_connector: ClaimPayoutConnector,
         cpfp_connector: CpfpConnector,
     ) -> Self {
-        let claim_funds = data.claim_funds;
-        let claim_contest_tx_out = claim_contest_connector.tx_out();
-        let claim_payout_tx_out = claim_payout_connector.tx_out();
-        let cpfp_tx_out = cpfp_connector.tx_out();
-
-        let tx_ins = create_tx_ins([claim_funds]);
-        let scripts_and_amounts = [
-            (
-                claim_contest_tx_out.script_pubkey,
-                claim_contest_tx_out.value,
-            ),
-            (
-                claim_payout_tx_out.script_pubkey,
-                claim_contest_tx_out.value,
-            ),
-            (cpfp_tx_out.script_pubkey, cpfp_tx_out.value),
+        let input = create_tx_ins([data.claim_funds]);
+        let output = vec![
+            claim_contest_connector.tx_out(),
+            claim_payout_connector.tx_out(),
+            cpfp_connector.tx_out(),
         ];
-        let tx_outs = create_tx_outs(scripts_and_amounts);
-
-        let mut tx = create_tx(tx_ins, tx_outs);
-        tx.version = transaction::Version(3);
+        let tx = Transaction {
+            version: Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
 
         Self { tx, cpfp_connector }
     }
