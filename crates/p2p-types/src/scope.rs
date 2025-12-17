@@ -8,23 +8,8 @@ use bitcoin::hashes::{sha256, Hash};
 use serde::{Deserialize, Serialize};
 
 /// A unique identifier of deposit setup made by hashing unique data related to it.
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Deserialize,
-    Serialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct Scope(ScopeBytes);
-/// Required to work around some rkyv_derive limitations.
-type ScopeBytes = [u8; Scope::SIZE];
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
+pub struct Scope([u8; Scope::SIZE]);
 
 impl fmt::Display for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

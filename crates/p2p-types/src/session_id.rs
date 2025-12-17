@@ -8,23 +8,8 @@ use serde::{Deserialize, Serialize};
 
 /// A unique identifier of (partial) signatures and (public) nonces exchange session made by
 /// hashing unique data related to it.
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Deserialize,
-    Serialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct SessionId(SessionIdBytes);
-/// Required to work around some rkyv_derive limitations.
-type SessionIdBytes = [u8; SessionId::SIZE];
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
+pub struct SessionId([u8; SessionId::SIZE]);
 
 impl SessionId {
     /// Size in bytes.

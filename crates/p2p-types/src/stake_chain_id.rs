@@ -8,23 +8,8 @@ use serde::{Deserialize, Serialize};
 
 /// A unique identifier of (partial) signatures and (public) nonces exchange session made by
 /// hashing unique data related to it.
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Debug,
-    Deserialize,
-    Serialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
-pub struct StakeChainId(StakeChainIdBytes);
-/// Required to work around some rkyv_derive limitations.
-type StakeChainIdBytes = [u8; StakeChainId::SIZE];
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug, Deserialize, Serialize)]
+pub struct StakeChainId([u8; StakeChainId::SIZE]);
 
 impl StakeChainId {
     /// Size in bytes.

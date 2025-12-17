@@ -11,6 +11,7 @@ algebra.workspace = true
 alpen-bridge-params.workspace = true
 p2p-types = { workspace = true, features = ["proptest"] }
 p2p-wire.workspace = true
+prost.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
@@ -54,7 +55,6 @@ sqlx.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-rkyv.workspace = true
 
 [dev-dependencies]
 strata-bridge-common.workspace = true

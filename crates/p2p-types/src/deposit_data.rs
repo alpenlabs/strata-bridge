@@ -11,19 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::{wots::Wots128PublicKey, Wots256PublicKey, WOTS_SINGLE};
 
 /// Winternitz One-Time Signature (WOTS) public keys shared in a deposit.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct WotsPublicKeys {
     /// WOTS public key used for the Withdrawal Fulfillment transaction.
@@ -143,18 +131,7 @@ impl WotsPublicKeys {
 
 /// Winternitz One-Time Signature (WOTS) public keys used for the Assert transaction
 /// in the Groth16 proof.
-#[derive(
-    Clone,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
 pub struct Groth16PublicKeys {
     /// Number of public inputs.

@@ -3308,8 +3308,8 @@ dependencies = [
  "p2p-types",
  "p2p-wire",
  "proptest",
+ "prost",
  "prover-test-utils",
- "rkyv",
  "secp256k1",
  "secret-service-client",
  "secret-service-proto",
@@ -6577,10 +6577,8 @@ dependencies = [
  "bitcoin",
  "hex",
  "libp2p-identity",
- "musig2",
  "proptest",
  "proptest-derive",
- "rkyv",
  "secp256k1",
  "serde",
  "serde_json",
@@ -6592,10 +6590,10 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "libp2p",
+ "musig2",
  "p2p-types",
  "prost",
  "prost-build",
- "rkyv",
 ]
 
 [[package]]
@@ -9659,7 +9657,7 @@ dependencies = [
  "musig2",
  "p2p-types",
  "p2p-wire",
- "rkyv",
+ "prost",
  "strata-bridge-common",
  "strata-bridge-test-utils",
  "strata-p2p",
