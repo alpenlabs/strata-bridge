@@ -8,13 +8,16 @@ use bitcoin::{
     transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
 };
 use bitcoind_async_client::types::SignRawTransactionWithWallet;
-use corepc_node::{serde_json::json, Client, Conf, Node};
+use corepc_node::{
+    serde_json::{self, json},
+    Client, Conf, Node,
+};
 use secp256k1::Message;
 use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use tracing::info;
 
-use crate::connectors::Connector;
+use crate::{connectors::Connector, transactions::ParentTx};
 
 /// Generator of witness data for a given [`Connector`].
 pub(crate) trait Signer: Sized {
@@ -295,5 +298,62 @@ impl BitcoinNode {
             result.tx_results.len() == 2,
             "tx_results should have 2 elements"
         );
+    }
+
+    /// Returns a signed transaction that pays fees for the given `parent` via CPFP.
+    ///
+    /// The `total_fee` covers both the parent and the child.
+    #[expect(dead_code)]
+    pub(crate) fn create_cpfp_child<T: ParentTx>(
+        &mut self,
+        parent: &T,
+        total_fee: Amount,
+    ) -> Transaction {
+        let input = create_tx_ins([parent.cpfp_outpoint(), self.next_coinbase_outpoint()]);
+        let output = vec![TxOut {
+            value: self.coinbase_amount() + parent.cpfp_tx_out().value - total_fee,
+            script_pubkey: self.wallet_address().script_pubkey(),
+        }];
+        let child_tx = Transaction {
+            version: transaction::Version(3),
+            lock_time: absolute::LockTime::ZERO,
+            input,
+            output,
+        };
+        self.sign_with_prevouts(&child_tx, &[parent.cpfp_tx_out()])
+    }
+
+    /// Signs the inputs that the wallet controls, providing prevouts for
+    /// inputs that spend from unconfirmed transactions.
+    fn sign_with_prevouts(
+        &self,
+        partially_signed_tx: &Transaction,
+        prevouts: &[TxOut],
+    ) -> Transaction {
+        let prevtxs: Vec<serde_json::Value> = partially_signed_tx
+            .input
+            .iter()
+            .zip(prevouts.iter())
+            .map(|(input, txout)| {
+                json!({
+                    "txid": input.previous_output.txid.to_string(),
+                    "vout": input.previous_output.vout,
+                    "scriptPubKey": txout.script_pubkey.to_hex_string(),
+                    "amount": txout.value.to_btc(),
+                })
+            })
+            .collect();
+
+        let signed_tx = self
+            .client()
+            .call::<SignRawTransactionWithWallet>(
+                "signrawtransactionwithwallet",
+                &[
+                    json!(consensus::encode::serialize_hex(partially_signed_tx)),
+                    json!(prevtxs),
+                ],
+            )
+            .expect("should be able to sign the transaction inputs");
+        consensus::encode::deserialize_hex(&signed_tx.hex).expect("must deserialize")
     }
 }
