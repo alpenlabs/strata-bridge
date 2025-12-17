@@ -5,6 +5,7 @@ use bitcoin::{OutPoint, TxOut};
 use crate::connectors::SigningInfo;
 
 pub mod claim;
+pub mod contest;
 pub mod deposit;
 pub mod prelude;
 pub mod uncontested_payout;
