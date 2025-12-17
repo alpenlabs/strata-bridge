@@ -6,6 +6,7 @@ use secp256k1::schnorr;
 use crate::connectors::SigningInfo;
 
 pub mod claim;
+pub mod deposit;
 pub mod prelude;
 
 /// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
