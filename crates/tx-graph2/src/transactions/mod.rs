@@ -8,6 +8,7 @@ use crate::connectors::SigningInfo;
 pub mod claim;
 pub mod deposit;
 pub mod prelude;
+pub mod uncontested_payout;
 
 /// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
 pub trait ParentTx {

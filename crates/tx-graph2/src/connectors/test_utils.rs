@@ -303,7 +303,6 @@ impl BitcoinNode {
     /// Returns a signed transaction that pays fees for the given `parent` via CPFP.
     ///
     /// The `total_fee` covers both the parent and the child.
-    #[expect(dead_code)]
     pub(crate) fn create_cpfp_child<T: ParentTx>(
         &mut self,
         parent: &T,
