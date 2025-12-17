@@ -64,7 +64,7 @@ def generate_config_toml(
             connection_check_interval=Duration(secs=0, nanos=500_000_000),
         ),
         rpc=RpcConfig(
-            rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=600, nanos=0)
+            rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=10, nanos=0)
         ),
         btc_zmq=BtcZmqConfig(
             bury_depth=2,
