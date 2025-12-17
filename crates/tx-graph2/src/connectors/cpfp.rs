@@ -6,12 +6,13 @@ use bitcoin::{psbt::Input, Address, Amount, Network, ScriptBuf, TxOut, Witness, 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct CpfpConnector {
     network: Network,
+    value: Amount,
 }
 
 impl CpfpConnector {
     /// Creates a new connector.
-    pub const fn new(network: Network) -> Self {
-        Self { network }
+    pub const fn new(network: Network, value: Amount) -> Self {
+        Self { network, value }
     }
 
     /// Returns the network of the connector.
@@ -21,7 +22,7 @@ impl CpfpConnector {
 
     /// Returns the value of the connector.
     pub const fn value(&self) -> Amount {
-        Amount::ZERO
+        self.value
     }
 
     /// Generates the address of the connector.
@@ -68,7 +69,7 @@ mod tests {
         // N sat: wallet | N sat: wallet
         //               |--------------
         //               | 0 sat: P2A (CPFP)
-        let connector = CpfpConnector::new(Network::Regtest);
+        let connector = CpfpConnector::new(Network::Regtest, Amount::ZERO);
         let input = create_tx_ins([node.next_coinbase_outpoint()]);
         let output = vec![
             TxOut {

@@ -236,7 +236,7 @@ mod tests {
         );
         let claim_payout_connector =
             ClaimPayoutConnector::new(NETWORK, n_of_n_pubkey, admin_pubkey, unstaking_image);
-        let cpfp_connector = CpfpConnector::new(NETWORK);
+        let cpfp_connector = CpfpConnector::new(NETWORK, Amount::ZERO);
 
         // Create a transaction that funds the deposit and claim inputs.
         //
