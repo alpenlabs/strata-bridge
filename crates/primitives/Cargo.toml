@@ -25,7 +25,7 @@ secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 sha2.workspace = true
 strata-bridge-types.workspace = true
-p2p-types.workspace = true
+strata-p2p-types.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
