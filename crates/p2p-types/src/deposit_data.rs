@@ -207,12 +207,12 @@ impl Groth16PublicKeys {
     }
 
     /// Length of [`Groth16PublicKeys`].
-    pub const fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         (self.n_public_inputs + self.n_field_elements + self.n_hashes) as usize
     }
 
     /// If the collection is empty.
-    pub const fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.n_public_inputs == 0 && self.n_field_elements == 0 && self.n_hashes == 0
     }
 
