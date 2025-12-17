@@ -1,12 +1,9 @@
 //! This module contains a generic N/N connector.
 
-use bitcoin::{
-    sighash::{Prevouts, SighashCache},
-    Amount, Network, Transaction, TxOut,
-};
+use bitcoin::{Amount, Network};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, SigningInfo, TaprootWitness};
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Generic N/N connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -25,22 +22,10 @@ impl NOfNConnector {
             value,
         }
     }
-
-    /// Returns the signing info for the single spend path.
-    pub fn signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-        input_index: usize,
-    ) -> SigningInfo {
-        SigningInfo {
-            sighash: self.compute_sighash(None, cache, prevouts, input_index),
-            tweak: Some(self.tweak()),
-        }
-    }
 }
 
 impl Connector for NOfNConnector {
+    type SpendPath = NOfNSpend;
     type Witness = schnorr::Signature;
 
     fn network(&self) -> Network {
@@ -55,6 +40,10 @@ impl Connector for NOfNConnector {
         self.value
     }
 
+    fn to_leaf_index(&self, _spend_path: Self::SpendPath) -> Option<usize> {
+        None
+    }
+
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         TaprootWitness::Key {
             output_key_signature: *witness,
@@ -62,14 +51,21 @@ impl Connector for NOfNConnector {
     }
 }
 
+/// Single spend path of a [`NOfNConnector`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct NOfNSpend;
+
 #[cfg(test)]
 mod tests {
-    use bitcoin::{key::TapTweak, Amount};
-    use secp256k1::{Keypair, Message, SECP256K1};
+    use bitcoin::Amount;
+    use secp256k1::Keypair;
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
-    use crate::connectors::test_utils::{self, Signer};
+    use crate::connectors::{
+        test_utils::{self, Signer},
+        SigningInfo,
+    };
 
     const CONNECTOR_VALUE: Amount = Amount::from_sat(330);
 
@@ -96,22 +92,15 @@ mod tests {
 
         fn sign_leaf(
             &self,
-            leaf_index: Option<usize>,
-            sighash: Message,
+            _spend_path: <Self::Connector as Connector>::SpendPath,
+            signing_info: SigningInfo,
         ) -> <Self::Connector as Connector>::Witness {
-            assert!(leaf_index.is_none(), "connector has no script-path spend");
-
-            let connector = self.get_connector();
-            let merkle_root = connector.spend_info().merkle_root();
-            let output_keypair = self.0.tap_tweak(SECP256K1, merkle_root).to_keypair();
-
-            output_keypair.sign_schnorr(sighash)
+            signing_info.sign(&self.0)
         }
     }
 
     #[test]
     fn n_of_n_spend() {
-        let leaf_index = None;
-        NOfNSigner::assert_connector_is_spendable(leaf_index);
+        NOfNSigner::assert_connector_is_spendable(NOfNSpend);
     }
 }

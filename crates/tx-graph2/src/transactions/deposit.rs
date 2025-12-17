@@ -10,7 +10,7 @@ use strata_l1_txfmt::{MagicBytes, ParseConfig, SubprotocolId, TagData, TxType};
 
 use crate::{
     connectors::{
-        prelude::{DepositRequestConnector, NOfNConnector, TimelockedWitness},
+        prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
         Connector,
     },
     transactions::{PresignedTx, SigningInfo},
@@ -114,7 +114,8 @@ impl PresignedTx<1> for DepositTx {
         input_index: usize,
     ) -> SigningInfo {
         match input_index {
-            0 => self.deposit_request_connector.deposit_signing_info(
+            0 => self.deposit_request_connector.get_signing_info(
+                TimelockedSpendPath::Normal,
                 cache,
                 Prevouts::All(&self.prevouts),
                 input_index,

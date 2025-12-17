@@ -12,9 +12,10 @@ use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
     connectors::{
+        n_of_n::NOfNSpend,
         prelude::{
             ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness,
-            ClaimPayoutConnector, ClaimPayoutWitness, NOfNConnector,
+            ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, NOfNConnector,
         },
         Connector,
     },
@@ -130,17 +131,20 @@ impl PresignedTx<3> for UncontestedPayoutTx {
         input_index: usize,
     ) -> SigningInfo {
         match input_index {
-            0 => self.deposit_connector.signing_info(
+            0 => self.deposit_connector.get_signing_info(
+                NOfNSpend,
                 cache,
                 Prevouts::All(&self.prevouts),
                 input_index,
             ),
-            1 => self.claim_contest_connector.uncontested_signing_info(
+            1 => self.claim_contest_connector.get_signing_info(
+                ClaimContestSpendPath::Uncontested,
                 cache,
                 Prevouts::All(&self.prevouts),
                 input_index,
             ),
-            2 => self.claim_payout_connector.payout_signing_info(
+            2 => self.claim_payout_connector.get_signing_info(
+                ClaimPayoutSpendPath::Payout,
                 cache,
                 Prevouts::All(&self.prevouts),
                 input_index,
@@ -157,9 +161,8 @@ impl PresignedTx<3> for UncontestedPayoutTx {
         let mut psbt = self.psbt;
 
         let deposit_witness = n_of_n_signatures[0];
-        let claim_contest_witness = ClaimContestWitness {
+        let claim_contest_witness = ClaimContestWitness::Uncontested {
             n_of_n_signature: n_of_n_signatures[1],
-            spend_path: ClaimContestSpendPath::Uncontested,
         };
         let claim_payout_witness = ClaimPayoutWitness::Payout {
             output_key_signature: n_of_n_signatures[2],
