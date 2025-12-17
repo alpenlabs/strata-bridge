@@ -165,7 +165,7 @@ impl GetMessageRequest {
     }
 
     /// Returns the P2P [`P2POperatorPubKey`] with respect to this [`GetMessageRequest`].
-    pub const fn operator_pubkey(&self) -> &P2POperatorPubKey {
+    pub fn operator_pubkey(&self) -> &P2POperatorPubKey {
         match self {
             Self::StakeChainExchange { operator_pk, .. }
             | Self::DepositSetup { operator_pk, .. }
