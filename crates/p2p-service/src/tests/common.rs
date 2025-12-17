@@ -15,6 +15,7 @@ use libp2p::{
 };
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use p2p_wire::p2p::v1::{ArchivedGossipsubMsg, GossipsubMsg, UnsignedGossipsubMsg};
+use rand::{thread_rng, Rng};
 use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
 use strata_p2p::{
     commands::GossipCommand,
@@ -193,8 +194,8 @@ impl Setup {
         })
     }
 
-    /// Create `n` random keypairs, peer ids from them and sequential in-memory
-    /// addresses.
+    /// Create `n` random keypairs, peer ids from them and random in-memory
+    /// addresses to avoid test conflicts.
     fn setup_keys_ids_addrs_of_n_operators(
         n: usize,
     ) -> (Vec<EdKeypair>, Vec<PeerId>, Vec<libp2p::Multiaddr>) {
@@ -203,8 +204,21 @@ impl Setup {
             .iter()
             .map(|key| PeerId::from_public_key(&Keypair::from(key.clone()).public()))
             .collect::<Vec<_>>();
-        let multiaddresses = (1..(keypairs.len() + 1) as u16)
-            .map(|idx| build_multiaddr!(Memory(idx)))
+
+        // Use random base addresses to avoid conflicts when multiple tests run in parallel.
+        let mut rng = thread_rng();
+        let mut multiaddr_base: u64 = rng.gen();
+        loop {
+            if multiaddr_base > u64::MAX - u64::try_from(n).unwrap() - 1 {
+                multiaddr_base = rng.gen();
+            } else {
+                break;
+            }
+        }
+
+        let multiaddresses = (multiaddr_base
+            ..(multiaddr_base + u64::try_from(keypairs.len()).unwrap()))
+            .map(|idx: u64| build_multiaddr!(Memory(idx)))
             .collect::<Vec<_>>();
         (keypairs, peer_ids, multiaddresses)
     }

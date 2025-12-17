@@ -24,5 +24,6 @@ strata-bridge-test-utils.workspace = true
 strata-bridge-common.workspace = true
 
 futures.workspace = true
-tokio.workspace = true
+rand.workspace = true
 rkyv.workspace = true
+tokio.workspace = true
