@@ -3,9 +3,12 @@
 use bitcoin::{transaction, OutPoint, Transaction, TxOut};
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
-use crate::connectors::{
-    prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
-    Connector,
+use crate::{
+    connectors::{
+        prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
+        Connector,
+    },
+    transactions::ParentTx,
 };
 
 /// Data that is needed to construct a [`ClaimTx`].
@@ -17,13 +20,19 @@ pub struct ClaimData {
 
 /// The claim transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct ClaimTx(Transaction);
-
-const CLAIM_CONTEST_VOUT: usize = 0;
-const CLAIM_PAYOUT_VOUT: usize = 1;
-const CLAIM_CPFP_VOUT: usize = 2;
+pub struct ClaimTx {
+    tx: Transaction,
+    cpfp_connector: CpfpConnector,
+}
 
 impl ClaimTx {
+    /// Index of the contest output.
+    pub const CONTEST_VOUT: u32 = 0;
+    /// Index of the payout output.
+    pub const PAYOUT_VOUT: u32 = 1;
+    /// Index of the CPFP output.
+    pub const CPFP_VOUT: u32 = 2;
+
     /// Creates a claim transaction.
     pub fn new(
         data: ClaimData,
@@ -53,26 +62,24 @@ impl ClaimTx {
         let mut tx = create_tx(tx_ins, tx_outs);
         tx.version = transaction::Version(3);
 
-        Self(tx)
+        Self { tx, cpfp_connector }
     }
 
     /// Accesses the claim transaction.
     pub const fn tx(&self) -> &Transaction {
-        &self.0
+        &self.tx
+    }
+}
+
+impl ParentTx for ClaimTx {
+    fn cpfp_tx_out(&self) -> TxOut {
+        self.cpfp_connector.tx_out()
     }
 
-    /// Accesses the contest transaction output.
-    pub fn contest_tx_out(&self) -> &TxOut {
-        &self.0.output[CLAIM_CONTEST_VOUT]
-    }
-
-    /// Accesses the payout transaction output.
-    pub fn payout_tx_out(&self) -> &TxOut {
-        &self.0.output[CLAIM_PAYOUT_VOUT]
-    }
-
-    /// Accesses the CPFP transaction output.
-    pub fn cpfp_tx_out(&self) -> &TxOut {
-        &self.0.output[CLAIM_CPFP_VOUT]
+    fn cpfp_outpoint(&self) -> OutPoint {
+        OutPoint {
+            txid: self.tx.compute_txid(),
+            vout: Self::CPFP_VOUT,
+        }
     }
 }
