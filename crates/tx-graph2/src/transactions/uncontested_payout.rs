@@ -103,61 +103,9 @@ impl UncontestedPayoutTx {
             claim_payout_connector,
         }
     }
-}
 
-impl ParentTx for UncontestedPayoutTx {
-    fn cpfp_tx_out(&self) -> TxOut {
-        self.psbt.unsigned_tx.output[0].clone()
-    }
-
-    fn cpfp_outpoint(&self) -> OutPoint {
-        OutPoint {
-            txid: self.psbt.unsigned_tx.compute_txid(),
-            vout: Self::CPFP_VOUT,
-        }
-    }
-}
-
-impl PresignedTx<3> for UncontestedPayoutTx {
-    type ExtraWitness = ();
-
-    fn psbt(&self) -> &Psbt {
-        &self.psbt
-    }
-
-    fn get_signing_info(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        input_index: usize,
-    ) -> SigningInfo {
-        match input_index {
-            0 => self.deposit_connector.get_signing_info(
-                NOfNSpend,
-                cache,
-                Prevouts::All(&self.prevouts),
-                input_index,
-            ),
-            1 => self.claim_contest_connector.get_signing_info(
-                ClaimContestSpendPath::Uncontested,
-                cache,
-                Prevouts::All(&self.prevouts),
-                input_index,
-            ),
-            2 => self.claim_payout_connector.get_signing_info(
-                ClaimPayoutSpendPath::Payout,
-                cache,
-                Prevouts::All(&self.prevouts),
-                input_index,
-            ),
-            _ => panic!("Input index is out of bounds"),
-        }
-    }
-
-    fn finalize(
-        self,
-        n_of_n_signatures: [schnorr::Signature; 3],
-        _extra: &Self::ExtraWitness,
-    ) -> Transaction {
+    /// Finalizes the transaction with the given witness data.
+    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; 3]) -> Transaction {
         let mut psbt = self.psbt;
 
         let deposit_witness = n_of_n_signatures[0];
@@ -176,6 +124,45 @@ impl PresignedTx<3> for UncontestedPayoutTx {
             .finalize_input(&mut psbt.inputs[2], &claim_payout_witness);
 
         psbt.extract_tx().expect("should be able to extract tx")
+    }
+}
+
+impl ParentTx for UncontestedPayoutTx {
+    fn cpfp_tx_out(&self) -> TxOut {
+        self.psbt.unsigned_tx.output[0].clone()
+    }
+
+    fn cpfp_outpoint(&self) -> OutPoint {
+        OutPoint {
+            txid: self.psbt.unsigned_tx.compute_txid(),
+            vout: Self::CPFP_VOUT,
+        }
+    }
+}
+
+impl PresignedTx<3> for UncontestedPayoutTx {
+    fn signing_info(&self) -> [SigningInfo; 3] {
+        let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
+        [
+            self.deposit_connector.get_signing_info(
+                NOfNSpend,
+                &mut cache,
+                Prevouts::All(&self.prevouts),
+                0,
+            ),
+            self.claim_contest_connector.get_signing_info(
+                ClaimContestSpendPath::Uncontested,
+                &mut cache,
+                Prevouts::All(&self.prevouts),
+                1,
+            ),
+            self.claim_payout_connector.get_signing_info(
+                ClaimPayoutSpendPath::Payout,
+                &mut cache,
+                Prevouts::All(&self.prevouts),
+                2,
+            ),
+        ]
     }
 }
 
@@ -277,8 +264,8 @@ mod tests {
         };
         let deposit_tx = DepositTx::new(deposit_data, deposit_connector, deposit_request_connector);
         let signing_info = deposit_tx.signing_info();
-        let n_of_n_signatures = std::array::from_fn(|i| signing_info[i].sign(&n_of_n_keypair));
-        let signed_deposit_tx = deposit_tx.finalize(n_of_n_signatures, &());
+        let n_of_n_signature = signing_info[0].sign(&n_of_n_keypair);
+        let signed_deposit_tx = deposit_tx.finalize(n_of_n_signature);
         let deposit_txid = node.sign_and_broadcast(&signed_deposit_tx);
         node.mine_blocks(1);
 
@@ -359,7 +346,7 @@ mod tests {
         let signing_info = uncontested_payout_tx.signing_info();
         let n_of_n_signatures = std::array::from_fn(|i| signing_info[i].sign(&n_of_n_keypair));
         let signed_payout_child_tx = node.create_cpfp_child(&uncontested_payout_tx, FEE * 2);
-        let signed_uncontested_payout_tx = uncontested_payout_tx.finalize(n_of_n_signatures, &());
+        let signed_uncontested_payout_tx = uncontested_payout_tx.finalize(n_of_n_signatures);
 
         node.submit_package([signed_uncontested_payout_tx, signed_payout_child_tx]);
         node.mine_blocks(1);
