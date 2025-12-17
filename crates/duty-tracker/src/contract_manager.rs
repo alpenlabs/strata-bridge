@@ -20,12 +20,8 @@ use btc_tracker::{
     event::BlockStatus,
     tx_driver::TxDriver,
 };
-use futures::{future::join_all, SinkExt, StreamExt};
-use libp2p_identity::secp256k1::Keypair;
+use futures::{future::join_all, StreamExt};
 use operator_wallet::OperatorWallet;
-use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
-use prost::Message;
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
@@ -36,12 +32,9 @@ use strata_bridge_tx_graph::transactions::{
 };
 use strata_bridge_types::DepositState;
 use strata_ol_chainstate_types::Chainstate;
-use strata_p2p::{
-    self,
-    commands::{GossipCommand, RequestResponseCommand},
-    events::{GossipEvent, ReqRespEvent},
-    swarm::handle::{GossipHandle, ReqRespHandle},
-};
+use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
+use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_params::RollupParams;
 use tokio::{
     select,
@@ -84,7 +77,6 @@ impl ContractManager {
     pub fn new(
         // Static Config Parameters
         network: Network,
-        keypair: Keypair,
         nag_interval: Duration,
         connector_params: ConnectorParams,
         pegout_graph_params: PegOutGraphParams,
@@ -100,8 +92,7 @@ impl ContractManager {
         // Subsystem Handles
         zmq_client: BtcNotifyClient,
         rpc_client: BitcoinClient,
-        mut gossip_handle: GossipHandle,
-        mut req_resp_handle: ReqRespHandle,
+        mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
         stake_chain_persister: StakeChainPersister,
         s2_client: SecretServiceClient,
@@ -289,11 +280,8 @@ impl ContractManager {
 
                                     // If we successfully handle the processing of our message, we
                                     // can forward it to the rest of the p2p network.
-                                    let signed = msg.sign_secp256k1(&keypair);
-                                    let data = GossipsubMsg::from(signed).into_raw().encode_to_vec();
-                                    if let Err(e) = gossip_handle.send(GossipCommand { data }).await {
-                                        error!(%e, "failed to forward ouroboros message to gossip handler");
-                                    }
+                                    let signed = p2p_handle.sign_message(msg);
+                                    p2p_handle.send_command(Command::PublishMessage(signed)).await;
                                 }
                                 Err(e) => {
                                     error!(%e, "CRITICAL: failed to process ouroboros message");
@@ -348,12 +336,7 @@ impl ContractManager {
                             } else {
                                 // If it wasn't meant for us we can forward the request to the p2p
                                 // network
-                                if let Err(e) = req_resp_handle.send(RequestResponseCommand {
-                                    target_transport_id: req.peer_id(),
-                                    data: req.into_msg().encode_to_vec(),
-                                }).await {
-                                    error!(%e, "failed to forward ouroboros p2p request to req/resp handler");
-                                }
+                                p2p_handle.send_command(Command::RequestMessage(req)).await;
                             }
                         },
                         None => {
@@ -422,45 +405,35 @@ impl ContractManager {
                     // Finally, we process peer messages. We do this last so we have the best chance of
                     // servicing peer requests and can sidestep the processing of unnecessary peer
                     // messages.
-                    Ok(GossipEvent::ReceivedMessage(raw_msg)) = gossip_handle.next_event() => {
-                        match GossipsubMsg::from_bytes(&raw_msg) {
-                            Ok(msg) => {
-                                match ctx.process_p2p_message(msg.clone()).await {
-                                    Ok(msg_duties) if !msg_duties.is_empty() => {
-                                        duties.extend(msg_duties);
-                                    },
-                                    Ok(_) => {},
-                                    Err(e) => {
-                                        error!(?msg, %e, "failed to process p2p msg");
-                                        // in case an error occurs, we will just nag again
-                                        // so no need to break out of the event loop
-                                    }
+                    Some(event) = p2p_handle.next() => match event {
+                        Ok(Event::ReceivedMessage(msg)) => {
+                            match ctx.process_p2p_message(msg.clone()).await {
+                                Ok(msg_duties) if !msg_duties.is_empty() => {
+                                    duties.extend(msg_duties);
+                                },
+                                Ok(_) => {},
+                                Err(e) => {
+                                    error!(?msg, %e, "failed to process p2p msg");
+                                    // in case an error occurs, we will just nag again
+                                    // so no need to break out of the event loop
                                 }
                             }
-                            Err(e) => {
-                                error!(%e, "failed to decode p2p msg");
+                        },
+                        Ok(Event::ReceivedRequest(req)) => {
+                            match ctx.process_p2p_request(req.clone()).await {
+                                Ok(p2p_duties) => duties.extend(p2p_duties),
+                                Err(e) => {
+                                    error!(?req, %e, "failed to process p2p request");
+                                    // in case an error occurs, the requester will just nag again
+                                    // so no need to break out of the event loop
+                                },
                             }
+                        },
+                        Err(e) => {
+                            error!(%e, "error while polling for p2p messages");
+                            // this could be a transient issue, so no need to break immediately
                         }
                     },
-
-                    Some(ReqRespEvent::ReceivedRequest(raw_req, sender)) = req_resp_handle.next_event() => {
-                        match Message::decode(raw_req.as_slice()).and_then(GetMessageRequest::from_msg) {
-                            Ok(req) => {
-                                match ctx.process_p2p_request(req.clone()).await {
-                                    Ok(p2p_duties) => duties.extend(p2p_duties),
-                                    Err(e) => {
-                                        error!(?req, ?sender, %e, "failed to process p2p request");
-                                        // in case an error occurs, the requester will just nag again
-                                        // so no need to break out of the event loop
-                                    },
-                                }
-                            }
-                            Err(e) => {
-                                error!(%e, ?sender, "failed to decode p2p request");
-                            }
-                        }
-                    },
-
                     _instant = interval.tick() => {
                         debug!("nagging peers for necessary p2p messages");
 
@@ -479,6 +452,7 @@ impl ContractManager {
                         });
 
                         join_all(nags).await;
+
                     }
                 }
 
