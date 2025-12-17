@@ -29,7 +29,7 @@ impl Scope {
     /// Constructs a [`Scope`] from raw bytes.
     ///
     /// Note that the `bytes` should represent a hash.
-    pub const fn from_bytes(bytes: [u8; Self::SIZE]) -> Self {
+    pub fn from_bytes(bytes: [u8; Self::SIZE]) -> Self {
         Self(bytes)
     }
 
