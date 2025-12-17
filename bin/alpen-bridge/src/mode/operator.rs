@@ -26,7 +26,7 @@ use duty_tracker::{
 };
 use libp2p::{
     identity::{
-        ed25519::{Keypair, PublicKey as LibP2pEdPublicKey},
+        secp256k1::{Keypair, PublicKey as LibP2pSecpPublicKey},
         PublicKey as LibP2pPublicKey,
     },
     PeerId,
@@ -337,9 +337,9 @@ async fn init_p2p_handles(
     params: &Params,
     sk: SecretKey,
 ) -> anyhow::Result<P2PHandles> {
-    let my_key = LibP2pEdPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
+    let my_key = LibP2pSecpPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
         .expect("infallible");
-    let other_operators: Vec<LibP2pEdPublicKey> = params
+    let other_operators: Vec<LibP2pSecpPublicKey> = params
         .keys
         .p2p
         .clone()

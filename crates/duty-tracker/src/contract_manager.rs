@@ -21,7 +21,7 @@ use btc_tracker::{
     tx_driver::TxDriver,
 };
 use futures::{future::join_all, SinkExt, StreamExt};
-use libp2p_identity::ed25519::Keypair;
+use libp2p_identity::secp256k1::Keypair;
 use operator_wallet::OperatorWallet;
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use p2p_wire::p2p::v1::{
@@ -302,7 +302,7 @@ impl ContractManager {
 
                                     // If we successfully handle the processing of our message, we
                                     // can forward it to the rest of the p2p network.
-                                    let signed = msg.publish.sign_ed25519(&keypair);
+                                    let signed = msg.publish.sign_secp256k1(&keypair);
                                     let msg = GossipsubMsg::from(signed);
                                     let mut data = Vec::new();
                                     rkyv::api::high::to_bytes_in::<_, rkyv::rancor::Error>(&msg, &mut data)
