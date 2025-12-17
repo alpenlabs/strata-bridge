@@ -3,10 +3,10 @@
 use std::collections::BTreeMap;
 
 use bitcoin::{hex::DisplayHex, OutPoint};
-use p2p_types::P2POperatorPubKey;
 use strata_bridge_db::{errors::DbError, persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_stake_chain::stake_chain::StakeChainInputs;
+use strata_p2p_types::P2POperatorPubKey;
 use tracing::{debug, info, trace, warn};
 
 /// A database wrapper for dumping ad retrieving stake chain data.
