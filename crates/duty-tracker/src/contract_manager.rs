@@ -755,7 +755,7 @@ impl ContractManagerCtx {
                     deposit_tx,
                 };
 
-                let duty = OperatorDuty::SendDepositSetup {
+                let duty = OperatorDuty::PublishDepositSetup {
                     deposit_txid: cfg.deposit_tx.compute_txid(),
                     deposit_idx: cfg.deposit_idx,
                     stake_chain_inputs,
@@ -1069,7 +1069,7 @@ impl ContractManagerCtx {
                     for duty in deposit_setup_duties.iter() {
                         // we need a way to feed the claim txids back into the manager's index so we
                         // skim it off of the publish graph nonces duty.
-                        if let OperatorDuty::SendGraphNonces { claim_txid, .. } = duty {
+                        if let OperatorDuty::PublishGraphNonces { claim_txid, .. } = duty {
                             self.state.claim_txids.insert(*claim_txid, deposit_txid);
                         }
                     }
@@ -1301,7 +1301,7 @@ impl ContractManagerCtx {
         info!("received request for stake chain exchange");
         // TODO(proofofkeags): actually choose the correct stake chain
         // inputs based off the stake chain id we receive.
-        Some(OperatorDuty::SendStakeChainExchange(peer))
+        Some(OperatorDuty::PublishStakeChainExchange(peer))
     }
 
     fn process_deposit_setup_request(
@@ -1326,7 +1326,7 @@ impl ContractManagerCtx {
             .get(&deposit_txid)
             .map(|sm| sm.cfg().deposit_idx)
         {
-            Ok(Some(OperatorDuty::SendDepositSetup {
+            Ok(Some(OperatorDuty::PublishDepositSetup {
                 deposit_txid,
                 deposit_idx,
                 stake_chain_inputs,
@@ -1419,7 +1419,7 @@ impl ContractManagerCtx {
                 })
                 .cloned();
 
-            Ok(Some(OperatorDuty::SendGraphNonces {
+            Ok(Some(OperatorDuty::PublishGraphNonces {
                 claim_txid,
                 pog_prevouts,
                 pog_witnesses,
@@ -1457,7 +1457,7 @@ impl ContractManagerCtx {
                 .get(csm.cfg().operator_table.pov_p2p_key())
                 .cloned();
 
-            Some(OperatorDuty::SendRootNonce {
+            Some(OperatorDuty::PublishRootNonce {
                 deposit_request_txid,
                 witness,
                 nonce: existing_nonce,
@@ -1563,7 +1563,7 @@ impl ContractManagerCtx {
                 return Ok(None);
             };
 
-            Ok(Some(OperatorDuty::SendGraphSignatures {
+            Ok(Some(OperatorDuty::PublishGraphSignatures {
                 claim_txid,
                 aggnonces,
                 pog_prevouts,
@@ -1608,7 +1608,7 @@ impl ContractManagerCtx {
                 .into_values()
                 .sum();
 
-            Some(OperatorDuty::SendRootSignature {
+            Some(OperatorDuty::PublishRootSignature {
                 deposit_request_txid,
                 aggnonce,
                 sighash,
@@ -1860,7 +1860,7 @@ async fn execute_duty(
         error!(%error, "failed to execute {duty_description}");
     };
     match duty {
-        OperatorDuty::SendStakeChainExchange(peer) => handle_send_stake_chain_exchange(
+        OperatorDuty::PublishStakeChainExchange(peer) => handle_publish_stake_chain_exchange(
             &cfg,
             &outs.s2_client,
             &outs.db,
@@ -1870,12 +1870,12 @@ async fn execute_duty(
         .await
         .inspect_err(log_error),
 
-        OperatorDuty::SendDepositSetup {
+        OperatorDuty::PublishDepositSetup {
             deposit_idx,
             deposit_txid,
             stake_chain_inputs,
             peer,
-        } => handle_send_deposit_setup(
+        } => handle_publish_deposit_setup(
             &cfg,
             outs,
             deposit_txid,
@@ -1885,12 +1885,12 @@ async fn execute_duty(
         )
         .await
         .inspect_err(log_error),
-        OperatorDuty::SendRootNonce {
+        OperatorDuty::PublishRootNonce {
             deposit_request_txid,
             witness,
             nonce,
             peer,
-        } => handle_send_root_nonce(
+        } => handle_publish_root_nonce(
             &outs.s2_client,
             cfg.operator_table
                 .btc_keys()
@@ -1906,13 +1906,13 @@ async fn execute_duty(
         .await
         .inspect_err(log_error),
 
-        OperatorDuty::SendGraphNonces {
+        OperatorDuty::PublishGraphNonces {
             claim_txid,
             pog_prevouts: pog_inputs,
             pog_witnesses,
             nonces,
             peer,
-        } => handle_send_graph_nonces(
+        } => handle_publish_graph_nonces(
             &outs.s2_client,
             cfg.operator_table
                 .btc_keys()
@@ -1929,7 +1929,7 @@ async fn execute_duty(
         .await
         .inspect_err(log_error),
 
-        OperatorDuty::SendGraphSignatures {
+        OperatorDuty::PublishGraphSignatures {
             claim_txid,
             aggnonces,
             pog_prevouts: pog_outpoints,
@@ -1951,7 +1951,7 @@ async fn execute_duty(
                     },
                 );
 
-            handle_send_graph_sigs(
+            handle_publish_graph_sigs(
                 &outs.s2_client,
                 cfg.operator_table
                     .btc_keys()
@@ -1968,14 +1968,14 @@ async fn execute_duty(
             .inspect_err(log_error)
         }
 
-        OperatorDuty::SendRootSignature {
+        OperatorDuty::PublishRootSignature {
             aggnonce,
             deposit_request_txid,
             sighash,
             witness,
             partial_signature,
             peer,
-        } => handle_send_root_signature(
+        } => handle_publish_root_signature(
             &outs.s2_client,
             cfg.operator_table
                 .btc_keys()
