@@ -42,7 +42,7 @@ use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
     prelude::{ChallengeTx, ChallengeTxInput},
 };
-use strata_p2p::swarm::handle::CommandHandle;
+use strata_p2p::swarm::handle::P2PHandle;
 use strata_primitives::buf::Buf32;
 use tokio::{
     sync::{oneshot, RwLock},
@@ -194,11 +194,11 @@ pub(crate) struct BridgeRpc {
     ///
     /// # Warning
     ///
-    /// The bridge RPC server should *NEVER* call [`CommandHandle::next_event`] as it will mess
-    /// with the duty tracker processing of messages in the P2P gossip network.
+    /// The bridge RPC server should *NEVER* call [`P2PHandle::next_event`] as it will mess with
+    /// the duty tracker processing of messages in the P2P gossip network.
     ///
-    /// The same applies for the `Stream` implementation of [`CommandHandle`].
-    command_handle: CommandHandle,
+    /// The same applies for the `Stream` implementation of [`P2PHandle`].
+    p2p_handle: P2PHandle,
 
     /// Consensus-critical parameters that dictate the behavior of the bridge node.
     params: Params,
@@ -211,7 +211,7 @@ impl BridgeRpc {
     /// Create a new instance of [`BridgeRpc`].
     pub(crate) fn new(
         db: SqliteDb,
-        command_handle: CommandHandle,
+        p2p_handle: P2PHandle,
         params: Params,
         config: RpcConfig,
     ) -> Self {
@@ -223,7 +223,7 @@ impl BridgeRpc {
             start_time,
             db,
             cached_contracts,
-            command_handle,
+            p2p_handle,
             params,
             config,
         };
@@ -414,15 +414,17 @@ impl StrataBridgeMonitoringApiServer for BridgeRpc {
     }
 
     async fn get_operator_status(&self, operator_pk: PublicKey) -> RpcResult<RpcOperatorStatus> {
-        let Ok(conversion) = convert_operator_pk_to_peer_id(&self.params, &operator_pk) else {
-            // Avoid DoS attacks by just returning an error if the public key is invalid
+        let conversion = convert_operator_pk_to_peer_id(&self.params, &operator_pk);
+        // Avoid DoS attacks by just returning an error if the public key is invalid
+        if conversion.is_err() {
             return Err(rpc_error(
                 ErrorCode::InvalidRequest,
                 "Invalid operator public key",
                 operator_pk,
             ));
-        };
-        if self.command_handle.is_connected(&conversion, None).await {
+        }
+        // NOTE: safe to unwrap because we just checked if it's valid
+        if self.p2p_handle.is_connected(conversion.unwrap()).await {
             Ok(RpcOperatorStatus::Online)
         } else {
             Ok(RpcOperatorStatus::Offline)
