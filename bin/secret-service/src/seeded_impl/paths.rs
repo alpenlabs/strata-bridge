@@ -32,6 +32,12 @@ pub const STAKECHAIN_PREIMG_IKM_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 0 },
 ];
 
+/// Path for the P2P key
+pub const P2P_KEY_PATH: &[ChildNumber] = &[
+    ChildNumber::Hardened { index: 20 },
+    ChildNumber::Hardened { index: 100 },
+];
+
 /// Path for the general wallet key
 pub const GENERAL_WALLET_KEY_PATH: &[ChildNumber] = &[
     ChildNumber::Hardened { index: 20 },
