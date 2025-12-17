@@ -6,7 +6,7 @@ pub mod contest_counterproof;
 pub mod cpfp;
 pub mod n_of_n;
 pub mod prelude;
-pub mod timelocked_n_of_n;
+pub mod timelocked;
 
 #[cfg(test)]
 pub(crate) mod test_utils;
