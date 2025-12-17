@@ -68,25 +68,12 @@ pub(crate) const fn wots_total_digits(msg_len_bytes: usize) -> usize {
 }
 
 /// A variable-length Winternitz One-Time Signature (WOTS) public key.
-#[derive(
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    PartialOrd,
-    Ord,
-    Hash,
-    rkyv::Archive,
-    rkyv::Serialize,
-    rkyv::Deserialize,
-)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "proptest", derive(Arbitrary))]
-pub struct WotsPublicKey<const MSG_LEN_BYTES: usize>(pub [WotsSingleBytes; MSG_LEN_BYTES])
+pub struct WotsPublicKey<const MSG_LEN_BYTES: usize>(pub [[u8; WOTS_SINGLE]; MSG_LEN_BYTES])
 where
     [(); MSG_LEN_BYTES]: Sized,
     [(); WOTS_SINGLE * MSG_LEN_BYTES]: Sized;
-/// Required to work around some rkyv_derive limitations.
-type WotsSingleBytes = [u8; WOTS_SINGLE];
 
 /// 128-bit Winternitz One-Time Signature (WOTS) public key.
 pub type Wots128PublicKey = WotsPublicKey<36>;

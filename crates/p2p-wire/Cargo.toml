@@ -9,9 +9,9 @@ workspace = true
 [dependencies]
 bitcoin.workspace = true
 libp2p.workspace = true
+musig2.workspace = true
 prost.workspace = true
 p2p-types.workspace = true
-rkyv.workspace = true
 
 [build-dependencies]
 prost-build.workspace = true

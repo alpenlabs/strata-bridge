@@ -14,10 +14,8 @@ workspace = true
 bitcoin.workspace = true
 hex = { workspace = true, features = ["serde"] }
 libp2p-identity = { workspace = true, features = ["secp256k1"] }
-musig2.workspace = true
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
-rkyv.workspace = true
 serde.workspace = true
 
 [dev-dependencies]

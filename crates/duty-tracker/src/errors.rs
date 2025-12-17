@@ -66,18 +66,6 @@ pub enum ContractManagerErr {
     /// Invalid operator descriptor.
     #[error("invalid operator descriptor: {0}")]
     InvalidOperatorDescriptor(#[from] DescriptorError),
-
-    /// Invalid operator pubkey received from p2p.
-    #[error("invalid operator pubkey received from p2p")]
-    InvalidOperatorPubkey,
-
-    /// Invalid PubNonces received from p2p.
-    #[error("invalid PubNonces received from p2p")]
-    InvalidPubNonces,
-
-    /// Invalid partial signature received from p2p.
-    #[error("invalid partial signature received from p2p")]
-    InvalidPartialSignature,
 }
 
 impl From<String> for ContractManagerErr {
