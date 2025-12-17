@@ -169,10 +169,7 @@ where
             ClientMessage::P2PSecretKey => {
                 let key = service.p2p_signer().secret_key().await;
                 ServerMessage::P2PSecretKey {
-                    key: key
-                        .as_ref()
-                        .try_into()
-                        .expect("ed25519 secret key is always 32 bytes"),
+                    key: key.secret_bytes(),
                 }
             }
 

@@ -12,7 +12,6 @@ bitvm.workspace = true
 cache-advisor = "1.0.16"
 colored = "3.0.0"
 hkdf = "0.12.4"
-libp2p-identity = { workspace = true, features = ["ed25519"] }
 make_buf = { git = "https://github.com/alpenlabs/make_buf", version = "1.0.0" }
 musig2.workspace = true
 rand.workspace = true

@@ -11,6 +11,7 @@ use anyhow::{anyhow, Context};
 use bdk_bitcoind_rpc::bitcoincore_rpc;
 use bitcoin::{
     hashes::Hash,
+    secp256k1::SecretKey,
     sighash::{Prevouts, SighashCache, TapSighashType},
     FeeRate, OutPoint, ScriptBuf, TxOut, XOnlyPublicKey,
 };
@@ -23,10 +24,9 @@ use duty_tracker::{
     contract_manager::ContractManager, contract_persister::ContractPersister,
     shutdown::ShutdownHandler, stake_chain_persister::StakeChainPersister,
 };
-use ed25519_dalek::SigningKey;
 use libp2p::{
     identity::{
-        ed25519::{Keypair, PublicKey as LibP2pEdPublicKey, SecretKey as LibP2pEdSecretKey},
+        ed25519::{Keypair, PublicKey as LibP2pEdPublicKey},
         PublicKey as LibP2pPublicKey,
     },
     PeerId,
@@ -34,7 +34,7 @@ use libp2p::{
 use musig2::KeyAggContext;
 use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
 use p2p_types::{P2POperatorPubKey, StakeChainId};
-use secp256k1::Parity;
+use secp256k1::{Parity, SECP256K1};
 use secret_service_client::{
     rustls::{
         pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer},
@@ -84,11 +84,7 @@ pub(crate) async fn bootstrap(
         .await
         .map_err(|e| anyhow!("error while requesting p2p key: {e:?}"))?;
     debug!(key = ?p2p_sk, "p2p secret key");
-    let p2p_pk =
-        SigningKey::from_bytes(p2p_sk.as_ref().try_into().expect("private key is 32 bytes"))
-            .verifying_key()
-            .to_bytes();
-    let p2p_pk = hex::encode(p2p_pk);
+    let p2p_pk = p2p_sk.public_key(SECP256K1);
     info!(key=%p2p_pk, "p2p public key");
 
     let my_btc_pk = s2_client.musig2_signer().pubkey().await?;
@@ -339,12 +335,10 @@ struct P2PHandles {
 async fn init_p2p_handles(
     config: &Config,
     params: &Params,
-    sk: LibP2pEdSecretKey,
+    sk: SecretKey,
 ) -> anyhow::Result<P2PHandles> {
-    let pubkey = SigningKey::from_bytes(sk.as_ref().try_into().expect("private key is 32 bytes"))
-        .verifying_key()
-        .to_bytes();
-    let my_key = LibP2pEdPublicKey::try_from_bytes(&pubkey).expect("infallible");
+    let my_key = LibP2pEdPublicKey::try_from_bytes(&sk.public_key(SECP256K1).serialize())
+        .expect("infallible");
     let other_operators: Vec<LibP2pEdPublicKey> = params
         .keys
         .p2p

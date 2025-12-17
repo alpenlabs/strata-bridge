@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use libp2p_identity::ed25519::SecretKey;
+use musig2::secp256k1::SecretKey;
 use quinn::Connection;
 use secret_service_proto::v2::{
     traits::{Client, ClientError, Origin, P2PSigner},
@@ -32,9 +32,9 @@ impl P2PSigner<Client> for P2PClient {
     async fn secret_key(&self) -> <Client as Origin>::Container<SecretKey> {
         let msg = ClientMessage::P2PSecretKey;
         let res = make_v2_req(&self.conn, msg, self.config.timeout).await?;
-        let ServerMessage::P2PSecretKey { mut key } = res else {
+        let ServerMessage::P2PSecretKey { key } = res else {
             return Err(ClientError::WrongMessage(res.into()));
         };
-        Ok(SecretKey::try_from_bytes(&mut key).expect("correct length"))
+        Ok(SecretKey::from_slice(&key).expect("correct length"))
     }
 }

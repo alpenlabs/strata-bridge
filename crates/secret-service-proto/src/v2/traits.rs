@@ -4,8 +4,10 @@ use std::future::Future;
 
 use bitcoin::{OutPoint, TapNodeHash, Txid, XOnlyPublicKey};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
-use libp2p_identity::ed25519::SecretKey;
-use musig2::{secp256k1::schnorr::Signature, AggNonce, PartialSignature, PubNonce};
+use musig2::{
+    secp256k1::{schnorr::Signature, SecretKey},
+    AggNonce, PartialSignature, PubNonce,
+};
 use quinn::{ConnectionError, ReadExactError, WriteError};
 use rkyv::{rancor, Archive, Deserialize, Serialize};
 use strata_bridge_primitives::scripts::taproot::TaprootWitness;
