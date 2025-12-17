@@ -9,7 +9,6 @@ use bitvm::{
     chunk::api::{NUM_HASH, NUM_PUBS, NUM_U256},
     signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256},
 };
-use p2p_types::WotsPublicKeys;
 use proptest::prelude::{any, Arbitrary, BoxedStrategy, Strategy};
 use proptest_derive::Arbitrary;
 use serde::{
@@ -17,6 +16,7 @@ use serde::{
     ser::SerializeSeq,
     Deserialize, Deserializer, Serialize, Serializer,
 };
+use strata_p2p_types::WotsPublicKeys;
 
 use crate::scripts::{
     commitments::{
@@ -75,15 +75,15 @@ impl Wots256PublicKey {
     }
 }
 
-impl From<p2p_types::Wots256PublicKey> for Wots256PublicKey {
-    fn from(value: p2p_types::Wots256PublicKey) -> Self {
+impl From<strata_p2p_types::Wots256PublicKey> for Wots256PublicKey {
+    fn from(value: strata_p2p_types::Wots256PublicKey) -> Self {
         Self(Arc::new(value.0))
     }
 }
 
-impl From<Wots256PublicKey> for p2p_types::Wots256PublicKey {
+impl From<Wots256PublicKey> for strata_p2p_types::Wots256PublicKey {
     fn from(value: Wots256PublicKey) -> Self {
-        p2p_types::Wots256PublicKey::new(*value.0)
+        strata_p2p_types::Wots256PublicKey::new(*value.0)
     }
 }
 
@@ -169,15 +169,15 @@ impl Arbitrary for Wots256PublicKey {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)]
 pub struct WotsHashPublicKey(pub <wots_hash as Wots>::PublicKey);
 
-impl From<p2p_types::Wots128PublicKey> for WotsHashPublicKey {
-    fn from(value: p2p_types::Wots128PublicKey) -> Self {
+impl From<strata_p2p_types::Wots128PublicKey> for WotsHashPublicKey {
+    fn from(value: strata_p2p_types::Wots128PublicKey) -> Self {
         Self(value.0)
     }
 }
 
-impl From<WotsHashPublicKey> for p2p_types::Wots128PublicKey {
+impl From<WotsHashPublicKey> for strata_p2p_types::Wots128PublicKey {
     fn from(value: WotsHashPublicKey) -> Self {
-        p2p_types::Wots128PublicKey::new(value.0)
+        strata_p2p_types::Wots128PublicKey::new(value.0)
     }
 }
 
@@ -194,10 +194,10 @@ impl Deref for Groth16PublicKeys {
     }
 }
 
-impl TryFrom<p2p_types::Groth16PublicKeys> for Groth16PublicKeys {
-    type Error = (String, p2p_types::Groth16PublicKeys);
+impl TryFrom<strata_p2p_types::Groth16PublicKeys> for Groth16PublicKeys {
+    type Error = (String, strata_p2p_types::Groth16PublicKeys);
 
-    fn try_from(g16_keys: p2p_types::Groth16PublicKeys) -> Result<Self, Self::Error> {
+    fn try_from(g16_keys: strata_p2p_types::Groth16PublicKeys) -> Result<Self, Self::Error> {
         if g16_keys.public_inputs.len() != NUM_PUBS {
             return Err((
                 format!(
@@ -235,20 +235,20 @@ impl TryFrom<p2p_types::Groth16PublicKeys> for Groth16PublicKeys {
     }
 }
 
-impl From<Groth16PublicKeys> for p2p_types::Groth16PublicKeys {
+impl From<Groth16PublicKeys> for strata_p2p_types::Groth16PublicKeys {
     fn from(value: Groth16PublicKeys) -> Self {
         let (public_inputs, fqs, hashes) = *value.0;
 
         Self::new(
             public_inputs
-                .map(p2p_types::Wots256PublicKey::new)
+                .map(strata_p2p_types::Wots256PublicKey::new)
                 .into_iter()
                 .collect(),
-            fqs.map(p2p_types::Wots256PublicKey::new)
+            fqs.map(strata_p2p_types::Wots256PublicKey::new)
                 .into_iter()
                 .collect(),
             hashes
-                .map(p2p_types::Wots128PublicKey::new)
+                .map(strata_p2p_types::Wots128PublicKey::new)
                 .into_iter()
                 .collect(),
         )
@@ -641,23 +641,21 @@ impl PublicKeys {
     }
 }
 
-impl TryFrom<p2p_types::WotsPublicKeys> for PublicKeys {
-    type Error = (String, p2p_types::WotsPublicKeys);
+impl TryFrom<strata_p2p_types::WotsPublicKeys> for PublicKeys {
+    type Error = (String, strata_p2p_types::WotsPublicKeys);
 
-    fn try_from(value: p2p_types::WotsPublicKeys) -> Result<Self, Self::Error> {
-        let groth16 =
-            value
-                .groth16
-                .try_into()
-                .map_err(|e: (String, p2p_types::Groth16PublicKeys)| {
-                    (
-                        e.0,
-                        WotsPublicKeys {
-                            withdrawal_fulfillment: value.withdrawal_fulfillment,
-                            groth16: e.1,
-                        },
-                    )
-                })?;
+    fn try_from(value: strata_p2p_types::WotsPublicKeys) -> Result<Self, Self::Error> {
+        let groth16 = value.groth16.try_into().map_err(
+            |e: (String, strata_p2p_types::Groth16PublicKeys)| {
+                (
+                    e.0,
+                    WotsPublicKeys {
+                        withdrawal_fulfillment: value.withdrawal_fulfillment,
+                        groth16: e.1,
+                    },
+                )
+            },
+        )?;
 
         let withdrawal_fulfillment = value.withdrawal_fulfillment.into();
 
@@ -668,7 +666,7 @@ impl TryFrom<p2p_types::WotsPublicKeys> for PublicKeys {
     }
 }
 
-impl From<PublicKeys> for p2p_types::WotsPublicKeys {
+impl From<PublicKeys> for strata_p2p_types::WotsPublicKeys {
     fn from(value: PublicKeys) -> Self {
         Self {
             withdrawal_fulfillment: value.withdrawal_fulfillment.into(),
