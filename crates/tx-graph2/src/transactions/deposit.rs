@@ -1,8 +1,10 @@
 //! This module contains the deposit transaction.
 
 use bitcoin::{
-    absolute, sighash::Prevouts, transaction::Version, Amount, OutPoint, Psbt, ScriptBuf,
-    Transaction, TxOut, Txid,
+    absolute,
+    sighash::{Prevouts, SighashCache},
+    transaction::Version,
+    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
 };
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use strata_codec::Codec;
@@ -99,43 +101,28 @@ impl DepositTx {
             deposit_request_connector,
         }
     }
-}
 
-impl PresignedTx<1> for DepositTx {
-    type ExtraWitness = ();
-
-    fn psbt(&self) -> &Psbt {
-        &self.psbt
-    }
-
-    fn get_signing_info(
-        &self,
-        cache: &mut bitcoin::sighash::SighashCache<&Transaction>,
-        input_index: usize,
-    ) -> SigningInfo {
-        match input_index {
-            0 => self.deposit_request_connector.get_signing_info(
-                TimelockedSpendPath::Normal,
-                cache,
-                Prevouts::All(&self.prevouts),
-                input_index,
-            ),
-            _ => panic!("Input index is out of bounds"),
-        }
-    }
-
-    fn finalize(
-        self,
-        n_of_n_signatures: [secp256k1::schnorr::Signature; 1],
-        _extra: &Self::ExtraWitness,
-    ) -> Transaction {
+    /// Finalizes the transaction with the given witness data.
+    pub fn finalize(self, n_of_n_signature: secp256k1::schnorr::Signature) -> Transaction {
         let mut psbt = self.psbt;
         let deposit_request_witness = TimelockedWitness::Normal {
-            output_key_signature: n_of_n_signatures[0],
+            output_key_signature: n_of_n_signature,
         };
         self.deposit_request_connector
             .finalize_input(&mut psbt.inputs[0], &deposit_request_witness);
 
         psbt.extract_tx().expect("should be able to extract tx")
+    }
+}
+
+impl PresignedTx<1> for DepositTx {
+    fn signing_info(&self) -> [SigningInfo; 1] {
+        let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
+        [self.deposit_request_connector.get_signing_info(
+            TimelockedSpendPath::Normal,
+            &mut cache,
+            Prevouts::All(&self.prevouts),
+            0,
+        )]
     }
 }
