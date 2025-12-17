@@ -1,3 +1,5 @@
 //! This module exports all connectors in this crate for convenience.
 
-pub use super::{claim_contest::*, claim_payout::*, cpfp::*, n_of_n::*, timelocked::*};
+pub use super::{
+    claim_contest::*, claim_payout::*, contest_counterproof::*, cpfp::*, n_of_n::*, timelocked::*,
+};
