@@ -1,8 +1,13 @@
-//! This module contains connectors that follow a timelock pattern in their locking script:
+//! This module contains connectors that follow a pattern in their locking script:
+//! 1. (key path) internal key
+//! 2. (single tap leaf) timelocked key + relative timelock.
+//!
+//! These connectors are as follows:
 //! 1. contest proof
 //! 2. contest payout
 //! 3. contest slash
 //! 4. counterproof_i
+//! 5. deposit request
 
 use std::num::NonZero;
 
@@ -15,18 +20,17 @@ use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
 use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
-/// Generic connector output that is locked in a tap tree:
-/// 1. (key path) internal key
-/// 2. (single tap leaf) N/N + relative timelock.
+/// Generic timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-struct TimelockedNOfNConnector {
+struct TimelockedConnector {
     network: Network,
-    internal_pubkey: XOnlyPublicKey,
-    n_of_n_pubkey: XOnlyPublicKey,
+    internal_key: XOnlyPublicKey,
+    timelocked_key: XOnlyPublicKey,
     timelock: relative::LockTime,
+    value: Amount,
 }
 
-impl TimelockedNOfNConnector {
+impl TimelockedConnector {
     /// Returns the signing info for the normal spend path.
     fn normal_signing_info(
         &self,
@@ -54,22 +58,22 @@ impl TimelockedNOfNConnector {
     }
 }
 
-impl Connector for TimelockedNOfNConnector {
-    type Witness = TimelockedNOfNWitness;
+impl Connector for TimelockedConnector {
+    type Witness = TimelockedWitness;
 
     fn network(&self) -> Network {
         self.network
     }
 
     fn internal_key(&self) -> XOnlyPublicKey {
-        self.internal_pubkey
+        self.internal_key
     }
 
     fn leaf_scripts(&self) -> Vec<ScriptBuf> {
         let mut scripts = Vec::new();
 
         let payout_script = script::Builder::new()
-            .push_slice(self.n_of_n_pubkey.serialize())
+            .push_slice(self.timelocked_key.serialize())
             .push_opcode(opcodes::all::OP_CHECKSIGVERIFY)
             .push_sequence(self.timelock.to_sequence())
             .push_opcode(opcodes::all::OP_CSV)
@@ -80,17 +84,19 @@ impl Connector for TimelockedNOfNConnector {
     }
 
     fn value(&self) -> Amount {
-        self.script_pubkey().minimal_non_dust()
+        self.value
     }
 
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
         match witness {
-            TimelockedNOfNWitness::Normal {
+            TimelockedWitness::Normal {
                 output_key_signature,
             } => TaprootWitness::Key {
                 output_key_signature: *output_key_signature,
             },
-            TimelockedNOfNWitness::Timeout { n_of_n_signature } => TaprootWitness::Script {
+            TimelockedWitness::Timeout {
+                timelocked_key_signature: n_of_n_signature,
+            } => TaprootWitness::Script {
                 leaf_index: 0,
                 script_inputs: vec![n_of_n_signature.serialize().to_vec()],
             },
@@ -98,10 +104,10 @@ impl Connector for TimelockedNOfNConnector {
     }
 }
 
-/// Creates a newtype wrapper around [`TimelockedNOfNConnector`].
+/// Creates a newtype wrapper around [`TimelockedConnector`].
 ///
-/// This macro generates the struct definition with the standard derives, a `Connector`
-/// implementation that delegates all methods to the inner `TimelockedNOfNConnector`,
+/// This macro generates the struct definition with the standard derives, a [`Connector`]
+/// implementation that delegates all methods to the inner [`TimelockedConnector`],
 /// and timelock/signing info accessor methods with custom names and documentation.
 ///
 /// # Example
@@ -137,7 +143,7 @@ macro_rules! impl_timelocked_connector {
     ) => {
         $(#[$struct_attr])*
         #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-        pub struct $name(TimelockedNOfNConnector);
+        pub struct $name(TimelockedConnector);
 
         impl $name {
             $(#[$timelock_attr])*
@@ -167,7 +173,7 @@ macro_rules! impl_timelocked_connector {
         }
 
         impl Connector for $name {
-            type Witness = TimelockedNOfNWitness;
+            type Witness = TimelockedWitness;
 
             fn network(&self) -> Network {
                 self.0.network()
@@ -239,12 +245,15 @@ impl ContestProofConnector {
             .expect("tweak is valid")
             .0;
 
-        Self(TimelockedNOfNConnector {
+        let mut inner = TimelockedConnector {
             network,
-            internal_pubkey,
-            n_of_n_pubkey,
+            internal_key: internal_pubkey,
+            timelocked_key: n_of_n_pubkey,
             timelock: proof_timelock,
-        })
+            value: Amount::ZERO,
+        };
+        inner.value = inner.script_pubkey().minimal_non_dust();
+        Self(inner)
     }
 }
 
@@ -253,6 +262,7 @@ impl_timelocked_connector! {
     /// `Bridge Proof Timeout` / `Watchtower i Ack` / `Contested Payout`.
     ///
     /// The internal key is the N/N key.
+    /// The timelocked key is also the N/N key.
     pub struct ContestPayoutConnector;
 
     /// Returns the relative ack timelock of the connector.
@@ -268,17 +278,20 @@ impl_timelocked_connector! {
 
 impl ContestPayoutConnector {
     /// Creates a new connector.
-    pub const fn new(
+    pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         ack_timelock: relative::LockTime,
     ) -> Self {
-        Self(TimelockedNOfNConnector {
+        let mut inner = TimelockedConnector {
             network,
-            internal_pubkey: n_of_n_pubkey,
-            n_of_n_pubkey,
+            internal_key: n_of_n_pubkey,
+            timelocked_key: n_of_n_pubkey,
             timelock: ack_timelock,
-        })
+            value: Amount::ZERO,
+        };
+        inner.value = inner.script_pubkey().minimal_non_dust();
+        Self(inner)
     }
 }
 
@@ -286,6 +299,7 @@ impl_timelocked_connector! {
     /// Connector output between `Contest` and `Contested Payout` / `Slash`.
     ///
     /// The internal key is the N/N key.
+    /// The timelocked key is also the N/N key.
     pub struct ContestSlashConnector;
 
     /// Returns the relative contested payout timelock of the connector.
@@ -300,17 +314,20 @@ impl_timelocked_connector! {
 
 impl ContestSlashConnector {
     /// Creates a new connector.
-    pub const fn new(
+    pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         contested_payout_timelock: relative::LockTime,
     ) -> Self {
-        Self(TimelockedNOfNConnector {
+        let mut inner = TimelockedConnector {
             network,
-            internal_pubkey: n_of_n_pubkey,
-            n_of_n_pubkey,
+            internal_key: n_of_n_pubkey,
+            timelocked_key: n_of_n_pubkey,
             timelock: contested_payout_timelock,
-        })
+            value: Amount::ZERO,
+        };
+        inner.value = inner.script_pubkey().minimal_non_dust();
+        Self(inner)
     }
 }
 
@@ -318,6 +335,7 @@ impl_timelocked_connector! {
     /// Connector output between `Contest` and `Watchtower i Nack` / `Watchtower i Ack`.
     ///
     /// The internal key is `wt_i_fault * G`, where `G` is the generator point.
+    /// The timelocked key is the N/N key.
     pub struct CounterproofConnector;
 
     /// Returns the relative nack timelock of the connector.
@@ -332,17 +350,56 @@ impl_timelocked_connector! {
 
 impl CounterproofConnector {
     /// Creates a new connector.
-    pub const fn new(
+    pub fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         wt_i_fault_pubkey: XOnlyPublicKey,
         nack_timelock: relative::LockTime,
     ) -> Self {
-        Self(TimelockedNOfNConnector {
+        let mut inner = TimelockedConnector {
             network,
-            internal_pubkey: wt_i_fault_pubkey,
-            n_of_n_pubkey,
+            internal_key: wt_i_fault_pubkey,
+            timelocked_key: n_of_n_pubkey,
             timelock: nack_timelock,
+            value: Amount::ZERO,
+        };
+        inner.value = inner.script_pubkey().minimal_non_dust();
+        Self(inner)
+    }
+}
+
+impl_timelocked_connector! {
+    /// Connector output between `DepositRequest` and `Deposit` / a refund transaction.
+    ///
+    /// The internal key is the N/N key.
+    /// The timelocked key is the depositor key.
+    pub struct DepositRequestConnector;
+
+    /// Returns the relative deposit timelock of the connector.
+    timelock = deposit_timelock,
+
+    /// Returns the signing info for the `Deposit` spend path.
+    normal_signing_info = deposit_signing_info,
+
+    /// Returns the signing info for the refund spend path.
+    timeout_signing_info = refund_signing_info,
+}
+
+impl DepositRequestConnector {
+    /// Creates a new connector.
+    pub const fn new(
+        network: Network,
+        n_of_n_pubkey: XOnlyPublicKey,
+        depositor_pubkey: XOnlyPublicKey,
+        deposit_timelock: relative::LockTime,
+        deposit_amount: Amount,
+    ) -> Self {
+        Self(TimelockedConnector {
+            network,
+            internal_key: n_of_n_pubkey,
+            timelocked_key: depositor_pubkey,
+            timelock: deposit_timelock,
+            value: deposit_amount,
         })
     }
 }
@@ -353,7 +410,7 @@ impl CounterproofConnector {
 // so it should be fine.
 /// Witness data to spend a timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TimelockedNOfNWitness {
+pub enum TimelockedWitness {
     /// The connector is spent before the timeout.
     Normal {
         /// Output key signature (key-path spend).
@@ -368,8 +425,8 @@ pub enum TimelockedNOfNWitness {
     /// The sequence number of the transaction input needs to be large enough to cover
     /// the connector's timelock.
     Timeout {
-        /// N/N signature.
-        n_of_n_signature: schnorr::Signature,
+        /// Signature of the timelocked key.
+        timelocked_key_signature: schnorr::Signature,
     },
 }
 
@@ -390,7 +447,7 @@ mod tests {
     }
 
     impl Signer for TimelockedNOfNSigner {
-        type Connector = TimelockedNOfNConnector;
+        type Connector = TimelockedConnector;
 
         fn generate() -> Self {
             Self {
@@ -400,12 +457,15 @@ mod tests {
         }
 
         fn get_connector(&self) -> Self::Connector {
-            TimelockedNOfNConnector {
+            let mut connector = TimelockedConnector {
                 network: Network::Regtest,
-                internal_pubkey: self.internal_keypair.x_only_public_key().0,
-                n_of_n_pubkey: self.n_of_n_keypair.x_only_public_key().0,
+                internal_key: self.internal_keypair.x_only_public_key().0,
+                timelocked_key: self.n_of_n_keypair.x_only_public_key().0,
                 timelock: TIMELOCK,
-            }
+                value: Amount::ZERO,
+            };
+            connector.value = connector.script_pubkey().minimal_non_dust();
+            connector
         }
 
         fn get_connector_name(&self) -> &'static str {
@@ -430,12 +490,12 @@ mod tests {
                         .tap_tweak(SECP256K1, merkle_root)
                         .to_keypair();
 
-                    TimelockedNOfNWitness::Normal {
+                    TimelockedWitness::Normal {
                         output_key_signature: output_keypair.sign_schnorr(sighash),
                     }
                 }
-                Some(0) => TimelockedNOfNWitness::Timeout {
-                    n_of_n_signature: self.n_of_n_keypair.sign_schnorr(sighash),
+                Some(0) => TimelockedWitness::Timeout {
+                    timelocked_key_signature: self.n_of_n_keypair.sign_schnorr(sighash),
                 },
                 Some(_) => panic!("Leaf index is out of bounds"),
             }
