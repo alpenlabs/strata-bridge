@@ -7,7 +7,7 @@ use libp2p::{
     identity::secp256k1::{Keypair as Libp2pSecpKeypair, SecretKey as Libp2pSecpSecretKey},
     Multiaddr, PeerId,
 };
-use p2p_types::P2POperatorPubKey;
+use strata_p2p_types::P2POperatorPubKey;
 
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]

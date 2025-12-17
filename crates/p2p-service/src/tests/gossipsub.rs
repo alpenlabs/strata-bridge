@@ -1,5 +1,5 @@
-use p2p_types::{Scope, SessionId, StakeChainId};
 use strata_bridge_common::logging::{self, LoggerConfig};
+use strata_p2p_types::{Scope, SessionId, StakeChainId};
 
 use super::common::{
     exchange_deposit_nonces, exchange_deposit_setup, exchange_deposit_sigs,
