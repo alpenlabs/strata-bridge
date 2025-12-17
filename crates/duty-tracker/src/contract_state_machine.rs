@@ -53,7 +53,6 @@ use strata_bridge_types::{DepositEntry, DepositState};
 use strata_params::RollupParams;
 use strata_primitives::buf::Buf32;
 use thiserror::Error;
-use tokio::sync::oneshot;
 use tracing::{debug, error, info, warn};
 
 use crate::predicates::{is_challenge, is_disprove, is_fulfillment_tx};
@@ -872,17 +871,14 @@ impl ContractState {
 }
 
 /// This is the superset of all possible operator duties.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[expect(clippy::large_enum_variant)]
 pub enum OperatorDuty {
     /// Instructs us to terminate this contract.
     Abort,
 
     /// Instructs us to publish our pre-stake data.
-    ///
-    /// Provides an optional oneshot channel, representing the specific peer to send to. If `None`,
-    /// the data will be broadcast to all peers.
-    PublishStakeChainExchange(Option<oneshot::Sender<Vec<u8>>>),
+    PublishStakeChainExchange,
 
     /// Instructs us to publish the setup data for this contract.
     PublishDepositSetup {
@@ -894,10 +890,6 @@ pub enum OperatorDuty {
 
         /// The data about the stake transaction.
         stake_chain_inputs: StakeChainInputs,
-
-        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
-        /// the data will be broadcast to all peers.
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to publish our graph nonces for this contract.
@@ -916,10 +908,6 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new nonces if [`None`] is passed.
         nonces: Option<PogMusigF<PubNonce>>,
-
-        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
-        /// the data will be broadcast to all peers.
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to send out signatures for the peg out graph.
@@ -943,10 +931,6 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new partial signatures if [`None`] is passed.
         partial_signatures: Option<PogMusigF<PartialSignature>>,
-
-        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
-        /// the data will be broadcast to all peers.
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to send out our nonce for the deposit transaction signature.
@@ -961,10 +945,6 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new nonce if [`None`] is passed.
         nonce: Option<PubNonce>,
-
-        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
-        /// the data will be broadcast to all peers.
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to send out signatures for the deposit transaction.
@@ -985,10 +965,6 @@ pub enum OperatorDuty {
         ///
         /// The duty executor will generate new partial signature if [`None`] is passed.
         partial_signature: Option<PartialSignature>,
-
-        /// An optional oneshot channel, representing the specific peer to send to. If `None`,
-        /// the data will be broadcast to all peers.
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     },
 
     /// Instructs us to submit the deposit transaction to the network.
@@ -1014,7 +990,7 @@ impl Display for OperatorDuty {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OperatorDuty::Abort => write!(f, "Abort"),
-            OperatorDuty::PublishStakeChainExchange(_) => write!(f, "PublishStakeChainExchange"),
+            OperatorDuty::PublishStakeChainExchange => write!(f, "PublishStakeChainExchange"),
             OperatorDuty::PublishDepositSetup {
                 deposit_txid,
                 deposit_idx,
@@ -1799,7 +1775,6 @@ impl ContractSM {
                         pog_prevouts: graph.musig_inpoints(),
                         pog_witnesses: graph.musig_witnesses(),
                         nonces: None,
-                        peer: None,
                     })
                     .collect::<Vec<_>>();
 
@@ -1952,7 +1927,6 @@ impl ContractSM {
                         pog_sighashes: pog.musig_sighashes(),
                         witnesses: pog.musig_witnesses(),
                         partial_signatures: existing_partials,
-                        peer: None,
                     })
                 }
 
@@ -2129,7 +2103,6 @@ impl ContractSM {
                     deposit_request_txid: self.deposit_request_txid(),
                     witness,
                     nonce: existing_nonce,
-                    peer: None,
                 }))
             }
             _ => Err(TransitionErr(format!(
@@ -2159,7 +2132,6 @@ impl ContractSM {
                     deposit_request_txid: self.deposit_request_txid(),
                     witness,
                     nonce: existing_nonce,
-                    peer: None,
                 }])
             }
             _ => Err(TransitionErr(format!(
@@ -2215,7 +2187,6 @@ impl ContractSM {
                             sighash,
                             partial_signature: None,
                             witness: witness.clone(),
-                            peer: None,
                         })
                     } else {
                         None

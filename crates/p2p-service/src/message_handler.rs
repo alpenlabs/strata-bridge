@@ -5,7 +5,7 @@ use libp2p::identity::secp256k1;
 use musig2::{PartialSignature, PubNonce};
 use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, trace};
 
 /// Message handler for the bridge node for relaying p2p messages.
@@ -17,7 +17,7 @@ use tracing::{debug, error, info, trace};
 pub struct MessageHandler {
     /// The outbound channel used to self-publish gossipsub messages i.e., to send messages to
     /// itself rather than the network.
-    ouroboros_msg_sender: mpsc::UnboundedSender<OuroborosMessage>,
+    ouroboros_msg_sender: mpsc::UnboundedSender<UnsignedPublishMessage>,
 
     /// The outbound channel used to self-publish message requests.
     ///
@@ -27,20 +27,10 @@ pub struct MessageHandler {
     ouroboros_req_sender: mpsc::UnboundedSender<GetMessageRequest>,
 }
 
-/// Message for the ouroboros channel.
-#[derive(Debug)]
-pub struct OuroborosMessage {
-    /// An optional oneshot channel, representing the specific peer to send to. If `None`,
-    /// the data will be broadcast to all peers.
-    pub peer: Option<oneshot::Sender<Vec<u8>>>,
-    /// The unsigned publish message that needs to be sent.
-    pub publish: UnsignedPublishMessage,
-}
-
 impl MessageHandler {
     /// Creates a new message handler.
     pub const fn new(
-        ouroboros_msg_sender: mpsc::UnboundedSender<OuroborosMessage>,
+        ouroboros_msg_sender: mpsc::UnboundedSender<UnsignedPublishMessage>,
         ouroboros_req_sender: mpsc::UnboundedSender<GetMessageRequest>,
     ) -> Self {
         Self {
@@ -53,20 +43,12 @@ impl MessageHandler {
     /// as to the node itself.
     ///
     /// Internal use only.
-    async fn dispatch(
-        &self,
-        msg: UnsignedPublishMessage,
-        peer: Option<oneshot::Sender<Vec<u8>>>,
-        description: &str,
-    ) {
+    async fn dispatch(&self, msg: UnsignedPublishMessage, description: &str) {
         trace!(%description, ?msg, "sending message");
         // let signed_msg = self.handle.sign_message(msg.clone());
         // self.handle.send_command(signed_msg.clone()).await;
 
-        if let Err(e) = self
-            .ouroboros_msg_sender
-            .send(OuroborosMessage { peer, publish: msg })
-        {
+        if let Err(e) = self.ouroboros_msg_sender.send(msg) {
             error!(%description, %e, "failed to send message via ouroboros");
 
             return;
@@ -90,7 +72,6 @@ impl MessageHandler {
     }
 
     /// Sends a deposit setup message to the network.
-    #[allow(clippy::too_many_arguments)]
     pub async fn send_deposit_setup(
         &self,
         index: u32,
@@ -99,7 +80,6 @@ impl MessageHandler {
         funding_outpoint: OutPoint,
         operator_pk: XOnlyPublicKey,
         wots_pks: WotsPublicKeys,
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) {
         let msg = UnsignedPublishMessage::DepositSetup {
             scope,
@@ -110,7 +90,7 @@ impl MessageHandler {
             operator_pk,
             wots_pks,
         };
-        self.dispatch(msg, peer, "deposit setup message").await;
+        self.dispatch(msg, "deposit setup message").await;
     }
 
     /// Sends a stake chain exchange message to the network.
@@ -120,7 +100,6 @@ impl MessageHandler {
         operator_pk: XOnlyPublicKey,
         pre_stake_txid: Txid,
         pre_stake_vout: u32,
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) {
         let msg = UnsignedPublishMessage::StakeChainExchange {
             stake_chain_id,
@@ -128,23 +107,16 @@ impl MessageHandler {
             pre_stake_txid,
             pre_stake_vout,
         };
-        self.dispatch(msg, peer, "stake chain exchange message")
-            .await;
+        self.dispatch(msg, "stake chain exchange message").await;
     }
 
     /// Sends a MuSig2 nonces exchange message to the network.
-    pub async fn send_musig2_nonces(
-        &self,
-        session_id: SessionId,
-        pub_nonces: Vec<PubNonce>,
-        peer: Option<oneshot::Sender<Vec<u8>>>,
-    ) {
+    pub async fn send_musig2_nonces(&self, session_id: SessionId, pub_nonces: Vec<PubNonce>) {
         let msg = UnsignedPublishMessage::Musig2NoncesExchange {
             session_id,
             pub_nonces,
         };
-        self.dispatch(msg, peer, "MuSig2 nonces exchange message")
-            .await;
+        self.dispatch(msg, "MuSig2 nonces exchange message").await;
     }
 
     /// Sends a MuSig2 signatures exchange message to the network.
@@ -152,13 +124,12 @@ impl MessageHandler {
         &self,
         session_id: SessionId,
         partial_sigs: Vec<PartialSignature>,
-        peer: Option<oneshot::Sender<Vec<u8>>>,
     ) {
         let msg = UnsignedPublishMessage::Musig2SignaturesExchange {
             session_id,
             partial_sigs,
         };
-        self.dispatch(msg, peer, "MuSig2 signatures exchange message")
+        self.dispatch(msg, "MuSig2 signatures exchange message")
             .await;
     }
 
