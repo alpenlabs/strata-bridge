@@ -38,11 +38,14 @@ pub(crate) struct Operator {
 }
 
 impl Operator {
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn new(
         keypair: SecpKeypair,
+        #[allow(unused)] allowlist: Vec<PeerId>,
         connect_to: Vec<Multiaddr>,
         local_addr: Multiaddr,
         cancel: CancellationToken,
+        #[allow(unused)] signers_allowlist: Vec<P2POperatorPubKey>,
         dial_timeout: Option<Duration>,
         general_timeout: Option<Duration>,
         connection_check_interval: Option<Duration>,
@@ -52,7 +55,9 @@ impl Operator {
             idle_connection_timeout: Duration::from_secs(30),
             max_retries: Some(5),
             listening_addrs: vec![local_addr],
+            //allowlist,
             connect_to,
+            //signers_allowlist,
             dial_timeout,
             general_timeout,
             connection_check_interval,
@@ -115,6 +120,11 @@ impl Setup {
 
         let cancel = CancellationToken::new();
         let mut operators = Vec::new();
+        let signers_allowlist: Vec<P2POperatorPubKey> = keypairs
+            .clone()
+            .into_iter()
+            .map(|kp| kp.public().clone().into())
+            .collect();
 
         for (idx, (keypair, addr)) in keypairs.iter().zip(&multiaddresses).enumerate() {
             let mut other_addrs = multiaddresses.clone();
@@ -124,9 +134,11 @@ impl Setup {
 
             let operator = Operator::new(
                 keypair.clone(),
+                other_peerids,
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),
+                signers_allowlist.clone(),
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(500)),
@@ -173,9 +185,11 @@ impl Setup {
 
             let operator = Operator::new(
                 keypair.clone(),
+                other_peerids,
                 other_addrs,
                 addr.clone(),
                 cancel.child_token(),
+                signers_allowlist.clone(),
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(500)),
