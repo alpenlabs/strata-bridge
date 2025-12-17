@@ -2,3 +2,4 @@ export RUST_LOG=debug,sled=info,hyper=warn,soketto=warn,jsonrpsee-server=warn,mi
 export NO_COLOR=1
 export RUST_BACKTRACE=1
 export LOG_LEVEL=info
+export ZKVM_MOCK=1

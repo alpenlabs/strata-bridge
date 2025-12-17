@@ -1,5 +1,7 @@
 import flexitest
 
+from utils.utils import wait_until_bridge_ready
+
 from .base_env import BaseEnv
 
 
@@ -34,8 +36,8 @@ class BridgeNetworkEnv(BaseEnv):
             # Fund operator
             self.fund_operator(brpc, bridge_operator.props, wallet_addr)
 
-            # HACK: Find this fix
-            import time
-            time.sleep(5)
+            # bridge_operator rpc
+            rpc = bridge_operator.create_rpc()
+            wait_until_bridge_ready(rpc)
 
         return flexitest.LiveEnv(svcs)
