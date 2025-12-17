@@ -161,8 +161,8 @@ impl BitcoinNode {
     ///
     /// 200 blocks are mined, so the coinbases of blocks 0..100 become mature.
     /// These coinbases are owned by the wallet and can be used to fund transaction inputs.
-    // NOTE: 100 spendable coinbase outputs should be enough for most unit tests.
-    //       Tests that run out of coinbases can mine more blocks.
+    // NOTE: (@uncomputable) 100 spendable coinbase outputs should be enough for most unit tests.
+    //                       Tests that run out of coinbases can mine more blocks.
     pub(crate) fn new() -> Self {
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
