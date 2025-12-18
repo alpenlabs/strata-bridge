@@ -1,6 +1,6 @@
 //! This module contains the claim transaction.
 
-use bitcoin::{absolute, transaction::Version, OutPoint, Transaction, TxOut};
+use bitcoin::{absolute, transaction::Version, Amount, OutPoint, Transaction, TxOut};
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
@@ -38,8 +38,10 @@ impl ClaimTx {
         data: ClaimData,
         claim_contest_connector: ClaimContestConnector,
         claim_payout_connector: ClaimPayoutConnector,
-        cpfp_connector: CpfpConnector,
     ) -> Self {
+        debug_assert!(claim_contest_connector.network() == claim_payout_connector.network());
+        let cpfp_connector = CpfpConnector::new(claim_contest_connector.network(), Amount::ZERO);
+
         let input = create_tx_ins([data.claim_funds]);
         let output = vec![
             claim_contest_connector.tx_out(),
