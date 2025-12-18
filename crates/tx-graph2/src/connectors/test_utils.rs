@@ -123,7 +123,7 @@ pub(crate) trait Signer: Sized {
         let prevouts = Prevouts::All(&utxos);
         let input_index = 0;
         let signing_info =
-            connector.get_signing_info(spend_path, &mut cache, prevouts, input_index);
+            connector.get_signing_info(&mut cache, prevouts, spend_path, input_index);
         let witness = signer.sign_leaf(spend_path, signing_info);
 
         let mut psbt = Psbt::from_unsigned_tx(spending_tx).unwrap();

@@ -151,9 +151,9 @@ pub trait Connector {
     /// via the given spending path.
     fn get_signing_info(
         &self,
-        spend_path: Self::SpendPath,
         cache: &mut SighashCache<&Transaction>,
         prevouts: Prevouts<'_, TxOut>,
+        spend_path: Self::SpendPath,
         input_index: usize,
     ) -> SigningInfo {
         // NOTE: (@uncomputable)
@@ -224,9 +224,9 @@ pub trait Connector {
     /// [BIP 342](https://github.com/bitcoin/bips/blob/master/bip-0342.mediawiki#common-signature-message-extension).
     fn get_sighashes_with_code_separator(
         &self,
-        spend_path: Self::SpendPath,
         cache: &mut SighashCache<&Transaction>,
         prevouts: Prevouts<'_, TxOut>,
+        spend_path: Self::SpendPath,
         input_index: usize,
     ) -> impl IntoIterator<Item = Message> {
         // NOTE: (@uncomputable)

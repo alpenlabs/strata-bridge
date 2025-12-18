@@ -122,9 +122,9 @@ impl PresignedTx<1> for DepositTx {
     fn signing_info(&self) -> [SigningInfo; 1] {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
         [self.deposit_request_connector.get_signing_info(
-            TimelockedSpendPath::Normal,
             &mut cache,
             Prevouts::All(&self.prevouts),
+            TimelockedSpendPath::Normal,
             0,
         )]
     }

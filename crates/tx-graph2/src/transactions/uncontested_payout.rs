@@ -145,21 +145,21 @@ impl PresignedTx<3> for UncontestedPayoutTx {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
         [
             self.deposit_connector.get_signing_info(
-                NOfNSpend,
                 &mut cache,
                 Prevouts::All(&self.prevouts),
+                NOfNSpend,
                 0,
             ),
             self.claim_contest_connector.get_signing_info(
-                ClaimContestSpendPath::Uncontested,
                 &mut cache,
                 Prevouts::All(&self.prevouts),
+                ClaimContestSpendPath::Uncontested,
                 1,
             ),
             self.claim_payout_connector.get_signing_info(
-                ClaimPayoutSpendPath::Payout,
                 &mut cache,
                 Prevouts::All(&self.prevouts),
+                ClaimPayoutSpendPath::Payout,
                 2,
             ),
         ]
