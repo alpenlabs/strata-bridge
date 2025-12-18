@@ -3,7 +3,10 @@
 use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::{
+    connectors::{Connector, TaprootWitness},
+    transactions::prelude::ContestTx,
+};
 
 /// Connector output between `Claim` and:
 /// 1. `Contest`
@@ -77,9 +80,7 @@ impl Connector for ClaimContestConnector {
 
     fn value(&self) -> Amount {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
-        // TODO: (@uncomputable): Replace magic number 3 with constant from contest transaction,
-        // once the code exists
-        minimal_non_dust * (3 * self.n_watchtowers() as u64)
+        minimal_non_dust * u64::from(ContestTx::n_taproot_outputs(self.n_watchtowers() as u32))
     }
 
     fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
