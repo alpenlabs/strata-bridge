@@ -6,8 +6,8 @@ use secp256k1::{schnorr, XOnlyPublicKey};
 use crate::connectors::{Connector, TaprootWitness};
 
 /// Connector output between `Claim` and:
-/// 1. `UncontestedPayout`, and
-/// 2. `Contest`.
+/// 1. `Contest`
+/// 2. `Uncontested Payout`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimContestConnector {
     network: Network,

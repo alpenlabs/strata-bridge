@@ -12,6 +12,10 @@ use crate::connectors::{Connector, TaprootWitness};
 /// The output requires a series of operator signatures for spending.
 /// Each operator signature comes from an adaptor,
 /// which publishes one byte of counterproof data (including public values).
+///
+/// The connector's structure is the same for each watchtower,
+/// because its locking script doesn't include any watchtower keys.
+/// This means that the same connector can be _reused_ across watchtowers.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ContestCounterproofOutput {
     network: Network,

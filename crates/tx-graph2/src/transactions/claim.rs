@@ -14,7 +14,7 @@ use crate::{
 /// Data that is needed to construct a [`ClaimTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimData {
-    /// The outpoint of the UTXO that funds the claim transaction.
+    /// UTXO that funds the claim transaction.
     pub claim_funds: OutPoint,
 }
 
