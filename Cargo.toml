@@ -97,6 +97,9 @@ strata-rpc-api = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc4
 strata-rpc-types = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 strata-state = { git = "https://github.com/alpenlabs/alpen.git", rev = "dbffc47d8bde81fc713814ee314ea8ab86c98be6" }
 
+# Dependencies from alpenlabs/alpen pinned tp commit b016495 (main @ 2025-12-17)
+strata-asm-txs-bridge-v1 = { git = "https://github.com/alpenlabs/alpen.git", rev = "b016495114050409e831898436d7d0ac04df8d82" }
+
 # Dependencies from alpenlabs/strata-common pinned to commit f25751bd (main @ 2024-11-23)
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", rev = "f25751bd58cec1c343a9d2044215e57b4850f66e" }
 
