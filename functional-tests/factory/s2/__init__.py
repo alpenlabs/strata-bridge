@@ -73,7 +73,7 @@ def generate_s2_config(output_path: str, mtls_cred: str, seed_file: str, s2_port
             cert=str(mtls_dir / "cert.pem"),
             ca=str(mtls_dir / "bridge.ca.pem"),
         ),
-        transport=TransportConfig(addr=f"0.0.0.0:{s2_port}"),
+        transport=TransportConfig(addr=f"127.0.0.1:{s2_port}"),
     )
 
     with open(output_path, "w") as f:
