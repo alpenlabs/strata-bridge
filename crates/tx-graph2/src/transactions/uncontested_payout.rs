@@ -184,8 +184,7 @@ mod tests {
     use crate::{
         connectors::{
             prelude::{
-                ClaimContestConnector, ClaimPayoutConnector, CpfpConnector,
-                DepositRequestConnector, NOfNConnector,
+                ClaimContestConnector, ClaimPayoutConnector, DepositRequestConnector, NOfNConnector,
             },
             test_utils::BitcoinNode,
         },
@@ -236,7 +235,6 @@ mod tests {
         );
         let claim_payout_connector =
             ClaimPayoutConnector::new(NETWORK, n_of_n_pubkey, admin_pubkey, unstaking_image);
-        let cpfp_connector = CpfpConnector::new(NETWORK, Amount::ZERO);
 
         // Create a transaction that funds the deposit and claim inputs.
         //
@@ -309,7 +307,6 @@ mod tests {
             claim_data,
             claim_contest_connector.clone(),
             claim_payout_connector,
-            cpfp_connector,
         );
         let signed_claim_tx = node.sign(claim_tx.tx());
         let signed_claim_child_tx = node.create_cpfp_child(&claim_tx, FEE * 2);
