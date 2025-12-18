@@ -5,7 +5,7 @@ import tempfile
 BINARY_PATH = "dev-cli"
 EE_ADDRESS = "70997970C51812dc3A010C7d01b50e0d17dc79C8"
 
-PARAMS_TEMPLATE = """network = "regtest"
+DEV_CLI_PARAMS_TEMPLATE = """network = "regtest"
 bridge_out_addr = "0x5400000000000000000000000000000000000001"
 deposit_amount = 1_000_000_000                                 # 10 BTC
 stake_amount = 100_000_000                                     # 1 BTC
@@ -33,7 +33,7 @@ class DevCli:
             keys_str += f'  "{key}",\n'
         keys_str += "]"
 
-        params_content = PARAMS_TEMPLATE.format(musig2_keys=keys_str)
+        params_content = DEV_CLI_PARAMS_TEMPLATE.format(musig2_keys=keys_str)
 
         params_path = os.path.join(self.temp_dir, "params.toml")
         with open(params_path, "w") as f:
@@ -74,5 +74,4 @@ class DevCli:
         ]
 
         res = self._run_command(args)
-        print("got res ", res)
         return res

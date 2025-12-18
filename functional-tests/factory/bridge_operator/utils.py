@@ -19,6 +19,10 @@ from .config_cfg import (
 from .params_cfg import BridgeOperatorParams, Connectors, Keys, Sidesystem, StakeChain, TxGraph
 
 
+def zmq_connection_string(port: int) -> str:
+    return f"tcp://127.0.0.1:{port}"
+
+
 def generate_config_toml(
     bitcoind_props: dict,
     s2_props: dict,
@@ -68,11 +72,11 @@ def generate_config_toml(
         ),
         btc_zmq=BtcZmqConfig(
             bury_depth=2,
-            hashblock_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_hashblock')}",
-            hashtx_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_hashtx')}",
-            rawblock_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_rawblock')}",
-            rawtx_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_rawtx')}",
-            sequence_connection_string=f"tcp://127.0.0.1:{bitcoind_props.get('zmq_sequence')}",
+            hashblock_connection_string=zmq_connection_string(bitcoind_props["zmq_hashblock"]),
+            hashtx_connection_string=zmq_connection_string(bitcoind_props["zmq_hashtx"]),
+            rawblock_connection_string=zmq_connection_string(bitcoind_props["zmq_rawblock"]),
+            rawtx_connection_string=zmq_connection_string(bitcoind_props["zmq_rawtx"]),
+            sequence_connection_string=zmq_connection_string(bitcoind_props["zmq_sequence"]),
         ),
         stake_tx=StakeTxConfig(max_retries=10, retry_delay=Duration(secs=5, nanos=0)),
     )

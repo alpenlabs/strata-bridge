@@ -3,6 +3,7 @@ import time
 import flexitest
 
 from utils.dev_cli import DevCli
+from utils.utils import read_operator_key
 
 
 @flexitest.register
@@ -22,11 +23,7 @@ class BridgeNetworkTest(flexitest.Test):
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoind_props = bitcoind_service.props
 
-        musig2_keys = [
-            "ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
-            "c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77",
-            "ae12cceeee9d4888766b1abb0531f8c66c0629bfc4fabe97e3c0d5d9b4dd3fd7",
-        ]
+        musig2_keys = [read_operator_key(i).MUSIG2_KEY for i in range(num_operators)]
 
         dev_cli = DevCli(bitcoind_props, musig2_keys)
         result = dev_cli.send_deposit_request()
@@ -48,7 +45,6 @@ def wait_until_first_deposit(bridge_rpc, timeout=300):
         depositRequests = bridge_rpc.stratabridge_depositRequests()
         if len(depositRequests) >= 1:
             id = depositRequests[0]
-            print("Abishek got id ", id)
             return id
     raise TimeoutError(f"Timeout after {timeout} seconds waiting for more than one deposit request")
 
@@ -57,7 +53,7 @@ def wait_until_deposit_complete(bridge_rpc, deposit_id, timeout=150):
     elapsed = 0
     while elapsed < timeout:
         deposit_info = bridge_rpc.stratabridge_depositInfo(deposit_id)
-        print("now duties ", deposit_info)
+        print("current duties ", deposit_info)
         if deposit_info.get("status", {}).get("status") == "complete":
             return deposit_info
         time.sleep(10)

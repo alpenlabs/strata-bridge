@@ -8,7 +8,7 @@ from threading import Thread
 
 from bitcoinlib.services.bitcoind import BitcoindClient
 
-from utils.constants import *
+from constants import *
 
 
 @dataclass
@@ -90,7 +90,8 @@ def wait_until(
         try:
             if condition():
                 return
-        except Exception:
+        except Exception as e:
+            logging.debug(f"Condition check failed: {e}")
             pass
 
     raise TimeoutError(f"{error_msg} (timeout: {timeout}s)")
