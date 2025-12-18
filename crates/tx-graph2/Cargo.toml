@@ -8,8 +8,8 @@ workspace = true
 
 [dependencies]
 strata-bridge-primitives.workspace = true
-strata-codec = { git = "https://github.com/alpenlabs/strata-common" }
-strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common" }
+strata-codec.workspace = true
+strata-l1-txfmt.workspace = true
 strata-primitives.workspace = true
 
 bitcoin = { workspace = true, features = ["rand-std"] }

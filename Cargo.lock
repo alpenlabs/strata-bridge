@@ -9463,7 +9463,7 @@ dependencies = [
  "strata-asm-types",
  "strata-btc-types",
  "strata-identifiers",
- "strata-l1-txfmt",
+ "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
  "strata-merkle",
  "strata-msg-fmt",
  "thiserror 2.0.12",
@@ -9478,7 +9478,7 @@ dependencies = [
  "bitcoin",
  "strata-asm-common",
  "strata-identifiers",
- "strata-l1-txfmt",
+ "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
 ]
 
 [[package]]
@@ -9739,8 +9739,8 @@ dependencies = [
  "strata-bridge-common",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
- "strata-codec",
- "strata-l1-txfmt",
+ "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common?rev=7d14bce8341e4b4c18adb27dd3af726fdb05e18c)",
+ "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common?rev=7d14bce8341e4b4c18adb27dd3af726fdb05e18c)",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
  "tracing",
 ]
@@ -9780,7 +9780,7 @@ dependencies = [
  "ssz_derive",
  "strata-checkpoint-types",
  "strata-identifiers",
- "strata-l1-txfmt",
+ "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
  "thiserror 2.0.12",
  "tree_hash",
 ]
@@ -9810,6 +9810,14 @@ dependencies = [
  "strata-crypto",
  "strata-identifiers",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc17)",
+]
+
+[[package]]
+name = "strata-codec"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common?rev=7d14bce8341e4b4c18adb27dd3af726fdb05e18c#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -9868,7 +9876,7 @@ dependencies = [
  "sha2",
  "ssz",
  "ssz_derive",
- "strata-codec",
+ "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
  "tree_hash",
  "zeroize",
 ]
@@ -9883,6 +9891,15 @@ dependencies = [
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
  "thiserror 2.0.12",
  "zeroize",
+]
+
+[[package]]
+name = "strata-l1-txfmt"
+version = "0.1.0"
+source = "git+https://github.com/alpenlabs/strata-common?rev=7d14bce8341e4b4c18adb27dd3af726fdb05e18c#7d14bce8341e4b4c18adb27dd3af726fdb05e18c"
+dependencies = [
+ "bitcoin",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -9903,7 +9920,7 @@ dependencies = [
  "digest 0.10.7",
  "serde",
  "sha2",
- "strata-codec",
+ "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
  "thiserror 2.0.12",
 ]
 
@@ -9987,7 +10004,7 @@ dependencies = [
  "strata-bridge-types",
  "strata-btc-types",
  "strata-identifiers",
- "strata-l1-txfmt",
+ "strata-l1-txfmt 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
  "strata-predicate",
  "thiserror 2.0.12",
 ]
