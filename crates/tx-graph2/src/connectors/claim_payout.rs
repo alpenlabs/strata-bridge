@@ -8,7 +8,9 @@ use secp256k1::{schnorr, XOnlyPublicKey};
 
 use crate::connectors::{Connector, TaprootWitness};
 
-/// Connector output between `Claim` and the payouts.
+/// Connector output between `Claim` and:
+/// 1. `Bridge Proof Timeout`
+/// 2. `Uncontested Payout` / `Contested Payout`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ClaimPayoutConnector {
     network: Network,
