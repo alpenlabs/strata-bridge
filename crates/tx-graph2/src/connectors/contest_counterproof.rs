@@ -203,9 +203,9 @@ mod tests {
 
         let mut it = connector
             .get_sighashes_with_code_separator(
-                ContestCounterproofSpend,
                 &mut cache,
                 prevouts,
+                ContestCounterproofSpend,
                 input_index,
             )
             .into_iter()
