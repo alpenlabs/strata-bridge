@@ -12,7 +12,8 @@ class BridgeNetworkTest(flexitest.Test):
 
     def main(self, ctx: flexitest.RunContext):
         num_operators = 3
-        bridge_rpcs = initialize_bridge_rpcs(ctx, num_operators)
+        bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]
+        bridge_rpcs = [bridge_node.create_rpc() for bridge_node in bridge_nodes]
 
         # Verify operator connectivity
         wait_until_p2p_connected(bridge_rpcs, num_operators)
@@ -89,12 +90,3 @@ def wait_until_p2p_connected(bridge_rpcs, num_operators, timeout=300):
         elapsed += 10
 
     raise TimeoutError(f"Timeout after {timeout} seconds waiting for all operators to be online")
-
-
-def initialize_bridge_rpcs(ctx, num_operators):
-    bridge_rpcs = []
-    for i in range(num_operators):
-        bridge_operator = ctx.get_service(f"bo_{i}")
-        rpc = bridge_operator.create_rpc()
-        bridge_rpcs.append(rpc)
-    return bridge_rpcs

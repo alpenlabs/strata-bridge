@@ -1,6 +1,7 @@
 import flexitest
 
 from utils.service_names import get_operator_dir_name
+from utils.utils import wait_until_bridge_ready
 
 from .base_env import BaseEnv
 
@@ -24,11 +25,17 @@ class BasicEnv(BaseEnv):
         ectx.make_service_dir(bridge_operator_name)
 
         # Create single operator
-        s2_service, bridge_operator = self.create_operator(ectx, operator_idx, bitcoind.props)
-        svcs["s2"] = s2_service
-        svcs["bo"] = bridge_operator
+        s2_service, bridge_node = self.create_operator(ectx, operator_idx, bitcoind.props)
 
         # Fund operator
-        self.fund_operator(brpc, bridge_operator.props, wallet_addr)
+        self.fund_operator(brpc, bridge_node.props, wallet_addr)
+
+        # wait bridge node to be ready
+        bridge_rpc = bridge_node.create_rpc()
+        wait_until_bridge_ready(bridge_rpc)
+
+        # register services
+        svcs["bridge_node"] = bridge_node
+        svcs["s2"] = s2_service
 
         return flexitest.LiveEnv(svcs)
