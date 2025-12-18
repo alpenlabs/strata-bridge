@@ -8,6 +8,7 @@ pub mod bridge_proof;
 pub mod bridge_proof_timeout;
 pub mod claim;
 pub mod contest;
+pub mod contested_payout;
 pub mod counterproof;
 pub mod counterproof_ack;
 pub mod deposit;
