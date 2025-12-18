@@ -2,8 +2,6 @@
 
 import flexitest
 
-from utils.utils import wait_until_bridge_ready
-
 
 @flexitest.register
 class BridgeRpcTest(flexitest.Test):
@@ -11,11 +9,10 @@ class BridgeRpcTest(flexitest.Test):
         ctx.set_env("basic")
 
     def main(self, ctx: flexitest.RunContext):
-        bo = ctx.get_service("bo")
-        borpc = bo.create_rpc()
-        wait_until_bridge_ready(borpc)
+        bridge_node = ctx.get_service("bridge_node")
+        bridge_rpc = bridge_node.create_rpc()
 
-        operators = borpc.stratabridge_bridgeOperators()
+        operators = bridge_rpc.stratabridge_bridgeOperators()
         assert len(operators) == 1
 
         return True

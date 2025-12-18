@@ -29,15 +29,17 @@ class BridgeNetworkEnv(BaseEnv):
 
         # Create operators dynamically based on configuration
         for i in range(self.num_operators):
-            s2_service, bridge_operator = self.create_operator(ectx, i, bitcoind.props)
-            svcs[f"s2_{i}"] = s2_service
-            svcs[f"bo_{i}"] = bridge_operator
+            s2_service, bridge_node = self.create_operator(ectx, i, bitcoind.props)
 
             # Fund operator
-            self.fund_operator(brpc, bridge_operator.props, wallet_addr)
+            self.fund_operator(brpc, bridge_node.props, wallet_addr)
 
-            # bridge_operator rpc
-            rpc = bridge_operator.create_rpc()
-            wait_until_bridge_ready(rpc)
+            # wait bridge node to be ready
+            bridge_rpc = bridge_node.create_rpc()
+            wait_until_bridge_ready(bridge_rpc)
+
+            # register services
+            svcs[f"s2_{i}"] = s2_service
+            svcs[f"bridge_node_{i}"] = bridge_node
 
         return flexitest.LiveEnv(svcs)
