@@ -174,6 +174,7 @@ mod tests {
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
+    use strata_l1_txfmt::MagicBytes;
 
     use super::*;
     use crate::{
@@ -194,6 +195,8 @@ mod tests {
     const UNSTAKING_PREIMAGE: [u8; 32] = [0; 32];
     const DEPOSIT: Amount = Amount::from_sat(100_000_000);
     const FEE: Amount = Amount::from_sat(1_000);
+    const DEPOSIT_IDX: u32 = 0;
+    const MAGIC_BYTES: MagicBytes = *b"alpn";
 
     #[test]
     fn uncontested_payout() {
@@ -259,8 +262,9 @@ mod tests {
         //                                        |-------------------------
         //                                        | 1 btc: deposit connector
         let deposit_data = DepositData {
-            deposit_idx: u32::default(),
+            deposit_idx: DEPOSIT_IDX,
             deposit_request_txid,
+            magic_bytes: MAGIC_BYTES,
         };
         let deposit_tx = DepositTx::new(deposit_data, deposit_connector, deposit_request_connector);
         let signing_info = deposit_tx.signing_info();

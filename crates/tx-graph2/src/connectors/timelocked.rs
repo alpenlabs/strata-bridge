@@ -318,8 +318,6 @@ pub enum TimelockedSpendPath {
 
 // NOTE: (@uncomputable) Sharing the same witness type across connectors
 // keeps the code simple, at the cost of a slightly less clear API.
-// When finalizing transactions, callers will likely never see this type,
-// so it should be fine.
 /// Witness data to spend a timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TimelockedWitness {

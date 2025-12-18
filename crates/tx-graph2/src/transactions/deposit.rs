@@ -6,9 +6,11 @@ use bitcoin::{
     transaction::Version,
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
 };
+use secp256k1::schnorr;
+use strata_asm_txs_bridge_v1::constants::{BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE};
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use strata_codec::Codec;
-use strata_l1_txfmt::{MagicBytes, ParseConfig, SubprotocolId, TagData, TxType};
+use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 
 use crate::{
     connectors::{
@@ -18,9 +20,6 @@ use crate::{
     transactions::{PresignedTx, SigningInfo},
 };
 
-const MAGIC_BYTES: MagicBytes = *b"alpn";
-const SUBPROTOCOL_ID: SubprotocolId = 2;
-const DEPOSIT_TX_TYPE: TxType = 1;
 const DEPOSIT_REQUEST_DEPOSIT_VOUT: u32 = 1;
 
 /// Data that is needed to construct a [`DepositTx`].
@@ -30,6 +29,8 @@ pub struct DepositData {
     pub deposit_idx: u32,
     /// ID of the deposit request transaction.
     pub deposit_request_txid: Txid,
+    /// Magic bytes that identify the bridge.
+    pub magic_bytes: MagicBytes,
 }
 
 impl DepositData {
@@ -39,13 +40,15 @@ impl DepositData {
         let mut aux_data = Vec::new();
         self.deposit_idx.encode(&mut aux_data).unwrap();
 
-        let tag_data = TagData::new(SUBPROTOCOL_ID, DEPOSIT_TX_TYPE, aux_data).unwrap();
-        ParseConfig::new(MAGIC_BYTES)
+        let tag_data = TagData::new(BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE, aux_data).unwrap();
+        ParseConfig::new(self.magic_bytes)
             .encode_script_buf(&tag_data.as_ref())
             .unwrap()
     }
 }
 
+// TODO: (@uncomputable) Check in unit test that deposit tx can be parsed by ASM code
+// https://github.com/alpenlabs/alpen/blob/b016495114050409e831898436d7d0ac04df8d82/crates/asm/txs/bridge-v1/src/deposit/parse.rs#L85
 /// The deposit transaction.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositTx {
@@ -103,7 +106,7 @@ impl DepositTx {
     }
 
     /// Finalizes the transaction with the given witness data.
-    pub fn finalize(self, n_of_n_signature: secp256k1::schnorr::Signature) -> Transaction {
+    pub fn finalize(self, n_of_n_signature: schnorr::Signature) -> Transaction {
         let mut psbt = self.psbt;
         let deposit_request_witness = TimelockedWitness::Normal {
             output_key_signature: n_of_n_signature,
