@@ -14,6 +14,7 @@ pub mod counterproof_ack;
 pub mod deposit;
 pub mod prelude;
 pub mod uncontested_payout;
+pub mod withdrawal_fulfillment;
 
 /// Bitcoin transaction that is the parent in a CPFP fee-bumping scheme.
 pub trait ParentTx {
