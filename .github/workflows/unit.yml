@@ -88,12 +88,6 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install SP1 Toolchain
-        run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash && ~/.sp1/bin/sp1up
-          export PATH=~/.sp1/bin:$PATH
-          cargo prove --version
-
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
         with:
@@ -116,7 +110,6 @@ jobs:
         env:
           DATABASE_URL: sqlite://./operator.db
           RUST_BACKTRACE: 1
-          SKIP_GUEST_BUILD: 1
           RUST_LOG: ${{ github.event.inputs.RUST_LOG || 'warn' }}
 
       - name: Test Summary

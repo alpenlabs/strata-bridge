@@ -8878,15 +8878,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sp1-helper"
-version = "5.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f2603e505865f5c18b16ce5325f879caeeb6307f8a92ae3b1bc837bdfd9af5c"
-dependencies = [
- "sp1-build",
-]
-
-[[package]]
 name = "sp1-lib"
 version = "5.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9557,10 +9548,6 @@ dependencies = [
 [[package]]
 name = "strata-bridge-guest-builder"
 version = "0.1.0"
-dependencies = [
- "sp1-helper",
- "sp1-sdk",
-]
 
 [[package]]
 name = "strata-bridge-p2p-service"
