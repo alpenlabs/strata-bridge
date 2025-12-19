@@ -234,28 +234,34 @@ mod tests {
             ClaimPayoutConnector::new(NETWORK, n_of_n_pubkey, admin_pubkey, unstaking_image);
         let cpfp_connector = CpfpConnector::new(NETWORK);
 
-        // Create a deposit request transaction dummy.
-        // Crucially, the deposit request connector is vout 1.
+        // Create a transaction that funds the deposit and claim inputs.
         //
         // inputs         | outputs
-        // ---------------+---------------------------------------
-        // 50 btc: wallet | 50 btc - 1 btc - fee * 2: wallet
-        //                |---------------------------------------
-        //                | 1 btc + fee: deposit request connector
+        // ---------------+--------------------------------------------------
+        // 50 btc: wallet | 1 btc + fee: deposit request connector
+        //                +--------------------------------------------------
+        //                | (4 + ω)ε sat: wallet
+        //                |--------------------------------------------------
+        //                | 50 btc - 1 btc - fee - (4 + ω)ε sat - fee: wallet
         let input = create_tx_ins([node.next_coinbase_outpoint()]);
         let output = vec![
+            deposit_request_connector.tx_out(),
             TxOut {
-                value: node.coinbase_amount() - deposit_request_connector.value() - FEE,
+                value: claim_contest_connector.value() + claim_payout_connector.value(),
                 script_pubkey: node.wallet_address().script_pubkey(),
             },
-            deposit_request_connector.tx_out(),
+            TxOut {
+                value: node.coinbase_amount()
+                    - deposit_request_connector.value()
+                    - FEE
+                    - claim_contest_connector.value()
+                    - claim_payout_connector.value()
+                    - FEE,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            },
         ];
-        let deposit_request_tx = create_tx(input, output);
-        let deposit_request_txid = node.sign_and_broadcast(&deposit_request_tx);
-        let deposit_request_outpoint = OutPoint {
-            txid: deposit_request_txid,
-            vout: 1,
-        };
+        let funding_tx = create_tx(input, output);
+        let funding_txid = node.sign_and_broadcast(&funding_tx);
         node.mine_blocks(1);
 
         // Create the deposit transaction.
@@ -267,7 +273,10 @@ mod tests {
         //                                        | 1 btc: deposit connector
         let deposit_data = DepositData {
             deposit_idx: DEPOSIT_IDX,
-            deposit_request_outpoint,
+            deposit_request_outpoint: OutPoint {
+                txid: funding_txid,
+                vout: 0,
+            },
             magic_bytes: MAGIC_BYTES,
         };
         let deposit_tx = DepositTx::new(deposit_data, deposit_connector, deposit_request_connector);
@@ -275,31 +284,6 @@ mod tests {
         let n_of_n_signature = signing_info[0].sign(&n_of_n_keypair);
         let signed_deposit_tx = deposit_tx.finalize(n_of_n_signature);
         let deposit_txid = node.sign_and_broadcast(&signed_deposit_tx);
-        node.mine_blocks(1);
-
-        // Create a transaction that funds the claim input.
-        //
-        // inputs         | outputs
-        // ---------------+------------------------------------
-        // 50 btc: wallet | (4 + ω)ε sat: wallet
-        //                |------------------------------------
-        //                | 50 btc - (4 + ω)ε sat - fee: wallet
-        let input = create_tx_ins([node.next_coinbase_outpoint()]);
-        let output = vec![
-            TxOut {
-                value: claim_contest_connector.value() + claim_payout_connector.value(),
-                script_pubkey: node.wallet_address().script_pubkey(),
-            },
-            TxOut {
-                value: node.coinbase_amount()
-                    - claim_contest_connector.value()
-                    - claim_payout_connector.value()
-                    - FEE,
-                script_pubkey: node.wallet_address().script_pubkey(),
-            },
-        ];
-        let funding_tx = create_tx(input, output);
-        let funding_txid = node.sign_and_broadcast(&funding_tx);
         node.mine_blocks(1);
 
         // Create the claim transaction + its CPFP child.
@@ -314,7 +298,7 @@ mod tests {
         let claim_data = ClaimData {
             claim_funds: OutPoint {
                 txid: funding_txid,
-                vout: 0,
+                vout: 1,
             },
         };
         let claim_tx = ClaimTx::new(
