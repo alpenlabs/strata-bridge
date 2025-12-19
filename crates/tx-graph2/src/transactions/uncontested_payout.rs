@@ -252,6 +252,10 @@ mod tests {
         ];
         let deposit_request_tx = create_tx(input, output);
         let deposit_request_txid = node.sign_and_broadcast(&deposit_request_tx);
+        let deposit_request_outpoint = OutPoint {
+            txid: deposit_request_txid,
+            vout: 1,
+        };
         node.mine_blocks(1);
 
         // Create the deposit transaction.
@@ -263,7 +267,7 @@ mod tests {
         //                                        | 1 btc: deposit connector
         let deposit_data = DepositData {
             deposit_idx: DEPOSIT_IDX,
-            deposit_request_txid,
+            deposit_request_outpoint,
             magic_bytes: MAGIC_BYTES,
         };
         let deposit_tx = DepositTx::new(deposit_data, deposit_connector, deposit_request_connector);
