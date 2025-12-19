@@ -51,7 +51,7 @@ impl DepositData {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositTx {
     psbt: Psbt,
-    prevouts: [TxOut; 1],
+    prevouts: [TxOut; Self::N_INPUTS],
     deposit_connector: NOfNConnector,
     deposit_request_connector: DepositRequestConnector,
 }
@@ -61,6 +61,8 @@ impl DepositTx {
     pub const HEADER_VOUT: u32 = 0;
     /// Index of the deposit connector.
     pub const DEPOSIT_VOUT: u32 = 1;
+    /// Number of transaction inputs.
+    pub const N_INPUTS: usize = 1;
 
     /// Creates a deposit transaction.
     pub fn new(
@@ -113,8 +115,8 @@ impl DepositTx {
     }
 }
 
-impl PresignedTx<1> for DepositTx {
-    fn signing_info(&self) -> [SigningInfo; 1] {
+impl PresignedTx<{ Self::N_INPUTS }> for DepositTx {
+    fn signing_info(&self) -> [SigningInfo; Self::N_INPUTS] {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
         [self.deposit_request_connector.get_signing_info(
             &mut cache,
