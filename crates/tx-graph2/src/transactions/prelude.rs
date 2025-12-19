@@ -2,6 +2,6 @@
 
 pub use super::{
     bridge_proof::*, bridge_proof_timeout::*, claim::*, contest::*, contested_payout::*,
-    counterproof::*, counterproof_ack::*, deposit::*, uncontested_payout::*,
+    counterproof::*, counterproof_ack::*, deposit::*, slash::*, uncontested_payout::*,
     withdrawal_fulfillment::*,
 };

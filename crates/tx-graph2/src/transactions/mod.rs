@@ -13,6 +13,7 @@ pub mod counterproof;
 pub mod counterproof_ack;
 pub mod deposit;
 pub mod prelude;
+pub mod slash;
 pub mod uncontested_payout;
 pub mod withdrawal_fulfillment;
 
