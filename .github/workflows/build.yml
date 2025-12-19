@@ -77,12 +77,6 @@ jobs:
       - name: Install sqlx-cli
         run: cargo install sqlx-cli --locked
 
-      - name: Install SP1 Toolchain
-        run: |
-          curl -fsSL --proto '=https' --tlsv1.2 https://sp1.succinct.xyz | bash && ~/.sp1/bin/sp1up
-          export PATH=~/.sp1/bin:$PATH
-          cargo prove --version
-
       - name: Run db migrations
         run: just migrate
 
@@ -90,4 +84,3 @@ jobs:
         run: cargo hack check
         env:
           DATABASE_URL: sqlite://./operator.db
-          SKIP_GUEST_BUILD: 1
