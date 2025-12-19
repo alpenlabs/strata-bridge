@@ -4,7 +4,7 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
+    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxOut,
 };
 use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::constants::{BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE};
@@ -20,15 +20,13 @@ use crate::{
     transactions::{PresignedTx, SigningInfo},
 };
 
-const DEPOSIT_REQUEST_DEPOSIT_VOUT: u32 = 1;
-
 /// Data that is needed to construct a [`DepositTx`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositData {
     /// Deposit index.
     pub deposit_idx: u32,
-    /// ID of the deposit request transaction.
-    pub deposit_request_txid: Txid,
+    /// Outpoint of the deposit request transaction.
+    pub deposit_request_outpoint: OutPoint,
     /// Magic bytes that identify the bridge.
     pub magic_bytes: MagicBytes,
 }
@@ -72,10 +70,7 @@ impl DepositTx {
     ) -> Self {
         debug_assert!(deposit_connector.internal_key() == deposit_request_connector.internal_key());
 
-        let utxos = [OutPoint {
-            txid: data.deposit_request_txid,
-            vout: DEPOSIT_REQUEST_DEPOSIT_VOUT,
-        }];
+        let utxos = [data.deposit_request_outpoint];
         let prevouts = [deposit_request_connector.tx_out()];
         let input = create_tx_ins(utxos);
         let output = vec![
