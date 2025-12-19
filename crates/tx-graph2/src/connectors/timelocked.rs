@@ -11,10 +11,16 @@
 
 use std::num::NonZero;
 
-use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
+use bitcoin::{
+    opcodes,
+    psbt::Input,
+    relative, script,
+    sighash::{Prevouts, SighashCache},
+    Amount, Network, ScriptBuf, Transaction, TxOut,
+};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
-use crate::connectors::{Connector, TaprootWitness};
+use crate::connectors::{Connector, SigningInfo, TaprootWitness};
 
 /// Generic timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -166,27 +172,54 @@ impl ContestProofConnector {
         game_index: NonZero<u32>,
         proof_timelock: relative::LockTime,
     ) -> Self {
-        let mut tweak_bytes = [0u8; 32];
-        tweak_bytes[28..32].copy_from_slice(&game_index.get().to_be_bytes());
-        let game_index_tweak = Scalar::from_be_bytes(tweak_bytes)
-            .expect("the game index must be less than the secp curve order");
+        let operator_key_tweak = Self::operator_key_tweak(game_index);
         // This can only fail if the private key of operator_pubkey equals
         // (curve_order - game_index), which is cryptographically impossible
         // for honestly-generated keys.
-        let internal_pubkey = operator_pubkey
-            .add_tweak(SECP256K1, &game_index_tweak)
+        let internal_key = operator_pubkey
+            .add_tweak(SECP256K1, &operator_key_tweak)
             .expect("tweak is valid")
             .0;
 
         let mut inner = TimelockedConnector {
             network,
-            internal_key: internal_pubkey,
+            internal_key,
             timelocked_key: n_of_n_pubkey,
             timelock: proof_timelock,
             value: Amount::ZERO,
         };
         inner.value = inner.script_pubkey().minimal_non_dust();
         Self(inner)
+    }
+
+    /// Computes the tap tweak for the operator key.
+    pub fn operator_key_tweak(game_index: NonZero<u32>) -> Scalar {
+        let mut tweak_bytes = [0u8; 32];
+        tweak_bytes[28..32].copy_from_slice(&game_index.get().to_be_bytes());
+        Scalar::from_be_bytes(tweak_bytes)
+            .expect("the game index must be less than the secp curve order")
+    }
+
+    /// Helper method to get the signing info of the first input
+    /// of the bridge proof transaction.
+    pub fn signing_info_bridge_proof(
+        &self,
+        cache: &mut SighashCache<&Transaction>,
+        prevouts: Prevouts<'_, TxOut>,
+    ) -> SigningInfo {
+        self.get_signing_info(cache, prevouts, TimelockedSpendPath::Normal, 0)
+    }
+
+    /// Helper method to finalize the first input of the bridge proof transaction.
+    pub fn partially_finalize_bridge_proof(
+        &self,
+        input: &mut Input,
+        operator_signature: schnorr::Signature,
+    ) {
+        let witness = TimelockedWitness::Normal {
+            output_key_signature: operator_signature,
+        };
+        self.finalize_input(input, &witness);
     }
 }
 
