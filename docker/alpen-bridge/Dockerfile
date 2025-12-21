@@ -5,12 +5,9 @@ FROM --platform=linux/amd64 bridge-base:latest AS builder
 COPY bin/alpen-bridge bin/alpen-bridge
 
 # Build bridge node
-RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/root/.cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo b -r -p alpen-bridge
+RUN cargo b -r -p alpen-bridge
 
-RUN --mount=type=cache,target=/app/target cp /app/target/release/alpen-bridge /app/alpen-bridge
+RUN cp /app/target/release/alpen-bridge /app/alpen-bridge
 
 FROM --platform=linux/amd64 bridge-rt:latest AS runtime
 

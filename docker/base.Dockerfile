@@ -21,13 +21,7 @@ RUN cargo +succinct --version
 COPY . .
 
 # Download external deps
-RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/root/.cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo fetch
+RUN cargo fetch
 
 # Build deps and everything except binaries
-RUN --mount=type=cache,target=/root/.cargo/registry \
-    --mount=type=cache,target=/root/.cargo/git \
-    --mount=type=cache,target=/app/target \
-    cargo b -r --workspace $(ls bin | grep -v / | xargs -I{} echo "--exclude {}")
+RUN cargo b -r --workspace $(ls bin | grep -v / | xargs -I{} echo "--exclude {}")
