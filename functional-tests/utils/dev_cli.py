@@ -62,7 +62,7 @@ class DevCli:
         args = [
             "bridge-in",
             "--btc-url",
-            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",  # <-- add /wallet/<name>
+            f"http://127.0.0.1:{rpc_port}/wallet/{wallet}",
             "--btc-user",
             self.bitcoind_props.get("rpc_user", "user"),
             "--btc-pass",

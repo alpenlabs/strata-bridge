@@ -1,6 +1,7 @@
 import flexitest
-
 from utils.utils import wait_until_bridge_ready
+
+from constants import BRIDGE_NETWORK_SIZE
 
 from .base_env import BaseEnv
 
@@ -10,14 +11,17 @@ class BridgeNetworkEnv(BaseEnv):
 
     def __init__(
         self,
-        num_operators,
         p2p_port_generator,
         funding_amount=5.01,
         initial_blocks=101,
         finalization_blocks=10,
     ):
         super().__init__(
-            num_operators, p2p_port_generator, funding_amount, initial_blocks, finalization_blocks
+            BRIDGE_NETWORK_SIZE,
+            p2p_port_generator,
+            funding_amount,
+            initial_blocks,
+            finalization_blocks,
         )
 
     def init(self, ectx: flexitest.EnvContext) -> flexitest.LiveEnv:

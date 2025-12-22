@@ -1,9 +1,10 @@
 import time
 
 import flexitest
-
-from utils.dev_cli import DevCli
 from utils.utils import read_operator_key
+
+from constants import BRIDGE_NETWORK_SIZE
+from utils.dev_cli import DevCli
 
 
 @flexitest.register
@@ -12,7 +13,7 @@ class BridgeNetworkTest(flexitest.Test):
         ctx.set_env("network")
 
     def main(self, ctx: flexitest.RunContext):
-        num_operators = 3
+        num_operators = BRIDGE_NETWORK_SIZE
         bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]
         bridge_rpcs = [bridge_node.create_rpc() for bridge_node in bridge_nodes]
 
@@ -30,14 +31,14 @@ class BridgeNetworkTest(flexitest.Test):
         print(f"Deposit request result: {result}")
 
         bridge_rpc = bridge_rpcs[0]
-        id = wait_until_first_deposit(bridge_rpc)
+        id = wait_until_drt_recognized(bridge_rpc)
 
         wait_until_deposit_complete(bridge_rpc, id)
 
         return True
 
 
-def wait_until_first_deposit(bridge_rpc, timeout=300):
+def wait_until_drt_recognized(bridge_rpc, timeout=300):
     elapsed = 0
     while elapsed < timeout:
         time.sleep(10)
