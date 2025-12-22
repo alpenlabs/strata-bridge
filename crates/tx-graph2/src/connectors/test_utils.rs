@@ -155,10 +155,8 @@ impl BitcoinNode {
     // TODO: (@uncomputable) Pass Option<Conf> argument?
     /// Creates a new bitcoin node.
     ///
-    /// 200 blocks are mined, so the coinbases of blocks 0..100 become mature.
+    /// 110 blocks are mined, so the coinbases of blocks 0..10 become mature.
     /// These coinbases are owned by the wallet and can be used to fund transaction inputs.
-    // NOTE: (@uncomputable) 100 spendable coinbase outputs should be enough for most unit tests.
-    //                       Tests that run out of coinbases can mine more blocks.
     pub(crate) fn new() -> Self {
         let mut conf = Conf::default();
         conf.args.push("-txindex=1");
@@ -170,7 +168,7 @@ impl BitcoinNode {
             node: bitcoind,
             coinbase_txids: VecDeque::new(),
         };
-        node.mine_blocks(200);
+        node.mine_blocks(110);
         node
     }
 
