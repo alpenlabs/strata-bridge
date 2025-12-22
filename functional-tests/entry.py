@@ -46,7 +46,7 @@ def main(argv):
 
     # Register envs
     basic_env = BasicEnv(p2p_port_generator=p2p_gen)
-    network_env = BridgeNetworkEnv(num_operators=BRIDGE_NETWORK_SIZE, p2p_port_generator=p2p_gen)
+    network_env = BridgeNetworkEnv(p2p_port_generator=p2p_gen)
     env_configs = {"basic": basic_env, "network": network_env}
 
     # Set up the runtime and prepare tests.

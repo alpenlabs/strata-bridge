@@ -2,10 +2,11 @@ import os
 from pathlib import Path
 
 import flexitest
-
-from rpc import inject_service_create_rpc
-from utils.service_names import BRIDGE_NODE_DIR, get_mtls_cred_path, get_operator_service_name
 from utils.utils import OperatorKeyInfo
+
+from constants import BRIDGE_NODE_DIR
+from rpc import inject_service_create_rpc
+from utils.service_names import get_mtls_cred_path, get_operator_service_name
 
 from .utils import generate_config_toml, generate_params_toml
 

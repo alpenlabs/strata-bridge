@@ -2,9 +2,6 @@
 Service naming constants and utilities for functional tests.
 """
 
-BRIDGE_NODE_DIR = "bridge_node"
-SECRET_SERVICE_DIR = "secret_service"
-
 
 def get_operator_service_name(operator_idx: int, service_type: str) -> str:
     """

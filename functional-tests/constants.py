@@ -1,4 +1,6 @@
 DD_ROOT = "_dd"
 TEST_DIR: str = "tests"
+BRIDGE_NODE_DIR = "bridge_node"
+SECRET_SERVICE_DIR = "secret_service"
 BLOCK_GENERATION_INTERVAL_SECS = 5
 BRIDGE_NETWORK_SIZE = 3

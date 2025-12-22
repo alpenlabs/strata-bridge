@@ -1,7 +1,7 @@
 import flexitest
+from utils.utils import wait_until_bridge_ready
 
 from utils.service_names import get_operator_dir_name
-from utils.utils import wait_until_bridge_ready
 
 from .base_env import BaseEnv
 

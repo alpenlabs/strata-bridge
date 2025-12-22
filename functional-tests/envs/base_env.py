@@ -1,11 +1,11 @@
 import flexitest
+from utils.utils import read_operator_key
 
 from utils import (
     BLOCK_GENERATION_INTERVAL_SECS,
     generate_blocks,
     wait_until_bitcoind_ready,
 )
-from utils.utils import read_operator_key
 
 
 class BaseEnv(flexitest.EnvConfig):

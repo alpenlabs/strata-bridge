@@ -1,3 +1,0 @@
-DD_ROOT = "_dd"
-TEST_DIR: str = "tests"
-BLOCK_GENERATION_INTERVAL_SECS = 5
