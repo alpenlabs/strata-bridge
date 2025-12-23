@@ -1,4 +1,4 @@
-exclude = ["target/**/*.toml"]
+exclude = ["target/**/*.toml", "functional-tests/_dd/**/*.toml"]
 
 [formatting]
 reorder_keys = false
