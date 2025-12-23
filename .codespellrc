@@ -1,3 +1,3 @@
 [codespell]
-skip = .git,target,Cargo.toml,Cargo.lock,mutants*,./bin/assert-splitter/src/chunker_primitives.rs,*.bin,*.borsh,seed,*.pem,*.bak
+skip = .git,target,Cargo.toml,Cargo.lock,mutants*,./bin/assert-splitter/src/chunker_primitives.rs,*.bin,*.borsh,seed,*.pem,*.bak,./functional-tests/_dd/*
 ignore-words-list = crate,ser,ment,groth
