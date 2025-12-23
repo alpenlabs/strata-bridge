@@ -48,6 +48,8 @@ impl ContestTx {
     pub const PAYOUT_VOUT: u32 = 1;
     /// Index of the slash output.
     pub const SLASH_VOUT: u32 = 2;
+    /// Index of the counterproof output of watchtower 0.
+    pub const WATCHTOWER_0_VOUT: u32 = 3;
     /// Number of transaction inputs.
     pub const N_INPUTS: usize = 1;
 
@@ -120,17 +122,18 @@ impl ContestTx {
 
     /// Returns the index of the counterproof output of the given watchtower.
     pub const fn counterproof_vout(watchtower_index: u32) -> u32 {
-        3 + watchtower_index
+        Self::WATCHTOWER_0_VOUT + watchtower_index
     }
 
     /// Returns the index of the CPFP output.
     pub const fn cpfp_vout(n_watchtowers: u32) -> u32 {
-        3 + n_watchtowers
+        Self::WATCHTOWER_0_VOUT + n_watchtowers
     }
 
     /// Returns the number of Taproot transaction outputs.
     pub const fn n_taproot_outputs(n_watchtowers: u32) -> u32 {
-        3 + n_watchtowers
+        // The CPFP output is not a Taproot output, so it's not counted.
+        Self::WATCHTOWER_0_VOUT + n_watchtowers
     }
 
     /// Get the signing info for each transaction input.

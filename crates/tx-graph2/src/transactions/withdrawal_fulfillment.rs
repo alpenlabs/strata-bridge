@@ -33,17 +33,19 @@ impl WithdrawalFulfillmentData {
     /// the SPS-50 header of the withdrawal fulfillment transaction.
     pub fn header_leaf_script(&self) -> ScriptBuf {
         let mut aux_data = Vec::new();
-        self.deposit_idx.encode(&mut aux_data).unwrap();
-
+        self.deposit_idx
+            .encode(&mut aux_data)
+            .expect("deposit index should be encodable");
         let tag_data = TagData::new(
             BRIDGE_V1_SUBPROTOCOL_ID,
             WITHDRAWAL_FULFILLMENT_TX_TYPE,
             aux_data,
         )
-        .unwrap();
+        .expect("aux data should not be too long");
+
         ParseConfig::new(self.magic_bytes)
             .encode_script_buf(&tag_data.as_ref())
-            .unwrap()
+            .expect("encoding should be valid")
     }
 }
 
