@@ -233,8 +233,8 @@ mod tests {
         transaction, Amount, BlockHash, OutPoint, Psbt, TapLeafHash, TapSighashType, Transaction,
         TxIn, TxOut,
     };
-    use bitcoind_async_client::types::SignRawTransactionWithWallet;
     use corepc_node::{serde_json::json, Conf, Node};
+    use corepc_types::model::SignRawTransactionWithWallet;
     use secp256k1::{Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::generate_keypair;

@@ -109,6 +109,7 @@ pub(crate) async fn bootstrap(
         config.btc_client.pass.to_string(),
         config.btc_client.retry_count,
         config.btc_client.retry_interval,
+        None,
     )?;
 
     // Initialize the operator wallet.

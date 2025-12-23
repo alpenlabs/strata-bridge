@@ -14,11 +14,9 @@ use bitcoin::{
     Amount, Block, BlockHash, CompactTarget, OutPoint, ScriptBuf, Sequence, TapSighashType,
     Transaction, TxIn, TxMerkleNode, TxOut, Txid, Witness,
 };
-use bitcoind_async_client::{
-    types::{ListUnspent, SignRawTransactionWithWallet},
-    Client as BitcoinClient,
-};
+use bitcoind_async_client::Client as BitcoinClient;
 use corepc_node::{serde_json::json, Client, Node};
+use corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
 use musig2::secp256k1::{schnorr, Message};
 use secp256k1::PublicKey;
 use strata_bridge_primitives::secp::EvenSecretKey;
@@ -30,7 +28,7 @@ pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
     env::set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
     let url = bitcoind.rpc_url();
     let (user, password) = get_auth(bitcoind);
-    BitcoinClient::new(url, user, password, None, None).unwrap()
+    BitcoinClient::new(url, user, password, None, None, None).unwrap()
 }
 
 /// Get the authentication credentials for a given `bitcoind` instance.

@@ -7,11 +7,11 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
 };
-use bitcoind_async_client::types::SignRawTransactionWithWallet;
 use corepc_node::{
     serde_json::{self, json},
     Client, Conf, Node,
 };
+use corepc_types::model::SignRawTransactionWithWallet;
 use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use tracing::info;
