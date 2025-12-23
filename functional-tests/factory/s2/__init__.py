@@ -4,10 +4,10 @@ from pathlib import Path
 
 import flexitest
 import toml
-from utils.utils import OperatorKeyInfo
 
 from constants import SECRET_SERVICE_DIR
 from utils.service_names import get_mtls_cred_path, get_operator_service_name
+from utils.utils import OperatorKeyInfo
 
 from .config_cfg import S2Config, TlsConfig, TransportConfig
 

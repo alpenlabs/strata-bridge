@@ -1,7 +1,7 @@
 import flexitest
-from utils.utils import wait_until_bridge_ready
 
 from constants import BRIDGE_NETWORK_SIZE
+from utils.utils import wait_until_bridge_ready
 
 from .base_env import BaseEnv
 
