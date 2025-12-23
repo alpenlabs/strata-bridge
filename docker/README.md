@@ -55,6 +55,25 @@ just clean-docker
 
 This will build the base and runtime images, clean up the database in `docker/vol`, delete old containers and run new ones.
 
+### FoundationDB
+
+The bridge nodes use FoundationDB for persistent storage. The `clean-docker` command automatically:
+
+1. Starts the FoundationDB container first
+2. Waits for it to be healthy
+3. Initializes the database (if not already configured)
+4. Starts the remaining containers
+
+All bridge operators share the same FDB instance but use non-conflicting keyspaces. The initialization is idempotent, so it's safe to run `just clean-docker` multiple times.
+
+The FDB cluster file is pre-configured at `docker/vol/fdb/fdb.cluster` with a static IP (`172.28.0.100:4500`). Data is persisted to `docker/vol/fdb/data`.
+
+If you need to manually initialize or re-initialize FDB, you can run:
+
+```sh
+just init-fdb
+```
+
 ### Updating params and entrypoint script
 
 When running the containers for the first time, the bridge nodes and the bitcoind node will crash.
@@ -138,6 +157,20 @@ just bridge-in
 **Important:** Ensure that the musig2 keys used in dev-cli parameters match those used in bridge operator parameters for consistency.
 
 ## Troubleshooting
+
+### FoundationDB Connection Errors
+
+If bridge nodes fail to connect to FoundationDB, check that:
+
+1. The FDB container is running: `docker ps | grep foundationdb`
+2. The database is initialized: `just init-fdb`
+3. The cluster file exists at `docker/vol/fdb/fdb.cluster`
+
+You can check FDB status with:
+
+```sh
+docker exec strata-bridge-foundationdb-1 fdbcli --exec "status"
+```
 
 ### SP1 Build Errors
 
