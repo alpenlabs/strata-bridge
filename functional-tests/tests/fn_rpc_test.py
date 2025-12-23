@@ -1,11 +1,14 @@
 # Tests server can start correctly
 
 import flexitest
+from envs.base_test import StrataTestBase
+
 
 
 @flexitest.register
-class BridgeRpcTest(flexitest.Test):
+class BridgeRpcTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
+        print("Abishek: Setting up BridgeRpcTest ", ctx, dir(ctx))
         ctx.set_env("basic")
 
     def main(self, ctx: flexitest.RunContext):

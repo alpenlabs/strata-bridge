@@ -1,13 +1,14 @@
 import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE
+from envs.base_test import StrataTestBase
 from utils.dev_cli import DevCli
 from utils.network import wait_until_p2p_connected
 from utils.utils import read_operator_key, wait_until
 
 
 @flexitest.register
-class BridgeNetworkTest(flexitest.Test):
+class BridgeNetworkTest(StrataTestBase):
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env("network")
 
@@ -27,7 +28,7 @@ class BridgeNetworkTest(flexitest.Test):
 
         dev_cli = DevCli(bitcoind_props, musig2_keys)
         result = dev_cli.send_deposit_request()
-        print(f"Deposit request result: {result}")
+        self.info(f"Deposit request result: {result}")
 
         bridge_rpc = bridge_rpcs[0]
         id = wait_until_first_drt_recognized(bridge_rpc)
@@ -62,7 +63,6 @@ def wait_until_deposit_complete(bridge_rpc, deposit_id, timeout=300):
 
     def check_deposit_complete():
         result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
-        print("current duties ", result["deposit_info"])
         return result["deposit_info"].get("status", {}).get("status") == "complete"
 
     wait_until(
