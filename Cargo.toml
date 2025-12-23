@@ -34,7 +34,7 @@ members = [
   "bin/alpen-bridge",
 
   # test utilities
-  "crates/test-utils",
+  "crates/test-utils", "crates/db2",
 ]
 
 default-members = [

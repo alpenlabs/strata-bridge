@@ -23,10 +23,36 @@ x-base-bridge-node: &base-bridge-node
     - SP1_PROOF_STRATEGY=$SP1_PROOF_STRATEGY
     - NETWORK_RPC_URL=$NETWORK_RPC_URL
     - NETWORK_PRIVATE_KEY=$NETWORK_PRIVATE_KEY
+    - FDB_CLUSTER_FILE=/var/fdb/fdb.cluster
   depends_on:
     - bitcoind
+    - foundationdb
 
 services:
+  foundationdb:
+    image: foundationdb/foundationdb:7.3.43
+    environment:
+      - FDB_NETWORKING_MODE=container
+      - FDB_CLUSTER_FILE=/var/fdb/fdb.cluster
+    volumes:
+      - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
+      - ./docker/vol/fdb/data:/var/fdb/data
+    ports:
+      - "4500:4500"
+    networks:
+      bridge:
+        ipv4_address: 172.28.0.100
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "fdbcli --exec 'status minimal' 2>/dev/null | grep -q 'The database is available' || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
   secret-service-1:
     <<: *base-secret-service
     ports:
@@ -45,6 +71,7 @@ services:
     volumes:
       - ./docker/vol/alpen-bridge-1:/app
       - ./migrations:/app/migrations
+      - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
     networks:
       bridge:
         ipv4_address: 172.28.0.5
@@ -67,6 +94,7 @@ services:
     volumes:
       - ./docker/vol/alpen-bridge-2:/app
       - ./migrations:/app/migrations
+      - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
     networks:
       bridge:
         ipv4_address: 172.28.0.6
@@ -89,6 +117,7 @@ services:
     volumes:
       - ./docker/vol/alpen-bridge-3:/app
       - ./migrations:/app/migrations
+      - ./docker/vol/fdb/fdb.cluster:/var/fdb/fdb.cluster:ro
     networks:
       bridge:
         ipv4_address: 172.28.0.7
