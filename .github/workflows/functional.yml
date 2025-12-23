@@ -1,17 +1,7 @@
 name: Run functional tests
 
 on:
-  pull_request:
-  merge_group:
-  push:
-    branches: [main]
-  workflow_dispatch:
-    inputs:
-      RUST_LOG:
-        description: "Log level"
-        required: false
-        default: "info"
-        type: string
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
@@ -87,6 +77,9 @@ jobs:
           echo "PKG_CONFIG_PATH=/usr/local/openssl-3.5/lib64/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
           echo "/usr/local/openssl-3.5/bin" >> "$GITHUB_PATH"
 
+      - name: Cleanup space
+        uses: ./.github/actions/cleanup # zizmor: ignore[unpinned-uses]
+
       - name: Install bitcoind
         env:
           BITCOIND_VERSION: "30.0"
@@ -105,6 +98,16 @@ jobs:
         with:
           components: llvm-tools-preview
           toolchain: ${{ needs.extract-rust-version.outputs.nightly-version }}
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@81ecf985428d5c2ea81dbf079bceca32bc9604ab # v2.62.43
+        with:
+          tool: cargo-llvm-cov
 
       - name: Rust cache
         uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2
@@ -136,9 +139,12 @@ jobs:
           cache-suffix: "functional-tests"
 
       - name: Build Cargo project
+        env:
+          COV_TARGET_DIR: "${{ github.workspace }}/target/llvm-cov-target"
         run: |
-          cargo build --bin alpen-bridge
-          cargo build -p secret-service --bin secret-service
+          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin alpen-bridge --target-dir "$COV_TARGET_DIR"
+          cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
+          cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
 
       - name: Run functional tests
         id: funcTestsRun
@@ -146,9 +152,28 @@ jobs:
         env:
           NO_COLOR: "1"
           LOG_LEVEL: "info"
+          CI_COVERAGE: "1"
         run: |
+          NEWPATH="${{ github.workspace }}/target/llvm-cov-target/debug"
+          export PATH="$NEWPATH:$PATH"
           cd functional-tests
-          ./run_test.sh
+          uv run python entry.py
+      - name: Generate combined coverage lcov
+        id: genFunctionalLcov
+        continue-on-error: true
+        env:
+          # cargo-llvm-cov expects default target dir and adds llvm-cov-target itself
+          CARGO_TARGET_DIR: "${{ github.workspace }}/target"
+          LLVM_PROFILE_FILE: "${{ github.workspace }}/target/llvm-cov-target/strata-%p-%m.profraw"
+        run: |
+          cargo llvm-cov report --lcov > lcov.functional.info
+      - name: Upload coverage lcov artifact
+        if: steps.genFunctionalLcov.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: functional-lcov
+          path: lcov.functional.info
 
       - name: Zip log files on failure
         if: steps.funcTestsRun.outcome == 'failure'
