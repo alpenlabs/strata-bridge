@@ -60,8 +60,8 @@ mod tests {
         transaction::Version,
         Address, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
     };
-    use bitcoind_async_client::types::{ListUnspent, SignRawTransactionWithWallet};
     use corepc_node::{serde_json::json, Conf, Node};
+    use corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
     use secp256k1::{Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
