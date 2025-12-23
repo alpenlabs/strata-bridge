@@ -72,7 +72,7 @@ impl BridgeProofTimeoutTx {
         let mut input = create_tx_ins(utxos);
         input[0].sequence = contest_proof_connector
             .relative_timelock(TimelockedSpendPath::Timeout)
-            .unwrap()
+            .expect("contest proof connector should have a relative timelock")
             .to_sequence();
 
         let output = vec![cpfp_connector.tx_out()];
@@ -100,14 +100,16 @@ impl BridgeProofTimeoutTx {
     /// Finalizes the transaction with the given witness data.
     pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; Self::N_INPUTS]) -> Transaction {
         let mut psbt = self.psbt;
+
         let contest_proof_witness = TimelockedWitness::Timeout {
             timelocked_key_signature: n_of_n_signatures[0],
         };
-        self.contest_proof_connector
-            .finalize_input(&mut psbt.inputs[0], &contest_proof_witness);
         let contest_payout_witness = TimelockedWitness::Normal {
             output_key_signature: n_of_n_signatures[1],
         };
+
+        self.contest_proof_connector
+            .finalize_input(&mut psbt.inputs[0], &contest_proof_witness);
         self.contest_payout_connector
             .finalize_input(&mut psbt.inputs[1], &contest_payout_witness);
 

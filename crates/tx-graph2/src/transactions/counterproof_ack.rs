@@ -77,7 +77,7 @@ impl CounterproofAckTx {
         let mut input = create_tx_ins(utxos);
         input[0].sequence = counterproof_connector
             .relative_timelock(TimelockedSpendPath::Timeout)
-            .unwrap()
+            .expect("counterproof connector should have a relative timelock")
             .to_sequence();
 
         let output = vec![cpfp_connector.tx_out()];

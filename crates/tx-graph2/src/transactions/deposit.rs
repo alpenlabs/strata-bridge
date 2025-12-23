@@ -36,12 +36,15 @@ impl DepositData {
     /// the SPS-50 header of the deposit transaction.
     pub fn header_leaf_script(&self) -> ScriptBuf {
         let mut aux_data = Vec::new();
-        self.deposit_idx.encode(&mut aux_data).unwrap();
+        self.deposit_idx
+            .encode(&mut aux_data)
+            .expect("deposit index should be encodable");
+        let tag_data = TagData::new(BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE, aux_data)
+            .expect("aux data should not be too long");
 
-        let tag_data = TagData::new(BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE, aux_data).unwrap();
         ParseConfig::new(self.magic_bytes)
             .encode_script_buf(&tag_data.as_ref())
-            .unwrap()
+            .expect("encoding should be valid")
     }
 }
 
