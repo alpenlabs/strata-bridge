@@ -32,6 +32,9 @@ members = [
   "crates/tx-graph",
   "crates/tx-graph2",
   "crates/wots",
+  "crates/memory_pprof",
+  "crates/bridge-sm",
+  "crates/db2",
 
   # binaries listed separately
   "bin/secret-service",
