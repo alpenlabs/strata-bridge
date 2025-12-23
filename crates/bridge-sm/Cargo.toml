@@ -1,0 +1,13 @@
+[package]
+name = "strata-bridge-sm"
+version = "0.1.0"
+edition = "2024"
+description = "State machines for the Strata Bridge"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-bridge-primitives.workspace = true
+
+thiserror.workspace = true

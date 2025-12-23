@@ -2176,6 +2176,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "bridge-state-machine"
+version = "0.1.0"
+dependencies = [
+ "strata-bridge-primitives",
+ "thiserror 2.0.12",
+]
+
+[[package]]
 name = "bs58"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9791,6 +9799,14 @@ dependencies = [
  "serde",
  "strata-bridge-primitives",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=dbffc47d8bde81fc713814ee314ea8ab86c98be6)",
+]
+
+[[package]]
+name = "strata-bridge-sm"
+version = "0.1.0"
+dependencies = [
+ "strata-bridge-primitives",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
