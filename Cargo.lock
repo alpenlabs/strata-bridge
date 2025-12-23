@@ -2176,11 +2176,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "bridge-state-machine"
+name = "bridge-exec"
 version = "0.1.0"
 dependencies = [
- "strata-bridge-primitives",
- "thiserror 2.0.12",
+ "bitcoin",
+ "bitcoind-async-client",
+ "btc-tracker",
+ "operator-wallet",
+ "secret-service-client",
+ "strata-bridge-p2p-service",
+ "strata-bridge-sm",
+ "tokio",
 ]
 
 [[package]]

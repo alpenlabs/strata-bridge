@@ -1,0 +1,19 @@
+[package]
+name = "bridge-exec"
+version = "0.1.0"
+edition = "2024"
+description = "Executors for the Strata Bridge"
+
+[lints]
+workspace = true
+
+[dependencies]
+btc-tracker.workspace = true
+operator-wallet.workspace = true
+secret-service-client.workspace = true
+strata-bridge-p2p-service.workspace = true
+strata-bridge-sm.workspace = true
+
+bitcoin.workspace = true
+bitcoind-async-client.workspace = true
+tokio.workspace = true
