@@ -36,6 +36,7 @@ members = [
 
   # test utilities
   "crates/test-utils",
+  "crates/bridge-exec",
 ]
 
 default-members = [
@@ -70,6 +71,7 @@ secret-service-server = { path = "crates/secret-service-server" }
 strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
+strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-primitives = { path = "crates/primitives" }
