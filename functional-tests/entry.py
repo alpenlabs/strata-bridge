@@ -9,6 +9,7 @@ from envs import BasicEnv, BridgeNetworkEnv
 from factory.bitcoin import BitcoinFactory
 from factory.bridge_operator import BridgeOperatorFactory
 from factory.s2 import S2Factory
+from utils.logging import setup_root_logger
 
 
 def main(argv):
@@ -36,6 +37,9 @@ def main(argv):
     # Probe tests.
     modules = flexitest.runtime.scan_dir_for_modules(test_dir)
     tests = flexitest.runtime.load_candidate_modules(modules)
+
+    # Setup root logger
+    setup_root_logger()
 
     # Register factory
     bfac = BitcoinFactory([12300 + i for i in range(100)])
