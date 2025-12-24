@@ -7,3 +7,4 @@
 
 pub mod deposit;
 pub mod signals;
+pub mod state_machine;

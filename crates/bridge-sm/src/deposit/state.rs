@@ -7,18 +7,14 @@
 use std::fmt::Display;
 
 use crate::{
-    deposit::{duties::DepositDuty, errors::DSMResult, events::DepositEvent},
-    signals::Signal,
+    deposit::{
+        duties::DepositDuty,
+        errors::{DSMError, DSMResult},
+        events::DepositEvent,
+    },
+    signals::DepositSignal,
+    state_machine::{SMOutput, StateMachine},
 };
-
-/// The output of the Deposit State Machine after processing an event.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DSMOutput {
-    /// The duties that need to be performed.
-    pub duties: Vec<DepositDuty>,
-    /// The messages that need to be sent to other state machines.
-    pub messages: Vec<Signal>,
-}
 
 /// The state machine for the Deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -76,14 +72,16 @@ impl Default for DepositSM {
     }
 }
 
-impl DepositSM {
-    /// Creates a new [`DepositSM`] in the `Created` state.
-    pub const fn new() -> Self {
-        DepositSM::Created
-    }
+impl StateMachine for DepositSM {
+    type Duty = DepositDuty;
+    type OutgoingSignal = DepositSignal;
+    type Event = DepositEvent;
+    type Error = DSMError;
 
-    /// Receives an event and performs the appropriate state transitions.
-    pub fn process_event(&mut self, event: DepositEvent) -> DSMResult<DSMOutput> {
+    fn process_event(
+        &mut self,
+        event: Self::Event,
+    ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
             DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
@@ -97,6 +95,20 @@ impl DepositSM {
             DepositEvent::PayoutConfirmed => self.process_payout_confirmed(),
             DepositEvent::NewBlock => self.process_new_block(),
         }
+    }
+}
+
+/// The output of the Deposit State Machine after processing an event.
+///
+/// This is a type alias for [`SMOutput`] specialized to the Deposit State Machine's
+/// duty and signal types. This ensures that the Deposit SM can only emit [`DepositDuty`]
+/// duties and [`DepositSignal`] signals.
+pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
+
+impl DepositSM {
+    /// Creates a new [`DepositSM`] in the `Created` state.
+    pub const fn new() -> Self {
+        DepositSM::Created
     }
 
     // **DESIGN PRINCIPLE**
