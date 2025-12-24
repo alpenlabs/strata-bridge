@@ -8,14 +8,48 @@ use strata_bridge_primitives::types::OperatorIdx;
 /// a distinct wire protocol between two state machines.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Signal {
-    /// Messages from the Deposit State Machine to the Graph State Machine.
-    DepositToGraph(DepositToGraph),
+    /// Messages from the Deposit State Machine.
+    FromDeposit(DepositSignal),
 
-    /// Messages from the Graph State Machine to the Deposit State Machine.
-    GraphToDeposit(GraphToDeposit),
+    /// Messages from the Graph State Machine.
+    FromGraph(GraphSignal),
 }
 
-/// The messages that need to be sent from the [Deposit State
+/// Signals that the [Deposit State Machine](crate::deposit::state::DepositSM) can emit.
+///
+/// This enum is type-safe: it only contains signals that the Deposit SM is allowed to produce.
+/// Each variant represents a different destination state machine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DepositSignal {
+    /// Signal to the Graph State Machine.
+    ToGraph(DepositToGraph),
+    // Future: Add other destinations as needed
+}
+
+impl From<DepositSignal> for Signal {
+    fn from(sig: DepositSignal) -> Self {
+        Signal::FromDeposit(sig)
+    }
+}
+
+/// Signals that the Graph State Machine can emit.
+///
+/// This enum is type-safe: it only contains signals that the Graph SM is allowed to produce.
+/// Each variant represents a different destination state machine.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum GraphSignal {
+    /// Signal to the Deposit State Machine.
+    ToDeposit(GraphToDeposit),
+    // Future: Add ToOperator(DepositToOperator), etc.
+}
+
+impl From<GraphSignal> for Signal {
+    fn from(sig: GraphSignal) -> Self {
+        Signal::FromGraph(sig)
+    }
+}
+
+/// The signals that need to be sent from the [Deposit State
 /// Machine](crate::deposit::state::DepositSM) to the Graph State Machine.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DepositToGraph {
@@ -28,7 +62,7 @@ pub enum DepositToGraph {
     },
 }
 
-/// The messages that need to be sent from the Graph State Machine to the [Deposit State
+/// The signals that need to be sent from the Graph State Machine to the [Deposit State
 /// Machine](crate::deposit::state::DepositSM).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum GraphToDeposit {
