@@ -23,4 +23,3 @@ strata-bridge-common.workspace = true
 tracing.workspace = true
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true
-corepc-types.workspace = true

@@ -35,7 +35,6 @@ strata-bridge-types.workspace = true
 
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true
-corepc-types.workspace = true
 rkyv.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

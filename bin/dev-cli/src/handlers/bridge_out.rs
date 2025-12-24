@@ -60,7 +60,7 @@ async fn create_withdrawal_transaction(
     // Send the transaction and listen for the transaction to be included.
     let provider = ProviderBuilder::new()
         .wallet(wallet.clone())
-        .on_http(eth_rpc_url.parse()?);
+        .connect_http(eth_rpc_url.parse()?);
 
     let chain_id = provider.get_chain_id().await?;
     info!(event = "retrieved chain id", %chain_id);

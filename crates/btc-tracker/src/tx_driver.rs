@@ -137,7 +137,7 @@ impl TxDriver {
 
                         if let Ok(tx_data) = rpc_client.get_raw_transaction_verbosity_one(&txid).await {
                             let num_confirmations = tx_data.confirmations.unwrap_or(0);
-                            let block_hash = tx_data.blockhash;
+                            let block_hash = tx_data.block_hash;
                             let block_height = if let Some(block_hash) = block_hash {
                                 // This uses `0` as the default since a block height of `0` does not
                                 // satisfy any practical predicate
@@ -149,12 +149,12 @@ impl TxDriver {
                             let bury_depth = zmq_client.bury_depth() as u32;
                             let tx_status = match num_confirmations {
                                 0 => TxStatus::Mempool,
-                                n if n < bury_depth => TxStatus::Mined {
-                                    blockhash: tx_data.blockhash.expect("must be present if confirmed"),
+                                n if n < bury_depth as u64 => TxStatus::Mined {
+                                    blockhash: tx_data.block_hash.expect("must be present if confirmed"),
                                     height: block_height,
                                 },
                                 _ => TxStatus::Buried {
-                                    blockhash: tx_data.blockhash.expect("must be present if confirmed"),
+                                    blockhash: tx_data.block_hash.expect("must be present if confirmed"),
                                     height: block_height,
                                 },
                             };
@@ -392,7 +392,8 @@ mod e2e_tests {
             .get_cookie_values()
             .expect("can read cookie")
             .expect("can parse cookie");
-        let rpc_client = BitcoinClient::new(bitcoind.rpc_url(), user, password, None, None)
+        let auth = bitcoind_async_client::Auth::UserPass(user, password);
+        let rpc_client = BitcoinClient::new(bitcoind.rpc_url(), auth, None, None, None)
             .expect("can set up rpc client");
         debug!("bitcoin_async_client::Client initialized");
 
