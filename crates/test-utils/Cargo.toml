@@ -15,7 +15,6 @@ bitcoin.workspace = true
 bitcoind-async-client.workspace = true
 bitvm.workspace = true
 corepc-node.workspace = true
-corepc-types.workspace = true
 hex.workspace = true
 musig2.workspace = true
 rand_core = { version = "0.9.1", default-features = false, features = [

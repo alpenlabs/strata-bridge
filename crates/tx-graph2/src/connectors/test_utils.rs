@@ -7,11 +7,11 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
 };
+use bitcoind_async_client::corepc_types::model::SignRawTransactionWithWallet;
 use corepc_node::{
     serde_json::{self, json},
     Client, Conf, Node,
 };
-use corepc_types::model::SignRawTransactionWithWallet;
 use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use tracing::info;
@@ -252,7 +252,7 @@ impl BitcoinNode {
                 ))],
             )
             .expect("should be able to sign the transaction inputs");
-        consensus::encode::deserialize_hex(&signed_tx.hex).expect("must deserialize")
+        signed_tx.tx
     }
 
     /// Signs the inputs that the wallet controls and broadcasts the transaction.
@@ -342,6 +342,6 @@ impl BitcoinNode {
                 ],
             )
             .expect("should be able to sign the transaction inputs");
-        consensus::encode::deserialize_hex(&signed_tx.hex).expect("must deserialize")
+        signed_tx.tx
     }
 }

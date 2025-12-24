@@ -3,8 +3,8 @@
 //!
 //! Based on <https://github.com/rust-bitcoin/rust-bitcoincore-rpc/tree/master>.
 use bitcoin::{consensus, Address, Amount, Transaction, Txid};
+use bitcoind_async_client::corepc_types::model::{GetRawTransaction, SignRawTransactionWithWallet};
 use corepc_node::Client;
-use corepc_types::model::SignRawTransactionWithWallet;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -153,17 +153,17 @@ pub fn fund_and_sign_raw_tx(
         )
         .unwrap();
 
-    consensus::encode::deserialize_hex(&signed_tx.hex).unwrap()
+    signed_tx.tx
 }
 
 /// Gets a raw transaction from the Bitcoin Core RPC interface.
 pub fn get_raw_transaction(btc_client: &Client, txid: &Txid) -> Transaction {
     let txid = txid.to_string();
     let raw_tx = btc_client
-        .call::<String>("getrawtransaction", &[json!(txid)])
+        .call::<GetRawTransaction>("getrawtransaction", &[json!(txid)])
         .expect("transaction does not exist");
 
-    consensus::encode::deserialize_hex(&raw_tx).unwrap()
+    raw_tx.0
 }
 
 /// Shorthand for converting a variable into a serde_json::Value.
