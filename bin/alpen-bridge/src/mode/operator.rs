@@ -17,7 +17,7 @@ use bitcoin::{
 };
 use bitcoind_async_client::{
     traits::{Broadcaster, Reader},
-    Client as BitcoinClient,
+    Auth, Client as BitcoinClient,
 };
 use btc_tracker::client::BtcNotifyClient;
 use duty_tracker::{
@@ -103,10 +103,13 @@ pub(crate) async fn bootstrap(
     let db_stakechain = db.clone();
 
     // Create the async BitcoinD RPC client.
-    let bitcoin_rpc_client = BitcoinClient::new(
-        config.btc_client.url.to_string(),
+    let auth = Auth::UserPass(
         config.btc_client.user.to_string(),
         config.btc_client.pass.to_string(),
+    );
+    let bitcoin_rpc_client = BitcoinClient::new(
+        config.btc_client.url.to_string(),
+        auth,
         config.btc_client.retry_count,
         config.btc_client.retry_interval,
         None,

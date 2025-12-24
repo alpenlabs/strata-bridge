@@ -58,10 +58,10 @@ mod tests {
         key::TapTweak,
         sighash::{Prevouts, SighashCache},
         transaction::Version,
-        Address, Amount, OutPoint, Psbt, TapSighashType, Transaction, TxOut,
+        Address, Amount, OutPoint, Psbt, TapSighashType, TxOut,
     };
+    use bitcoind_async_client::corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
     use corepc_node::{serde_json::json, Conf, Node};
-    use corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
     use secp256k1::{Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
@@ -100,10 +100,16 @@ mod tests {
             Address::p2tr_tweaked(xonly_pubkey.dangerous_assume_tweaked(), network);
 
         let unspent = btc_client
-            .call::<Vec<ListUnspent>>("listunspent", &[])
+            .call::<ListUnspent>("listunspent", &[])
             .expect("must be able to get utxos")
+            .0
             .into_iter()
-            .find(|utxo| utxo.amount > FEES)
+            .find(|utxo| {
+                utxo.amount
+                    .to_unsigned()
+                    .expect("must be valid unsigned amount")
+                    > FEES
+            })
             .expect("must have at least one utxo");
 
         let utxo = OutPoint {
@@ -118,7 +124,13 @@ mod tests {
                 connector.locking_script(),
                 Amount::from_sat(0), // set amount later
             ),
-            (wallet_addr.script_pubkey(), unspent.amount),
+            (
+                wallet_addr.script_pubkey(),
+                unspent
+                    .amount
+                    .to_unsigned()
+                    .expect("must be valid unsigned amount"),
+            ),
         ]);
         let mut starting_tx = create_tx(starting_tx_ins, starting_tx_outs);
 
@@ -126,7 +138,12 @@ mod tests {
         let dust_amount = Amount::from_sat(500);
 
         starting_tx.output[0].value = dust_amount;
-        starting_tx.output[1].value = unspent.amount - starting_tx.output[0].value - FEES;
+        starting_tx.output[1].value = unspent
+            .amount
+            .to_unsigned()
+            .expect("must be valid unsigned amount")
+            - starting_tx.output[0].value
+            - FEES;
 
         let signed_starting_tx = btc_client
             .call::<SignRawTransactionWithWallet>(
@@ -135,9 +152,8 @@ mod tests {
             )
             .expect("must be able to sign raw transaction");
 
-        let signed_starting_tx =
-            consensus::encode::deserialize_hex::<Transaction>(&signed_starting_tx.hex)
-                .expect("must be able to deserialize signed transaction");
+        let signed_starting_tx = signed_starting_tx.tx;
+
         btc_client
             .send_raw_transaction(&signed_starting_tx)
             .expect("must be able to send raw transaction");
@@ -191,10 +207,16 @@ mod tests {
         // Finally, the child transaction that spends the parent transaction as well as
         // another UTXO that pays the fees.
         let unspent = btc_client
-            .call::<Vec<ListUnspent>>("listunspent", &[])
+            .call::<ListUnspent>("listunspent", &[])
             .expect("must be able to get utxos")
+            .0
             .into_iter()
-            .find(|utxo| utxo.amount > FEES)
+            .find(|utxo| {
+                utxo.amount
+                    .to_unsigned()
+                    .expect("must be valid unsigned amount")
+                    > FEES
+            })
             .expect("must have at least one utxo");
         let utxo = OutPoint {
             txid: unspent.txid,
@@ -204,7 +226,15 @@ mod tests {
         let funding_tx_ins = create_tx_ins([utxo]);
         let funding_tx_outs = create_tx_outs([
             (connector.locking_script(), FEES),
-            (wallet_addr.script_pubkey(), unspent.amount - FEES - FEES),
+            (
+                wallet_addr.script_pubkey(),
+                unspent
+                    .amount
+                    .to_unsigned()
+                    .expect("must be valid unsigned amount")
+                    - FEES
+                    - FEES,
+            ),
         ]);
         let funding_tx = create_tx(funding_tx_ins, funding_tx_outs);
 
@@ -214,9 +244,7 @@ mod tests {
                 &[json!(consensus::encode::serialize_hex(&funding_tx))],
             )
             .expect("must be able to sign raw transaction");
-        let signed_funding_tx =
-            consensus::encode::deserialize_hex::<Transaction>(&signed_funding_tx.hex)
-                .expect("must be able to deserialize signed transaction");
+        let signed_funding_tx = signed_funding_tx.tx;
 
         btc_client
             .send_raw_transaction(&signed_funding_tx)
