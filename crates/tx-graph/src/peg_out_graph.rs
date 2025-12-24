@@ -642,7 +642,7 @@ mod tests {
         taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
         Transaction, TxOut,
     };
-    use bitcoind_async_client::types::GetTxOut;
+    use bitcoind_async_client::corepc_types::model::GetTxOut;
     use bitvm::signatures::HASH_LEN;
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
