@@ -60,8 +60,8 @@ impl WithdrawalFulfillmentTx {
     pub const HEADER_VOUT: u32 = 0;
     /// Index of the user withdrawal output.
     pub const USER_VOUT: u32 = 1;
-    /// Index of the CPFP output, if it exists.
-    pub const OPTIONAL_CPFP_VOUT: u32 = 2;
+    /// Index of the change output, if it exists.
+    pub const OPTIONAL_CHANGE_VOUT: u32 = 2;
 
     /// Creates a withdrawal fulfillment transaction.
     pub fn new(data: WithdrawalFulfillmentData, user_descriptor: Descriptor) -> Self {
