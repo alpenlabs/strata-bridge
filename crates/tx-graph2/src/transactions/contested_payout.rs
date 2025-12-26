@@ -89,7 +89,7 @@ impl ContestedPayoutTx {
         let mut input = create_tx_ins(utxos);
         input[2].sequence = contest_payout_connector
             .relative_timelock(TimelockedSpendPath::Timeout)
-            .unwrap()
+            .expect("contest payout connector should have a relative timelock")
             .to_sequence();
 
         let output = create_tx_outs([(
