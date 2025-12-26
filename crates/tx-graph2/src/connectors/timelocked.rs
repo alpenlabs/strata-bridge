@@ -133,6 +133,7 @@ macro_rules! impl_timelocked_connector {
                 self.0.to_leaf_index(spend_path)
             }
 
+            // FIXME: (@uncomputable) Add sequence method and call it for each txin that uses a connector
             fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
                 self.0.relative_timelock(spend_path)
             }
