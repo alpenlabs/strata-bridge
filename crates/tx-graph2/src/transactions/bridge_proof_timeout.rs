@@ -4,10 +4,9 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    OutPoint, Psbt, Transaction, TxOut, Txid,
+    OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
     connectors::{
@@ -55,23 +54,28 @@ impl BridgeProofTimeoutTx {
             contest_proof_connector.value() + contest_payout_connector.value(),
         );
 
-        let utxos = [
-            OutPoint {
-                txid: data.contest_txid,
-                vout: ContestTx::PROOF_VOUT,
-            },
-            OutPoint {
-                txid: data.contest_txid,
-                vout: ContestTx::PAYOUT_VOUT,
-            },
-        ];
         let prevouts = [
             contest_proof_connector.tx_out(),
             contest_payout_connector.tx_out(),
         ];
-        let mut input = create_tx_ins(utxos);
-        input[0].sequence = contest_proof_connector.sequence(TimelockedSpendPath::Timeout);
-
+        let input = vec![
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.contest_txid,
+                    vout: ContestTx::PROOF_VOUT,
+                },
+                sequence: contest_proof_connector.sequence(TimelockedSpendPath::Timeout),
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.contest_txid,
+                    vout: ContestTx::PAYOUT_VOUT,
+                },
+                sequence: contest_payout_connector.sequence(TimelockedSpendPath::Normal),
+                ..Default::default()
+            },
+        ];
         let output = vec![cpfp_connector.tx_out()];
         let tx = Transaction {
             version: Version(3),

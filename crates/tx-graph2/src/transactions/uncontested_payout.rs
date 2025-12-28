@@ -4,10 +4,10 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    OutPoint, Psbt, Transaction, TxOut, Txid,
+    OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::scripts::prelude::{create_tx_ins, create_tx_outs};
+use strata_bridge_primitives::scripts::prelude::create_tx_outs;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
@@ -58,29 +58,40 @@ impl UncontestedPayoutTx {
         claim_payout_connector: ClaimPayoutConnector,
         operator_descriptor: Descriptor,
     ) -> Self {
-        let utxos = [
-            OutPoint {
-                txid: data.deposit_txid,
-                vout: DepositTx::DEPOSIT_VOUT,
-            },
-            OutPoint {
-                txid: data.claim_txid,
-                vout: ClaimTx::CONTEST_VOUT,
-            },
-            OutPoint {
-                txid: data.claim_txid,
-                vout: ClaimTx::PAYOUT_VOUT,
-            },
-        ];
+        debug_assert!(deposit_connector.network() == claim_contest_connector.network());
+        debug_assert!(deposit_connector.network() == claim_payout_connector.network());
+
         let prevouts = [
             deposit_connector.tx_out(),
             claim_contest_connector.tx_out(),
             claim_payout_connector.tx_out(),
         ];
-
-        let mut input = create_tx_ins(utxos);
-        input[1].sequence = claim_contest_connector.contest_timelock().to_sequence();
-
+        let input = vec![
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.deposit_txid,
+                    vout: DepositTx::DEPOSIT_VOUT,
+                },
+                sequence: deposit_connector.sequence(NOfNSpend),
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.claim_txid,
+                    vout: ClaimTx::CONTEST_VOUT,
+                },
+                sequence: claim_contest_connector.sequence(ClaimContestSpendPath::Uncontested),
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.claim_txid,
+                    vout: ClaimTx::PAYOUT_VOUT,
+                },
+                sequence: claim_payout_connector.sequence(ClaimPayoutSpendPath::Payout),
+                ..Default::default()
+            },
+        ];
         let output = create_tx_outs([(
             operator_descriptor.to_script(),
             deposit_connector.value()

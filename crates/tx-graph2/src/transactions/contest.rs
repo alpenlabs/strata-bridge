@@ -4,10 +4,9 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
     connectors::{
@@ -79,12 +78,18 @@ impl ContestTx {
         debug_assert!(claim_contest_connector.network() == counterproof_output.network());
         let cpfp_connector = CpfpConnector::new(claim_contest_connector.network(), Amount::ZERO);
 
-        let utxos = [OutPoint {
-            txid: data.claim_txid,
-            vout: ClaimTx::CONTEST_VOUT,
-        }];
         let prevouts = [claim_contest_connector.tx_out()];
-        let input = create_tx_ins(utxos);
+        let input = vec![TxIn {
+            previous_output: OutPoint {
+                txid: data.claim_txid,
+                vout: ClaimTx::CONTEST_VOUT,
+            },
+            // NOTE: (@uncomputable) watchtower index does not matter here
+            sequence: claim_contest_connector.sequence(ClaimContestSpendPath::Contested {
+                watchtower_index: u32::default(),
+            }),
+            ..Default::default()
+        }];
         let mut output = vec![
             proof_connector.tx_out(),
             payout_connector.tx_out(),
