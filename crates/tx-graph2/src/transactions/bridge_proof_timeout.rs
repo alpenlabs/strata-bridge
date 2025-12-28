@@ -70,10 +70,7 @@ impl BridgeProofTimeoutTx {
             contest_payout_connector.tx_out(),
         ];
         let mut input = create_tx_ins(utxos);
-        input[0].sequence = contest_proof_connector
-            .relative_timelock(TimelockedSpendPath::Timeout)
-            .expect("contest proof connector should have a relative timelock")
-            .to_sequence();
+        input[0].sequence = contest_proof_connector.sequence(TimelockedSpendPath::Timeout);
 
         let output = vec![cpfp_connector.tx_out()];
         let tx = Transaction {

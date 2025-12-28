@@ -1,6 +1,6 @@
 //! This module contains the claim contest connector.
 
-use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf};
+use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, XOnlyPublicKey};
 
 use crate::{
@@ -97,8 +97,11 @@ impl Connector for ClaimContestConnector {
         }
     }
 
-    fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
-        matches!(spend_path, ClaimContestSpendPath::Uncontested).then_some(self.contest_timelock)
+    fn sequence(&self, spend_path: Self::SpendPath) -> Sequence {
+        match spend_path {
+            ClaimContestSpendPath::Uncontested => self.contest_timelock.to_sequence(),
+            _ => Sequence::MAX,
+        }
     }
 
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {

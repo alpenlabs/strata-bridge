@@ -16,7 +16,7 @@ use bitcoin::{
     psbt::Input,
     relative, script,
     sighash::{Prevouts, SighashCache},
-    Amount, Network, ScriptBuf, Transaction, TxOut,
+    Amount, Network, ScriptBuf, Sequence, Transaction, TxOut,
 };
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
@@ -69,8 +69,11 @@ impl Connector for TimelockedConnector {
         }
     }
 
-    fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
-        matches!(spend_path, TimelockedSpendPath::Timeout).then_some(self.timelock)
+    fn sequence(&self, spend_path: Self::SpendPath) -> Sequence {
+        match spend_path {
+            TimelockedSpendPath::Timeout => self.timelock.to_sequence(),
+            _ => Sequence::MAX,
+        }
     }
 
     fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {
@@ -133,9 +136,8 @@ macro_rules! impl_timelocked_connector {
                 self.0.to_leaf_index(spend_path)
             }
 
-            // FIXME: (@uncomputable) Add sequence method and call it for each txin that uses a connector
-            fn relative_timelock(&self, spend_path: Self::SpendPath) -> Option<relative::LockTime> {
-                self.0.relative_timelock(spend_path)
+            fn sequence(&self, spend_path: Self::SpendPath) -> Sequence {
+                self.0.sequence(spend_path)
             }
 
             fn get_taproot_witness(&self, witness: &Self::Witness) -> TaprootWitness {

@@ -113,9 +113,7 @@ pub(crate) trait Signer: Sized {
 
         // Update the sequence number
         // This influences the sighash!
-        if let Some(timelock) = connector.relative_timelock(spend_path) {
-            spending_tx.input[0].sequence = timelock.to_sequence();
-        }
+        spending_tx.input[0].sequence = connector.sequence(spend_path);
 
         // Sign the spending transaction
         let utxos = [connector.tx_out(), node.coinbase_tx_out()];
