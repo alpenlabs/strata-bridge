@@ -4,11 +4,10 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxOut, Txid,
+    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::constants::{BRIDGE_V1_SUBPROTOCOL_ID, SLASH_TX_TYPE};
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use strata_codec::Codec;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 use strata_primitives::bitcoin_bosd::Descriptor;
@@ -87,15 +86,22 @@ impl SlashTx {
             contest_slash_connector.value(),
         );
 
-        let utxos = [
-            OutPoint {
-                txid: data.contest_txid,
-                vout: ContestTx::SLASH_VOUT,
-            },
-            data.stake_outpoint,
-        ];
         let prevouts = [contest_slash_connector.tx_out(), stake_connector.tx_out()];
-        let input = create_tx_ins(utxos);
+        let input = vec![
+            TxIn {
+                previous_output: OutPoint {
+                    txid: data.contest_txid,
+                    vout: ContestTx::SLASH_VOUT,
+                },
+                sequence: contest_slash_connector.sequence(TimelockedSpendPath::Timeout),
+                ..Default::default()
+            },
+            TxIn {
+                previous_output: data.stake_outpoint,
+                sequence: stake_connector.sequence(NOfNSpend),
+                ..Default::default()
+            },
+        ];
         let mut output = vec![TxOut {
             script_pubkey: data.header_leaf_script(),
             value: Amount::ZERO,

@@ -4,11 +4,10 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxOut,
+    Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut,
 };
 use secp256k1::schnorr;
 use strata_asm_txs_bridge_v1::constants::{BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE};
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 use strata_codec::Codec;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 
@@ -75,9 +74,12 @@ impl DepositTx {
     ) -> Self {
         debug_assert!(deposit_connector.internal_key() == deposit_request_connector.internal_key());
 
-        let utxos = [data.deposit_request_outpoint];
         let prevouts = [deposit_request_connector.tx_out()];
-        let input = create_tx_ins(utxos);
+        let input = vec![TxIn {
+            previous_output: data.deposit_request_outpoint,
+            sequence: deposit_request_connector.sequence(TimelockedSpendPath::Normal),
+            ..Default::default()
+        }];
         let output = vec![
             TxOut {
                 script_pubkey: data.header_leaf_script(),

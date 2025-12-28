@@ -2,11 +2,16 @@
 
 use bitcoin::{
     absolute, opcodes, script::PushBytes, transaction::Version, Amount, OutPoint, ScriptBuf,
-    Transaction, TxOut, Txid,
+    Transaction, TxIn, TxOut, Txid,
 };
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
-use crate::transactions::prelude::ContestTx;
+use crate::{
+    connectors::{
+        prelude::{ContestProofConnector, TimelockedSpendPath},
+        Connector,
+    },
+    transactions::prelude::ContestTx,
+};
 
 // TODO: (@uncomputable) Finalize structure of public values + proof data
 /// Data that is needed to construct a [`BridgeProofTx`].
@@ -44,11 +49,15 @@ impl BridgeProofTx {
     pub const PROOF_DATA_VOUT: u32 = 0;
 
     /// Creates a bridge proof transaction.
-    pub fn new(data: BridgeProofData) -> Self {
-        let input = create_tx_ins([OutPoint {
-            txid: data.contest_txid,
-            vout: ContestTx::PROOF_VOUT,
-        }]);
+    pub fn new(data: BridgeProofData, contest_proof_connector: ContestProofConnector) -> Self {
+        let input = vec![TxIn {
+            previous_output: OutPoint {
+                txid: data.contest_txid,
+                vout: ContestTx::PROOF_VOUT,
+            },
+            sequence: contest_proof_connector.sequence(TimelockedSpendPath::Normal),
+            ..Default::default()
+        }];
         let output = vec![TxOut {
             script_pubkey: data.header_leaf_script(),
             value: Amount::ZERO,

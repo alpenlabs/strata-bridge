@@ -4,10 +4,9 @@ use bitcoin::{
     absolute,
     sighash::{Prevouts, SighashCache},
     transaction::Version,
-    Amount, OutPoint, Psbt, Transaction, TxOut, Txid,
+    Amount, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::Message;
-use strata_bridge_primitives::scripts::prelude::create_tx_ins;
 
 use crate::{
     connectors::{
@@ -63,12 +62,15 @@ impl CounterproofTx {
         let cpfp_connector =
             CpfpConnector::new(contest_counterproof_output.network(), Amount::ZERO);
 
-        let utxos = [OutPoint {
-            txid: data.contest_txid,
-            vout: ContestTx::counterproof_vout(data.watchtower_index),
-        }];
         let prevouts = [contest_counterproof_output.tx_out()];
-        let input = create_tx_ins(utxos);
+        let input = vec![TxIn {
+            previous_output: OutPoint {
+                txid: data.contest_txid,
+                vout: ContestTx::counterproof_vout(data.watchtower_index),
+            },
+            sequence: contest_counterproof_output.sequence(ContestCounterproofSpend),
+            ..Default::default()
+        }];
         let output = vec![counterproof_connector.tx_out(), cpfp_connector.tx_out()];
 
         let tx = Transaction {
