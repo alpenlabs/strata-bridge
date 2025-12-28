@@ -144,7 +144,7 @@ impl SlashTx {
     }
 
     /// Finalizes the transaction with the given witness data.
-    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; 2]) -> Transaction {
+    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; Self::N_INPUTS]) -> Transaction {
         let mut psbt = self.psbt;
 
         let contest_slash_witness = TimelockedWitness::Timeout {

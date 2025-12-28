@@ -132,7 +132,7 @@ impl ContestedPayoutTx {
     }
 
     /// Finalizes the transaction with the given witness data.
-    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; 4]) -> Transaction {
+    pub fn finalize(self, n_of_n_signatures: [schnorr::Signature; Self::N_INPUTS]) -> Transaction {
         let mut psbt = self.psbt;
 
         let deposit_witness = n_of_n_signatures[0];
