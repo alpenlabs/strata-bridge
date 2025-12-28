@@ -16,10 +16,10 @@ use bitcoin::{
     key::TapTweak,
     opcodes,
     psbt::Input,
-    relative, script,
+    script,
     sighash::{Prevouts, SighashCache},
     taproot::{LeafVersion, TapLeafHash, TaprootSpendInfo},
-    Address, Amount, Network, ScriptBuf, TapNodeHash, TapSighashType, Transaction, TxOut,
+    Address, Amount, Network, ScriptBuf, Sequence, TapNodeHash, TapSighashType, Transaction, TxOut,
 };
 use secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
 use strata_bridge_primitives::scripts::prelude::{
@@ -141,10 +141,12 @@ pub trait Connector {
         self.spend_info().merkle_root()
     }
 
-    /// Returns the relative timelock for the given spend path,
-    /// if there is a timelock.
-    fn relative_timelock(&self, _spend_path: Self::SpendPath) -> Option<relative::LockTime> {
-        None
+    /// Returns the sequence number for the given spend path.
+    fn sequence(&self, _spend_path: Self::SpendPath) -> Sequence {
+        // NOTE: (@uncomputable)
+        // Since we have TRUC + full RBF, we don't need to enable RBF via the sequence number.
+        // Since we don't use absolute locktime anywhere, we don't need to enable it either.
+        Sequence::MAX
     }
 
     /// Computes the signing info of an input that spends the connector
