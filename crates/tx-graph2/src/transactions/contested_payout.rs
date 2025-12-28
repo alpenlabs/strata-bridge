@@ -7,7 +7,6 @@ use bitcoin::{
     OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_bridge_primitives::scripts::prelude::create_tx_outs;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
@@ -106,13 +105,13 @@ impl ContestedPayoutTx {
                 ..Default::default()
             },
         ];
-        let output = create_tx_outs([(
-            operator_descriptor.to_script(),
-            deposit_connector.value()
+        let output = vec![TxOut {
+            value: deposit_connector.value()
                 + claim_payout_connector.value()
                 + contest_payout_connector.value()
                 + contest_slash_connector.value(),
-        )]);
+            script_pubkey: operator_descriptor.to_script(),
+        }];
         let tx = Transaction {
             version: Version(3),
             lock_time: absolute::LockTime::ZERO,
