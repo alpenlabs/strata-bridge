@@ -72,6 +72,7 @@ impl DepositTx {
         deposit_connector: NOfNConnector,
         deposit_request_connector: DepositRequestConnector,
     ) -> Self {
+        debug_assert!(deposit_connector.network() == deposit_request_connector.network());
         debug_assert!(deposit_connector.internal_key() == deposit_request_connector.internal_key());
 
         let prevouts = [deposit_request_connector.tx_out()];

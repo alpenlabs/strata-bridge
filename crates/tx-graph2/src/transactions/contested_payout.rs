@@ -62,6 +62,10 @@ impl ContestedPayoutTx {
         contest_slash_connector: ContestSlashConnector,
         operator_descriptor: Descriptor,
     ) -> Self {
+        debug_assert!(deposit_connector.network() == claim_payout_connector.network());
+        debug_assert!(deposit_connector.network() == contest_payout_connector.network());
+        debug_assert!(deposit_connector.network() == contest_slash_connector.network());
+
         let prevouts = [
             deposit_connector.tx_out(),
             claim_payout_connector.tx_out(),

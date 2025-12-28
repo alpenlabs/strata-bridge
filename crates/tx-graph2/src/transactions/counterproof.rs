@@ -53,6 +53,7 @@ impl CounterproofTx {
         contest_counterproof_output: ContestCounterproofOutput,
         counterproof_connector: CounterproofConnector,
     ) -> Self {
+        debug_assert!(contest_counterproof_output.network() == counterproof_connector.network());
         debug_assert!(
             contest_counterproof_output.value() == counterproof_connector.value(),
             "tx should have zero fees (value in = {}, value out = {}",
