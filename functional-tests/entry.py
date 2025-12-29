@@ -66,8 +66,6 @@ def main(argv):
     return 0
 
 
-
-
 def generate_p2p_ports(start_port=12600):
     """P2P port generator to avoid port conflicts."""
     port = start_port
