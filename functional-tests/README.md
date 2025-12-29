@@ -75,3 +75,35 @@ CI_COVERAGE=1 ./run_test.sh
 
 Code coverage artifacts (`*.profraw` files) are generated in `target/llvm-cov-target/`.
 Binaries and other build artifacts are generated in `target/llvm-cov-target/debug`.
+
+#### Viewing test coverage (HTML)
+Assuming `llvm` is installed.
+Merge raw profiles:
+```bash
+llvm-profdata merge -sparse target/llvm-cov-target/*.profraw \
+  -o target/llvm-cov-target/coverage.profdata
+```
+
+Generate HTML for each binary (bridge and s2)
+```bash
+PROFDATA=target/llvm-cov-target/coverage.profdata
+
+llvm-cov show target/llvm-cov-target/debug/alpen-bridge \
+  -instr-profile="$PROFDATA" \
+  -format=html \
+  -output-dir=target/llvm-cov-target/coverage-html/alpen-bridge
+
+llvm-cov show target/llvm-cov-target/debug/secret-service \
+  -instr-profile="$PROFDATA" \
+  -format=html \
+  -output-dir=target/llvm-cov-target/coverage-html/secret-service
+```
+
+View the html report
+```bash
+# bridge
+open ./target/llvm-cov-target/coverage-html/alpen-bridge/index.html
+
+# s2
+open ./target/llvm-cov-target/coverage-html/secret-service/index.html
+```
