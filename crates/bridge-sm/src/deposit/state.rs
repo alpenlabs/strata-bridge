@@ -47,7 +47,15 @@ pub enum DepositState {
     /// TODO: (@MdTeach)
     DepositPartialsCollected,
     /// TODO: (@mukeshdroid)
-    Deposited,
+    Deposited {
+        /// The index of the deposit being tracked by this state machine.
+        deposit_idx: u32,
+        /// The last block height observed by this state machine.
+        block_height: u32,
+        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
+        deposit_outpoint: OutPoint,
+    },
+
     /// TODO: (@mukeshdroid)
     Assigned,
     /// TODO: (@mukeshdroid)
@@ -67,18 +75,18 @@ pub enum DepositState {
 impl Display for DepositState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state_str = match self {
-            DepositState::Created => "Created",
-            DepositState::GraphGenerated => "GraphGenerated",
-            DepositState::DepositNoncesCollected => "DepositNoncesCollected",
-            DepositState::DepositPartialsCollected => "DepositPartialsCollected",
-            DepositState::Deposited => "Deposited",
-            DepositState::Assigned => "Assigned",
-            DepositState::Fulfilled => "Fulfilled",
-            DepositState::PayoutNoncesCollected => "PayoutNoncesColletced",
-            DepositState::PayoutPartialsCollected => "PayoutPartialsCollected",
-            DepositState::CooperativePathFailed => "CooperativePathFailed",
-            DepositState::Spent => "Spent",
-            DepositState::Aborted => "Aborted",
+            DepositSM::Created => "Created",
+            DepositSM::GraphGenerated => "GraphGenerated",
+            DepositSM::DepositNoncesCollected => "DepositNoncesCollected",
+            DepositSM::DepositPartialsCollected => "DepositPartialsCollected",
+            DepositSM::Deposited { .. } => "Deposited",
+            DepositSM::Assigned => "Assigned",
+            DepositSM::Fulfilled => "Fulfilled",
+            DepositSM::PayoutNoncesCollected => "PayoutNoncesColletced",
+            DepositSM::PayoutPartialsCollected => "PayoutPartialsCollected",
+            DepositSM::CooperativePathFailed => "CooperativePathFailed",
+            DepositSM::Spent => "Spent",
+            DepositSM::Aborted => "Aborted",
         };
         write!(f, "{}", state_str)
     }
