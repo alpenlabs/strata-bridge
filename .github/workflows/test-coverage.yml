@@ -3,6 +3,13 @@
 name: Tests with coverage
 
 on:
+  workflow_dispatch:
+    inputs:
+      RUST_LOG:
+        description: "Log level"
+        required: false
+        default: "info"
+        type: string
   pull_request:
   merge_group:
   push:
