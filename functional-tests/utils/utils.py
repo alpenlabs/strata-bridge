@@ -91,7 +91,7 @@ def wait_until(
             if condition():
                 return
         except Exception as e:
-            logging.warning(f"Condition check failed: {e}")
+            logging.debug(f"Condition check failed: {e}")
             pass
 
     raise TimeoutError(f"{error_msg} (timeout: {timeout}s)")

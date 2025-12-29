@@ -1,6 +1,7 @@
 import logging
 import os
 
+
 def setup_root_logger():
     """
     reads `LOG_LEVEL` from the environment. Defaults to `WARNING` if not provided.

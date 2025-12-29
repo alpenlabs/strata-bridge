@@ -1,5 +1,7 @@
-from utils.logging import setup_test_logger
 import flexitest
+
+from utils.logging import setup_test_logger
+
 
 class StrataTestBase(flexitest.Test):
     """
@@ -7,6 +9,7 @@ class StrataTestBase(flexitest.Test):
     """
 
     def premain(self, ctx: flexitest.RunContext):
+        super().premain(ctx)
         logger = setup_test_logger(ctx.datadir_root, ctx.name)
         self.logger = logger
         self.debug = logger.debug
