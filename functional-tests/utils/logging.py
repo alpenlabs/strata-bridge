@@ -37,6 +37,7 @@ def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
 
     # Set up individual loggers for each test
     logger = logging.getLogger(f"root.{test_name}")
+    logger.propagate = False
 
     # File handler
     log_path = os.path.join(log_dir, f"{test_name}.log")
