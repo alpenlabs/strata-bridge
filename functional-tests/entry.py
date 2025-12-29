@@ -7,6 +7,7 @@ import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE, TEST_DIR
 from envs import BasicEnv, BridgeNetworkEnv
+from envs.testenv import StrataTestRuntime
 from factory.bitcoin import BitcoinFactory
 from factory.bridge_operator import BridgeOperatorFactory
 from factory.s2 import S2Factory
@@ -50,7 +51,7 @@ def main(argv):
     env_configs = {"basic": basic_env, "network": network_env}
 
     # Set up the runtime and prepare tests.
-    rt = flexitest.TestRuntime(env_configs, datadir_root, factories)
+    rt = StrataTestRuntime(env_configs, datadir_root, factories)
     rt.prepare_registered_tests()
 
     # Run the tests and then dump the results.
@@ -63,6 +64,8 @@ def main(argv):
     flexitest.dump_results(results)
     flexitest.fail_on_error(results)
     return 0
+
+
 
 
 def generate_p2p_ports(start_port=12600):

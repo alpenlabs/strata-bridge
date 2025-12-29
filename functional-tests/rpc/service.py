@@ -1,5 +1,6 @@
-import flexitest
 import logging
+
+import flexitest
 
 from rpc.client import JsonrpcClient
 
