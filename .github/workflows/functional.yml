@@ -143,7 +143,7 @@ jobs:
           COV_TARGET_DIR: "${{ github.workspace }}/target/llvm-cov-target"
         run: |
           RUSTFLAGS="-Cinstrument-coverage" cargo build --locked --bin alpen-bridge --target-dir "$COV_TARGET_DIR"
-          cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
+          RUSTFLAGS="-Cinstrument-coverage" cargo build --locked -p secret-service --bin secret-service --target-dir "$COV_TARGET_DIR"
           cargo build --locked --bin dev-cli --target-dir "$COV_TARGET_DIR"
 
       - name: Run functional tests
