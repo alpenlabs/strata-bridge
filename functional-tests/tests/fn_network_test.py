@@ -1,3 +1,5 @@
+import logging
+
 import flexitest
 
 from constants import BRIDGE_NETWORK_SIZE
@@ -28,21 +30,22 @@ class BridgeNetworkTest(StrataTestBase):
 
         dev_cli = DevCli(bitcoind_props, musig2_keys)
         result = dev_cli.send_deposit_request()
-        self.info(f"Deposit request result: {result}")
+        self.debug(f"Deposit request result: {result}")
 
         bridge_rpc = bridge_rpcs[0]
-        id = wait_until_first_drt_recognized(bridge_rpc)
+        id = wait_until_first_drt_recognized(self.logger, bridge_rpc)
 
-        wait_until_deposit_complete(bridge_rpc, id)
+        wait_until_deposit_complete(self.logger, bridge_rpc, id)
 
         return True
 
 
-def wait_until_first_drt_recognized(bridge_rpc, timeout=300):
+def wait_until_first_drt_recognized(logger: logging.Logger, bridge_rpc, timeout=300):
     result = {"deposit_id": None}
 
     def check_drt_recognized():
         depositRequests = bridge_rpc.stratabridge_depositRequests()
+        logger.info(f"Current deposit requests: {depositRequests}")
         if len(depositRequests) >= 1:
             result["deposit_id"] = depositRequests[0]
             return True
@@ -58,11 +61,12 @@ def wait_until_first_drt_recognized(bridge_rpc, timeout=300):
     return result["deposit_id"]
 
 
-def wait_until_deposit_complete(bridge_rpc, deposit_id, timeout=300):
+def wait_until_deposit_complete(logger: logging.Logger, bridge_rpc, deposit_id, timeout=300):
     result = {"deposit_info": None}
 
     def check_deposit_complete():
         result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
+        logger.info(f"Deposit info for {deposit_id}: {result['deposit_info']}")
         return result["deposit_info"].get("status", {}).get("status") == "complete"
 
     wait_until(
