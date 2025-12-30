@@ -123,8 +123,20 @@ pub enum DepositState {
         /// transaction.
         payout_partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
     },
-    /// TODO: (@mukeshdroid)
-    PayoutPartialsCollected,
+    /// This State indicates that all the partial signatures have been collected for cooperative
+    /// payout.
+    PayoutPartialsCollected {
+        /// The index of the deposit being tracked by this state machine.
+        deposit_idx: u32,
+        /// The last block height observed by this state machine.
+        block_height: u32,
+        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
+        deposit_outpoint: OutPoint,
+        /// The txid of the the cooperative payout transaction.
+        payout_txid: Txid,
+        /// The aggregated signature for the cooperative payout transaction.
+        payout_aggregated_signature: Signature,
+    },
     /// TODO: (@Rajil1213)
     CooperativePathFailed,
     /// TODO: (@Rajil1213)
@@ -144,7 +156,7 @@ impl Display for DepositState {
             DepositSM::Assigned { .. } => "Assigned",
             DepositSM::Fulfilled { .. } => "Fulfilled",
             DepositSM::PayoutNoncesCollected { .. } => "PayoutNoncesColletced",
-            DepositSM::PayoutPartialsCollected => "PayoutPartialsCollected",
+            DepositSM::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
             DepositSM::CooperativePathFailed => "CooperativePathFailed",
             DepositSM::Spent => "Spent",
             DepositSM::Aborted => "Aborted",
