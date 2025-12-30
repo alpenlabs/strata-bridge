@@ -1,12 +1,14 @@
 import logging
 import os
 
+from constants import DEFAULT_LOG_LEVEL
+
 
 def setup_root_logger():
     """
-    reads `LOG_LEVEL` from the environment. Defaults to `WARNING` if not provided.
+    reads `LOG_LEVEL` from the environment. Defaults to `DEFAULT_LOG_LEVEL` if not provided.
     """
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
     log_level = getattr(logging, log_level, logging.NOTSET)
     # Configure the root logger
     root_logger = logging.getLogger()
@@ -53,7 +55,7 @@ def setup_test_logger(datadir_root: str, test_name: str) -> logging.Logger:
     logger.addHandler(stream_handler)
 
     # Set level to something sensible.
-    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    log_level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
     logger.setLevel(log_level)
 
     return logger

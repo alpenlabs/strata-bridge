@@ -15,7 +15,7 @@ class BridgeRpcTest(StrataTestBase):
         bridge_rpc = bridge_node.create_rpc()
 
         operators = bridge_rpc.stratabridge_bridgeOperators()
-        self.info(f"Bridge Operators: {operators}")
+        self.logger.info(f"Bridge Operators: {operators}")
         assert len(operators) == 1
 
         return True
