@@ -1,6 +1,4 @@
 import flexitest
-import time
-
 
 from constants import BRIDGE_NETWORK_SIZE
 from envs.base_test import StrataTestBase
