@@ -54,12 +54,15 @@ uv run python entry.py
 
 
 ## Running tests
-
-You can run all tests:
-
 ```bash
+# Run all tests
+./run_tests.sh
+
+# Run specific tests by name 
 ./run_test.sh fn_rpc_test
-# or
+
+
+# Run specific tests by path 
 ./run_test.sh tests/fn_rpc_test.py
 ```
 
@@ -102,4 +105,24 @@ open ./target/llvm-cov-target/coverage-html/alpen-bridge/index.html
 
 # s2
 open ./target/llvm-cov-target/coverage-html/secret-service/index.html
+```
+
+## Debugging
+
+### Service Logs
+Logs are written in tests data directory:
+```bash
+🧪 functional-tests/
+└── 📦 _dd/
+    └── 🆔 <test_run_id>/            # Unique identifier for each test run
+        └── 🌍 <env_name>/           # Environment (e.g., "basic", "network")
+            ├── ₿ bitcoin/
+            │   └── 📄 service.log
+            ├── 👷 <operator-i>/     # Operator instance (e.g., operator-0, operator-1)
+            │   ├── 🌉 bridge_node/
+            │   │   └── 📄 service.log
+            │   └── 🔐 secret_service/
+            │       └── 📄 service.log
+            └── 🧾 logs/              # Logs per test module
+                └── 📄 fn_rpc_test.log
 ```

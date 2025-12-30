@@ -177,10 +177,10 @@ jobs:
           path: lcov.functional.info
 
       - name: Zip log files on failure
-        # if: steps.funcTestsRun.outcome == 'failure'
+        if: steps.funcTestsRun.outcome == 'failure'
         # Create a zip archive (logs.zip) that includes only service.log files,
         # preserving the folder structure starting from functional-tests/_dd
-        # NOTE: Entire _dd could ends up hundreds of MBs, so keep only logs
+        # NOTE: Entire _dd could end up hundreds of MBs, so keep only logs
         run: |
           # service logs
           find functional-tests/_dd -type f -name "service.log" | zip -@ logs.zip
