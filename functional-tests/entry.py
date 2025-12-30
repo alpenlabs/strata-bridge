@@ -57,13 +57,17 @@ def main(argv):
     # Run the tests and then dump the results.
     arg_test_names = argv[1:]
     if len(arg_test_names) > 0:
-        tests = arg_test_names
-
+        tests = [extract_test_name(arg) for arg in arg_test_names]
     results = rt.run_tests(tests)
     rt.save_json_file("results.json", results)
     flexitest.dump_results(results)
     flexitest.fail_on_error(results)
     return 0
+
+
+def extract_test_name(test_path):
+    """Extract test module name from file path, removing extension."""
+    return os.path.splitext(os.path.basename(test_path))[0]
 
 
 def generate_p2p_ports(start_port=12600):
