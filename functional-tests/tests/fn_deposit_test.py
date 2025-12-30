@@ -9,6 +9,10 @@ from utils.utils import read_operator_key, wait_until
 
 @flexitest.register
 class BridgeDepositTest(StrataTestBase):
+    """
+    Test that a deposit can be made and completed successfully in a bridge network environment.
+    """
+
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env("network")
 
