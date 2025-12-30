@@ -4,10 +4,11 @@
 //! with respect to the multisig. Each state represents a specific point in the process
 //! of handling a deposit, from the initial request to the final spend.
 
-use std::fmt::Display;
+use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, Txid};
 use bitcoin_bosd::Descriptor;
+use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
@@ -76,10 +77,52 @@ pub enum DepositState {
         /// The block height by which the cooperative payout must be completed
         cooperative_payment_deadline: BitcoinBlockHeight,
     },
-    /// TODO: (@mukeshdroid)
-    Fulfilled,
-    /// TODO: (@mukeshdroid)
-    PayoutNoncesCollected,
+    /// This state indicates that the operator has fronted the user.
+    Fulfilled {
+        /// The index of the deposit being tracked by this state machine.
+        deposit_idx: u32,
+        /// The last block height observed by this state machine.
+        block_height: u32,
+        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
+        deposit_outpoint: OutPoint,
+        /// The index of the operator assigned to front the user.
+        assignee: OperatorIdx,
+        /// The txid of the fulfillment transaction in which the user was fronted.
+        fulfillment_txid: Txid,
+        /// The block height where the fulfillment transaction was confirmed.
+        fulfillment_block_height: BitcoinBlockHeight,
+        /// The block height by which the cooperative payout must be completed.
+        cooperative_payment_deadline: BitcoinBlockHeight,
+        /// The operator's descriptor where they want the funds in the cooperative path.
+        /// This can only be set once and needs to be provided by the operator.
+        operator_desc: Option<Descriptor>,
+        /// The nonces, indexed by operator, required to sign the cooperative payout transaction.
+        payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
+    },
+    /// This state indicates that all nonces required for the cooperative payout has been collected.
+    PayoutNoncesCollected {
+        /// The index of the deposit being tracked by this state machine.
+        deposit_idx: u32,
+        /// The last block height observed by this state machine.
+        block_height: u32,
+        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
+        deposit_outpoint: OutPoint,
+        /// The index of the operator assigned to front the user.
+        assignee: OperatorIdx,
+        /// The txid of the fulfillment transaction in which the user was fronted.
+        fulfillment_txid: Txid,
+        /// The block height where the fulfillment transaction was confirmed.
+        fulfillment_block_height: BitcoinBlockHeight,
+        /// The operator's descriptor where they want the funds in the cooperative path.
+        payout_output_descriptor: Descriptor,
+        /// The block height by which the cooperative payout must be completed.
+        cooperative_payment_deadline: BitcoinBlockHeight,
+        /// The aggregated nonce for signing the cooperative payout transaction.
+        payout_aggregated_nonces: AggNonce,
+        /// The partial signatures, indexed by operator, for signing the cooperative payout
+        /// transaction.
+        payout_partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
+    },
     /// TODO: (@mukeshdroid)
     PayoutPartialsCollected,
     /// TODO: (@Rajil1213)
@@ -99,8 +142,8 @@ impl Display for DepositState {
             DepositSM::DepositPartialsCollected => "DepositPartialsCollected",
             DepositSM::Deposited { .. } => "Deposited",
             DepositSM::Assigned { .. } => "Assigned",
-            DepositSM::Fulfilled => "Fulfilled",
-            DepositSM::PayoutNoncesCollected => "PayoutNoncesColletced",
+            DepositSM::Fulfilled { .. } => "Fulfilled",
+            DepositSM::PayoutNoncesCollected { .. } => "PayoutNoncesColletced",
             DepositSM::PayoutPartialsCollected => "PayoutPartialsCollected",
             DepositSM::CooperativePathFailed => "CooperativePathFailed",
             DepositSM::Spent => "Spent",
