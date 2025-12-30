@@ -7,7 +7,11 @@
 use std::fmt::Display;
 
 use bitcoin::OutPoint;
-use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
+use bitcoin_bosd::Descriptor;
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+};
 
 use crate::{
     deposit::{
@@ -46,7 +50,7 @@ pub enum DepositState {
     DepositNoncesCollected,
     /// TODO: (@MdTeach)
     DepositPartialsCollected,
-    /// TODO: (@mukeshdroid)
+    /// This state indicates that the deposit transaction has been confirmed on-chain.
     Deposited {
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
@@ -55,9 +59,23 @@ pub enum DepositState {
         /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
         deposit_outpoint: OutPoint,
     },
-
-    /// TODO: (@mukeshdroid)
-    Assigned,
+    /// This state indicates that a withdrawal has been assigned for this deposit.
+    Assigned {
+        /// The index of the deposit being tracked by this state machine.
+        deposit_idx: u32,
+        /// The last block height observed by this state machine.
+        block_height: u32,
+        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
+        deposit_outpoint: OutPoint,
+        /// The index of the operator assigned to front the user.
+        assignee: OperatorIdx,
+        /// The block height by which the operator must fulfill the withdrawal.
+        deadline: BitcoinBlockHeight,
+        /// The user's descriptor where funds are to be sent by the operator.
+        recipient_desc: Descriptor,
+        /// The block height by which the cooperative payout must be completed
+        cooperative_payment_deadline: BitcoinBlockHeight,
+    },
     /// TODO: (@mukeshdroid)
     Fulfilled,
     /// TODO: (@mukeshdroid)
@@ -80,7 +98,7 @@ impl Display for DepositState {
             DepositSM::DepositNoncesCollected => "DepositNoncesCollected",
             DepositSM::DepositPartialsCollected => "DepositPartialsCollected",
             DepositSM::Deposited { .. } => "Deposited",
-            DepositSM::Assigned => "Assigned",
+            DepositSM::Assigned { .. } => "Assigned",
             DepositSM::Fulfilled => "Fulfilled",
             DepositSM::PayoutNoncesCollected => "PayoutNoncesColletced",
             DepositSM::PayoutPartialsCollected => "PayoutPartialsCollected",
