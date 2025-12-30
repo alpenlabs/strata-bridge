@@ -52,7 +52,6 @@ pub enum DepositEvent {
         /// The operator who sent the pubnonce.
         operator_idx: OperatorIdx,
     },
-    /// TODO: (@mukeshdroid)
     /// This event notifies that a partial signature from some operator for the cooperative payout
     /// transaction has been received.
     PayoutPartialReceived {
