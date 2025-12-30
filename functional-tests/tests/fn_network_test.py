@@ -10,6 +10,11 @@ from utils.utils import wait_until_bridge_ready
 
 @flexitest.register
 class BridgeNetworkTest(StrataTestBase):
+    """
+    Test P2P connectivity among bridge operators in a bridge network environment.
+    Stops and starts all bridge operators to verify they can reconnect via P2P.
+    """
+
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env("network")
 

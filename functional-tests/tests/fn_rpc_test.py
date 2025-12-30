@@ -7,6 +7,10 @@ from envs.base_test import StrataTestBase
 
 @flexitest.register
 class BridgeRpcTest(StrataTestBase):
+    """
+    Test that bridge RPC can retrieve bridge operators correctly.
+    """
+
     def __init__(self, ctx: flexitest.InitContext):
         ctx.set_env("basic")
 
