@@ -58,13 +58,9 @@ uv run python entry.py
 You can run all tests:
 
 ```bash
-./run_test.sh
-```
-
-You also can run a specific test:
-
-```bash
 ./run_test.sh fn_rpc_test
+# or
+./run_test.sh tests/fn_rpc_test.py
 ```
 
 ## Running with code coverage
