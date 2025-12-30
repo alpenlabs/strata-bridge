@@ -96,10 +96,12 @@ pub enum DepositState {
         /// The operator's descriptor where they want the funds in the cooperative path.
         /// This can only be set once and needs to be provided by the operator.
         operator_desc: Option<Descriptor>,
-        /// The nonces, indexed by operator, required to sign the cooperative payout transaction.
+        /// The pubnonces, indexed by operator, required to sign the cooperative payout
+        /// transaction.
         payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
     },
-    /// This state indicates that all nonces required for the cooperative payout has been collected.
+    /// This state indicates that all pubnonces required for the cooperative payout has been
+    /// collected.
     PayoutNoncesCollected {
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
@@ -211,11 +213,11 @@ impl StateMachine for DepositSM {
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
             DepositEvent::NonceReceived => self.process_nonce_received(),
             DepositEvent::PartialReceived => self.process_partial_received(),
-            DepositEvent::DepositConfirmed => self.process_deposit_confirmed(),
-            DepositEvent::Assignment => self.process_assignment(),
-            DepositEvent::FulfillmentConfirmed => self.process_fulfillment(),
-            DepositEvent::PayoutNonceReceived => self.process_payout_nonce_received(),
-            DepositEvent::PayoutPartialReceived => self.process_payout_partial_received(),
+            DepositEvent::DepositConfirmed { .. } => self.process_deposit_confirmed(),
+            DepositEvent::Assignment { .. } => self.process_assignment(),
+            DepositEvent::FulfillmentConfirmed { .. } => self.process_fulfillment(),
+            DepositEvent::PayoutNonceReceived { .. } => self.process_payout_nonce_received(),
+            DepositEvent::PayoutPartialReceived { .. } => self.process_payout_partial_received(),
             DepositEvent::PayoutConfirmed => self.process_payout_confirmed(),
             DepositEvent::NewBlock => self.process_new_block(),
         }
