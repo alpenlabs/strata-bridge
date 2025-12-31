@@ -213,7 +213,9 @@ mod tests {
 
     use bitcoin::{
         hashes::{sha256, Hash},
-        relative, Amount, Network, TxOut,
+        relative,
+        transaction::Version,
+        Amount, Network, TxOut,
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -348,6 +350,7 @@ mod tests {
         let signing_info = deposit_tx.signing_info();
         let n_of_n_signature = signing_info[0].sign(&n_of_n_keypair);
         let signed_deposit_tx = deposit_tx.finalize(n_of_n_signature);
+        assert_eq!(signed_deposit_tx.version, Version(3));
         let deposit_txid = node.sign_and_broadcast(&signed_deposit_tx);
         node.mine_blocks(1);
 
@@ -372,7 +375,9 @@ mod tests {
             claim_payout_connector,
         );
         let signed_claim_child_tx = node.create_cpfp_child(&claim_tx, FEE * 2);
+        assert_eq!(signed_claim_child_tx.version, Version(3));
         let signed_claim_tx = node.sign(claim_tx.tx());
+        assert_eq!(signed_claim_tx.version, Version(3));
         let claim_txid = signed_claim_tx.compute_txid();
         node.submit_package([signed_claim_tx, signed_claim_child_tx]);
         node.mine_blocks(1);
@@ -409,11 +414,13 @@ mod tests {
         let watchtower_signature =
             signing_info.sign(&watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize]);
         let signed_contest_child_tx = node.create_cpfp_child(&contest_tx, FEE * 2);
+        assert_eq!(signed_contest_child_tx.version, Version(3));
         let signed_contest_tx = contest_tx.finalize(
             n_of_n_signature,
             CONTESTING_WATCHTOWER_IDX,
             watchtower_signature,
         );
+        assert_eq!(signed_contest_tx.version, Version(3));
         let contest_txid = signed_contest_tx.compute_txid();
         node.submit_package([signed_contest_tx, signed_contest_child_tx]);
         node.mine_blocks(ACK_TIMELOCK.to_consensus_u32() as usize);
@@ -447,7 +454,9 @@ mod tests {
         let signing_info = contested_payout_tx.signing_info();
         let n_of_n_signatures = std::array::from_fn(|i| signing_info[i].sign(&n_of_n_keypair));
         let signed_payout_child_tx = node.create_cpfp_child(&contested_payout_tx, FEE * 2);
+        assert_eq!(signed_payout_child_tx.version, Version(3));
         let signed_contested_payout_tx = contested_payout_tx.finalize(n_of_n_signatures);
+        assert_eq!(signed_contested_payout_tx.version, Version(3));
 
         node.submit_package([signed_contested_payout_tx, signed_payout_child_tx]);
         node.mine_blocks(1);

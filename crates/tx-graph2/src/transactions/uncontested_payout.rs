@@ -184,7 +184,9 @@ impl PresignedTx<{ Self::N_INPUTS }> for UncontestedPayoutTx {
 mod tests {
     use bitcoin::{
         hashes::{sha256, Hash},
-        relative, Amount, Network, TxOut,
+        relative,
+        transaction::Version,
+        Amount, Network, TxOut,
     };
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -295,6 +297,7 @@ mod tests {
         let signing_info = deposit_tx.signing_info();
         let n_of_n_signature = signing_info[0].sign(&n_of_n_keypair);
         let signed_deposit_tx = deposit_tx.finalize(n_of_n_signature);
+        assert_eq!(signed_deposit_tx.version, Version(3));
         let deposit_txid = node.sign_and_broadcast(&signed_deposit_tx);
         node.mine_blocks(1);
 
@@ -319,7 +322,9 @@ mod tests {
             claim_payout_connector,
         );
         let signed_claim_tx = node.sign(claim_tx.tx());
+        assert_eq!(signed_claim_tx.version, Version(3));
         let signed_claim_child_tx = node.create_cpfp_child(&claim_tx, FEE * 2);
+        assert_eq!(signed_claim_child_tx.version, Version(3));
         node.submit_package([signed_claim_tx, signed_claim_child_tx]);
         node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize);
         let claim_txid = claim_tx.tx().compute_txid();
@@ -349,7 +354,9 @@ mod tests {
         let signing_info = uncontested_payout_tx.signing_info();
         let n_of_n_signatures = std::array::from_fn(|i| signing_info[i].sign(&n_of_n_keypair));
         let signed_payout_child_tx = node.create_cpfp_child(&uncontested_payout_tx, FEE * 2);
+        assert_eq!(signed_payout_child_tx.version, Version(3));
         let signed_uncontested_payout_tx = uncontested_payout_tx.finalize(n_of_n_signatures);
+        assert_eq!(signed_uncontested_payout_tx.version, Version(3));
 
         node.submit_package([signed_uncontested_payout_tx, signed_payout_child_tx]);
         node.mine_blocks(1);
