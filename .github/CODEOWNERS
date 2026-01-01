@@ -3,7 +3,7 @@
 # and initial implementation contributions
 
 # Global fallback: core bridge team
-* @Rajil1213 @Zk2u
+* @Rajil1213 @Zk2u @MdTeach
 
 # Bookkeeping
 /rust-toolchain.toml @Rajil1213 @Zk2u
@@ -59,6 +59,9 @@
 /bin/dev-bridge/ @Rajil1213
 /bin/assert-splitter/ @Rajil1213
 /test-data/ @Rajil1213
+
+# Functional tests
+/functional-tests/ @MdTeach @Voidash @Rajil1213
 
 # Configuration and infrastructure
 /rustfmt.toml @Rajil1213
