@@ -171,7 +171,7 @@ jobs:
       - name: Upload coverage lcov artifact
         if: steps.genFunctionalLcov.outcome == 'success'
         continue-on-error: true
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: functional-lcov
           path: lcov.functional.info
@@ -186,7 +186,7 @@ jobs:
 
       - name: Upload logs as build artifact on failure
         if: steps.funcTestsRun.outcome == 'failure'
-        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v4
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: fntest_dd
           path: logs.zip
