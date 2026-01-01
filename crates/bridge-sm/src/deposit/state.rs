@@ -74,8 +74,6 @@ pub enum DepositState {
         deadline: BitcoinBlockHeight,
         /// The user's descriptor where funds are to be sent by the operator.
         recipient_desc: Descriptor,
-        /// The block height by which the cooperative payout must be completed
-        cooperative_payment_deadline: BitcoinBlockHeight,
     },
     /// This state indicates that the operator has fronted the user.
     Fulfilled {
