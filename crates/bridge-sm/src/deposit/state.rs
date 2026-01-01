@@ -198,9 +198,23 @@ pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
 impl DepositSM {
     /// Creates a new [`DepositSM`] in the `Created` state.
-    pub const fn new() -> Self {
-        // TODO: (@MdTeach) Add parameters as needed for initialization.
-        todo!()
+    pub const fn new(
+        deposit_idx: u32,
+        deposit_transaction: Transaction,
+        drt_block_height: BitcoinBlockHeight,
+        deposit_request_outpoint: OutPoint,
+        output_index: u32,
+        block_height: u32,
+    ) -> Self {
+        DepositSM::Created {
+            deposit_idx,
+            deposit_transaction,
+            drt_block_height,
+            deposit_request_outpoint,
+            output_index,
+            block_height,
+            linked_graphs: BTreeSet::new(),
+        }
     }
 
     // **DESIGN PRINCIPLE**
