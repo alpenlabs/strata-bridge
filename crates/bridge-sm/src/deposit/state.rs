@@ -234,19 +234,88 @@ impl DepositSM {
     // they each receive the appropriate data required for the state transitions.
 
     fn process_deposit_request(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        todo!("@MdTeach")
+        match self {
+            DepositSM::Created {
+                deposit_transaction,
+                ..
+            } => {
+                // Start the DT signing session: publish this operator's deposit nonce.
+                // NOTE: placeholder behavior uses the first input outpoint as the session id.
+                todo!("@MdTeach")
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.to_string(),
+                event: "DepositRequest".to_string(),
+            }),
+        }
     }
 
     fn process_graph_available(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+        match self {
+            DepositSM::DepositNoncesCollected {
+                deposit_idx,
+                deposit_transaction,
+                drt_block_height,
+                deposit_request_outpoint,
+                output_index,
+                block_height,
+                agg_nonce,
+                partial_signatures,
+            } => {
+                // Update linked graphs set.
+                // If all graphs are linked, transition to GraphGenerated state.
+                todo!("@MdTeach")
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.to_string(),
+                event: "GraphMessage".to_string(),
+            }),
+        }
     }
 
     fn process_nonce_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+        match self {
+            DepositSM::GraphGenerated {
+                deposit_idx,
+                deposit_transaction,
+                drt_block_height,
+                deposit_request_outpoint,
+                output_index,
+                block_height,
+                pubnonces,
+            } => {
+                // Collect the nonce.
+                // If all nonces are collected, transition to DepositNoncesCollected state.
+                todo!("@MdTeach")
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.to_string(),
+                event: "NonceReceived".to_string(),
+            }),
+        }
     }
 
     fn process_partial_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+        match self {
+            DepositSM::DepositNoncesCollected {
+                deposit_idx,
+                deposit_transaction,
+                drt_block_height,
+                deposit_request_outpoint,
+                output_index,
+                block_height,
+                agg_nonce,
+                partial_signatures,
+            } => {
+                // Collect the partial signature.
+                // If all partials are collected, transition to DepositPartialsCollected state.
+                todo!("@MdTeach")
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.to_string(),
+                event: "PartialReceived".to_string(),
+            }),
+        }
     }
 
     fn process_deposit_confirmed(&mut self) -> DSMResult<DSMOutput> {
