@@ -8,6 +8,8 @@ description = "State machines for the Strata Bridge"
 workspace = true
 
 [dependencies]
+bitcoin.workspace = true
+musig2.workspace = true
 strata-bridge-primitives.workspace = true
 
 thiserror.workspace = true
