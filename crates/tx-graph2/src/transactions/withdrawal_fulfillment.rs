@@ -9,6 +9,8 @@ use strata_codec::Codec;
 use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
 use strata_primitives::bitcoin_bosd::Descriptor;
 
+use crate::transactions::AsTransaction;
+
 /// Data that is needed to construct a [`WithdrawalFulfillmentTx`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct WithdrawalFulfillmentData {
@@ -99,5 +101,11 @@ impl WithdrawalFulfillmentTx {
     /// The transaction needs to be signed before it can be broadcast.
     pub fn into_unsigned_tx(self) -> Transaction {
         self.0
+    }
+}
+
+impl AsTransaction for WithdrawalFulfillmentTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.0
     }
 }

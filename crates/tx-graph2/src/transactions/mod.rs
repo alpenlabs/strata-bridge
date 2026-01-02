@@ -1,6 +1,6 @@
 //! This module contains the individual transactions of the Glock transaction graph.
 
-use bitcoin::{OutPoint, TxOut};
+use bitcoin::{OutPoint, Transaction, TxOut};
 
 use crate::connectors::SigningInfo;
 
@@ -33,4 +33,12 @@ pub trait ParentTx {
 pub trait PresignedTx<const N_INPUTS: usize> {
     /// Get the signing info for each transaction input.
     fn signing_info(&self) -> [SigningInfo; N_INPUTS];
+}
+
+// NOTE: (@uncomputable)
+// This trait improves code readability and reduces the need for type annotations.
+/// Explicit version of [`AsRef<Transaction>`].
+pub trait AsTransaction {
+    /// Returns a cheap reference to the internal bitcoin transaction.
+    fn as_unsigned_tx(&self) -> &Transaction;
 }

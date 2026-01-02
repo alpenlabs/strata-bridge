@@ -20,7 +20,7 @@ use crate::{
     },
     transactions::{
         prelude::{ClaimTx, ContestTx, DepositTx},
-        ParentTx, PresignedTx, SigningInfo,
+        AsTransaction, ParentTx, PresignedTx, SigningInfo,
     },
 };
 
@@ -207,6 +207,12 @@ impl PresignedTx<{ Self::N_INPUTS }> for ContestedPayoutTx {
     }
 }
 
+impl AsTransaction for ContestedPayoutTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.psbt.unsigned_tx
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::num::NonZero;
@@ -376,7 +382,7 @@ mod tests {
         );
         let signed_claim_child_tx = node.create_cpfp_child(&claim_tx, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
-        let signed_claim_tx = node.sign(claim_tx.tx());
+        let signed_claim_tx = node.sign(claim_tx.as_unsigned_tx());
         assert_eq!(signed_claim_tx.version, Version(3));
         let claim_txid = signed_claim_tx.compute_txid();
         node.submit_package([signed_claim_tx, signed_claim_child_tx]);

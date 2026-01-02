@@ -20,7 +20,7 @@ use crate::{
         },
         Connector, SigningInfo,
     },
-    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
+    transactions::{prelude::ContestTx, AsTransaction, ParentTx, PresignedTx},
 };
 
 /// Data that is needed to construct a [`SlashTx`].
@@ -190,5 +190,11 @@ impl PresignedTx<{ Self::N_INPUTS }> for SlashTx {
                 1,
             ),
         ]
+    }
+}
+
+impl AsTransaction for SlashTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.psbt.unsigned_tx
     }
 }

@@ -20,7 +20,7 @@ use crate::{
     },
     transactions::{
         prelude::{ClaimTx, DepositTx},
-        ParentTx, PresignedTx, SigningInfo,
+        AsTransaction, ParentTx, PresignedTx, SigningInfo,
     },
 };
 
@@ -180,6 +180,12 @@ impl PresignedTx<{ Self::N_INPUTS }> for UncontestedPayoutTx {
     }
 }
 
+impl AsTransaction for UncontestedPayoutTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.psbt.unsigned_tx
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bitcoin::{
@@ -321,13 +327,13 @@ mod tests {
             claim_contest_connector.clone(),
             claim_payout_connector,
         );
-        let signed_claim_tx = node.sign(claim_tx.tx());
+        let signed_claim_tx = node.sign(claim_tx.as_unsigned_tx());
         assert_eq!(signed_claim_tx.version, Version(3));
         let signed_claim_child_tx = node.create_cpfp_child(&claim_tx, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
+        let claim_txid = signed_claim_tx.compute_txid();
         node.submit_package([signed_claim_tx, signed_claim_child_tx]);
         node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize);
-        let claim_txid = claim_tx.tx().compute_txid();
 
         // Create the uncontested payout transaction + its CPFP child.
         //
