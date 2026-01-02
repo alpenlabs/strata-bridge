@@ -16,7 +16,7 @@ use crate::{
         prelude::{DepositRequestConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness},
         Connector,
     },
-    transactions::{PresignedTx, SigningInfo},
+    transactions::{AsTransaction, PresignedTx, SigningInfo},
 };
 
 /// Data that is needed to construct a [`DepositTx`].
@@ -130,5 +130,11 @@ impl PresignedTx<{ Self::N_INPUTS }> for DepositTx {
             TimelockedSpendPath::Normal,
             0,
         )]
+    }
+}
+
+impl AsTransaction for DepositTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.psbt.unsigned_tx
     }
 }

@@ -10,7 +10,7 @@ use crate::{
         prelude::{ContestProofConnector, TimelockedSpendPath},
         Connector,
     },
-    transactions::prelude::ContestTx,
+    transactions::{prelude::ContestTx, AsTransaction},
 };
 
 // TODO: (@uncomputable) Finalize structure of public values + proof data
@@ -88,5 +88,11 @@ impl BridgeProofTx {
     /// [`crate::connectors::prelude::ContestProofConnector::partially_finalize_bridge_proof()`].
     pub fn into_unsigned_tx(self) -> Transaction {
         self.0
+    }
+}
+
+impl AsTransaction for BridgeProofTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.0
     }
 }

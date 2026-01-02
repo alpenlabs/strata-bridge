@@ -18,7 +18,7 @@ use crate::{
     },
     transactions::{
         prelude::{ContestTx, CounterproofTx},
-        ParentTx, PresignedTx,
+        AsTransaction, ParentTx, PresignedTx,
     },
 };
 
@@ -154,5 +154,11 @@ impl PresignedTx<{ Self::N_INPUTS }> for CounterproofAckTx {
                 1,
             ),
         ]
+    }
+}
+
+impl AsTransaction for CounterproofAckTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.psbt.unsigned_tx
     }
 }

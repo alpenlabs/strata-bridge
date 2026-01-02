@@ -16,7 +16,7 @@ use crate::{
         },
         Connector, SigningInfo,
     },
-    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
+    transactions::{prelude::ContestTx, AsTransaction, ParentTx, PresignedTx},
 };
 
 /// Data that is needed to construct a [`BridgeProofTimeoutTx`].
@@ -149,5 +149,11 @@ impl PresignedTx<{ Self::N_INPUTS }> for BridgeProofTimeoutTx {
                 1,
             ),
         ]
+    }
+}
+
+impl AsTransaction for BridgeProofTimeoutTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.psbt.unsigned_tx
     }
 }

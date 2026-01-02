@@ -8,7 +8,7 @@ use crate::{
         prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
         Connector,
     },
-    transactions::ParentTx,
+    transactions::{AsTransaction, ParentTx},
 };
 
 /// Data that is needed to construct a [`ClaimTx`].
@@ -57,11 +57,6 @@ impl ClaimTx {
 
         Self { tx, cpfp_connector }
     }
-
-    /// Accesses the claim transaction.
-    pub const fn tx(&self) -> &Transaction {
-        &self.tx
-    }
 }
 
 impl ParentTx for ClaimTx {
@@ -74,5 +69,11 @@ impl ParentTx for ClaimTx {
             txid: self.tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
+    }
+}
+
+impl AsTransaction for ClaimTx {
+    fn as_unsigned_tx(&self) -> &Transaction {
+        &self.tx
     }
 }
