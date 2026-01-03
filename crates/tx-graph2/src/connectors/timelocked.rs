@@ -11,16 +11,10 @@
 
 use std::num::NonZero;
 
-use bitcoin::{
-    opcodes,
-    psbt::Input,
-    relative, script,
-    sighash::{Prevouts, SighashCache},
-    Amount, Network, ScriptBuf, Sequence, Transaction, TxOut,
-};
+use bitcoin::{opcodes, relative, script, Amount, Network, ScriptBuf, Sequence};
 use secp256k1::{schnorr, Scalar, XOnlyPublicKey, SECP256K1};
 
-use crate::connectors::{Connector, SigningInfo, TaprootWitness};
+use crate::connectors::{Connector, TaprootWitness};
 
 /// Generic timelocked connector.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -201,28 +195,6 @@ impl ContestProofConnector {
         tweak_bytes[28..32].copy_from_slice(&game_index.get().to_be_bytes());
         Scalar::from_be_bytes(tweak_bytes)
             .expect("the game index must be less than the secp curve order")
-    }
-
-    /// Helper method to get the signing info of the first input
-    /// of the bridge proof transaction.
-    pub fn signing_info_bridge_proof(
-        &self,
-        cache: &mut SighashCache<&Transaction>,
-        prevouts: Prevouts<'_, TxOut>,
-    ) -> SigningInfo {
-        self.get_signing_info(cache, prevouts, TimelockedSpendPath::Normal, 0)
-    }
-
-    /// Helper method to finalize the first input of the bridge proof transaction.
-    pub fn partially_finalize_bridge_proof(
-        &self,
-        input: &mut Input,
-        operator_signature: schnorr::Signature,
-    ) {
-        let witness = TimelockedWitness::Normal {
-            output_key_signature: operator_signature,
-        };
-        self.finalize_input(input, &witness);
     }
 }
 
