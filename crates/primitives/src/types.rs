@@ -11,6 +11,9 @@ use strata_primitives::bitcoin_bosd::{Descriptor, DescriptorError, DescriptorTyp
 /// The index of an operator.
 pub type OperatorIdx = u32;
 
+/// The index of a deposit.
+pub type DepositIdx = u32;
+
 /// The height of a bitcoin block.
 pub type BitcoinBlockHeight = u64;
 
