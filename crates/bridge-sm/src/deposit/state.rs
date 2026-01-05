@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::{OutPoint, Txid};
+use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::{
@@ -23,6 +23,10 @@ use crate::{
     signals::DepositSignal,
     state_machine::{SMOutput, StateMachine},
 };
+
+/// The time lock duration (in blocks) for completing the cooperative payout.
+/// TODO:@mukeshdroid This will be later sourced from a config file.
+const COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
 
 // TODO: (@Rajil1213) Maybe move configuration to a separate `config` module.
 
@@ -206,6 +210,7 @@ impl StateMachine for DepositSM {
         &mut self,
         event: Self::Event,
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
+        let event_description: String = event.to_string();
         match event {
             DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
@@ -213,7 +218,15 @@ impl StateMachine for DepositSM {
             DepositEvent::PartialReceived => self.process_partial_received(),
             DepositEvent::DepositConfirmed { .. } => self.process_deposit_confirmed(),
             DepositEvent::Assignment { .. } => self.process_assignment(),
-            DepositEvent::FulfillmentConfirmed { .. } => self.process_fulfillment(),
+            DepositEvent::FulfillmentConfirmed {
+                fulfillment_transaction,
+                fulfillment_block_height,
+            } => self.process_fulfillment(
+                event_description,
+                fulfillment_transaction,
+                fulfillment_block_height,
+                COOPERATIVE_PAYOUT_TIMELOCK,
+            ),
             DepositEvent::PayoutNonceReceived { .. } => self.process_payout_nonce_received(),
             DepositEvent::PayoutPartialReceived { .. } => self.process_payout_partial_received(),
             DepositEvent::PayoutConfirmed => self.process_payout_confirmed(),
@@ -288,8 +301,52 @@ impl DepositSM {
         todo!("@mukeshdroid")
     }
 
-    fn process_fulfillment(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        todo!("@mukeshdroid")
+    fn process_fulfillment(
+        &mut self,
+        event_description: String,
+        fulfillment_transaction: Transaction,
+        fulfillment_block_height: BitcoinBlockHeight,
+        cooperative_payout_timelock: u64,
+    ) -> DSMResult<DSMOutput> {
+        match self {
+            DepositSM::Assigned {
+                deposit_idx,
+                block_height,
+                deposit_outpoint,
+                assignee,
+                deadline: _,
+                recipient_desc: _,
+            } => {
+                // Compute the txid of the fulfillemnt Transaction
+                let fulfillment_txid: Txid = fulfillment_transaction.compute_txid();
+
+                // Compute the cooperative payout deadline.
+                let cooperative_payment_deadline =
+                    fulfillment_block_height + cooperative_payout_timelock;
+
+                // Transition to the Fulfilled State
+                *self = DepositSM::Fulfilled {
+                    deposit_idx: *deposit_idx,
+                    block_height: *block_height,
+                    deposit_outpoint: *deposit_outpoint,
+                    assignee: *assignee,
+                    fulfillment_txid,
+                    fulfillment_block_height,
+                    cooperative_payment_deadline,
+                    operator_desc: None,
+                    payout_nonces: BTreeMap::new(),
+                };
+
+                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
+
+                Ok(DSMOutput::new())
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.to_string(),
+                event: event_description,
+            }),
+        }
     }
 
     fn process_payout_nonce_received(&mut self) -> DSMResult<DSMOutput> {
