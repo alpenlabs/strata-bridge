@@ -6,7 +6,7 @@
 
 use std::fmt::Display;
 
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, Transaction};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
 
 use crate::{
@@ -56,9 +56,12 @@ pub enum DepositState {
     PayoutNoncesCollected,
     /// TODO: (@mukeshdroid)
     PayoutPartialsCollected,
-    /// TODO: (@Rajil1213)
+    /// This state represents the scenario where the cooperative payout path has failed,
+    ///
+    /// This happens if the assignee was not able to collect the requisite nonces/partials for
+    /// the cooperative payout transaction.
     CooperativePathFailed,
-    /// TODO: (@Rajil1213)
+    /// This represents the terminal state where the deposit has been spent.
     Spent,
     /// TODO: (@Rajil1213)
     Aborted,
@@ -135,7 +138,7 @@ impl StateMachine for DepositSM {
             DepositEvent::FulfillmentConfirmed => self.process_fulfillment(),
             DepositEvent::PayoutNonceReceived => self.process_payout_nonce_received(),
             DepositEvent::PayoutPartialReceived => self.process_payout_partial_received(),
-            DepositEvent::PayoutConfirmed => self.process_payout_confirmed(),
+            DepositEvent::PayoutConfirmed { tx } => self.process_payout_confirmed(&tx),
             DepositEvent::NewBlock => self.process_new_block(),
         }
     }
@@ -219,8 +222,61 @@ impl DepositSM {
         todo!("@mukeshdroid")
     }
 
-    fn process_payout_confirmed(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@Rajil1213")
+    /// Processes the confirmation of a transaction that spends the deposit outpoint being tracked
+    /// by this state machine.
+    ///
+    /// This outpoint can be spent via the following transactions:
+    ///
+    /// - A sweep transaction in the event of a hard upgrade (migration) of deposited UTXOs
+    /// - A cooperative payout transaction, if the cooperative path was successful.
+    /// - An uncontested payout transaction, if the assignee published a claim that went
+    ///   uncontested.
+    /// - A contested payout transaction, if the assignee published a claim that was contested but
+    ///   not successfully.
+    fn process_payout_confirmed(&mut self, tx: &Transaction) -> DSMResult<DSMOutput> {
+        match self.state() {
+            // It must be the sweep transaction in case of a hard upgrade
+            DepositState::Deposited
+            // It must be the cooperative payout transaction
+            | DepositState::PayoutPartialsCollected { .. }
+            // It can be a contested/uncontested payout transaction
+            // This can also be a coopertive payout transaction due to delayed settlement of the
+            // transaction on-chain or because each operator has a different configuration for how
+            // long to wait till the cooperative payout path is considered failed.
+            | DepositState::CooperativePathFailed { .. }
+            // The assignee can withhold their own partial and broadcast the payout tx themselves,
+            // In this case, we still want other nodes' state machines to transition properly.
+            // This can also happen if there are network delays.
+            | DepositState::PayoutNoncesCollected => {
+                tx
+                .input
+                .iter()
+                .any(|input| input.previous_output == self.cfg().deposit_outpoint)
+                .ok_or(DSMError::InvalidEvent {
+                    state: self.state().to_string(),
+                    event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.to_string(),
+                    reason: format!(
+                        "Transaction {} does not spend from the expected deposit outpoint {}",
+                        tx.compute_txid(),
+                        self.cfg().deposit_outpoint
+                        ).into(),
+                })?;
+
+                // Transition to Spent state
+                self.state = DepositState::Spent;
+
+                // This is a terminal state
+                Ok(SMOutput {
+                    duties: vec![],
+                    signals: vec![],
+                })
+            }
+            _ => Err(DSMError::InvalidEvent {
+                event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.to_string(),
+                state: self.state.to_string(),
+                reason: None
+            }),
+        }
     }
 
     fn process_new_block(&mut self) -> DSMResult<DSMOutput> {

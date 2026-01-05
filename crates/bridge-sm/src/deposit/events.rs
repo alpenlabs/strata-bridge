@@ -4,6 +4,8 @@
 //! different transitions and emit duties that need to be performed and messages that need to be
 //! propagated.
 
+use bitcoin::Transaction;
+
 use crate::signals::GraphToDeposit;
 
 /// The external events that affect the Deposit State Machine.
@@ -28,7 +30,10 @@ pub enum DepositEvent {
     /// TODO: (@mukeshdroid)
     PayoutPartialReceived,
     /// TODO: (@Rajil1213)
-    PayoutConfirmed,
+    PayoutConfirmed {
+        /// The transaction that confirms the payout.
+        tx: Transaction,
+    },
     /// TODO: (@Rajil1213)
     NewBlock,
 }
@@ -49,7 +54,9 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::FulfillmentConfirmed => "FulfillmentConfirmed",
             DepositEvent::PayoutNonceReceived => "PayoutNonceReceived",
             DepositEvent::PayoutPartialReceived => "PayoutPartialReceived",
-            DepositEvent::PayoutConfirmed => "PayoutConfirmed",
+            DepositEvent::PayoutConfirmed { tx } => {
+                return write!(f, "PayoutConfirmed via {}", tx.compute_txid());
+            }
             DepositEvent::NewBlock => "NewBlock",
         };
 
