@@ -58,6 +58,8 @@ pub enum DepositToGraph {
     CooperativePayoutFailed {
         /// The index of the operator that was assigned.
         assignee: OperatorIdx,
+        /// The index of the deposit for which the cooperative payout failed.
+        deposit_idx: u32,
         // add more fields if necessary
     },
 }

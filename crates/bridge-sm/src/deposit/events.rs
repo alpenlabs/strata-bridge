@@ -4,12 +4,12 @@
 //! different transitions and emit duties that need to be performed and messages that need to be
 //! propagated.
 
-use bitcoin::Transaction;
+use bitcoin::{Block, Transaction};
 
 use crate::signals::GraphToDeposit;
 
 /// The external events that affect the Deposit State Machine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
     /// TODO: (@MdTeach)
     DepositRequest,
@@ -40,8 +40,14 @@ pub enum DepositEvent {
         /// The transaction that confirms the payout.
         tx: Transaction,
     },
-    /// TODO: (@Rajil1213)
-    NewBlock,
+    /// Event signalling that a new block has been observed on chain.
+    ///
+    /// This is required to deal with timelocks in various states and to track the last observed
+    /// block.
+    NewBlock {
+        /// The new block.
+        block: Block,
+    },
 }
 
 impl std::fmt::Display for DepositEvent {
@@ -66,7 +72,13 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutConfirmed { tx } => {
                 return write!(f, "PayoutConfirmed via {}", tx.compute_txid());
             }
-            DepositEvent::NewBlock => "NewBlock",
+            DepositEvent::NewBlock { block } => {
+                return write!(
+                    f,
+                    "NewBlock at height {}",
+                    block.bip34_block_height().unwrap_or(0)
+                );
+            }
         };
 
         write!(f, "{}", event_str)
