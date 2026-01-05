@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use bitcoin::OutPoint;
-use strata_bridge_primitives::operator_table::OperatorTable;
+use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
 
 use crate::{
     deposit::{
@@ -58,7 +58,7 @@ impl DepositSM {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositCfg {
     /// The index of the deposit being tracked in a Deposit State Machine.
-    deposit_idx: u32,
+    deposit_idx: DepositIdx,
     /// The outpoint of the deposit being tracked in a Deposit State Machine.
     deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
