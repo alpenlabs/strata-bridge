@@ -6,8 +6,11 @@
 
 use std::fmt::Display;
 
-use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
 use bitcoin::{Block, OutPoint, Transaction};
+use strata_bridge_primitives::{
+    operator_table::OperatorTable,
+    types::{DepositIdx, OperatorIdx},
+};
 
 use crate::{
     deposit::{
@@ -86,11 +89,15 @@ pub enum DepositState {
     Fulfilled {
         /// The height of the latest block that this state machine is aware of.
         block_height: u64,
+        /// The index of the operator assigned to the deposit.
+        assignee: OperatorIdx,
     },
     /// TODO: (@mukeshdroid)
     PayoutNoncesCollected {
         /// The height of the latest block that this state machine is aware of.
         block_height: u64,
+        /// The index of the operator assigned to the deposit.
+        assignee: OperatorIdx,
     },
     /// TODO: (@mukeshdroid)
     PayoutPartialsCollected {
