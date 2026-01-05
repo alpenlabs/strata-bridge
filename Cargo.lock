@@ -9754,6 +9754,7 @@ dependencies = [
 name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
+ "bitcoin",
  "strata-bridge-primitives",
  "thiserror 2.0.12",
 ]

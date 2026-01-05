@@ -6,6 +6,9 @@
 
 use std::fmt::Display;
 
+use bitcoin::OutPoint;
+use strata_bridge_primitives::operator_table::OperatorTable;
+
 use crate::{
     deposit::{
         duties::DepositDuty,
@@ -16,9 +19,55 @@ use crate::{
     state_machine::{SMOutput, StateMachine},
 };
 
-/// The state machine for the Deposit.
+/// The State Machine that tracks the state of a deposit utxo at any given time (including the state
+/// of cooperative payout process)
+///
+/// This includes some static configuration along with the actual state of the deposit.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum DepositSM {
+pub struct DepositSM {
+    /// The static configuration for this Deposit State Machine.
+    cfg: DepositCfg,
+    /// The current state of the Deposit State Machine.
+    state: DepositState,
+}
+
+impl DepositSM {
+    /// Creates a new Deposit State Machine with the given configuration.
+    pub const fn new(cfg: DepositCfg) -> Self {
+        DepositSM {
+            cfg,
+            state: DepositState::new(),
+        }
+    }
+
+    /// Returns a reference to the configuration of the Deposit State Machine.
+    pub const fn cfg(&self) -> &DepositCfg {
+        &self.cfg
+    }
+
+    /// Returns a reference to the current state of the Deposit State Machine.
+    pub const fn state(&self) -> &DepositState {
+        &self.state
+    }
+}
+
+/// The static configuration for a Deposit State Machine.
+///
+/// These configurations are set at the creation of the Deposit State Machine and do not change
+/// during any state transition.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DepositCfg {
+    /// The index of the deposit being tracked in a Deposit State Machine.
+    deposit_idx: u32,
+    /// The outpoint of the deposit being tracked in a Deposit State Machine.
+    deposit_outpoint: OutPoint,
+    /// The operators involved in the signing of this deposit.
+    operator_table: OperatorTable,
+}
+
+/// The state of a Deposit.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum DepositState {
     /// TODO: (@MdTeach)
     Created,
     /// TODO: (@MdTeach)
@@ -45,34 +94,34 @@ pub enum DepositSM {
     Aborted,
 }
 
-impl Display for DepositSM {
+impl Display for DepositState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state_str = match self {
-            DepositSM::Created => "Created",
-            DepositSM::GraphGenerated => "GraphGenerated",
-            DepositSM::DepositNoncesCollected => "DepositNoncesCollected",
-            DepositSM::DepositPartialsCollected => "DepositPartialsCollected",
-            DepositSM::Deposited => "Deposited",
-            DepositSM::Assigned => "Assigned",
-            DepositSM::Fulfilled => "Fulfilled",
-            DepositSM::PayoutNoncesCollected => "PayoutNoncesColletced",
-            DepositSM::PayoutPartialsCollected => "PayoutPartialsCollected",
-            DepositSM::CooperativePathFailed => "CooperativePathFailed",
-            DepositSM::Spent => "Spent",
-            DepositSM::Aborted => "Aborted",
+            DepositState::Created => "Created",
+            DepositState::GraphGenerated => "GraphGenerated",
+            DepositState::DepositNoncesCollected => "DepositNoncesCollected",
+            DepositState::DepositPartialsCollected => "DepositPartialsCollected",
+            DepositState::Deposited => "Deposited",
+            DepositState::Assigned => "Assigned",
+            DepositState::Fulfilled => "Fulfilled",
+            DepositState::PayoutNoncesCollected => "PayoutNoncesColletced",
+            DepositState::PayoutPartialsCollected => "PayoutPartialsCollected",
+            DepositState::CooperativePathFailed => "CooperativePathFailed",
+            DepositState::Spent => "Spent",
+            DepositState::Aborted => "Aborted",
         };
         write!(f, "{}", state_str)
     }
 }
 
-impl Default for DepositSM {
+impl Default for DepositState {
     fn default() -> Self {
         // TODO: (@MdTeach) Remove this impl once `new` starts taking arguments.
-        DepositSM::new()
+        DepositState::new()
     }
 }
 
-impl StateMachine for DepositSM {
+impl StateMachine for DepositState {
     type Duty = DepositDuty;
     type OutgoingSignal = DepositSignal;
     type Event = DepositEvent;
@@ -105,10 +154,10 @@ impl StateMachine for DepositSM {
 /// duties and [`DepositSignal`] signals.
 pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
-impl DepositSM {
+impl DepositState {
     /// Creates a new [`DepositSM`] in the `Created` state.
     pub const fn new() -> Self {
-        DepositSM::Created
+        DepositState::Created
     }
 
     // **DESIGN PRINCIPLE**
