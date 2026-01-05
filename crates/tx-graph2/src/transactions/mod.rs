@@ -12,6 +12,7 @@ pub mod contested_payout;
 pub mod counterproof;
 pub mod counterproof_ack;
 pub mod deposit;
+pub mod not_presigned;
 pub mod prelude;
 pub mod slash;
 pub mod uncontested_payout;
