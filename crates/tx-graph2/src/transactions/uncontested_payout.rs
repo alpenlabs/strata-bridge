@@ -11,17 +11,14 @@ use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
     connectors::{
-        n_of_n::NOfNSpend,
         prelude::{
             ClaimContestConnector, ClaimContestSpendPath, ClaimContestWitness,
             ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, NOfNConnector,
+            NOfNSpend,
         },
         Connector,
     },
-    transactions::{
-        prelude::{ClaimTx, DepositTx},
-        AsTransaction, ParentTx, PresignedTx, SigningInfo,
-    },
+    transactions::{prelude::ClaimTx, AsTransaction, ParentTx, PresignedTx, SigningInfo},
 };
 
 /// Data that is needed to construct a [`UncontestedPayoutTx`].
@@ -29,8 +26,8 @@ use crate::{
 pub struct UncontestedPayoutData {
     /// ID of the claim transaction.
     pub claim_txid: Txid,
-    /// ID of the deposit transaction.
-    pub deposit_txid: Txid,
+    /// UTXO that holds the deposit.
+    pub deposit_outpoint: OutPoint,
 }
 
 /// The uncontested payout transaction.
@@ -67,10 +64,7 @@ impl UncontestedPayoutTx {
         ];
         let input = vec![
             TxIn {
-                previous_output: OutPoint {
-                    txid: data.deposit_txid,
-                    vout: DepositTx::DEPOSIT_VOUT,
-                },
+                previous_output: data.deposit_outpoint,
                 sequence: deposit_connector.sequence(NOfNSpend),
                 ..Default::default()
             },
@@ -305,6 +299,10 @@ mod tests {
         let signed_deposit_tx = deposit_tx.finalize(n_of_n_signature);
         assert_eq!(signed_deposit_tx.version, Version(3));
         let deposit_txid = node.sign_and_broadcast(&signed_deposit_tx);
+        let deposit_outpoint = OutPoint {
+            txid: deposit_txid,
+            vout: DepositTx::DEPOSIT_VOUT,
+        };
         node.mine_blocks(1);
 
         // Create the claim transaction + its CPFP child.
@@ -347,7 +345,7 @@ mod tests {
         let operator_descriptor = Descriptor::from(node.wallet_address().clone());
         let data = UncontestedPayoutData {
             claim_txid,
-            deposit_txid,
+            deposit_outpoint,
         };
         let uncontested_payout_tx = UncontestedPayoutTx::new(
             data,

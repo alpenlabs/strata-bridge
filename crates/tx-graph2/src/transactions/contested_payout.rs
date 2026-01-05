@@ -11,15 +11,15 @@ use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
     connectors::{
-        n_of_n::NOfNSpend,
         prelude::{
             ClaimPayoutConnector, ClaimPayoutSpendPath, ClaimPayoutWitness, ContestPayoutConnector,
-            ContestSlashConnector, NOfNConnector, TimelockedSpendPath, TimelockedWitness,
+            ContestSlashConnector, NOfNConnector, NOfNSpend, TimelockedSpendPath,
+            TimelockedWitness,
         },
         Connector,
     },
     transactions::{
-        prelude::{ClaimTx, ContestTx, DepositTx},
+        prelude::{ClaimTx, ContestTx},
         AsTransaction, ParentTx, PresignedTx, SigningInfo,
     },
 };
@@ -27,8 +27,8 @@ use crate::{
 /// Data that is needed to construct a [`ContestedPayoutTx`].
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct ContestedPayoutData {
-    /// ID of the deposit transaction.
-    pub deposit_txid: Txid,
+    /// UTXO that holds the deposit.
+    pub deposit_outpoint: OutPoint,
     /// ID of the claim transaction.
     pub claim_txid: Txid,
     /// Id of the contest transaction.
@@ -73,10 +73,7 @@ impl ContestedPayoutTx {
         ];
         let input = vec![
             TxIn {
-                previous_output: OutPoint {
-                    txid: data.deposit_txid,
-                    vout: DepositTx::DEPOSIT_VOUT,
-                },
+                previous_output: data.deposit_outpoint,
                 sequence: deposit_connector.sequence(NOfNSpend),
                 ..Default::default()
             },
@@ -358,6 +355,10 @@ mod tests {
         let signed_deposit_tx = deposit_tx.finalize(n_of_n_signature);
         assert_eq!(signed_deposit_tx.version, Version(3));
         let deposit_txid = node.sign_and_broadcast(&signed_deposit_tx);
+        let deposit_outpoint = OutPoint {
+            txid: deposit_txid,
+            vout: DepositTx::DEPOSIT_VOUT,
+        };
         node.mine_blocks(1);
 
         // Create the claim transaction + its CPFP child.
@@ -444,7 +445,7 @@ mod tests {
         // ε sat: contest slash connector  |
         let operator_descriptor = Descriptor::from(node.wallet_address().clone());
         let data = ContestedPayoutData {
-            deposit_txid,
+            deposit_outpoint,
             claim_txid,
             contest_txid,
         };
