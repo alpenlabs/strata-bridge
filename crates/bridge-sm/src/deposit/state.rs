@@ -20,6 +20,12 @@ use crate::{
 };
 
 // TODO: (@Rajil1213) Maybe move configuration to a separate `config` module.
+// This module will have a
+// - `DepositSMCfg` which contains values that are static over the
+//  lifetime of a single Deposit State Machine, and a
+// - `DepositGlobalCfg` which contains values that are static over the lifetime of all Deposit State
+//   Machines
+//  (such as timelocks).
 
 /// The static configuration for a Deposit State Machine.
 ///
