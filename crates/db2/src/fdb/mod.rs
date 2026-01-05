@@ -1,7 +1,8 @@
 //! Implementation of the [`BridgeDb`] trait as a FoundationDB layer.
 
 pub mod bridge_db;
-mod dirs;
+pub mod dirs;
+pub mod row_spec;
 
 use std::{fmt::Debug, path::PathBuf};
 
@@ -92,6 +93,14 @@ impl FdbClient {
             .map_err(OneOf::new)?;
         Ok((Self { db, dirs }, MustDrop(guard)))
     }
+
+    /// Clears the database using the root directory.
+    #[cfg(test)]
+    pub async fn clear(&self) -> Result<Result<bool, DirectoryError>, FdbBindingError> {
+        self.db
+            .run(|trx, _| async move { Ok(self.dirs.clear(&trx).await) })
+            .await
+    }
 }
 
 /// FoundationDB client configuration.
@@ -101,6 +110,15 @@ pub struct Config {
     pub cluster_file_path: PathBuf,
     /// Optional TLS configuration.
     pub tls: Option<TlsConfig>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            cluster_file_path: PathBuf::from(foundationdb::default_config_path()),
+            tls: None,
+        }
+    }
 }
 
 /// See [`NetworkOption`]::TLS* and https://apple.github.io/foundationdb/tls.html
