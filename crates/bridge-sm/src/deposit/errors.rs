@@ -6,12 +6,14 @@ use thiserror::Error;
 #[derive(Debug, Clone, Error)]
 pub enum DSMError {
     /// An invalid event was received for the current state.
-    #[error("Received invalid event {event} in state {state}")]
+    #[error("Received invalid event {event} in state {state}; reason: {reason:?}")]
     InvalidEvent {
         /// The state in which the event was received.
         state: String,
         /// The invalid event that was received.
         event: String,
+        /// The reason for the invalidity.
+        reason: Option<String>, // sometimes the reason is obvious from context or unknown
     },
 }
 
