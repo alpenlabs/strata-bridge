@@ -6,8 +6,8 @@
 
 use std::fmt::Display;
 
-use bitcoin::{OutPoint, Transaction};
 use strata_bridge_primitives::{operator_table::OperatorTable, types::DepositIdx};
+use bitcoin::{Block, OutPoint, Transaction};
 
 use crate::{
     deposit::{
@@ -48,37 +48,63 @@ pub enum DepositState {
     Created {
         /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
         deposit_request_outpoint: OutPoint,
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
     },
     /// TODO: (@MdTeach)
     GraphGenerated {
         /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
         deposit_request_outpoint: OutPoint,
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
     },
     /// TODO: (@MdTeach)
     DepositNoncesCollected {
         /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
         deposit_request_outpoint: OutPoint,
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
     },
     /// TODO: (@MdTeach)
     DepositPartialsCollected {
         /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
         deposit_request_outpoint: OutPoint,
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
     },
     /// TODO: (@mukeshdroid)
-    Deposited,
+    Deposited {
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
+    },
     /// TODO: (@mukeshdroid)
-    Assigned,
+    Assigned {
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
+    },
     /// TODO: (@mukeshdroid)
-    Fulfilled,
+    Fulfilled {
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
+    },
     /// TODO: (@mukeshdroid)
-    PayoutNoncesCollected,
+    PayoutNoncesCollected {
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
+    },
     /// TODO: (@mukeshdroid)
-    PayoutPartialsCollected,
+    PayoutPartialsCollected {
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
+    },
     /// This state represents the scenario where the cooperative payout path has failed,
     ///
     /// This happens if the assignee was not able to collect the requisite nonces/partials for
     /// the cooperative payout transaction.
-    CooperativePathFailed,
+    CooperativePathFailed {
+        /// The height of the latest block that this state machine is aware of.
+        block_height: u64,
+    },
     /// This represents the terminal state where the deposit has been spent.
     Spent,
     /// TODO: (@Rajil1213)
@@ -92,12 +118,12 @@ impl Display for DepositState {
             DepositState::GraphGenerated { .. } => "GraphGenerated",
             DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected",
             DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected",
-            DepositState::Deposited => "Deposited",
-            DepositState::Assigned => "Assigned",
-            DepositState::Fulfilled => "Fulfilled",
-            DepositState::PayoutNoncesCollected => "PayoutNoncesColletced",
-            DepositState::PayoutPartialsCollected => "PayoutPartialsCollected",
-            DepositState::CooperativePathFailed => "CooperativePathFailed",
+            DepositState::Deposited { .. } => "Deposited",
+            DepositState::Assigned { .. } => "Assigned",
+            DepositState::Fulfilled { .. } => "Fulfilled",
+            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesColletced",
+            DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
+            DepositState::CooperativePathFailed { .. } => "CooperativePathFailed",
             DepositState::Spent => "Spent",
             DepositState::Aborted => "Aborted",
         };
@@ -117,6 +143,7 @@ impl DepositState {
     pub fn new() -> Self {
         DepositState::Created {
             deposit_request_outpoint: OutPoint::default(),
+            block_height: 0,
         }
     }
 
@@ -227,15 +254,19 @@ impl DepositSM {
         match self.state() {
             DepositState::Created {
                 deposit_request_outpoint,
+                ..
             }
             | DepositState::GraphGenerated {
                 deposit_request_outpoint,
+                ..
             }
             | DepositState::DepositNoncesCollected {
                 deposit_request_outpoint,
+                ..
             }
             | DepositState::DepositPartialsCollected {
                 deposit_request_outpoint,
+                ..
             } => {
                 if tx
                     .input
@@ -321,7 +352,7 @@ impl DepositSM {
     fn process_payout_confirmed(&mut self, tx: &Transaction) -> DSMResult<DSMOutput> {
         match self.state() {
             // It must be the sweep transaction in case of a hard upgrade
-            DepositState::Deposited
+            DepositState::Deposited { .. }
             // It must be the cooperative payout transaction
             | DepositState::PayoutPartialsCollected { .. }
             // It can be a contested/uncontested payout transaction
@@ -332,7 +363,7 @@ impl DepositSM {
             // The assignee can withhold their own partial and broadcast the payout tx themselves,
             // In this case, we still want other nodes' state machines to transition properly.
             // This can also happen if there are network delays.
-            | DepositState::PayoutNoncesCollected => {
+            | DepositState::PayoutNoncesCollected { .. } => {
                 tx
                 .input
                 .iter()
