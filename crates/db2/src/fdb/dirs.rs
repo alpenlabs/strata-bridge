@@ -30,20 +30,22 @@
 //! Subspaces and directories should be mostly created once then reused as they
 //! require database transactions to create or open.
 
-use bitcoin::Txid;
 use foundationdb::{
     RetryableTransaction,
     directory::{Directory, DirectoryError, DirectoryLayer, DirectoryOutput, DirectorySubspace},
 };
-use strata_bridge_primitives::types::OperatorIdx;
 use strata_p2p_types::P2POperatorPubKey;
 
 use crate::fdb::LAYER_ID;
 
 /// Stores the key prefixes for different data types in the database.
 #[derive(Debug)]
-pub(crate) struct Directories {
-    pub signatures: SignaturesKeyspace,
+pub struct Directories {
+    /// Root subspace for the database.
+    pub root: DirectorySubspace,
+
+    /// Subspace for storing Schnorr signatures.
+    pub signatures: DirectorySubspace,
 }
 
 impl Directories {
@@ -52,9 +54,12 @@ impl Directories {
         node_pubkey: P2POperatorPubKey,
     ) -> Result<Self, DirectoryError> {
         let dir = DirectoryLayer::default();
-        let root = dir
+        let DirectoryOutput::DirectorySubspace(root) = dir
             .create_or_open(txn, &[node_pubkey.to_string()], None, Some(LAYER_ID))
-            .await?;
+            .await?
+        else {
+            panic!("should receive a subspace")
+        };
 
         let DirectoryOutput::DirectorySubspace(signatures) = root
             .create_or_open(txn, &["signatures".to_string()], None, Some(LAYER_ID))
@@ -63,20 +68,13 @@ impl Directories {
             panic!("should receive a subspace")
         };
 
-        Ok(Self {
-            signatures: SignaturesKeyspace(signatures),
-        })
+        Ok(Self { root, signatures })
     }
-}
 
-/// The keyspace used for storing Schnorr signatures.
-#[derive(Debug)]
-pub(crate) struct SignaturesKeyspace(DirectorySubspace);
-
-impl SignaturesKeyspace {
-    /// Returns the key to store a Schnorr signature against a given operator index and UTXO.
-    pub(crate) fn key(&self, operator_idx: OperatorIdx, txid: Txid, input_index: u32) -> Vec<u8> {
-        self.0
-            .pack::<(u32, &[u8], u32)>(&(operator_idx, txid.as_raw_hash().as_ref(), input_index))
+    /// Clears all data stored in the directories. Only available in test mode.
+    #[cfg(test)]
+    pub async fn clear(&self, txn: &RetryableTransaction) -> Result<bool, DirectoryError> {
+        let dir = DirectoryLayer::default();
+        dir.remove_if_exists(txn, self.root.get_path()).await
     }
 }
