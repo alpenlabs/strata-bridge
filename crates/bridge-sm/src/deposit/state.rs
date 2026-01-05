@@ -39,13 +39,25 @@ pub struct DepositCfg {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DepositState {
     /// TODO: (@MdTeach)
-    Created,
+    Created {
+        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
+        deposit_request_outpoint: OutPoint,
+    },
     /// TODO: (@MdTeach)
-    GraphGenerated,
+    GraphGenerated {
+        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
+        deposit_request_outpoint: OutPoint,
+    },
     /// TODO: (@MdTeach)
-    DepositNoncesCollected,
+    DepositNoncesCollected {
+        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
+        deposit_request_outpoint: OutPoint,
+    },
     /// TODO: (@MdTeach)
-    DepositPartialsCollected,
+    DepositPartialsCollected {
+        /// The outpoint of the deposit request that is to be spent by the Deposit Transaction.
+        deposit_request_outpoint: OutPoint,
+    },
     /// TODO: (@mukeshdroid)
     Deposited,
     /// TODO: (@mukeshdroid)
@@ -70,10 +82,10 @@ pub enum DepositState {
 impl Display for DepositState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state_str = match self {
-            DepositState::Created => "Created",
-            DepositState::GraphGenerated => "GraphGenerated",
-            DepositState::DepositNoncesCollected => "DepositNoncesCollected",
-            DepositState::DepositPartialsCollected => "DepositPartialsCollected",
+            DepositState::Created { .. } => "Created",
+            DepositState::GraphGenerated { .. } => "GraphGenerated",
+            DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected",
+            DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected",
             DepositState::Deposited => "Deposited",
             DepositState::Assigned => "Assigned",
             DepositState::Fulfilled => "Fulfilled",
@@ -96,8 +108,10 @@ impl Default for DepositState {
 
 impl DepositState {
     /// Creates a new Deposit State in the `Created` state.
-    pub const fn new() -> Self {
-        DepositState::Created
+    pub fn new() -> Self {
+        DepositState::Created {
+            deposit_request_outpoint: OutPoint::default(),
+        }
     }
 
     // TODO: (@Rajil1213, @MdTeach, @mukeshdroid) Add introspection methods here
@@ -130,6 +144,7 @@ impl StateMachine for DepositSM {
     ) -> Result<SMOutput<Self::Duty, Self::OutgoingSignal>, Self::Error> {
         match event {
             DepositEvent::DepositRequest => self.process_deposit_request(),
+            DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
             DepositEvent::NonceReceived => self.process_nonce_received(),
             DepositEvent::PartialReceived => self.process_partial_received(),
@@ -153,7 +168,7 @@ pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
 impl DepositSM {
     /// Creates a new Deposit State Machine with the given configuration.
-    pub const fn new(cfg: DepositCfg) -> Self {
+    pub fn new(cfg: DepositCfg) -> Self {
         DepositSM {
             cfg,
             state: DepositState::new(),
@@ -188,6 +203,65 @@ impl DepositSM {
 
     fn process_deposit_request(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
         todo!("@MdTeach")
+    }
+
+    /// Processes the event where the user takes back the deposit request output.
+    ///
+    /// This can happen if any of the operators are not operational for the entire duration of the
+    /// take back period.
+    fn process_drt_takeback(
+        &mut self,
+        tx: Transaction,
+    ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
+        match self.state() {
+            DepositState::Created {
+                deposit_request_outpoint,
+            }
+            | DepositState::GraphGenerated {
+                deposit_request_outpoint,
+            }
+            | DepositState::DepositNoncesCollected {
+                deposit_request_outpoint,
+            }
+            | DepositState::DepositPartialsCollected {
+                deposit_request_outpoint,
+            } => {
+                if tx
+                    .input
+                    .iter()
+                    .find(|input| input.previous_output == *deposit_request_outpoint)
+                    .is_some_and(|input| input.witness.len() > 1)
+                // HACK: (@Rajil1213) take back path is a script-spend and so has multiple witness
+                // elements, as opposed to the Deposit Transaction which is a key-spend and has only
+                // one witness element (the schnorr signature). The proper way to check this is to
+                // see if the witness contains the takeback script as the script
+                // being used. But a length-check is both simpler and sufficient.
+                {
+                    // Transition to Aborted state
+                    self.state = DepositState::Aborted;
+
+                    // This is a terminal state
+                    Ok(SMOutput {
+                        duties: vec![],
+                        signals: vec![],
+                    })
+                } else {
+                    Err(DSMError::Rejected {
+                        state: self.state().clone(),
+                        reason: format!(
+                            "Transaction {} is not a take back transaction for the deposit request outpoint {}",
+                            tx.compute_txid(),
+                            deposit_request_outpoint
+                        ),
+                    })
+                }
+            }
+            _ => Err(DSMError::InvalidEvent {
+                event: DepositEvent::UserTakeBack { tx }.to_string(),
+                state: self.state.to_string(),
+                reason: None,
+            }),
+        }
     }
 
     fn process_graph_available(&mut self) -> DSMResult<DSMOutput> {
