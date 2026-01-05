@@ -8,10 +8,10 @@ use std::{collections::BTreeMap, fmt::Display};
 
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoin_bosd::Descriptor;
-use musig2::{AggNonce, PartialSignature, PubNonce};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 };
 
 use crate::{
@@ -57,6 +57,8 @@ pub enum DepositState {
     DepositPartialsCollected,
     /// This state indicates that the deposit transaction has been confirmed on-chain.
     Deposited {
+        /// The operator table that is relevant to this deposit.
+        operator_table: OperatorTable,
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
         /// The last block height observed by this state machine.
@@ -66,6 +68,8 @@ pub enum DepositState {
     },
     /// This state indicates that a withdrawal has been assigned for this deposit.
     Assigned {
+        /// The operator table that is relevant to this deposit.
+        operator_table: OperatorTable,
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
         /// The last block height observed by this state machine.
@@ -81,6 +85,8 @@ pub enum DepositState {
     },
     /// This state indicates that the operator has fronted the user.
     Fulfilled {
+        /// The operator table that is relevant to this deposit.
+        operator_table: OperatorTable,
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
         /// The last block height observed by this state machine.
@@ -105,6 +111,8 @@ pub enum DepositState {
     /// This state indicates that all pubnonces required for the cooperative payout has been
     /// collected.
     PayoutNoncesCollected {
+        /// The operator table that is relevant to this deposit.
+        operator_table: OperatorTable,
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
         /// The last block height observed by this state machine.
@@ -130,6 +138,8 @@ pub enum DepositState {
     /// This State indicates that all the partial signatures have been collected for cooperative
     /// payout.
     PayoutPartialsCollected {
+        /// The operator table that is relevant to this deposit.
+        operator_table: OperatorTable,
         /// The index of the deposit being tracked by this state machine.
         deposit_idx: u32,
         /// The last block height observed by this state machine.
@@ -310,6 +320,7 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         match self {
             DepositSM::Assigned {
+                operator_table,
                 deposit_idx,
                 block_height,
                 deposit_outpoint,
@@ -326,6 +337,7 @@ impl DepositSM {
 
                 // Transition to the Fulfilled State
                 *self = DepositSM::Fulfilled {
+                    operator_table: operator_table.clone(),
                     deposit_idx: *deposit_idx,
                     block_height: *block_height,
                     deposit_outpoint: *deposit_outpoint,
