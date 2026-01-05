@@ -19,6 +19,8 @@ use crate::{
     state_machine::{SMOutput, StateMachine},
 };
 
+// TODO: (@Rajil1213) Maybe move configuration to a separate `config` module.
+
 /// The static configuration for a Deposit State Machine.
 ///
 /// These configurations are set at the creation of the Deposit State Machine and do not change
@@ -94,7 +96,12 @@ impl DepositState {
     pub const fn new() -> Self {
         DepositState::Created
     }
+
+    // TODO: (@Rajil1213, @MdTeach, @mukeshdroid) Add introspection methods here
 }
+
+// TODO: (@Rajil1213) Move `DepositSM` to a separate `state-machine` module once complete (to avoid
+// merge conflicts now).
 
 /// The State Machine that tracks the state of a deposit utxo at any given time (including the state
 /// of cooperative payout process)
