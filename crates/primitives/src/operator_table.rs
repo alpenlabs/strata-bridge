@@ -19,7 +19,7 @@ type OperatorTableEntry = (OperatorIdx, P2POperatorPubKey, secp256k1::PublicKey)
 /// A table that maps operator indices to their P2P public keys and bitcoin public keys.
 // TODO(proofofkeags): the derived serialization of this data structure is 3x more expensive than
 // optimal.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Hash)]
 pub struct OperatorTable {
     /// The index of this operator.
     pov: OperatorIdx,
