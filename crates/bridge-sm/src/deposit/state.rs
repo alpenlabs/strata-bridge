@@ -19,38 +19,6 @@ use crate::{
     state_machine::{SMOutput, StateMachine},
 };
 
-/// The State Machine that tracks the state of a deposit utxo at any given time (including the state
-/// of cooperative payout process)
-///
-/// This includes some static configuration along with the actual state of the deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct DepositSM {
-    /// The static configuration for this Deposit State Machine.
-    cfg: DepositCfg,
-    /// The current state of the Deposit State Machine.
-    state: DepositState,
-}
-
-impl DepositSM {
-    /// Creates a new Deposit State Machine with the given configuration.
-    pub const fn new(cfg: DepositCfg) -> Self {
-        DepositSM {
-            cfg,
-            state: DepositState::new(),
-        }
-    }
-
-    /// Returns a reference to the configuration of the Deposit State Machine.
-    pub const fn cfg(&self) -> &DepositCfg {
-        &self.cfg
-    }
-
-    /// Returns a reference to the current state of the Deposit State Machine.
-    pub const fn state(&self) -> &DepositState {
-        &self.state
-    }
-}
-
 /// The static configuration for a Deposit State Machine.
 ///
 /// These configurations are set at the creation of the Deposit State Machine and do not change
@@ -121,7 +89,26 @@ impl Default for DepositState {
     }
 }
 
-impl StateMachine for DepositState {
+impl DepositState {
+    /// Creates a new Deposit State in the `Created` state.
+    pub const fn new() -> Self {
+        DepositState::Created
+    }
+}
+
+/// The State Machine that tracks the state of a deposit utxo at any given time (including the state
+/// of cooperative payout process)
+///
+/// This includes some static configuration along with the actual state of the deposit.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DepositSM {
+    /// The static configuration for this Deposit State Machine.
+    cfg: DepositCfg,
+    /// The current state of the Deposit State Machine.
+    state: DepositState,
+}
+
+impl StateMachine for DepositSM {
     type Duty = DepositDuty;
     type OutgoingSignal = DepositSignal;
     type Event = DepositEvent;
@@ -154,10 +141,23 @@ impl StateMachine for DepositState {
 /// duties and [`DepositSignal`] signals.
 pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
-impl DepositState {
-    /// Creates a new [`DepositSM`] in the `Created` state.
-    pub const fn new() -> Self {
-        DepositState::Created
+impl DepositSM {
+    /// Creates a new Deposit State Machine with the given configuration.
+    pub const fn new(cfg: DepositCfg) -> Self {
+        DepositSM {
+            cfg,
+            state: DepositState::new(),
+        }
+    }
+
+    /// Returns a reference to the configuration of the Deposit State Machine.
+    pub const fn cfg(&self) -> &DepositCfg {
+        &self.cfg
+    }
+
+    /// Returns a reference to the current state of the Deposit State Machine.
+    pub const fn state(&self) -> &DepositState {
+        &self.state
     }
 
     // **DESIGN PRINCIPLE**
