@@ -191,6 +191,11 @@ impl DepositSM {
         &self.state
     }
 
+    /// Returns a mutable reference to the current state of the Deposit State Machine.
+    pub const fn state_mut(&mut self) -> &mut DepositState {
+        &mut self.state
+    }
+
     // **DESIGN PRINCIPLE**
     //
     // author: @ProofOfKeags
