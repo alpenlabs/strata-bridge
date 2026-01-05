@@ -13,6 +13,12 @@ use crate::signals::GraphToDeposit;
 pub enum DepositEvent {
     /// TODO: (@MdTeach)
     DepositRequest,
+    /// Event signifying that the output of the deposit request was spent by the user instead of the
+    /// bridge covenant.
+    UserTakeBack {
+        /// The transaction that spends the deposit request.
+        tx: Transaction,
+    },
     /// TODO: (@MdTeach)
     GraphMessage(GraphToDeposit),
     /// TODO: (@MdTeach)
@@ -42,6 +48,9 @@ impl std::fmt::Display for DepositEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let event_str = match self {
             DepositEvent::DepositRequest => "DepositRequest",
+            DepositEvent::UserTakeBack { tx } => {
+                return write!(f, "UserTakeBack via {}", tx.compute_txid());
+            }
             DepositEvent::GraphMessage(graph_msg) => match graph_msg {
                 GraphToDeposit::GraphAvailable { operator_idx } => {
                     return write!(f, "GraphAvailable for operator_idx: {}", operator_idx);
