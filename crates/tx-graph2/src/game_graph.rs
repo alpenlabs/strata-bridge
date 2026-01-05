@@ -358,3 +358,277 @@ impl GameGraph {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use bitcoin::{hashes::Hash, transaction::Version, TxOut};
+    use secp256k1::{rand::random, Keypair};
+    use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
+    use strata_bridge_test_utils::prelude::generate_keypair;
+
+    use super::*;
+    use crate::{
+        connectors::{test_utils::BitcoinNode, Connector},
+        transactions::PresignedTx,
+    };
+
+    const N_WATCHTOWERS: usize = 10;
+    const CONTESTING_WATCHTOWER_IDX: u32 = 0;
+    const UNIVERSAL_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    const DEPOSIT_AMOUNT: Amount = Amount::from_sat(100_000_000);
+    const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
+    const FEE: Amount = Amount::from_sat(1_000);
+
+    #[derive(Debug)]
+    struct Signer {
+        pub n_of_n_keypair: Keypair,
+        pub operator_keypair: Keypair,
+        pub watchtower_keypairs: Vec<Keypair>,
+        pub admin_keypair: Keypair,
+        pub unstaking_preimage: [u8; 32],
+        pub wt_fault_keypairs: Vec<Keypair>,
+    }
+
+    impl Signer {
+        fn generate() -> Self {
+            Signer {
+                n_of_n_keypair: generate_keypair(),
+                operator_keypair: generate_keypair(),
+                watchtower_keypairs: (0..N_WATCHTOWERS).map(|_| generate_keypair()).collect(),
+                admin_keypair: generate_keypair(),
+                unstaking_preimage: random(),
+                wt_fault_keypairs: (0..N_WATCHTOWERS).map(|_| generate_keypair()).collect(),
+            }
+        }
+    }
+
+    fn get_game_data(node: &mut BitcoinNode, signer: &Signer) -> GameData {
+        let constant = ConstantData {
+            network: Network::Regtest,
+            magic_bytes: *b"alpn",
+            contest_timelock: UNIVERSAL_TIMELOCK,
+            proof_timelock: UNIVERSAL_TIMELOCK,
+            ack_timelock: UNIVERSAL_TIMELOCK,
+            nack_timelock: UNIVERSAL_TIMELOCK,
+            contested_payout_timelock: UNIVERSAL_TIMELOCK,
+            proof_n_bytes: 128,
+            counterproof_n_bytes: NonZero::new(128).unwrap(),
+            deposit_amount: DEPOSIT_AMOUNT,
+            stake_amount: STAKE_AMOUNT,
+        };
+        let wallet_descriptor = Descriptor::from(node.wallet_address().clone());
+        let keys = KeyData {
+            n_of_n_pubkey: signer.n_of_n_keypair.x_only_public_key().0,
+            operator_pubkey: signer.operator_keypair.x_only_public_key().0,
+            watchtower_pubkeys: signer
+                .watchtower_keypairs
+                .iter()
+                .map(|k| k.x_only_public_key().0)
+                .collect(),
+            admin_pubkey: signer.admin_keypair.x_only_public_key().0,
+            unstaking_image: sha256::Hash::hash(&signer.unstaking_preimage),
+            wt_fault_pubkeys: signer
+                .wt_fault_keypairs
+                .iter()
+                .map(|k| k.x_only_public_key().0)
+                .collect(),
+            payout_operator_descriptor: wallet_descriptor.clone(),
+            slash_watchtower_descriptors: vec![wallet_descriptor; N_WATCHTOWERS],
+        };
+
+        // FIXME: (@uncomputable) Prevent having to recreate the connectors
+        let deposit_connector =
+            NOfNConnector::new(constant.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
+        let stake_connector =
+            NOfNConnector::new(constant.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
+        let claim_contest_connector = ClaimContestConnector::new(
+            constant.network,
+            keys.n_of_n_pubkey,
+            keys.watchtower_pubkeys.clone(),
+            constant.contest_timelock,
+        );
+        let claim_payout_connector = ClaimPayoutConnector::new(
+            constant.network,
+            keys.n_of_n_pubkey,
+            keys.admin_pubkey,
+            keys.unstaking_image,
+        );
+        let claim_funds_amount = claim_contest_connector.value() + claim_payout_connector.value();
+
+        // Create a transaction that funds the claim, deposit and stake.
+        //
+        // inputs         | outputs
+        // ---------------+------------------------------------
+        // 50 btc: wallet | (4 + ω)ε sat: claim UTXO (wallet)
+        //                +------------------------------------
+        //                | 1 btc: deposit UTXO (N/N)
+        //                +------------------------------------
+        //                | 1 btc: stake UTXO (N/N)
+        //                +------------------------------------
+        //                | 48 btc - (4 + ω)ε sat - fee: wallet
+        let input = create_tx_ins([node.next_coinbase_outpoint()]);
+        let output = vec![
+            TxOut {
+                value: claim_funds_amount,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            },
+            deposit_connector.tx_out(),
+            stake_connector.tx_out(),
+            TxOut {
+                value: node.coinbase_amount()
+                    - claim_funds_amount
+                    - DEPOSIT_AMOUNT
+                    - STAKE_AMOUNT
+                    - FEE,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            },
+        ];
+        let funding_tx = create_tx(input, output);
+        let funding_txid = node.sign_and_broadcast(&funding_tx);
+        node.mine_blocks(1);
+
+        GameData {
+            constant,
+            runtime: RuntimeData {
+                game_index: NonZero::new(1).unwrap(),
+                operator_index: 0,
+                claim_funds: OutPoint {
+                    txid: funding_txid,
+                    vout: 0,
+                },
+                deposit_outpoint: OutPoint {
+                    txid: funding_txid,
+                    vout: 1,
+                },
+                stake_outpoint: OutPoint {
+                    txid: funding_txid,
+                    vout: 2,
+                },
+                keys,
+            },
+        }
+    }
+
+    #[test]
+    fn uncontested_payout() {
+        let mut node = BitcoinNode::new();
+        let signer = Signer::generate();
+        let game_data = get_game_data(&mut node, &signer);
+        let game = GameGraph::new(game_data);
+
+        // Create the claim transaction + its CPFP child.
+        //
+        // inputs               | outputs
+        // ---------------------+---------------------------------------
+        // (4 + ω)ε sat: wallet | (3 + ω)ε sat: claim contest connector
+        //                      |---------------------------------------
+        //                      | ε sat: claim payout connector
+        //                      |---------------------------------------
+        //                      | 0 sat: cpfp connector (CPFP)
+        let signed_claim_tx = node.sign(game.claim.as_unsigned_tx());
+        assert_eq!(signed_claim_tx.version, Version(3));
+        let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
+        assert_eq!(signed_claim_child_tx.version, Version(3));
+        node.submit_package([signed_claim_tx, signed_claim_child_tx]);
+        node.mine_blocks(UNIVERSAL_TIMELOCK.to_consensus_u32() as usize);
+
+        // Create the uncontested payout transaction + its CPFP child.
+        //
+        // inputs                                | outputs
+        // --------------------------------------+----------------------------------
+        // 1 btc: deposit connector              | 1 btc + (4 + ω)ε: operator (CPFP)
+        // --------------------------------------|
+        // (3 + ω)ε sat: claim contest connector |
+        // --------------------------------------|
+        // ε sat: claim payout connector         |
+        let signing_info = game.uncontested_payout.signing_info();
+        let n_of_n_signatures =
+            std::array::from_fn(|i| signing_info[i].sign(&signer.n_of_n_keypair));
+
+        let signed_payout_child_tx = node.create_cpfp_child(&game.uncontested_payout, FEE * 2);
+        assert_eq!(signed_payout_child_tx.version, Version(3));
+        let signed_uncontested_payout_tx = game.uncontested_payout.finalize(n_of_n_signatures);
+        assert_eq!(signed_uncontested_payout_tx.version, Version(3));
+        node.submit_package([signed_uncontested_payout_tx, signed_payout_child_tx]);
+        node.mine_blocks(1);
+    }
+
+    #[test]
+    fn contested_payout() {
+        let mut node = BitcoinNode::new();
+        let signer = Signer::generate();
+        let game_data = get_game_data(&mut node, &signer);
+        let game = GameGraph::new(game_data);
+
+        // Create the claim transaction + its CPFP child.
+        //
+        // inputs               | outputs
+        // ---------------------+---------------------------------------
+        // (4 + ω)ε sat: wallet | (3 + ω)ε sat: claim contest connector
+        //                      |---------------------------------------
+        //                      | ε sat: claim payout connector
+        //                      |---------------------------------------
+        //                      | 0 sat: cpfp connector (CPFP)
+        let signed_claim_tx = node.sign(game.claim.as_unsigned_tx());
+        assert_eq!(signed_claim_tx.version, Version(3));
+        let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
+        assert_eq!(signed_claim_child_tx.version, Version(3));
+        node.submit_package([signed_claim_tx, signed_claim_child_tx]);
+        node.mine_blocks(UNIVERSAL_TIMELOCK.to_consensus_u32() as usize);
+
+        // Create the contest transaction + its CPFP child.
+        //
+        // inputs                                | outputs
+        // --------------------------------------+-----------------------------------
+        // (3 + ω)ε sat: claim contest connector | ε sat: contest proof connector
+        // --------------------------------------+-----------------------------------
+        //                                       | ε sat: contest payout connector
+        //                                       |-----------------------------------
+        //                                       | ε sat: contest slash connector
+        //                                       |-----------------------------------
+        //                                       | ε sat: contest counterproof output
+        //                                       |-----------------------------------
+        //                                       | ...
+        //                                       |-----------------------------------
+        //                                       | ε sat: contest counterproof output
+        //                                       |-----------------------------------
+        //                                       | 0 sat: cpfp connector
+        let signing_info = game.contest.signing_info(CONTESTING_WATCHTOWER_IDX);
+        let n_of_n_signature = signing_info.sign(&signer.n_of_n_keypair);
+        let watchtower_signature =
+            signing_info.sign(&signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize]);
+
+        let signed_contest_child_tx = node.create_cpfp_child(&game.contest, FEE * 2);
+        assert_eq!(signed_contest_child_tx.version, Version(3));
+        let signed_contest_tx = game.contest.finalize(
+            n_of_n_signature,
+            CONTESTING_WATCHTOWER_IDX,
+            watchtower_signature,
+        );
+        assert_eq!(signed_contest_tx.version, Version(3));
+        node.submit_package([signed_contest_tx, signed_contest_child_tx]);
+        node.mine_blocks(UNIVERSAL_TIMELOCK.to_consensus_u32() as usize);
+
+        // Create the contested payout transaction + its CPFP child.
+        //
+        // inputs                          | outputs
+        // --------------------------------+--------------------------------
+        // 1 btc: deposit connector        | 1 btc + 3ε sat: operator (CPFP)
+        // --------------------------------|
+        // ε sat: claim payout connector   |
+        // --------------------------------|
+        // ε sat: contest payout connector |
+        // --------------------------------|
+        // ε sat: contest slash connector  |
+        let signing_info = game.contested_payout.signing_info();
+        let n_of_n_signatures =
+            std::array::from_fn(|i| signing_info[i].sign(&signer.n_of_n_keypair));
+
+        let signed_payout_child_tx = node.create_cpfp_child(&game.contested_payout, FEE * 2);
+        assert_eq!(signed_payout_child_tx.version, Version(3));
+        let signed_contested_payout_tx = game.contested_payout.finalize(n_of_n_signatures);
+        assert_eq!(signed_contested_payout_tx.version, Version(3));
+        node.submit_package([signed_contested_payout_tx, signed_payout_child_tx]);
+        node.mine_blocks(1);
+    }
+}
