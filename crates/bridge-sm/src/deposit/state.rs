@@ -18,9 +18,14 @@ use crate::{
         errors::{DSMError, DSMResult},
         events::DepositEvent,
     },
-    signals::DepositSignal,
+    signals::{DepositSignal, DepositToGraph},
     state_machine::{SMOutput, StateMachine},
 };
+
+/// The number of blocks after the fulfillment confirmation after which the cooperative payout path
+/// is considered to have failed.
+// TODO: (@Rajil1213) Move this to a config
+const COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS: u64 = 144; // Approx. 24 hours
 
 // TODO: (@Rajil1213) Maybe move configuration to a separate `config` module.
 // This module will have a
@@ -194,7 +199,7 @@ impl StateMachine for DepositSM {
             DepositEvent::PayoutNonceReceived => self.process_payout_nonce_received(),
             DepositEvent::PayoutPartialReceived => self.process_payout_partial_received(),
             DepositEvent::PayoutConfirmed { tx } => self.process_payout_confirmed(&tx),
-            DepositEvent::NewBlock => self.process_new_block(),
+            DepositEvent::NewBlock { block } => self.process_new_block(&block),
         }
     }
 }
@@ -402,7 +407,72 @@ impl DepositSM {
         }
     }
 
-    fn process_new_block(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@Rajil1213")
+    fn process_new_block(&mut self, block: &Block) -> DSMResult<DSMOutput> {
+        let new_block_height = block.bip34_block_height().unwrap_or(0);
+
+        match self.state_mut() {
+            DepositState::Created { block_height, .. }
+            | DepositState::GraphGenerated { block_height, .. }
+            | DepositState::DepositNoncesCollected { block_height, .. }
+            | DepositState::DepositPartialsCollected { block_height, .. }
+            | DepositState::Deposited { block_height, .. }
+            | DepositState::Assigned { block_height, .. }
+            | DepositState::PayoutPartialsCollected { block_height, .. }
+            | DepositState::CooperativePathFailed { block_height, .. } => {
+                *block_height = new_block_height;
+
+                Ok(SMOutput {
+                    duties: vec![],
+                    signals: vec![],
+                })
+            }
+
+            DepositState::Fulfilled {
+                block_height,
+                assignee,
+                ..
+            }
+            | DepositState::PayoutNoncesCollected {
+                block_height,
+                assignee,
+                ..
+            } => {
+                let assignee = *assignee; // reassign to get past the borrow-checker
+
+                // Check for `=` instead of just `>` to allow disabling cooperative payout by
+                // setting this param to zero. This will come into effect after a 1-block delay
+                // (when the next block is observed).
+                let has_cooperative_payout_timed_out =
+                    new_block_height >= *block_height + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
+
+                if has_cooperative_payout_timed_out {
+                    // Transition to CooperativePathFailed state
+                    self.state = DepositState::CooperativePathFailed {
+                        block_height: new_block_height,
+                    };
+
+                    // activate the graph if the cooperative payout path has failed
+                    return Ok(SMOutput {
+                        duties: vec![],
+                        signals: vec![DepositSignal::ToGraph(
+                            DepositToGraph::CooperativePayoutFailed {
+                                assignee,
+                                deposit_idx: self.cfg().deposit_idx,
+                            },
+                        )],
+                    });
+                }
+
+                Ok(SMOutput {
+                    duties: vec![],
+                    signals: vec![],
+                })
+            }
+
+            DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
+                state: self.state().clone(),
+                reason: "New blocks irrelevant in terminal state".to_string(),
+            }),
+        }
     }
 }
