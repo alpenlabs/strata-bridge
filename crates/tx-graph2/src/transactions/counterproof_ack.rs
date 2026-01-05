@@ -47,7 +47,7 @@ impl CounterproofAckTx {
     /// Number of transaction inputs.
     pub const N_INPUTS: usize = 2;
 
-    /// Creates a contest transaction.
+    /// Creates a counterproof ack transaction.
     pub fn new(
         data: CounterproofAckData,
         counterproof_connector: CounterproofConnector,
