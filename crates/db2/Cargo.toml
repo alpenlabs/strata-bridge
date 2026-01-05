@@ -10,12 +10,13 @@ strata-bridge-primitives.workspace = true
 strata-p2p-types.workspace = true
 
 bitcoin = { workspace = true, features = ["rand-std"] }
-# rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
-# tracing.workspace = true
-foundationdb = { version = "0.10.0", features = ["fdb-7_3"], optional = true }
-terrors.workspace = true
+# switch to fdb 0.11.0 once released
+foundationdb = { git = "https://github.com/foundationdb-rs/foundationdb-rs", rev = "7e02f866ff08153f4309a429fc74515c77ea8f07", features = [
+  "fdb-7_3",
+], optional = true }
 serde = { workspace = true, optional = true, features = ["derive"] }
+terrors.workspace = true
 
 [lints]
 workspace = true
@@ -23,3 +24,6 @@ workspace = true
 [features]
 default = ["fdb"]
 fdb = ["foundationdb", "serde"]
+
+[dev-dependencies]
+tokio.workspace = true
