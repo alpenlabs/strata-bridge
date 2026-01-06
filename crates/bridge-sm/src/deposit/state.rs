@@ -54,7 +54,18 @@ pub enum DepositState {
     /// TODO: (@MdTeach)
     DepositNoncesCollected,
     /// TODO: (@MdTeach)
-    DepositPartialsCollected,
+    DepositPartialsCollected {
+        /// Placeholder docstring as this will be added by @MdTeach
+        block_height: u32,
+        /// Placholder docstring as this will be added by @MdTeach
+        output_index: u32,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_request_outpoint: OutPoint,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_transaction: Transaction,
+        /// Placeholder docstring as this will be added by @MdTeach
+        aggregated_signature: Signature,
+    },
     /// This state indicates that the deposit transaction has been confirmed on-chain.
     Deposited {
         /// The last block height observed by this state machine.
@@ -141,7 +152,7 @@ impl Display for DepositState {
             DepositState::Created => "Created",
             DepositState::GraphGenerated => "GraphGenerated",
             DepositState::DepositNoncesCollected => "DepositNoncesCollected",
-            DepositState::DepositPartialsCollected => "DepositPartialsCollected",
+            DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected",
             DepositState::Deposited { .. } => "Deposited",
             DepositState::Assigned { .. } => "Assigned",
             DepositState::Fulfilled { .. } => "Fulfilled",
@@ -203,7 +214,9 @@ impl StateMachine for DepositSM {
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
             DepositEvent::NonceReceived => self.process_nonce_received(),
             DepositEvent::PartialReceived => self.process_partial_received(),
-            DepositEvent::DepositConfirmed { .. } => self.process_deposit_confirmed(),
+            DepositEvent::DepositConfirmed {
+                deposit_transaction,
+            } => self.process_deposit_confirmed(event_description, deposit_transaction),
             DepositEvent::Assignment { .. } => self.process_assignment(),
             DepositEvent::FulfillmentConfirmed {
                 fulfillment_transaction,
@@ -283,8 +296,39 @@ impl DepositSM {
         todo!("@MdTeach")
     }
 
-    fn process_deposit_confirmed(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_deposit_confirmed(
+        &mut self,
+        event_description: String,
+        confirmed_deposit_transaction: Transaction,
+    ) -> DSMResult<DSMOutput> {
+        match &self.state {
+            DepositState::DepositPartialsCollected {
+                block_height,
+                deposit_transaction,
+                ..
+            } => {
+                // Ensure that the deposit transaction confirmed on-chain is the one we were
+                // expecting.
+                assert_eq!(
+                    confirmed_deposit_transaction.compute_txid(),
+                    deposit_transaction.compute_txid(),
+                    "Transaction confirmed on chain does not match expected deposit transaction"
+                );
+                // Transition to the Deposited State
+                self.state = DepositState::Deposited {
+                    block_height: *block_height,
+                };
+
+                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
+
+                Ok(DSMOutput::new())
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+            }),
+        }
     }
 
     fn process_assignment(&mut self) -> DSMResult<DSMOutput> {
