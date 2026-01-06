@@ -53,6 +53,23 @@ pub struct DepositCfg {
     pub(super) operator_table: OperatorTable,
 }
 
+impl DepositCfg {
+    /// Returns the deposit index.
+    pub const fn deposit_idx(&self) -> DepositIdx {
+        self.deposit_idx
+    }
+
+    /// Returns the deposit request outpoint.
+    pub const fn deposit_outpoint(&self) -> OutPoint {
+        self.deposit_outpoint
+    }
+
+    /// Returns the operator table.
+    pub const fn operator_table(&self) -> &OperatorTable {
+        &self.operator_table
+    }
+}
+
 /// The state of a Deposit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositState {
@@ -61,17 +78,11 @@ pub enum DepositState {
     /// This happens from the confirmation of the deposit request transaction until all operators
     /// have generated and linked their graphs for this deposit.
     Created {
-        /// Index identifying this deposit.
-        deposit_idx: u32,
-
         /// The unsigned deposit transaction derived from the deposit request.
         deposit_transaction: Transaction,
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
-
-        /// Outpoint of the deposit request UTXO, used for abort handling.
-        deposit_request_outpoint: OutPoint,
 
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
@@ -87,17 +98,11 @@ pub enum DepositState {
     /// This happens from the point where all operator graphs are generated until all public nonces
     /// required to sign the deposit transaction are collected.
     GraphGenerated {
-        /// Index identifying this deposit.
-        deposit_idx: u32,
-
         /// The unsigned deposit transaction to be signed.
         deposit_transaction: Transaction,
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
-
-        /// Outpoint of the deposit request UTXO.
-        deposit_request_outpoint: OutPoint,
 
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
@@ -113,17 +118,11 @@ pub enum DepositState {
     /// This happens from the collection of all deposit public nonces until all partial signatures
     /// have been received.
     DepositNoncesCollected {
-        /// Index identifying this deposit.
-        deposit_idx: u32,
-
         /// The deposit transaction being signed.
         deposit_transaction: Transaction,
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
-
-        /// Outpoint of the deposit request UTXO.
-        deposit_request_outpoint: OutPoint,
 
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
@@ -142,9 +141,6 @@ pub enum DepositState {
     /// This happens from the collection of all partial signatures until the deposit transaction
     /// is broadcast and confirmed.
     DepositPartialsCollected {
-        /// Index identifying this deposit.
-        deposit_idx: u32,
-
         /// Index of the deposit output in the deposit transaction.
         output_index: u32,
 
@@ -153,9 +149,6 @@ pub enum DepositState {
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
-
-        /// Outpoint of the deposit request UTXO.
-        deposit_request_outpoint: OutPoint,
 
         /// The fully signed deposit transaction.
         deposit_transaction: Transaction,
@@ -213,28 +206,10 @@ pub enum DepositState {
 impl Display for DepositState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let display_str = match self {
-            DepositState::Created {
-                deposit_idx,
-                block_height,
-                ..
-            } => format!("Created (deposit: {deposit_idx}, height: {block_height})"),
-            DepositState::GraphGenerated {
-                deposit_idx,
-                block_height,
-                ..
-            } => format!("GraphGenerated (deposit: {deposit_idx}, height: {block_height})"),
-            DepositState::DepositNoncesCollected {
-                deposit_idx,
-                block_height,
-                ..
-            } => format!("DepositNoncesCollected (deposit: {deposit_idx}, height: {block_height})"),
-            DepositState::DepositPartialsCollected {
-                deposit_idx,
-                block_height,
-                ..
-            } => {
-                format!("DepositPartialsCollected (deposit: {deposit_idx}, height: {block_height})")
-            }
+            DepositState::Created { .. } => "Created".to_string(),
+            DepositState::GraphGenerated { .. } => "GraphGenerated".to_string(),
+            DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected".to_string(),
+            DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected".to_string(),
             DepositState::Deposited => "Deposited".to_string(),
             DepositState::Assigned => "Assigned".to_string(),
             DepositState::Fulfilled => "Fulfilled".to_string(),
@@ -251,18 +226,14 @@ impl Display for DepositState {
 impl DepositState {
     /// Creates a new Deposit State in the `Created` state.
     pub const fn new(
-        deposit_idx: u32,
         deposit_transaction: Transaction,
         drt_block_height: BitcoinBlockHeight,
-        deposit_request_outpoint: OutPoint,
         output_index: u32,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositState::Created {
-            deposit_idx,
             deposit_transaction,
             drt_block_height,
-            deposit_request_outpoint,
             output_index,
             block_height,
             linked_graphs: BTreeSet::new(),
@@ -346,20 +317,16 @@ impl DepositSM {
     /// Creates a new Deposit State Machine with the given configuration.
     pub const fn new(
         cfg: DepositCfg,
-        deposit_idx: u32,
         deposit_transaction: Transaction,
         drt_block_height: BitcoinBlockHeight,
-        deposit_request_outpoint: OutPoint,
         output_index: u32,
         block_height: BitcoinBlockHeight,
     ) -> Self {
         DepositSM {
             cfg,
             state: DepositState::new(
-                deposit_idx,
                 deposit_transaction,
                 drt_block_height,
-                deposit_request_outpoint,
                 output_index,
                 block_height,
             ),
@@ -403,12 +370,9 @@ impl DepositSM {
     /// their nonce for the deposit transaction signing process.
     fn process_deposit_request(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
         match self.state() {
-            DepositState::Created {
-                deposit_request_outpoint,
-                ..
-            } => Ok(DSMOutput::with_duties(vec![
+            DepositState::Created { .. } => Ok(DSMOutput::with_duties(vec![
                 DepositDuty::PublishDepositNonce {
-                    deposit_out_point: *deposit_request_outpoint,
+                    deposit_out_point: self.cfg().deposit_outpoint(),
                 },
             ])),
             _ => Err(DSMError::InvalidEvent {
@@ -498,10 +462,8 @@ impl DepositSM {
 
         match self.state_mut() {
             DepositState::Created {
-                deposit_idx,
                 deposit_transaction,
                 drt_block_height,
-                deposit_request_outpoint,
                 output_index,
                 block_height,
                 linked_graphs,
@@ -513,10 +475,8 @@ impl DepositSM {
                         // All operators have linked their graphs, transition to GraphGenerated
                         // state
                         let new_state = DepositState::GraphGenerated {
-                            deposit_idx: *deposit_idx,
                             deposit_transaction: deposit_transaction.clone(),
                             drt_block_height: *drt_block_height,
-                            deposit_request_outpoint: *deposit_request_outpoint,
                             output_index: *output_index,
                             block_height: *block_height,
                             pubnonces: BTreeMap::new(),
@@ -1114,19 +1074,15 @@ mod prop_tests {
     prop_compose! {
         fn arb_deposit_state_machine()(
             cfg in arb_deposit_cfg(),
-            deposit_idx in 0u32..1000u32,
             deposit_transaction in arb_transaction(),
             drt_block_height in arb_block_height(),
-            deposit_request_outpoint in arb_outpoint(),
             output_index in 0u32..10u32,
             block_height in arb_block_height(),
         ) -> DepositSM {
             DepositSM::new(
                 cfg,
-                deposit_idx,
                 deposit_transaction,
                 drt_block_height,
-                deposit_request_outpoint,
                 output_index,
                 block_height,
             )
@@ -1147,11 +1103,8 @@ mod prop_tests {
             // Assume we're in Created state - filter out other states
             prop_assume!(matches!(state_before, DepositState::Created { .. }));
 
-            // Extract the deposit request outpoint from the Created state
-            let DepositState::Created { deposit_request_outpoint, .. } = &state_before else {
-                unreachable!("prop_assume ensures we're in Created state");
-            };
-            let expected_outpoint = *deposit_request_outpoint;
+            // Extract the expected outpoint from the config
+            let expected_outpoint = sm.cfg().deposit_outpoint();
 
             // Process the DepositRequest event
             let result = sm.process_event(DepositEvent::DepositRequest);
