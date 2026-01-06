@@ -217,7 +217,11 @@ impl StateMachine for DepositSM {
             DepositEvent::DepositConfirmed {
                 deposit_transaction,
             } => self.process_deposit_confirmed(event_description, deposit_transaction),
-            DepositEvent::Assignment { .. } => self.process_assignment(),
+            DepositEvent::Assignment {
+                assignee,
+                deadline,
+                recipient_desc,
+            } => self.process_assignment(event_description, assignee, deadline, recipient_desc),
             DepositEvent::FulfillmentConfirmed {
                 fulfillment_transaction,
                 fulfillment_block_height,
@@ -331,8 +335,47 @@ impl DepositSM {
         }
     }
 
-    fn process_assignment(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_assignment(
+        &mut self,
+        event_description: String,
+        assignee: OperatorIdx,
+        deadline: BitcoinBlockHeight,
+        recipient_desc: Descriptor,
+    ) -> DSMResult<DSMOutput> {
+        match &self.state {
+            DepositState::Deposited { block_height } => {
+                // Transition to the Assigned State
+                self.state = DepositState::Assigned {
+                    block_height: *block_height,
+                    assignee,
+                    deadline,
+                    recipient_desc,
+                };
+
+                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
+
+                Ok(DSMOutput::new())
+            }
+
+            // Update the state with the details from new assignment event.
+            DepositState::Assigned { block_height, .. } => {
+                self.state = DepositState::Assigned {
+                    block_height: *block_height,
+                    assignee,
+                    deadline,
+                    recipient_desc,
+                };
+
+                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
+
+                Ok(DSMOutput::new())
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+            }),
+        }
     }
 
     fn process_fulfillment(
