@@ -96,6 +96,8 @@ pub enum DepositState {
         block_height: u64,
         /// The index of the operator assigned to the deposit.
         assignee: OperatorIdx,
+        /// The height of the block where the withdrawal fulfillment was confirmed.
+        fulfillment_height: u64,
     },
     /// TODO: (@mukeshdroid)
     PayoutNoncesCollected {
@@ -103,6 +105,8 @@ pub enum DepositState {
         block_height: u64,
         /// The index of the operator assigned to the deposit.
         assignee: OperatorIdx,
+        /// The height of the block where the withdrawal fulfillment was confirmed.
+        fulfillment_height: u64,
     },
     /// TODO: (@mukeshdroid)
     PayoutPartialsCollected {
@@ -436,11 +440,12 @@ impl DepositSM {
             DepositState::Fulfilled {
                 block_height,
                 assignee,
-                ..
+                fulfillment_height,
             }
             | DepositState::PayoutNoncesCollected {
                 block_height,
                 assignee,
+                fulfillment_height,
                 ..
             } => {
                 let assignee = *assignee; // reassign to get past the borrow-checker
@@ -449,7 +454,7 @@ impl DepositSM {
                 // setting this param to zero. This will come into effect after a 1-block delay
                 // (when the next block is observed).
                 let has_cooperative_payout_timed_out =
-                    new_block_height >= *block_height + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
+                    new_block_height >= *fulfillment_height + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
 
                 if has_cooperative_payout_timed_out {
                     // Transition to CooperativePathFailed state
