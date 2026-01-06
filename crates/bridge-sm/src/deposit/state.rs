@@ -976,7 +976,7 @@ mod prop_tests {
         absolute::{Height, LockTime},
         transaction,
     };
-    use proptest::prelude::*;
+    use proptest::{prelude::*, strategy::ValueTree};
     use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
 
     use super::*;
@@ -1100,9 +1100,6 @@ mod prop_tests {
             // Capture the initial state
             let state_before = sm.state().clone();
 
-            // Assume we're in Created state - filter out other states
-            prop_assume!(matches!(state_before, DepositState::Created { .. }));
-
             // Extract the expected outpoint from the config
             let expected_outpoint = sm.cfg().deposit_outpoint();
 
@@ -1190,6 +1187,67 @@ mod prop_tests {
             prop_assert!(matches!(state_after, DepositState::GraphGenerated { .. }),
                 "Should transition to GraphGenerated after all operators linked");
 
+            // Test that processing graph_available again returns error and state unchanged
+            let state_before_error_test = sm.state().clone();
+            let graph_msg_again = GraphToDeposit::GraphAvailable {
+                operator_idx: last_operator_idx
+            };
+            let error_result = sm.process_graph_available(graph_msg_again);
+
+            // Verify the event processing failed with the expected error
+            prop_assert!(error_result.is_err(), "Expected error when processing graph_available in GraphGenerated state");
+            let error = error_result.unwrap_err();
+            prop_assert!(matches!(error, DSMError::InvalidEvent { .. }), "Expected InvalidEvent error");
+
+            // Verify the state remains unchanged
+            let state_after_error_test = sm.state().clone();
+            prop_assert_eq!(state_before_error_test, state_after_error_test, "State should remain unchanged after error");
+
         }
+
+        #[test]
+        fn test_process_graph_available_with_duplicates(mut sm in arb_deposit_state_machine()) {
+            // Get the actual operator indices from the state machine
+            let operator_indices: Vec<u32> = sm.cfg().operator_table.operator_idxs()
+                .into_iter().collect();
+
+            // Skip test if no operators
+            prop_assume!(!operator_indices.is_empty());
+
+            // Generate messages that include all operators with potential duplicates
+            let mut test_messages = Vec::new();
+            for &idx in &operator_indices {
+                test_messages.push(GraphToDeposit::GraphAvailable { operator_idx: idx });
+            }
+
+            // Add some duplicates
+            for &idx in &operator_indices {
+                if idx % 2 == 0 { // Add duplicates for even-indexed operators
+                    test_messages.push(GraphToDeposit::GraphAvailable { operator_idx: idx });
+                }
+            }
+
+            // Shuffle the list using proptest
+            let test_messages = Just(test_messages).prop_shuffle().new_tree(&mut Default::default()).unwrap().current();
+
+            // Process messages until we reach the next state
+            for message in test_messages {
+                let result = sm.process_graph_available(message);
+
+                match sm.state() {
+                    DepositState::Created { .. } => {
+                        // Still in Created state, message should succeed
+                        prop_assert!(result.is_ok(), "Message should succeed in Created state");
+                    }
+                    DepositState::GraphGenerated { .. } => {
+                        // We've transitioned! This is expected.
+                        prop_assert!(result.is_ok(), "Transition message should succeed");
+                        break;
+                    }
+                    _ => prop_assert!(false, "Unexpected state during processing")
+                }
+            }
+        }
+
     }
 }
