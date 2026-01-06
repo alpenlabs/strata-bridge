@@ -474,6 +474,8 @@ impl DepositSM {
                     });
                 }
 
+                *block_height = new_block_height;
+
                 Ok(SMOutput {
                     duties: vec![],
                     signals: vec![],
