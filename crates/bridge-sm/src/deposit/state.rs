@@ -1134,9 +1134,9 @@ mod prop_tests {
     }
 
     proptest! {
-        // run only 10 test cases
+        // run only 32 test cases
         #![proptest_config(ProptestConfig {
-            cases: 10,
+            cases: 32,
             .. ProptestConfig::default()
         })]
         #[test]
@@ -1177,6 +1177,66 @@ mod prop_tests {
             // Verify the state remains unchanged
             let state_after = sm.state().clone();
             prop_assert_eq!(state_before, state_after, "State should remain unchanged");
+        }
+
+        #[test]
+        fn test_process_graph_available_full_sequence(mut sm in arb_deposit_state_machine()) {
+            let operator_indices: Vec<u32> = sm.cfg().operator_table.operator_idxs()
+                .into_iter().collect();
+
+            // Skip test if no operators (shouldn't happen, but be defensive)
+            prop_assume!(!operator_indices.is_empty(), "Cannot test with empty operator table");
+
+            // Process GraphAvailable for first N-1 operators (should stay in Created state)
+            let all_but_last = &operator_indices[..operator_indices.len() - 1];
+            for (i, &operator_idx) in all_but_last.iter().enumerate() {
+                let graph_msg = GraphToDeposit::GraphAvailable {
+                    operator_idx
+                };
+                let result = sm.process_graph_available(graph_msg);
+
+                // Verify the event processing succeeded
+                prop_assert!(result.is_ok());
+                let output = result.unwrap();
+
+                // Verify no duties or signals are emitted
+                prop_assert!(output.duties.is_empty(), "Expected no duties");
+                prop_assert!(output.signals.is_empty(), "Expected no signals");
+
+                // Should remain in Created state
+                let state_after = sm.state().clone();
+                prop_assert!(matches!(state_after, DepositState::Created { .. }),
+                    "Should remain in Created state until all operators linked");
+
+                let DepositState::Created { linked_graphs: new_linked_graphs, .. } = &state_after else {
+                    unreachable!("Already verified state type above");
+                };
+
+                // Verify the operator was added to linked_graphs
+                prop_assert_eq!(new_linked_graphs.len(), i + 1);
+                prop_assert!(new_linked_graphs.contains(&operator_idx));
+            }
+
+            // Process the last operator (should transition to GraphGenerated state)
+            let last_operator_idx = *operator_indices.last().unwrap();
+            let graph_msg = GraphToDeposit::GraphAvailable {
+                operator_idx: last_operator_idx
+            };
+            let result = sm.process_graph_available(graph_msg);
+
+            // Verify the event processing succeeded
+            prop_assert!(result.is_ok());
+            let output = result.unwrap();
+
+            // Verify no duties or signals are emitted
+            prop_assert!(output.duties.is_empty(), "Expected no duties");
+            prop_assert!(output.signals.is_empty(), "Expected no signals");
+
+            // Should transition to GraphGenerated state
+            let state_after = sm.state().clone();
+            prop_assert!(matches!(state_after, DepositState::GraphGenerated { .. }),
+                "Should transition to GraphGenerated after all operators linked");
+
         }
     }
 }
