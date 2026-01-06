@@ -95,7 +95,7 @@ pub enum DepositState {
         cooperative_payment_deadline: BitcoinBlockHeight,
         /// The operator's descriptor where they want the funds in the cooperative path.
         /// This can only be set once and needs to be provided by the operator.
-        operator_desc: Option<Descriptor>,
+        operator_desc: Descriptor,
         /// The pubnonces, indexed by operator, required to sign the cooperative payout
         /// transaction.
         payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
@@ -107,10 +107,6 @@ pub enum DepositState {
         block_height: u32,
         /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
-        /// The txid of the fulfillment transaction in which the user was fronted.
-        fulfillment_txid: Txid,
-        /// The block height where the fulfillment transaction was confirmed.
-        fulfillment_block_height: BitcoinBlockHeight,
         /// The operator's descriptor where they want the funds in the cooperative path.
         payout_output_descriptor: Descriptor,
         /// The block height by which the cooperative payout must be completed.
@@ -218,8 +214,8 @@ impl StateMachine for DepositSM {
                 fulfillment_block_height,
                 COOPERATIVE_PAYOUT_TIMELOCK,
             ),
-            DepositEvent::PayoutDescriptorReceived { .. } => {
-                self.process_payout_descriptor_received()
+            DepositEvent::PayoutDescriptorReceived { operator_desc } => {
+                self.process_payout_descriptor_received(event_description, operator_desc)
             }
             DepositEvent::PayoutNonceReceived { .. } => self.process_payout_nonce_received(),
             DepositEvent::PayoutPartialReceived { .. } => self.process_payout_partial_received(),
@@ -306,8 +302,7 @@ impl DepositSM {
             DepositState::Assigned {
                 block_height,
                 assignee,
-                deadline: _,
-                recipient_desc: _,
+                ..
             } => {
                 // Compute the txid of the fulfillemnt Transaction
                 let fulfillment_txid: Txid = fulfillment_transaction.compute_txid();
@@ -337,8 +332,37 @@ impl DepositSM {
         }
     }
 
-    fn process_payout_descriptor_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_payout_descriptor_received(
+        &mut self,
+        event_description: String,
+        operator_desc: Descriptor,
+    ) -> DSMResult<DSMOutput> {
+        match &self.state {
+            DepositState::Fulfilled {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                ..
+            } => {
+                // Transition to the Fulfilled State
+                self.state = DepositState::PayoutDescriptorReceived {
+                    block_height: *block_height,
+                    assignee: *assignee,
+                    cooperative_payment_deadline: *cooperative_payment_deadline,
+                    operator_desc,
+                    payout_nonces: BTreeMap::new(),
+                };
+
+                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
+
+                Ok(DSMOutput::new())
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+            }),
+        }
     }
 
     fn process_payout_nonce_received(&mut self) -> DSMResult<DSMOutput> {
