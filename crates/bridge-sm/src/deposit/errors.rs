@@ -8,6 +8,8 @@ use crate::deposit::state::DepositState;
 #[derive(Debug, Clone, Error)]
 pub enum DSMError {
     /// An invalid event was received for the current state.
+    ///
+    /// This type of error is usually fatal.
     #[error("Received invalid event {event} in state {state}; reason: {reason:?}")]
     InvalidEvent {
         /// The state in which the event was received.
