@@ -248,17 +248,25 @@ impl Display for DepositState {
     }
 }
 
-impl Default for DepositState {
-    fn default() -> Self {
-        // TODO: (@MdTeach) Remove this impl once `new` starts taking arguments.
-        DepositState::new()
-    }
-}
-
 impl DepositState {
     /// Creates a new Deposit State in the `Created` state.
-    pub fn new() -> Self {
-        todo!("@MdTeach: implement new with parameters")
+    pub const fn new(
+        deposit_idx: u32,
+        deposit_transaction: Transaction,
+        drt_block_height: BitcoinBlockHeight,
+        deposit_request_outpoint: OutPoint,
+        output_index: u32,
+        block_height: BitcoinBlockHeight,
+    ) -> Self {
+        DepositState::Created {
+            deposit_idx,
+            deposit_transaction,
+            drt_block_height,
+            deposit_request_outpoint,
+            output_index,
+            block_height,
+            linked_graphs: BTreeSet::new(),
+        }
     }
 
     /// Returns the height of the last processed Bitcoin block for this deposit state.
@@ -335,12 +343,26 @@ pub type DSMOutput = SMOutput<DepositDuty, DepositSignal>;
 
 impl DepositSM {
     /// Creates a new Deposit State Machine with the given configuration.
-    pub fn new(cfg: DepositCfg) -> Self {
-        // DepositSM {
-        //     cfg,
-        //     state: DepositState::new(),
-        // }
-        todo!("@MdTeach: implement new with parameters")
+    pub const fn new(
+        cfg: DepositCfg,
+        deposit_idx: u32,
+        deposit_transaction: Transaction,
+        drt_block_height: BitcoinBlockHeight,
+        deposit_request_outpoint: OutPoint,
+        output_index: u32,
+        block_height: BitcoinBlockHeight,
+    ) -> Self {
+        DepositSM {
+            cfg,
+            state: DepositState::new(
+                deposit_idx,
+                deposit_transaction,
+                drt_block_height,
+                deposit_request_outpoint,
+                output_index,
+                block_height,
+            ),
+        }
     }
 
     /// Returns a reference to the configuration of the Deposit State Machine.
