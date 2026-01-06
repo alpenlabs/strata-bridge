@@ -8,3 +8,6 @@
 pub mod deposit;
 pub mod signals;
 pub mod state_machine;
+
+#[cfg(test)]
+pub(crate) mod testing;

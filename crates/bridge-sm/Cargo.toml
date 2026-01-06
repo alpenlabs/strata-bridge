@@ -12,3 +12,8 @@ strata-bridge-primitives.workspace = true
 
 bitcoin.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+secp256k1.workspace = true
+strata-p2p-types.workspace = true
