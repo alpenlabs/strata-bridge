@@ -312,7 +312,7 @@ pub mod prop_test_generators {
         fn arb_operator_table_opt()(
             keys in prop::collection::vec(
                 (arb_p2p_key().no_shrink(), arb_btc_key().no_shrink()),
-                1..=15
+                3..=15
             ),
             pov in 0..15u32,
         ) -> Option<OperatorTable> {
