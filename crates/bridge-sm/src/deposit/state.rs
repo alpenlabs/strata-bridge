@@ -57,7 +57,7 @@ pub enum DepositState {
     DepositPartialsCollected {
         /// Placeholder docstring as this will be added by @MdTeach
         block_height: u32,
-        /// Placholder docstring as this will be added by @MdTeach
+        /// Placeholder docstring as this will be added by @MdTeach
         output_index: u32,
         /// Placeholder docstring as this will be added by @MdTeach
         deposit_request_outpoint: OutPoint,
