@@ -9755,6 +9755,7 @@ name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
+ "musig2",
  "strata-bridge-primitives",
  "thiserror 2.0.12",
 ]
