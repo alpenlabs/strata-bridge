@@ -22,7 +22,7 @@ use crate::{
         errors::{DSMError, DSMResult},
         events::DepositEvent,
     },
-    signals::{DepositSignal, DepositToGraph},
+    signals::{DepositSignal, DepositToGraph, GraphToDeposit},
     state_machine::{SMOutput, StateMachine},
 };
 
@@ -321,6 +321,7 @@ impl StateMachine for DepositSM {
             DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
+            DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
             DepositEvent::NonceReceived => self.process_nonce_received(),
             DepositEvent::PartialReceived => self.process_partial_received(),
             DepositEvent::DepositConfirmed => self.process_deposit_confirmed(),
@@ -396,8 +397,25 @@ impl DepositSM {
     // NOTE: all of the following functions are placeholders for the actual state transition logic.
     // they each receive the appropriate data required for the state transitions.
 
+    /// Processes the deposit request event.
+    ///
+    /// This handles the initial deposit request and instructs the operator to publish
+    /// their nonce for the deposit transaction signing process.
     fn process_deposit_request(&self) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
-        todo!("@MdTeach")
+        match self.state() {
+            DepositState::Created {
+                deposit_request_outpoint,
+                ..
+            } => Ok(DSMOutput::with_duties(vec![
+                DepositDuty::PublishDepositNonce {
+                    deposit_out_point: *deposit_request_outpoint,
+                },
+            ])),
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: DepositEvent::DepositRequest.to_string(),
+            }),
+        }
     }
 
     /// Processes the event where the user takes back the deposit request output.
@@ -470,8 +488,50 @@ impl DepositSM {
         }
     }
 
-    fn process_graph_available(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+    /// Processes the event where an operator's graph becomes available.
+    ///
+    /// This tracks operators that have successfully generated and linked their spending graphs
+    /// for this deposit. When all operators have linked their graphs, transitions to the
+    /// GraphGenerated state.
+    fn process_graph_available(&mut self, graph_msg: GraphToDeposit) -> DSMResult<DSMOutput> {
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
+
+        match self.state_mut() {
+            DepositState::Created {
+                deposit_idx,
+                deposit_transaction,
+                drt_block_height,
+                deposit_request_outpoint,
+                output_index,
+                block_height,
+                linked_graphs,
+            } => match graph_msg {
+                GraphToDeposit::GraphAvailable { operator_idx } => {
+                    linked_graphs.insert(operator_idx);
+
+                    if linked_graphs.len() == operator_table_cardinality {
+                        // All operators have linked their graphs, transition to GraphGenerated
+                        // state
+                        let new_state = DepositState::GraphGenerated {
+                            deposit_idx: *deposit_idx,
+                            deposit_transaction: deposit_transaction.clone(),
+                            drt_block_height: *drt_block_height,
+                            deposit_request_outpoint: *deposit_request_outpoint,
+                            output_index: *output_index,
+                            block_height: *block_height,
+                            pubnonces: BTreeMap::new(),
+                        };
+                        self.state = new_state;
+                    }
+
+                    Ok(DSMOutput::new())
+                }
+            },
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: DepositEvent::GraphMessage(graph_msg).to_string(),
+            }),
+        }
     }
 
     fn process_nonce_received(&mut self) -> DSMResult<DSMOutput> {
