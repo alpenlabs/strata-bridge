@@ -18,9 +18,16 @@ pub enum DSMError {
         reason: Option<String>, // sometimes the reason is obvious from context or unknown
     },
 
+    /// A duplicate event was received in the current state.
+    #[error("Received a duplicate event in state {state}")]
+    Duplicate {
+        /// The state in which the duplicate event was received.
+        state: DepositState,
+    },
+
     /// An event was rejected in the current state.
     ///
-    /// This can happen, for example, if the event is a duplicate.
+    /// This can happen, for example, if the event is no longer relevant due to a state change.
     #[error("Event rejected in state: {state}, reason: {reason}")]
     Rejected {
         /// The state in which the event was rejected.

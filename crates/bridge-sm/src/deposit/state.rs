@@ -310,6 +310,9 @@ impl DepositSM {
                     })
                 }
             }
+            DepositState::Aborted => Err(DSMError::Duplicate {
+                state: self.state().clone(),
+            }),
             _ => Err(DSMError::InvalidEvent {
                 event: DepositEvent::UserTakeBack { tx }.to_string(),
                 state: self.state.to_string(),
@@ -399,6 +402,9 @@ impl DepositSM {
                     signals: vec![],
                 })
             }
+            DepositState::Spent => Err(DSMError::Duplicate {
+                state: self.state().clone(),
+            }),
             _ => Err(DSMError::InvalidEvent {
                 event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.to_string(),
                 state: self.state.to_string(),
