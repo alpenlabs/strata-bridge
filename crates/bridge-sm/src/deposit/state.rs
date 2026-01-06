@@ -28,11 +28,11 @@ use crate::{
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositCfg {
     /// The index of the deposit being tracked in a Deposit State Machine.
-    deposit_idx: DepositIdx,
+    pub(super) deposit_idx: DepositIdx,
     /// The outpoint of the deposit being tracked in a Deposit State Machine.
-    deposit_outpoint: OutPoint,
+    pub(super) deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
-    operator_table: OperatorTable,
+    pub(super) operator_table: OperatorTable,
 }
 
 /// The state of a Deposit.
@@ -110,9 +110,9 @@ impl DepositState {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DepositSM {
     /// The static configuration for this Deposit State Machine.
-    cfg: DepositCfg,
+    pub(super) cfg: DepositCfg,
     /// The current state of the Deposit State Machine.
-    state: DepositState,
+    pub(super) state: DepositState,
 }
 
 impl StateMachine for DepositSM {

@@ -11,3 +11,6 @@ pub mod duties;
 pub mod errors;
 pub mod events;
 pub mod state;
+
+#[cfg(test)]
+pub(super) mod testing;
