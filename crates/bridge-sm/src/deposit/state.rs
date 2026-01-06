@@ -83,6 +83,16 @@ pub enum DepositState {
         fulfillment_block_height: BitcoinBlockHeight,
         /// The block height by which the cooperative payout must be completed.
         cooperative_payment_deadline: BitcoinBlockHeight,
+    },
+    /// This state indicates that the descriptor of the operator for the cooperative payout has been
+    /// received.
+    PayoutDescriptorReceived {
+        /// The last block height observed by this state machine.
+        block_height: u32,
+        /// The index of the operator assigned to front the user.
+        assignee: OperatorIdx,
+        /// The block height by which the cooperative payout must be completed.
+        cooperative_payment_deadline: BitcoinBlockHeight,
         /// The operator's descriptor where they want the funds in the cooperative path.
         /// This can only be set once and needs to be provided by the operator.
         operator_desc: Option<Descriptor>,
@@ -139,6 +149,7 @@ impl Display for DepositState {
             DepositState::Deposited { .. } => "Deposited",
             DepositState::Assigned { .. } => "Assigned",
             DepositState::Fulfilled { .. } => "Fulfilled",
+            DepositState::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived",
             DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected",
             DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
             DepositState::CooperativePathFailed => "CooperativePathFailed",
@@ -207,6 +218,9 @@ impl StateMachine for DepositSM {
                 fulfillment_block_height,
                 COOPERATIVE_PAYOUT_TIMELOCK,
             ),
+            DepositEvent::PayoutDescriptorReceived { .. } => {
+                self.process_payout_descriptor_received()
+            }
             DepositEvent::PayoutNonceReceived { .. } => self.process_payout_nonce_received(),
             DepositEvent::PayoutPartialReceived { .. } => self.process_payout_partial_received(),
             DepositEvent::PayoutConfirmed => self.process_payout_confirmed(),
@@ -309,8 +323,6 @@ impl DepositSM {
                     fulfillment_txid,
                     fulfillment_block_height,
                     cooperative_payment_deadline,
-                    operator_desc: None,
-                    payout_nonces: BTreeMap::new(),
                 };
 
                 // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
@@ -323,6 +335,10 @@ impl DepositSM {
                 event: event_description,
             }),
         }
+    }
+
+    fn process_payout_descriptor_received(&mut self) -> DSMResult<DSMOutput> {
+        todo!("@mukeshdroid")
     }
 
     fn process_payout_nonce_received(&mut self) -> DSMResult<DSMOutput> {

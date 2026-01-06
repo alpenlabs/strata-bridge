@@ -44,6 +44,13 @@ pub enum DepositEvent {
         /// The block height at which the fulfillment transaction was confirmed.
         fulfillment_block_height: BitcoinBlockHeight,
     },
+    /// This event notifies that the output descriptor of the operator for the cooperative payout
+    /// has been received.
+    PayoutDescriptorReceived {
+        /// The output descriptor of the operator where the funds for the cooperative payout is to
+        /// be received.
+        operator_desc: Descriptor,
+    },
     /// This event notifies that a pubnonce from some operator for the cooperative payout
     /// transaction has been received.
     PayoutNonceReceived {
@@ -80,6 +87,7 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::DepositConfirmed { .. } => "DepositConfirmed",
             DepositEvent::Assignment { .. } => "Assignment",
             DepositEvent::FulfillmentConfirmed { .. } => "FulfillmentConfirmed",
+            DepositEvent::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived",
             DepositEvent::PayoutNonceReceived { .. } => "PayoutNonceReceived",
             DepositEvent::PayoutPartialReceived { .. } => "PayoutPartialReceived",
             DepositEvent::PayoutConfirmed => "PayoutConfirmed",
