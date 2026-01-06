@@ -1007,3 +1007,176 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod prop_tests {
+    // Strategy generators for individual types
+    use bitcoin::{
+        Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
+        absolute::{Height, LockTime},
+        transaction,
+    };
+    use proptest::prelude::*;
+    use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
+
+    use super::*;
+
+    // Generates bitcoin block heights in a realistic range
+    prop_compose! {
+        fn arb_block_height()(height in 500_000..800_000u64) -> BitcoinBlockHeight {
+            BitcoinBlockHeight::from(height)
+        }
+    }
+
+    // Generates deposit indices for testing
+    prop_compose! {
+        fn arb_deposit_idx()(idx in 0u32..1000u32) -> DepositIdx {
+            DepositIdx::from(idx)
+        }
+    }
+
+    // Generates random bitcoin transaction IDs
+    prop_compose! {
+        fn arb_txid()(bs in any::<[u8; 32]>()) -> Txid {
+            Txid::from_raw_hash(*bitcoin::hashes::sha256d::Hash::from_bytes_ref(&bs))
+        }
+    }
+
+    // Generates bitcoin outpoints with random txid and vout
+    prop_compose! {
+        fn arb_outpoint()(txid in arb_txid(), vout in 0..10u32) -> OutPoint {
+            OutPoint { txid, vout }
+        }
+    }
+
+    // Generates transaction inputs with random data
+    prop_compose! {
+        fn arb_input()(
+            previous_output in arb_outpoint(),
+            script_sig in any::<[u8; 32]>().prop_map(|b| ScriptBuf::from_bytes(b.to_vec())),
+            sequence in any::<u32>().prop_map(Sequence::from_consensus),
+        ) -> TxIn {
+            TxIn {
+                previous_output,
+                script_sig,
+                sequence,
+                witness: Witness::new(),
+            }
+        }
+    }
+
+    // Generates transaction outputs with fixed 10 BTC value
+    prop_compose! {
+        fn arb_output()(
+            script_pubkey in any::<[u8; 32]>().prop_map(|b| ScriptBuf::from_bytes(b.to_vec()))
+        ) -> TxOut {
+            TxOut {
+                value: Amount::from_btc(10.0).unwrap(),
+                script_pubkey,
+            }
+        }
+    }
+
+    // Generates deposit configuration with random components
+    prop_compose! {
+        fn arb_deposit_cfg()(
+            deposit_idx in arb_deposit_idx(),
+            deposit_outpoint in arb_outpoint(),
+            operator_table in arb_operator_table()
+        ) -> DepositCfg {
+            DepositCfg {
+                deposit_idx,
+                deposit_outpoint,
+                operator_table,
+            }
+        }
+    }
+
+    // Generates random transactions with variable input/output counts
+    prop_compose! {
+        fn arb_transaction()(
+            max_num_ins in 2..10u32,
+            max_num_outs in 2..10u32
+        )(
+            ins in prop::collection::vec(arb_input(), (1, max_num_ins as usize)),
+            outs in prop::collection::vec(arb_output(), (1, max_num_outs as usize))
+        ) -> Transaction {
+            Transaction {
+                version: transaction::Version::TWO,
+                lock_time: LockTime::Blocks(Height::ZERO),
+                input: ins,
+                output: outs,
+            }
+        }
+    }
+
+    // Generates a deposit state machine initialized in Created state
+    prop_compose! {
+        fn arb_deposit_state_machine()(
+            cfg in arb_deposit_cfg(),
+            deposit_idx in 0u32..1000u32,
+            deposit_transaction in arb_transaction(),
+            drt_block_height in arb_block_height(),
+            deposit_request_outpoint in arb_outpoint(),
+            output_index in 0u32..10u32,
+            block_height in arb_block_height(),
+        ) -> DepositSM {
+            DepositSM::new(
+                cfg,
+                deposit_idx,
+                deposit_transaction,
+                drt_block_height,
+                deposit_request_outpoint,
+                output_index,
+                block_height,
+            )
+        }
+    }
+
+    proptest! {
+        // run only 10 test cases
+        #![proptest_config(ProptestConfig {
+            cases: 10,
+            .. ProptestConfig::default()
+        })]
+        #[test]
+        fn test_process_deposit_request(mut sm in arb_deposit_state_machine()) {
+            // Capture the initial state
+            let state_before = sm.state().clone();
+
+            // Assume we're in Created state - filter out other states
+            prop_assume!(matches!(state_before, DepositState::Created { .. }));
+
+            // Extract the deposit request outpoint from the Created state
+            let DepositState::Created { deposit_request_outpoint, .. } = &state_before else {
+                unreachable!("prop_assume ensures we're in Created state");
+            };
+            let expected_outpoint = *deposit_request_outpoint;
+
+            // Process the DepositRequest event
+            let result = sm.process_event(DepositEvent::DepositRequest);
+
+            // Verify the event processing succeeded
+            prop_assert!(result.is_ok());
+            let output = result.unwrap();
+
+            // Verify exactly one duty is emitted and no signals
+            prop_assert!(!output.duties.is_empty(), "Should emit at least one duty");
+            prop_assert!(
+                matches!(output.duties[0], DepositDuty::PublishDepositNonce { .. }),
+                "First duty should be PublishDepositNonce"
+            );
+
+            // Verify the duty is the correct type with the correct outpoint
+            let DepositDuty::PublishDepositNonce { deposit_out_point } = &output.duties[0] else {
+                unreachable!("Already verified duty type above");
+            };
+            prop_assert_eq!(*deposit_out_point, expected_outpoint,
+                "Duty outpoint should match state's deposit_request_outpoint");
+
+            // Verify the state remains unchanged
+            let state_after = sm.state().clone();
+            prop_assert_eq!(state_before, state_after, "State should remain unchanged");
+        }
+    }
+}
