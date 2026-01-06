@@ -5,7 +5,7 @@ on:
     branches:
       - master
       - main
-  merge_queue:
+  merge_group:
   workflow_dispatch:
 
 permissions: {}
