@@ -57,21 +57,13 @@ pub enum DepositState {
     DepositPartialsCollected,
     /// This state indicates that the deposit transaction has been confirmed on-chain.
     Deposited {
-        /// The index of the deposit being tracked by this state machine.
-        deposit_idx: u32,
         /// The last block height observed by this state machine.
         block_height: u32,
-        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
-        deposit_outpoint: OutPoint,
     },
     /// This state indicates that a withdrawal has been assigned for this deposit.
     Assigned {
-        /// The index of the deposit being tracked by this state machine.
-        deposit_idx: u32,
         /// The last block height observed by this state machine.
         block_height: u32,
-        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
-        deposit_outpoint: OutPoint,
         /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
         /// The block height by which the operator must fulfill the withdrawal.
@@ -81,12 +73,8 @@ pub enum DepositState {
     },
     /// This state indicates that the operator has fronted the user.
     Fulfilled {
-        /// The index of the deposit being tracked by this state machine.
-        deposit_idx: u32,
         /// The last block height observed by this state machine.
         block_height: u32,
-        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
-        deposit_outpoint: OutPoint,
         /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
         /// The txid of the fulfillment transaction in which the user was fronted.
@@ -105,12 +93,8 @@ pub enum DepositState {
     /// This state indicates that all pubnonces required for the cooperative payout has been
     /// collected.
     PayoutNoncesCollected {
-        /// The index of the deposit being tracked by this state machine.
-        deposit_idx: u32,
         /// The last block height observed by this state machine.
         block_height: u32,
-        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
-        deposit_outpoint: OutPoint,
         /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
         /// The txid of the fulfillment transaction in which the user was fronted.
@@ -130,12 +114,8 @@ pub enum DepositState {
     /// This State indicates that all the partial signatures have been collected for cooperative
     /// payout.
     PayoutPartialsCollected {
-        /// The index of the deposit being tracked by this state machine.
-        deposit_idx: u32,
         /// The last block height observed by this state machine.
         block_height: u32,
-        /// The outpoint of the confirmed deposit UTXO that will be used for reimbursing operators.
-        deposit_outpoint: OutPoint,
         /// The txid of the the cooperative payout transaction.
         payout_txid: Txid,
         /// The aggregated signature for the cooperative payout transaction.
@@ -310,9 +290,7 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         match &self.state {
             DepositState::Assigned {
-                deposit_idx,
                 block_height,
-                deposit_outpoint,
                 assignee,
                 deadline: _,
                 recipient_desc: _,
@@ -326,9 +304,7 @@ impl DepositSM {
 
                 // Transition to the Fulfilled State
                 self.state = DepositState::Fulfilled {
-                    deposit_idx: *deposit_idx,
                     block_height: *block_height,
-                    deposit_outpoint: *deposit_outpoint,
                     assignee: *assignee,
                     fulfillment_txid,
                     fulfillment_block_height,
