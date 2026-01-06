@@ -9756,6 +9756,7 @@ version = "0.1.0"
 dependencies = [
  "bitcoin",
  "musig2",
+ "proptest",
  "strata-bridge-primitives",
  "thiserror 2.0.12",
 ]
