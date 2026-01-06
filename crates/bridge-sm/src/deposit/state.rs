@@ -8,10 +8,10 @@ use std::{collections::BTreeMap, fmt::Display};
 
 use bitcoin::{OutPoint, Transaction, Txid};
 use bitcoin_bosd::Descriptor;
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
-use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 };
 
 use crate::{
@@ -45,7 +45,7 @@ pub struct DepositCfg {
 }
 
 /// The state of a Deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositState {
     /// TODO: (@MdTeach)
     Created,
@@ -152,18 +152,18 @@ pub enum DepositState {
 impl Display for DepositState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let state_str = match self {
-            DepositSM::Created => "Created",
-            DepositSM::GraphGenerated => "GraphGenerated",
-            DepositSM::DepositNoncesCollected => "DepositNoncesCollected",
-            DepositSM::DepositPartialsCollected => "DepositPartialsCollected",
-            DepositSM::Deposited { .. } => "Deposited",
-            DepositSM::Assigned { .. } => "Assigned",
-            DepositSM::Fulfilled { .. } => "Fulfilled",
-            DepositSM::PayoutNoncesCollected { .. } => "PayoutNoncesColletced",
-            DepositSM::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
-            DepositSM::CooperativePathFailed => "CooperativePathFailed",
-            DepositSM::Spent => "Spent",
-            DepositSM::Aborted => "Aborted",
+            DepositState::Created => "Created",
+            DepositState::GraphGenerated => "GraphGenerated",
+            DepositState::DepositNoncesCollected => "DepositNoncesCollected",
+            DepositState::DepositPartialsCollected => "DepositPartialsCollected",
+            DepositState::Deposited { .. } => "Deposited",
+            DepositState::Assigned { .. } => "Assigned",
+            DepositState::Fulfilled { .. } => "Fulfilled",
+            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected",
+            DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected",
+            DepositState::CooperativePathFailed => "CooperativePathFailed",
+            DepositState::Spent => "Spent",
+            DepositState::Aborted => "Aborted",
         };
         write!(f, "{}", state_str)
     }
@@ -192,7 +192,7 @@ impl DepositState {
 /// of cooperative payout process)
 ///
 /// This includes some static configuration along with the actual state of the deposit.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositSM {
     /// The static configuration for this Deposit State Machine.
     pub(super) cfg: DepositCfg,
@@ -308,8 +308,8 @@ impl DepositSM {
         fulfillment_block_height: BitcoinBlockHeight,
         cooperative_payout_timelock: u64,
     ) -> DSMResult<DSMOutput> {
-        match self {
-            DepositSM::Assigned {
+        match &self.state {
+            DepositState::Assigned {
                 deposit_idx,
                 block_height,
                 deposit_outpoint,
@@ -325,7 +325,7 @@ impl DepositSM {
                     fulfillment_block_height + cooperative_payout_timelock;
 
                 // Transition to the Fulfilled State
-                *self = DepositSM::Fulfilled {
+                self.state = DepositState::Fulfilled {
                     deposit_idx: *deposit_idx,
                     block_height: *block_height,
                     deposit_outpoint: *deposit_outpoint,
@@ -343,7 +343,7 @@ impl DepositSM {
             }
 
             _ => Err(DSMError::InvalidEvent {
-                state: self.to_string(),
+                state: self.state.to_string(),
                 event: event_description,
             }),
         }
