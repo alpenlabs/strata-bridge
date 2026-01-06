@@ -13,9 +13,9 @@ pub async fn execute_deposit_duty(
     duty: &DepositDuty,
 ) {
     match duty {
-        DepositDuty::PublishDepositNonce => publish_deposit_nonce().await,
-        DepositDuty::PublishDepositPartial => publish_deposit_partial().await,
-        DepositDuty::PublishDeposit => publish_deposit().await,
+        DepositDuty::PublishDepositNonce { .. } => publish_deposit_nonce().await,
+        DepositDuty::PublishDepositPartial { .. } => publish_deposit_partial().await,
+        DepositDuty::PublishDeposit { .. } => publish_deposit().await,
         DepositDuty::FulfillWithdrawal => fulfill_withdrawal().await,
         DepositDuty::RequestPayoutNonces => request_payout_nonces().await,
         DepositDuty::PublishPayoutNonce => publish_payout_nonce().await,
