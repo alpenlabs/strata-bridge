@@ -97,8 +97,6 @@ pub struct ProtocolParams {
     pub nack_timelock: relative::LockTime,
     /// Timelock for submitting a contested payout.
     pub contested_payout_timelock: relative::LockTime,
-    /// Number of bytes for the serialized bridge proof (including public values).
-    pub proof_n_bytes: usize,
     /// Number of bytes for the serialized counterproof (including public values).
     pub counterproof_n_bytes: NonZero<usize>,
     /// Deposit amount.
@@ -381,7 +379,6 @@ mod tests {
             ack_timelock: ACK_TIMELOCK,
             nack_timelock: NACK_TIMELOCK,
             contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
-            proof_n_bytes: 128,
             counterproof_n_bytes: NonZero::new(128).unwrap(),
             deposit_amount: DEPOSIT_AMOUNT,
             stake_amount: STAKE_AMOUNT,
