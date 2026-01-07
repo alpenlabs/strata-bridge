@@ -29,25 +29,36 @@ use crate::{
 /// Data that is needed to construct a [`GameGraph`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GameData {
-    /// Data that is inherent from the protocol.
-    pub constant: ConstantData,
-    /// Data that varies per game instance.
-    pub runtime: RuntimeData,
+    /// Parameters that are inherent from the protocol.
+    pub protocol: ProtocolParams,
+    /// Parameters that are known at setup time.
+    pub setup: SetupParams,
+    /// Parameters that are known at deposit time.
+    pub deposit: DepositParams,
 }
 
-/// Parameters that instantiate a specific game graph.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RuntimeData {
-    /// Game index.
-    pub game_index: NonZero<u32>,
-    /// Operator index.
-    pub operator_index: u32,
+/// Parameters that are known at deposit time.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct DepositParams {
     /// UTXO that funds the claim transaction.
     pub claim_funds: OutPoint,
     /// UTXO that holds the deposit.
     pub deposit_outpoint: OutPoint,
     /// UTXO that holds the stake.
     pub stake_outpoint: OutPoint,
+}
+
+/// Parameters that are known at setup time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SetupParams {
+    /// Used bitcoin network.
+    pub network: Network,
+    /// Magic bytes that identify the bridge.
+    pub magic_bytes: MagicBytes,
+    /// Game index.
+    pub game_index: NonZero<u32>,
+    /// Operator index.
+    pub operator_index: u32,
     /// Collection of public keys and hash images.
     pub keys: KeyData,
 }
@@ -77,11 +88,7 @@ pub struct KeyData {
 ///
 /// These parameters don't need to be actively shared.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct ConstantData {
-    /// Used bitcoin network.
-    pub network: Network,
-    /// Magic bytes that identify the bridge.
-    pub magic_bytes: MagicBytes,
+pub struct ProtocolParams {
     /// Timelock for contesting a claim.
     pub contest_timelock: relative::LockTime,
     /// Timelock for submitting a bridge proof.
@@ -143,9 +150,10 @@ pub struct CounterproofGraph {
 impl GameGraph {
     /// Creates a new game graph.
     pub fn new(data: GameData) -> Self {
-        let runtime = &data.runtime;
-        let keys = &runtime.keys;
-        let constant = &data.constant;
+        let protocol = data.protocol;
+        let setup = data.setup;
+        let keys = &setup.keys;
+        let deposit = data.deposit;
 
         assert_eq!(
             keys.watchtower_pubkeys.len(),
@@ -164,44 +172,38 @@ impl GameGraph {
         );
 
         let claim_contest_connector = ClaimContestConnector::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
-            constant.contest_timelock,
+            protocol.contest_timelock,
         );
         let claim_payout_connector = ClaimPayoutConnector::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
             keys.admin_pubkey,
             keys.unstaking_image,
         );
-        let deposit_connector = NOfNConnector::new(
-            constant.network,
-            keys.n_of_n_pubkey,
-            constant.deposit_amount,
-        );
+        let deposit_connector =
+            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.deposit_amount);
         let contest_proof_connector = ContestProofConnector::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
             keys.operator_pubkey,
-            runtime.game_index,
-            constant.proof_timelock,
+            setup.game_index,
+            protocol.proof_timelock,
         );
-        let contest_payout_connector = ContestPayoutConnector::new(
-            constant.network,
-            keys.n_of_n_pubkey,
-            constant.ack_timelock,
-        );
+        let contest_payout_connector =
+            ContestPayoutConnector::new(setup.network, keys.n_of_n_pubkey, protocol.ack_timelock);
         let contest_slash_connector = ContestSlashConnector::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
-            constant.contested_payout_timelock,
+            protocol.contested_payout_timelock,
         );
         let contest_counterproof_output = ContestCounterproofOutput::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
             keys.operator_pubkey,
-            constant.counterproof_n_bytes,
+            protocol.counterproof_n_bytes,
         );
         let counterproof_connectors: Vec<_> = keys
             .wt_fault_pubkeys
@@ -209,18 +211,18 @@ impl GameGraph {
             .copied()
             .map(|wt_fault_pubkey| {
                 CounterproofConnector::new(
-                    constant.network,
+                    setup.network,
                     keys.n_of_n_pubkey,
                     wt_fault_pubkey,
-                    constant.nack_timelock,
+                    protocol.nack_timelock,
                 )
             })
             .collect();
         let stake_connector =
-            NOfNConnector::new(constant.network, keys.n_of_n_pubkey, constant.stake_amount);
+            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.stake_amount);
 
         let claim_data = ClaimData {
-            claim_funds: runtime.claim_funds,
+            claim_funds: deposit.claim_funds,
         };
         let claim = ClaimTx::new(
             claim_data,
@@ -230,7 +232,7 @@ impl GameGraph {
 
         let uncontested_payout_data = UncontestedPayoutData {
             claim_txid: claim.as_unsigned_tx().compute_txid(),
-            deposit_outpoint: runtime.deposit_outpoint,
+            deposit_outpoint: deposit.deposit_outpoint,
         };
         let uncontested_payout = UncontestedPayoutTx::new(
             uncontested_payout_data,
@@ -254,8 +256,8 @@ impl GameGraph {
 
         let bridge_proof_data = BridgeProofData {
             contest_txid: contest.as_unsigned_tx().compute_txid(),
-            proof_n_bytes: constant.proof_n_bytes,
-            game_index: runtime.game_index,
+            proof_n_bytes: protocol.proof_n_bytes,
+            game_index: setup.game_index,
         };
         let bridge_proof = BridgeProofTx::new(bridge_proof_data, contest_proof_connector);
 
@@ -308,7 +310,7 @@ impl GameGraph {
             .collect();
 
         let contested_payout_data = ContestedPayoutData {
-            deposit_outpoint: runtime.deposit_outpoint,
+            deposit_outpoint: deposit.deposit_outpoint,
             claim_txid: claim.as_unsigned_tx().compute_txid(),
             contest_txid: contest.as_unsigned_tx().compute_txid(),
         };
@@ -322,10 +324,10 @@ impl GameGraph {
         );
 
         let slash_data = SlashData {
-            operator_idx: runtime.operator_index,
+            operator_idx: setup.operator_index,
             contest_txid: contest.as_unsigned_tx().compute_txid(),
-            stake_outpoint: runtime.stake_outpoint,
-            magic_bytes: constant.magic_bytes,
+            stake_outpoint: deposit.stake_outpoint,
+            magic_bytes: setup.magic_bytes,
         };
         let slash = SlashTx::new(
             slash_data,
@@ -403,9 +405,7 @@ mod tests {
     }
 
     fn get_game_data(node: &mut BitcoinNode, signer: &Signer) -> GameData {
-        let constant = ConstantData {
-            network: Network::Regtest,
-            magic_bytes: *b"alpn",
+        let protocol = ProtocolParams {
             contest_timelock: UNIVERSAL_TIMELOCK,
             proof_timelock: UNIVERSAL_TIMELOCK,
             ack_timelock: UNIVERSAL_TIMELOCK,
@@ -435,20 +435,27 @@ mod tests {
             payout_operator_descriptor: wallet_descriptor.clone(),
             slash_watchtower_descriptors: vec![wallet_descriptor; N_WATCHTOWERS],
         };
+        let setup = SetupParams {
+            network: Network::Regtest,
+            magic_bytes: *b"alpn",
+            game_index: NonZero::new(1).unwrap(),
+            operator_index: 0,
+            keys,
+        };
+        let keys = &setup.keys;
 
         // FIXME: (@uncomputable) Prevent having to recreate the connectors
         let deposit_connector =
-            NOfNConnector::new(constant.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
-        let stake_connector =
-            NOfNConnector::new(constant.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
+            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, DEPOSIT_AMOUNT);
+        let stake_connector = NOfNConnector::new(setup.network, keys.n_of_n_pubkey, STAKE_AMOUNT);
         let claim_contest_connector = ClaimContestConnector::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
             keys.watchtower_pubkeys.clone(),
-            constant.contest_timelock,
+            protocol.contest_timelock,
         );
         let claim_payout_connector = ClaimPayoutConnector::new(
-            constant.network,
+            setup.network,
             keys.n_of_n_pubkey,
             keys.admin_pubkey,
             keys.unstaking_image,
@@ -488,10 +495,9 @@ mod tests {
         node.mine_blocks(1);
 
         GameData {
-            constant,
-            runtime: RuntimeData {
-                game_index: NonZero::new(1).unwrap(),
-                operator_index: 0,
+            protocol,
+            setup,
+            deposit: DepositParams {
                 claim_funds: OutPoint {
                     txid: funding_txid,
                     vout: 0,
@@ -504,7 +510,6 @@ mod tests {
                     txid: funding_txid,
                     vout: 2,
                 },
-                keys,
             },
         }
     }
