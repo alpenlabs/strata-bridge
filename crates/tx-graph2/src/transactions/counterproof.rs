@@ -16,7 +16,7 @@ use crate::{
         },
         Connector,
     },
-    transactions::{prelude::ContestTx, AsTransaction, ParentTx},
+    transactions::{prelude::ContestTx, ParentTx},
 };
 
 /// Data that is needed to construct a [`CounterproofTx`].
@@ -137,8 +137,8 @@ impl ParentTx for CounterproofTx {
     }
 }
 
-impl AsTransaction for CounterproofTx {
-    fn as_unsigned_tx(&self) -> &Transaction {
+impl AsRef<Transaction> for CounterproofTx {
+    fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
     }
 }

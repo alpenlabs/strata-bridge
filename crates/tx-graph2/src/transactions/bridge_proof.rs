@@ -16,7 +16,7 @@ use crate::{
         prelude::{ContestProofConnector, TimelockedSpendPath, TimelockedWitness},
         Connector, SigningInfo,
     },
-    transactions::{prelude::ContestTx, AsTransaction},
+    transactions::prelude::ContestTx,
 };
 
 /// Data that is needed to construct a [`BridgeProofTx`].
@@ -165,8 +165,8 @@ impl BridgeProofTx {
     }
 }
 
-impl AsTransaction for BridgeProofTx {
-    fn as_unsigned_tx(&self) -> &Transaction {
+impl AsRef<Transaction> for BridgeProofTx {
+    fn as_ref(&self) -> &Transaction {
         &self.tx
     }
 }

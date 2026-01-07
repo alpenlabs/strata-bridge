@@ -20,7 +20,7 @@ use crate::{
     },
     transactions::{
         prelude::{ClaimTx, ContestTx},
-        AsTransaction, ParentTx, PresignedTx, SigningInfo,
+        ParentTx, PresignedTx, SigningInfo,
     },
 };
 
@@ -204,8 +204,8 @@ impl PresignedTx<{ Self::N_INPUTS }> for ContestedPayoutTx {
     }
 }
 
-impl AsTransaction for ContestedPayoutTx {
-    fn as_unsigned_tx(&self) -> &Transaction {
+impl AsRef<Transaction> for ContestedPayoutTx {
+    fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
     }
 }

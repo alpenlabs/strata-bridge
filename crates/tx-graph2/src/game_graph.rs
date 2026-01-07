@@ -13,14 +13,11 @@ use crate::{
         ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
         CounterproofConnector, NOfNConnector,
     },
-    transactions::{
-        prelude::{
-            BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData,
-            ContestTx, ContestedPayoutData, ContestedPayoutTx, CounterproofAckData,
-            CounterproofAckTx, CounterproofData, CounterproofTx, SlashData, SlashTx,
-            UncontestedPayoutData, UncontestedPayoutTx,
-        },
-        AsTransaction,
+    transactions::prelude::{
+        BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData, ContestTx,
+        ContestedPayoutData, ContestedPayoutTx, CounterproofAckData, CounterproofAckTx,
+        CounterproofData, CounterproofTx, SlashData, SlashTx, UncontestedPayoutData,
+        UncontestedPayoutTx,
     },
 };
 
@@ -219,7 +216,7 @@ impl GameGraph {
         );
 
         let uncontested_payout_data = UncontestedPayoutData {
-            claim_txid: claim.as_unsigned_tx().compute_txid(),
+            claim_txid: claim.as_ref().compute_txid(),
             deposit_outpoint: deposit.deposit_outpoint,
         };
         let uncontested_payout = UncontestedPayoutTx::new(
@@ -231,7 +228,7 @@ impl GameGraph {
         );
 
         let contest_data = ContestData {
-            claim_txid: claim.as_unsigned_tx().compute_txid(),
+            claim_txid: claim.as_ref().compute_txid(),
         };
         let contest = ContestTx::new(
             contest_data,
@@ -243,7 +240,7 @@ impl GameGraph {
         );
 
         let bridge_proof_timeout_data = BridgeProofTimeoutData {
-            contest_txid: contest.as_unsigned_tx().compute_txid(),
+            contest_txid: contest.as_ref().compute_txid(),
         };
         let bridge_proof_timeout = BridgeProofTimeoutTx::new(
             bridge_proof_timeout_data,
@@ -257,7 +254,7 @@ impl GameGraph {
             .map(|(watchtower_index, counterproof_connector)| {
                 // cast safety: asserted above that len(watchtowers) <= u32::MAX
                 let counterproof_data = CounterproofData {
-                    contest_txid: contest.as_unsigned_tx().compute_txid(),
+                    contest_txid: contest.as_ref().compute_txid(),
                     watchtower_index: watchtower_index as u32,
                 };
                 let counterproof = CounterproofTx::new(
@@ -267,8 +264,8 @@ impl GameGraph {
                 );
 
                 let counterproof_ack_data = CounterproofAckData {
-                    counterproof_txid: counterproof.as_unsigned_tx().compute_txid(),
-                    contest_txid: contest.as_unsigned_tx().compute_txid(),
+                    counterproof_txid: counterproof.as_ref().compute_txid(),
+                    contest_txid: contest.as_ref().compute_txid(),
                 };
                 let counterproof_ack = CounterproofAckTx::new(
                     counterproof_ack_data,
@@ -285,8 +282,8 @@ impl GameGraph {
 
         let contested_payout_data = ContestedPayoutData {
             deposit_outpoint: deposit.deposit_outpoint,
-            claim_txid: claim.as_unsigned_tx().compute_txid(),
-            contest_txid: contest.as_unsigned_tx().compute_txid(),
+            claim_txid: claim.as_ref().compute_txid(),
+            contest_txid: contest.as_ref().compute_txid(),
         };
         let contested_payout = ContestedPayoutTx::new(
             contested_payout_data,
@@ -299,7 +296,7 @@ impl GameGraph {
 
         let slash_data = SlashData {
             operator_idx: setup.operator_index,
-            contest_txid: contest.as_unsigned_tx().compute_txid(),
+            contest_txid: contest.as_ref().compute_txid(),
             stake_outpoint: deposit.stake_outpoint,
             magic_bytes: setup.magic_bytes,
         };
@@ -497,7 +494,7 @@ mod tests {
         //                      | ε sat: claim payout connector
         //                      |---------------------------------------
         //                      | 0 sat: cpfp connector (CPFP)
-        let signed_claim_tx = node.sign(game.claim.as_unsigned_tx());
+        let signed_claim_tx = node.sign(game.claim.as_ref());
         assert_eq!(signed_claim_tx.version, Version(3));
         let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
@@ -545,7 +542,7 @@ mod tests {
         //                      | ε sat: claim payout connector
         //                      |---------------------------------------
         //                      | 0 sat: cpfp connector (CPFP)
-        let signed_claim_tx = node.sign(game.claim.as_unsigned_tx());
+        let signed_claim_tx = node.sign(game.claim.as_ref());
         assert_eq!(signed_claim_tx.version, Version(3));
         let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));

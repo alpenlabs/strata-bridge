@@ -17,7 +17,7 @@ use crate::{
         },
         Connector, SigningInfo,
     },
-    transactions::{prelude::ClaimTx, AsTransaction, ParentTx},
+    transactions::{prelude::ClaimTx, ParentTx},
 };
 
 /// Data that is needed to construct a [`ContestTx`].
@@ -187,8 +187,8 @@ impl ParentTx for ContestTx {
     }
 }
 
-impl AsTransaction for ContestTx {
-    fn as_unsigned_tx(&self) -> &Transaction {
+impl AsRef<Transaction> for ContestTx {
+    fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
     }
 }

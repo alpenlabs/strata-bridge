@@ -23,10 +23,7 @@ use crate::{
         },
         Connector, SigningInfo,
     },
-    transactions::{
-        prelude::{ClaimTx, CounterproofTx},
-        AsTransaction,
-    },
+    transactions::prelude::{ClaimTx, CounterproofTx},
 };
 
 macro_rules! impl_not_presigned_tx {
@@ -107,8 +104,8 @@ macro_rules! impl_not_presigned_tx {
             }
         }
 
-        impl AsTransaction for $tx {
-            fn as_unsigned_tx(&self) -> &Transaction {
+        impl AsRef<Transaction> for $tx {
+            fn as_ref(&self) -> &Transaction {
                 &self.tx
             }
         }
