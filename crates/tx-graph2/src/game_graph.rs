@@ -376,7 +376,14 @@ mod tests {
 
     const N_WATCHTOWERS: usize = 10;
     const CONTESTING_WATCHTOWER_IDX: u32 = 0;
-    const UNIVERSAL_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    // From claim tx
+    const CONTEST_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    // From contest tx
+    const PROOF_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
+    const ACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(10);
+    const CONTESTED_PAYOUT_TIMELOCK: relative::LockTime = relative::LockTime::from_height(15);
+    // From counterproof tx
+    const NACK_TIMELOCK: relative::LockTime = relative::LockTime::from_height(5);
     const DEPOSIT_AMOUNT: Amount = Amount::from_sat(100_000_000);
     const STAKE_AMOUNT: Amount = Amount::from_sat(100_000_000);
     const FEE: Amount = Amount::from_sat(1_000);
@@ -406,11 +413,11 @@ mod tests {
 
     fn get_game_data(node: &mut BitcoinNode, signer: &Signer) -> GameData {
         let protocol = ProtocolParams {
-            contest_timelock: UNIVERSAL_TIMELOCK,
-            proof_timelock: UNIVERSAL_TIMELOCK,
-            ack_timelock: UNIVERSAL_TIMELOCK,
-            nack_timelock: UNIVERSAL_TIMELOCK,
-            contested_payout_timelock: UNIVERSAL_TIMELOCK,
+            contest_timelock: CONTEST_TIMELOCK,
+            proof_timelock: PROOF_TIMELOCK,
+            ack_timelock: ACK_TIMELOCK,
+            nack_timelock: NACK_TIMELOCK,
+            contested_payout_timelock: CONTESTED_PAYOUT_TIMELOCK,
             proof_n_bytes: 128,
             counterproof_n_bytes: NonZero::new(128).unwrap(),
             deposit_amount: DEPOSIT_AMOUNT,
@@ -535,7 +542,7 @@ mod tests {
         let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
         node.submit_package([signed_claim_tx, signed_claim_child_tx]);
-        node.mine_blocks(UNIVERSAL_TIMELOCK.to_consensus_u32() as usize);
+        node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize);
 
         // Create the uncontested payout transaction + its CPFP child.
         //
@@ -579,7 +586,7 @@ mod tests {
         let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
         node.submit_package([signed_claim_tx, signed_claim_child_tx]);
-        node.mine_blocks(UNIVERSAL_TIMELOCK.to_consensus_u32() as usize);
+        node.mine_blocks(1);
 
         // Create the contest transaction + its CPFP child.
         //
@@ -612,7 +619,7 @@ mod tests {
         );
         assert_eq!(signed_contest_tx.version, Version(3));
         node.submit_package([signed_contest_tx, signed_contest_child_tx]);
-        node.mine_blocks(UNIVERSAL_TIMELOCK.to_consensus_u32() as usize);
+        node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize);
 
         // Create the contested payout transaction + its CPFP child.
         //
