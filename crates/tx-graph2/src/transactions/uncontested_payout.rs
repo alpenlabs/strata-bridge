@@ -18,7 +18,7 @@ use crate::{
         },
         Connector,
     },
-    transactions::{prelude::ClaimTx, AsTransaction, ParentTx, PresignedTx, SigningInfo},
+    transactions::{prelude::ClaimTx, ParentTx, PresignedTx, SigningInfo},
 };
 
 /// Data that is needed to construct a [`UncontestedPayoutTx`].
@@ -174,8 +174,8 @@ impl PresignedTx<{ Self::N_INPUTS }> for UncontestedPayoutTx {
     }
 }
 
-impl AsTransaction for UncontestedPayoutTx {
-    fn as_unsigned_tx(&self) -> &Transaction {
+impl AsRef<Transaction> for UncontestedPayoutTx {
+    fn as_ref(&self) -> &Transaction {
         &self.psbt.unsigned_tx
     }
 }

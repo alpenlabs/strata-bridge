@@ -8,7 +8,7 @@ use crate::{
         prelude::{ClaimContestConnector, ClaimPayoutConnector, CpfpConnector},
         Connector,
     },
-    transactions::{AsTransaction, ParentTx},
+    transactions::ParentTx,
 };
 
 /// Data that is needed to construct a [`ClaimTx`].
@@ -72,8 +72,8 @@ impl ParentTx for ClaimTx {
     }
 }
 
-impl AsTransaction for ClaimTx {
-    fn as_unsigned_tx(&self) -> &Transaction {
+impl AsRef<Transaction> for ClaimTx {
+    fn as_ref(&self) -> &Transaction {
         &self.tx
     }
 }
