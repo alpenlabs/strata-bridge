@@ -541,8 +541,9 @@ mod tests {
         assert_eq!(signed_claim_tx.version, Version(3));
         let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
-        node.submit_package([signed_claim_tx, signed_claim_child_tx]);
-        node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize);
+
+        node.submit_package(&[signed_claim_tx, signed_claim_child_tx]);
+        node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize - 1);
 
         // Create the uncontested payout transaction + its CPFP child.
         //
@@ -561,8 +562,11 @@ mod tests {
         assert_eq!(signed_payout_child_tx.version, Version(3));
         let signed_uncontested_payout_tx = game.uncontested_payout.finalize(n_of_n_signatures);
         assert_eq!(signed_uncontested_payout_tx.version, Version(3));
-        node.submit_package([signed_uncontested_payout_tx, signed_payout_child_tx]);
+        let package = [signed_uncontested_payout_tx, signed_payout_child_tx];
+
+        node.submit_package_invalid(&package);
         node.mine_blocks(1);
+        node.submit_package(&package);
     }
 
     #[test]
@@ -585,7 +589,8 @@ mod tests {
         assert_eq!(signed_claim_tx.version, Version(3));
         let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
         assert_eq!(signed_claim_child_tx.version, Version(3));
-        node.submit_package([signed_claim_tx, signed_claim_child_tx]);
+
+        node.submit_package(&[signed_claim_tx, signed_claim_child_tx]);
         node.mine_blocks(1);
 
         // Create the contest transaction + its CPFP child.
@@ -618,8 +623,9 @@ mod tests {
             watchtower_signature,
         );
         assert_eq!(signed_contest_tx.version, Version(3));
-        node.submit_package([signed_contest_tx, signed_contest_child_tx]);
-        node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize);
+
+        node.submit_package(&[signed_contest_tx, signed_contest_child_tx]);
+        node.mine_blocks(ACK_TIMELOCK.to_consensus_u32() as usize - 1);
 
         // Create the contested payout transaction + its CPFP child.
         //
@@ -640,7 +646,10 @@ mod tests {
         assert_eq!(signed_payout_child_tx.version, Version(3));
         let signed_contested_payout_tx = game.contested_payout.finalize(n_of_n_signatures);
         assert_eq!(signed_contested_payout_tx.version, Version(3));
-        node.submit_package([signed_contested_payout_tx, signed_payout_child_tx]);
+        let package = [signed_contested_payout_tx, signed_payout_child_tx];
+
+        node.submit_package_invalid(&package);
         node.mine_blocks(1);
+        node.submit_package(&package);
     }
 }
