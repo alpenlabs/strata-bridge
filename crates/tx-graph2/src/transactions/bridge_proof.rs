@@ -20,12 +20,12 @@ use crate::{
 };
 
 /// Data that is needed to construct a [`BridgeProofTx`].
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BridgeProofData {
     /// ID of the contest transaction.
     pub contest_txid: Txid,
-    /// Consensus length of the serialized bridge proof, including public values.
-    pub proof_n_bytes: usize,
+    /// The serialized bridge proof, including public values.
+    pub proof_bytes: Vec<u8>,
     /// Game index.
     pub game_index: NonZero<u32>,
 }
@@ -37,8 +37,6 @@ pub struct BridgeProofTx {
     tx: Transaction,
     // invariant: tx.input.len() == prevouts.len()
     prevouts: Vec<TxOut>,
-    proof_bytes: Vec<u8>,
-    proof_n_bytes: usize,
     game_index: NonZero<u32>,
     contest_proof_connector: ContestProofConnector,
 }
@@ -60,8 +58,6 @@ impl BridgeProofTx {
 
     /// Creates a bridge proof transaction.
     pub fn new(data: BridgeProofData, contest_proof_connector: ContestProofConnector) -> Self {
-        let proof_bytes = Vec::new();
-
         let prevouts = vec![contest_proof_connector.tx_out()];
         let input = vec![TxIn {
             previous_output: OutPoint {
@@ -72,7 +68,7 @@ impl BridgeProofTx {
             ..Default::default()
         }];
         let output = vec![TxOut {
-            script_pubkey: header_leaf_script(&proof_bytes),
+            script_pubkey: header_leaf_script(&data.proof_bytes),
             value: Amount::ZERO,
         }];
         let tx = Transaction {
@@ -85,32 +81,9 @@ impl BridgeProofTx {
         Self {
             tx,
             prevouts,
-            proof_bytes,
-            proof_n_bytes: data.proof_n_bytes,
             game_index: data.game_index,
             contest_proof_connector,
         }
-    }
-
-    // NOTE: (@uncomputable)
-    // I expect that our tooling will produce serialized proofs of the correct length.
-    // There won't be serializations that are 1 byte short or 1 byte long.
-    // If this happens, then this is an unrecoverable bug, which is why this method panics.
-    /// Sets the bytes of the serialized bridge proof, including public values.
-    ///
-    /// # Panics
-    ///
-    /// This method panics if `proof_bytes` doesn't have the agreed-upon **consensus length**.
-    pub fn set_proof_bytes(&mut self, proof_bytes: Vec<u8>) {
-        assert_eq!(
-            proof_bytes.len(),
-            self.proof_n_bytes,
-            "proof has invalid length: expected {}, got {}",
-            self.proof_n_bytes,
-            proof_bytes.len()
-        );
-        self.tx.output[0].script_pubkey = header_leaf_script(&proof_bytes);
-        self.proof_bytes = proof_bytes;
     }
 
     /// Pushes an input to the transaction.
