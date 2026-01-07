@@ -489,3 +489,249 @@ impl DepositSM {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+
+    use proptest::prelude::*;
+    use strata_bridge_test_utils::prelude::generate_block_with_height;
+
+    use super::*;
+    use crate::{
+        deposit::testing::*,
+        prop_deterministic, prop_no_silent_acceptance, prop_terminal_states_reject,
+        testing::{fixtures::*, transition::*},
+    };
+
+    // ===== Unit Tests for process_drt_takeback =====
+
+    #[test]
+    fn test_drt_takeback_from_created() {
+        let outpoint = OutPoint::default();
+        let state = DepositState::Created {
+            deposit_request_outpoint: outpoint,
+            block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let tx = test_takeback_tx(outpoint);
+
+        test_transition::<DepositSM, _, _, _, _, _, _, _>(
+            create_sm,
+            get_state,
+            Transition {
+                from_state: state,
+                event: DepositEvent::UserTakeBack { tx },
+                expected_state: DepositState::Aborted,
+                expected_duties: vec![],
+                expected_signals: vec![],
+            },
+        );
+    }
+
+    #[test]
+    fn test_drt_takeback_from_graph_generated() {
+        let outpoint = OutPoint::default();
+        let state = DepositState::GraphGenerated {
+            deposit_request_outpoint: outpoint,
+            block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let tx = test_takeback_tx(outpoint);
+
+        let mut sm = create_sm(state);
+        let result = sm.process_drt_takeback(tx);
+
+        assert!(result.is_ok());
+        assert_eq!(sm.state(), &DepositState::Aborted);
+    }
+
+    #[test]
+    fn test_drt_takeback_invalid_from_deposited() {
+        let state = DepositState::Deposited {
+            block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let tx = test_takeback_tx(OutPoint::default());
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: state,
+                event: DepositEvent::UserTakeBack { tx },
+                expected_error: |e| matches!(e, DSMError::InvalidEvent { .. }),
+            },
+        );
+    }
+
+    #[test]
+    fn test_drt_takeback_duplicate_in_aborted() {
+        let state = DepositState::Aborted;
+
+        let tx = test_takeback_tx(OutPoint::default());
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: state,
+                event: DepositEvent::UserTakeBack { tx },
+                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            },
+        );
+    }
+
+    // ===== Unit Tests for process_new_block =====
+
+    #[test]
+    fn test_new_block_updates_height_in_deposited() {
+        let state = DepositState::Deposited {
+            block_height: INITIAL_BLOCK_HEIGHT,
+        };
+
+        let block = generate_block_with_height(LATER_BLOCK_HEIGHT);
+
+        let mut sm = create_sm(state);
+        let result = sm.process_new_block(&block);
+
+        assert!(result.is_ok());
+        assert_eq!(
+            sm.state(),
+            &DepositState::Deposited {
+                block_height: LATER_BLOCK_HEIGHT
+            }
+        );
+    }
+
+    #[test]
+    fn test_new_block_triggers_cooperative_timeout() {
+        const FULFILLMENT_HEIGHT: u64 = INITIAL_BLOCK_HEIGHT;
+        let state = DepositState::Fulfilled {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            fulfillment_height: FULFILLMENT_HEIGHT,
+        };
+
+        // Block that exceeds timeout (COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS)
+        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS + 1;
+        let block = generate_block_with_height(timeout_height);
+
+        let mut sm = create_sm(state);
+        let result = sm.process_new_block(&block);
+
+        assert!(result.is_ok());
+        assert_eq!(
+            sm.state(),
+            &DepositState::CooperativePathFailed {
+                block_height: timeout_height
+            }
+        );
+
+        // Check signal was emitted
+        let output = result.unwrap();
+        assert_eq!(output.signals.len(), 1);
+        assert!(matches!(
+            output.signals[0],
+            DepositSignal::ToGraph(DepositToGraph::CooperativePayoutFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn test_new_block_rejects_in_terminal_states() {
+        let block = generate_block_with_height(LATER_BLOCK_HEIGHT);
+
+        for terminal_state in [DepositState::Spent, DepositState::Aborted] {
+            let mut sm = create_sm(terminal_state.clone());
+            let result = sm.process_new_block(&block);
+
+            assert!(
+                matches!(result, Err(DSMError::Rejected { .. })),
+                "Terminal state {:?} should reject new block with Rejected error (event is not relevant in terminal state)",
+                terminal_state
+            );
+        }
+    }
+
+    #[test]
+    fn test_payout_confirmed_duplicate_in_spent() {
+        let tx = test_payout_tx(OutPoint::default());
+
+        test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+            create_sm,
+            InvalidTransition {
+                from_state: DepositState::Spent,
+                event: DepositEvent::PayoutConfirmed { tx },
+                expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+            },
+        );
+    }
+
+    // ===== Property-Based Tests =====
+
+    // Property: State machine is deterministic
+    prop_deterministic!(
+        DepositSM,
+        create_sm,
+        get_state,
+        any::<DepositState>(),
+        any::<DepositEvent>()
+    );
+
+    // Property: No silent acceptance
+    prop_no_silent_acceptance!(
+        DepositSM,
+        create_sm,
+        get_state,
+        any::<DepositState>(),
+        any::<DepositEvent>()
+    );
+
+    // Property: Terminal states reject all events
+    prop_terminal_states_reject!(
+        DepositSM,
+        create_sm,
+        arb_terminal_state(),
+        any::<DepositEvent>()
+    );
+
+    // ===== Integration Tests (sequence of events) =====
+
+    #[test]
+    fn test_cooperative_timeout_sequence() {
+        const FULFILLMENT_HEIGHT: u64 = INITIAL_BLOCK_HEIGHT;
+        let initial_state = DepositState::Fulfilled {
+            block_height: INITIAL_BLOCK_HEIGHT,
+            assignee: TEST_ASSIGNEE,
+            fulfillment_height: FULFILLMENT_HEIGHT,
+        };
+
+        let sm = create_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process blocks up to and past timeout
+        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS + 1;
+        for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
+            seq.process(DepositEvent::NewBlock {
+                block: generate_block_with_height(height),
+            });
+        }
+
+        seq.assert_no_errors();
+
+        // Should transition to CooperativePathFailed at timeout_height
+        assert_eq!(
+            seq.state(),
+            &DepositState::CooperativePathFailed {
+                block_height: timeout_height
+            }
+        );
+
+        // Check that cooperative failure signal was emitted
+        let signals = seq.all_signals();
+        assert!(
+            signals.iter().any(|s| matches!(
+                s,
+                DepositSignal::ToGraph(DepositToGraph::CooperativePayoutFailed { .. })
+            )),
+            "Should emit CooperativePayoutFailed signal"
+        );
+    }
+}
