@@ -15,12 +15,10 @@ use crate::{
     },
     transactions::{
         prelude::{
-            AdminBurnData, AdminBurnTx, BridgeProofData, BridgeProofTimeoutData,
-            BridgeProofTimeoutTx, BridgeProofTx, ClaimData, ClaimTx, ContestData, ContestTx,
-            ContestedPayoutData, ContestedPayoutTx, CounterproofAckData, CounterproofAckTx,
-            CounterproofData, CounterproofNackData, CounterproofNackTx, CounterproofTx, SlashData,
-            SlashTx, UncontestedPayoutData, UncontestedPayoutTx, UnstakingBurnData,
-            UnstakingBurnTx,
+            BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData,
+            ContestTx, ContestedPayoutData, ContestedPayoutTx, CounterproofAckData,
+            CounterproofAckTx, CounterproofData, CounterproofTx, SlashData, SlashTx,
+            UncontestedPayoutData, UncontestedPayoutTx,
         },
         AsTransaction,
     },
@@ -118,8 +116,6 @@ pub struct GameGraph {
     pub uncontested_payout: UncontestedPayoutTx,
     /// Contest transaction.
     pub contest: ContestTx,
-    /// Bridge proof transaction.
-    pub bridge_proof: BridgeProofTx,
     /// Bridge proof timeout transaction.
     pub bridge_proof_timeout: BridgeProofTimeoutTx,
     /// One counterproof graph for each watchtower.
@@ -128,10 +124,6 @@ pub struct GameGraph {
     pub contested_payout: ContestedPayoutTx,
     /// Slash transaction.
     pub slash: SlashTx,
-    /// Admin burn transaction.
-    pub admin_burn: AdminBurnTx,
-    /// Unstaking burn transaction.
-    pub unstaking_burn: UnstakingBurnTx,
 }
 
 /// Collection of presigned transactions for the counterproof of a single watchtower.
@@ -141,8 +133,6 @@ pub struct GameGraph {
 pub struct CounterproofGraph {
     /// Counterproof transaction.
     pub counterproof: CounterproofTx,
-    /// Counterproof NACK transaction.
-    pub counterproof_nack: CounterproofNackTx,
     /// Counterproof ACK transaction.
     pub counterproof_ack: CounterproofAckTx,
 }
@@ -254,13 +244,6 @@ impl GameGraph {
             contest_counterproof_output,
         );
 
-        let bridge_proof_data = BridgeProofData {
-            contest_txid: contest.as_unsigned_tx().compute_txid(),
-            proof_n_bytes: protocol.proof_n_bytes,
-            game_index: setup.game_index,
-        };
-        let bridge_proof = BridgeProofTx::new(bridge_proof_data, contest_proof_connector);
-
         let bridge_proof_timeout_data = BridgeProofTimeoutData {
             contest_txid: contest.as_unsigned_tx().compute_txid(),
         };
@@ -285,12 +268,6 @@ impl GameGraph {
                     counterproof_connector,
                 );
 
-                let counterproof_nack_data = CounterproofNackData {
-                    counterproof_txid: counterproof.as_unsigned_tx().compute_txid(),
-                };
-                let counterproof_nack =
-                    CounterproofNackTx::new(counterproof_nack_data, counterproof_connector);
-
                 let counterproof_ack_data = CounterproofAckData {
                     counterproof_txid: counterproof.as_unsigned_tx().compute_txid(),
                     contest_txid: contest.as_unsigned_tx().compute_txid(),
@@ -303,7 +280,6 @@ impl GameGraph {
 
                 CounterproofGraph {
                     counterproof,
-                    counterproof_nack,
                     counterproof_ack,
                 }
             })
@@ -336,27 +312,14 @@ impl GameGraph {
             &keys.slash_watchtower_descriptors,
         );
 
-        let admin_burn_data = AdminBurnData {
-            claim_txid: claim.as_unsigned_tx().compute_txid(),
-        };
-        let admin_burn = AdminBurnTx::new(admin_burn_data, claim_payout_connector);
-
-        let unstaking_burn_data = UnstakingBurnData {
-            claim_txid: claim.as_unsigned_tx().compute_txid(),
-        };
-        let unstaking_burn = UnstakingBurnTx::new(unstaking_burn_data, claim_payout_connector);
-
         Self {
             claim,
             uncontested_payout,
             contest,
-            bridge_proof,
             bridge_proof_timeout,
             counterproofs,
             contested_payout,
             slash,
-            admin_burn,
-            unstaking_burn,
         }
     }
 }
