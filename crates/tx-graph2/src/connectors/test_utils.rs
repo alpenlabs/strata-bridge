@@ -255,7 +255,8 @@ impl BitcoinNode {
         consensus::encode::deserialize_hex(&signed_tx.hex).expect("must deserialize")
     }
 
-    /// Signs the inputs that the wallet controls and broadcasts the transaction.
+    /// Signs the inputs that the wallet controls and broadcasts the transaction,
+    /// asserting that the transaction is accepted.
     ///
     /// # Panics
     ///
@@ -269,15 +270,16 @@ impl BitcoinNode {
             .expect("should be able to extract the txid")
     }
 
-    /// Submits a package of transactions to the mempool.
+    /// Submits a package of transactions to the mempool,
+    /// asserting that the package is accepted.
     ///
     /// # Panics
     ///
     /// This method panics if the package is not accepted by the mempool.
-    pub(crate) fn submit_package(&self, transactions: [Transaction; 2]) {
+    pub(crate) fn submit_package(&self, transactions: &[Transaction; 2]) {
         let result = self
             .client()
-            .submit_package(&transactions, None, None)
+            .submit_package(transactions, None, None)
             .expect("should be able to submit package");
         if result.package_msg != "success" {
             dbg!(result);
@@ -287,6 +289,23 @@ impl BitcoinNode {
             result.tx_results.len() == 2,
             "tx_results should have 2 elements"
         );
+    }
+
+    /// Submits a package of transactions to the mempool,
+    /// asserting that the package is _not accepted_.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the package is _accepted_ by the mempool.
+    pub(crate) fn submit_package_invalid(&self, transactions: &[Transaction; 2]) {
+        let result = self
+            .client()
+            .submit_package(transactions, None, None)
+            .expect("should be able to submit package");
+        if result.package_msg == "success" {
+            dbg!(result);
+            panic!("Expected package submission to fail, but it succeeded.");
+        }
     }
 
     /// Returns a signed transaction that pays fees for the given `parent` via CPFP.

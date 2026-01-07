@@ -114,7 +114,6 @@ mod tests {
         };
         let signed_child_tx = node.sign(&child_tx);
 
-        // Submit parent and child in the same package
-        node.submit_package([signed_parent_tx, signed_child_tx]);
+        node.submit_package(&[signed_parent_tx, signed_child_tx]);
     }
 }
