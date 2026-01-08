@@ -19,7 +19,7 @@ use super::{
     events::DepositEvent,
     state::{DepositCfg, DepositSM, DepositState},
 };
-use crate::testing::fixtures::{test_block_with_height, test_payout_tx, test_takeback_tx};
+use crate::testing::fixtures::{test_payout_tx, test_takeback_tx};
 
 // ===== Test Constants =====
 

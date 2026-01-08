@@ -9758,6 +9758,7 @@ dependencies = [
  "proptest",
  "secp256k1",
  "strata-bridge-primitives",
+ "strata-bridge-test-utils",
  "strata-p2p-types",
  "thiserror 2.0.12",
 ]
