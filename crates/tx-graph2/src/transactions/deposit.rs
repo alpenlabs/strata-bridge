@@ -7,9 +7,8 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut,
 };
 use secp256k1::schnorr;
-use strata_asm_txs_bridge_v1::constants::{BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE};
-use strata_codec::Codec;
-use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
+use strata_asm_txs_bridge_v1::deposit::DepositTxHeaderAux;
+use strata_l1_txfmt::{MagicBytes, ParseConfig};
 
 use crate::{
     connectors::{
@@ -34,13 +33,7 @@ impl DepositData {
     /// Computes the OP_RETURN leaf script that pushes
     /// the SPS-50 header of the deposit transaction.
     pub fn header_leaf_script(&self) -> ScriptBuf {
-        let mut aux_data = Vec::new();
-        self.deposit_idx
-            .encode(&mut aux_data)
-            .expect("deposit index should be encodable");
-        let tag_data = TagData::new(BRIDGE_V1_SUBPROTOCOL_ID, DEPOSIT_TX_TYPE, aux_data)
-            .expect("aux data should not be too long");
-
+        let tag_data = DepositTxHeaderAux::new(self.deposit_idx).build_tag_data();
         ParseConfig::new(self.magic_bytes)
             .encode_script_buf(&tag_data.as_ref())
             .expect("encoding should be valid")

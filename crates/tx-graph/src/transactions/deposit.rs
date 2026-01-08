@@ -18,7 +18,6 @@ use strata_bridge_primitives::{
         taproot::{create_taproot_addr, SpendPath},
     },
 };
-use strata_params::RollupParams;
 
 use super::prelude::CovenantTx;
 
@@ -158,7 +157,6 @@ impl DepositTx {
         data: &DepositRequestData,
         build_context: &C,
         pegout_graph_params: &PegOutGraphParams,
-        sidesystem_params: &RollupParams,
     ) -> BridgeTxBuilderResult<Self> {
         let PegOutGraphParams {
             tag,
@@ -187,15 +185,6 @@ impl DepositTx {
             takeback_hash: takeback_script_hash,
             input_amount: data.total_amount,
         };
-
-        // Validate EE address size
-        if data.el_address().len() != sidesystem_params.max_address_length as usize {
-            return Err(DepositTransactionError::InvalidEeAddressSize(
-                data.el_address().len(),
-                sidesystem_params.max_address_length as usize,
-            )
-            .into());
-        }
 
         let metadata = AuxiliaryData::new(*tag, deposit_metadata);
 
@@ -275,10 +264,8 @@ impl CovenantTx<1> for DepositTx {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
 
     use bitcoin::{script::Instruction, Network};
-    use secp256k1::PublicKey;
     use strata_bridge_primitives::{
         build_context::TxBuildContext,
         errors::{BridgeTxBuilderError, DepositTransactionError},
@@ -286,39 +273,8 @@ mod tests {
     use strata_bridge_test_utils::prelude::{
         create_drt_taproot_output, generate_keypairs, generate_pubkey_table, generate_xonly_pubkey,
     };
-    use strata_bridge_types::OperatorPubkeys;
-    use strata_params::OperatorConfig;
 
     use super::*;
-
-    /// Loads the sidesystem params from the test file.
-    ///
-    /// If pubkeys are supplied, it updates the operator config in the params with the provided
-    /// pubkeys as `wallet_pk`.
-    fn test_sidesystem_params<Pks>(pubkeys: Option<Pks>) -> RollupParams
-    where
-        Pks: IntoIterator<Item = PublicKey>,
-    {
-        let test_rollup_params = fs::read_to_string("../../test-data/rollup_params.json")
-            .expect("could not read test rollup params");
-
-        let mut params = serde_json::from_str::<RollupParams>(&test_rollup_params)
-            .expect("rollup-params in test-data must have valid structure");
-
-        if let Some(pubkeys) = pubkeys {
-            params.operator_config = OperatorConfig::Static(
-                pubkeys
-                    .into_iter()
-                    .map(|wallet_pk| {
-                        let wallet_pk = wallet_pk.x_only_public_key().0;
-                        OperatorPubkeys::new([2u8; 32].into(), wallet_pk.serialize().into())
-                    })
-                    .collect(),
-            );
-        }
-
-        params
-    }
 
     #[test]
     fn test_create_spend_infos() {
@@ -408,7 +364,6 @@ mod tests {
             &deposit_request_data,
             &tx_builder,
             &PegOutGraphParams::default(),
-            &test_sidesystem_params::<Vec<_>>(None),
         );
         assert!(
             result.is_ok(),
@@ -419,33 +374,6 @@ mod tests {
         let deposit_tx = result.unwrap();
         assert_eq!(deposit_tx.psbt().unsigned_tx.input.len(), 1);
         assert_eq!(deposit_tx.psbt().unsigned_tx.output.len(), 2);
-
-        // test with invalid EL address
-        const INVALID_LENGTH: usize = 21;
-        let deposit_request_data = DepositRequestData::new(
-            deposit_request_outpoint,
-            1,
-            [0u8; 21].to_vec(),
-            deposit_amt,
-            recovery_xonly_pk,
-            drt_output_address.address().script_pubkey(),
-        );
-
-        let result = DepositTx::new(
-            &deposit_request_data,
-            &tx_builder,
-            &PegOutGraphParams::default(),
-            &test_sidesystem_params::<Vec<_>>(None),
-        );
-        assert!(
-            result.is_err_and(|e| matches!(
-                e,
-                BridgeTxBuilderError::DepositTransaction(
-                    DepositTransactionError::InvalidEeAddressSize(INVALID_LENGTH, 20)
-                )
-            )),
-            "should handle the case where the EL address is invalid"
-        );
 
         // test with invalid x-only pk
         let random_xonly_pk = generate_xonly_pubkey();
@@ -463,7 +391,6 @@ mod tests {
             &deposit_request_data,
             &tx_builder,
             &PegOutGraphParams::default(),
-            &test_sidesystem_params::<Vec<_>>(None),
         );
         assert!(
             result.is_err_and(|e| matches!(
@@ -482,9 +409,6 @@ mod tests {
 
         let (operator_pubkeys, _) = generate_keypairs(5);
         let operator_pubkeys = generate_pubkey_table(&operator_pubkeys);
-        let sidesystem_params = test_sidesystem_params(Some(
-            operator_pubkeys.0.values().map(|k| k.as_ref()).copied(),
-        ));
 
         let tx_build_context = TxBuildContext::new(network, operator_pubkeys, 0);
 
@@ -520,7 +444,6 @@ mod tests {
             &deposit_request_data,
             &tx_build_context,
             &pegout_graph_params,
-            &sidesystem_params,
         )
         .expect("must be able to construct signing data");
         let deposit_tx = deposit_tx.psbt.unsigned_tx;

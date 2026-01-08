@@ -10,7 +10,7 @@ use strata_bridge_primitives::{
     constants::{NUM_ASSERT_DATA_TX, SEGWIT_MIN_AMOUNT},
     scripts::prelude::*,
 };
-use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
+use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use super::covenant_tx::CovenantTx;
 

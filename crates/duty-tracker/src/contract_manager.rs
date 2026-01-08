@@ -30,8 +30,6 @@ use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,
     prelude::{AssertDataTxInput, CovenantTx},
 };
-use strata_bridge_types::DepositState;
-use strata_ol_chainstate_types::Chainstate;
 use strata_p2p::{self, commands::Command, events::Event, swarm::handle::P2PHandle};
 use strata_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
 use strata_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
@@ -52,7 +50,7 @@ use crate::{
     },
     errors::{ContractManagerErr, StakeChainErr},
     executors::{config::StakeTxRetryConfig, prelude::*},
-    predicates::{deposit_request_info, parse_strata_checkpoint},
+    predicates::deposit_request_info,
     shutdown::ExecutionState,
     stake_chain_persister::StakeChainPersister,
     stake_chain_state_machine::StakeChainSM,
@@ -645,7 +643,6 @@ impl ContractManagerCtx {
             // or a deposit request
             if let Some(deposit_request_data) = deposit_request_info(
                 &tx,
-                &self.cfg.sidesystem_params,
                 &self.cfg.pegout_graph_params,
                 &self.cfg.operator_table.tx_build_context(self.cfg.network),
                 deposit_idx,
@@ -655,7 +652,6 @@ impl ContractManagerCtx {
                     &deposit_request_data,
                     &self.cfg.operator_table.tx_build_context(self.cfg.network),
                     &self.cfg.pegout_graph_params,
-                    &self.cfg.sidesystem_params,
                 ) {
                     Ok(tx) => tx,
                     Err(err) => {
@@ -783,82 +779,12 @@ impl ContractManagerCtx {
     /// This function validates whether a transaction is a valid Strata checkpoint transaction,
     /// extracts any valid assigned deposit entries and produces the `Assignment` [`ContractEvent`]
     /// so that it can be processed further.
+    // TODO: @prajwolrg: Assignment should be a separate input stream
     async fn process_assignments(
         &mut self,
-        tx: &Transaction,
+        _tx: &Transaction,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
-        let mut duties = Vec::new();
-
-        if let Some(checkpoint) = parse_strata_checkpoint(tx, &self.cfg.sidesystem_params) {
-            debug!(
-                epoch = %checkpoint.batch_info().epoch(),
-                "found valid strata checkpoint"
-            );
-
-            let chain_state = checkpoint.sidecar().chainstate();
-
-            match borsh::from_slice::<Chainstate>(chain_state) {
-                Ok(chain_state) => {
-                    let deposits_table =
-                        chain_state.deposits_table().deposits().collect::<Vec<_>>();
-                    debug!(?deposits_table, "extracted deposits table from chain state");
-
-                    let assigned_deposit_entries = deposits_table.into_iter().filter(|entry| {
-                        matches!(entry.deposit_state(), DepositState::Dispatched(_))
-                    });
-
-                    for entry in assigned_deposit_entries {
-                        let deposit_txid = entry.output().outpoint().txid;
-
-                        let sm = self
-                            .state
-                            .active_contracts
-                            .get_mut(&deposit_txid)
-                            .expect("withdrawal info must be for an active contract");
-
-                        let pov_op_p2p_key = self.cfg.operator_table.pov_p2p_key();
-                        let stake_index = entry.idx();
-                        let Ok(Some(stake_tx)) = self
-                            .state
-                            .stake_chains
-                            .stake_tx(pov_op_p2p_key, stake_index)
-                        else {
-                            warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
-                            continue;
-                        };
-
-                        let l1_start_height = checkpoint
-                            .batch_info()
-                            .l1_range
-                            .1
-                            .height()
-                            .to_consensus_u32()
-                            + 1;
-                        match sm.process_contract_event(ContractEvent::Assignment {
-                            deposit_entry: entry.clone(),
-                            stake_tx,
-                            l1_start_height: l1_start_height.into(),
-                        }) {
-                            Ok(new_duties) if !new_duties.is_empty() => {
-                                duties.extend(new_duties);
-                            }
-                            Ok(_) => {
-                                debug!(?entry, "no duty generated for assignment");
-                            }
-                            Err(e) => {
-                                error!(%e, "could not generate duty for assignment event");
-                                return Err(e)?;
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    warn!(%e, "failed to deserialize chainstate inscribed in checkpoint tx");
-                }
-            }
-        };
-
-        Ok(duties)
+        Ok(vec![])
     }
 
     async fn process_p2p_message(

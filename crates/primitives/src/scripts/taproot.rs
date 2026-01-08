@@ -18,7 +18,7 @@ use bitcoin::{
 use bitvm::treepp::*;
 use secp256k1::{rand::rngs::OsRng, Keypair, Message, Parity, SecretKey};
 use serde::{Deserialize, Serialize};
-use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
+use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use crate::errors::{BridgeTxBuilderError, BridgeTxBuilderResult};
 

@@ -411,7 +411,7 @@ mod tests {
         };
         let setup = SetupParams {
             network: Network::Regtest,
-            magic_bytes: *b"alpn",
+            magic_bytes: (*b"ALPN").into(),
             game_index: NonZero::new(1).unwrap(),
             operator_index: 0,
             keys,

@@ -9,7 +9,7 @@ workspace = true
 [dependencies]
 strata-asm-txs-bridge-v1.workspace = true
 strata-bridge-primitives.workspace = true
-strata-codec.workspace = true
+strata-crypto.workspace = true
 strata-l1-txfmt.workspace = true
 strata-primitives.workspace = true
 
