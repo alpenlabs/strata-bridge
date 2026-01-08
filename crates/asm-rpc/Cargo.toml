@@ -1,0 +1,17 @@
+[package]
+edition = "2021"
+name = "strata-bridge-asm-rpc"
+version = "0.1.0"
+
+[lints]
+workspace = true
+
+[dependencies]
+strata-asm-proto-bridge-v1.workspace = true
+
+bitcoin.workspace = true
+jsonrpsee = { workspace = true, features = ["server", "macros"] }
+
+[features]
+default = []
+client = ["jsonrpsee/client"]
