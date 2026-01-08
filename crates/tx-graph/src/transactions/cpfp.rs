@@ -289,7 +289,7 @@ mod tests {
     use std::{collections::HashSet, str::FromStr};
 
     use bitcoin::{consensus, Network};
-    use bitcoind_async_client::corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
+    use bitcoind_async_client::corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet};
     use corepc_node::{serde_json::json, Conf, Node};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::{find_funding_utxo, generate_keypair, sign_cpfp_child};
@@ -324,7 +324,9 @@ mod tests {
 
         let unspent = btc_client
             .call::<ListUnspent>("listunspent", &[])
-            .expect("must be able to list unspent");
+            .expect("must be able to list unspent")
+            .into_model()
+            .expect("must be able to deserialize utxos");
 
         let unspent = unspent.0.first().expect("must have at least one utxo");
 
@@ -357,7 +359,9 @@ mod tests {
                 "signrawtransactionwithwallet",
                 &[json!(consensus::encode::serialize_hex(&unsigned_parent_tx))],
             )
-            .expect("must be able to sign parent tx");
+            .expect("must be able to sign parent tx")
+            .into_model()
+            .expect("must be able to deserialize signed parent tx");
         let signed_parent_tx = signed_parent_tx.tx;
 
         let details = CpfpInput::new(
