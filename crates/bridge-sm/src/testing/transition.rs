@@ -112,8 +112,9 @@ pub fn test_invalid_transition<SM, S, E, D, Sig, Err, CreateFn>(
 
     assert!(
         (invalid.expected_error)(&err),
-        "Error type mismatch. Got: {:?}",
-        err
+        "Error type mismatch. Got: {:?}, Expected: {:?}",
+        err,
+        invalid.expected_error
     );
 }
 
