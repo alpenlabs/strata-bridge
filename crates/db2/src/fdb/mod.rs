@@ -18,7 +18,7 @@ use terrors::OneOf;
 use crate::fdb::dirs::Directories;
 
 /// The FoundationDB layer identifier.
-pub const LAYER_ID: &'static [u8] = b"strata-bridge-v1";
+pub const LAYER_ID: &[u8] = b"strata-bridge-v1";
 
 /// The main entity for interacting with the FoundationDB database.
 pub struct FdbClient {
