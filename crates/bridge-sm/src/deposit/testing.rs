@@ -192,3 +192,21 @@ impl Arbitrary for DepositEvent {
 pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
     prop_oneof![Just(DepositState::Spent), Just(DepositState::Aborted),]
 }
+
+/// Strategy for generating only events which have been handled in STFs
+// TODO: (@Rajil1213) remove this after all STFs have been implemented.
+pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
+    let outpoint = OutPoint::default();
+
+    prop_oneof![
+        Just(DepositEvent::UserTakeBack {
+            tx: test_takeback_tx(outpoint)
+        }),
+        Just(DepositEvent::PayoutConfirmed {
+            tx: test_payout_tx(outpoint)
+        }),
+        (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
+            block: generate_block_with_height(height)
+        }),
+    ]
+}
