@@ -1,16 +1,18 @@
 //! Module to generate arbitrary values for testing.
-
 use std::{collections::HashSet, env, str::FromStr};
 
 use bitcoin::{
     absolute::LockTime,
-    consensus,
+    block, blockdata, consensus,
     hashes::Hash,
     key::rand::{rngs::OsRng, thread_rng, Rng},
+    script::Builder,
     secp256k1::{schnorr::Signature, Keypair, SecretKey, XOnlyPublicKey, SECP256K1},
     sighash::{Prevouts, SighashCache},
+    transaction,
     transaction::Version,
-    Amount, OutPoint, ScriptBuf, Sequence, TapSighashType, Transaction, TxIn, TxOut, Txid, Witness,
+    Amount, Block, BlockHash, CompactTarget, OutPoint, ScriptBuf, Sequence, TapSighashType,
+    Transaction, TxIn, TxMerkleNode, TxOut, Txid, Witness,
 };
 use bitcoind_async_client::{
     types::{ListUnspent, SignRawTransactionWithWallet},
@@ -99,6 +101,60 @@ pub fn generate_xonly_pubkey() -> XOnlyPublicKey {
     let sk = SecretKey::new(&mut rng);
     let even_sk: EvenSecretKey = sk.into();
     even_sk.x_only_public_key(SECP256K1).0
+}
+
+/// Creates a test block with proper BIP34 height encoding.
+///
+/// BIP34 requires the coinbase transaction to contain the block height
+/// in its scriptSig, which allows `block.bip34_block_height()` to work correctly.
+pub fn generate_block_with_height(height: u64) -> Block {
+    // BIP34: coinbase must start with block height
+    let height_script = Builder::new().push_int(height as i64).into_script();
+
+    let coinbase_tx = Transaction {
+        version: transaction::Version::TWO,
+        lock_time: blockdata::locktime::absolute::LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output: OutPoint::null(),
+            script_sig: height_script,
+            sequence: Sequence::MAX,
+            witness: Witness::new(),
+        }],
+        output: vec![],
+    };
+
+    Block {
+        header: block::Header {
+            version: block::Version::TWO,
+            prev_blockhash: BlockHash::all_zeros(),
+            merkle_root: TxMerkleNode::all_zeros(),
+            time: height as u32,
+            bits: CompactTarget::from_consensus(0),
+            nonce: 0,
+        },
+        txdata: vec![coinbase_tx],
+    }
+}
+
+/// Creates a test transaction with specified outpoint and witness elements.
+///
+/// This is a generic transaction builder that can be customized with different
+/// witness elements to create different types of transactions.
+pub fn generate_spending_tx(
+    previous_output: OutPoint,
+    witness_elements: &[Vec<u8>],
+) -> Transaction {
+    Transaction {
+        version: transaction::Version::TWO,
+        lock_time: blockdata::locktime::absolute::LockTime::ZERO,
+        input: vec![TxIn {
+            previous_output,
+            script_sig: ScriptBuf::new(),
+            sequence: Sequence::MAX,
+            witness: Witness::from_slice(witness_elements),
+        }],
+        output: vec![],
+    }
 }
 
 /// Generates a random transaction.

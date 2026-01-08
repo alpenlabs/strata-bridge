@@ -48,7 +48,6 @@ Helpers that can be used by **any state machine** in the crate. These provide co
 ```rust
 use crate::testing::fixtures::*;
 
-let block = test_block_with_height(100);
 let tx = test_payout_tx(OutPoint::default());
 ```
 
@@ -406,8 +405,6 @@ The `DepositSM` provides a complete example of the testing framework in action:
 ### Universal Fixtures (`src/testing/fixtures.rs`)
 
 ```rust
-pub fn test_block_with_height(height: u64) -> Block { /* ... */ }
-pub fn test_tx(previous_output: OutPoint, witness_elements: &[Vec<u8>]) -> Transaction { /* ... */ }
 pub fn test_takeback_tx(outpoint: OutPoint) -> Transaction { /* ... */ }
 pub fn test_payout_tx(outpoint: OutPoint) -> Transaction { /* ... */ }
 ```
@@ -487,15 +484,15 @@ Keep value-based tests (concrete inputs) separate from property-based tests (arb
 
 ```rust
 // Bad
-let block = test_block_with_height(100);
-let later_block = test_block_with_height(150);
+let block = generate_block_with_height(100);
+let later_block = generate_block_with_height(150);
 
 // Good
 const INITIAL_BLOCK_HEIGHT: u64 = 100;
 const LATER_BLOCK_HEIGHT: u64 = 150;
 
-let block = test_block_with_height(INITIAL_BLOCK_HEIGHT);
-let later_block = test_block_with_height(LATER_BLOCK_HEIGHT);
+let block = generate_block_with_height(INITIAL_BLOCK_HEIGHT);
+let later_block = generate_block_with_height(LATER_BLOCK_HEIGHT);
 ```
 
 ## Contributing
