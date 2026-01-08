@@ -10,7 +10,10 @@ use std::{
 };
 
 use bitcoin::{OutPoint, Transaction};
-use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
+use musig2::{
+    AggNonce, PartialSignature, PubNonce,
+    secp256k1::{Message, schnorr::Signature},
+};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
@@ -293,7 +296,10 @@ impl StateMachine for DepositSM {
             DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
             DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
-            DepositEvent::NonceReceived => self.process_nonce_received(),
+            DepositEvent::NonceReceived {
+                nonce,
+                operator_idx,
+            } => self.process_nonce_received(nonce, operator_idx),
             DepositEvent::PartialReceived => self.process_partial_received(),
             DepositEvent::DepositConfirmed => self.process_deposit_confirmed(),
             DepositEvent::Assignment => self.process_assignment(),
@@ -494,12 +500,87 @@ impl DepositSM {
         }
     }
 
-    fn process_nonce_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+    /// Processes the event where an operator's nonce is received for the deposit transaction.
+    ///
+    /// This collects public nonces from operators required for the multisig signing process.
+    /// When all operators have provided their nonces, transitions to the DepositNoncesCollected
+    /// state and emits a duty to publish partial signatures.
+    fn process_nonce_received(
+        &mut self,
+        nonce: PubNonce,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
+
+        match self.state_mut() {
+            DepositState::GraphGenerated {
+                deposit_transaction,
+                drt_block_height,
+                output_index,
+                block_height,
+                pubnonces,
+            } => {
+                // Insert the new nonce into the map
+                pubnonces.insert(operator_idx, nonce);
+
+                // Check if we have collected all nonces
+                if pubnonces.len() == operator_table_cardinality {
+                    // All nonces collected, compute the aggregated nonce
+                    let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
+
+                    // Transition to DepositNoncesCollected state
+                    let new_state = DepositState::DepositNoncesCollected {
+                        deposit_transaction: deposit_transaction.clone(),
+                        drt_block_height: *drt_block_height,
+                        output_index: *output_index,
+                        block_height: *block_height,
+                        agg_nonce: agg_nonce.clone(),
+                        partial_signatures: BTreeMap::new(),
+                    };
+                    self.state = new_state;
+
+                    // Create the duty to publish deposit partials
+                    let duty = DepositDuty::PublishDepositPartial {
+                        deposit_out_point: self.cfg().deposit_outpoint(),
+                        deposit_sighash: Message::from_digest_slice(&[0u8; 32])
+                            .expect("must create a valid message"), /* TODO: @MdTeach Calculate
+                                                                     * actual
+                                                                     * sighash */
+                        deposit_agg_nonce: agg_nonce,
+                    };
+
+                    Ok(DSMOutput::with_duties(vec![duty]))
+                } else {
+                    // Not all nonces collected yet, stay in current state
+                    Ok(DSMOutput::new())
+                }
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: "NonceReceived".to_string(),
+            }),
+        }
     }
 
     fn process_partial_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@MdTeach")
+        match self.state_mut() {
+            DepositState::DepositNoncesCollected {
+                deposit_transaction,
+                drt_block_height,
+                output_index,
+                block_height,
+                agg_nonce,
+                partial_signatures,
+            } => {
+                // Collect the partial signature.
+                // If all partials are collected, transition to DepositPartialsCollected state.
+                todo!("@MdTeach")
+            }
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state().to_string(),
+                event: "PartialReceived".to_string(),
+            }),
+        }
     }
 
     fn process_deposit_confirmed(&mut self) -> DSMResult<DSMOutput> {
