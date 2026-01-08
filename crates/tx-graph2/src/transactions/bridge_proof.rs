@@ -126,7 +126,9 @@ impl BridgeProofTx {
     /// The remaining inputs must be manually signed.
     pub fn finalize_partial(self, operator_signature: schnorr::Signature) -> Transaction {
         let mut psbt = Psbt::from_unsigned_tx(self.tx).expect("witness should be empty");
-        psbt.inputs[0].witness_utxo = Some(self.prevouts[0].clone());
+        for (input, utxo) in psbt.inputs.iter_mut().zip(self.prevouts) {
+            input.witness_utxo = Some(utxo);
+        }
 
         let bridge_proof_witness = TimelockedWitness::Normal {
             output_key_signature: operator_signature,

@@ -134,7 +134,9 @@ impl CounterproofNackTx {
     /// The remaining inputs must be manually signed.
     pub fn finalize_partial(self, wt_fault_signature: schnorr::Signature) -> Transaction {
         let mut psbt = Psbt::from_unsigned_tx(self.tx).expect("witness should be empty");
-        psbt.inputs[0].witness_utxo = Some(self.prevouts[0].clone());
+        for (input, utxo) in psbt.inputs.iter_mut().zip(self.prevouts) {
+            input.witness_utxo = Some(utxo);
+        }
 
         let witness = TimelockedWitness::Normal {
             output_key_signature: wt_fault_signature,
@@ -166,7 +168,9 @@ impl AdminBurnTx {
     /// The remaining inputs must be manually signed.
     pub fn finalize_partial(self, admin_signature: schnorr::Signature) -> Transaction {
         let mut psbt = Psbt::from_unsigned_tx(self.tx).expect("witness should be empty");
-        psbt.inputs[0].witness_utxo = Some(self.prevouts[0].clone());
+        for (input, utxo) in psbt.inputs.iter_mut().zip(self.prevouts) {
+            input.witness_utxo = Some(utxo);
+        }
 
         let witness = ClaimPayoutWitness::AdminBurn { admin_signature };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
@@ -196,7 +200,9 @@ impl UnstakingBurnTx {
     /// The remaining inputs must be manually signed.
     pub fn finalize_partial(self, unstaking_preimage: [u8; 32]) -> Transaction {
         let mut psbt = Psbt::from_unsigned_tx(self.tx).expect("witness should be empty");
-        psbt.inputs[0].witness_utxo = Some(self.prevouts[0].clone());
+        for (input, utxo) in psbt.inputs.iter_mut().zip(self.prevouts) {
+            input.witness_utxo = Some(utxo);
+        }
 
         let witness = ClaimPayoutWitness::UnstakingBurn { unstaking_preimage };
         self.connector.finalize_input(&mut psbt.inputs[0], &witness);
