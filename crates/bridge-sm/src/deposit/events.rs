@@ -4,13 +4,13 @@
 //! different transitions and emit duties that need to be performed and messages that need to be
 //! propagated.
 
-use musig2::PubNonce;
+use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::OperatorIdx;
 
 use crate::signals::GraphToDeposit;
 
 /// The external events that affect the Deposit State Machine.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DepositEvent {
     /// TODO: (@MdTeach)
     DepositRequest,
@@ -23,8 +23,13 @@ pub enum DepositEvent {
         /// The index of the operator who provided the nonce
         operator_idx: OperatorIdx,
     },
-    /// TODO: (@MdTeach)
-    PartialReceived,
+    /// Partial signature received from an operator for the deposit transaction signing
+    PartialReceived {
+        /// The partial signature provided by the operator
+        partial_sig: PartialSignature,
+        /// The index of the operator who provided the partial signature
+        operator_idx: OperatorIdx,
+    },
     /// TODO: (@mukeshdroid)
     DepositConfirmed,
     /// TODO: (@mukeshdroid)
@@ -52,8 +57,10 @@ impl std::fmt::Display for DepositEvent {
             },
             DepositEvent::NonceReceived { operator_idx, .. } => {
                 return write!(f, "NonceReceived from operator_idx: {}", operator_idx);
-            },
-            DepositEvent::PartialReceived => "PartialReceived",
+            }
+            DepositEvent::PartialReceived { operator_idx, .. } => {
+                return write!(f, "PartialReceived from operator_idx: {}", operator_idx);
+            }
             DepositEvent::DepositConfirmed => "DepositConfirmed",
             DepositEvent::Assignment => "Assignment",
             DepositEvent::FulfillmentConfirmed => "FulfillmentConfirmed",
