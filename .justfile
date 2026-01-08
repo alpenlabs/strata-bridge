@@ -71,12 +71,32 @@ build-rt:
 # Builds all images in the compose.yml
 [group('docker')]
 build-compose:
-    docker compose down && docker compose up --build
+    docker compose down
+    docker compose build
+    just start-fdb
+    docker compose up -d
 
 # Clean docker volumes
 [group('docker')]
 clean:
     rm -rf docker/vol/*/data
+
+# Start FoundationDB container, wait for health, and initialize
+[group('docker')]
+start-fdb:
+    docker compose up -d --wait foundationdb
+    just init-fdb
+
+# Initialize FoundationDB (idempotent - safe to run multiple times)
+[group('docker')]
+init-fdb:
+    #!/usr/bin/env bash
+    if docker exec strata-bridge-foundationdb-1 fdbcli --exec "status" 2>/dev/null | grep -q "Configuration"; then
+        echo "FoundationDB already configured, skipping..."
+    else
+        docker exec strata-bridge-foundationdb-1 fdbcli --exec "configure new single ssd"
+        echo -e "\n\033[36m======== FDB_INITIALIZED ========\033[0m\n"
+    fi
 
 # Cleans data and rebuilds all containers
 [group('docker')]

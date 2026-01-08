@@ -27,6 +27,7 @@ members = [
   "crates/wots",
   "crates/memory_pprof",
   "crates/bridge-sm",
+  "crates/db2",
 
   # binaries listed separately
   "bin/secret-service",
@@ -119,8 +120,8 @@ zkaleido-sp1-groth16-verifier = { git = "https://github.com/alpenlabs/zkaleido",
 zkaleido-sp1-host = { git = "https://github.com/alpenlabs/zkaleido", tag = "v0.1.0-alpha-rc11" }
 
 # external deps
-alloy = { version = "0.14", features = ["full", "node-bindings"] }
-alloy-signer = "0.14"
+alloy = { version = "1", features = ["full", "node-bindings"] }
+alloy-signer = "1"
 anyhow = "1.0.95"
 arbitrary = { version = "1.4.1", features = ["derive"] }
 ark-bn254 = "0.5.0"

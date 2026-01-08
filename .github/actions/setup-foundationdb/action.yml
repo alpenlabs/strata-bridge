@@ -1,0 +1,72 @@
+name: Setup FoundationDB
+description: Installs FoundationDB client library and starts a local server
+
+inputs:
+  version:
+    description: "FoundationDB version to install"
+    required: false
+    default: "7.3.43"
+
+runs:
+  using: composite
+  steps:
+    - name: Download FoundationDB packages
+      shell: bash
+      env:
+        FDB_VERSION: ${{ inputs.version }}
+      run: |
+        echo "::group::Downloading FoundationDB ${FDB_VERSION} packages"
+        curl -fsSLO --proto "=https" --tlsv1.2 \
+          "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+        curl -fsSLO --proto "=https" --tlsv1.2 \
+          "https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/foundationdb-server_${FDB_VERSION}-1_amd64.deb"
+        echo "::endgroup::"
+
+    - name: Install FoundationDB packages
+      shell: bash
+      env:
+        FDB_VERSION: ${{ inputs.version }}
+      run: |
+        echo "::group::Installing FoundationDB ${FDB_VERSION}"
+        # Install client first (server depends on it)
+        sudo dpkg -i "foundationdb-clients_${FDB_VERSION}-1_amd64.deb"
+        sudo dpkg -i "foundationdb-server_${FDB_VERSION}-1_amd64.deb"
+        echo "::endgroup::"
+
+    - name: Wait for FoundationDB to be ready
+      shell: bash
+      run: |
+        echo "::group::Waiting for FoundationDB to become available"
+        max_attempts=30
+        attempt=1
+        while [ $attempt -le $max_attempts ]; do
+          if fdbcli --exec "status minimal" 2>/dev/null | grep -q "The database is available"; then
+            echo "FoundationDB is ready!"
+            fdbcli --exec "status"
+            break
+          fi
+          echo "Attempt $attempt/$max_attempts: Database not ready yet, waiting..."
+          sleep 1
+          attempt=$((attempt + 1))
+        done
+
+        if [ $attempt -gt $max_attempts ]; then
+          echo "::error::FoundationDB failed to become available after $max_attempts attempts"
+          exit 1
+        fi
+        echo "::endgroup::"
+
+    - name: Cleanup downloaded packages
+      shell: bash
+      env:
+        FDB_VERSION: ${{ inputs.version }}
+      run: |
+        rm -f "foundationdb-clients_${FDB_VERSION}-1_amd64.deb" "foundationdb-server_${FDB_VERSION}-1_amd64.deb"
+
+    - name: Verify installation
+      shell: bash
+      run: |
+        echo "FoundationDB client version:"
+        fdbcli --version
+        echo ""
+        echo "Cluster file location: $(cat /etc/foundationdb/fdb.cluster)"
