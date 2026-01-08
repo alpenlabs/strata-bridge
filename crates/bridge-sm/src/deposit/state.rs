@@ -666,13 +666,14 @@ mod tests {
 
     // ===== Property-Based Tests =====
 
-    // Property: State machine is deterministic
+    // Property: State machine is deterministic for the implemented states and events space
     prop_deterministic!(
         DepositSM,
         create_sm,
         get_state,
         any::<DepositState>(),
-        any::<DepositEvent>()
+        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
+                              * STFs are implemented */
     );
 
     // Property: No silent acceptance
@@ -681,7 +682,8 @@ mod tests {
         create_sm,
         get_state,
         any::<DepositState>(),
-        any::<DepositEvent>()
+        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
+                              * STFs are implemented */
     );
 
     // Property: Terminal states reject all events
@@ -689,7 +691,8 @@ mod tests {
         DepositSM,
         create_sm,
         arb_terminal_state(),
-        any::<DepositEvent>()
+        arb_handled_events() /* TODO: (@Rajil1213) replace with any::<DepositEvent>() once all
+                              * STFs are implemented */
     );
 
     // ===== Integration Tests (sequence of events) =====
