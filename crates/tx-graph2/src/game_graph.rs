@@ -3,7 +3,7 @@
 
 use std::num::NonZero;
 
-use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, XOnlyPublicKey};
+use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
 use strata_l1_txfmt::MagicBytes;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
@@ -113,7 +113,7 @@ pub struct GameGraph {
     pub contest: ContestTx,
     /// Bridge proof timeout transaction.
     pub bridge_proof_timeout: BridgeProofTimeoutTx,
-    /// One counterproof graph for each watchtower.
+    /// Counterproof graph of each watchtower.
     pub counterproofs: Vec<CounterproofGraph>,
     /// Contested payout transaction.
     pub contested_payout: ContestedPayoutTx,
@@ -130,6 +130,36 @@ pub struct CounterproofGraph {
     pub counterproof: CounterproofTx,
     /// Counterproof ACK transaction.
     pub counterproof_ack: CounterproofAckTx,
+}
+
+/// Minimum necessary information to recognize
+/// all relevant transactions in a given [`GameGraph`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GameGraphSummary {
+    /// ID of the claim transaction.
+    pub claim: Txid,
+    /// ID of the uncontested payout transaction.
+    pub uncontested_payout: Txid,
+    /// ID of the contest transaction.
+    pub contest: Txid,
+    /// ID of the bridge proof timeout transaction.
+    pub bridge_proof_timeout: Txid,
+    /// Summary of the counterproof graph of each watchtower.
+    pub counterproofs: Vec<CounterproofGraphSummary>,
+    /// ID of the contested payout transaction.
+    pub contested_payout: Txid,
+    /// ID of the slash transaction.
+    pub slash: Txid,
+}
+
+/// Minimum necessary information to recognize
+/// all relevant transactions in a given [`CounterproofGraph`].
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct CounterproofGraphSummary {
+    /// ID of the counterproof transaction.
+    pub counterproof: Txid,
+    /// ID of the counterproof ACK transaction.
+    pub counterproof_ack: Txid,
 }
 
 impl GameGraph {
@@ -325,6 +355,33 @@ impl GameGraph {
             counterproofs,
             contested_payout,
             slash,
+        }
+    }
+
+    /// Summarizes the game graph.
+    pub fn summarize(&self) -> GameGraphSummary {
+        GameGraphSummary {
+            claim: self.claim.as_ref().compute_txid(),
+            uncontested_payout: self.uncontested_payout.as_ref().compute_txid(),
+            contest: self.contest.as_ref().compute_txid(),
+            bridge_proof_timeout: self.bridge_proof_timeout.as_ref().compute_txid(),
+            counterproofs: self
+                .counterproofs
+                .iter()
+                .map(CounterproofGraph::summarize)
+                .collect(),
+            contested_payout: self.contested_payout.as_ref().compute_txid(),
+            slash: self.slash.as_ref().compute_txid(),
+        }
+    }
+}
+
+impl CounterproofGraph {
+    /// Summarizes the counterproof graph.
+    pub fn summarize(&self) -> CounterproofGraphSummary {
+        CounterproofGraphSummary {
+            counterproof: self.counterproof.as_ref().compute_txid(),
+            counterproof_ack: self.counterproof_ack.as_ref().compute_txid(),
         }
     }
 }
