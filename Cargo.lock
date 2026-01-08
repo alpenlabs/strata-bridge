@@ -2036,7 +2036,7 @@ checksum = "7fb42c12f538927ccce999e0227b1ac1b911065d2d1086f6b7451f1e217c8c32"
 dependencies = [
  "base64 0.22.1",
  "bitcoin",
- "corepc-types 0.10.1",
+ "corepc-types",
  "hex-conservative",
  "reqwest",
  "secp256k1 0.29.1",
@@ -2700,12 +2700,12 @@ dependencies = [
 
 [[package]]
 name = "corepc-client"
-version = "0.7.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7c6b8eaeccd3df6c1f264cd6ff8cf5df7d056029473ce9551b2a6257832d38e0"
+checksum = "7755b8b9219b23d166a5897b5e2d8266cbdd0de5861d351b96f6db26bcf415f3"
 dependencies = [
  "bitcoin",
- "corepc-types 0.7.0",
+ "corepc-types",
  "jsonrpc",
  "log",
  "serde",
@@ -2714,9 +2714,9 @@ dependencies = [
 
 [[package]]
 name = "corepc-node"
-version = "0.7.1"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2bcc6e09458f052024ec36e4728bd5619e248643da6175876eb3b10ca6d4d86"
+checksum = "768391062ec3812e223bb3031c5b2fcdd6e0e60b816157f21df82fd3e6617dc0"
 dependencies = [
  "anyhow",
  "corepc-client",
@@ -2724,17 +2724,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "which",
-]
-
-[[package]]
-name = "corepc-types"
-version = "0.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4bc664fdaeeae1eaf459edb88650af3009b758010fc69b423c5b38142446cfb"
-dependencies = [
- "bitcoin",
- "serde",
- "serde_json",
 ]
 
 [[package]]

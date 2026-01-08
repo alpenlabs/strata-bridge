@@ -149,7 +149,7 @@ bitvm = { git = "https://github.com/alpenlabs/BitVM.git", branch = "release/0.1.
 borsh = { version = "1.5.0", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.5.20", features = ["cargo", "derive", "env"] }
-corepc-node = { version = "0.7.1", features = ["28_0"] }
+corepc-node = { version = "0.10.1", features = ["29_0"] }
 dotenvy = "0.15.7"
 esplora-client = { git = "https://github.com/BitVM/rust-esplora-client", default-features = false, features = [
   "blocking-https-rustls",
