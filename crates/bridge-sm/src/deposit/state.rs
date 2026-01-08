@@ -300,7 +300,10 @@ impl StateMachine for DepositSM {
                 nonce,
                 operator_idx,
             } => self.process_nonce_received(nonce, operator_idx),
-            DepositEvent::PartialReceived => self.process_partial_received(),
+            DepositEvent::PartialReceived {
+                partial_sig,
+                operator_idx,
+            } => self.process_partial_received(partial_sig, operator_idx),
             DepositEvent::DepositConfirmed => self.process_deposit_confirmed(),
             DepositEvent::Assignment => self.process_assignment(),
             DepositEvent::FulfillmentConfirmed => self.process_fulfillment(),
@@ -462,7 +465,7 @@ impl DepositSM {
     ///
     /// This tracks operators that have successfully generated and linked their spending graphs
     /// for this deposit. When all operators have linked their graphs, transitions to the
-    /// GraphGenerated state.
+    /// [`DepositState::GraphGenerated`] state.
     fn process_graph_available(&mut self, graph_msg: GraphToDeposit) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
 
@@ -503,8 +506,9 @@ impl DepositSM {
     /// Processes the event where an operator's nonce is received for the deposit transaction.
     ///
     /// This collects public nonces from operators required for the multisig signing process.
-    /// When all operators have provided their nonces, transitions to the DepositNoncesCollected
-    /// state and emits a duty to publish partial signatures.
+    /// When all operators have provided their nonces, transitions to the
+    /// [`DepositState::DepositNoncesCollected`] state and emits a
+    /// [`DepositDuty::PublishDepositPartial`] duty.
     fn process_nonce_received(
         &mut self,
         nonce: PubNonce,
@@ -557,28 +561,81 @@ impl DepositSM {
             }
             _ => Err(DSMError::InvalidEvent {
                 state: self.state().to_string(),
-                event: "NonceReceived".to_string(),
+                event: DepositEvent::NonceReceived {
+                    nonce,
+                    operator_idx,
+                }
+                .to_string(),
             }),
         }
     }
 
-    fn process_partial_received(&mut self) -> DSMResult<DSMOutput> {
+    /// Processes the event where an operator's partial signature is received for the deposit
+    /// transaction.
+    ///
+    /// This collects partial signatures from operators required for the multisig signing process.
+    /// When all operators have provided their partial signatures, transitions to the
+    /// [`DepositState::DepositPartialsCollected`] state and emits a [`DepositDuty::PublishDeposit`]
+    /// duty.
+    fn process_partial_received(
+        &mut self,
+        partial_sig: PartialSignature,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        let operator_table_cardinality = self.cfg().operator_table.cardinality();
+
         match self.state_mut() {
             DepositState::DepositNoncesCollected {
                 deposit_transaction,
                 drt_block_height,
                 output_index,
                 block_height,
-                agg_nonce,
+                agg_nonce: _,
                 partial_signatures,
             } => {
-                // Collect the partial signature.
-                // If all partials are collected, transition to DepositPartialsCollected state.
-                todo!("@MdTeach")
+                // Insert the new partial signature into the map
+                partial_signatures.insert(operator_idx, partial_sig);
+
+                // Check if we have collected all partial signatures
+                if partial_signatures.len() == operator_table_cardinality {
+                    // Clone values before transition to avoid borrowing issues
+                    let deposit_tx = deposit_transaction.clone();
+                    let drt_height = *drt_block_height;
+                    let out_idx = *output_index;
+                    let blk_height = *block_height;
+
+                    // TODO: Implement actual signature aggregation using cryptographic operations
+                    let agg_signature =
+                        Signature::from_slice(&[0u8; 64]).expect("placeholder signature"); // Placeholder for actual aggregation logic
+
+                    // Transition to DepositPartialsCollected state
+                    let new_state = DepositState::DepositPartialsCollected {
+                        deposit_transaction: deposit_tx.clone(),
+                        drt_block_height: drt_height,
+                        output_index: out_idx,
+                        block_height: blk_height,
+                        agg_signature,
+                    };
+                    self.state = new_state;
+
+                    // Create the duty to publish the deposit transaction
+                    let duty = DepositDuty::PublishDeposit {
+                        deposit_tx,
+                        agg_signature,
+                    };
+
+                    Ok(DSMOutput::with_duties(vec![duty]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
             }
             _ => Err(DSMError::InvalidEvent {
                 state: self.state().to_string(),
-                event: "PartialReceived".to_string(),
+                event: DepositEvent::PartialReceived {
+                    partial_sig,
+                    operator_idx,
+                }
+                .to_string(),
             }),
         }
     }
