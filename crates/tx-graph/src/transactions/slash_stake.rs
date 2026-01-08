@@ -14,7 +14,7 @@ use strata_bridge_primitives::{
         taproot::{create_taproot_addr, SpendPath, TaprootWitness},
     },
 };
-use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
+use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 use super::prelude::CovenantTx;
 

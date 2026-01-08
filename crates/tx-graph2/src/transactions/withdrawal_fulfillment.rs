@@ -1,12 +1,9 @@
 //! This module contains the withdrawal fulfillment transaction.
 
 use bitcoin::{absolute, transaction::Version, Amount, OutPoint, ScriptBuf, Transaction, TxOut};
-use strata_asm_txs_bridge_v1::constants::{
-    BRIDGE_V1_SUBPROTOCOL_ID, WITHDRAWAL_FULFILLMENT_TX_TYPE,
-};
+use strata_asm_txs_bridge_v1::withdrawal_fulfillment::WithdrawalFulfillmentTxHeaderAux;
 use strata_bridge_primitives::scripts::prelude::create_tx_ins;
-use strata_codec::Codec;
-use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
+use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 /// Data that is needed to construct a [`WithdrawalFulfillmentTx`].
@@ -32,17 +29,7 @@ impl WithdrawalFulfillmentData {
     /// Computes the OP_RETURN leaf script that pushes
     /// the SPS-50 header of the withdrawal fulfillment transaction.
     pub fn header_leaf_script(&self) -> ScriptBuf {
-        let mut aux_data = Vec::new();
-        self.deposit_idx
-            .encode(&mut aux_data)
-            .expect("deposit index should be encodable");
-        let tag_data = TagData::new(
-            BRIDGE_V1_SUBPROTOCOL_ID,
-            WITHDRAWAL_FULFILLMENT_TX_TYPE,
-            aux_data,
-        )
-        .expect("aux data should not be too long");
-
+        let tag_data = WithdrawalFulfillmentTxHeaderAux::new(self.deposit_idx).build_tag_data();
         ParseConfig::new(self.magic_bytes)
             .encode_script_buf(&tag_data.as_ref())
             .expect("encoding should be valid")

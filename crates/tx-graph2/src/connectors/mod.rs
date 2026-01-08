@@ -25,7 +25,7 @@ use secp256k1::{schnorr, Keypair, Message, XOnlyPublicKey, SECP256K1};
 use strata_bridge_primitives::scripts::prelude::{
     create_key_spend_hash, create_script_spend_hash, create_taproot_addr, finalize_input, SpendPath,
 };
-use strata_primitives::constants::UNSPENDABLE_PUBLIC_KEY;
+use strata_crypto::keys::constants::UNSPENDABLE_PUBLIC_KEY;
 
 /// A Taproot connector output.
 pub trait Connector {

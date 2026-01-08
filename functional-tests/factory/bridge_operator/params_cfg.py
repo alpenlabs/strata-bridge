@@ -63,7 +63,7 @@ class GenesisL1View:
 
 @dataclass
 class Sidesystem:
-    magic_bytes: list[int]
+    magic_bytes: str
     block_time: int
     da_tag: str
     checkpoint_tag: str
@@ -88,7 +88,7 @@ class Sidesystem:
     @classmethod
     def default(cls) -> "Sidesystem":
         return cls(
-            magic_bytes=[65, 76, 80, 78],
+            magic_bytes="ALPN",
             block_time=1000,
             da_tag="alpen-bridge-da",
             checkpoint_tag="alpen-bridge-checkpoint",
