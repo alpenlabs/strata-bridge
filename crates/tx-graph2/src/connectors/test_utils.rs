@@ -7,7 +7,7 @@ use bitcoin::{
     sighash::{Prevouts, SighashCache},
     transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
 };
-use bitcoind_async_client::corepc_types::model::SignRawTransactionWithWallet;
+use bitcoind_async_client::corepc_types::v29::SignRawTransactionWithWallet;
 use corepc_node::{
     serde_json::{self, json},
     Client, Conf, Node,
@@ -251,7 +251,9 @@ impl BitcoinNode {
                     &partially_signed_tx
                 ))],
             )
-            .expect("should be able to sign the transaction inputs");
+            .expect("should be able to sign the transaction inputs")
+            .into_model()
+            .expect("must be able to deserialize signed tx");
         signed_tx.tx
     }
 
@@ -360,7 +362,9 @@ impl BitcoinNode {
                     json!(prevtxs),
                 ],
             )
-            .expect("should be able to sign the transaction inputs");
+            .expect("should be able to sign the transaction inputs")
+            .into_model()
+            .expect("must be able to deserialize signed tx");
         signed_tx.tx
     }
 }

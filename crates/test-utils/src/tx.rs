@@ -1,7 +1,7 @@
 //! Module to generate transactions for testing.
 
 use bitcoin::{consensus, Address, Amount, OutPoint, Transaction, TxOut};
-use bitcoind_async_client::corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
+use bitcoind_async_client::corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet};
 use corepc_node::{serde_json, Client};
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
@@ -26,7 +26,9 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
 
     let utxos = btc_client
         .call::<ListUnspent>("listunspent", &[])
-        .expect("must be able to get utxos");
+        .expect("must be able to get utxos")
+        .into_model()
+        .expect("must be able to deserialize utxos");
     let utxo = utxos.0.first().expect("must have at least one utxo");
 
     let mut tx = create_tx(
@@ -59,6 +61,8 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
             ))],
         )
         .expect("must be able to fund tx")
+        .into_model()
+        .expect("must be able to deserialize signed tx")
         .tx;
 
     let send_to_connector = btc_client
@@ -118,7 +122,9 @@ pub fn get_mock_deposit(
 
     let utxos = btc_client
         .call::<ListUnspent>("listunspent", &[])
-        .expect("must be able to get utxos");
+        .expect("must be able to get utxos")
+        .into_model()
+        .expect("must be able to deserialize utxos");
     let utxo = utxos
         .0
         .iter()
@@ -153,7 +159,9 @@ pub fn get_mock_deposit(
                 &tx,
             ))],
         )
-        .expect("must be able to fund tx");
+        .expect("must be able to fund tx")
+        .into_model()
+        .expect("must be able to deserialize signed tx");
 
     let signed_deposit_tx = signed_tx.tx;
 

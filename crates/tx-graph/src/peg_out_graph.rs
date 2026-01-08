@@ -642,7 +642,7 @@ mod tests {
         taproot, transaction, Address, Amount, FeeRate, Network, OutPoint, TapSighashType,
         Transaction, TxOut,
     };
-    use bitcoind_async_client::corepc_types::model::GetTxOut;
+    use bitcoind_async_client::corepc_types::v29::GetTxOut;
     use bitvm::signatures::HASH_LEN;
     use corepc_node::{serde_json::json, Client, Conf, Node};
     use rkyv::rancor::Error;
@@ -1197,7 +1197,9 @@ mod tests {
 
         btc_client
             .call::<GetTxOut>("gettxout", &[json!(deposit_txid.to_string()), json!(0)])
-            .expect("deposit txout must be present");
+            .expect("deposit txout must be present")
+            .into_model()
+            .expect("must be able to deserialize txout");
 
         let public_db = PublicDbInMemory::default();
         let wots_public_keys = wots::PublicKeys::new(MSK, deposit_txid);

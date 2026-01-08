@@ -297,16 +297,12 @@ impl Drop for TxDriver {
 
 #[cfg(test)]
 mod e2e_tests {
-    use std::{
-        collections::{BTreeMap, VecDeque},
-        path::PathBuf,
-        sync::Arc,
-    };
+    use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
     use algebra::predicate;
-    use bitcoin::Block;
+    use bitcoin::{Amount, Block};
     use bitcoind_async_client::Client as BitcoinClient;
-    use corepc_node::{client::client_sync::Auth, CookieValues};
+    use corepc_node::{client::client_sync::Auth, CookieValues, Output};
     use futures::join;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -422,22 +418,25 @@ mod e2e_tests {
         debug!("test funds matured");
 
         debug!("creating raw transaction");
-        let mut outs = BTreeMap::new();
-        outs.insert(new_address.to_string(), 1.0);
-        let raw = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
+        let out = Output::new(new_address.clone(), Amount::from_btc(1.0)?);
+        let raw = bitcoind
+            .client
+            .create_raw_transaction(&[], &[out])?
+            .into_model()?
+            .0;
         debug!(?raw, "created raw transaction");
 
         debug!("funding raw transaction");
-        let funded = bitcoind.client.fund_raw_transaction(&raw)?.hex;
-        debug!(%funded, "funded raw transaction");
+        let funded = bitcoind.client.fund_raw_transaction(&raw)?.into_model()?.tx;
+        debug!(funded=%funded.compute_txid(), "funded raw transaction");
 
         debug!("signing raw transaction");
         let signed = bitcoind
             .client
             .sign_raw_transaction_with_wallet(&funded)?
             .into_model()?
-            .raw_transaction;
-        debug!(?signed, "signed raw transaction");
+            .tx;
+        debug!(signed=%signed.compute_txid(), "signed raw transaction");
 
         info!("sending first copy to TxDriver");
         let fst = driver.drive(signed.clone(), TxStatus::is_buried);
@@ -491,22 +490,25 @@ mod e2e_tests {
         debug!("test funds matured");
 
         debug!("creating raw transaction");
-        let mut outs = BTreeMap::new();
-        outs.insert(new_address.to_string(), 1.0);
-        let raw = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
+        let outs = vec![Output::new(new_address, Amount::from_btc(1.0)?)];
+        let raw = bitcoind
+            .client
+            .create_raw_transaction(&[], &outs)?
+            .into_model()?
+            .0;
         debug!(?raw, "created raw transaction");
 
         debug!("funding raw transaction");
-        let funded = bitcoind.client.fund_raw_transaction(&raw)?.hex;
-        debug!(%funded, "funded raw transaction");
+        let funded = bitcoind.client.fund_raw_transaction(&raw)?.into_model()?.tx;
+        debug!(funded=%funded.compute_txid(), "funded raw transaction");
 
         debug!("signing raw transaction");
         let signed = bitcoind
             .client
             .sign_raw_transaction_with_wallet(&funded)?
             .into_model()?
-            .raw_transaction;
-        debug!(?signed, "signed raw transaction");
+            .tx;
+        debug!(signed=%signed.compute_txid(), "signed raw transaction");
 
         info!("driving to mempool");
         driver

@@ -60,7 +60,7 @@ mod tests {
         transaction::Version,
         Address, Amount, OutPoint, Psbt, TapSighashType, TxOut,
     };
-    use bitcoind_async_client::corepc_types::model::{ListUnspent, SignRawTransactionWithWallet};
+    use bitcoind_async_client::corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet};
     use corepc_node::{serde_json::json, Conf, Node};
     use secp256k1::{Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -102,6 +102,8 @@ mod tests {
         let unspent = btc_client
             .call::<ListUnspent>("listunspent", &[])
             .expect("must be able to get utxos")
+            .into_model()
+            .expect("must be able to deserialize utxos")
             .0
             .into_iter()
             .find(|utxo| {
@@ -150,7 +152,9 @@ mod tests {
                 "signrawtransactionwithwallet",
                 &[json!(consensus::encode::serialize_hex(&starting_tx))],
             )
-            .expect("must be able to sign raw transaction");
+            .expect("must be able to sign raw transaction")
+            .into_model()
+            .expect("must be able to deserialize signed starting tx");
 
         let signed_starting_tx = signed_starting_tx.tx;
 
@@ -209,6 +213,8 @@ mod tests {
         let unspent = btc_client
             .call::<ListUnspent>("listunspent", &[])
             .expect("must be able to get utxos")
+            .into_model()
+            .expect("must be able to deserialize utxos")
             .0
             .into_iter()
             .find(|utxo| {
@@ -243,7 +249,9 @@ mod tests {
                 "signrawtransactionwithwallet",
                 &[json!(consensus::encode::serialize_hex(&funding_tx))],
             )
-            .expect("must be able to sign raw transaction");
+            .expect("must be able to sign raw transaction")
+            .into_model()
+            .expect("must be able to deserialize signed funding tx");
         let signed_funding_tx = signed_funding_tx.tx;
 
         btc_client

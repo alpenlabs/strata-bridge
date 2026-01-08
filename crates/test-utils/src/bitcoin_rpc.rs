@@ -3,7 +3,7 @@
 //!
 //! Based on <https://github.com/rust-bitcoin/rust-bitcoincore-rpc/tree/master>.
 use bitcoin::{consensus, Address, Amount, Transaction, Txid};
-use bitcoind_async_client::corepc_types::model::{GetRawTransaction, SignRawTransactionWithWallet};
+use bitcoind_async_client::corepc_types::v29::{GetRawTransaction, SignRawTransactionWithWallet};
 use corepc_node::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -151,7 +151,9 @@ pub fn fund_and_sign_raw_tx(
             "signrawtransactionwithwallet",
             &[json!(consensus::encode::serialize_hex(&funded_tx))],
         )
-        .unwrap();
+        .unwrap()
+        .into_model()
+        .expect("must be able to deserialize signed tx");
 
     signed_tx.tx
 }
@@ -161,7 +163,9 @@ pub fn get_raw_transaction(btc_client: &Client, txid: &Txid) -> Transaction {
     let txid = txid.to_string();
     let raw_tx = btc_client
         .call::<GetRawTransaction>("getrawtransaction", &[json!(txid)])
-        .expect("transaction does not exist");
+        .expect("transaction does not exist")
+        .into_model()
+        .expect("must be able to deserialize raw transaction");
 
     raw_tx.0
 }

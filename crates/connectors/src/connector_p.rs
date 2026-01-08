@@ -196,7 +196,7 @@ mod tests {
         absolute, consensus, transaction, Amount, BlockHash, OutPoint, Psbt, Transaction, TxIn,
         TxOut,
     };
-    use bitcoind_async_client::corepc_types::model::SignRawTransactionWithWallet;
+    use bitcoind_async_client::corepc_types::v29::SignRawTransactionWithWallet;
     use corepc_node::{serde_json::json, Conf, Node};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::generate_keypair;
@@ -292,7 +292,9 @@ mod tests {
                 "signrawtransactionwithwallet",
                 &[json!(consensus::encode::serialize_hex(&&funding_tx))],
             )
-            .expect("must be able to sign transaction");
+            .expect("must be able to sign transaction")
+            .into_model()
+            .expect("must be able to deserialize signed funding tx");
 
         assert!(signed_funding_tx.complete);
         let signed_funding_tx = signed_funding_tx.tx;

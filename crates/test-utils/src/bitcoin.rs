@@ -15,7 +15,7 @@ use bitcoin::{
     Transaction, TxIn, TxMerkleNode, TxOut, Txid, Witness,
 };
 use bitcoind_async_client::{
-    corepc_types::model::{ListUnspent, SignRawTransactionWithWallet},
+    corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet},
     Auth, Client as BitcoinClient,
 };
 use corepc_node::{serde_json::json, Client, Node};
@@ -196,7 +196,9 @@ pub fn find_funding_utxo(
 ) -> (TxOut, OutPoint) {
     let list_unspent = btc_client
         .call::<ListUnspent>("listunspent", &[])
-        .expect("must be able to list unspent");
+        .expect("must be able to list unspent")
+        .into_model()
+        .expect("must be able to deserialize list unspent");
 
     list_unspent
         .0
@@ -276,7 +278,9 @@ pub fn sign_cpfp_child(
             "signrawtransactionwithwallet",
             &[json!(consensus::encode::serialize_hex(&unsigned_child_tx))],
         )
-        .expect("must be able to sign child tx");
+        .expect("must be able to sign child tx")
+        .into_model()
+        .expect("must be able to deserialize signed child tx");
     let signed_child_tx = &signed_child_tx.tx;
 
     let funding_witness = signed_child_tx
