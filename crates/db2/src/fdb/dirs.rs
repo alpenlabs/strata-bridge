@@ -2,8 +2,8 @@
 //! Directory layer.
 //!
 //! See:
-//! - https://apple.github.io/foundationdb/developer-guide.html#directories
-//! - https://docs.rs/foundationdb/latest/foundationdb/directory/index.html
+//! - <https://apple.github.io/foundationdb/developer-guide.html#directories>
+//! - <https://docs.rs/foundationdb/latest/foundationdb/directory/index.html>
 //!
 //! This is effectively the standard method to do keyspaces/subspaces in the
 //! logical Unix-style hierarchical way. Each directory has an associated

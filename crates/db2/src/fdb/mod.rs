@@ -1,4 +1,4 @@
-//! Implementation of the [`BridgeDb`] trait as a FoundationDB layer.
+//! Implementation of the [`BridgeDb`](crate::traits::BridgeDb) trait as a FoundationDB layer.
 
 pub mod bridge_db;
 pub mod dirs;
@@ -121,7 +121,7 @@ impl Default for Config {
     }
 }
 
-/// See [`NetworkOption`]::TLS* and https://apple.github.io/foundationdb/tls.html
+/// See [`NetworkOption`]::TLS* and <https://apple.github.io/foundationdb/tls.html>
 /// for more information.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TlsConfig {
