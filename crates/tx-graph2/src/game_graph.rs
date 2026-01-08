@@ -134,6 +134,16 @@ pub struct CounterproofGraph {
 
 impl GameGraph {
     /// Creates a new game graph.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the number of watchtowers is inconsistent.
+    /// The following need to be equal:
+    /// - The number of watchtower public keys.
+    /// - The number of watchtower fault keys.
+    /// - The number of watchtower slash descriptors.
+    ///
+    /// This method also panics if the number of watchtowers is greater than [`u32::MAX`].
     pub fn new(data: GameData) -> Self {
         let protocol = data.protocol;
         let setup = data.setup;
