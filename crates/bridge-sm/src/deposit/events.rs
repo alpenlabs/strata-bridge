@@ -5,7 +5,7 @@
 //! propagated.
 
 use bitcoin::Transaction;
-use musig2::PubNonce;
+use musig2::{PartialSignature, PubNonce};
 use strata_bridge_primitives::types::{BitcoinBlockHeight, OperatorIdx};
 
 use crate::signals::GraphToDeposit;
@@ -30,8 +30,13 @@ pub enum DepositEvent {
         /// The index of the operator who provided the nonce
         operator_idx: OperatorIdx,
     },
-    /// TODO: (@MdTeach)
-    PartialReceived,
+    /// Partial signature received from an operator for the deposit transaction signing
+    PartialReceived {
+        /// The partial signature provided by the operator
+        partial_sig: PartialSignature,
+        /// The index of the operator who provided the partial signature
+        operator_idx: OperatorIdx,
+    },
     /// TODO: (@mukeshdroid)
     DepositConfirmed,
     /// TODO: (@mukeshdroid)
@@ -72,7 +77,9 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::NonceReceived { operator_idx, .. } => {
                 return write!(f, "NonceReceived from operator_idx: {}", operator_idx);
             }
-            DepositEvent::PartialReceived => "PartialReceived",
+            DepositEvent::PartialReceived { operator_idx, .. } => {
+                return write!(f, "PartialReceived from operator_idx: {}", operator_idx);
+            }
             DepositEvent::DepositConfirmed => "DepositConfirmed",
             DepositEvent::Assignment => "Assignment",
             DepositEvent::FulfillmentConfirmed => "FulfillmentConfirmed",
