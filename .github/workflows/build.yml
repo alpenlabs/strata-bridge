@@ -75,6 +75,9 @@ jobs:
       - name: Run db migrations
         run: just migrate
 
+      - name: Install FoundationDB
+        uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+
       - name: Check crates compile
         run: cargo hack check
         env:
