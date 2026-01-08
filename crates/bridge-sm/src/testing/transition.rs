@@ -205,6 +205,11 @@ where
         self.outputs.iter().flat_map(|o| &o.signals).collect()
     }
 
+    /// Get all the errors during processing.
+    pub fn all_errors(&self) -> Vec<&SM::Error> {
+        self.errors.iter().map(|(_, e)| e).collect()
+    }
+
     /// Assert that specific duties were emitted (in any order).
     pub fn assert_duties_contain(&self, expected: &[SM::Duty]) -> &Self
     where
