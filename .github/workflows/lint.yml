@@ -59,6 +59,9 @@ jobs:
       - name: Run db migrations
         run: just migrate
 
+      - name: Install FoundationDB
+        uses: ./.github/actions/setup-foundationdb # zizmor: ignore[unpinned-uses]
+
       - run: cargo clippy --workspace --lib --bins --locked --examples --tests --benches --all-features --all-targets
         env:
           RUSTFLAGS: -D warnings
