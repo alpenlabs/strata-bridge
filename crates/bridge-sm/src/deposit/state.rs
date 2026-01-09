@@ -374,15 +374,16 @@ impl DepositSM {
             DepositState::Deposited { .. }
             // It must be the cooperative payout transaction
             | DepositState::PayoutPartialsCollected { .. }
+            // It must be a cooperative payout transaction.
+            // The assignee can withhold their own partial and broadcast the payout tx themselves,
+            // In this case, we still want other nodes' state machines to transition from
+            // `PayoutNoncesCollected` to `Spent`. This can also happen if there are network delays.
+            | DepositState::PayoutNoncesCollected { .. }
             // It can be a contested/uncontested payout transaction
-            // This can also be a coopertive payout transaction due to delayed settlement of the
+            // It can also be a cooperative payout transaction due to delayed settlement of the
             // transaction on-chain or because each operator has a different configuration for how
             // long to wait till the cooperative payout path is considered failed.
-            | DepositState::CooperativePathFailed { .. }
-            // The assignee can withhold their own partial and broadcast the payout tx themselves,
-            // In this case, we still want other nodes' state machines to transition properly.
-            // This can also happen if there are network delays.
-            | DepositState::PayoutNoncesCollected { .. } => {
+            | DepositState::CooperativePathFailed { .. } => {
                 tx
                 .input
                 .iter()
