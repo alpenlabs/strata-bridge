@@ -6,7 +6,7 @@ use libp2p::{
     identity::ed25519::{Keypair as Libp2pEdKeypair, SecretKey as Libp2pEdSecretKey},
     Multiaddr, PeerId,
 };
-use p2p_types::P2POperatorPubKey;
+use strata_bridge_p2p_types::P2POperatorPubKey;
 
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]

@@ -8,6 +8,8 @@ workspace = true
 
 [dependencies]
 alpen-bridge-params.workspace = true
+strata-bridge-p2p-types.workspace = true
+strata-bridge-types.workspace = true
 strata-primitives.workspace = true
 
 algebra.workspace = true
@@ -24,8 +26,6 @@ rkyv.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
 serde.workspace = true
 sha2.workspace = true
-strata-bridge-types.workspace = true
-p2p-types.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

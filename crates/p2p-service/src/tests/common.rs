@@ -13,8 +13,8 @@ use libp2p::{
     identity::{ed25519::Keypair as EdKeypair, Keypair},
     Multiaddr, PeerId,
 };
-use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use p2p_wire::p2p::v1::{ArchivedGossipsubMsg, GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_bridge_p2p_wire::p2p::v1::{ArchivedGossipsubMsg, GossipsubMsg, UnsignedGossipsubMsg};
 use strata_bridge_test_utils::musig2::{generate_partial_signature, generate_pubnonce};
 use strata_p2p::{
     commands::GossipCommand,

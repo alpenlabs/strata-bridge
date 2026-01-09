@@ -23,14 +23,14 @@ use btc_tracker::{
 use futures::{future::join_all, SinkExt, StreamExt};
 use libp2p_identity::ed25519::Keypair;
 use operator_wallet::OperatorWallet;
-use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use p2p_wire::p2p::v1::{
-    ArchivedGetMessageRequest, ArchivedGossipsubMsg, GetMessageRequest, GossipsubMsg,
-    UnsignedGossipsubMsg,
-};
 use secret_service_client::SecretServiceClient;
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
+use strata_bridge_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_bridge_p2p_wire::p2p::v1::{
+    ArchivedGetMessageRequest, ArchivedGossipsubMsg, GetMessageRequest, GossipsubMsg,
+    UnsignedGossipsubMsg,
+};
 use strata_bridge_primitives::operator_table::OperatorTable;
 use strata_bridge_tx_graph::transactions::{
     deposit::DepositTx,

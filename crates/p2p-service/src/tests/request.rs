@@ -2,12 +2,12 @@
 
 use anyhow::bail;
 use futures::SinkExt;
-use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
-use p2p_wire::p2p::v1::{
+use strata_bridge_common::logging::{self, LoggerConfig};
+use strata_bridge_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId};
+use strata_bridge_p2p_wire::p2p::v1::{
     ArchivedGetMessageRequest, ArchivedGossipsubMsg, GetMessageRequest, GossipsubMsg,
     UnsignedGossipsubMsg,
 };
-use strata_bridge_common::logging::{self, LoggerConfig};
 use strata_p2p::{
     commands::{GossipCommand, RequestResponseCommand},
     events::{GossipEvent, ReqRespEvent},

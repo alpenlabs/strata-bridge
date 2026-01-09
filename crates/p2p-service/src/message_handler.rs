@@ -3,8 +3,8 @@
 use bitcoin::{hashes::sha256, OutPoint, Txid, XOnlyPublicKey};
 use libp2p::identity::ed25519;
 use musig2::{PartialSignature, PubNonce};
-use p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
-use p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
+use strata_bridge_p2p_types::{P2POperatorPubKey, Scope, SessionId, StakeChainId, WotsPublicKeys};
+use strata_bridge_p2p_wire::p2p::v1::{GetMessageRequest, GossipsubMsg, UnsignedGossipsubMsg};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, info, trace};
 

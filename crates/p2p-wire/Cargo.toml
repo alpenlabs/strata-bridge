@@ -1,13 +1,14 @@
 [package]
 edition = "2021"
-name = "p2p-wire"
+name = "strata-bridge-p2p-wire"
 version = "0.1.0"
 
 [lints]
 workspace = true
 
 [dependencies]
+strata-bridge-p2p-types.workspace = true
+
 bitcoin.workspace = true
 libp2p.workspace = true
-p2p-types.workspace = true
 rkyv.workspace = true

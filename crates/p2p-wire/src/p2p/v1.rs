@@ -9,11 +9,11 @@ use libp2p::{
     identity::{ed25519::PublicKey as LibP2pEdPublicKey, PublicKey as LibP2pPublicKey},
     PeerId,
 };
-use p2p_types::{
+use rkyv::{Archive, Deserialize, Serialize};
+use strata_bridge_p2p_types::{
     P2POperatorPubKey, PartialSignature, PubNonce, Scope, SessionId, Sha256Hash, StakeChainId,
     Txid, WotsPublicKeys, XOnlyPublicKey,
 };
-use rkyv::{Archive, Deserialize, Serialize};
 
 /// Typed version of "get_message_request::GetMessageRequest".
 #[derive(Clone, Archive, Serialize, Deserialize)]

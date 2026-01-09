@@ -7,8 +7,8 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
-p2p-types.workspace = true
-p2p-wire.workspace = true
+strata-bridge-p2p-types.workspace = true
+strata-bridge-p2p-wire.workspace = true
 strata-p2p.workspace = true
 
 anyhow.workspace = true
