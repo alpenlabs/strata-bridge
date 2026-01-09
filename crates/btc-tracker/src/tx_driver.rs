@@ -302,7 +302,7 @@ mod e2e_tests {
     use algebra::predicate;
     use bitcoin::{Amount, Block};
     use bitcoind_async_client::Client as BitcoinClient;
-    use corepc_node::{client::client_sync::Auth, CookieValues, Output};
+    use corepc_node::{client::client_sync::Auth, vtype::FundRawTransaction, CookieValues, Output};
     use futures::join;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -419,15 +419,17 @@ mod e2e_tests {
 
         debug!("creating raw transaction");
         let out = Output::new(new_address.clone(), Amount::from_btc(1.0)?);
-        let raw = bitcoind
-            .client
-            .create_raw_transaction(&[], &[out])?
-            .into_model()?
-            .0;
-        debug!(?raw, "created raw transaction");
+        // Get hex string directly - don't use into_model() as 0-input transactions
+        // can't be deserialized due to segwit marker ambiguity
+        let raw_hex = bitcoind.client.create_raw_transaction(&[], &[out])?.0;
+        debug!(%raw_hex, "created raw transaction");
 
         debug!("funding raw transaction");
-        let funded = bitcoind.client.fund_raw_transaction(&raw)?.into_model()?.tx;
+        // Use call() directly to pass hex string since fund_raw_transaction expects &Transaction
+        let funded_result: FundRawTransaction = bitcoind
+            .client
+            .call("fundrawtransaction", &[raw_hex.into()])?;
+        let funded = funded_result.into_model()?.tx;
         debug!(funded=%funded.compute_txid(), "funded raw transaction");
 
         debug!("signing raw transaction");
@@ -491,15 +493,17 @@ mod e2e_tests {
 
         debug!("creating raw transaction");
         let outs = vec![Output::new(new_address, Amount::from_btc(1.0)?)];
-        let raw = bitcoind
-            .client
-            .create_raw_transaction(&[], &outs)?
-            .into_model()?
-            .0;
-        debug!(?raw, "created raw transaction");
+        // Get hex string directly - don't use into_model() as 0-input transactions
+        // can't be deserialized due to segwit marker ambiguity
+        let raw_hex = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
+        debug!(%raw_hex, "created raw transaction");
 
         debug!("funding raw transaction");
-        let funded = bitcoind.client.fund_raw_transaction(&raw)?.into_model()?.tx;
+        // Use call() directly to pass hex string since fund_raw_transaction expects &Transaction
+        let funded_result: FundRawTransaction = bitcoind
+            .client
+            .call("fundrawtransaction", &[raw_hex.into()])?;
+        let funded = funded_result.into_model()?.tx;
         debug!(funded=%funded.compute_txid(), "funded raw transaction");
 
         debug!("signing raw transaction");
