@@ -362,12 +362,12 @@ impl DepositSM {
     ///
     /// This outpoint can be spent via the following transactions:
     ///
-    /// - A sweep transaction in the event of a hard upgrade (migration) of deposited UTXOs
     /// - A cooperative payout transaction, if the cooperative path was successful.
     /// - An uncontested payout transaction, if the assignee published a claim that went
     ///   uncontested.
     /// - A contested payout transaction, if the assignee published a claim that was contested but
     ///   not successfully.
+    /// - A sweep transaction in the event of a hard upgrade (migration) of deposited UTXOs
     fn process_payout_confirmed(&mut self, tx: &Transaction) -> DSMResult<DSMOutput> {
         match self.state() {
             // It must be the sweep transaction in case of a hard upgrade
