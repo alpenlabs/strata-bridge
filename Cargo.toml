@@ -24,12 +24,12 @@ members = [
   "crates/secret-service-client",
   "crates/secret-service-server",
   "crates/p2p-service",
+  "crates/p2p-wire",
+  "crates/p2p-types",
   "crates/operator-wallet",
   "crates/wots",
   "crates/memory_pprof",
   "crates/bridge-sm",
-  "crates/p2p-wire",
-  "crates/p2p-types",
 
   # binaries listed separately
   "bin/secret-service",
@@ -67,8 +67,6 @@ alpen-bridge-params = { path = "crates/params" }
 btc-tracker = { path = "crates/btc-tracker" }
 duty-tracker = { path = "crates/duty-tracker" }
 operator-wallet = { version = "0.1.0", path = "crates/operator-wallet" }
-p2p-types = { path = "crates/p2p-types" }
-p2p-wire = { path = "crates/p2p-wire" }
 prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
@@ -80,6 +78,8 @@ strata-bridge-db = { path = "crates/db" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
+strata-bridge-p2p-types = { path = "crates/p2p-types" }
+strata-bridge-p2p-wire = { path = "crates/p2p-wire" }
 strata-bridge-primitives = { path = "crates/primitives" }
 strata-bridge-proof-primitives = { path = "crates/bridge-proof/primitives" }
 strata-bridge-proof-protocol = { path = "crates/bridge-proof/protocol" }
@@ -115,7 +115,6 @@ strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc2" }
 
 strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.1", features = [
-  # TODO(sistemd): BYOS (bring your own signer) is not enabled yet - open a ticket for this
   "quic",
   "request-response",
   "gossipsub",

@@ -33,7 +33,6 @@ use libp2p::{
 };
 use musig2::KeyAggContext;
 use operator_wallet::{sync::Backend, OperatorWallet, OperatorWalletConfig};
-use p2p_types::{P2POperatorPubKey, StakeChainId};
 use secp256k1::Parity;
 use secret_service_client::{
     rustls::{
@@ -51,6 +50,7 @@ use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::{
     bootstrap as p2p_bootstrap, Configuration as P2PConfiguration, MessageHandler,
 };
+use strata_bridge_p2p_types::{P2POperatorPubKey, StakeChainId};
 use strata_bridge_primitives::{
     constants::SEGWIT_MIN_AMOUNT, operator_table::OperatorTable, types::OperatorIdx,
 };
