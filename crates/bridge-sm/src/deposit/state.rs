@@ -9,15 +9,13 @@ use std::{
     fmt::Display,
 };
 
-use bitcoin::{OutPoint, Transaction};
-use musig2::{
-    AggNonce, PartialSignature, PubNonce,
-    secp256k1::{Message, schnorr::Signature},
-};
+use bitcoin::OutPoint;
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
+use strata_bridge_tx_graph2::transactions::{PresignedTx, deposit::DepositTx};
 
 use crate::{
     deposit::{
@@ -82,7 +80,7 @@ pub enum DepositState {
     /// have generated and linked their graphs for this deposit.
     Created {
         /// The unsigned deposit transaction derived from the deposit request.
-        deposit_transaction: Transaction,
+        deposit_transaction: DepositTx,
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
@@ -102,7 +100,7 @@ pub enum DepositState {
     /// required to sign the deposit transaction are collected.
     GraphGenerated {
         /// The unsigned deposit transaction to be signed.
-        deposit_transaction: Transaction,
+        deposit_transaction: DepositTx,
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
@@ -122,7 +120,7 @@ pub enum DepositState {
     /// have been received.
     DepositNoncesCollected {
         /// The deposit transaction being signed.
-        deposit_transaction: Transaction,
+        deposit_transaction: DepositTx,
 
         /// Block height where the deposit request transaction was confirmed.
         drt_block_height: BitcoinBlockHeight,
@@ -154,7 +152,7 @@ pub enum DepositState {
         drt_block_height: BitcoinBlockHeight,
 
         /// The fully signed deposit transaction.
-        deposit_transaction: Transaction,
+        deposit_transaction: DepositTx,
 
         /// Aggregated signature for the deposit transaction.
         agg_signature: Signature,
@@ -229,7 +227,7 @@ impl Display for DepositState {
 impl DepositState {
     /// Creates a new Deposit State in the `Created` state.
     pub const fn new(
-        deposit_transaction: Transaction,
+        deposit_transaction: DepositTx,
         drt_block_height: BitcoinBlockHeight,
         output_index: u32,
         block_height: BitcoinBlockHeight,
@@ -326,7 +324,7 @@ impl DepositSM {
     /// Creates a new Deposit State Machine with the given configuration.
     pub const fn new(
         cfg: DepositCfg,
-        deposit_transaction: Transaction,
+        deposit_transaction: DepositTx,
         drt_block_height: BitcoinBlockHeight,
         output_index: u32,
         block_height: BitcoinBlockHeight,
@@ -532,6 +530,13 @@ impl DepositSM {
                     // All nonces collected, compute the aggregated nonce
                     let agg_nonce = AggNonce::sum(pubnonces.values().cloned());
 
+                    // Derive the sighash message for the deposit transaction
+                    let deposit_sighash = deposit_transaction
+                        .signing_info()
+                        .first()
+                        .expect("deposit transaction must have signing info")
+                        .sighash;
+
                     // Transition to DepositNoncesCollected state
                     let new_state = DepositState::DepositNoncesCollected {
                         deposit_transaction: deposit_transaction.clone(),
@@ -546,10 +551,7 @@ impl DepositSM {
                     // Create the duty to publish deposit partials
                     let duty = DepositDuty::PublishDepositPartial {
                         deposit_out_point: self.cfg().deposit_outpoint(),
-                        deposit_sighash: Message::from_digest_slice(&[0u8; 32])
-                            .expect("must create a valid message"), /* TODO: @MdTeach Calculate
-                                                                     * actual
-                                                                     * sighash */
+                        deposit_sighash,
                         deposit_agg_nonce: agg_nonce,
                     };
 
@@ -1109,11 +1111,7 @@ mod tests {
 #[cfg(test)]
 mod prop_tests {
     // Strategy generators for individual types
-    use bitcoin::{
-        Amount, OutPoint, ScriptBuf, Sequence, Transaction, TxIn, TxOut, Txid, Witness,
-        absolute::{Height, LockTime},
-        transaction,
-    };
+    use bitcoin::{Amount, OutPoint, ScriptBuf, Sequence, TxIn, TxOut, Txid, Witness};
     use proptest::{prelude::*, strategy::ValueTree};
     use strata_bridge_primitives::operator_table::prop_test_generators::arb_operator_table;
 
@@ -1192,19 +1190,14 @@ mod prop_tests {
 
     // Generates random transactions with variable input/output counts
     prop_compose! {
-        fn arb_transaction()(
+        fn arb_deposit_transaction()(
             max_num_ins in 2..10u32,
             max_num_outs in 2..10u32
         )(
-            ins in prop::collection::vec(arb_input(), (1, max_num_ins as usize)),
-            outs in prop::collection::vec(arb_output(), (1, max_num_outs as usize))
-        ) -> Transaction {
-            Transaction {
-                version: transaction::Version::TWO,
-                lock_time: LockTime::Blocks(Height::ZERO),
-                input: ins,
-                output: outs,
-            }
+            _ins in prop::collection::vec(arb_input(), (1, max_num_ins as usize)),
+            _outs in prop::collection::vec(arb_output(), (1, max_num_outs as usize))
+        ) -> DepositTx {
+           todo!("Implement DepositTx generation logic for prop tests" )
         }
     }
 
@@ -1212,7 +1205,7 @@ mod prop_tests {
     prop_compose! {
         fn arb_deposit_state_machine()(
             cfg in arb_deposit_cfg(),
-            deposit_transaction in arb_transaction(),
+            deposit_transaction in arb_deposit_transaction(),
             drt_block_height in arb_block_height(),
             output_index in 0u32..10u32,
             block_height in arb_block_height(),
