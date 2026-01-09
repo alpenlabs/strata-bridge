@@ -19,12 +19,12 @@ secret-service-client.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-p2p-types.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-rpc.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
 strata-p2p.workspace = true
-p2p-types.workspace = true
 strata-params.workspace = true
 strata-primitives.workspace = true
 
@@ -39,6 +39,7 @@ bitcoin.workspace = true
 bitcoind-async-client.workspace = true
 chrono.workspace = true
 clap.workspace = true
+ed25519-dalek.workspace = true
 hex.workspace = true
 jsonrpsee = { workspace = true, features = ["client", "server"] }
 libp2p = { workspace = true, features = ["secp256k1"] }
@@ -52,7 +53,6 @@ sqlx.workspace = true
 tokio.workspace = true
 toml.workspace = true
 tracing.workspace = true
-ed25519-dalek.workspace = true
 
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 memory_pprof = { path = "../../crates/memory_pprof", optional = true }

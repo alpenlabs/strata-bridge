@@ -19,4 +19,4 @@ musig2.workspace = true
 
 proptest.workspace = true
 secp256k1.workspace = true
-p2p-types.workspace = true
+strata-bridge-p2p-types.workspace = true
