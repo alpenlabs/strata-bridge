@@ -9,13 +9,13 @@ workspace = true
 [dependencies]
 algebra.workspace = true
 alpen-bridge-params.workspace = true
-p2p-types = { workspace = true, features = ["proptest"] }
-p2p-wire.workspace = true
 strata-asm-proto-bridge-v1.workspace = true
 strata-bridge-asm-events.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-p2p-types = { workspace = true, features = ["proptest"] }
+strata-bridge-p2p-wire.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true

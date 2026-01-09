@@ -3,7 +3,6 @@ use bitcoin::{taproot, Network, OutPoint, Txid};
 use bitvm::{chunk::api::generate_assertions, signatures::HASH_LEN};
 use btc_tracker::event::TxStatus;
 use futures::future::join_all;
-use p2p_types::WotsPublicKeys;
 use rand::thread_rng;
 use secp256k1::rand::{self, Rng};
 use secret_service_proto::v2::traits::*;
@@ -12,6 +11,7 @@ use strata_bridge_connectors::prelude::{
     ConnectorNOfN, ConnectorP,
 };
 use strata_bridge_db::public::PublicDb;
+use strata_bridge_p2p_types::WotsPublicKeys;
 use strata_bridge_primitives::{constants::NUM_ASSERT_DATA_TX, wots::Assertions};
 use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_stake_chain::prelude::PAYOUT_VOUT as STAKE_TO_PAYOUT_VOUT;

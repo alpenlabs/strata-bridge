@@ -21,9 +21,9 @@ use musig2::{
     aggregate_partial_signatures, errors::VerifyError, secp256k1::Message, verify_partial,
     AggNonce, PartialSignature, PubNonce,
 };
-use p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use secp256k1::schnorr;
 use strata_asm_proto_bridge_v1::AssignmentEntry;
+use strata_bridge_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
     constants::NUM_ASSERT_DATA_TX,
@@ -3589,10 +3589,10 @@ mod prop_tests {
         hashes::{sha256, sha256d, Hash},
         Network, Txid,
     };
-    use p2p_types::P2POperatorPubKey;
     use proptest::{prelude::*, prop_compose};
     use prover_test_utils::load_test_rollup_params;
     use strata_bridge_common::logging::{self, LoggerConfig};
+    use strata_bridge_p2p_types::P2POperatorPubKey;
     use strata_bridge_primitives::{
         build_context::BuildContext,
         operator_table::prop_test_generators::{arb_btc_key, arb_operator_table},
