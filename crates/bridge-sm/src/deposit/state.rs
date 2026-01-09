@@ -6,7 +6,7 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::{OutPoint, Transaction, Txid};
+use bitcoin::{OutPoint, Transaction, Txid, hashes::Hash};
 use bitcoin_bosd::Descriptor;
 use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
 use strata_bridge_primitives::{
@@ -119,11 +119,11 @@ pub enum DepositState {
         /// The index of the operator assigned to front the user.
         assignee: OperatorIdx,
         /// The operator's descriptor where they want the funds in the cooperative path.
-        payout_output_descriptor: Descriptor,
+        operator_desc: Descriptor,
         /// The block height by which the cooperative payout must be completed.
         cooperative_payment_deadline: BitcoinBlockHeight,
         /// The aggregated nonce for signing the cooperative payout transaction.
-        payout_aggregated_nonces: AggNonce,
+        payout_aggregated_nonce: AggNonce,
         /// The partial signatures, indexed by operator, for signing the cooperative payout
         /// transaction.
         payout_partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
@@ -234,8 +234,18 @@ impl StateMachine for DepositSM {
             DepositEvent::PayoutDescriptorReceived { operator_desc } => {
                 self.process_payout_descriptor_received(event_description, operator_desc)
             }
-            DepositEvent::PayoutNonceReceived { .. } => self.process_payout_nonce_received(),
-            DepositEvent::PayoutPartialReceived { .. } => self.process_payout_partial_received(),
+            DepositEvent::PayoutNonceReceived {
+                payout_nonce,
+                operator_idx,
+            } => self.process_payout_nonce_received(event_description, payout_nonce, operator_idx),
+            DepositEvent::PayoutPartialReceived {
+                partial_signature,
+                operator_idx,
+            } => self.process_payout_partial_received(
+                event_description,
+                partial_signature,
+                operator_idx,
+            ),
             DepositEvent::PayoutConfirmed => self.process_payout_confirmed(),
             DepositEvent::NewBlock => self.process_new_block(),
         }
@@ -431,7 +441,7 @@ impl DepositSM {
                 cooperative_payment_deadline,
                 ..
             } => {
-                // Transition to the Fulfilled State
+                // Transition to the PayoutDescriptorReceived State
                 self.state = DepositState::PayoutDescriptorReceived {
                     block_height: *block_height,
                     assignee: *assignee,
@@ -452,12 +462,153 @@ impl DepositSM {
         }
     }
 
-    fn process_payout_nonce_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_payout_nonce_received(
+        &mut self,
+        event_description: String,
+        payout_nonce: PubNonce,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        match &self.state {
+            DepositState::PayoutDescriptorReceived {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                operator_desc,
+                payout_nonces,
+            } => {
+                // Check for duplicate nonce submission. If an entry from the same operator exists,
+                // return with an error.
+                if payout_nonces.contains_key(&operator_idx) {
+                    return Err(DSMError::DuplicateSubmission {
+                        item: "payout nonce".to_string(),
+                        operator_idx,
+                    });
+                }
+                // Update the payout nonces with the new nonce just received.
+                let mut updated_nonces = payout_nonces.clone();
+                updated_nonces.insert(operator_idx, payout_nonce);
+
+                // Transition to the PayoutNonceReceived State if *all* the nonces have been
+                // received.
+                if self.cfg.operator_table.cardinality() == updated_nonces.len() {
+                    // Compute the aggregated nonce from the collected nonces.
+                    let payout_aggregated_nonce = AggNonce::sum(updated_nonces.values().cloned());
+
+                    // Transition to the PayoutNonceReceived State.
+                    self.state = DepositState::PayoutNoncesCollected {
+                        block_height: *block_height,
+                        assignee: *assignee,
+                        operator_desc: operator_desc.clone(),
+                        cooperative_payment_deadline: *cooperative_payment_deadline,
+                        payout_aggregated_nonce,
+                        payout_partial_signatures: BTreeMap::new(),
+                    };
+                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
+                    // now.
+
+                    Ok(DSMOutput::new())
+                }
+                // If all nonces are not yet collected, update the payout nonces with received
+                // nonce and stay in the PayoutDescriptorReceived State.
+                else {
+                    // Stay in the PayoutDescriptorReceived State but with updated nonce map.
+                    self.state = DepositState::PayoutDescriptorReceived {
+                        block_height: *block_height,
+                        assignee: *assignee,
+                        cooperative_payment_deadline: *cooperative_payment_deadline,
+                        operator_desc: operator_desc.clone(),
+                        payout_nonces: updated_nonces,
+                    };
+                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
+                    // now.
+
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+            }),
+        }
     }
 
-    fn process_payout_partial_received(&mut self) -> DSMResult<DSMOutput> {
-        todo!("@mukeshdroid")
+    fn process_payout_partial_received(
+        &mut self,
+        event_description: String,
+        partial_signature: PartialSignature,
+        operator_idx: OperatorIdx,
+    ) -> DSMResult<DSMOutput> {
+        match &self.state {
+            DepositState::PayoutNoncesCollected {
+                block_height,
+                assignee,
+                cooperative_payment_deadline,
+                operator_desc,
+                payout_aggregated_nonce,
+                payout_partial_signatures,
+            } => {
+                // Check for duplicate Partial Signature submission. If an entry from the same
+                // operator exists, return with an error.
+                if payout_partial_signatures.contains_key(&operator_idx) {
+                    return Err(DSMError::DuplicateSubmission {
+                        item: "payout partial signature".to_string(),
+                        operator_idx,
+                    });
+                }
+
+                // (TODO: @mukeshdroid) Generate the sighash of the cooperaitve payout transaction
+                // which is the message to be signed. This can be generated by using
+                // the payout outpoint and the operator descriptor.
+
+                // (TODO: @mukeshdroid) Generate the key_agg_ctx
+
+                // (TODO: @mukeshdroid) Verify that the partial signature that was received.
+
+                // Update the partial signatures map with the new partial signature just received.
+                let mut updated_payout_partials = payout_partial_signatures.clone();
+                updated_payout_partials.insert(operator_idx, partial_signature);
+
+                // Transition to the PayoutPartialsCollected State if *all* the partial signatures
+                // for the coooperative payout have been received.
+                if self.cfg.operator_table.cardinality() == updated_payout_partials.len() {
+                    // Transition to the PayoutNonceReceived State with dummy payout_txid and
+                    // dummy payout aggregate signature.
+                    self.state = DepositState::PayoutPartialsCollected {
+                        block_height: *block_height,
+                        payout_txid: Txid::all_zeros(),
+                        payout_aggregated_signature: Signature::from_slice(&[0u8; 64])
+                            .expect("Unable to create dummy signature."),
+                    };
+                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
+                    // now.
+
+                    Ok(DSMOutput::new())
+                }
+                // If all partial signatures are not yet collected, update the payout partial
+                // signatures map with received nonce and stay in the PayoutNoncesCollected State.
+                else {
+                    // Stay in the PayoutNoncesCollected State but with updated nonce map.
+                    self.state = DepositState::PayoutNoncesCollected {
+                        block_height: *block_height,
+                        assignee: *assignee,
+                        operator_desc: operator_desc.clone(),
+                        cooperative_payment_deadline: *cooperative_payment_deadline,
+                        payout_aggregated_nonce: payout_aggregated_nonce.clone(),
+                        payout_partial_signatures: updated_payout_partials,
+                    };
+                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
+                    // now.
+
+                    Ok(DSMOutput::new())
+                }
+            }
+
+            _ => Err(DSMError::InvalidEvent {
+                state: self.state.to_string(),
+                event: event_description,
+            }),
+        }
     }
 
     fn process_payout_confirmed(&mut self) -> DSMResult<DSMOutput> {
