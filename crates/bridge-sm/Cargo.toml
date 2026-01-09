@@ -12,6 +12,7 @@ strata-bridge-primitives.workspace = true
 
 bitcoin.workspace = true
 musig2.workspace = true
+strata-bridge-tx-graph2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
