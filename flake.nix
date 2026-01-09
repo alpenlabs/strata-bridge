@@ -167,7 +167,6 @@
             cargo-hack
             bitcoind
             sqlx-cli
-            protobuf # TODO(@zk2u): remove after strata-p2p V2
 
             # C/C++ build dependencies for bindgen and native libs
             pkg-config
