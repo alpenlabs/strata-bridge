@@ -9977,6 +9977,7 @@ dependencies = [
  "secp256k1 0.29.1",
  "strata-bridge-p2p-types",
  "strata-bridge-primitives",
+ "strata-bridge-tx-graph2",
  "strata-bridge-test-utils",
  "thiserror 2.0.17",
 ]

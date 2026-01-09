@@ -1,11 +1,12 @@
 //! The duties that need to be performed in the Deposit State Machine in response to the state
 //! transitions.
 
-use bitcoin::{OutPoint, Transaction};
+use bitcoin::OutPoint;
 use musig2::{
     AggNonce,
     secp256k1::{Message, schnorr::Signature},
 };
+use strata_bridge_tx_graph2::transactions::deposit::DepositTx;
 
 /// The duties that need to be performed to drive the Deposit State Machine forward.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -27,7 +28,7 @@ pub enum DepositDuty {
     /// Publish the deposit transaction to the Bitcoin network
     PublishDeposit {
         /// fully constructed deposit transaction
-        deposit_tx: Transaction,
+        deposit_tx: DepositTx,
         /// aggregate signature combining all partial signatures
         agg_signature: Signature,
     },
@@ -55,7 +56,7 @@ impl std::fmt::Display for DepositDuty {
                 deposit_out_point, ..
             } => format!("PublishDepositPartial (outpoint: {})", deposit_out_point),
             DepositDuty::PublishDeposit { deposit_tx, .. } => {
-                format!("PublishDeposit (txid: {})", deposit_tx.compute_txid())
+                format!("PublishDeposit ({:?})", deposit_tx)
             }
             DepositDuty::FulfillWithdrawal => "FulfillWithdrawal".to_string(),
             DepositDuty::RequestPayoutNonces => "RequestPayoutNonces".to_string(),
