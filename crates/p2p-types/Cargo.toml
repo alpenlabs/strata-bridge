@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "p2p-types"
+name = "strata-bridge-p2p-types"
 version = "0.1.0"
 
 [features]

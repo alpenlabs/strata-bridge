@@ -13,12 +13,12 @@ use bitcoin::{
 use btc_tracker::{event::TxStatus, tx_driver::TxDriver};
 use futures::FutureExt;
 use musig2::{aggregate_partial_signatures, AggNonce, PartialSignature, PubNonce};
-use p2p_types::{Scope, SessionId, StakeChainId};
 use secp256k1::{schnorr, Message, PublicKey};
 use secret_service_client::SecretServiceClient;
 use secret_service_proto::v2::traits::*;
 use strata_bridge_db::{persistent::sqlite::SqliteDb, public::PublicDb};
 use strata_bridge_p2p_service::MessageHandler;
+use strata_bridge_p2p_types::{Scope, SessionId, StakeChainId};
 use strata_bridge_primitives::{key_agg::create_agg_ctx, scripts::taproot::TaprootWitness};
 use strata_bridge_stake_chain::{stake_chain::StakeChainInputs, transactions::stake::StakeTxData};
 use strata_bridge_tx_graph::{
