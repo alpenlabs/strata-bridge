@@ -3,38 +3,42 @@ resolver = "2"
 
 members = [
   "crates/algebra",
+  "crates/asm-events",
   "crates/asm-rpc",
+  "crates/bridge-proof/primitives",
+  "crates/bridge-proof/protocol",
+  "crates/bridge-proof/snark",
+  "crates/bridge-proof/test-utils",
+  "crates/bridge-sm",
+  "crates/btc-tracker",
+  "crates/common",
+  "crates/connectors",
   "crates/db",
+  "crates/duty-tracker",
+  "crates/memory_pprof",
+  "crates/operator-wallet",
+  "crates/p2p-service",
   "crates/params",
   "crates/primitives",
-  "crates/bridge-proof/protocol",
-  "crates/bridge-proof/primitives",
-  "crates/bridge-proof/snark",
-  "crates/duty-tracker",
   "crates/rpc",
-  "crates/bridge-proof/test-utils",
+  "crates/secret-service-client",
+  "crates/secret-service-proto",
+  "crates/secret-service-server",
   "crates/stake-chain",
   "crates/connectors",
   "crates/connectors2",
   "crates/common",
   "crates/tx-graph",
   "crates/tx-graph2",
-  "crates/btc-tracker",
-  "bridge-guest-builder",
-  "crates/secret-service-proto",
-  "crates/secret-service-client",
-  "crates/secret-service-server",
-  "crates/p2p-service",
-  "crates/operator-wallet",
   "crates/wots",
-  "crates/memory_pprof",
-  "crates/bridge-sm",
 
   # binaries listed separately
   "bin/secret-service",
   "bin/dev-cli",
   "bin/assert-splitter",
   "bin/alpen-bridge",
+
+  "bridge-guest-builder",
 
   # test utilities
   "crates/test-utils",
@@ -70,6 +74,7 @@ prover-test-utils = { path = "crates/bridge-proof/test-utils" }
 secret-service-client = { path = "crates/secret-service-client" }
 secret-service-proto = { path = "crates/secret-service-proto" }
 secret-service-server = { path = "crates/secret-service-server" }
+strata-bridge-asm-events = { path = "crates/asm-events" }
 strata-bridge-asm-rpc = { path = "crates/asm-rpc" }
 strata-bridge-common = { path = "crates/common" }
 strata-bridge-connectors = { path = "crates/connectors" }

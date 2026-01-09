@@ -1,0 +1,20 @@
+[package]
+name = "strata-bridge-asm-events"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+algebra.workspace = true
+btc-tracker.workspace = true
+strata-asm-proto-bridge-v1.workspace = true
+strata-bridge-asm-rpc = { workspace = true, features = ["client"] }
+
+bitcoin.workspace = true
+futures.workspace = true
+jsonrpsee = { workspace = true, features = ["client"] }
+serde.workspace = true
+tokio.workspace = true
+tracing.workspace = true
