@@ -9637,6 +9637,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-bridge-asm-events"
+version = "0.1.0"
+dependencies = [
+ "algebra",
+ "bitcoin",
+ "btc-tracker",
+ "futures",
+ "jsonrpsee",
+ "serde",
+ "strata-asm-proto-bridge-v1",
+ "strata-bridge-asm-rpc",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "strata-bridge-asm-rpc"
 version = "0.1.0"
 dependencies = [
