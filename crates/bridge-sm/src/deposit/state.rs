@@ -663,7 +663,7 @@ mod tests {
         };
 
         // Block that exceeds timeout (COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS)
-        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS + 1;
+        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
         let block = generate_block_with_height(timeout_height);
 
         let mut sm = create_sm(state);
@@ -762,7 +762,7 @@ mod tests {
         let mut seq = EventSequence::new(sm, get_state);
 
         // Process blocks up to and past timeout
-        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS + 1;
+        let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
             seq.process(DepositEvent::NewBlock {
                 block: generate_block_with_height(height),
