@@ -284,16 +284,18 @@ impl DepositSM {
                 deposit_request_outpoint,
                 ..
             } => {
+                // FIXME: (@Rajil1213) Check if `txid` is not that of a Deposit Transaction instead
                 if tx
                     .input
                     .iter()
                     .find(|input| input.previous_output == *deposit_request_outpoint)
                     .is_some_and(|input| input.witness.len() > 1)
-                // HACK: (@Rajil1213) take back path is a script-spend and so has multiple witness
-                // elements, as opposed to the Deposit Transaction which is a key-spend and has only
-                // one witness element (the schnorr signature). The proper way to check this is to
-                // see if the witness contains the takeback script as the script
-                // being used. But a length-check is both simpler and sufficient.
+                // HACK: (@Rajil1213) `N/N` spend is a keypath spend that only has a single witness
+                // element (the `N/N` signature). If it has more than one element, it implies that
+                // it is not a keypath spend (since there can only be 1 keypath spend for a taproot
+                // output). This implies that if there are more than 1 witness elements, it is not a
+                // Deposit Transaction and so must be a takeback (the script-spend path in the DRT
+                // output).
                 {
                     // Transition to Aborted state
                     self.state = DepositState::Aborted;
