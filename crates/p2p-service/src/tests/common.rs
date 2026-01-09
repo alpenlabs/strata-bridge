@@ -137,6 +137,14 @@ impl Setup {
 
         let (operators, tasks) = Self::start_operators(operators).await;
 
+        // Wait for gossipsub mesh to stabilize.
+        // The gossipsub heartbeat_initial_delay is 5 seconds by default,
+        // so we need to wait at least that long for subscriptions to propagate
+        // between peers. Adding 1 extra second for safety margin.
+        info!("Waiting for gossipsub mesh to stabilize...");
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        info!("Gossipsub mesh should be stable now");
+
         Ok(Self {
             cancel,
             tasks,
@@ -185,6 +193,14 @@ impl Setup {
         }
 
         let (operators, tasks) = Self::start_operators(operators).await;
+
+        // Wait for gossipsub mesh to stabilize.
+        // The gossipsub heartbeat_initial_delay is 5 seconds by default,
+        // so we need to wait at least that long for subscriptions to propagate
+        // between peers. Adding 1 extra second for safety margin.
+        info!("Waiting for gossipsub mesh to stabilize...");
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        info!("Gossipsub mesh should be stable now");
 
         Ok(Self {
             cancel,
