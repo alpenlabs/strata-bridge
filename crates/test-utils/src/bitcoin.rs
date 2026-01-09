@@ -15,8 +15,8 @@ use bitcoin::{
     Transaction, TxIn, TxMerkleNode, TxOut, Txid, Witness,
 };
 use bitcoind_async_client::{
-    types::{ListUnspent, SignRawTransactionWithWallet},
-    Client as BitcoinClient,
+    corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet},
+    Auth, Client as BitcoinClient,
 };
 use corepc_node::{serde_json::json, Client, Node};
 use musig2::secp256k1::{schnorr, Message};
@@ -30,7 +30,8 @@ pub fn get_client_async(bitcoind: &Node) -> BitcoinClient {
     env::set_var("BITCOIN_XPRIV_RETRIEVABLE", "true");
     let url = bitcoind.rpc_url();
     let (user, password) = get_auth(bitcoind);
-    BitcoinClient::new(url, user, password, None, None).unwrap()
+    let auth = Auth::UserPass(user, password);
+    BitcoinClient::new(url, auth, None, None, None).unwrap()
 }
 
 /// Get the authentication credentials for a given `bitcoind` instance.
@@ -194,20 +195,22 @@ pub fn find_funding_utxo(
     total_amount: Amount,
 ) -> (TxOut, OutPoint) {
     let list_unspent = btc_client
-        .call::<Vec<ListUnspent>>("listunspent", &[])
-        .expect("must be able to list unspent");
+        .call::<ListUnspent>("listunspent", &[])
+        .expect("must be able to list unspent")
+        .into_model()
+        .expect("must be able to deserialize list unspent");
 
     list_unspent
+        .0
         .iter()
         .find_map(|utxo| {
-            if utxo.amount > total_amount
-                && !ignore_list.contains(&OutPoint::new(utxo.txid, utxo.vout))
+            let amount = utxo.amount.to_unsigned().expect("amount must be valid");
+            if amount > total_amount && !ignore_list.contains(&OutPoint::new(utxo.txid, utxo.vout))
             {
                 Some((
                     TxOut {
-                        value: utxo.amount,
-                        script_pubkey: ScriptBuf::from_hex(&utxo.script_pubkey)
-                            .expect("must be able to parse script pubkey"),
+                        value: amount,
+                        script_pubkey: utxo.script_pubkey.clone(),
                     },
                     OutPoint {
                         txid: utxo.txid,
@@ -236,9 +239,11 @@ pub fn get_funding_utxo_exact(btc_client: &Client, target_amount: Amount) -> (Tx
 
     let result = btc_client
         .get_transaction(Txid::from_str(&result.0).expect("txid must be valid"))
-        .expect("must be able to get transaction");
-    let tx: Transaction =
-        consensus::encode::deserialize_hex(&result.hex).expect("must be able to deserialize tx");
+        .expect("must be able to get transaction")
+        .into_model()
+        .expect("must be able to deserialize transaction");
+
+    let tx = result.tx;
 
     let vout = tx
         .output
@@ -273,9 +278,10 @@ pub fn sign_cpfp_child(
             "signrawtransactionwithwallet",
             &[json!(consensus::encode::serialize_hex(&unsigned_child_tx))],
         )
-        .expect("must be able to sign child tx");
-    let signed_child_tx = consensus::encode::deserialize_hex::<Transaction>(&signed_child_tx.hex)
+        .expect("must be able to sign child tx")
+        .into_model()
         .expect("must be able to deserialize signed child tx");
+    let signed_child_tx = &signed_child_tx.tx;
 
     let funding_witness = signed_child_tx
         .input

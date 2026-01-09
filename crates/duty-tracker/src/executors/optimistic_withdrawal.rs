@@ -312,7 +312,7 @@ async fn fulfill_withdrawal(
         })?
         .blocks;
 
-    let reached_deadline = cur_height >= deadline.saturating_sub(fulfillment_window);
+    let reached_deadline = (cur_height as u64) >= deadline.saturating_sub(fulfillment_window);
     if reached_deadline {
         warn!(%cur_height, %deadline, %fulfillment_window, "current height is more than the deadline minus the fulfillment window, skipping withdrawal fulfillment");
         return Ok(());
