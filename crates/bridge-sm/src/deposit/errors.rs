@@ -1,5 +1,6 @@
 //! Errors related to the state transitions in the Deposit State Machine.
 
+use strata_bridge_primitives::types::OperatorIdx;
 use thiserror::Error;
 
 /// Errors that can occur in the Deposit State Machine.
@@ -12,6 +13,15 @@ pub enum DSMError {
         state: String,
         /// The invalid event that was received.
         event: String,
+    },
+
+    /// A duplicate submission was received from an operator.
+    #[error("Duplicate {item} received from operator {operator_idx}")]
+    DuplicateSubmission {
+        /// Description of what was duplicated (e.g., "payout nonce", "partial signature").
+        item: String,
+        /// The index of the operator who submitted a duplicate.
+        operator_idx: OperatorIdx,
     },
 }
 
