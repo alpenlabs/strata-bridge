@@ -376,6 +376,11 @@ disprove:
         --vk-path strata-bridge-groth16-vk.hex \
         --bridge-node-url http://localhost:15678/rpc
 
+# Derive operator keys from a seed for functional tests
+[group('bridge')]
+derive-keys seed:
+    cargo r --bin dev-cli -- derive-keys {{seed}}
+
 [doc("\
 Performs the following experiment:
 1. Make a deposit request and stop the nodes after the contract is created but before the graphs can be generated.
