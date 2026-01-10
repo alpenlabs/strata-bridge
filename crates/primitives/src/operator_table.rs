@@ -9,8 +9,8 @@ use algebra::category;
 use bitcoin::{Network, XOnlyPublicKey};
 use musig2::KeyAggContext;
 use serde::{Deserialize, Serialize};
+use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_types::PublickeyTable;
-use strata_p2p_types::P2POperatorPubKey;
 
 use crate::{build_context::TxBuildContext, types::OperatorIdx};
 
@@ -282,7 +282,7 @@ impl OperatorTable {
 /// Proptest generators for the operator table.
 pub mod prop_test_generators {
     use proptest::{prelude::*, prop_compose};
-    use strata_p2p_types::P2POperatorPubKey;
+    use strata_bridge_p2p_types::P2POperatorPubKey;
 
     use super::OperatorTable;
     use crate::secp::EvenSecretKey;

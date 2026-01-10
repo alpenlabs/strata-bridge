@@ -7,14 +7,15 @@ version = "0.1.0"
 workspace = true
 
 [dependencies]
+strata-bridge-p2p-types.workspace = true
+strata-bridge-p2p-wire.workspace = true
 strata-p2p.workspace = true
-strata-p2p-types.workspace = true
-strata-p2p-wire.workspace = true
 
 anyhow.workspace = true
 bitcoin.workspace = true
 libp2p.workspace = true
 musig2.workspace = true
+serde.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
@@ -25,3 +26,4 @@ strata-bridge-common.workspace = true
 
 futures.workspace = true
 tokio.workspace = true
+rkyv.workspace = true

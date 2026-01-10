@@ -12,6 +12,8 @@ alpen-bridge-params.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
+strata-bridge-p2p-types = { workspace = true, features = ["proptest"] }
+strata-bridge-p2p-wire.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
@@ -25,8 +27,6 @@ strata-params.workspace = true
 
 
 strata-p2p.workspace = true
-strata-p2p-types = { workspace = true, features = ["proptest"] }
-strata-p2p-wire.workspace = true
 strata-primitives.workspace = true
 strata-tasks.workspace = true
 
@@ -42,8 +42,10 @@ bitvm.workspace = true
 borsh.workspace = true
 btc-tracker.workspace = true
 futures.workspace = true
+libp2p-identity.workspace = true
 musig2.workspace = true
 operator-wallet.workspace = true
+rkyv.workspace = true
 secp256k1.workspace = true
 secret-service-client.workspace = true
 secret-service-proto.workspace = true
