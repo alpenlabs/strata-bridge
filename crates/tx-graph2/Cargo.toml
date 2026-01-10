@@ -13,8 +13,11 @@ strata-crypto.workspace = true
 strata-l1-txfmt.workspace = true
 strata-primitives.workspace = true
 
+algebra.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
+futures.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
+serde.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true

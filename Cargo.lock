@@ -9891,10 +9891,13 @@ dependencies = [
 name = "strata-bridge-tx-graph2"
 version = "0.1.0"
 dependencies = [
+ "algebra",
  "bitcoin",
  "bitcoind-async-client",
  "corepc-node",
+ "futures",
  "secp256k1 0.29.1",
+ "serde",
  "strata-asm-txs-bridge-v1",
  "strata-bridge-common",
  "strata-bridge-primitives",
