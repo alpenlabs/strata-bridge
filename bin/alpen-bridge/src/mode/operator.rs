@@ -375,6 +375,9 @@ async fn init_p2p_handles(
         dial_timeout,
         general_timeout,
         connection_check_interval,
+        gossipsub_mesh_n,
+        gossipsub_mesh_n_low,
+        gossipsub_mesh_n_high,
     } = config.p2p.clone();
 
     let config = P2PConfiguration::new_with_secret_key(
@@ -388,6 +391,9 @@ async fn init_p2p_handles(
         dial_timeout,
         general_timeout,
         connection_check_interval,
+        gossipsub_mesh_n,
+        gossipsub_mesh_n_low,
+        gossipsub_mesh_n_high,
     );
     let handles = p2p_bootstrap(&config).await?;
     Ok(P2PHandles {

@@ -114,7 +114,7 @@ strata-codec = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1
 strata-l1-txfmt = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc2" }
 strata-tasks = { git = "https://github.com/alpenlabs/strata-common", tag = "v0.1.0-alpha-rc2" }
 
-strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.1", features = [
+strata-p2p = { git = "https://github.com/alpenlabs/strata-p2p.git", tag = "v0.3.3", features = [
   "quic",
   "request-response",
   "gossipsub",
@@ -171,7 +171,7 @@ indexmap = "2.8.0"
 jsonrpsee = "0.24.7"
 jsonrpsee-types = "0.24.7"
 kanal = "0.1.0-pre8"
-libp2p = { version = "0.55.0", features = [
+libp2p = { version = "0.56.0", features = [
   "noise",
   "gossipsub",
   "tcp",
@@ -183,7 +183,7 @@ libp2p = { version = "0.55.0", features = [
   "yamux",
   "identify",
 ] }
-libp2p-identity = "0.2.10"
+libp2p-identity = "0.2.12"
 miniscript = "12.3.0"
 musig2 = { version = "0.1.0", features = [
   "serde",
