@@ -6,6 +6,7 @@ use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_db::persistent::config::DbConfig;
+use strata_bridge_p2p_service::GossipsubScoringPreset;
 
 /// Configuration values that dictate the behavior of the bridge node.
 ///
@@ -157,6 +158,14 @@ pub(crate) struct P2PConfig {
     ///
     /// Default is 12 (libp2p gossipsub default).
     pub gossipsub_mesh_n_high: Option<usize>,
+
+    /// Gossipsub peer scoring preset.
+    ///
+    /// If not specified, defaults to `default` which uses libp2p's standard
+    /// scoring parameters.
+    ///
+    /// Set to `permissive` for test networks.
+    pub gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
 }
 
 /// RPC server configuration.
@@ -215,6 +224,7 @@ mod tests {
             dial_timeout = { secs = 0, nanos = 250_000_000 }
             general_timeout = { secs = 0, nanos = 250_000_000 }
             connection_check_interval = { secs = 0, nanos = 500_000_000 }
+            gossipsub_scoring_preset = "permissive"
 
             [operator_wallet]
             stake_funding_pool_size = 32

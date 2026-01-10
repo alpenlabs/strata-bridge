@@ -72,6 +72,8 @@ def generate_config_toml(
             gossipsub_mesh_n=2,
             gossipsub_mesh_n_low=1,
             gossipsub_mesh_n_high=3,
+            # Use permissive scoring for test networks (disables penalties for localhost testing)
+            gossipsub_scoring_preset="permissive",
         ),
         rpc=RpcConfig(
             rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=10, nanos=0)
