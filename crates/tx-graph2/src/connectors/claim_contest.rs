@@ -15,18 +15,28 @@ use crate::{
 pub struct ClaimContestConnector {
     network: Network,
     n_of_n_pubkey: XOnlyPublicKey,
+    // invariant: watchtower_pubkeys.len() <= u32::MAX
     watchtower_pubkeys: Vec<XOnlyPublicKey>,
     contest_timelock: relative::LockTime,
 }
 
 impl ClaimContestConnector {
     /// Creates a new connector.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the number of watchtowers is larger than [`u32::MAX`].
     pub const fn new(
         network: Network,
         n_of_n_pubkey: XOnlyPublicKey,
         watchtower_pubkeys: Vec<XOnlyPublicKey>,
         contest_timelock: relative::LockTime,
     ) -> Self {
+        assert!(
+            watchtower_pubkeys.len() <= u32::MAX as usize,
+            "too many watchtowers"
+        );
+
         Self {
             network,
             n_of_n_pubkey,
@@ -36,8 +46,9 @@ impl ClaimContestConnector {
     }
 
     /// Returns the number of watchtowers for the connector.
-    pub const fn n_watchtowers(&self) -> usize {
-        self.watchtower_pubkeys.len()
+    pub const fn n_watchtowers(&self) -> u32 {
+        // cast safety: watchtower_pubkeys.len() <= u32::MAX
+        self.watchtower_pubkeys.len() as u32
     }
 
     /// Returns the relative contest timelock of the connector.
@@ -80,20 +91,20 @@ impl Connector for ClaimContestConnector {
 
     fn value(&self) -> Amount {
         let minimal_non_dust = self.script_pubkey().minimal_non_dust();
-        minimal_non_dust * u64::from(ContestTx::n_taproot_outputs(self.n_watchtowers() as u32))
+        minimal_non_dust * u64::from(ContestTx::n_taproot_outputs(self.n_watchtowers()))
     }
 
     fn to_leaf_index(&self, spend_path: Self::SpendPath) -> Option<usize> {
+        // cast safety: 32-bit machine or higher
         match spend_path {
             ClaimContestSpendPath::Contested { watchtower_index } => {
-                // cast safety: 32-bit machine or higher
                 assert!(
-                    (watchtower_index as usize) < self.n_watchtowers(),
+                    watchtower_index < self.n_watchtowers(),
                     "Watchtower index is out of bounds"
                 );
                 Some(watchtower_index as usize)
             }
-            ClaimContestSpendPath::Uncontested => Some(self.n_watchtowers()),
+            ClaimContestSpendPath::Uncontested => Some(self.n_watchtowers() as usize),
         }
     }
 
@@ -118,7 +129,7 @@ impl Connector for ClaimContestConnector {
                 ],
             },
             ClaimContestWitness::Uncontested { n_of_n_signature } => TaprootWitness::Script {
-                leaf_index: self.n_watchtowers(),
+                leaf_index: self.n_watchtowers() as usize,
                 script_inputs: vec![n_of_n_signature.serialize().to_vec()],
             },
         }
