@@ -1,23 +1,30 @@
 //! This module contains the game graph,
 //! which is the collection of the transactions of a game.
 
-use std::num::NonZero;
+use std::{array, num::NonZero};
 
 use bitcoin::{hashes::sha256, relative, Amount, Network, OutPoint, Txid, XOnlyPublicKey};
 use strata_l1_txfmt::MagicBytes;
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
-    connectors::prelude::{
-        ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
-        ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
-        CounterproofConnector, NOfNConnector,
+    connectors::{
+        prelude::{
+            ClaimContestConnector, ClaimPayoutConnector, ContestCounterproofOutput,
+            ContestPayoutConnector, ContestProofConnector, ContestSlashConnector,
+            CounterproofConnector, NOfNConnector,
+        },
+        SigningInfo,
     },
-    transactions::prelude::{
-        BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData, ContestTx,
-        ContestedPayoutData, ContestedPayoutTx, CounterproofAckData, CounterproofAckTx,
-        CounterproofData, CounterproofTx, SlashData, SlashTx, UncontestedPayoutData,
-        UncontestedPayoutTx,
+    musig_functor::MusigFunctor,
+    transactions::{
+        prelude::{
+            BridgeProofTimeoutData, BridgeProofTimeoutTx, ClaimData, ClaimTx, ContestData,
+            ContestTx, ContestedPayoutData, ContestedPayoutTx, CounterproofAckData,
+            CounterproofAckTx, CounterproofData, CounterproofTx, SlashData, SlashTx,
+            UncontestedPayoutData, UncontestedPayoutTx,
+        },
+        PresignedTx,
     },
 };
 
@@ -372,6 +379,93 @@ impl GameGraph {
                 .collect(),
             contested_payout: self.contested_payout.as_ref().compute_txid(),
             slash: self.slash.as_ref().compute_txid(),
+        }
+    }
+
+    /// Generates a functor of the signing infos of each presigned transaction.
+    ///
+    /// # Contest transaction
+    ///
+    /// The contest transaction has multiple spending paths leading to it,
+    /// one for each watchtower. This method returns a (distinct) signing info
+    /// for each contesting watchtower.
+    ///
+    /// # Counterproof transaction
+    ///
+    /// The counterproof transaction has multiple sighashes because it uses OP_CODESEPARATOR.
+    /// For Musig2, only the first sighash is relevant, which is returned by this method.
+    pub fn musig_signing_info(&self) -> MusigFunctor<SigningInfo> {
+        MusigFunctor {
+            uncontested_payout: self.uncontested_payout.signing_info(),
+            contest: (0..self.contest.n_watchtowers())
+                .map(|watchtower_index| self.contest.signing_info(watchtower_index))
+                .collect(),
+            bridge_proof_timeout: self.bridge_proof_timeout.signing_info(),
+            counterproofs: self
+                .counterproofs
+                .iter()
+                .map(|subgraph| subgraph.counterproof.signing_info()[0])
+                .collect(),
+            counterproof_acks: self
+                .counterproofs
+                .iter()
+                .map(|subgraph| subgraph.counterproof_ack.signing_info())
+                .collect(),
+            contested_payout: self.contested_payout.signing_info(),
+            slash: self.slash.signing_info(),
+        }
+    }
+
+    /// Generates a functor of the inpoints of each presigned transaction.
+    ///
+    /// An inpoint has the following structure:
+    ///
+    /// ```ignore
+    /// OutPoint {
+    ///     txid: todo!("ID of the spending transaction"), // not the prevout
+    ///     vout: todo!("Index of the input (vin)"),       // not the vout
+    /// }
+    /// ```
+    ///
+    /// In any game graph, every inpoint is guaranteed to be unique.
+    ///
+    /// # Contest transaction
+    ///
+    /// The contest transaction has multiple spending paths leading to it,
+    /// one for each watchtower. This method returns a vector of equal inpoints
+    /// for the contest transaction.
+    pub fn musig_inpoints(&self) -> MusigFunctor<OutPoint> {
+        let uncontested_payout_txid = self.uncontested_payout.as_ref().compute_txid();
+        let contest_txid = self.contest.as_ref().compute_txid();
+        let bridge_proof_timeout_txid = self.bridge_proof_timeout.as_ref().compute_txid();
+        let contested_payout_txid = self.contested_payout.as_ref().compute_txid();
+        let slash_txid = self.slash.as_ref().compute_txid();
+
+        // cast safety: the number of inputs of each transaction
+        // is bounded and strictly less than u32::MAX
+        MusigFunctor {
+            uncontested_payout: array::from_fn(|i| {
+                OutPoint::new(uncontested_payout_txid, i as u32)
+            }),
+            contest: vec![OutPoint::new(contest_txid, 0); self.contest.n_watchtowers() as usize],
+            bridge_proof_timeout: array::from_fn(|i| {
+                OutPoint::new(bridge_proof_timeout_txid, i as u32)
+            }),
+            counterproofs: self
+                .counterproofs
+                .iter()
+                .map(|subgraph| OutPoint::new(subgraph.counterproof.as_ref().compute_txid(), 0))
+                .collect(),
+            counterproof_acks: self
+                .counterproofs
+                .iter()
+                .map(|subgraph| {
+                    let txid = subgraph.counterproof_ack.as_ref().compute_txid();
+                    array::from_fn(|i| OutPoint::new(txid, i as u32))
+                })
+                .collect(),
+            contested_payout: array::from_fn(|i| OutPoint::new(contested_payout_txid, i as u32)),
+            slash: array::from_fn(|i| OutPoint::new(slash_txid, i as u32)),
         }
     }
 }

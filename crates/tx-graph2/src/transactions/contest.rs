@@ -141,6 +141,11 @@ impl ContestTx {
         Self::WATCHTOWER_0_VOUT + n_watchtowers
     }
 
+    /// Returns the number of watchtowers.
+    pub const fn n_watchtowers(&self) -> u32 {
+        self.claim_contest_connector.n_watchtowers()
+    }
+
     /// Get the signing info for each transaction input.
     pub fn signing_info(&self, watchtower_index: u32) -> SigningInfo {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
