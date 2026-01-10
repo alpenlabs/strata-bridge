@@ -16,7 +16,7 @@ use crate::{
         },
         Connector,
     },
-    transactions::{prelude::ContestTx, ParentTx},
+    transactions::{prelude::ContestTx, ParentTx, PresignedTx},
 };
 
 /// Data that is needed to construct a [`CounterproofTx`].
@@ -98,9 +98,13 @@ impl CounterproofTx {
 
     /// Get the sighashes of the single transaction input.
     ///
-    /// The first sighash needs to be signed by the N/N key.
-    /// The first (again) and all remaining sighashes each need to be signed by the operator key.
-    pub fn signing_info(&self) -> Vec<Message> {
+    /// Each sighash needs to be signed by the operator key.
+    /// There is no key tweaking.
+    ///
+    /// # Warning
+    ///
+    /// Use [`Self::signing_info()`] for the N/N key.
+    pub fn sighashes(&self) -> Vec<Message> {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
 
         self.contest_counterproof_output
@@ -134,6 +138,19 @@ impl ParentTx for CounterproofTx {
             txid: self.psbt.unsigned_tx.compute_txid(),
             vout: Self::CPFP_VOUT,
         }
+    }
+}
+
+impl PresignedTx<{ Self::N_INPUTS }> for CounterproofTx {
+    fn signing_info(&self) -> [crate::connectors::SigningInfo; Self::N_INPUTS] {
+        let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
+
+        [self.contest_counterproof_output.get_signing_info(
+            &mut cache,
+            Prevouts::All(&self.prevouts),
+            ContestCounterproofSpend,
+            0,
+        )]
     }
 }
 
