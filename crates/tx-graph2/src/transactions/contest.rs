@@ -66,7 +66,7 @@ impl ContestTx {
         let value_out = proof_connector.value()
             + payout_connector.value()
             + slash_connector.value()
-            + counterproof_output.value() * claim_contest_connector.n_watchtowers() as u64;
+            + counterproof_output.value() * u64::from(claim_contest_connector.n_watchtowers());
         debug_assert!(
             claim_contest_connector.value() == value_out,
             "tx should have zero fees (value in = {}, value out = {value_out}",
@@ -97,7 +97,7 @@ impl ContestTx {
         ];
         output.extend(std::iter::repeat_n(
             counterproof_output.tx_out(),
-            claim_contest_connector.n_watchtowers(),
+            claim_contest_connector.n_watchtowers() as usize,
         ));
         output.push(cpfp_connector.tx_out());
 
