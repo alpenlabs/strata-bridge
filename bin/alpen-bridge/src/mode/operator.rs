@@ -379,6 +379,7 @@ async fn init_p2p_handles(
         gossipsub_mesh_n,
         gossipsub_mesh_n_low,
         gossipsub_mesh_n_high,
+        gossipsub_scoring_preset,
     } = config.p2p.clone();
 
     let config = P2PConfiguration::new_with_secret_key(
@@ -395,6 +396,7 @@ async fn init_p2p_handles(
         gossipsub_mesh_n,
         gossipsub_mesh_n_low,
         gossipsub_mesh_n_high,
+        gossipsub_scoring_preset,
     );
     let handles = p2p_bootstrap(&config).await?;
     Ok(P2PHandles {
