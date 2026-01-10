@@ -9793,6 +9793,7 @@ dependencies = [
  "libp2p",
  "musig2",
  "rkyv",
+ "serde",
  "strata-bridge-common",
  "strata-bridge-p2p-types",
  "strata-bridge-p2p-wire",

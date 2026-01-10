@@ -6,7 +6,35 @@ use libp2p::{
     identity::ed25519::{Keypair as Libp2pEdKeypair, SecretKey as Libp2pEdSecretKey},
     Multiaddr, PeerId,
 };
+use serde::{Deserialize, Serialize};
 use strata_bridge_p2p_types::P2POperatorPubKey;
+
+/// Gossipsub peer scoring preset configuration.
+///
+/// This allows selecting between predefined scoring configurations optimized
+/// for different deployment scenarios.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GossipsubScoringPreset {
+    /// Use libp2p default scoring parameters.
+    ///
+    /// This is the recommended setting for production deployments.
+    /// It enables standard gossipsub scoring which penalizes misbehaving peers
+    /// and maintains network health.
+    #[default]
+    Default,
+
+    /// Use permissive scoring parameters that disable most penalties.
+    ///
+    /// This is intended for test networks and development environments where:
+    /// - Multiple peers may run on the same IP (localhost testing)
+    /// - Small networks may not have enough message traffic
+    /// - Scoring penalties would interfere with testing
+    ///
+    /// **WARNING**: Do not use in production as it disables important peer
+    /// quality mechanisms.
+    Permissive,
+}
 
 /// Configuration for the P2P.
 #[derive(Debug, Clone)]
@@ -64,6 +92,16 @@ pub struct Configuration {
     ///
     /// Default is 12 (libp2p gossipsub default).
     pub gossipsub_mesh_n_high: Option<usize>,
+
+    /// Gossipsub peer scoring preset.
+    ///
+    /// If `None`, defaults to [`GossipsubScoringPreset::Default`] which uses
+    /// libp2p's standard scoring parameters suitable for production.
+    ///
+    /// Set to [`GossipsubScoringPreset::Permissive`] for test networks where
+    /// scoring penalties would interfere with testing (e.g., localhost with
+    /// multiple peers on the same IP).
+    pub gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
 }
 
 impl Configuration {
@@ -83,6 +121,7 @@ impl Configuration {
         gossipsub_mesh_n: Option<usize>,
         gossipsub_mesh_n_low: Option<usize>,
         gossipsub_mesh_n_high: Option<usize>,
+        gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
     ) -> Self {
         let keypair = Libp2pEdKeypair::from(sk);
         Self {
@@ -99,6 +138,7 @@ impl Configuration {
             gossipsub_mesh_n,
             gossipsub_mesh_n_low,
             gossipsub_mesh_n_high,
+            gossipsub_scoring_preset,
         }
     }
 }
@@ -118,6 +158,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
             None,
             None,
             None,
