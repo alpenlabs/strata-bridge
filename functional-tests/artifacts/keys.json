@@ -4,27 +4,27 @@
         "GENERAL_WALLET": "bcrt1pz3lhscydysketvdtdw57320wqeflea8avz3vwxvhlg64cse558lqkyycgz",
         "STAKE_CHAIN_WALLET": "bcrt1pfzkntpr2g4353zuafe2lwe5ag2v5w3sth0lfwz7z9k70uzhjmtyqc69eun",
         "MUSIG2_KEY": "ac407ba319846e25d69c1c0cb2a845ab75ef93ad2e9e846cdc5cf6da766e00b2",
-        "P2P_KEY": "0242f6ae559d2dc46b83fc820e9ba32f6ac8c387daac77f2805e930e924e3a127d"
+        "P2P_KEY": "622c124f44c3456f6e1c678325636761567ae941e6592a7adcfd02fb51514d1d"
     },
     {
         "SEED": "175a61de8fdac38f9c97e493c03718c98a3c85a977b49192ceac32e429f6c409",
         "GENERAL_WALLET": "bcrt1ptk6agn6x4mcvpf9um635lu3y0w3tmahkv37z2cgwutkakl69z6hqurky2y",
         "STAKE_CHAIN_WALLET": "bcrt1pwyw6seg022qv4k8xhnq57p2qft7ttx9cdshapux96y88kqn5ev6sk5vq28",
         "MUSIG2_KEY": "c8200b381f7dd57f4c474d2bea56747fdfba32f2d20463f4269a1cf06a1acd77",
-        "P2P_KEY": "022be6bdb17459863bf1a99561847b76729f858bb0545a145d58ab334d4635b398"
+        "P2P_KEY": "86246f6afb35af9b7c2cb1c41105b48d07d4d4219edefa6b884757d88b98b3ad"
     },
     {
         "SEED": "185a61de8fdac38f9c97e493c03718c98a3c85a977b49192ceac32e429f6c409",
         "GENERAL_WALLET": "bcrt1ppfwqavtqxfelqs62znm276vhytfzhevntseenkk7z3rmnwa2wm0qgdtau7",
         "STAKE_CHAIN_WALLET": "bcrt1pshtx93urrrvlsr5zjk8w9ms9w4ydmcazemea6yh8aladqgczzfzsu448wu",
         "MUSIG2_KEY": "ae12cceeee9d4888766b1abb0531f8c66c0629bfc4fabe97e3c0d5d9b4dd3fd7",
-        "P2P_KEY": "02e1df62b91b3fa5b73513489c7f2f6df10631a7f106a715c43c9ae321a7d72f8c"
+        "P2P_KEY": "c10b1e1cf9d4862fa3b42a896e653adbf642b3f0fdec1bf0aa4dfce9a2e78079"
     },
     {
         "SEED": "165a61de8fdac38f9c97e493c03718c98a3c85a977b49192ceac32e429f6c409",
         "GENERAL_WALLET": "bcrt1ptcutva7qfd6dlpyw4hdgyhmfg4p7jm8dmxf02x8nfflv3742nf3qvd2rg4",
         "STAKE_CHAIN_WALLET": "bcrt1pwu5arzpjcx3qqlfeeef2ap0hdynazynp5zj3ck9srlh58yz8uccqmh37lv",
         "MUSIG2_KEY": "d1b992bb2909e873c5afaa4911f7ac79a7655973c07461b2121d3cfb536f917e",
-        "P2P_KEY": "024f3b6220924820aa5ff6047bb82c63bac399b3368b8f413d2a323cb13dbaf2c2"
+        "P2P_KEY": "a3279fc32b9cc3c8088db8cded3e36ad4952daa903975725657113b6107f00a2"
     }
 ]
