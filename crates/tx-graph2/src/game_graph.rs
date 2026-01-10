@@ -550,14 +550,17 @@ impl GameConnectors {
 #[cfg(test)]
 mod tests {
     use bitcoin::{hashes::Hash, transaction::Version, TxOut};
-    use secp256k1::{rand::random, Keypair};
+    use secp256k1::{rand::random, Keypair, SECP256K1};
     use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins};
     use strata_bridge_test_utils::prelude::generate_keypair;
 
     use super::*;
     use crate::{
-        connectors::{test_utils::BitcoinNode, Connector},
-        transactions::PresignedTx,
+        connectors::{prelude::ContestCounterproofWitness, test_utils::BitcoinNode, Connector},
+        transactions::prelude::{
+            AdminBurnData, AdminBurnTx, BridgeProofData, BridgeProofTx, CounterproofNackData,
+            CounterproofNackTx, UnstakingBurnData, UnstakingBurnTx,
+        },
     };
 
     const N_WATCHTOWERS: usize = 10;
@@ -706,48 +709,331 @@ mod tests {
         }
     }
 
-    #[test]
-    fn uncontested_payout() {
+    /// Test scenario for an entire game.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    enum Scenario {
+        /// The contest transaction is posted.
+        Contested(ProofScenario),
+        /// The uncontested payout transaction is posted.
+        Uncontested,
+        /// The admin burn transaction is posted.
+        AdminBurn,
+        /// The unstaking burn transaction is posted.
+        UnstakingBurn,
+    }
+
+    /// Test scenario for the operator bridge proof.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    enum ProofScenario {
+        /// The bridge proof timeout and slash transactions are posted.
+        Timeout,
+        /// The bridge proof transaction is posted.
+        Proof(CounterproofScenario),
+    }
+
+    /// Test scenario for the watchtower counterproof.
+    #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+    enum CounterproofScenario {
+        /// No counterproof transaction is posted; the contested payout transaction is posted.
+        Timeout,
+        /// The counterproof, counterproof nack and contested payout transactions are posted.
+        Nack,
+        /// The counterproof, counterproof ack and slash transactions are posted.
+        Ack,
+    }
+
+    fn test_scenario(scenario: Scenario) {
         let mut node = BitcoinNode::new();
         let signer = Signer::generate();
         let game_data = get_game_data(&mut node, &signer);
-        let game = GameGraph::new(game_data);
+        let game_index = game_data.setup.game_index;
+        let (game, connectors) = GameGraph::new(game_data);
+        let presigned = game
+            .musig_signing_info()
+            .map(|x| x.sign(&signer.n_of_n_keypair));
 
-        // Create the claim transaction + its CPFP child.
-        //
-        // inputs               | outputs
-        // ---------------------+---------------------------------------
-        // (4 + ω)ε sat: wallet | (3 + ω)ε sat: claim contest connector
-        //                      |---------------------------------------
-        //                      | ε sat: claim payout connector
-        //                      |---------------------------------------
-        //                      | 0 sat: cpfp connector (CPFP)
-        let signed_claim_tx = node.sign(game.claim.as_ref());
-        assert_eq!(signed_claim_tx.version, Version(3));
-        let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
-        assert_eq!(signed_claim_child_tx.version, Version(3));
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                              Claim                                │
+        // └───────────────────────────────────────────────────────────────────┘
+        let claim = node.sign(game.claim.as_ref());
+        assert_eq!(claim.version, Version(3));
+        let child = node.create_cpfp_child(&game.claim, FEE * 2);
+        assert_eq!(child.version, Version(3));
 
-        node.submit_package(&[signed_claim_tx, signed_claim_child_tx]);
-        node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize - 1);
+        node.submit_package(&[claim, child]);
+        match scenario {
+            Scenario::Uncontested => {
+                node.mine_blocks(CONTEST_TIMELOCK.to_consensus_u32() as usize - 1);
+            }
+            _ => {
+                node.mine_blocks(1);
+            }
+        }
 
-        // Create the uncontested payout transaction + its CPFP child.
-        //
-        // inputs                                | outputs
-        // --------------------------------------+----------------------------------
-        // 1 btc: deposit connector              | 1 btc + (4 + ω)ε: operator (CPFP)
-        // --------------------------------------|
-        // (3 + ω)ε sat: claim contest connector |
-        // --------------------------------------|
-        // ε sat: claim payout connector         |
-        let signing_info = game.uncontested_payout.signing_info();
-        let n_of_n_signatures =
-            std::array::from_fn(|i| signing_info[i].sign(&signer.n_of_n_keypair));
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │              Uncontested Payout (test terminates here)            │
+        // └───────────────────────────────────────────────────────────────────┘
+        if let Scenario::Uncontested = scenario {
+            let child = node.create_cpfp_child(&game.uncontested_payout, FEE * 2);
+            assert_eq!(child.version, Version(3));
+            let uncontested_payout = game
+                .uncontested_payout
+                .finalize(presigned.uncontested_payout);
+            assert_eq!(uncontested_payout.version, Version(3));
+            let package = [uncontested_payout, child];
 
-        let signed_payout_child_tx = node.create_cpfp_child(&game.uncontested_payout, FEE * 2);
-        assert_eq!(signed_payout_child_tx.version, Version(3));
-        let signed_uncontested_payout_tx = game.uncontested_payout.finalize(n_of_n_signatures);
-        assert_eq!(signed_uncontested_payout_tx.version, Version(3));
-        let package = [signed_uncontested_payout_tx, signed_payout_child_tx];
+            node.submit_package_invalid(&package);
+            node.mine_blocks(1);
+            node.submit_package(&package);
+            return;
+        }
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                Admin burn (test terminates here)                  │
+        // └───────────────────────────────────────────────────────────────────┘
+        if let Scenario::AdminBurn = scenario {
+            let data = AdminBurnData {
+                claim_txid: game.claim.as_ref().compute_txid(),
+            };
+            let mut admin_burn = AdminBurnTx::new(data, connectors.claim_payout);
+            admin_burn.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
+            admin_burn.push_output(TxOut {
+                value: node.coinbase_amount() - FEE,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            });
+
+            let admin_signature = admin_burn
+                .signing_info_partial()
+                .sign(&signer.admin_keypair);
+            let admin_burn = admin_burn.finalize_partial(admin_signature);
+
+            node.sign_and_broadcast(&admin_burn);
+            return;
+        }
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │              Unstaking burn (test terminates here)                │
+        // └───────────────────────────────────────────────────────────────────┘
+        if let Scenario::UnstakingBurn = scenario {
+            let data = UnstakingBurnData {
+                claim_txid: game.claim.as_ref().compute_txid(),
+            };
+            let mut unstaking_burn = UnstakingBurnTx::new(data, connectors.claim_payout);
+            unstaking_burn.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
+            unstaking_burn.push_output(TxOut {
+                value: node.coinbase_amount() - FEE,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            });
+
+            let unstaking_burn = unstaking_burn.finalize_partial(signer.unstaking_preimage);
+
+            node.sign_and_broadcast(&unstaking_burn);
+            return;
+        }
+
+        let Scenario::Contested(scenario) = scenario else {
+            unreachable!("Other scenarios are caught above")
+        };
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                             Contest                               │
+        // └───────────────────────────────────────────────────────────────────┘
+        // Cache contest_txid before game.contest is moved
+        let contest_txid = game.contest.as_ref().compute_txid();
+
+        let signing_info = game.contest.signing_info(CONTESTING_WATCHTOWER_IDX);
+        let watchtower_signature =
+            signing_info.sign(&signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize]);
+
+        let child = node.create_cpfp_child(&game.contest, FEE * 2);
+        assert_eq!(child.version, Version(3));
+        let contest = game.contest.finalize(
+            presigned.contest[CONTESTING_WATCHTOWER_IDX as usize],
+            CONTESTING_WATCHTOWER_IDX,
+            watchtower_signature,
+        );
+        assert_eq!(contest.version, Version(3));
+
+        node.submit_package(&[contest, child]);
+        let mut since_contest = 0;
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │          Bridge Proof Timeout + Slash (test terminates here)      │
+        // └───────────────────────────────────────────────────────────────────┘
+        if let ProofScenario::Timeout = scenario {
+            // ┌───────────────────────────────────────────────────────────────┐
+            // │                     Bridge Proof Timeout                      │
+            // └───────────────────────────────────────────────────────────────┘
+            let n_blocks = PROOF_TIMELOCK.to_consensus_u32() as usize - 1;
+            node.mine_blocks(n_blocks);
+            since_contest += n_blocks;
+
+            let child = node.create_cpfp_child(&game.bridge_proof_timeout, FEE * 2);
+            assert_eq!(child.version, Version(3));
+            let bridge_proof_timeout = game
+                .bridge_proof_timeout
+                .finalize(presigned.bridge_proof_timeout);
+            assert_eq!(bridge_proof_timeout.version, Version(3));
+            let package = [bridge_proof_timeout, child];
+
+            node.submit_package_invalid(&package);
+            node.mine_blocks(1);
+            since_contest += 1;
+            node.submit_package(&package);
+
+            // ┌───────────────────────────────────────────────────────────────┐
+            // │                            Slash                              │
+            // └───────────────────────────────────────────────────────────────┘
+            node.mine_blocks(
+                CONTESTED_PAYOUT_TIMELOCK.to_consensus_u32() as usize - since_contest - 1,
+            );
+
+            let child = node.create_cpfp_child(&game.slash, FEE * 2);
+            let slash = game.slash.finalize(presigned.slash);
+            let package = [slash, child];
+
+            node.submit_package_invalid(&package);
+            node.mine_blocks(1);
+            node.submit_package(&package);
+
+            return;
+        };
+
+        let ProofScenario::Proof(scenario) = scenario else {
+            unreachable!("ProofScenario::Timeout is caught above")
+        };
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                          Bridge Proof                             │
+        // └───────────────────────────────────────────────────────────────────┘
+        node.mine_blocks(1);
+        since_contest += 1;
+
+        let data = BridgeProofData {
+            contest_txid,
+            proof_bytes: vec![0x00; 128],
+            game_index,
+        };
+        let mut bridge_proof = BridgeProofTx::new(data, connectors.contest_proof);
+        bridge_proof.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
+        bridge_proof.push_output(TxOut {
+            value: node.coinbase_amount() - FEE,
+            script_pubkey: node.wallet_address().script_pubkey(),
+        });
+
+        let tweaked_operator_keypair = signer
+            .operator_keypair
+            .add_xonly_tweak(SECP256K1, &bridge_proof.operator_key_tweak())
+            .expect("valid tweak");
+        let operator_signature = bridge_proof
+            .signing_info_partial()
+            .sign(&tweaked_operator_keypair);
+        let bridge_proof = bridge_proof.finalize_partial(operator_signature);
+
+        node.sign_and_broadcast(&bridge_proof);
+        node.mine_blocks(1);
+        since_contest += 1;
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                         Counterproof                              │
+        // └───────────────────────────────────────────────────────────────────┘
+        if scenario != CounterproofScenario::Timeout {
+            let operator_signatures = game.counterproofs[0]
+                .counterproof
+                .sighashes()
+                .into_iter()
+                .map(|msg| signer.operator_keypair.sign_schnorr(msg))
+                .collect();
+            let witness = ContestCounterproofWitness {
+                n_of_n_signature: presigned.counterproofs[0],
+                operator_signatures,
+            };
+            let counterproof = game.counterproofs[0]
+                .counterproof
+                .clone()
+                .finalize(&witness);
+            let child = node.create_cpfp_child(&game.counterproofs[0].counterproof, FEE * 2);
+            let package = [counterproof, child];
+
+            node.submit_package(&package);
+        }
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                       Counterproof NACK                           │
+        // └───────────────────────────────────────────────────────────────────┘
+        if scenario == CounterproofScenario::Nack {
+            node.mine_blocks(1);
+            since_contest += 1;
+
+            let data = CounterproofNackData {
+                counterproof_txid: game.counterproofs[0].counterproof.as_ref().compute_txid(),
+            };
+            let mut counterproof_nack = CounterproofNackTx::new(data, connectors.counterproof[0]);
+            counterproof_nack.push_input(node.next_coinbase_txin(), node.coinbase_tx_out());
+            counterproof_nack.push_output(TxOut {
+                value: node.coinbase_amount() - FEE,
+                script_pubkey: node.wallet_address().script_pubkey(),
+            });
+            let wt_fault_signature = counterproof_nack
+                .signing_info_partial()
+                .sign(&signer.wt_fault_keypairs[0]);
+            let counterproof_nack = counterproof_nack.finalize_partial(wt_fault_signature);
+
+            node.sign_and_broadcast(&counterproof_nack);
+            node.mine_blocks(1);
+            since_contest += 1;
+        }
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │          Counterproof ACK + Slash (test terminates here)          │
+        // └───────────────────────────────────────────────────────────────────┘
+        if scenario == CounterproofScenario::Ack {
+            // ┌───────────────────────────────────────────────────────────────┐
+            // │                       Counterproof ACK                        │
+            // └───────────────────────────────────────────────────────────────┘
+            let n_blocks = NACK_TIMELOCK.to_consensus_u32() as usize - 1;
+            node.mine_blocks(n_blocks);
+            since_contest += n_blocks;
+
+            let counterproof_ack = game.counterproofs[0]
+                .counterproof_ack
+                .clone()
+                .finalize(presigned.counterproof_acks[0]);
+            let child = node.create_cpfp_child(&game.counterproofs[0].counterproof_ack, FEE * 2);
+            let package = [counterproof_ack, child];
+
+            node.submit_package_invalid(&package);
+            node.mine_blocks(1);
+            since_contest += 1;
+            node.submit_package(&package);
+
+            // ┌───────────────────────────────────────────────────────────────┐
+            // │                            Slash                              │
+            // └───────────────────────────────────────────────────────────────┘
+            node.mine_blocks(
+                CONTESTED_PAYOUT_TIMELOCK.to_consensus_u32() as usize - since_contest - 1,
+            );
+
+            let child = node.create_cpfp_child(&game.slash, FEE * 2);
+            let slash = game.slash.finalize(presigned.slash);
+            let package = [slash, child];
+
+            node.submit_package_invalid(&package);
+            node.mine_blocks(1);
+            node.submit_package(&package);
+            return;
+        }
+
+        // ┌───────────────────────────────────────────────────────────────────┐
+        // │                        Contested Payout                           │
+        // └───────────────────────────────────────────────────────────────────┘
+        node.mine_blocks(ACK_TIMELOCK.to_consensus_u32() as usize - since_contest - 1);
+
+        let child = node.create_cpfp_child(&game.contested_payout, FEE * 2);
+        assert_eq!(child.version, Version(3));
+        let contested_payout = game.contested_payout.finalize(presigned.contested_payout);
+        assert_eq!(contested_payout.version, Version(3));
+        let package = [contested_payout, child];
 
         node.submit_package_invalid(&package);
         node.mine_blocks(1);
@@ -755,86 +1041,43 @@ mod tests {
     }
 
     #[test]
-    fn contested_payout() {
-        let mut node = BitcoinNode::new();
-        let signer = Signer::generate();
-        let game_data = get_game_data(&mut node, &signer);
-        let game = GameGraph::new(game_data);
+    fn uncontested_payout() {
+        test_scenario(Scenario::Uncontested);
+    }
 
-        // Create the claim transaction + its CPFP child.
-        //
-        // inputs               | outputs
-        // ---------------------+---------------------------------------
-        // (4 + ω)ε sat: wallet | (3 + ω)ε sat: claim contest connector
-        //                      |---------------------------------------
-        //                      | ε sat: claim payout connector
-        //                      |---------------------------------------
-        //                      | 0 sat: cpfp connector (CPFP)
-        let signed_claim_tx = node.sign(game.claim.as_ref());
-        assert_eq!(signed_claim_tx.version, Version(3));
-        let signed_claim_child_tx = node.create_cpfp_child(&game.claim, FEE * 2);
-        assert_eq!(signed_claim_child_tx.version, Version(3));
+    #[test]
+    fn admin_burn_payout() {
+        test_scenario(Scenario::AdminBurn);
+    }
 
-        node.submit_package(&[signed_claim_tx, signed_claim_child_tx]);
-        node.mine_blocks(1);
+    #[test]
+    fn unstaking_burn_payout() {
+        test_scenario(Scenario::UnstakingBurn);
+    }
 
-        // Create the contest transaction + its CPFP child.
-        //
-        // inputs                                | outputs
-        // --------------------------------------+-----------------------------------
-        // (3 + ω)ε sat: claim contest connector | ε sat: contest proof connector
-        // --------------------------------------+-----------------------------------
-        //                                       | ε sat: contest payout connector
-        //                                       |-----------------------------------
-        //                                       | ε sat: contest slash connector
-        //                                       |-----------------------------------
-        //                                       | ε sat: contest counterproof output
-        //                                       |-----------------------------------
-        //                                       | ...
-        //                                       |-----------------------------------
-        //                                       | ε sat: contest counterproof output
-        //                                       |-----------------------------------
-        //                                       | 0 sat: cpfp connector
-        let signing_info = game.contest.signing_info(CONTESTING_WATCHTOWER_IDX);
-        let n_of_n_signature = signing_info.sign(&signer.n_of_n_keypair);
-        let watchtower_signature =
-            signing_info.sign(&signer.watchtower_keypairs[CONTESTING_WATCHTOWER_IDX as usize]);
+    #[test]
+    fn proof_timeout_slash() {
+        test_scenario(Scenario::Contested(ProofScenario::Timeout));
+    }
 
-        let signed_contest_child_tx = node.create_cpfp_child(&game.contest, FEE * 2);
-        assert_eq!(signed_contest_child_tx.version, Version(3));
-        let signed_contest_tx = game.contest.finalize(
-            n_of_n_signature,
-            CONTESTING_WATCHTOWER_IDX,
-            watchtower_signature,
-        );
-        assert_eq!(signed_contest_tx.version, Version(3));
+    #[test]
+    fn no_counterproof_contested_payout() {
+        test_scenario(Scenario::Contested(ProofScenario::Proof(
+            CounterproofScenario::Timeout,
+        )));
+    }
 
-        node.submit_package(&[signed_contest_tx, signed_contest_child_tx]);
-        node.mine_blocks(ACK_TIMELOCK.to_consensus_u32() as usize - 1);
+    #[test]
+    fn counterproof_nack_contested_payout() {
+        test_scenario(Scenario::Contested(ProofScenario::Proof(
+            CounterproofScenario::Nack,
+        )));
+    }
 
-        // Create the contested payout transaction + its CPFP child.
-        //
-        // inputs                          | outputs
-        // --------------------------------+--------------------------------
-        // 1 btc: deposit connector        | 1 btc + 3ε sat: operator (CPFP)
-        // --------------------------------|
-        // ε sat: claim payout connector   |
-        // --------------------------------|
-        // ε sat: contest payout connector |
-        // --------------------------------|
-        // ε sat: contest slash connector  |
-        let signing_info = game.contested_payout.signing_info();
-        let n_of_n_signatures =
-            std::array::from_fn(|i| signing_info[i].sign(&signer.n_of_n_keypair));
-
-        let signed_payout_child_tx = node.create_cpfp_child(&game.contested_payout, FEE * 2);
-        assert_eq!(signed_payout_child_tx.version, Version(3));
-        let signed_contested_payout_tx = game.contested_payout.finalize(n_of_n_signatures);
-        assert_eq!(signed_contested_payout_tx.version, Version(3));
-        let package = [signed_contested_payout_tx, signed_payout_child_tx];
-
-        node.submit_package_invalid(&package);
-        node.mine_blocks(1);
-        node.submit_package(&package);
+    #[test]
+    fn counterproof_ack_slash() {
+        test_scenario(Scenario::Contested(ProofScenario::Proof(
+            CounterproofScenario::Ack,
+        )));
     }
 }
