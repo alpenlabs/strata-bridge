@@ -66,6 +66,11 @@ def generate_config_toml(
             dial_timeout=Duration(secs=0, nanos=250_000_000),
             general_timeout=Duration(secs=0, nanos=250_000_000),
             connection_check_interval=Duration(secs=0, nanos=500_000_000),
+            # Configure gossipsub mesh for small network (3 operators)
+            # Each operator can only see n-1 peers, so mesh_n_low must be <= n-1
+            gossipsub_mesh_n=2,
+            gossipsub_mesh_n_low=1,
+            gossipsub_mesh_n_high=3,
         ),
         rpc=RpcConfig(
             rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=10, nanos=0)

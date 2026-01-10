@@ -41,6 +41,9 @@ class P2pConfig:
     dial_timeout: Duration
     general_timeout: Duration
     connection_check_interval: Duration
+    gossipsub_mesh_n: int | None = None
+    gossipsub_mesh_n_low: int | None = None
+    gossipsub_mesh_n_high: int | None = None
 
 
 @dataclass
