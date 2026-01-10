@@ -49,6 +49,21 @@ pub struct Configuration {
     /// The default is
     /// [`DEFAULT_CONNECTION_CHECK_INTERVAL`](strata_p2p::swarm::DEFAULT_CONNECTION_CHECK_INTERVAL).
     pub connection_check_interval: Option<Duration>,
+
+    /// Target number of peers in the gossipsub mesh.
+    ///
+    /// Default is 6 (libp2p gossipsub default).
+    pub gossipsub_mesh_n: Option<usize>,
+
+    /// Minimum number of peers in the gossipsub mesh before grafting more.
+    ///
+    /// Default is 5 (libp2p gossipsub default).
+    pub gossipsub_mesh_n_low: Option<usize>,
+
+    /// Maximum number of peers in the gossipsub mesh before pruning.
+    ///
+    /// Default is 12 (libp2p gossipsub default).
+    pub gossipsub_mesh_n_high: Option<usize>,
 }
 
 impl Configuration {
@@ -65,6 +80,9 @@ impl Configuration {
         dial_timeout: Option<Duration>,
         general_timeout: Option<Duration>,
         connection_check_interval: Option<Duration>,
+        gossipsub_mesh_n: Option<usize>,
+        gossipsub_mesh_n_low: Option<usize>,
+        gossipsub_mesh_n_high: Option<usize>,
     ) -> Self {
         let keypair = Libp2pEdKeypair::from(sk);
         Self {
@@ -78,6 +96,9 @@ impl Configuration {
             dial_timeout,
             general_timeout,
             connection_check_interval,
+            gossipsub_mesh_n,
+            gossipsub_mesh_n_low,
+            gossipsub_mesh_n_high,
         }
     }
 }
@@ -97,6 +118,9 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
+            None,
+            None,
             None,
             None,
             None,
