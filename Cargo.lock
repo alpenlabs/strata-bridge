@@ -3242,6 +3242,7 @@ dependencies = [
  "clap",
  "hex",
  "jsonrpsee",
+ "libp2p-identity",
  "miniscript",
  "musig2",
  "secp256k1 0.29.1",
@@ -3255,6 +3256,7 @@ dependencies = [
  "strata-bridge-proof-snark",
  "strata-bridge-rpc",
  "strata-bridge-tx-graph",
+ "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=b016495114050409e831898436d7d0ac04df8d82)",
  "tokio",
  "toml",
  "tracing",
@@ -8298,7 +8300,7 @@ dependencies = [
  "serde",
  "sha2",
  "strata-bridge-primitives",
- "strata-key-derivation",
+ "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
  "terrors",
  "tikv-jemallocator",
  "tokio",
@@ -10251,6 +10253,19 @@ dependencies = [
  "strata-codec 0.1.0 (git+https://github.com/alpenlabs/strata-common)",
  "tree_hash 0.12.0",
  "tree_hash_derive 0.12.0",
+ "zeroize",
+]
+
+[[package]]
+name = "strata-key-derivation"
+version = "0.3.0-alpha.1"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=b016495114050409e831898436d7d0ac04df8d82#b016495114050409e831898436d7d0ac04df8d82"
+dependencies = [
+ "bitcoin",
+ "ed25519-dalek",
+ "secp256k1",
+ "strata-primitives",
+ "thiserror 2.0.17",
  "zeroize",
 ]
 
