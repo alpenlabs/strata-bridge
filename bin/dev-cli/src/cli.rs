@@ -23,6 +23,18 @@ pub(crate) enum Commands {
     Challenge(ChallengeArgs),
 
     Disprove(DisproveArgs),
+
+    DeriveKeys(DeriveKeysArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Derive operator keys from a seed for functional tests",
+    version
+)]
+pub(crate) struct DeriveKeysArgs {
+    #[arg(help = "32-byte hex-encoded seed (64 hex characters)")]
+    pub(crate) seed: String,
 }
 
 #[derive(Parser, Debug, Clone)]

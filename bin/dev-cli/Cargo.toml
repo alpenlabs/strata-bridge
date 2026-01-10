@@ -12,6 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 alpen-bridge-params.workspace = true
+libp2p-identity = { workspace = true, features = ["ed25519"] }
 strata-bridge-common.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-primitives.workspace = true
@@ -19,6 +20,7 @@ strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark.workspace = true
 strata-bridge-rpc = { workspace = true, features = ["client"] }
 strata-bridge-tx-graph.workspace = true
+strata-key-derivation.workspace = true
 
 alloy.workspace = true
 alloy-signer.workspace = true
