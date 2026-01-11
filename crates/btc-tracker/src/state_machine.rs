@@ -5,6 +5,7 @@ use std::{
 };
 
 use bitcoin::{Block, BlockHash, Transaction, Txid};
+use bitcoin::block::Bip34Error;
 use bitcoincore_zmq::SequenceMessage;
 use tracing::{debug, error, info, trace, warn};
 
@@ -54,9 +55,10 @@ pub(crate) struct BtcNotifySM {
     /// also have that blockhash as well.
     tx_lifecycles: BTreeMap<Txid, Option<TxLifecycle>>,
 
-    // The list of unburied blocks in a queue where the front is the newest block and the
-    // back is the oldest "unburied" block
-    unburied_blocks: VecDeque<Block>,
+    /// The tree of unburied blocks in a table (vector of vectors) where in inner vectors
+    /// the front is the newest block and the back is the oldest "unburied" block.
+    /// This is a block tree.
+    unburied_blocks: Vec<VecDeque<Block>>,
 }
 
 // Coverage is disabled because when tests pass, most Debug impls will never be invoked.
@@ -102,7 +104,7 @@ impl BtcNotifySM {
     /// considered Buried. It additionally takes a queue of unburied blocks to initialize the state
     /// machine with. The length of this queue is assumed to be equal to the `bury_depth`, or less
     /// if the entire chain is unburied.
-    pub(crate) fn init(bury_depth: usize, unburied_blocks: VecDeque<Block>) -> Self {
+    pub(crate) fn init(bury_depth: usize, unburied_blocks: Vec<VecDeque<Block>>) -> Self {
         info!(%bury_depth, "initializing ZMQ state machine");
         BtcNotifySM {
             bury_depth,
@@ -130,7 +132,7 @@ impl BtcNotifySM {
     }
 
     /// One of the three primary state transition functions of the [`BtcNotifySM`], updating
-    /// internal state to reflect the the `rawblock` event.
+    /// internal state to reflect the `rawblock` event.
     pub(crate) fn process_block(&mut self, block: Block) -> (Vec<TxEvent>, Option<BlockEvent>) {
         let block_height_string = block
             .bip34_block_height()
@@ -138,33 +140,127 @@ impl BtcNotifySM {
         info!(block_height=%block_height_string, block_hash=%block.block_hash(), "processing block");
         trace!(?block, "started processing a block");
 
-        match self.unburied_blocks.front() {
-            Some(tip) => {
-                if block.header.prev_blockhash == tip.block_hash() {
-                    self.unburied_blocks.push_front(block)
-                } else {
-                    // This implies that we missed a block.
-                    //
-                    // TODO(proofofkeags): It's also possible that race conditions in the concurrent
-                    // stream processing would cause this to fire during a
-                    // reorg. Race conditions MUST NOT cause this to fire. This MUST
-                    // be fixed.
-                    trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
-                    warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
-                    debug_assert!(false, "block's previous block hash does not match the tip");
-                }
-            }
-            // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup
-            // time This is due to the fact that we don't have a full bury depth of
-            // history. Fixing this requires us to backfill the block history at startup
-            // using the RPC interface, or accepting the blocks newer than the
-            // bury depth as an argument to the constructor.
-            None => {
-                trace!(?block, "no tip found, adding block to unburied blocks");
-                self.unburied_blocks.push_front(block);
+        let mut branch_searching = true;
+        let mut blocks_to_add: VecDeque<Block>; //can make this Vec and iterate in reverse order later
+        blocks_to_add.push_front(block);
+        let mut branch_position: i32;
+
+        // I'm sure there's a better way to code this
+        let mut base_height = 0;
+        if self.unburied_blocks[0].len() > 1 {
+            match self.unburied_blocks[0][0].bip34_block_height() {
+                Ok(height) => base_height = height,
+                _ => {}
             }
         }
-        let block = self.unburied_blocks.front().unwrap();
+
+        // I'm sure there's a better way to code this
+        //
+        // this is expected to be smaller than bury_depth only when restarts
+        let distance_to_burial = match block.bip34_block_height() {
+            Ok(height) => {
+                if base_height == 0 {
+                    // this means that we have no previous blocks, and we just end up adding this block
+                    1
+                } else {
+                    height as usize - base_height + 1
+                }
+            },
+            _ => self.bury_depth,
+        };
+
+        // if the block is far ahead than the current tip, stop and sync
+        if distance_to_burial > self.bury_depth {
+            // TODO(barakshani): need to implement some proper sync
+            // return
+        }
+        let mut steps = distance_to_burial;
+
+        // start from the given block and walk backwards until we find the proper branch, if exists
+        while branch_searching && (steps >= 1) {
+            // should be safe to unwrap, though perhaps better impl. could be found
+            let mut cur_block = blocks_to_add.back().unwrap_or(&block);
+
+            // for now assume we (always) initialize unburied_blocks with one branch
+            let mut position = 0;
+            for mut tree_branch in self.unburied_blocks {
+                match tree_branch.front() {
+                    Some(tip) => {
+                        // note:
+                        // 1. we can probably compare heights, but I don't see a good enough reason
+                        // 2. we always compare to tip, so if the new block forks a branch, we will
+                        // end up fetching the entire branch -- perhaps worth optimising later
+                        if cur_block.header.prev_blockhash == tip.block_hash() {
+                            tree_branch.push_front(block);
+                            branch_searching = false;
+                            break
+                        }
+                    }
+                    // This can only happen if we have a single branch.
+                    //
+                    // TODO(proofofkeags): fix the problem where we can't notice reorgs close to startup
+                    // time This is due to the fact that we don't have a full bury depth of
+                    // history. Fixing this requires us to backfill the block history at startup
+                    // using the RPC interface, or accepting the blocks newer than the
+                    // bury depth as an argument to the constructor.
+                    None => {
+                        trace!(?block, "no tip found, adding block to unburied blocks");
+                        tree_branch.push_front(block);
+                        branch_searching = false;
+                    }
+                }
+                // branch not found, recording next branch
+                position += 1;
+            }
+            if branch_searching {
+                // This implies that we missed a block.
+                //
+                // TODO(proofofkeags): It's also possible that race conditions in the concurrent
+                // stream processing would cause this to fire during a
+                // reorg. Race conditions MUST NOT cause this to fire. This MUST
+                // be fixed.
+                //trace!(?block, prev_block=?tip, "block's previous block hash does not match the tip");
+                //warn!(block_hash=%block.block_hash(), prev_block_hash=%tip.block_hash(), "block's previous block hash does not match the tip, possible reorg detected");
+                debug_assert!(false, "block's previous block hash does not match the tip");
+
+                // parent of cur_block isn't in our tree, fetch it as next block
+                // TODO(barakshani): prev_block = get_parent(cur_block); impl get_parent
+                let prev_block = block; //hack
+                blocks_to_add.push_back(prev_block);
+            } else {
+                // branch found, set position; pop added block from list
+                branch_position = position;
+                blocks_to_add.pop_back();
+                // break and remove `branch_searching` from while?
+                // then can also set branch_position at the end of the loop
+            }
+            steps -= 1;
+        }
+        let blocks_len = blocks_to_add.len();
+        // the normal case is len=0; otherwise we need to add the blocks to the proper branch
+        if blocks_len > 0 {
+            if blocks_len > distance_to_burial {
+                //if block.bip34_block_height().is_err() {
+                    //FIXME(barakshani): we started with unknown block height and did not find a parent
+                //}
+                // actually this is concerning by itself, regardless of `is_err`
+            } else if blocks_len == distance_to_burial {
+                // a new branch in the tree
+                //let branches = self.unburied_blocks.len();
+                //self.unburied_blocks[branches] = blocks_to_add;
+                self.unburied_blocks.push(blocks_to_add);
+            } else {
+                // can probably concat somehow / hope this is in the right order :)
+                for block in blocks_to_add {
+                    self.unburied_blocks[branch_position].push_front(block);
+                }
+            }
+        }
+
+
+
+        // this was the original block, given as func argument, not sure why it was declared again
+        // let block = self.unburied_blocks.front().unwrap();
 
         // Now we allocate a Vec will collect the net-new transaction states that need to be
         // distributed.
@@ -229,8 +325,8 @@ impl BtcNotifySM {
             }
         }
 
-        let block_event = if self.unburied_blocks.len() > self.bury_depth {
-            if let Some(newly_buried) = self.unburied_blocks.pop_back() {
+        let block_event = if self.unburied_blocks[branch_position].len() > self.bury_depth {
+            if let Some(newly_buried) = self.unburied_blocks[branch_position].pop_back() {
                 // Now that we've handled the Mined transitions. We can take the oldest block we are
                 // still tracking and declare all of its relevant transactions
                 // buried, and then finally we can clear the buried transactions
@@ -261,6 +357,24 @@ impl BtcNotifySM {
                 })
             } else {
                 unreachable!("unburied blocks will successfully pop back at lengths > 0");
+            }
+
+            // this code scope is part of a `let block_event = ` clause that is already satisfied (block_event has value)
+            // what is expected to happen with the next lines then?
+
+            // need to remove the lowest block from all branches
+            // defensive: don't even try it we only have one branch
+            if self.unburied_blocks.len() > 1 {
+                for position in 0..self.unburied_blocks.len() {
+                    // check we haven't done so just now
+                    if position != branch_position {
+                        self.unburied_blocks[position].pop_back();
+                        // remove branch if nullified
+                        if self.unburied_blocks[position].len() == 0 {
+                            self.unburied_blocks.remove(position);
+                        }
+                    }
+                }
             }
         } else {
             None
@@ -344,15 +458,27 @@ impl BtcNotifySM {
                 // blockhash as their containing block.
                 trace!(?diff, ?seq, "BlockDisconnect received");
                 debug!(?seq, %blockhash, "BlockDisconnect received");
-                let blk_evt = if let Some(block) = self.unburied_blocks.front() {
-                    if block.block_hash() == blockhash {
-                        info!(%blockhash, "block disconnected, removing all included transactions");
-                        let block = self.unburied_blocks.pop_front().unwrap();
-                        Some(BlockEvent {
-                            block,
-                            status: BlockStatus::Uncled,
-                        })
-                    } else {
+                let mut blk_evt;
+                // why let blk_evt= { code-below} does not work for me?
+
+                // as above, for now we assume unburied_blocks[0] is always initialized
+                if let Some(block) = self.unburied_blocks[0].front() {
+                    let mut block_found = false;
+                    for mut tree_branch in self.unburied_blocks {
+                        if block.block_hash() == blockhash {
+                            info!(%blockhash, "block disconnected, removing all included transactions");
+                            let block = tree_branch.pop_front().unwrap();
+                                blk_evt = Some(BlockEvent {
+                                block,
+                                status: BlockStatus::Uncled,
+                            });
+                            block_found = true;
+                        }
+                    }
+                    if !block_found {
+                        // Note(barakshani): this assumes that we must have had the block we are
+                        // disconnecting -- I don't know if it's a reasonable assumption
+
                         // As far as I can tell, the block connect and disconnect events are done in
                         // "stack order". This means that block connects
                         // happen in chronological order and disconnects happen in reverse
@@ -363,10 +489,10 @@ impl BtcNotifySM {
                         panic!("invariant violated: out of order block disconnect");
                     }
                 } else {
-                    None
+                    blk_evt = None
                 };
 
-                // Clear out all of the transactions we are tracking that were bound to the
+                // Clear out all the transactions we are tracking that were bound to the
                 // disconnected block.
                 self.tx_lifecycles.retain(|_, v| {
                     match v {
@@ -713,7 +839,7 @@ mod prop_tests {
         // transition functions all match the predicate we added. (Consistency)
         #[test]
         fn only_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(BIP34_MIN_HEIGHT, Hash::all_zeros())) {
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm.add_filter(pred.pred.clone());
             let (diff, _block_event) = sm.process_block(block);
             for event in diff.iter() {
@@ -725,7 +851,7 @@ mod prop_tests {
         // appear in the diffs generated by the BtcNotifySM. (Completeness)
         #[test]
         fn all_matched_transactions_in_diffs(pred in arb_predicate(), block in arb_block(BIP34_MIN_HEIGHT, Hash::all_zeros())) {
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm.add_filter(pred.pred.clone());
             let (diff, _block_event) = sm.process_block(block.clone());
             prop_assert_eq!(diff.len(), block.txdata.iter().filter(|tx| (pred.pred)(tx)).count())
@@ -736,7 +862,7 @@ mod prop_tests {
         // This serves as an important base case to ensure the uniqueness of events
         #[test]
         fn lone_process_tx_yields_empty_diff(tx in arb_transaction()) {
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm.add_filter(std::sync::Arc::new(|_|true));
             let diff = sm.process_tx(tx);
             prop_assert_eq!(diff, Vec::new());
@@ -750,7 +876,7 @@ mod prop_tests {
             let txid = tx.compute_txid();
             let mempool_sequence = 0u64;
 
-            let mut sm1 = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm1 = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm1.add_filter(std::sync::Arc::new(|_|true));
 
             let diff_tx_1 = sm1.process_tx(tx.clone());
@@ -760,7 +886,7 @@ mod prop_tests {
             let diff_seq_1_set = BTreeSet::from_iter(diff_seq_1.0.into_iter());
             let diff_1 = diff_tx_1_set.union(&diff_seq_1_set).cloned().collect::<BTreeSet<TxEvent>>();
 
-            let mut sm2 = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm2 = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm2.add_filter(std::sync::Arc::new(|_|true));
 
             let diff_seq_2 = sm2.process_sequence(SequenceMessage::MempoolAcceptance{ txid, mempool_sequence });
@@ -782,7 +908,7 @@ mod prop_tests {
         ) {
             let blockhash = block.block_hash();
 
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm.add_filter(pred.pred);
             let (diff_mined, _block_event) = sm.process_block(block);
             let is_mined = |s: &TxStatus| matches!(s, TxStatus::Mined{..});
@@ -796,7 +922,7 @@ mod prop_tests {
         // Buried event for every transaction in that block.
         #[test]
         fn transactions_eventually_buried(mut chain in arb_chain(17, Hash::all_zeros(), 7)) {
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm.add_filter(std::sync::Arc::new(|_|true));
 
             let oldest = chain.pop_back().unwrap();
@@ -821,7 +947,7 @@ mod prop_tests {
         // (seq-tx Completeness)
         #[test]
         fn seq_and_tx_make_mempool(tx in arb_transaction()) {
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
 
             sm.add_filter(Arc::new(|_|true));
 
@@ -836,8 +962,8 @@ mod prop_tests {
         // (filter Invertibility)
         #[test]
         fn filter_rm_inverts_add(pred in arb_predicate()) {
-            let sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
-            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
+            let mut sm = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
 
             sm.add_filter(pred.pred.clone());
             sm.rm_filter(&pred.pred);
@@ -849,7 +975,7 @@ mod prop_tests {
         // MempoolAcceptance, even if there is an interceding `rawtx` event. (Mempool Invertibility)
         #[test]
         fn mempool_removal_inverts_acceptance(tx in arb_transaction(), include_raw in any::<bool>()) {
-            let mut sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm_ref.add_filter(Arc::new(|_|true));
             let mut sm = sm_ref.clone();
 
@@ -871,7 +997,7 @@ mod prop_tests {
             sequence_only in any::<bool>(),
             mut chain in arb_chain(17, Hash::all_zeros(), 2),
         ) {
-            let mut sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm_ref.add_filter(Arc::new(|_|true));
 
             // To ensure that we have a more interesting state machine than just the block we want
@@ -906,7 +1032,7 @@ mod prop_tests {
         // `rawblock` event. (block-tx Idempotence)
         #[test]
         fn tx_after_block_idempotence(block in arb_block(BIP34_MIN_HEIGHT, Hash::all_zeros())) {
-            let mut sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm_ref = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm_ref.add_filter(Arc::new(|_|true));
             sm_ref.process_block(block.clone());
             let mut sm = sm_ref.clone();
@@ -921,7 +1047,7 @@ mod prop_tests {
         // `rawblock` and its accompanying rawtx events. (tx-block Commutativity)
         #[test]
         fn tx_block_commutativity(block in arb_block(BIP34_MIN_HEIGHT, Hash::all_zeros())) {
-            let mut sm_base = BtcNotifySM::init(DEFAULT_BURY_DEPTH, VecDeque::new());
+            let mut sm_base = BtcNotifySM::init(DEFAULT_BURY_DEPTH, vec![VecDeque::new();1]);
             sm_base.add_filter(Arc::new(|_|true));
             let mut sm_block_first = sm_base.clone();
             let mut sm_tx_first = sm_base;
