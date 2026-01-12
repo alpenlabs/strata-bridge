@@ -9905,6 +9905,7 @@ dependencies = [
  "strata-crypto",
  "strata-l1-txfmt",
  "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=a97d9d322d032e0129fc52418082ecc096ea2378)",
+ "tokio",
  "tracing",
 ]
 

@@ -472,3 +472,299 @@ fn sequence_result_array<T, E, const N: usize>(arr: [Result<T, E>; N]) -> Result
         Err(_) => unreachable!("array size is known at compile time"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::LazyLock;
+
+    use super::*;
+
+    const N_WATCHTOWERS: usize = 10;
+    const PACKED_LEN: usize = packed_len(N_WATCHTOWERS);
+
+    const fn packed_len(n_watchtowers: usize) -> usize {
+        UncontestedPayoutTx::N_INPUTS
+            + ContestTx::N_INPUTS * n_watchtowers
+            + BridgeProofTimeoutTx::N_INPUTS
+            + CounterproofTx::N_INPUTS * n_watchtowers
+            + CounterproofAckTx::N_INPUTS * n_watchtowers
+            + ContestedPayoutTx::N_INPUTS
+            + SlashTx::N_INPUTS
+    }
+
+    #[test]
+    fn unpack_too_short() {
+        let too_short: Vec<i32> = (0..PACKED_LEN - 1).map(|i| i as i32).collect();
+        assert!(MusigFunctor::<i32>::unpack(too_short, N_WATCHTOWERS).is_none());
+    }
+
+    #[test]
+    fn unpack_pack_roundtrip() {
+        let packed: Vec<i32> = (0..PACKED_LEN).map(|i| i as i32).collect();
+        let functor = MusigFunctor::unpack(packed.clone(), N_WATCHTOWERS).expect("enough data");
+        assert_eq!(packed, functor.pack());
+    }
+
+    fn get_functor(start: usize) -> MusigFunctor<i32> {
+        let packed: Vec<i32> = (start..start + PACKED_LEN).map(|i| i as i32).collect();
+        MusigFunctor::unpack(packed, N_WATCHTOWERS).expect("enough data")
+    }
+
+    static A: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(0));
+    static B: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN));
+    static C: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 2));
+    static D: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 3));
+    static E: LazyLock<MusigFunctor<i32>> = LazyLock::new(|| get_functor(PACKED_LEN * 4));
+
+    #[test]
+    fn as_ref_cloned_roundtrip() {
+        let as_ref = A.as_ref();
+        let cloned = as_ref.cloned();
+        assert_eq!(*A, cloned);
+    }
+
+    #[test]
+    fn map_back_roundtrip() {
+        assert_eq!(*A, A.as_ref().map(|x| -x).map(|x| -x));
+    }
+
+    #[test]
+    fn zip_unzip_roundtrip() {
+        let (a_prime, b_prime) = A.clone().zip(B.clone()).unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+    }
+
+    #[test]
+    fn zip3_unzip_roundtrip() {
+        let (ab_prime, c_prime) = MusigFunctor::zip3(A.clone(), B.clone(), C.clone())
+            .map(|(a, b, c)| ((a, b), c))
+            .unzip();
+        let (a_prime, b_prime) = ab_prime.unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+        assert_eq!(*C, c_prime);
+    }
+
+    #[test]
+    fn zip4_unzip_roundtrip() {
+        let (ab_prime, cd_prime) = MusigFunctor::zip4(A.clone(), B.clone(), C.clone(), D.clone())
+            .map(|(a, b, c, d)| ((a, b), (c, d)))
+            .unzip();
+        let (a_prime, b_prime) = ab_prime.unzip();
+        let (c_prime, d_prime) = cd_prime.unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+        assert_eq!(*C, c_prime);
+        assert_eq!(*D, d_prime);
+    }
+
+    #[test]
+    fn zip5_unzip_roundtrip() {
+        let (abcd_prime, e_prime) =
+            MusigFunctor::zip5(A.clone(), B.clone(), C.clone(), D.clone(), E.clone())
+                .map(|(a, b, c, d, e)| (((a, b), (c, d)), e))
+                .unzip();
+        let (ab_prime, cd_prime) = abcd_prime.unzip();
+        let (a_prime, b_prime) = ab_prime.unzip();
+        let (c_prime, d_prime) = cd_prime.unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+        assert_eq!(*C, c_prime);
+        assert_eq!(*D, d_prime);
+        assert_eq!(*E, e_prime);
+    }
+
+    #[test]
+    fn zip_apply_roundtrip() {
+        let f = MusigFunctor::unpack(
+            (0..PACKED_LEN)
+                .map(|i| {
+                    if i % 2 == 0 {
+                        (|x| x * 2) as fn(i32) -> i32
+                    } else {
+                        (|x| x * -2) as fn(i32) -> i32
+                    }
+                })
+                .collect(),
+            N_WATCHTOWERS,
+        )
+        .expect("enough data");
+        let inverse_f = MusigFunctor::unpack(
+            (0..PACKED_LEN)
+                .map(|i| {
+                    if i % 2 == 0 {
+                        (|x| x / 2) as fn(i32) -> i32
+                    } else {
+                        (|x| x / -2) as fn(i32) -> i32
+                    }
+                })
+                .collect(),
+            N_WATCHTOWERS,
+        )
+        .expect("enough data");
+
+        let a_applied = MusigFunctor::zip_apply(f, A.clone());
+        let a_prime = MusigFunctor::zip_apply(inverse_f, a_applied);
+        assert_eq!(*A, a_prime);
+    }
+
+    #[test]
+    fn zip_with_roundtrip() {
+        let (a_prime, b_prime) =
+            MusigFunctor::zip_with(|a, b| (a, b), A.clone(), B.clone()).unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+    }
+
+    #[test]
+    fn zip_with_3_roundtrip() {
+        let (ab_prime, c_prime) =
+            MusigFunctor::zip_with_3(|a, b, c| ((a, b), c), A.clone(), B.clone(), C.clone())
+                .unzip();
+        let (a_prime, b_prime) = ab_prime.unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+        assert_eq!(*C, c_prime);
+    }
+
+    #[test]
+    fn zip_with_4_roundtrip() {
+        let (ab_prime, cd_prime) = MusigFunctor::zip_with_4(
+            |a, b, c, d| ((a, b), (c, d)),
+            A.clone(),
+            B.clone(),
+            C.clone(),
+            D.clone(),
+        )
+        .unzip();
+        let (a_prime, b_prime) = ab_prime.unzip();
+        let (c_prime, d_prime) = cd_prime.unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+        assert_eq!(*C, c_prime);
+        assert_eq!(*D, d_prime);
+    }
+
+    #[test]
+    fn zip_with_5_roundtrip() {
+        let (abcd_prime, e_prime) = MusigFunctor::zip_with_5(
+            |a, b, c, d, e| (((a, b), (c, d)), e),
+            A.clone(),
+            B.clone(),
+            C.clone(),
+            D.clone(),
+            E.clone(),
+        )
+        .unzip();
+        let (ab_prime, cd_prime) = abcd_prime.unzip();
+        let (a_prime, b_prime) = ab_prime.unzip();
+        let (c_prime, d_prime) = cd_prime.unzip();
+        assert_eq!(*A, a_prime);
+        assert_eq!(*B, b_prime);
+        assert_eq!(*C, c_prime);
+        assert_eq!(*D, d_prime);
+        assert_eq!(*E, e_prime);
+    }
+
+    #[test]
+    fn sequence_option_none() {
+        let mut has_none = vec![Some(0); PACKED_LEN - 1];
+        has_none.push(None);
+        let has_none = MusigFunctor::unpack(has_none, N_WATCHTOWERS).expect("enough data");
+        assert!(MusigFunctor::sequence_option(has_none).is_none());
+    }
+
+    #[test]
+    fn sequence_option_some() {
+        let mut all_some = vec![Some(0); PACKED_LEN];
+        all_some.push(None);
+        let all_some = MusigFunctor::unpack(all_some, N_WATCHTOWERS).expect("enough data");
+        assert!(MusigFunctor::sequence_option(all_some).is_some());
+    }
+
+    #[test]
+    fn sequence_result_err() {
+        let mut has_err = vec![Ok(0); PACKED_LEN - 2];
+        has_err.push(Err(0));
+        has_err.push(Err(1));
+        let has_err = MusigFunctor::unpack(has_err, N_WATCHTOWERS).expect("enough data");
+        assert_eq!(MusigFunctor::sequence_result(has_err), Err(0));
+    }
+
+    #[test]
+    fn sequence_result_ok() {
+        let mut all_ok = vec![Result::<u32, u32>::Ok(0); PACKED_LEN];
+        all_ok.push(Ok(0));
+        let all_ok = MusigFunctor::unpack(all_ok, N_WATCHTOWERS).expect("enough data");
+        assert!(MusigFunctor::sequence_result(all_ok).is_ok());
+    }
+
+    #[test]
+    fn sequence_musig_functor() {
+        let abc_prime = MusigFunctor::sequence_musig_functor(vec![A.clone(), B.clone(), C.clone()]);
+        let abc_packed: Vec<Vec<i32>> = A
+            .clone()
+            .pack()
+            .into_iter()
+            .zip(B.clone().pack())
+            .zip(C.clone().pack())
+            .map(|((a, b), c)| vec![a, b, c])
+            .collect();
+        let abc = MusigFunctor::unpack(abc_packed, N_WATCHTOWERS).expect("enough data");
+        assert_eq!(abc_prime, abc);
+    }
+
+    #[test]
+    fn semigroup_merge_elementwise() {
+        // Vec<T> is a Semigroup that concatenates elements
+        let a: MusigFunctor<Vec<i32>> = A.as_ref().map(|&x| vec![x]);
+        let b: MusigFunctor<Vec<i32>> = B.as_ref().map(|&x| vec![x]);
+        let merged = a.clone().merge(b.clone());
+
+        let expected: MusigFunctor<Vec<i32>> =
+            MusigFunctor::zip_with(|a_vec, b_vec| [a_vec, b_vec].concat(), a, b);
+
+        assert_eq!(merged, expected);
+    }
+
+    #[test]
+    fn semigroup_merge_associative() {
+        // Test associativity: (A merge B) merge C == A merge (B merge C)
+        let a: MusigFunctor<Vec<i32>> = A.as_ref().map(|&x| vec![x]);
+        let b: MusigFunctor<Vec<i32>> = B.as_ref().map(|&x| vec![x]);
+        let c: MusigFunctor<Vec<i32>> = C.as_ref().map(|&x| vec![x]);
+
+        let lhs = a.clone().merge(b.clone()).merge(c.clone());
+        let rhs = a.clone().merge(b.clone().merge(c.clone()));
+
+        assert_eq!(lhs, rhs);
+    }
+
+    #[tokio::test]
+    async fn join_all_resolves_futures() {
+        use std::future::ready;
+
+        // Create a MusigFunctor of ready futures
+        let functor_of_futures: MusigFunctor<_> = A.as_ref().map(|&x| ready(x * 2));
+
+        let result = functor_of_futures.join_all(N_WATCHTOWERS).await;
+
+        // Each element should be doubled
+        let expected = A.as_ref().map(|&x| x * 2);
+        assert_eq!(result, expected);
+    }
+
+    #[tokio::test]
+    async fn join_all_preserves_structure() {
+        use std::future::ready;
+
+        // Create futures that return different values based on position
+        let functor_of_futures: MusigFunctor<_> = A.as_ref().map(|&x| ready(x));
+
+        let result = functor_of_futures.join_all(N_WATCHTOWERS).await;
+
+        // Result should match the original values
+        assert_eq!(result, *A);
+    }
+}
