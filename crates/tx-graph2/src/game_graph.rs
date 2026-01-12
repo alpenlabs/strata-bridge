@@ -145,16 +145,12 @@ pub struct CounterproofGraph {
 pub struct GameGraphSummary {
     /// ID of the claim transaction.
     pub claim: Txid,
-    /// ID of the uncontested payout transaction.
-    pub uncontested_payout: Txid,
     /// ID of the contest transaction.
     pub contest: Txid,
     /// ID of the bridge proof timeout transaction.
     pub bridge_proof_timeout: Txid,
     /// Summary of the counterproof graph of each watchtower.
     pub counterproofs: Vec<CounterproofGraphSummary>,
-    /// ID of the contested payout transaction.
-    pub contested_payout: Txid,
     /// ID of the slash transaction.
     pub slash: Txid,
 }
@@ -369,7 +365,6 @@ impl GameGraph {
     pub fn summarize(&self) -> GameGraphSummary {
         GameGraphSummary {
             claim: self.claim.as_ref().compute_txid(),
-            uncontested_payout: self.uncontested_payout.as_ref().compute_txid(),
             contest: self.contest.as_ref().compute_txid(),
             bridge_proof_timeout: self.bridge_proof_timeout.as_ref().compute_txid(),
             counterproofs: self
@@ -377,7 +372,6 @@ impl GameGraph {
                 .iter()
                 .map(CounterproofGraph::summarize)
                 .collect(),
-            contested_payout: self.contested_payout.as_ref().compute_txid(),
             slash: self.slash.as_ref().compute_txid(),
         }
     }
