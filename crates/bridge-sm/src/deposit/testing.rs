@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use bitcoin::OutPoint;
+use bitcoin::{Amount, Network, OutPoint};
 use bitcoin_bosd::Descriptor;
 use musig2::secp256k1::schnorr::Signature;
 use proptest::prelude::*;
@@ -53,6 +53,8 @@ pub fn test_cfg() -> DepositCfg {
         deposit_idx: 0,
         deposit_outpoint: OutPoint::default(),
         operator_table: test_operator_table(),
+        network: Network::Regtest,
+        deposit_amount: Amount::from_sat(10_000_000),
     }
 }
 

@@ -6,18 +6,21 @@
 
 use std::{collections::BTreeMap, fmt::Display};
 
-use bitcoin::{OutPoint, Transaction, Txid, hashes::Hash};
+use bitcoin::{Amount, Network, OutPoint, Transaction, Txid, hashes::Hash};
 use bitcoin_bosd::Descriptor;
-use musig2::{
-    AggNonce, PartialSignature, PubNonce,
-    secp256k1::{Message, schnorr::Signature},
-    verify_partial,
-};
+use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature, verify_partial};
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
     operator_table::OperatorTable,
-    scripts::prelude::TaprootWitness,
+    scripts::prelude::{TaprootWitness, get_aggregated_pubkey},
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
+};
+use strata_bridge_tx_graph2::{
+    connectors::prelude::NOfNConnector,
+    transactions::{
+        PresignedTx,
+        prelude::{CooperativePayoutData, CooperativePayoutTx},
+    },
 };
 
 use crate::{
@@ -48,6 +51,10 @@ pub struct DepositCfg {
     pub(super) deposit_outpoint: OutPoint,
     /// The operators involved in the signing of this deposit.
     pub(super) operator_table: OperatorTable,
+    /// The network (mainnet, testnet, regtest, etc.) for the deposit.
+    pub(super) network: Network,
+    /// The amount of the deposit.
+    pub(super) deposit_amount: Amount,
 }
 
 /// The state of a Deposit.
@@ -568,11 +575,30 @@ impl DepositSM {
                     });
                 }
 
-                // TODO: (@mukeshdroid) Generate the sighash of the cooperative payout transaction.
-                // For now, using a placeholder message.
-                let message = Message::from_digest([0u8; 32]);
+                // Construct the N-of-N aggregated pubkey from the operator table
+                let n_of_n_pubkey = get_aggregated_pubkey(self.cfg.operator_table.btc_keys());
 
-                // Generate the key_agg_ctx using the operator table
+                // Construct the deposit connector for the cooperative payout transaction
+                let deposit_connector =
+                    NOfNConnector::new(self.cfg.network, n_of_n_pubkey, self.cfg.deposit_amount);
+
+                // Construct the cooperative payout transaction
+                let coop_payout_data = CooperativePayoutData {
+                    deposit_outpoint: self.cfg.deposit_outpoint,
+                };
+                let coop_payout_tx = CooperativePayoutTx::new(
+                    coop_payout_data,
+                    deposit_connector,
+                    operator_desc.clone(),
+                );
+
+                // Get the sighash for signature verification
+                let signing_info = coop_payout_tx.signing_info();
+                let message = signing_info[0].sighash;
+
+                // Generate the key_agg_ctx using the operator table.
+                // NOfNConnector uses key-path spend with no script tree, so we use
+                // TaprootWitness::Key which applies with_unspendable_taproot_tweak()
                 let key_agg_ctx =
                     create_agg_ctx(self.cfg.operator_table.btc_keys(), &TaprootWitness::Key)
                         .expect("must be able to create key aggregation context");
