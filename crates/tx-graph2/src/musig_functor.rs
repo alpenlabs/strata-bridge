@@ -24,9 +24,6 @@ use crate::transactions::{
 /// transactions are not included, because they are not presigned.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MusigFunctor<T> {
-    /// Data for each input of the uncontested payout transaction.
-    pub uncontested_payout: [T; UncontestedPayoutTx::N_INPUTS],
-
     /// For each contesting watchtower, data for the single contest transaction input.
     pub contest: Vec<T>,
 
@@ -44,6 +41,9 @@ pub struct MusigFunctor<T> {
 
     /// Data for each input of the slash transaction.
     pub slash: [T; SlashTx::N_INPUTS],
+
+    /// Data for each input of the uncontested payout transaction.
+    pub uncontested_payout: [T; UncontestedPayoutTx::N_INPUTS],
 }
 
 impl<A> MusigFunctor<A> {
@@ -52,18 +52,15 @@ impl<A> MusigFunctor<A> {
         debug_assert_eq!(self.contest.len(), self.counterproofs.len());
         debug_assert_eq!(self.contest.len(), self.counterproof_acks.len());
 
-        let total_len = UncontestedPayoutTx::N_INPUTS
-            + ContestTx::N_INPUTS * self.contest.len()
+        let total_len = ContestTx::N_INPUTS * self.contest.len()
             + BridgeProofTimeoutTx::N_INPUTS
             + CounterproofTx::N_INPUTS * self.contest.len()
             + CounterproofAckTx::N_INPUTS * self.contest.len()
             + ContestedPayoutTx::N_INPUTS
-            + SlashTx::N_INPUTS;
+            + SlashTx::N_INPUTS
+            + UncontestedPayoutTx::N_INPUTS;
 
-        // TODO: (@uncomputable): ensure that this is the correct canonical ordering for stuff in
-        // the graph as it is sent over the wire in the p2p message.
         let mut packed = Vec::with_capacity(total_len);
-        packed.extend(self.uncontested_payout);
         packed.extend(self.contest);
         packed.extend(self.bridge_proof_timeout);
         packed.extend(self.counterproofs);
@@ -72,6 +69,7 @@ impl<A> MusigFunctor<A> {
         }
         packed.extend(self.contested_payout);
         packed.extend(self.slash);
+        packed.extend(self.uncontested_payout);
         debug_assert_eq!(packed.len(), total_len);
 
         packed
@@ -83,8 +81,6 @@ impl<A> MusigFunctor<A> {
     pub fn unpack(graph_vec: Vec<A>, n_watchtowers: usize) -> Option<MusigFunctor<A>> {
         let mut cursor = graph_vec.into_iter();
         let cursor = cursor.by_ref();
-
-        let uncontested_payout = take_array(cursor)?;
 
         let mut contest = Vec::with_capacity(n_watchtowers);
         for _ in 0..n_watchtowers {
@@ -106,21 +102,22 @@ impl<A> MusigFunctor<A> {
         let contested_payout = take_array(cursor)?;
         let slash = take_array(cursor)?;
 
+        let uncontested_payout = take_array(cursor)?;
+
         Some(MusigFunctor {
-            uncontested_payout,
             contest,
             bridge_proof_timeout,
             counterproofs,
             counterproof_acks,
             contested_payout,
             slash,
+            uncontested_payout,
         })
     }
 
     /// Returns references to the data.
     pub fn as_ref(&self) -> MusigFunctor<&A> {
         MusigFunctor {
-            uncontested_payout: self.uncontested_payout.each_ref(),
             contest: self.contest.iter().collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.each_ref(),
             counterproofs: self.counterproofs.iter().collect(),
@@ -131,13 +128,13 @@ impl<A> MusigFunctor<A> {
                 .collect(),
             contested_payout: self.contested_payout.each_ref(),
             slash: self.slash.each_ref(),
+            uncontested_payout: self.uncontested_payout.each_ref(),
         }
     }
 
     /// Maps the data to a new type.
     pub fn map<B>(self, mut f: impl FnMut(A) -> B) -> MusigFunctor<B> {
         MusigFunctor {
-            uncontested_payout: self.uncontested_payout.map(&mut f),
             contest: self.contest.into_iter().map(&mut f).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.map(&mut f),
             counterproofs: self.counterproofs.into_iter().map(&mut f).collect(),
@@ -148,13 +145,13 @@ impl<A> MusigFunctor<A> {
                 .collect(),
             contested_payout: self.contested_payout.map(&mut f),
             slash: self.slash.map(&mut f),
+            uncontested_payout: self.uncontested_payout.map(&mut f),
         }
     }
 
     /// Zips the data of two functors.
     pub fn zip<B>(self, other: MusigFunctor<B>) -> MusigFunctor<(A, B)> {
         MusigFunctor {
-            uncontested_payout: zip_arrays(self.uncontested_payout, other.uncontested_payout),
             contest: self.contest.into_iter().zip(other.contest).collect(),
             bridge_proof_timeout: zip_arrays(self.bridge_proof_timeout, other.bridge_proof_timeout),
             counterproofs: self
@@ -170,6 +167,7 @@ impl<A> MusigFunctor<A> {
                 .collect(),
             contested_payout: zip_arrays(self.contested_payout, other.contested_payout),
             slash: zip_arrays(self.slash, other.slash),
+            uncontested_payout: zip_arrays(self.uncontested_payout, other.uncontested_payout),
         }
     }
 
@@ -207,7 +205,6 @@ impl<A> MusigFunctor<A> {
     /// resulting in an functor of mapped data.
     pub fn zip_apply<O>(f: MusigFunctor<impl Fn(A) -> O>, a: MusigFunctor<A>) -> MusigFunctor<O> {
         MusigFunctor {
-            uncontested_payout: zip_apply_arrays(f.uncontested_payout, a.uncontested_payout),
             contest: f
                 .contest
                 .into_iter()
@@ -229,6 +226,7 @@ impl<A> MusigFunctor<A> {
                 .collect(),
             contested_payout: zip_apply_arrays(f.contested_payout, a.contested_payout),
             slash: zip_apply_arrays(f.slash, a.slash),
+            uncontested_payout: zip_apply_arrays(f.uncontested_payout, a.uncontested_payout),
         }
     }
 
@@ -282,7 +280,6 @@ impl<A> MusigFunctor<A> {
     /// returning `None` if any functor component is `None`.
     pub fn sequence_option(graph: MusigFunctor<Option<A>>) -> Option<MusigFunctor<A>> {
         Some(MusigFunctor {
-            uncontested_payout: sequence_option_array(graph.uncontested_payout)?,
             contest: graph.contest.into_iter().collect::<Option<Vec<_>>>()?,
             bridge_proof_timeout: sequence_option_array(graph.bridge_proof_timeout)?,
             counterproofs: graph
@@ -296,6 +293,7 @@ impl<A> MusigFunctor<A> {
                 .collect::<Option<Vec<_>>>()?,
             contested_payout: sequence_option_array(graph.contested_payout)?,
             slash: sequence_option_array(graph.slash)?,
+            uncontested_payout: sequence_option_array(graph.uncontested_payout)?,
         })
     }
 
@@ -305,7 +303,6 @@ impl<A> MusigFunctor<A> {
     /// The returned `Err` is the first one that was encountered.
     pub fn sequence_result<E>(graph: MusigFunctor<Result<A, E>>) -> Result<MusigFunctor<A>, E> {
         Ok(MusigFunctor {
-            uncontested_payout: sequence_result_array(graph.uncontested_payout)?,
             contest: graph.contest.into_iter().collect::<Result<Vec<_>, E>>()?,
             bridge_proof_timeout: sequence_result_array(graph.bridge_proof_timeout)?,
             counterproofs: graph
@@ -319,6 +316,7 @@ impl<A> MusigFunctor<A> {
                 .collect::<Result<Vec<_>, E>>()?,
             contested_payout: sequence_result_array(graph.contested_payout)?,
             slash: sequence_result_array(graph.slash)?,
+            uncontested_payout: sequence_result_array(graph.uncontested_payout)?,
         })
     }
 
@@ -338,7 +336,6 @@ impl<A> MusigFunctor<A> {
         // NOTE: (@uncomputable) We cannot use `Vec::with_capacity(graphs.len())`
         //                       because `T` doesn't implement `Default`.
         let init = MusigFunctor {
-            uncontested_payout: array::from_fn(|_| Vec::new()),
             contest: (0..n_watchtowers).map(|_| Vec::new()).collect(),
             bridge_proof_timeout: array::from_fn(|_| Vec::new()),
             counterproofs: (0..n_watchtowers).map(|_| Vec::new()).collect(),
@@ -347,6 +344,7 @@ impl<A> MusigFunctor<A> {
                 .collect(),
             contested_payout: array::from_fn(|_| Vec::new()),
             slash: array::from_fn(|_| Vec::new()),
+            uncontested_payout: array::from_fn(|_| Vec::new()),
         };
 
         graphs
@@ -366,7 +364,6 @@ impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
     /// Converts a functor of pairs into two functors of the respective components.
     pub fn unzip(self) -> (MusigFunctor<A>, MusigFunctor<B>) {
         let game_t = MusigFunctor {
-            uncontested_payout: self.uncontested_payout.clone().map(|(t, _)| t),
             contest: self.contest.iter().cloned().map(|(t, _)| t).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.clone().map(|(t, _)| t),
             counterproofs: self.counterproofs.iter().cloned().map(|(t, _)| t).collect(),
@@ -378,9 +375,9 @@ impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
                 .collect(),
             contested_payout: self.contested_payout.clone().map(|(t, _)| t),
             slash: self.slash.clone().map(|(t, _)| t),
+            uncontested_payout: self.uncontested_payout.clone().map(|(t, _)| t),
         };
         let game_u = MusigFunctor {
-            uncontested_payout: self.uncontested_payout.map(|(_, u)| u),
             contest: self.contest.into_iter().map(|(_, u)| u).collect(),
             bridge_proof_timeout: self.bridge_proof_timeout.map(|(_, u)| u),
             counterproofs: self.counterproofs.into_iter().map(|(_, u)| u).collect(),
@@ -391,6 +388,7 @@ impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
                 .collect(),
             contested_payout: self.contested_payout.map(|(_, u)| u),
             slash: self.slash.map(|(_, u)| u),
+            uncontested_payout: self.uncontested_payout.map(|(_, u)| u),
         };
 
         (game_t, game_u)
