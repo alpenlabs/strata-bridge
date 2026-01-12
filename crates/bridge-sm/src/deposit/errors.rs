@@ -23,6 +23,15 @@ pub enum DSMError {
         /// The index of the operator who submitted a duplicate.
         operator_idx: OperatorIdx,
     },
+
+    /// Partial signature verification failed for an operator.
+    #[error("Partial signature verification from operator {operator_idx} failed for {transaction}")]
+    PartialSignatureVerificationFailed {
+        /// The index of the operator whose partial signature failed verification.
+        operator_idx: OperatorIdx,
+        /// The transaction(s) for which the partial signature verification failed.
+        transaction: String,
+    },
 }
 
 /// The result type for operations in the Deposit State Machine.
