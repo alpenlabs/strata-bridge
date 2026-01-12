@@ -454,7 +454,7 @@ impl DepositSM {
             } => {
                 let assignee = *assignee; // reassign to get past the borrow-checker
 
-                // Check for `=` instead of just `>` to allow disabling cooperative payout by
+                // Check for `>=` instead of just `>` to allow disabling cooperative payout by
                 // setting this param to zero. This will come into effect after a 1-block delay
                 // (when the next block is observed).
                 let has_cooperative_payout_timed_out =
