@@ -7,11 +7,19 @@
 //! This module provides helpers and `Arbitrary` implementations for testing
 //! the DepositSM across multiple state transition functions.
 
+use std::collections::BTreeMap;
+
 use bitcoin::OutPoint;
+use bitcoin_bosd::Descriptor;
+use musig2::secp256k1::schnorr::Signature;
 use proptest::prelude::*;
 use secp256k1::{SECP256K1, SecretKey};
 use strata_bridge_primitives::{
     operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
+};
+use strata_bridge_test_utils::{
+    bitcoin::{generate_signature, generate_spending_tx, generate_txid, generate_xonly_pubkey},
+    musig2::{generate_agg_nonce, generate_partial_signature, generate_pubnonce},
 };
 use strata_p2p_types::P2POperatorPubKey;
 
@@ -32,6 +40,10 @@ pub const TEST_ASSIGNEE: OperatorIdx = 0;
 // TODO: (@Rajil1213) once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
 // due to a bug in rust-bitcoin (see <https://github.com/rust-bitcoin/rust-bitcoin/issues/4148>).
 const BIP34_MIN_BLOCK_HEIGHT: u64 = 17;
+/// Deadline offset (in blocks) used for tests.
+const TEST_DEADLINE_OFFSET: u64 = 15;
+/// Cooperative payout timelock (in blocks) used for tests.
+const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
 
 // ===== Configuration Helpers =====
 
@@ -95,17 +107,63 @@ impl Arbitrary for DepositState {
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
         let operator_idx = 0u32..3u32;
+        let outpoint = Just(OutPoint::default());
+        let block_height = (BIP34_MIN_BLOCK_HEIGHT as u32)..1000u32;
 
         prop_oneof![
             Just(DepositState::Created),
             Just(DepositState::GraphGenerated),
             Just(DepositState::DepositNoncesCollected),
-            Just(DepositState::DepositPartialsCollected),
-            Just(DepositState::Deposited),
-            Just(DepositState::Assigned),
-            Just(DepositState::Fulfilled),
-            Just(DepositState::PayoutNoncesCollected),
-            Just(DepositState::PayoutPartialsCollected),
+            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
+                DepositState::DepositPartialsCollected {
+                    block_height: height,
+                    output_index: 0,
+                    deposit_request_outpoint: outpoint,
+                    deposit_transaction: generate_spending_tx(outpoint, &[]),
+                    aggregated_signature: generate_signature(),
+                }
+            }),
+            block_height.clone().prop_map(|height| {
+                DepositState::Deposited {
+                    block_height: height,
+                }
+            }),
+            block_height.clone().prop_map(|height| {
+                DepositState::Assigned {
+                    block_height: height,
+                    assignee: TEST_ASSIGNEE,
+                    deadline: height as u64 + TEST_DEADLINE_OFFSET,
+                    recipient_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+                        .expect("Failed to generate a random descriptor"),
+                }
+            }),
+            block_height.clone().prop_map(|height| {
+                DepositState::Fulfilled {
+                    block_height: height,
+                    assignee: TEST_ASSIGNEE,
+                    fulfillment_txid: generate_txid(),
+                    fulfillment_block_height: height as u64,
+                    cooperative_payment_deadline: height as u64 + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
+                }
+            }),
+            block_height.clone().prop_map(|height| {
+                DepositState::PayoutNoncesCollected {
+                    block_height: height,
+                    assignee: TEST_ASSIGNEE,
+                    operator_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+                        .expect("Failed to generate a random descriptor"),
+                    cooperative_payment_deadline: height as u64 + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
+                    payout_aggregated_nonce: generate_agg_nonce(),
+                    payout_partial_signatures: BTreeMap::new(),
+                }
+            }),
+            block_height.clone().prop_map(|height| {
+                DepositState::PayoutPartialsCollected {
+                    block_height: height,
+                    payout_txid: generate_txid(),
+                    payout_aggregated_signature: generate_signature(),
+                }
+            }),
             Just(DepositState::CooperativePathFailed),
             Just(DepositState::Spent),
             Just(DepositState::Aborted),
@@ -119,15 +177,45 @@ impl Arbitrary for DepositEvent {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
+        let outpoint = Just(OutPoint::default());
+        let block_height = BIP34_MIN_BLOCK_HEIGHT..1000u64;
+        let operator_idx = 0u32..3u32;
+
         prop_oneof![
             Just(DepositEvent::DepositRequest),
             Just(DepositEvent::NonceReceived),
             Just(DepositEvent::PartialReceived),
-            Just(DepositEvent::DepositConfirmed),
-            Just(DepositEvent::Assignment),
-            Just(DepositEvent::FulfillmentConfirmed),
-            Just(DepositEvent::PayoutNonceReceived),
-            Just(DepositEvent::PayoutPartialReceived),
+            outpoint.prop_map(|outpoint| {
+                DepositEvent::DepositConfirmed {
+                    deposit_transaction: generate_spending_tx(outpoint, &[]),
+                }
+            }),
+            block_height.clone().prop_map(|height| {
+                DepositEvent::Assignment {
+                    assignee: TEST_ASSIGNEE,
+                    deadline: height + TEST_DEADLINE_OFFSET,
+                    recipient_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
+                        .expect("Failed to generate a random descriptor"),
+                }
+            }),
+            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
+                DepositEvent::FulfillmentConfirmed {
+                    fulfillment_transaction: generate_spending_tx(outpoint, &[]),
+                    fulfillment_block_height: height,
+                }
+            }),
+            operator_idx.clone().prop_map(|idx| {
+                DepositEvent::PayoutNonceReceived {
+                    payout_nonce: generate_pubnonce(),
+                    operator_idx: idx,
+                }
+            }),
+            operator_idx.clone().prop_map(|idx| {
+                DepositEvent::PayoutPartialReceived {
+                    partial_signature: generate_partial_signature(),
+                    operator_idx: idx,
+                }
+            }),
             Just(DepositEvent::PayoutConfirmed),
             Just(DepositEvent::NewBlock),
         ]

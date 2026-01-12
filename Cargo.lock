@@ -9755,10 +9755,10 @@ name = "strata-bridge-sm"
 version = "0.1.0"
 dependencies = [
  "bitcoin",
- "proptest",
- "secp256k1",
  "bitcoin-bosd",
  "musig2",
+ "proptest",
+ "secp256k1",
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-p2p-types",
