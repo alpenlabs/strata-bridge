@@ -153,6 +153,7 @@ impl Arbitrary for DepositState {
                     operator_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
                         .expect("Failed to generate a random descriptor"),
                     cooperative_payment_deadline: height as u64 + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
+                    payout_nonces: BTreeMap::new(),
                     payout_aggregated_nonce: generate_agg_nonce(),
                     payout_partial_signatures: BTreeMap::new(),
                 }

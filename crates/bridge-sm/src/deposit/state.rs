@@ -122,6 +122,9 @@ pub enum DepositState {
         operator_desc: Descriptor,
         /// The block height by which the cooperative payout must be completed.
         cooperative_payment_deadline: BitcoinBlockHeight,
+        /// The pubnonces, indexed by operator, required to sign the cooperative payout
+        /// transaction.
+        payout_nonces: BTreeMap<OperatorIdx, PubNonce>,
         /// The aggregated nonce for signing the cooperative payout transaction.
         payout_aggregated_nonce: AggNonce,
         /// The partial signatures, indexed by operator, for signing the cooperative payout
@@ -500,6 +503,7 @@ impl DepositSM {
                         assignee: *assignee,
                         operator_desc: operator_desc.clone(),
                         cooperative_payment_deadline: *cooperative_payment_deadline,
+                        payout_nonces: updated_nonces,
                         payout_aggregated_nonce,
                         payout_partial_signatures: BTreeMap::new(),
                     };
@@ -545,6 +549,7 @@ impl DepositSM {
                 assignee,
                 cooperative_payment_deadline,
                 operator_desc,
+                payout_nonces,
                 payout_aggregated_nonce,
                 payout_partial_signatures,
             } => {
@@ -594,6 +599,7 @@ impl DepositSM {
                         assignee: *assignee,
                         operator_desc: operator_desc.clone(),
                         cooperative_payment_deadline: *cooperative_payment_deadline,
+                        payout_nonces: payout_nonces.clone(),
                         payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                         payout_partial_signatures: updated_payout_partials,
                     };
