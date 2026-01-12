@@ -4,7 +4,8 @@
 //! different transitions and emit duties that need to be performed and messages that need to be
 //! propagated.
 
-use bitcoin::{Block, Transaction};
+use bitcoin::Transaction;
+use strata_bridge_primitives::types::BitcoinBlockHeight;
 
 use crate::signals::GraphToDeposit;
 
@@ -46,7 +47,7 @@ pub enum DepositEvent {
     /// block.
     NewBlock {
         /// The new block.
-        block: Block,
+        block_height: BitcoinBlockHeight,
     },
 }
 
@@ -72,12 +73,8 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutConfirmed { tx } => {
                 return write!(f, "PayoutConfirmed via {}", tx.compute_txid());
             }
-            DepositEvent::NewBlock { block } => {
-                return write!(
-                    f,
-                    "NewBlock at height {}",
-                    block.bip34_block_height().unwrap_or(0)
-                );
+            DepositEvent::NewBlock { block_height } => {
+                return write!(f, "NewBlock at height {}", block_height);
             }
         };
 

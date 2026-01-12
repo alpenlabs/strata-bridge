@@ -9,7 +9,6 @@ use secp256k1::{SECP256K1, SecretKey};
 use strata_bridge_primitives::{
     operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
 };
-use strata_bridge_test_utils::prelude::generate_block_with_height;
 use strata_p2p_types::P2POperatorPubKey;
 
 use super::{
@@ -181,7 +180,7 @@ impl Arbitrary for DepositEvent {
                 tx: test_payout_tx(OutPoint::default())
             }),
             (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
-                block: generate_block_with_height(height)
+                block_height: height
             }),
         ]
         .boxed()
@@ -206,7 +205,7 @@ pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
             tx: test_payout_tx(outpoint)
         }),
         (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
-            block: generate_block_with_height(height)
+            block_height: height
         }),
     ]
 }
