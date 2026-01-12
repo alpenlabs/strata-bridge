@@ -163,7 +163,27 @@ impl DepositState {
         }
     }
 
-    // TODO: (@Rajil1213, @MdTeach, @mukeshdroid) Add introspection methods here
+    /// Returns the height of the last processed Bitcoin block for this deposit state.
+    pub const fn last_processed_block_height(&self) -> Option<&BitcoinBlockHeight> {
+        match self {
+            DepositState::Created { block_height, .. }
+            | DepositState::GraphGenerated { block_height, .. }
+            | DepositState::DepositNoncesCollected { block_height, .. }
+            | DepositState::DepositPartialsCollected { block_height, .. }
+            | DepositState::Deposited { block_height, .. }
+            | DepositState::Assigned { block_height, .. }
+            | DepositState::Fulfilled { block_height, .. }
+            | DepositState::PayoutNoncesCollected { block_height, .. }
+            | DepositState::PayoutPartialsCollected { block_height, .. }
+            | DepositState::CooperativePathFailed { block_height, .. } => Some(block_height),
+            DepositState::Spent | DepositState::Aborted => {
+                // Terminal states do not track block height
+                None
+            }
+        }
+    }
+
+    // TODO: (@Rajil1213, @MdTeach, @mukeshdroid) Add more introspection methods here
 }
 
 // TODO: (@Rajil1213) Move `DepositSM` to a separate `state-machine` module once complete (to avoid
@@ -424,6 +444,17 @@ impl DepositSM {
     }
 
     fn process_new_block(&mut self, new_block_height: BitcoinBlockHeight) -> DSMResult<DSMOutput> {
+        let last_processed_block_height = self.state().last_processed_block_height();
+        if last_processed_block_height.is_some_and(|height| *height >= new_block_height) {
+            return Err(DSMError::Duplicate {
+                state: self.state().clone(),
+                event: DepositEvent::NewBlock {
+                    block_height: new_block_height,
+                }
+                .into(),
+            });
+        }
+
         match self.state_mut() {
             DepositState::Created { block_height, .. }
             | DepositState::GraphGenerated { block_height, .. }
@@ -674,7 +705,7 @@ mod tests {
         let mut sm = create_sm(state);
         let result = sm.process_new_block(block_height);
 
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Expected Ok result, got {:?}", result);
         assert_eq!(
             sm.state(),
             &DepositState::CooperativePathFailed {
