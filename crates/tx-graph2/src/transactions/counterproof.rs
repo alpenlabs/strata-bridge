@@ -14,7 +14,7 @@ use crate::{
             ContestCounterproofOutput, ContestCounterproofSpend, ContestCounterproofWitness,
             CounterproofConnector, CpfpConnector,
         },
-        Connector,
+        Connector, SigningInfo,
     },
     transactions::{prelude::ContestTx, ParentTx, PresignedTx},
 };
@@ -142,7 +142,7 @@ impl ParentTx for CounterproofTx {
 }
 
 impl PresignedTx<{ Self::N_INPUTS }> for CounterproofTx {
-    fn signing_info(&self) -> [crate::connectors::SigningInfo; Self::N_INPUTS] {
+    fn signing_info(&self) -> [SigningInfo; Self::N_INPUTS] {
         let mut cache = SighashCache::new(&self.psbt.unsigned_tx);
 
         [self.contest_counterproof_output.get_signing_info(
