@@ -203,7 +203,7 @@ impl<T> MusigFunctor<T> {
         MusigFunctor::<(A, B, C, D, E)>::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
     }
 
-    /// Zips an functor of functions with a functor of data,
+    /// Zips a functor of functions with a functor of data,
     /// resulting in an functor of mapped data.
     pub fn zip_apply<A, O>(
         f: MusigFunctor<impl Fn(A) -> O>,
