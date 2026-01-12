@@ -313,11 +313,13 @@ impl DepositSM {
                             tx.compute_txid(),
                             deposit_request_outpoint
                         ),
+                        event: DepositEvent::UserTakeBack { tx }.into(),
                     })
                 }
             }
             DepositState::Aborted => Err(DSMError::Duplicate {
                 state: self.state().clone(),
+                event: DepositEvent::UserTakeBack { tx }.into(),
             }),
             _ => Err(DSMError::InvalidEvent {
                 event: DepositEvent::UserTakeBack { tx }.to_string(),
@@ -411,6 +413,7 @@ impl DepositSM {
             }
             DepositState::Spent => Err(DSMError::Duplicate {
                 state: self.state().clone(),
+                event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.into()
             }),
             _ => Err(DSMError::InvalidEvent {
                 event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.to_string(),
@@ -488,6 +491,10 @@ impl DepositSM {
             DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
                 state: self.state().clone(),
                 reason: "New blocks irrelevant in terminal state".to_string(),
+                event: DepositEvent::NewBlock {
+                    block: block.clone(),
+                }
+                .into(),
             }),
         }
     }

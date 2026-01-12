@@ -2,7 +2,7 @@
 
 use thiserror::Error;
 
-use crate::deposit::state::DepositState;
+use crate::deposit::{events::DepositEvent, state::DepositState};
 
 /// Errors that can occur in the Deposit State Machine.
 #[derive(Debug, Clone, Error)]
@@ -21,16 +21,18 @@ pub enum DSMError {
     },
 
     /// A duplicate event was received in the current state.
-    #[error("Received a duplicate event in state {state}")]
+    #[error("Received a duplicate event {event} in state {state}")]
     Duplicate {
         /// The state in which the duplicate event was received.
         state: DepositState,
+        /// The duplicate event that was received.
+        event: Box<DepositEvent>,
     },
 
     /// An event was rejected in the current state.
     ///
     /// This can happen, for example, if the event is no longer relevant due to a state change.
-    #[error("Event rejected in state: {state}, reason: {reason}")]
+    #[error("Event {event} rejected in state: {state}, reason: {reason}")]
     Rejected {
         /// The state in which the event was rejected.
         // NOTE: (@Rajil1213) Since errors are supposed to be rare, owning the DepositState here is
@@ -38,6 +40,8 @@ pub enum DSMError {
         state: DepositState,
         /// The reason for the rejection.
         reason: String, // rejection reason is a must
+        /// The rejected event.
+        event: Box<DepositEvent>,
     },
 }
 
