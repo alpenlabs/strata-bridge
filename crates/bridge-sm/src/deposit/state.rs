@@ -6,10 +6,10 @@
 
 use std::fmt::Display;
 
-use bitcoin::{Block, OutPoint, Transaction};
+use bitcoin::{OutPoint, Transaction};
 use strata_bridge_primitives::{
     operator_table::OperatorTable,
-    types::{DepositIdx, OperatorIdx},
+    types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 
 use crate::{
@@ -203,7 +203,7 @@ impl StateMachine for DepositSM {
             DepositEvent::PayoutNonceReceived => self.process_payout_nonce_received(),
             DepositEvent::PayoutPartialReceived => self.process_payout_partial_received(),
             DepositEvent::PayoutConfirmed { tx } => self.process_payout_confirmed(&tx),
-            DepositEvent::NewBlock { block } => self.process_new_block(&block),
+            DepositEvent::NewBlock { block_height } => self.process_new_block(block_height),
         }
     }
 }
@@ -423,9 +423,7 @@ impl DepositSM {
         }
     }
 
-    fn process_new_block(&mut self, block: &Block) -> DSMResult<DSMOutput> {
-        let new_block_height = block.bip34_block_height().unwrap_or(0);
-
+    fn process_new_block(&mut self, new_block_height: BitcoinBlockHeight) -> DSMResult<DSMOutput> {
         match self.state_mut() {
             DepositState::Created { block_height, .. }
             | DepositState::GraphGenerated { block_height, .. }
@@ -492,7 +490,7 @@ impl DepositSM {
                 state: self.state().clone(),
                 reason: "New blocks irrelevant in terminal state".to_string(),
                 event: DepositEvent::NewBlock {
-                    block: block.clone(),
+                    block_height: new_block_height,
                 }
                 .into(),
             }),
@@ -506,7 +504,7 @@ mod tests {
     use std::str::FromStr;
 
     use proptest::prelude::*;
-    use strata_bridge_test_utils::prelude::{generate_block_with_height, generate_spending_tx};
+    use strata_bridge_test_utils::prelude::generate_spending_tx;
 
     use super::*;
     use crate::{
@@ -646,10 +644,10 @@ mod tests {
             block_height: INITIAL_BLOCK_HEIGHT,
         };
 
-        let block = generate_block_with_height(LATER_BLOCK_HEIGHT);
+        let block_height = LATER_BLOCK_HEIGHT;
 
         let mut sm = create_sm(state);
-        let result = sm.process_new_block(&block);
+        let result = sm.process_new_block(block_height);
 
         assert!(result.is_ok());
         assert_eq!(
@@ -671,10 +669,10 @@ mod tests {
 
         // Block that exceeds timeout (COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS)
         let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
-        let block = generate_block_with_height(timeout_height);
+        let block_height = timeout_height;
 
         let mut sm = create_sm(state);
-        let result = sm.process_new_block(&block);
+        let result = sm.process_new_block(block_height);
 
         assert!(result.is_ok());
         assert_eq!(
@@ -695,11 +693,11 @@ mod tests {
 
     #[test]
     fn test_new_block_rejects_in_terminal_states() {
-        let block = generate_block_with_height(LATER_BLOCK_HEIGHT);
+        let block_height = LATER_BLOCK_HEIGHT;
 
         for terminal_state in [DepositState::Spent, DepositState::Aborted] {
             let mut sm = create_sm(terminal_state.clone());
-            let result = sm.process_new_block(&block);
+            let result = sm.process_new_block(block_height);
 
             assert!(
                 matches!(result, Err(DSMError::Rejected { .. })),
@@ -772,7 +770,7 @@ mod tests {
         let timeout_height = FULFILLMENT_HEIGHT + COOPERATIVE_PAYOUT_TIMEOUT_BLOCKS;
         for height in (FULFILLMENT_HEIGHT + 1)..=timeout_height {
             seq.process(DepositEvent::NewBlock {
-                block: generate_block_with_height(height),
+                block_height: height,
             });
         }
 
