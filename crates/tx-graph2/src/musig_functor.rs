@@ -46,9 +46,9 @@ pub struct MusigFunctor<T> {
     pub slash: [T; SlashTx::N_INPUTS],
 }
 
-impl<T> MusigFunctor<T> {
+impl<A> MusigFunctor<A> {
     /// Packs the data into a vector.
-    pub fn pack(self) -> Vec<T> {
+    pub fn pack(self) -> Vec<A> {
         debug_assert_eq!(self.contest.len(), self.counterproofs.len());
         debug_assert_eq!(self.contest.len(), self.counterproof_acks.len());
 
@@ -80,7 +80,7 @@ impl<T> MusigFunctor<T> {
     /// Unpacks the data from a vector.
     ///
     /// The `n_watchtowers` parameter specifies how many watchtowers to expect.
-    pub fn unpack(graph_vec: Vec<T>, n_watchtowers: usize) -> Option<MusigFunctor<T>> {
+    pub fn unpack(graph_vec: Vec<A>, n_watchtowers: usize) -> Option<MusigFunctor<A>> {
         let mut cursor = graph_vec.into_iter();
         let cursor = cursor.by_ref();
 
@@ -118,7 +118,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Returns references to the data.
-    pub fn as_ref(&self) -> MusigFunctor<&T> {
+    pub fn as_ref(&self) -> MusigFunctor<&A> {
         MusigFunctor {
             uncontested_payout: self.uncontested_payout.each_ref(),
             contest: self.contest.iter().collect(),
@@ -135,7 +135,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Maps the data to a new type.
-    pub fn map<U>(self, mut f: impl FnMut(T) -> U) -> MusigFunctor<U> {
+    pub fn map<B>(self, mut f: impl FnMut(A) -> B) -> MusigFunctor<B> {
         MusigFunctor {
             uncontested_payout: self.uncontested_payout.map(&mut f),
             contest: self.contest.into_iter().map(&mut f).collect(),
@@ -152,7 +152,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Zips the data of two functors.
-    pub fn zip<U>(self, other: MusigFunctor<U>) -> MusigFunctor<(T, U)> {
+    pub fn zip<B>(self, other: MusigFunctor<B>) -> MusigFunctor<(A, B)> {
         MusigFunctor {
             uncontested_payout: zip_arrays(self.uncontested_payout, other.uncontested_payout),
             contest: self.contest.into_iter().zip(other.contest).collect(),
@@ -174,41 +174,38 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Zips 3 functors into a functor of a 3-tuple.
-    pub fn zip3<A, B, C>(
+    pub fn zip3<B, C>(
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
         c: MusigFunctor<C>,
     ) -> MusigFunctor<(A, B, C)> {
-        MusigFunctor::<(A, B, C)>::zip_with_3(|a, b, c| (a, b, c), a, b, c)
+        MusigFunctor::zip_with_3(|a, b, c| (a, b, c), a, b, c)
     }
 
     /// Zips 4 functors into a functor of a 4-tuple.
-    pub fn zip4<A, B, C, D>(
+    pub fn zip4<B, C, D>(
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
         c: MusigFunctor<C>,
         d: MusigFunctor<D>,
     ) -> MusigFunctor<(A, B, C, D)> {
-        MusigFunctor::<(A, B, C, D)>::zip_with_4(|a, b, c, d| (a, b, c, d), a, b, c, d)
+        MusigFunctor::zip_with_4(|a, b, c, d| (a, b, c, d), a, b, c, d)
     }
 
     /// Zips 5 functors into a functor of a 5-tuple.
-    pub fn zip5<A, B, C, D, E>(
+    pub fn zip5<B, C, D, E>(
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
         c: MusigFunctor<C>,
         d: MusigFunctor<D>,
         e: MusigFunctor<E>,
     ) -> MusigFunctor<(A, B, C, D, E)> {
-        MusigFunctor::<(A, B, C, D, E)>::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
+        MusigFunctor::zip_with_5(|a, b, c, d, e| (a, b, c, d, e), a, b, c, d, e)
     }
 
     /// Zips a functor of functions with a functor of data,
     /// resulting in an functor of mapped data.
-    pub fn zip_apply<A, O>(
-        f: MusigFunctor<impl Fn(A) -> O>,
-        a: MusigFunctor<A>,
-    ) -> MusigFunctor<O> {
+    pub fn zip_apply<O>(f: MusigFunctor<impl Fn(A) -> O>, a: MusigFunctor<A>) -> MusigFunctor<O> {
         MusigFunctor {
             uncontested_payout: zip_apply_arrays(f.uncontested_payout, a.uncontested_payout),
             contest: f
@@ -236,7 +233,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Zips the data of two functors and applies a function to the result.
-    pub fn zip_with<A, B, O>(
+    pub fn zip_with<B, O>(
         f: impl Fn(A, B) -> O,
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
@@ -245,7 +242,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Zips the data of three functors and applies a function to the result.
-    pub fn zip_with_3<A, B, C, O>(
+    pub fn zip_with_3<B, C, O>(
         f: impl Fn(A, B, C) -> O,
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
@@ -255,7 +252,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Zips the data of four functors and applies a function to the result.
-    pub fn zip_with_4<A, B, C, D, O>(
+    pub fn zip_with_4<B, C, D, O>(
         f: impl Fn(A, B, C, D) -> O,
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
@@ -266,7 +263,7 @@ impl<T> MusigFunctor<T> {
     }
 
     /// Zips the data of five functors and applies a function to the result.
-    pub fn zip_with_5<A, B, C, D, E, O>(
+    pub fn zip_with_5<B, C, D, E, O>(
         f: impl Fn(A, B, C, D, E) -> O,
         a: MusigFunctor<A>,
         b: MusigFunctor<B>,
@@ -283,7 +280,7 @@ impl<T> MusigFunctor<T> {
 
     /// Converts a functor of options into an option of a functor,
     /// returning `None` if any functor component is `None`.
-    pub fn sequence_option(graph: MusigFunctor<Option<T>>) -> Option<MusigFunctor<T>> {
+    pub fn sequence_option(graph: MusigFunctor<Option<A>>) -> Option<MusigFunctor<A>> {
         Some(MusigFunctor {
             uncontested_payout: sequence_option_array(graph.uncontested_payout)?,
             contest: graph.contest.into_iter().collect::<Option<Vec<_>>>()?,
@@ -306,7 +303,7 @@ impl<T> MusigFunctor<T> {
     /// returning `Err` if any functor component is `Err`.
     ///
     /// The returned `Err` is the first one that was encountered.
-    pub fn sequence_result<E>(graph: MusigFunctor<Result<T, E>>) -> Result<MusigFunctor<T>, E> {
+    pub fn sequence_result<E>(graph: MusigFunctor<Result<A, E>>) -> Result<MusigFunctor<A>, E> {
         Ok(MusigFunctor {
             uncontested_payout: sequence_result_array(graph.uncontested_payout)?,
             contest: graph.contest.into_iter().collect::<Result<Vec<_>, E>>()?,
@@ -327,12 +324,10 @@ impl<T> MusigFunctor<T> {
 
     /// Converts a vector of functors into a functor of vectors.
     ///
-    /// The order of functors is inverted in the resulting vectors.
-    ///
     /// The number of watchtowers in the resulting functor is the minimum
     /// of the numbers of watchtowers from the input functors.
     /// Excess watchtowers are truncated.
-    pub fn sequence_musig_functor(graphs: Vec<MusigFunctor<T>>) -> MusigFunctor<Vec<T>> {
+    pub fn sequence_musig_functor(graphs: Vec<MusigFunctor<A>>) -> MusigFunctor<Vec<A>> {
         for graph in &graphs {
             debug_assert_eq!(graph.contest.len(), graph.counterproofs.len());
             debug_assert_eq!(graph.contest.len(), graph.counterproof_acks.len());
@@ -367,9 +362,9 @@ impl<T> MusigFunctor<T> {
     }
 }
 
-impl<T: Clone, U: Clone> MusigFunctor<(T, U)> {
+impl<A: Clone, B: Clone> MusigFunctor<(A, B)> {
     /// Converts a functor of pairs into two functors of the respective components.
-    pub fn unzip(self) -> (MusigFunctor<T>, MusigFunctor<U>) {
+    pub fn unzip(self) -> (MusigFunctor<A>, MusigFunctor<B>) {
         let game_t = MusigFunctor {
             uncontested_payout: self.uncontested_payout.clone().map(|(t, _)| t),
             contest: self.contest.iter().cloned().map(|(t, _)| t).collect(),
@@ -402,10 +397,10 @@ impl<T: Clone, U: Clone> MusigFunctor<(T, U)> {
     }
 }
 
-impl<T: Clone> MusigFunctor<&T> {
-    /// Maps a [`MusigFunctor<&T>`] to a [`MusigFunctor<T>`] by cloning its contents.
-    pub fn cloned(self) -> MusigFunctor<T> {
-        self.map(T::clone)
+impl<A: Clone> MusigFunctor<&A> {
+    /// Maps a [`MusigFunctor<&A>`] to a [`MusigFunctor<A>`] by cloning its contents.
+    pub fn cloned(self) -> MusigFunctor<A> {
+        self.map(A::clone)
     }
 }
 
