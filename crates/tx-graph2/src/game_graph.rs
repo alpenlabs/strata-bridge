@@ -165,6 +165,29 @@ pub struct CounterproofGraphSummary {
     pub counterproof_ack: Txid,
 }
 
+/// Collection of all connectors that exist in a game.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct GameConnectors {
+    /// Claim contest connector.
+    pub claim_contest: ClaimContestConnector,
+    /// Claim payout connector.
+    pub claim_payout: ClaimPayoutConnector,
+    /// Deposit connector.
+    pub deposit: NOfNConnector,
+    /// Contest proof connector.
+    pub contest_proof: ContestProofConnector,
+    /// Contest payout connector.
+    pub contest_payout: ContestPayoutConnector,
+    /// Contest slash connector.
+    pub contest_slash: ContestSlashConnector,
+    /// Contest counterproof output.
+    pub contest_counterproof: ContestCounterproofOutput,
+    /// Counterproof connectors for each watchtower.
+    pub counterproof: Vec<CounterproofConnector>,
+    /// Stake connector.
+    pub stake: NOfNConnector,
+}
+
 impl GameGraph {
     /// Creates a new game graph.
     ///
@@ -177,7 +200,7 @@ impl GameGraph {
     /// - The number of watchtower slash descriptors.
     ///
     /// This method also panics if the number of watchtowers is greater than [`u32::MAX`].
-    pub fn new(data: GameData) -> Self {
+    pub fn new(data: GameData) -> (Self, GameConnectors) {
         let protocol = data.protocol;
         let setup = data.setup;
         let keys = &setup.keys;
@@ -199,63 +222,15 @@ impl GameGraph {
             "too many watchtowers"
         );
 
-        let claim_contest_connector = ClaimContestConnector::new(
-            setup.network,
-            keys.n_of_n_pubkey,
-            keys.watchtower_pubkeys.clone(),
-            protocol.contest_timelock,
-        );
-        let claim_payout_connector = ClaimPayoutConnector::new(
-            setup.network,
-            keys.n_of_n_pubkey,
-            keys.admin_pubkey,
-            keys.unstaking_image,
-        );
-        let deposit_connector =
-            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.deposit_amount);
-        let contest_proof_connector = ContestProofConnector::new(
-            setup.network,
-            keys.n_of_n_pubkey,
-            keys.operator_pubkey,
-            setup.game_index,
-            protocol.proof_timelock,
-        );
-        let contest_payout_connector =
-            ContestPayoutConnector::new(setup.network, keys.n_of_n_pubkey, protocol.ack_timelock);
-        let contest_slash_connector = ContestSlashConnector::new(
-            setup.network,
-            keys.n_of_n_pubkey,
-            protocol.contested_payout_timelock,
-        );
-        let contest_counterproof_output = ContestCounterproofOutput::new(
-            setup.network,
-            keys.n_of_n_pubkey,
-            keys.operator_pubkey,
-            protocol.counterproof_n_bytes,
-        );
-        let counterproof_connectors: Vec<_> = keys
-            .wt_fault_pubkeys
-            .iter()
-            .copied()
-            .map(|wt_fault_pubkey| {
-                CounterproofConnector::new(
-                    setup.network,
-                    keys.n_of_n_pubkey,
-                    wt_fault_pubkey,
-                    protocol.nack_timelock,
-                )
-            })
-            .collect();
-        let stake_connector =
-            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.stake_amount);
+        let connectors = GameConnectors::new(&protocol, &setup);
 
         let claim_data = ClaimData {
             claim_funds: deposit.claim_funds,
         };
         let claim = ClaimTx::new(
             claim_data,
-            claim_contest_connector.clone(),
-            claim_payout_connector,
+            connectors.claim_contest.clone(),
+            connectors.claim_payout,
         );
 
         let uncontested_payout_data = UncontestedPayoutData {
@@ -264,9 +239,9 @@ impl GameGraph {
         };
         let uncontested_payout = UncontestedPayoutTx::new(
             uncontested_payout_data,
-            deposit_connector,
-            claim_contest_connector.clone(),
-            claim_payout_connector,
+            connectors.deposit,
+            connectors.claim_contest.clone(),
+            connectors.claim_payout,
             keys.payout_operator_descriptor.clone(),
         );
 
@@ -275,11 +250,11 @@ impl GameGraph {
         };
         let contest = ContestTx::new(
             contest_data,
-            claim_contest_connector,
-            contest_proof_connector,
-            contest_payout_connector,
-            contest_slash_connector,
-            contest_counterproof_output,
+            connectors.claim_contest.clone(),
+            connectors.contest_proof,
+            connectors.contest_payout,
+            connectors.contest_slash,
+            connectors.contest_counterproof,
         );
 
         let bridge_proof_timeout_data = BridgeProofTimeoutData {
@@ -287,12 +262,14 @@ impl GameGraph {
         };
         let bridge_proof_timeout = BridgeProofTimeoutTx::new(
             bridge_proof_timeout_data,
-            contest_proof_connector,
-            contest_payout_connector,
+            connectors.contest_proof,
+            connectors.contest_payout,
         );
 
-        let counterproofs: Vec<_> = counterproof_connectors
-            .into_iter()
+        let counterproofs: Vec<_> = connectors
+            .counterproof
+            .iter()
+            .copied()
             .enumerate()
             .map(|(watchtower_index, counterproof_connector)| {
                 // cast safety: asserted above that len(watchtowers) <= u32::MAX
@@ -302,7 +279,7 @@ impl GameGraph {
                 };
                 let counterproof = CounterproofTx::new(
                     counterproof_data,
-                    contest_counterproof_output,
+                    connectors.contest_counterproof,
                     counterproof_connector,
                 );
 
@@ -313,7 +290,7 @@ impl GameGraph {
                 let counterproof_ack = CounterproofAckTx::new(
                     counterproof_ack_data,
                     counterproof_connector,
-                    contest_payout_connector,
+                    connectors.contest_payout,
                 );
 
                 CounterproofGraph {
@@ -330,10 +307,10 @@ impl GameGraph {
         };
         let contested_payout = ContestedPayoutTx::new(
             contested_payout_data,
-            deposit_connector,
-            claim_payout_connector,
-            contest_payout_connector,
-            contest_slash_connector,
+            connectors.deposit,
+            connectors.claim_payout,
+            connectors.contest_payout,
+            connectors.contest_slash,
             keys.payout_operator_descriptor.clone(),
         );
 
@@ -345,12 +322,12 @@ impl GameGraph {
         };
         let slash = SlashTx::new(
             slash_data,
-            contest_slash_connector,
-            stake_connector,
+            connectors.contest_slash,
+            connectors.stake,
             &keys.slash_watchtower_descriptors,
         );
 
-        Self {
+        let game_graph = Self {
             claim,
             uncontested_payout,
             contest,
@@ -358,7 +335,9 @@ impl GameGraph {
             counterproofs,
             contested_payout,
             slash,
-        }
+        };
+
+        (game_graph, connectors)
     }
 
     /// Summarizes the game graph.
@@ -470,6 +449,100 @@ impl CounterproofGraph {
         CounterproofGraphSummary {
             counterproof: self.counterproof.as_ref().compute_txid(),
             counterproof_ack: self.counterproof_ack.as_ref().compute_txid(),
+        }
+    }
+}
+
+impl GameConnectors {
+    /// Creates the collection of all connectors of a game.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if the number of watchtowers is inconsistent.
+    /// The following need to be equal:
+    /// - The number of watchtower public keys.
+    /// - The number of watchtower fault keys.
+    /// - The number of watchtower slash descriptors.
+    ///
+    /// This method also panics if the number of watchtowers is greater than [`u32::MAX`].
+    pub fn new(protocol: &ProtocolParams, setup: &SetupParams) -> Self {
+        let keys = &setup.keys;
+
+        assert_eq!(
+            keys.watchtower_pubkeys.len(),
+            keys.wt_fault_pubkeys.len(),
+            "inconsistent number of watchtowers"
+        );
+        assert_eq!(
+            keys.watchtower_pubkeys.len(),
+            keys.slash_watchtower_descriptors.len(),
+            "inconsistent number of watchtowers"
+        );
+        // cast safety: 32-bit arch or higher
+        assert!(
+            keys.watchtower_pubkeys.len() <= u32::MAX as usize,
+            "too many watchtowers"
+        );
+
+        let claim_contest = ClaimContestConnector::new(
+            setup.network,
+            keys.n_of_n_pubkey,
+            keys.watchtower_pubkeys.clone(),
+            protocol.contest_timelock,
+        );
+        let claim_payout = ClaimPayoutConnector::new(
+            setup.network,
+            keys.n_of_n_pubkey,
+            keys.admin_pubkey,
+            keys.unstaking_image,
+        );
+        let deposit =
+            NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.deposit_amount);
+        let contest_proof = ContestProofConnector::new(
+            setup.network,
+            keys.n_of_n_pubkey,
+            keys.operator_pubkey,
+            setup.game_index,
+            protocol.proof_timelock,
+        );
+        let contest_payout =
+            ContestPayoutConnector::new(setup.network, keys.n_of_n_pubkey, protocol.ack_timelock);
+        let contest_slash = ContestSlashConnector::new(
+            setup.network,
+            keys.n_of_n_pubkey,
+            protocol.contested_payout_timelock,
+        );
+        let contest_counterproof = ContestCounterproofOutput::new(
+            setup.network,
+            keys.n_of_n_pubkey,
+            keys.operator_pubkey,
+            protocol.counterproof_n_bytes,
+        );
+        let counterproof: Vec<_> = keys
+            .wt_fault_pubkeys
+            .iter()
+            .copied()
+            .map(|wt_fault_pubkey| {
+                CounterproofConnector::new(
+                    setup.network,
+                    keys.n_of_n_pubkey,
+                    wt_fault_pubkey,
+                    protocol.nack_timelock,
+                )
+            })
+            .collect();
+        let stake = NOfNConnector::new(setup.network, keys.n_of_n_pubkey, protocol.stake_amount);
+
+        Self {
+            claim_contest,
+            claim_payout,
+            deposit,
+            contest_proof,
+            contest_payout,
+            contest_slash,
+            contest_counterproof,
+            counterproof,
+            stake,
         }
     }
 }
