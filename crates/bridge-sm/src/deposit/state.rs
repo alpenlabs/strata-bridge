@@ -375,7 +375,7 @@ impl DepositSM {
                     deadline,
                     recipient_desc,
                 };
-                // Dispatch the duty to fulfill the assigment if the assignee is the pov operator,
+                // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
                 // otherwise no duties or signals need to be dispatched.
                 if self.cfg.operator_table.pov_idx() == assignee {
                     Ok(DSMOutput::with_duties(vec![DepositDuty::FulfillWithdrawal]))
@@ -392,7 +392,7 @@ impl DepositSM {
                     deadline,
                     recipient_desc,
                 };
-                // Dispatch the duty to fulfill the assigment if the assignee is the pov operator,
+                // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
                 // otherwise no duties or signals need to be dispatched.
                 if self.cfg.operator_table.pov_idx() == assignee {
                     Ok(DSMOutput::with_duties(vec![DepositDuty::FulfillWithdrawal]))
