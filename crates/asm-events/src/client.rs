@@ -240,7 +240,7 @@ fn retry_strategy(cfg: &AsmRpcConfig) -> Strategy<FetchError> {
     let strategy = Strategy::exponential_backoff(
         cfg.retry_initial_delay,
         cfg.retry_max_delay,
-        cfg.retry_multiplier,
+        cfg.retry_multiplier as f64,
     );
 
     if let Some(max_retries) = cfg.max_retries {
