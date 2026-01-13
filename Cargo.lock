@@ -3386,6 +3386,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "strata-asm-proto-bridge-v1",
+ "strata-bridge-asm-events",
  "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-db",

@@ -13,7 +13,7 @@ use std::{
 
 use algebra::retry::{retry_with, Strategy};
 use alpen_bridge_params::prelude::{ConnectorParams, PegOutGraphParams, StakeChainParams};
-use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Transaction, Txid};
+use bitcoin::{hashes::Hash, Address, Block, Network, OutPoint, ScriptBuf, Txid};
 use bitcoind_async_client::{client::Client as BitcoinClient, error::ClientError, traits::Reader};
 use btc_tracker::{
     client::{BlockFetcher, BtcNotifyClient},
@@ -23,6 +23,8 @@ use btc_tracker::{
 use futures::{future::join_all, StreamExt};
 use operator_wallet::OperatorWallet;
 use secret_service_client::SecretServiceClient;
+use strata_asm_proto_bridge_v1::AssignmentEntry;
+use strata_bridge_asm_events::{client::AsmEventFeed, event::AssignmentsState};
 use strata_bridge_db::persistent::sqlite::SqliteDb;
 use strata_bridge_p2p_service::MessageHandler;
 use strata_bridge_primitives::operator_table::OperatorTable;
@@ -89,6 +91,7 @@ impl ContractManager {
         pre_stake_pubkey: ScriptBuf,
         // Subsystem Handles
         zmq_client: BtcNotifyClient,
+        asm_feed: AsmEventFeed,
         rpc_client: BitcoinClient,
         mut p2p_handle: P2PHandle,
         contract_persister: ContractPersister,
@@ -184,6 +187,11 @@ impl ContractManager {
                 .connect(cursor, fetcher)
                 .await
                 .expect("must be able to connect to bitcoind's zmq interface");
+
+            info!("initializing asm assignments feed");
+            let asm_block_sub = zmq_client.subscribe_blocks().await;
+            let asm_feed = asm_feed.attach_block_stream(asm_block_sub);
+            let mut assignments_state_sub = asm_feed.subscribe_assignments_state().await;
 
             let mut block_sub = zmq_client.subscribe_blocks().await;
             let tx_driver = TxDriver::new(zmq_client, rpc_client.clone()).await;
@@ -396,6 +404,28 @@ impl ContractManager {
                             Err(e) => {
                                 error!(%blockhash, %block_height, ?e, "failed to process block");
                                 return e;
+                            }
+                        }
+                    },
+
+                    Some(assignment_event) = assignments_state_sub.next() => {
+                        let AssignmentsState {
+                            block_hash,
+                            assignments,
+                        } = assignment_event;
+                        debug!(
+                            %block_hash,
+                            num_assignments = assignments.len(),
+                            "processing asm assignment state"
+                        );
+
+                        match ctx.process_assignments(assignments).await {
+                            Ok(new_duties) if !new_duties.is_empty() => {
+                                duties.extend(new_duties);
+                            }
+                            Ok(_) => {}
+                            Err(e) => {
+                                error!(%e, "failed to process asm assignment state");
                             }
                         }
                     },
@@ -626,17 +656,6 @@ impl ContractManagerCtx {
             let txid = tx.compute_txid();
 
             let tx_process_start_time = Instant::now();
-            // could be an assignment
-            let assignment_duties = self.process_assignments(&tx).await?;
-            if !assignment_duties.is_empty() {
-                info!(num_duties=%assignment_duties.len(), "queueing assignment duties");
-                duties.extend(assignment_duties);
-                trace!(time_taken=?tx_process_start_time.elapsed(), "processed assignments for {txid}");
-
-                // It's impossible for a transaction to contain assignments and otherwise have any
-                // effect on existing or new contracts, so we move on.
-                continue;
-            }
 
             let deposit_idx = deposit_idx_offset + new_contracts.len() as u32;
 
@@ -779,12 +798,53 @@ impl ContractManagerCtx {
     /// This function validates whether a transaction is a valid Strata checkpoint transaction,
     /// extracts any valid assigned deposit entries and produces the `Assignment` [`ContractEvent`]
     /// so that it can be processed further.
-    // TODO: @prajwolrg: Assignment should be a separate input stream
     async fn process_assignments(
         &mut self,
-        _tx: &Transaction,
+        assignments: Vec<AssignmentEntry>,
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
-        Ok(vec![])
+        let mut duties = Vec::new();
+        for entry in assignments {
+            let sm = self
+                .state
+                .active_contracts
+                .iter_mut()
+                .find(|(_, state)| state.deposit_idx() == entry.deposit_idx())
+                .map(|(_, state)| state)
+                .expect("assignment must be valid");
+
+            let pov_op_p2p_key = self.cfg.operator_table.pov_p2p_key();
+
+            // TODO: (@prajwolrg) - for now deposit_idx is equivalent to stake_idx. Once we do the
+            // stake chain this must be updated
+            let stake_index = entry.deposit_idx();
+
+            let Ok(Some(stake_tx)) = self
+                .state
+                .stake_chains
+                .stake_tx(pov_op_p2p_key, stake_index)
+            else {
+                warn!(%stake_index, %pov_op_p2p_key, "deposit assigned but stake chain data missing");
+                continue;
+            };
+
+            match sm.process_contract_event(ContractEvent::Assignment {
+                entry: entry.clone(),
+                stake_tx,
+                l1_start_height: 0, // FIXME: (prajwolrg) temp value
+            }) {
+                Ok(new_duties) if !new_duties.is_empty() => {
+                    duties.extend(new_duties);
+                }
+                Ok(_) => {
+                    debug!(?entry, "no duty generated for assignment");
+                }
+                Err(e) => {
+                    error!(%e, "could not generate duty for assignment event");
+                    return Err(e)?;
+                }
+            }
+        }
+        Ok(duties)
     }
 
     async fn process_p2p_message(
