@@ -115,7 +115,17 @@ impl Arbitrary for DepositState {
         prop_oneof![
             Just(DepositState::Created),
             Just(DepositState::GraphGenerated),
-            Just(DepositState::DepositNoncesCollected),
+            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
+                DepositState::DepositNoncesCollected {
+                    block_height: height,
+                    output_index: 0,
+                    deposit_request_outpoint: outpoint,
+                    deposit_transaction: generate_spending_tx(outpoint, &[]),
+                    pubnonces: BTreeMap::new(),
+                    agg_nonce: generate_agg_nonce(),
+                    partial_signatures: BTreeMap::new(),
+                }
+            }),
             (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
                 DepositState::DepositPartialsCollected {
                     block_height: height,

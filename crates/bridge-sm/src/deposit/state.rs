@@ -65,7 +65,22 @@ pub enum DepositState {
     /// TODO: (@MdTeach)
     GraphGenerated,
     /// TODO: (@MdTeach)
-    DepositNoncesCollected,
+    DepositNoncesCollected {
+        /// Placeholder docstring as this will be added by @MdTeach
+        block_height: u32,
+        /// Placeholder docstring as this will be added by @MdTeach
+        output_index: u32,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_request_outpoint: OutPoint,
+        /// Placeholder docstring as this will be added by @MdTeach
+        deposit_transaction: Transaction,
+        /// Placeholder docstring as this will be added by @MdTeach
+        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
+        /// Placeholder docstring as this will be added by @MdTeach
+        agg_nonce: AggNonce,
+        /// Placeholder docstring as this will be added by @MdTeach
+        partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
+    },
     /// TODO: (@MdTeach)
     DepositPartialsCollected {
         /// Placeholder docstring as this will be added by @MdTeach
@@ -167,7 +182,7 @@ impl Display for DepositState {
         let state_str = match self {
             DepositState::Created => "Created",
             DepositState::GraphGenerated => "GraphGenerated",
-            DepositState::DepositNoncesCollected => "DepositNoncesCollected",
+            DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected",
             DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected",
             DepositState::Deposited { .. } => "Deposited",
             DepositState::Assigned { .. } => "Assigned",
@@ -333,6 +348,13 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         match &self.state {
             DepositState::DepositPartialsCollected {
+                block_height,
+                deposit_transaction,
+                ..
+            }
+             // This can happen if one of the operators withholds their own partial signature
+             // while aggregating it with the rest of the collected partials and broadcasts it unilaterally
+            | DepositState::DepositNoncesCollected {
                 block_height,
                 deposit_transaction,
                 ..
