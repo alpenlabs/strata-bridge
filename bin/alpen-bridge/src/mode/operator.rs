@@ -474,7 +474,7 @@ async fn init_duty_tracker(
     let shutdown_stake_chain_persister = StakeChainPersister::new(db.clone()).await?;
     debug!("shutdown persisters initialized");
 
-    let _asm_feed = AsmEventFeed::new(config.asm_rpc.clone());
+    let asm_feed = AsmEventFeed::new(config.asm_rpc.clone());
     let contract_manager = ContractManager::new(
         network,
         nag_interval,
@@ -489,6 +489,7 @@ async fn init_duty_tracker(
         config.stake_tx,
         pre_stake_pubkey,
         zmq_client,
+        asm_feed,
         rpc_client,
         p2p_handle,
         contract_persister,

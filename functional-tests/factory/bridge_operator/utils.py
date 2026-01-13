@@ -6,6 +6,7 @@ import toml
 from utils.utils import OperatorKeyInfo
 
 from .config_cfg import (
+    AsmRpcConfig,
     BridgeOperatorConfig,
     BtcClientConfig,
     BtcZmqConfig,
@@ -69,6 +70,15 @@ def generate_config_toml(
         ),
         rpc=RpcConfig(
             rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=10, nanos=0)
+        ),
+        # TODO: (@prajwolrg) revisit rpc url
+        asm_rpc=AsmRpcConfig(
+            rpc_url="http://localhost:9010",
+            request_timeout=Duration(secs=2, nanos=0),
+            max_retries=None,
+            retry_initial_delay=Duration(secs=1, nanos=0),
+            retry_max_delay=Duration(secs=60, nanos=0),
+            retry_multiplier=2,
         ),
         btc_zmq=BtcZmqConfig(
             bury_depth=2,
