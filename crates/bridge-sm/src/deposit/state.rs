@@ -348,9 +348,7 @@ impl DepositSM {
                 self.state = DepositState::Deposited {
                     block_height: *block_height,
                 };
-
-                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
-
+                // No duties or signals required
                 Ok(DSMOutput::new())
             }
 
@@ -377,10 +375,13 @@ impl DepositSM {
                     deadline,
                     recipient_desc,
                 };
-
-                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
-
-                Ok(DSMOutput::new())
+                // Dispatch the duty to fulfill the assigment if the assignee is the pov operator,
+                // otherwise no duties or signals need to be dispatched.
+                if self.cfg.operator_table.pov_idx() == assignee {
+                    Ok(DSMOutput::with_duties(vec![DepositDuty::FulfillWithdrawal]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
             }
 
             // Update the state with the details from new assignment event.
@@ -391,10 +392,13 @@ impl DepositSM {
                     deadline,
                     recipient_desc,
                 };
-
-                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
-
-                Ok(DSMOutput::new())
+                // Dispatch the duty to fulfill the assigment if the assignee is the pov operator,
+                // otherwise no duties or signals need to be dispatched.
+                if self.cfg.operator_table.pov_idx() == assignee {
+                    Ok(DSMOutput::with_duties(vec![DepositDuty::FulfillWithdrawal]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
             }
 
             _ => Err(DSMError::InvalidEvent {
@@ -417,6 +421,9 @@ impl DepositSM {
                 assignee,
                 ..
             } => {
+                let block_height = *block_height;
+                let assignee = *assignee;
+
                 // Compute the txid of the fulfillemnt Transaction
                 let fulfillment_txid: Txid = fulfillment_transaction.compute_txid();
 
@@ -426,16 +433,21 @@ impl DepositSM {
 
                 // Transition to the Fulfilled State
                 self.state = DepositState::Fulfilled {
-                    block_height: *block_height,
-                    assignee: *assignee,
+                    block_height,
+                    assignee,
                     fulfillment_txid,
                     fulfillment_block_height,
                     cooperative_payment_deadline,
                 };
-
-                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
-
-                Ok(DSMOutput::new())
+                // Dispatch the duty to request the payout nonces if the assignee is the pov
+                // operator, otherwise no duties or signals need to be dispatched.
+                if self.cfg.operator_table.pov_idx() == assignee {
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::RequestPayoutNonces,
+                    ]))
+                } else {
+                    Ok(DSMOutput::new())
+                }
             }
 
             _ => Err(DSMError::InvalidEvent {
@@ -457,18 +469,22 @@ impl DepositSM {
                 cooperative_payment_deadline,
                 ..
             } => {
+                let block_height = *block_height;
+                let assignee = *assignee;
+                let cooperative_payment_deadline = *cooperative_payment_deadline;
+
                 // Transition to the PayoutDescriptorReceived State
                 self.state = DepositState::PayoutDescriptorReceived {
-                    block_height: *block_height,
-                    assignee: *assignee,
-                    cooperative_payment_deadline: *cooperative_payment_deadline,
+                    block_height,
+                    assignee,
+                    cooperative_payment_deadline,
                     operator_desc,
                     payout_nonces: BTreeMap::new(),
                 };
-
-                // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for now.
-
-                Ok(DSMOutput::new())
+                // Dispatch the duty to publish the payout nonce
+                Ok(DSMOutput::with_duties(vec![
+                    DepositDuty::PublishPayoutNonce,
+                ]))
             }
 
             _ => Err(DSMError::InvalidEvent {
@@ -505,7 +521,7 @@ impl DepositSM {
                 updated_nonces.insert(operator_idx, payout_nonce);
 
                 // Transition to the PayoutNonceReceived State if *all* the nonces have been
-                // received.
+                // received and dispatch duty to request for the cooperative payout partials.
                 if self.cfg.operator_table.cardinality() == updated_nonces.len() {
                     // Compute the aggregated nonce from the collected nonces.
                     let payout_aggregated_nonce = AggNonce::sum(updated_nonces.values().cloned());
@@ -520,13 +536,13 @@ impl DepositSM {
                         payout_aggregated_nonce,
                         payout_partial_signatures: BTreeMap::new(),
                     };
-                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
-                    // now.
-
-                    Ok(DSMOutput::new())
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::PublishPayoutPartial,
+                    ]))
                 }
                 // If all nonces are not yet collected, update the payout nonces with received
-                // nonce and stay in the PayoutDescriptorReceived State.
+                // nonce and stay in the PayoutDescriptorReceived State and dispatch no duties or
+                // signals.
                 else {
                     // Stay in the PayoutDescriptorReceived State but with updated nonce map.
                     self.state = DepositState::PayoutDescriptorReceived {
@@ -536,9 +552,6 @@ impl DepositSM {
                         operator_desc: operator_desc.clone(),
                         payout_nonces: updated_nonces,
                     };
-                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
-                    // now.
-
                     Ok(DSMOutput::new())
                 }
             }
@@ -645,10 +658,9 @@ impl DepositSM {
                         payout_aggregated_signature: Signature::from_slice(&[0u8; 64])
                             .expect("Unable to create dummy signature."),
                     };
-                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
-                    // now.
 
-                    Ok(DSMOutput::new())
+                    // Dispatch the duty to publish the Cooperative payout transaction.
+                    Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout]))
                 }
                 // If all partial signatures are not yet collected, update the payout partial
                 // signatures map with received nonce and stay in the PayoutNoncesCollected State.
@@ -663,9 +675,7 @@ impl DepositSM {
                         payout_aggregated_nonce: payout_aggregated_nonce.clone(),
                         payout_partial_signatures: updated_payout_partials,
                     };
-                    // (TODO: @mukeshdroid) Emit duties and Signals as required. Placeholder for
-                    // now.
-
+                    // No duties or signals need to be dispatched until all partials are collected.
                     Ok(DSMOutput::new())
                 }
             }

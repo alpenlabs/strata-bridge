@@ -17,8 +17,6 @@ pub enum DepositDuty {
     /// TODO: (@mukeshdroid)
     PublishPayoutNonce,
     /// TODO: (@mukeshdroid)
-    RequestPayoutPartials,
-    /// TODO: (@mukeshdroid)
     PublishPayoutPartial,
     /// TODO: (@Rajil1213)
     PublishPayout,
@@ -33,7 +31,6 @@ impl std::fmt::Display for DepositDuty {
             DepositDuty::FulfillWithdrawal => "FulfillWithdrawal",
             DepositDuty::RequestPayoutNonces => "RequestPayoutNonces",
             DepositDuty::PublishPayoutNonce => "PublishPayoutNonce",
-            DepositDuty::RequestPayoutPartials => "RequestPayoutPartials",
             DepositDuty::PublishPayoutPartial => "PublishPayoutPartial",
             DepositDuty::PublishPayout => "PublishPayout",
         };
