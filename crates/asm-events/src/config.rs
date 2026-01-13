@@ -5,7 +5,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for fetching assignment snapshots from the ASM RPC.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AsmRpcConfig {
     /// ASM RPC HTTP endpoint.
     pub rpc_url: String,
@@ -23,5 +23,5 @@ pub struct AsmRpcConfig {
     pub retry_max_delay: Duration,
 
     /// Exponential backoff multiplier.
-    pub retry_multiplier: f64,
+    pub retry_multiplier: u64,
 }
