@@ -917,6 +917,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "strata-bridge-asm-events",
  "strata-bridge-common",
  "strata-bridge-connectors",
  "strata-bridge-db",

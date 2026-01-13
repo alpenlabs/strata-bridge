@@ -4,6 +4,7 @@ use btc_tracker::config::BtcNotifyConfig;
 use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
+use strata_bridge_asm_events::config::AsmRpcConfig;
 use strata_bridge_db::persistent::config::DbConfig;
 
 /// Configuration values that dictate the behavior of the bridge node.
@@ -58,6 +59,9 @@ pub(crate) struct Config {
 
     /// Configuration for the RPC server.
     pub rpc: RpcConfig,
+
+    /// Configuration for the ASM RPC assignments feed.
+    pub asm_rpc: AsmRpcConfig,
 
     /// Configuration for the Bitcoin ZMQ client.
     pub btc_zmq: BtcNotifyConfig,
@@ -203,6 +207,14 @@ mod tests {
             [rpc]
             rpc_addr = "localhost:5678"
             refresh_interval = {secs = 600, nanos = 0 }
+
+            [asm_rpc]
+            rpc_url = "http://localhost:9010"
+            request_timeout = { secs = 2, nanos = 0 }
+            max_retries = 10
+            retry_initial_delay = { secs = 1, nanos = 0 }
+            retry_max_delay = { secs = 60, nanos = 0 }
+            retry_multiplier = 2
 
             [btc_zmq]
             bury_depth = 6
