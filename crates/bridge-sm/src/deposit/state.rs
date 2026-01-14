@@ -13,6 +13,7 @@ use bitcoin::OutPoint;
 use musig2::{
     AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures,
     secp256k1::schnorr::{self, Signature},
+    verify_partial,
 };
 use strata_bridge_primitives::{
     key_agg::create_agg_ctx,
@@ -138,6 +139,9 @@ pub enum DepositState {
 
         /// Aggregated nonce used to validate partial signatures.
         agg_nonce: AggNonce,
+
+        /// Public nonces provided by each operator for signing.
+        pubnonces: BTreeMap<OperatorIdx, PubNonce>,
 
         /// Partial signatures from operators for the deposit transaction.
         partial_signatures: BTreeMap<OperatorIdx, PartialSignature>,
@@ -549,6 +553,7 @@ impl DepositSM {
                         output_index: *output_index,
                         block_height: *block_height,
                         agg_nonce: agg_nonce.clone(),
+                        pubnonces: pubnonces.clone(),
                         partial_signatures: BTreeMap::new(),
                     };
                     self.state = new_state;
@@ -591,6 +596,11 @@ impl DepositSM {
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
         let btc_keys: Vec<_> = self.cfg().operator_table.btc_keys().into_iter().collect();
+        let operator_pubkey = self
+            .cfg()
+            .operator_table
+            .idx_to_btc_key(&operator_idx)
+            .expect("operator must be in table");
 
         match self.state_mut() {
             DepositState::DepositNoncesCollected {
@@ -599,35 +609,59 @@ impl DepositSM {
                 output_index,
                 block_height,
                 agg_nonce,
+                pubnonces,
                 partial_signatures,
             } => {
+                // Extract Copy types immediately using dereference pattern to bypass borrow checker
+                let drt_height = *drt_block_height;
+                let out_idx = *output_index;
+                let blk_height = *block_height;
+
+                let operator_pubnonce = pubnonces
+                    .get(&operator_idx)
+                    .expect("operator must have submitted nonce")
+                    .clone();
+
+                // Extract signing info once - used for both verification and aggregation
+                let signing_info = deposit_transaction.signing_info();
+                let info = signing_info
+                    .first()
+                    .expect("deposit transaction must have signing info");
+                let sighash = info.sighash;
+                let tweak = info
+                    .tweak
+                    .expect("DRT->DT key-path spend must include a taproot tweak")
+                    .expect("tweak must be present for deposit transaction");
+
+                let tap_witness = TaprootWitness::Tweaked { tweak };
+
+                // Create key aggregation context once - reused for verification and aggregation
+                let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
+                    .expect("must be able to create key aggregation context");
+
+                // Verify the partial signature
+                if verify_partial(
+                    &key_agg_ctx,
+                    partial_sig,
+                    agg_nonce,
+                    operator_pubkey,
+                    &operator_pubnonce,
+                    sighash.as_ref(),
+                )
+                .is_err()
+                {
+                    println!("wola");
+                }
+
                 // Insert the new partial signature into the map
                 partial_signatures.insert(operator_idx, partial_sig);
 
                 // Check if we have collected all partial signatures
                 if partial_signatures.len() == operator_table_cardinality {
-                    // Clone values before transition to avoid borrowing issues
+                    // Clone deposit transaction for state transition
                     let deposit_tx = deposit_transaction.clone();
-                    let drt_height = *drt_block_height;
-                    let out_idx = *output_index;
-                    let blk_height = *block_height;
 
-                    let signing_info = deposit_transaction.signing_info();
-                    let info = signing_info
-                        .first()
-                        .expect("deposit transaction must have signing info");
-
-                    let sighash = info.sighash;
-                    let tweak = info
-                        .tweak
-                        .expect("DRT->DT key-path spend must include a taproot tweak")
-                        .expect("tweak must be present for deposit transaction");
-
-                    let tap_witness = TaprootWitness::Tweaked { tweak };
-
-                    let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
-                        .expect("must be able to create key aggregation context");
-
+                    // Aggregate all partial signatures using the same key_agg_ctx
                     let agg_signature: schnorr::Signature = aggregate_partial_signatures(
                         &key_agg_ctx,
                         agg_nonce,
