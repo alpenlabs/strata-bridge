@@ -395,12 +395,18 @@ impl DepositSM {
                     block_height: *block_height,
                     assignee,
                     deadline,
-                    recipient_desc,
+                    recipient_desc: recipient_desc.clone(),
                 };
                 // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
                 // otherwise no duties or signals need to be dispatched.
                 if self.cfg.operator_table.pov_idx() == assignee {
-                    Ok(DSMOutput::with_duties(vec![DepositDuty::FulfillWithdrawal]))
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::FulfillWithdrawal {
+                            deposit_idx: self.cfg.deposit_idx,
+                            deadline,
+                            recipient_desc,
+                        },
+                    ]))
                 } else {
                     Ok(DSMOutput::new())
                 }
@@ -412,12 +418,18 @@ impl DepositSM {
                     block_height: *block_height,
                     assignee,
                     deadline,
-                    recipient_desc,
+                    recipient_desc: recipient_desc.clone(),
                 };
                 // Dispatch the duty to fulfill the assignment if the assignee is the pov operator,
                 // otherwise no duties or signals need to be dispatched.
                 if self.cfg.operator_table.pov_idx() == assignee {
-                    Ok(DSMOutput::with_duties(vec![DepositDuty::FulfillWithdrawal]))
+                    Ok(DSMOutput::with_duties(vec![
+                        DepositDuty::FulfillWithdrawal {
+                            deposit_idx: self.cfg.deposit_idx,
+                            deadline,
+                            recipient_desc,
+                        },
+                    ]))
                 } else {
                     Ok(DSMOutput::new())
                 }
@@ -465,7 +477,9 @@ impl DepositSM {
                 // operator, otherwise no duties or signals need to be dispatched.
                 if self.cfg.operator_table.pov_idx() == assignee {
                     Ok(DSMOutput::with_duties(vec![
-                        DepositDuty::RequestPayoutNonces,
+                        DepositDuty::RequestPayoutNonces {
+                            deposit_idx: self.cfg.deposit_idx,
+                        },
                     ]))
                 } else {
                     Ok(DSMOutput::new())
@@ -500,12 +514,16 @@ impl DepositSM {
                     block_height,
                     assignee,
                     cooperative_payment_deadline,
-                    operator_desc,
+                    operator_desc: operator_desc.clone(),
                     payout_nonces: BTreeMap::new(),
                 };
                 // Dispatch the duty to publish the payout nonce
                 Ok(DSMOutput::with_duties(vec![
-                    DepositDuty::PublishPayoutNonce,
+                    DepositDuty::PublishPayoutNonce {
+                        deposit_outpoint: self.cfg.deposit_outpoint,
+                        operator_idx: assignee,
+                        operator_desc,
+                    },
                 ]))
             }
 
@@ -546,7 +564,7 @@ impl DepositSM {
                 // received and dispatch duty to request for the cooperative payout partials.
                 if self.cfg.operator_table.cardinality() == updated_nonces.len() {
                     // Compute the aggregated nonce from the collected nonces.
-                    let payout_aggregated_nonce = AggNonce::sum(updated_nonces.values().cloned());
+                    let agg_nonce = AggNonce::sum(updated_nonces.values().cloned());
 
                     // Transition to the PayoutNonceReceived State.
                     self.state = DepositState::PayoutNoncesCollected {
@@ -555,11 +573,15 @@ impl DepositSM {
                         operator_desc: operator_desc.clone(),
                         cooperative_payment_deadline: *cooperative_payment_deadline,
                         payout_nonces: updated_nonces,
-                        payout_aggregated_nonce,
+                        payout_aggregated_nonce: agg_nonce.clone(),
                         payout_partial_signatures: BTreeMap::new(),
                     };
                     Ok(DSMOutput::with_duties(vec![
-                        DepositDuty::PublishPayoutPartial,
+                        DepositDuty::PublishPayoutPartial {
+                            deposit_outpoint: self.cfg.deposit_outpoint,
+                            deposit_idx: self.cfg.deposit_idx,
+                            agg_nonce,
+                        },
                     ]))
                 }
                 // If all nonces are not yet collected, update the payout nonces with received
@@ -682,7 +704,9 @@ impl DepositSM {
                     };
 
                     // Dispatch the duty to publish the Cooperative payout transaction.
-                    Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout]))
+                    Ok(DSMOutput::with_duties(vec![DepositDuty::PublishPayout {
+                        payout_tx: coop_payout_tx.as_ref().clone(),
+                    }]))
                 }
                 // If all partial signatures are not yet collected, update the payout partial
                 // signatures map with received nonce and stay in the PayoutNoncesCollected State.
