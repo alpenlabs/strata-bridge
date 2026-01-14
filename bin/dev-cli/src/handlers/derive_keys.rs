@@ -3,8 +3,9 @@
 //! This uses the same derivation as the secret-service to ensure keys match.
 
 use anyhow::{bail, Result};
-use bitcoin::{bip32::Xpriv, hex::DisplayHex, Network};
+use bitcoin::{bip32::Xpriv, hex::DisplayHex};
 use libp2p_identity::ed25519::{Keypair as EdKeypair, SecretKey as EdSecretKey};
+use serde_json::json;
 use strata_bridge_key_deriv::{Musig2Keys, WalletKeys};
 use strata_key_derivation::operator::OperatorKeys;
 
@@ -28,17 +29,15 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     seed.copy_from_slice(&seed_bytes);
 
     // Derive keys using OperatorKeys from strata-key-derivation
-    let xpriv = Xpriv::new_master(Network::Regtest, &seed)?;
+    let xpriv = Xpriv::new_master(args.network, &seed)?;
     let keys = OperatorKeys::new(&xpriv)?;
     let base_xpriv = keys.base_xpriv();
 
     // Derive wallet keys using key-deriv crate
     let wallet_keys = WalletKeys::derive(base_xpriv)?;
-    let general_wallet = wallet_keys
-        .general_p2tr_address(Network::Regtest)
-        .to_string();
+    let general_wallet = wallet_keys.general_p2tr_address(args.network).to_string();
     let stake_chain_wallet = wallet_keys
-        .stakechain_p2tr_address(Network::Regtest)
+        .stakechain_p2tr_address(args.network)
         .to_string();
 
     // Derive MuSig2 keys using key-deriv crate
@@ -53,20 +52,14 @@ pub(crate) fn handle_derive_keys(args: DeriveKeysArgs) -> Result<()> {
     let p2p_pubkey = ed_keypair.public().to_bytes().to_lower_hex_string();
 
     // Output the JSON entry
-    println!(
-        r#"{{
-    "SEED": "{}",
-    "GENERAL_WALLET": "{}",
-    "STAKE_CHAIN_WALLET": "{}",
-    "MUSIG2_KEY": "{}",
-    "P2P_KEY": "{}"
-}}"#,
-        seed.to_lower_hex_string(),
-        general_wallet,
-        stake_chain_wallet,
-        musig2_pubkey_hex,
-        p2p_pubkey
-    );
+    let output = json!({
+        "seed": seed.to_lower_hex_string(),
+        "general_wallet_address": general_wallet,
+        "stake_chain_wallet_address": stake_chain_wallet,
+        "musig2_key": musig2_pubkey_hex,
+        "p2p_key": p2p_pubkey
+    });
+    println!("{}", serde_json::to_string_pretty(&output)?);
 
     Ok(())
 }
