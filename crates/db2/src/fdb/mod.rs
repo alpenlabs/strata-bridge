@@ -7,7 +7,7 @@ pub mod row_spec;
 use std::{fmt::Debug, path::PathBuf};
 
 use foundationdb::{
-    Database, FdbBindingError, FdbError,
+    Database, FdbBindingError, FdbError, RetryableTransaction,
     api::{FdbApiBuilder, NetworkAutoStop},
     directory::DirectoryError,
     options::NetworkOption,
@@ -15,7 +15,11 @@ use foundationdb::{
 use strata_p2p_types::P2POperatorPubKey;
 use terrors::OneOf;
 
-use crate::fdb::dirs::Directories;
+use crate::fdb::{
+    bridge_db::LayerError,
+    dirs::Directories,
+    row_spec::{KVRowSpec, PackableKey, SerializableValue},
+};
 
 /// The FoundationDB layer identifier.
 pub const LAYER_ID: &[u8] = b"strata-bridge-v1";
@@ -100,6 +104,51 @@ impl FdbClient {
         self.db
             .run(|trx, _| async move { Ok(self.dirs.clear(&trx).await) })
             .await
+    }
+
+    /// Basic generic set operation.
+    pub async fn basic_set<RS: KVRowSpec>(
+        &self,
+        key: RS::Key,
+        value: RS::Value,
+    ) -> Result<(), OneOf<(FdbBindingError, LayerError)>> {
+        let key = &key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+        let value = &value
+            .serialize()
+            .map_err(LayerError::failed_to_serialize_value)
+            .map_err(OneOf::new)?;
+
+        let trx = |trx: RetryableTransaction, _maybe_committed| async move {
+            trx.set(key.as_ref(), value.as_ref());
+            Ok(())
+        };
+        self.db.run(trx).await.map_err(OneOf::new)
+    }
+
+    /// Basic generic get operation.
+    pub async fn basic_get<RS: KVRowSpec>(
+        &self,
+        key: RS::Key,
+    ) -> Result<Option<RS::Value>, OneOf<(FdbBindingError, LayerError)>> {
+        let key = key
+            .pack(&self.dirs)
+            .map_err(LayerError::failed_to_pack_key)
+            .map_err(OneOf::new)?;
+
+        let trx = |trx: RetryableTransaction, _maybe_committed| {
+            let key = key.clone();
+            async move { Ok(trx.get(key.as_ref(), true).await?) }
+        };
+        let Some(bytes) = self.db.run(trx).await.map_err(OneOf::new)? else {
+            return Ok(None);
+        };
+        let sig = RS::Value::deserialize(&bytes)
+            .map_err(LayerError::failed_to_deserialize_value)
+            .map_err(OneOf::new)?;
+        Ok(Some(sig))
     }
 }
 
