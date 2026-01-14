@@ -531,6 +531,18 @@ impl DepositSM {
                 block_height,
                 pubnonces,
             } => {
+                // Check for duplicate nonce submission
+                if pubnonces.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: self.state().to_string(),
+                        event: DepositEvent::NonceReceived {
+                            nonce,
+                            operator_idx,
+                        }
+                        .to_string(),
+                    });
+                }
+
                 // Insert the new nonce into the map
                 pubnonces.insert(operator_idx, nonce);
 
@@ -650,7 +662,27 @@ impl DepositSM {
                 )
                 .is_err()
                 {
-                    println!("wola");
+                    return Err(DSMError::Rejected {
+                        state: self.state().to_string(),
+                        reason: "Invalid partial signature".to_string(),
+                        event: DepositEvent::PartialReceived {
+                            partial_sig,
+                            operator_idx,
+                        }
+                        .to_string(),
+                    });
+                }
+
+                // Check for duplicate partial signature submission
+                if partial_signatures.contains_key(&operator_idx) {
+                    return Err(DSMError::Duplicate {
+                        state: self.state().to_string(),
+                        event: DepositEvent::PartialReceived {
+                            partial_sig,
+                            operator_idx,
+                        }
+                        .to_string(),
+                    });
                 }
 
                 // Insert the new partial signature into the map
