@@ -1,0 +1,14 @@
+[package]
+name = "strata-bridge-key-deriv"
+version = "0.1.0"
+edition = "2024"
+description = "Key derivation utilities for Strata Bridge"
+
+[lints]
+workspace = true
+
+[dependencies]
+bitcoin.workspace = true
+secp256k1.workspace = true
+strata-bridge-primitives.workspace = true
+thiserror.workspace = true

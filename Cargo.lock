@@ -3247,12 +3247,13 @@ dependencies = [
  "sp1-verifier",
  "strata-bridge-common",
  "strata-bridge-connectors",
+ "strata-bridge-key-deriv",
  "strata-bridge-primitives",
  "strata-bridge-proof-protocol",
  "strata-bridge-proof-snark",
  "strata-bridge-rpc",
  "strata-bridge-tx-graph",
- "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=a97d9d322d032e0129fc52418082ecc096ea2378)",
+ "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "tokio",
  "toml",
  "tracing",
@@ -8285,6 +8286,7 @@ dependencies = [
  "secret-service-server",
  "serde",
  "sha2",
+ "strata-bridge-key-deriv",
  "strata-bridge-primitives",
  "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
  "terrors",
@@ -9814,6 +9816,16 @@ name = "strata-bridge-guest-builder"
 version = "0.1.0"
 
 [[package]]
+name = "strata-bridge-key-deriv"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "secp256k1 0.29.1",
+ "strata-bridge-primitives",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "strata-bridge-p2p-service"
 version = "0.1.0"
 dependencies = [
@@ -10246,12 +10258,12 @@ dependencies = [
 [[package]]
 name = "strata-key-derivation"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?rev=a97d9d322d032e0129fc52418082ecc096ea2378#a97d9d322d032e0129fc52418082ecc096ea2378"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "bitcoin",
  "ed25519-dalek",
  "secp256k1 0.29.1",
- "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=a97d9d322d032e0129fc52418082ecc096ea2378)",
+ "strata-crypto 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "thiserror 2.0.17",
  "zeroize",
 ]

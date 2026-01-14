@@ -9,7 +9,7 @@ use std::{
 use bitcoin::{
     bip32::Xpriv,
     hashes::Hash as _,
-    key::{Keypair, Parity, TapTweak},
+    key::{Parity, TapTweak},
     TapNodeHash, XOnlyPublicKey,
 };
 use cache_advisor::CacheAdvisor;
@@ -26,20 +26,19 @@ use secret_service_proto::v2::traits::{
     Server,
 };
 use sha2::Sha256;
-use strata_bridge_primitives::{scripts::taproot::TaprootWitness, secp::EvenSecretKey};
+use strata_bridge_key_deriv::{Musig2Keypair, Musig2Keys, Musig2NonceIkm};
+use strata_bridge_primitives::scripts::taproot::TaprootWitness;
 use terrors::OneOf;
 use tokio::sync::Mutex;
-
-use super::paths::{MUSIG2_KEY_PATH, MUSIG2_NONCE_IKM_PATH};
 
 /// Secret data for the MuSig2 signer.
 #[derive(Debug)]
 pub struct Ms2Signer {
-    /// Operator's [`Keypair`].
-    kp: Keypair,
+    /// Operator's MuSig2 keypair.
+    kp: Musig2Keypair,
 
     /// Initial key material to derive secret nonces.
-    ikm: [u8; 32],
+    ikm: Musig2NonceIkm,
 }
 
 const SECNONCE_CACHE_CAPACITY: usize = 512;
@@ -102,18 +101,10 @@ where
 impl Ms2Signer {
     /// Creates a new MuSig2 signer given a master [`Xpriv`].
     pub fn new(base: &Xpriv) -> Self {
-        let key = base
-            .derive_priv(SECP256K1, &MUSIG2_KEY_PATH)
-            .expect("valid key")
-            .private_key;
-        let ikm = base
-            .derive_priv(SECP256K1, &MUSIG2_NONCE_IKM_PATH)
-            .expect("valid child")
-            .private_key
-            .secret_bytes();
+        let musig2_keys = Musig2Keys::derive(base).expect("valid musig2 keys");
         Self {
-            kp: Keypair::from_secret_key(SECP256K1, &EvenSecretKey::from(key)),
-            ikm,
+            kp: musig2_keys.keypair,
+            ikm: musig2_keys.nonce_ikm,
         }
     }
 
@@ -153,7 +144,7 @@ impl Ms2Signer {
                     (&params.input.txid.as_raw_hash().to_byte_array(), 32),
                     (&params.input.vout.to_le_bytes(), 4)
                 };
-                let hk = Hkdf::<Sha256>::new(None, &self.ikm);
+                let hk = Hkdf::<Sha256>::new(None, &*self.ikm);
                 let mut output = [0u8; 32];
                 hk.expand(&info, &mut output)
                     .expect("32 is a valid length for Sha256 to output");

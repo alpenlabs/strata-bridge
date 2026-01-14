@@ -15,6 +15,7 @@ alpen-bridge-params.workspace = true
 libp2p-identity = { workspace = true, features = ["ed25519"] }
 strata-bridge-common.workspace = true
 strata-bridge-connectors.workspace = true
+strata-bridge-key-deriv.workspace = true
 strata-bridge-primitives.workspace = true
 strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark.workspace = true

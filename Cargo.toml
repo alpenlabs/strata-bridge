@@ -16,11 +16,12 @@ members = [
   "crates/connectors2",
   "crates/db",
   "crates/duty-tracker",
+  "crates/key-deriv",
   "crates/memory_pprof",
   "crates/operator-wallet",
   "crates/p2p-service",
-  "crates/p2p-wire",
   "crates/p2p-types",
+  "crates/p2p-wire",
   "crates/params",
   "crates/primitives",
   "crates/rpc",
@@ -77,6 +78,7 @@ strata-bridge-connectors2 = { path = "crates/connectors2" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
+strata-bridge-key-deriv = { path = "crates/key-deriv" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-p2p-wire = { path = "crates/p2p-wire" }
