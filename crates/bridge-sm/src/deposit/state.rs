@@ -10,9 +10,14 @@ use std::{
 };
 
 use bitcoin::OutPoint;
-use musig2::{AggNonce, PartialSignature, PubNonce, secp256k1::schnorr::Signature};
+use musig2::{
+    AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures,
+    secp256k1::schnorr::{self, Signature},
+};
 use strata_bridge_primitives::{
+    key_agg::create_agg_ctx,
     operator_table::OperatorTable,
+    scripts::taproot::TaprootWitness,
     types::{BitcoinBlockHeight, DepositIdx, OperatorIdx},
 };
 use strata_bridge_tx_graph2::transactions::{PresignedTx, deposit::DepositTx};
@@ -585,6 +590,7 @@ impl DepositSM {
         operator_idx: OperatorIdx,
     ) -> DSMResult<DSMOutput> {
         let operator_table_cardinality = self.cfg().operator_table.cardinality();
+        let btc_keys: Vec<_> = self.cfg().operator_table.btc_keys().into_iter().collect();
 
         match self.state_mut() {
             DepositState::DepositNoncesCollected {
@@ -592,7 +598,7 @@ impl DepositSM {
                 drt_block_height,
                 output_index,
                 block_height,
-                agg_nonce: _,
+                agg_nonce,
                 partial_signatures,
             } => {
                 // Insert the new partial signature into the map
@@ -606,9 +612,29 @@ impl DepositSM {
                     let out_idx = *output_index;
                     let blk_height = *block_height;
 
-                    // TODO: Implement actual signature aggregation using cryptographic operations
-                    let agg_signature =
-                        Signature::from_slice(&[0u8; 64]).expect("placeholder signature"); // Placeholder for actual aggregation logic
+                    let signing_info = deposit_transaction.signing_info();
+                    let info = signing_info
+                        .first()
+                        .expect("deposit transaction must have signing info");
+
+                    let sighash = info.sighash;
+                    let tweak = info
+                        .tweak
+                        .expect("DRT->DT key-path spend must include a taproot tweak")
+                        .expect("tweak must be present for deposit transaction");
+
+                    let tap_witness = TaprootWitness::Tweaked { tweak };
+
+                    let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
+                        .expect("must be able to create key aggregation context");
+
+                    let agg_signature: schnorr::Signature = aggregate_partial_signatures(
+                        &key_agg_ctx,
+                        agg_nonce,
+                        partial_signatures.values().cloned(),
+                        sighash.as_ref(),
+                    )
+                    .expect("partial signatures must be valid");
 
                     // Transition to DepositPartialsCollected state
                     let new_state = DepositState::DepositPartialsCollected {
