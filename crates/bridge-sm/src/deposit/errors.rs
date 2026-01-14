@@ -43,6 +43,27 @@ pub enum DSMError {
         /// The rejected event.
         event: Box<DepositEvent>,
     },
+    /// A duplicate event was received in the current state.
+    #[error("Received a duplicate event {event} in state {state}")]
+    Duplicate {
+        /// The state in which the duplicate event was received.
+        state: String,
+        /// The duplicate event that was received.
+        event: String,
+    },
+    /// An event was rejected in the current state.
+    ///
+    /// This can happen, for example, if the event is no longer relevant due to a state change.
+    #[error("Event {event} rejected in state: {state}, reason: {reason}")]
+    Rejected {
+        /// The state in which the event was rejected.
+        // acceptable.
+        state: String,
+        /// The reason for the rejection.
+        reason: String, // rejection reason is a must
+        /// The rejected event.
+        event: String,
+    },
 }
 
 /// The result type for operations in the Deposit State Machine.
