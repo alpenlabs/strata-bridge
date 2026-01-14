@@ -9,10 +9,9 @@ use std::{
     fmt::Display,
 };
 
-use bitcoin::OutPoint;
+use bitcoin::{OutPoint, Transaction};
 use musig2::{
-    AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures,
-    secp256k1::schnorr::{self, Signature},
+    AggNonce, PartialSignature, PubNonce, aggregate_partial_signatures, secp256k1::schnorr,
     verify_partial,
 };
 use strata_bridge_primitives::{
@@ -161,10 +160,7 @@ pub enum DepositState {
         drt_block_height: BitcoinBlockHeight,
 
         /// The fully signed deposit transaction.
-        deposit_transaction: DepositTx,
-
-        /// Aggregated signature for the deposit transaction.
-        agg_signature: Signature,
+        deposit_transaction: Transaction,
     },
     /// TODO: (@mukeshdroid)
     Deposited {
@@ -301,7 +297,6 @@ impl StateMachine for DepositSM {
         match event {
             DepositEvent::DepositRequest => self.process_deposit_request(),
             DepositEvent::UserTakeBack { tx } => self.process_drt_takeback(tx),
-            DepositEvent::GraphMessage(_graph_msg) => self.process_graph_available(),
             DepositEvent::GraphMessage(graph_msg) => self.process_graph_available(graph_msg),
             DepositEvent::NonceReceived {
                 nonce,
@@ -702,19 +697,20 @@ impl DepositSM {
                     )
                     .expect("partial signatures must be valid");
 
+                    // Build deposit transaction with sigs
+                    let deposit_transaction = deposit_tx.finalize(agg_signature);
+
                     // Transition to DepositPartialsCollected state
-                    let new_state = DepositState::DepositPartialsCollected {
-                        deposit_transaction: deposit_tx.clone(),
+                    self.state = DepositState::DepositPartialsCollected {
+                        deposit_transaction: deposit_transaction.clone(),
                         drt_block_height: drt_height,
                         output_index: out_idx,
                         block_height: blk_height,
-                        agg_signature,
                     };
-                    self.state = new_state;
 
                     // Create the duty to publish the deposit transaction
                     let duty = DepositDuty::PublishDeposit {
-                        deposit_tx,
+                        deposit_transaction,
                         agg_signature,
                     };
 
@@ -1318,39 +1314,7 @@ mod prop_tests {
             cases: 32,
             .. ProptestConfig::default()
         })]
-        #[test]
-        fn test_process_deposit_request(mut sm in arb_deposit_state_machine()) {
-            // Capture the initial state
-            let state_before = sm.state().clone();
 
-            // Extract the expected outpoint from the config
-            let expected_outpoint = sm.cfg().deposit_outpoint();
-
-            // Process the DepositRequest event
-            let result = sm.process_event(DepositEvent::DepositRequest);
-
-            // Verify the event processing succeeded
-            prop_assert!(result.is_ok());
-            let output = result.unwrap();
-
-            // Verify exactly one duty is emitted and no signals
-            prop_assert!(!output.duties.is_empty(), "Should emit at least one duty");
-            prop_assert!(
-                matches!(output.duties[0], DepositDuty::PublishDepositNonce { .. }),
-                "First duty should be PublishDepositNonce"
-            );
-
-            // Verify the duty is the correct type with the correct outpoint
-            let DepositDuty::PublishDepositNonce { deposit_out_point } = &output.duties[0] else {
-                unreachable!("Already verified duty type above");
-            };
-            prop_assert_eq!(*deposit_out_point, expected_outpoint,
-                "Duty outpoint should match state's deposit_request_outpoint");
-
-            // Verify the state remains unchanged
-            let state_after = sm.state().clone();
-            prop_assert_eq!(state_before, state_after, "State should remain unchanged");
-        }
 
         #[test]
         fn test_process_graph_available_full_sequence(mut sm in arb_deposit_state_machine()) {

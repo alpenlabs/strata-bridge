@@ -16,12 +16,12 @@ pub async fn execute_deposit_duty(
         DepositDuty::PublishDepositNonce { .. } => publish_deposit_nonce().await,
         DepositDuty::PublishDepositPartial { .. } => publish_deposit_partial().await,
         DepositDuty::PublishDeposit { .. } => publish_deposit().await,
-        DepositDuty::FulfillWithdrawal => fulfill_withdrawal().await,
-        DepositDuty::RequestPayoutNonces => request_payout_nonces().await,
-        DepositDuty::PublishPayoutNonce => publish_payout_nonce().await,
-        DepositDuty::RequestPayoutPartials => request_payout_partials().await,
-        DepositDuty::PublishPayoutPartial => publish_payout_partial().await,
-        DepositDuty::PublishPayout => publish_payout().await,
+        DepositDuty::FulfillWithdrawal { .. } => fulfill_withdrawal().await,
+        DepositDuty::RequestPayoutNonces { .. } => request_payout_nonces().await,
+        DepositDuty::PublishPayoutNonce { .. } => publish_payout_nonce().await,
+        DepositDuty::RequestPayoutPartials { .. } => request_payout_partials().await,
+        DepositDuty::PublishPayoutPartial { .. } => publish_payout_partial().await,
+        DepositDuty::PublishPayout { .. } => publish_payout().await,
     }
 }
 
