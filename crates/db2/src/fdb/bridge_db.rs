@@ -3,7 +3,7 @@
 use std::fmt::Debug;
 
 use bitcoin::Txid;
-use foundationdb::{FdbBindingError, RetryableTransaction};
+use foundationdb::FdbBindingError;
 use secp256k1::schnorr::Signature;
 use strata_bridge_primitives::types::OperatorIdx;
 use terrors::OneOf;
@@ -11,7 +11,7 @@ use terrors::OneOf;
 use crate::{
     fdb::{
         FdbClient,
-        row_spec::{PackableKey, SerializableValue, signatures::SignatureKey},
+        row_spec::signatures::{SignatureKey, SignatureRowSpec},
     },
     traits::BridgeDb,
 };
@@ -68,28 +68,12 @@ impl BridgeDb for FdbClient {
         txid: Txid,
         input_index: u32,
     ) -> Result<Option<Signature>, Self::Error> {
-        let key = SignatureKey {
+        self.basic_get::<SignatureRowSpec>(SignatureKey {
             operator_idx,
             txid,
             input_index,
-        };
-
-        let key = key
-            .pack(&self.dirs)
-            .map_err(LayerError::failed_to_pack_key)
-            .map_err(OneOf::new)?;
-
-        let trx = |trx: RetryableTransaction, _maybe_committed| {
-            let key = key.clone();
-            async move { Ok(trx.get(key.as_ref(), true).await?) }
-        };
-        let Some(sig_bytes) = self.db.run(trx).await.map_err(OneOf::new)? else {
-            return Ok(None);
-        };
-        let sig = Signature::from_slice(&sig_bytes)
-            .map_err(LayerError::failed_to_deserialize_value)
-            .map_err(OneOf::new)?;
-        Ok(Some(sig))
+        })
+        .await
     }
 
     async fn set_signature(
@@ -99,25 +83,15 @@ impl BridgeDb for FdbClient {
         input_index: u32,
         signature: Signature,
     ) -> Result<(), Self::Error> {
-        let key = SignatureKey {
-            operator_idx,
-            txid,
-            input_index,
-        };
-
-        let key = &key
-            .pack(&self.dirs)
-            .map_err(LayerError::failed_to_pack_key)
-            .map_err(OneOf::new)?;
-        let value = &<Signature as SerializableValue>::serialize(&signature)
-            .map_err(LayerError::failed_to_serialize_value)
-            .map_err(OneOf::new)?;
-
-        let trx = |trx: RetryableTransaction, _maybe_committed| async move {
-            trx.set(key.as_ref(), value.as_ref());
-            Ok(())
-        };
-        self.db.run(trx).await.map_err(OneOf::new)
+        self.basic_set::<SignatureRowSpec>(
+            SignatureKey {
+                operator_idx,
+                txid,
+                input_index,
+            },
+            signature,
+        )
+        .await
     }
 }
 

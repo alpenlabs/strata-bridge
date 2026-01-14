@@ -19,10 +19,10 @@ pub trait KVRowSpec {
 /// specifically.
 pub trait PackableKey: Sized {
     /// Error type that can occur during packing.
-    type PackingError: Debug;
+    type PackingError: Debug + 'static;
 
     /// Error type that can occur during unpacking.
-    type UnpackingError: Debug;
+    type UnpackingError: Debug + 'static;
 
     /// Packed representation of the key.
     type Packed: AsRef<[u8]> + Clone;
@@ -39,10 +39,10 @@ pub trait PackableKey: Sized {
 /// A value that can be serialized and deserialized into bytes.
 pub trait SerializableValue: Sized {
     /// Error type that can occur during serialization.
-    type SerializeError: Debug;
+    type SerializeError: Debug + 'static;
 
     /// Error type that can occur during deserialization.
-    type DeserializeError: Debug;
+    type DeserializeError: Debug + 'static;
 
     /// Serialized representation of the value.
     type Serialized: AsRef<[u8]> + Clone;
