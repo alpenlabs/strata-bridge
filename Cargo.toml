@@ -21,6 +21,7 @@ members = [
   "bridge-guest-builder",
   "crates/secret-service-proto",
   "crates/secret-service-client",
+  "crates/key-deriv",
   "crates/secret-service-server",
   "crates/p2p-service",
   "crates/p2p-wire",
@@ -75,6 +76,7 @@ strata-bridge-connectors = { path = "crates/connectors" }
 strata-bridge-db = { path = "crates/db" }
 strata-bridge-exec = { path = "crates/bridge-exec" }
 strata-bridge-guest-builder = { path = "bridge-guest-builder" }
+strata-bridge-key-deriv = { path = "crates/key-deriv" }
 strata-bridge-p2p-service = { path = "crates/p2p-service" }
 strata-bridge-p2p-types = { path = "crates/p2p-types" }
 strata-bridge-p2p-wire = { path = "crates/p2p-wire" }

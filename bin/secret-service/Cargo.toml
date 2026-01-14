@@ -22,6 +22,7 @@ secret-service-proto = { version = "0.1.0", path = "../../crates/secret-service-
 secret-service-server = { version = "0.1.0", path = "../../crates/secret-service-server" }
 serde.workspace = true
 sha2.workspace = true
+strata-bridge-key-deriv.workspace = true
 strata-bridge-primitives.workspace = true
 strata-key-derivation = { git = "https://github.com/alpenlabs/alpen", version = "0.3.0-alpha.1" }
 terrors.workspace = true

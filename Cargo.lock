@@ -3245,6 +3245,7 @@ dependencies = [
  "sp1-verifier",
  "strata-bridge-common",
  "strata-bridge-connectors",
+ "strata-bridge-key-deriv",
  "strata-bridge-primitives",
  "strata-bridge-proof-protocol",
  "strata-bridge-proof-snark",
@@ -8282,6 +8283,7 @@ dependencies = [
  "secret-service-server",
  "serde",
  "sha2",
+ "strata-bridge-key-deriv",
  "strata-bridge-primitives",
  "strata-key-derivation 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen)",
  "terrors",
@@ -9767,6 +9769,16 @@ dependencies = [
 [[package]]
 name = "strata-bridge-guest-builder"
 version = "0.1.0"
+
+[[package]]
+name = "strata-bridge-key-deriv"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "secp256k1 0.29.1",
+ "strata-bridge-primitives",
+ "thiserror 2.0.17",
+]
 
 [[package]]
 name = "strata-bridge-p2p-service"
