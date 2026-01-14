@@ -806,6 +806,7 @@ mod tests {
                 .signing_info_partial()
                 .sign(&signer.admin_keypair);
             let admin_burn = admin_burn.finalize_partial(admin_signature);
+            assert_eq!(admin_burn.version, Version(3));
 
             node.sign_and_broadcast(&admin_burn);
             return;
@@ -826,6 +827,7 @@ mod tests {
             });
 
             let unstaking_burn = unstaking_burn.finalize_partial(signer.unstaking_preimage);
+            assert_eq!(unstaking_burn.version, Version(3));
 
             node.sign_and_broadcast(&unstaking_burn);
             return;
@@ -889,7 +891,9 @@ mod tests {
             );
 
             let child = node.create_cpfp_child(&game.slash, FEE * 2);
+            assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
+            assert_eq!(slash.version, Version(3));
             let package = [slash, child];
 
             node.submit_package_invalid(&package);
@@ -929,6 +933,7 @@ mod tests {
             .signing_info_partial()
             .sign(&tweaked_operator_keypair);
         let bridge_proof = bridge_proof.finalize_partial(operator_signature);
+        assert_eq!(bridge_proof.version, Version(3));
 
         node.sign_and_broadcast(&bridge_proof);
         node.mine_blocks(1);
@@ -952,7 +957,9 @@ mod tests {
                 .counterproof
                 .clone()
                 .finalize(&witness);
+            assert_eq!(counterproof.version, Version(3));
             let child = node.create_cpfp_child(&game.counterproofs[0].counterproof, FEE * 2);
+            assert_eq!(child.version, Version(3));
             let package = [counterproof, child];
 
             node.submit_package(&package);
@@ -978,6 +985,7 @@ mod tests {
                 .signing_info_partial()
                 .sign(&signer.wt_fault_keypairs[0]);
             let counterproof_nack = counterproof_nack.finalize_partial(wt_fault_signature);
+            assert_eq!(counterproof_nack.version, Version(3));
 
             node.sign_and_broadcast(&counterproof_nack);
             node.mine_blocks(1);
@@ -999,7 +1007,9 @@ mod tests {
                 .counterproof_ack
                 .clone()
                 .finalize(presigned.counterproof_acks[0]);
+            assert_eq!(counterproof_ack.version, Version(3));
             let child = node.create_cpfp_child(&game.counterproofs[0].counterproof_ack, FEE * 2);
+            assert_eq!(child.version, Version(3));
             let package = [counterproof_ack, child];
 
             node.submit_package_invalid(&package);
@@ -1015,7 +1025,9 @@ mod tests {
             );
 
             let child = node.create_cpfp_child(&game.slash, FEE * 2);
+            assert_eq!(child.version, Version(3));
             let slash = game.slash.finalize(presigned.slash);
+            assert_eq!(slash.version, Version(3));
             let package = [slash, child];
 
             node.submit_package_invalid(&package);
