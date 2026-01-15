@@ -295,23 +295,7 @@ impl ContractManager {
                                         duties.extend(ouroboros_duties);
                                     }
 
-                                    // If peer is specified, send directly to that peer via oneshot.
-                                    // This is for request-response pattern where a peer specifically
-                                    // asked for this data.
-                                    if let Some(peer) = msg.peer {
-                                        let unsigned_msg = UnsignedGossipsubMsg::from(msg.publish.clone());
-                                        let data = unsigned_msg.content();
-                                        if peer.send(data).is_err() {
-                                            error!("failed to send ouroboros message to peer");
-                                        }
-                                        // NOTE: We intentionally do NOT continue here anymore.
-                                        // We also broadcast via gossipsub so that all peers receive
-                                        // the message, not just the requesting peer. This is important
-                                        // for stake chain exchange where all operators need to know
-                                        // about each other's stake chain data.
-                                    }
-
-                                    // Forward the message to the rest of the p2p network via gossipsub.
+                                    // Forward the message to the p2p network via gossipsub.
                                     let signed = msg.publish.sign_ed25519(&keypair);
                                     let msg = GossipsubMsg::from(signed);
                                     let mut data = Vec::new();
