@@ -34,6 +34,7 @@ def generate_config_toml(
     tls_dir: str,
 ):
     mtls_dir = Path(tls_dir)
+    total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
     config = BridgeOperatorConfig(
         datadir=datadir,
@@ -66,11 +67,11 @@ def generate_config_toml(
             dial_timeout=Duration(secs=0, nanos=250_000_000),
             general_timeout=Duration(secs=0, nanos=250_000_000),
             connection_check_interval=Duration(secs=0, nanos=500_000_000),
-            # Configure gossipsub mesh for small network (3 operators)
+            # Configure gossipsub mesh for small network
             # Each operator can only see n-1 peers, so mesh_n_low must be <= n-1
-            gossipsub_mesh_n=2,
+            gossipsub_mesh_n=total_peers - 1,
             gossipsub_mesh_n_low=1,
-            gossipsub_mesh_n_high=3,
+            gossipsub_mesh_n_high=total_peers,
             # Use permissive scoring for test networks (disables penalties for localhost testing)
             gossipsub_scoring_preset="permissive",
         ),
