@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 strata-bridge-primitives.workspace = true
-# strata-bridge-stake-chain.workspace = true
 
 strata-p2p-types.workspace = true
 

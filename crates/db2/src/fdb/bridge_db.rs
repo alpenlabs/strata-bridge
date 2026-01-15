@@ -10,14 +10,14 @@ use terrors::OneOf;
 
 use crate::{
     fdb::{
-        FdbClient,
+        client::FdbClient,
         row_spec::signatures::{SignatureKey, SignatureRowSpec},
     },
     traits::BridgeDb,
 };
 
-#[derive(Debug)]
 /// Distinction between key and value failures.
+#[derive(Debug)]
 pub enum FailureTarget {
     /// Key-related failure.
     Key,
@@ -108,7 +108,7 @@ mod tests {
     use strata_p2p_types::P2POperatorPubKey;
 
     use super::*;
-    use crate::fdb::{Config, MustDrop};
+    use crate::fdb::{cfg::Config, client::MustDrop};
 
     static TEST_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     static FDB_CLIENT: OnceLock<(FdbClient, MustDrop)> = OnceLock::new();
