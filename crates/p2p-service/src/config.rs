@@ -102,6 +102,9 @@ pub struct Configuration {
     /// scoring penalties would interfere with testing (e.g., localhost with
     /// multiple peers on the same IP).
     pub gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
+
+    /// Initial delay before the first gossipsub heartbeat.
+    pub gossipsub_heartbeat_initial_delay: Option<Duration>,
 }
 
 impl Configuration {
@@ -122,6 +125,7 @@ impl Configuration {
         gossipsub_mesh_n_low: Option<usize>,
         gossipsub_mesh_n_high: Option<usize>,
         gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
+        gossipsub_heartbeat_initial_delay: Option<Duration>,
     ) -> Self {
         let keypair = Libp2pEdKeypair::from(sk);
         Self {
@@ -139,6 +143,7 @@ impl Configuration {
             gossipsub_mesh_n_low,
             gossipsub_mesh_n_high,
             gossipsub_scoring_preset,
+            gossipsub_heartbeat_initial_delay,
         }
     }
 }
@@ -158,6 +163,7 @@ mod tests {
             vec![],
             vec![],
             vec![],
+            None,
             None,
             None,
             None,
