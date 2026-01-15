@@ -26,4 +26,5 @@ default = ["fdb"]
 fdb = ["foundationdb", "serde"]
 
 [dev-dependencies]
+proptest.workspace = true
 tokio.workspace = true
