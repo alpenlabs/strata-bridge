@@ -216,12 +216,12 @@ impl Display for DepositState {
             DepositState::GraphGenerated { .. } => "GraphGenerated".to_string(),
             DepositState::DepositNoncesCollected { .. } => "DepositNoncesCollected".to_string(),
             DepositState::DepositPartialsCollected { .. } => "DepositPartialsCollected".to_string(),
-            DepositState::Deposited => "Deposited".to_string(),
-            DepositState::Assigned => "Assigned".to_string(),
-            DepositState::Fulfilled => "Fulfilled".to_string(),
-            DepositState::PayoutNoncesCollected => "PayoutNoncesCollected".to_string(),
-            DepositState::PayoutPartialsCollected => "PayoutPartialsCollected".to_string(),
-            DepositState::CooperativePathFailed => "CooperativePathFailed".to_string(),
+            DepositState::Deposited { .. } => "Deposited".to_string(),
+            DepositState::Assigned { .. } => "Assigned".to_string(),
+            DepositState::Fulfilled { .. } => "Fulfilled".to_string(),
+            DepositState::PayoutNoncesCollected { .. } => "PayoutNoncesCollected".to_string(),
+            DepositState::PayoutPartialsCollected { .. } => "PayoutPartialsCollected".to_string(),
+            DepositState::CooperativePathFailed { .. } => "CooperativePathFailed".to_string(),
             DepositState::Spent => "Spent".to_string(),
             DepositState::Aborted => "Aborted".to_string(),
         };
@@ -389,6 +389,7 @@ impl DepositSM {
             _ => Err(DSMError::InvalidEvent {
                 state: self.state().to_string(),
                 event: DepositEvent::DepositRequest.to_string(),
+                reason: None,
             }),
         }
     }
@@ -401,23 +402,12 @@ impl DepositSM {
         &mut self,
         tx: Transaction,
     ) -> Result<SMOutput<DepositDuty, DepositSignal>, DSMError> {
+        let deposit_request_outpoint = &self.cfg().deposit_outpoint;
         match self.state() {
-            DepositState::Created {
-                deposit_request_outpoint,
-                ..
-            }
-            | DepositState::GraphGenerated {
-                deposit_request_outpoint,
-                ..
-            }
-            | DepositState::DepositNoncesCollected {
-                deposit_request_outpoint,
-                ..
-            }
-            | DepositState::DepositPartialsCollected {
-                deposit_request_outpoint,
-                ..
-            } => {
+            DepositState::Created { .. }
+            | DepositState::GraphGenerated { .. }
+            | DepositState::DepositNoncesCollected { .. }
+            | DepositState::DepositPartialsCollected { .. } => {
                 // FIXME: (@Rajil1213) Check if `txid` is not that of a Deposit Transaction instead
                 if tx
                     .input
@@ -441,7 +431,7 @@ impl DepositSM {
                     })
                 } else {
                     Err(DSMError::Rejected {
-                        state: self.state().clone(),
+                        state: Box::new(self.state().clone()),
                         reason: format!(
                             "Transaction {} is not a take back transaction for the deposit request outpoint {}",
                             tx.compute_txid(),
@@ -452,7 +442,7 @@ impl DepositSM {
                 }
             }
             DepositState::Aborted => Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 event: DepositEvent::UserTakeBack { tx }.into(),
             }),
             _ => Err(DSMError::InvalidEvent {
@@ -501,6 +491,7 @@ impl DepositSM {
             _ => Err(DSMError::InvalidEvent {
                 state: self.state().to_string(),
                 event: DepositEvent::GraphMessage(graph_msg).to_string(),
+                reason: None,
             }),
         }
     }
@@ -529,12 +520,11 @@ impl DepositSM {
                 // Check for duplicate nonce submission
                 if pubnonces.contains_key(&operator_idx) {
                     return Err(DSMError::Duplicate {
-                        state: self.state().to_string(),
-                        event: DepositEvent::NonceReceived {
+                        state: Box::new(self.state().clone()),
+                        event: Box::new(DepositEvent::NonceReceived {
                             nonce,
                             operator_idx,
-                        }
-                        .to_string(),
+                        }),
                     });
                 }
 
@@ -585,6 +575,7 @@ impl DepositSM {
                     operator_idx,
                 }
                 .to_string(),
+                reason: None,
             }),
         }
     }
@@ -658,25 +649,23 @@ impl DepositSM {
                 .is_err()
                 {
                     return Err(DSMError::Rejected {
-                        state: self.state().to_string(),
+                        state: Box::new(self.state().clone()),
                         reason: "Invalid partial signature".to_string(),
-                        event: DepositEvent::PartialReceived {
+                        event: Box::new(DepositEvent::PartialReceived {
                             partial_sig,
                             operator_idx,
-                        }
-                        .to_string(),
+                        }),
                     });
                 }
 
                 // Check for duplicate partial signature submission
                 if partial_signatures.contains_key(&operator_idx) {
                     return Err(DSMError::Duplicate {
-                        state: self.state().to_string(),
-                        event: DepositEvent::PartialReceived {
+                        state: Box::new(self.state().clone()),
+                        event: Box::new(DepositEvent::PartialReceived {
                             partial_sig,
                             operator_idx,
-                        }
-                        .to_string(),
+                        }),
                     });
                 }
 
@@ -726,6 +715,7 @@ impl DepositSM {
                     operator_idx,
                 }
                 .to_string(),
+                reason: None,
             }),
         }
     }
@@ -801,7 +791,7 @@ impl DepositSM {
                 })
             }
             DepositState::Spent => Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 event: DepositEvent::PayoutConfirmed { tx: tx.clone() }.into()
             }),
             _ => Err(DSMError::InvalidEvent {
@@ -816,7 +806,7 @@ impl DepositSM {
         let last_processed_block_height = self.state().last_processed_block_height();
         if last_processed_block_height.is_some_and(|height| *height >= new_block_height) {
             return Err(DSMError::Duplicate {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 event: DepositEvent::NewBlock {
                     block_height: new_block_height,
                 }
@@ -887,7 +877,7 @@ impl DepositSM {
             }
 
             DepositState::Spent | DepositState::Aborted => Err(DSMError::Rejected {
-                state: self.state().clone(),
+                state: Box::new(self.state().clone()),
                 reason: "New blocks irrelevant in terminal state".to_string(),
                 event: DepositEvent::NewBlock {
                     block_height: new_block_height,
@@ -913,14 +903,21 @@ mod tests {
         testing::{fixtures::*, transition::*},
     };
 
+    fn generate_test_deposit_txn() -> DepositTx {
+        todo!("@mdteach")
+    }
+
     // ===== Unit Tests for process_drt_takeback =====
 
     #[test]
     fn test_drt_takeback_from_created() {
         let outpoint = OutPoint::default();
         let state = DepositState::Created {
-            deposit_request_outpoint: outpoint,
+            deposit_transaction: generate_test_deposit_txn(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT * 2,
             block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: Default::default(),
+            output_index: Default::default(),
         };
 
         let tx = test_takeback_tx(outpoint);
@@ -942,7 +939,10 @@ mod tests {
     fn test_drt_takeback_from_graph_generated() {
         let outpoint = OutPoint::default();
         let state = DepositState::GraphGenerated {
-            deposit_request_outpoint: outpoint,
+            deposit_transaction: generate_test_deposit_txn(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT * 2,
+            output_index: Default::default(),
+            pubnonces: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
         };
 
@@ -993,7 +993,10 @@ mod tests {
     fn test_wrong_drt_takeback_tx_rejection() {
         let drt_outpoint = OutPoint::default();
         let initial_state = DepositState::Created {
-            deposit_request_outpoint: drt_outpoint,
+            deposit_transaction: generate_test_deposit_txn(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT * 2,
+            output_index: Default::default(),
+            linked_graphs: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
         };
 

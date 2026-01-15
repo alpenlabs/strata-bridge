@@ -90,35 +90,10 @@ impl Arbitrary for DepositState {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        let outpoint = Just(OutPoint::default());
         let block_height = BIP34_MIN_BLOCK_HEIGHT..1000u64;
         let operator_idx = 0u32..3u32;
 
         prop_oneof![
-            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
-                DepositState::Created {
-                    deposit_request_outpoint: outpoint,
-                    block_height: height,
-                }
-            }),
-            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
-                DepositState::GraphGenerated {
-                    deposit_request_outpoint: outpoint,
-                    block_height: height,
-                }
-            }),
-            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
-                DepositState::DepositNoncesCollected {
-                    deposit_request_outpoint: outpoint,
-                    block_height: height,
-                }
-            }),
-            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
-                DepositState::DepositPartialsCollected {
-                    deposit_request_outpoint: outpoint,
-                    block_height: height,
-                }
-            }),
             block_height
                 .clone()
                 .prop_map(|height| DepositState::Deposited {
@@ -169,8 +144,6 @@ impl Arbitrary for DepositEvent {
             Just(DepositEvent::UserTakeBack {
                 tx: test_takeback_tx(OutPoint::default())
             }),
-            Just(DepositEvent::NonceReceived),
-            Just(DepositEvent::PartialReceived),
             Just(DepositEvent::DepositConfirmed),
             Just(DepositEvent::Assignment),
             Just(DepositEvent::FulfillmentConfirmed),
