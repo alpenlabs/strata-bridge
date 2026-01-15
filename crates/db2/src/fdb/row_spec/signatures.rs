@@ -11,8 +11,8 @@ use terrors::OneOf;
 use super::{KVRowSpec, PackableKey, SerializableValue};
 use crate::fdb::dirs::Directories;
 
-#[derive(Debug)]
 /// Key for a Schnorr signature.
+#[derive(Debug)]
 pub struct SignatureKey {
     /// Operator index.
     pub operator_idx: OperatorIdx,
@@ -62,8 +62,8 @@ impl SerializableValue for Signature {
     }
 }
 
-#[derive(Debug)]
 /// ZST for the signature row spec.
+#[derive(Debug)]
 pub struct SignatureRowSpec;
 
 impl KVRowSpec for SignatureRowSpec {
