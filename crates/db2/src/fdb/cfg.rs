@@ -20,8 +20,8 @@ impl Default for Config {
     }
 }
 
-/// See [`NetworkOption`]::TLS* and <https://apple.github.io/foundationdb/tls.html>
-/// for more information.
+/// See [`foundationdb::options::NetworkOption`]::TLS* and
+/// <https://apple.github.io/foundationdb/tls.html> for more information.
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct TlsConfig {
     /// Path to the TLS certificate file.

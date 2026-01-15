@@ -10,7 +10,7 @@ ENV CARGO_TERM_COLOR=always
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y \
-    pkg-config build-essential protobuf-compiler git
+    pkg-config build-essential protobuf-compiler git curl
 
 # Install FoundationDB client library (required for building)
 ARG FDB_VERSION=7.3.43

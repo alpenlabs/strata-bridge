@@ -3,7 +3,7 @@ WORKDIR /app
 
 RUN apt-get update
 RUN apt-get upgrade -y
-RUN apt-get install -y curl
+RUN apt-get install -y curl adduser
 
 # Install FoundationDB client library (required at runtime)
 ARG FDB_VERSION=7.3.43
