@@ -166,6 +166,9 @@ pub(crate) struct P2PConfig {
     ///
     /// Set to `permissive` for test networks.
     pub gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
+
+    /// Initial delay for the gossipsub heartbeat.
+    pub gossipsub_heartbeat_initial_delay: Option<Duration>,
 }
 
 /// RPC server configuration.
