@@ -1127,6 +1127,145 @@ mod tests {
         );
     }
 
+    // ===== MuSig2 Signing Tests =====
+
+    #[test]
+    fn test_complete_musig2_signing_flow() {
+        use musig2::AggNonce;
+        use secp256k1::SecretKey;
+        use strata_bridge_primitives::{
+            key_agg::create_agg_ctx, scripts::taproot::TaprootWitness, secp::EvenSecretKey,
+        };
+
+        use crate::testing::signer::TestMusigSigner;
+
+        // 1. Setup: Create deposit transaction and operator table
+        let amount = Amount::from_btc(10.0).expect("valid amount");
+        let timelock = relative::LockTime::from_height(144);
+        let deposit_tx = generate_test_deposit_txn(amount, timelock);
+
+        let cfg = test_cfg();
+        let operator_table = test_operator_table();
+
+        // 2. Get signing context from deposit transaction
+        let btc_keys: Vec<_> = operator_table.btc_keys().into_iter().collect();
+        let signing_info_array = deposit_tx.signing_info();
+        let signing_info = signing_info_array
+            .first()
+            .expect("deposit tx must have signing info");
+
+        let sighash = signing_info.sighash;
+        let tweak = signing_info
+            .tweak
+            .expect("DRT->DT key-path spend must include a taproot tweak")
+            .expect("tweak must be present");
+
+        let tap_witness = TaprootWitness::Tweaked { tweak };
+        let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness).expect("must create key agg ctx");
+        let agg_pubkey = key_agg_ctx.aggregated_pubkey();
+
+        // 3. Create signers (nonces generated at init time)
+        // Use the same secret keys as test_operator_table() with EvenSecretKey wrapper
+        let even_sks = [
+            EvenSecretKey::from(SecretKey::from_slice(&[1u8; 32]).unwrap()),
+            EvenSecretKey::from(SecretKey::from_slice(&[2u8; 32]).unwrap()),
+            EvenSecretKey::from(SecretKey::from_slice(&[3u8; 32]).unwrap()),
+        ];
+        let secret_keys: Vec<SecretKey> = even_sks
+            .iter()
+            .map(|sk| SecretKey::from_slice(&sk.secret_bytes()).unwrap())
+            .collect();
+        let signers: Vec<TestMusigSigner> = secret_keys
+            .into_iter()
+            .enumerate()
+            .map(|(idx, sk)| TestMusigSigner::new(idx as u32, sk))
+            .collect();
+
+        // Initialize nonce counter for this signing round
+        let nonce_counter = 0u64;
+
+        // 4. Initialize state machine in GraphGenerated state
+        let mut sm = DepositSM::new(
+            cfg,
+            deposit_tx.clone(),
+            INITIAL_BLOCK_HEIGHT,
+            0,
+            INITIAL_BLOCK_HEIGHT,
+        );
+
+        sm.state = DepositState::GraphGenerated {
+            deposit_transaction: deposit_tx,
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            pubnonces: BTreeMap::new(),
+        };
+
+        // 5. Phase 1: Process nonces from all operators
+        for signer in &signers {
+            let result = sm.process_nonce_received(
+                signer.pubnonce(agg_pubkey, nonce_counter),
+                signer.operator_idx(),
+            );
+            assert!(
+                result.is_ok(),
+                "Nonce from operator {} should be accepted",
+                signer.operator_idx()
+            );
+        }
+
+        // Verify transition to DepositNoncesCollected
+        assert!(
+            matches!(sm.state, DepositState::DepositNoncesCollected { .. }),
+            "Should transition to DepositNoncesCollected after all nonces"
+        );
+
+        // 6. Phase 2: Process partial signatures from all operators
+        let agg_nonce = AggNonce::sum(
+            signers
+                .iter()
+                .map(|s| s.pubnonce(agg_pubkey, nonce_counter)),
+        );
+
+        for signer in &signers {
+            let partial_sig = signer.sign(&key_agg_ctx, nonce_counter, &agg_nonce, sighash);
+            let result = sm.process_partial_received(partial_sig, signer.operator_idx());
+            assert!(
+                result.is_ok(),
+                "Valid signature from operator {} should be accepted",
+                signer.operator_idx()
+            );
+        }
+
+        // Verify transition to DepositPartialsCollected
+        assert!(
+            matches!(sm.state, DepositState::DepositPartialsCollected { .. }),
+            "Should transition to DepositPartialsCollected after all partials"
+        );
+
+        // 7. Verify the finalized transaction is valid
+        if let DepositState::DepositPartialsCollected {
+            deposit_transaction,
+            ..
+        } = &sm.state
+        {
+            // Transaction should be complete and ready to broadcast
+            assert!(
+                !deposit_transaction.input.is_empty(),
+                "Transaction should have inputs"
+            );
+            assert!(
+                !deposit_transaction.output.is_empty(),
+                "Transaction should have outputs"
+            );
+
+            // The transaction has been finalized with the aggregated signature
+            // This means the MuSig2 verification passed!
+        } else {
+            panic!("Expected DepositPartialsCollected state");
+        }
+    }
+
     // ===== Property-Based Tests =====
 
     // Property: State machine is deterministic for the implemented states and events space
