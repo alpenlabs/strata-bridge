@@ -141,6 +141,8 @@
             chmod +x $out/bin/rustup
           '';
         };
+        # FoundationDB is only available on Linux in nixpkgs
+        fdbPackages = if pkgs.stdenv.isLinux then [ pkgs.foundationdb ] else [ ];
       in
       {
         devShells.default = pkgs.mkShell {
@@ -174,7 +176,7 @@
             llvmPackages.libclang.lib
             llvmPackages.libcxxStdenv.cc.cc.lib
             stdenv.cc.cc.lib
-          ];
+          ] ++ fdbPackages;
 
           env = {
             # LLVM/clang stuff
