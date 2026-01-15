@@ -893,6 +893,7 @@ mod tests {
 
     use std::str::FromStr;
 
+    use bitcoin::{Amount, OutPoint, relative};
     use proptest::prelude::*;
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
@@ -903,18 +904,20 @@ mod tests {
         testing::{fixtures::*, transition::*},
     };
 
-    fn generate_test_deposit_txn() -> DepositTx {
-        todo!("@mdteach")
-    }
-
     // ===== Unit Tests for process_drt_takeback =====
+
+    fn default_deposit_tx() -> DepositTx {
+        let amount = Amount::from_btc(10.0).expect("valid amount");
+        let timelock = relative::LockTime::from_height(144);
+        generate_test_deposit_txn(amount, timelock)
+    }
 
     #[test]
     fn test_drt_takeback_from_created() {
         let outpoint = OutPoint::default();
         let state = DepositState::Created {
-            deposit_transaction: generate_test_deposit_txn(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT * 2,
+            deposit_transaction: default_deposit_tx(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
             block_height: INITIAL_BLOCK_HEIGHT,
             linked_graphs: Default::default(),
             output_index: Default::default(),
@@ -939,8 +942,8 @@ mod tests {
     fn test_drt_takeback_from_graph_generated() {
         let outpoint = OutPoint::default();
         let state = DepositState::GraphGenerated {
-            deposit_transaction: generate_test_deposit_txn(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT * 2,
+            deposit_transaction: default_deposit_tx(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: Default::default(),
             pubnonces: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
@@ -993,8 +996,8 @@ mod tests {
     fn test_wrong_drt_takeback_tx_rejection() {
         let drt_outpoint = OutPoint::default();
         let initial_state = DepositState::Created {
-            deposit_transaction: generate_test_deposit_txn(),
-            drt_block_height: INITIAL_BLOCK_HEIGHT * 2,
+            deposit_transaction: default_deposit_tx(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
             output_index: Default::default(),
             linked_graphs: Default::default(),
             block_height: INITIAL_BLOCK_HEIGHT,
