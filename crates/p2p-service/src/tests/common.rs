@@ -37,7 +37,10 @@ pub(crate) struct Operator {
     pub(crate) kp: EdKeypair,
 }
 
+const HEARTBEAT_INITIAL_DELAY: Duration = Duration::from_secs(5);
+
 impl Operator {
+    #[expect(clippy::too_many_arguments)]
     pub(crate) fn new(
         keypair: EdKeypair,
         connect_to: Vec<Multiaddr>,
@@ -46,6 +49,7 @@ impl Operator {
         dial_timeout: Option<Duration>,
         general_timeout: Option<Duration>,
         connection_check_interval: Option<Duration>,
+        heartbeat_initial_delay: Option<Duration>,
     ) -> anyhow::Result<Self> {
         let config = P2PConfig {
             transport_keypair: keypair.clone().into(),
@@ -65,6 +69,7 @@ impl Operator {
             gossipsub_mesh_n: None,
             gossipsub_mesh_n_low: None,
             gossipsub_mesh_n_high: None,
+            gossipsub_heartbeat_initial_delay: heartbeat_initial_delay,
             gossip_event_buffer_size: None,
             commands_event_buffer_size: None,
             command_buffer_size: None,
@@ -133,6 +138,7 @@ impl Setup {
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(500)),
+                Some(HEARTBEAT_INITIAL_DELAY),
             )?;
 
             operators.push(operator);
@@ -141,11 +147,9 @@ impl Setup {
         let (operators, tasks) = Self::start_operators(operators).await;
 
         // Wait for gossipsub mesh to stabilize.
-        // The gossipsub heartbeat_initial_delay is 5 seconds by default,
-        // so we need to wait at least that long for subscriptions to propagate
-        // between peers. Adding 1 extra second for safety margin.
+        // Adding 1 extra second for safety margin.
         info!("Waiting for gossipsub mesh to stabilize...");
-        tokio::time::sleep(Duration::from_secs(6)).await;
+        tokio::time::sleep(HEARTBEAT_INITIAL_DELAY + Duration::from_secs(1)).await;
         info!("Gossipsub mesh should be stable now");
 
         Ok(Self {
@@ -190,6 +194,7 @@ impl Setup {
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(250)),
                 Some(Duration::from_millis(500)),
+                Some(HEARTBEAT_INITIAL_DELAY),
             )?;
 
             operators.push(operator);
@@ -202,7 +207,7 @@ impl Setup {
         // so we need to wait at least that long for subscriptions to propagate
         // between peers. Adding 1 extra second for safety margin.
         info!("Waiting for gossipsub mesh to stabilize...");
-        tokio::time::sleep(Duration::from_secs(6)).await;
+        tokio::time::sleep(HEARTBEAT_INITIAL_DELAY + Duration::from_secs(1)).await;
         info!("Gossipsub mesh should be stable now");
 
         Ok(Self {

@@ -45,6 +45,7 @@ class P2pConfig:
     gossipsub_mesh_n_low: int | None = None
     gossipsub_mesh_n_high: int | None = None
     gossipsub_scoring_preset: str | None = None
+    gossipsub_heartbeat_initial_delay: Duration | None = None
 
 
 @dataclass
