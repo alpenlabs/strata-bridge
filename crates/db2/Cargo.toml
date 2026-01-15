@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 strata-bridge-primitives.workspace = true
 
-strata-p2p-types.workspace = true
+strata-bridge-p2p-types.workspace = true
 
 bitcoin = { workspace = true, features = ["rand-std"] }
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
