@@ -104,3 +104,22 @@ mod tests {
         NOfNSigner::assert_connector_is_spendable(NOfNSpend);
     }
 }
+
+/// Proptest generators for the `NOfNConnector`.
+#[cfg(test)]
+pub mod prop_test_generators {
+    use proptest::prop_compose;
+    use strata_bridge_test_utils::bitcoin::prop_test_generators::{arb_amount, arb_schnorr_key};
+
+    use super::*;
+
+    prop_compose! {
+        /// Generates arbitrary `NOfNConnector`.
+        pub fn arb_n_of_n_connector()(
+            n_of_n_pubkey in arb_schnorr_key(),
+            value in arb_amount(),
+        ) -> NOfNConnector {
+            NOfNConnector::new(Network::Regtest, n_of_n_pubkey, value)
+        }
+    }
+}

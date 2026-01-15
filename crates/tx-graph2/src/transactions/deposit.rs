@@ -131,3 +131,47 @@ impl AsRef<Transaction> for DepositTx {
         &self.psbt.unsigned_tx
     }
 }
+
+/// Proptest generators for the `DepositTx`.
+#[cfg(test)]
+pub mod prop_test_generators {
+    use proptest::{prelude::*, prop_compose};
+    use strata_bridge_test_utils::bitcoin::prop_test_generators::arb_outpoint;
+
+    use super::*;
+    use crate::connectors::n_of_n::prop_test_generators::arb_n_of_n_connector;
+    use crate::connectors::timelocked::prop_test_generators::arb_deposit_request_connector;
+
+    prop_compose! {
+        // Generates arbitrary `MagicBytes`.
+        fn arb_magic_bytes()(mb in any::<[u8; 4]>()) -> MagicBytes {
+            MagicBytes::from(mb)
+        }
+    }
+
+    prop_compose! {
+        /// Generates arbitrary `DepositData`.
+        pub fn arb_deposit_data()(
+            deposit_idx in any::<u32>(),
+            deposit_request_outpoint in arb_outpoint(),
+            magic_bytes in arb_magic_bytes(),
+        ) -> DepositData {
+            DepositData {
+                deposit_idx,
+                deposit_request_outpoint,
+                magic_bytes,
+            }
+        }
+    }
+
+    prop_compose! {
+        /// Generates arbitrary `DepositTx`.
+        pub fn arb_deposit_tx()(
+            data in arb_deposit_data(),
+            deposit_connector in arb_n_of_n_connector(),
+            deposit_request_connector in arb_deposit_request_connector(),
+        ) -> DepositTx {
+            DepositTx::new(data, deposit_connector, deposit_request_connector)
+        }
+    }
+}

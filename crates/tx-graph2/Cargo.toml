@@ -22,6 +22,7 @@ serde.workspace = true
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 strata-bridge-common.workspace = true
+proptest.workspace = true
 
 tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true

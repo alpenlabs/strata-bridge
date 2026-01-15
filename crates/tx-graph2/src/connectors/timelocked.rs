@@ -415,3 +415,27 @@ mod tests {
         TimelockedNOfNSigner::assert_connector_is_spendable(TimelockedSpendPath::Timeout);
     }
 }
+
+/// Proptest generators for connectors.
+#[cfg(test)]
+pub mod prop_test_generators {
+    use proptest::prop_compose;
+    use strata_bridge_test_utils::prelude::prop_test_generators::{
+        arb_amount, arb_rel_lock_time, arb_schnorr_key,
+    };
+
+    use super::*;
+
+    prop_compose! {
+        /// Generates arbitrary `DepositRequestConnector`.
+        pub fn arb_deposit_request_connector()(n_of_n_pubkey in arb_schnorr_key(), depositor_pubkey in arb_schnorr_key(), timelock in arb_rel_lock_time(), amount in arb_amount()) -> DepositRequestConnector {
+            DepositRequestConnector::new(
+                Network::Regtest,
+                n_of_n_pubkey,
+                depositor_pubkey,
+                timelock,
+                amount
+            )
+        }
+    }
+}

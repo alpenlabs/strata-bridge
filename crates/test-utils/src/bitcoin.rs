@@ -359,3 +359,54 @@ mod tests {
         });
     }
 }
+
+/// Proptest generators for the bitcoin primitives.
+pub mod prop_test_generators {
+    use bitcoin::{hashes::sha256d::Hash, Amount, OutPoint, Txid};
+    use proptest::{prelude::*, prop_compose};
+
+    prop_compose! {
+        /// Generates an arbitrary Txid.
+        pub fn arb_txid()(tx in any::<[u8; 32]>()) -> Txid {
+            Txid::from_raw_hash(*Hash::from_bytes_ref(&tx))
+        }
+    }
+
+    prop_compose! {
+        /// Generates an arbitrary OutPoint.
+        pub fn arb_outpoint()(txid in arb_txid(), vout in 0..100u32) -> OutPoint {
+            OutPoint { txid, vout }
+        }
+    }
+
+    prop_compose! {
+        /// Generates an arbitrary Amount.
+        pub fn arb_amount()(amount in 0..100u64) -> Amount {
+            Amount::from_int_btc(amount)
+        }
+    }
+
+    prop_compose! {
+        /// Generates a random x-only public key (Schnorr).
+        pub fn arb_schnorr_key()(
+            sk in any::<[u8; 32]>()
+                .no_shrink()
+                .prop_filter_map("invalid secret key", |bs| {
+                    secp256k1::SecretKey::from_slice(&bs).ok()
+                })
+        ) -> secp256k1::XOnlyPublicKey {
+            let secp = secp256k1::Secp256k1::new();
+            let pk = secp256k1::PublicKey::from_secret_key(&secp, &sk);
+            pk.x_only_public_key().0
+        }
+    }
+
+    prop_compose! {
+        /// Generates arbitrary relative locktime (block height based).
+        pub fn arb_rel_lock_time()(
+            ht in 0u16..=u16::MAX
+        ) -> bitcoin::relative::LockTime {
+            bitcoin::relative::LockTime::from_height(ht)
+        }
+    }
+}
