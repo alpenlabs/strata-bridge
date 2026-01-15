@@ -137,7 +137,7 @@ impl TxDriver {
 
                         if let Ok(tx_data) = rpc_client.get_raw_transaction_verbosity_one(&txid).await {
                             let num_confirmations = tx_data.confirmations.unwrap_or(0);
-                            let block_hash = tx_data.blockhash;
+                            let block_hash = tx_data.block_hash;
                             let block_height = if let Some(block_hash) = block_hash {
                                 // This uses `0` as the default since a block height of `0` does not
                                 // satisfy any practical predicate
@@ -149,12 +149,12 @@ impl TxDriver {
                             let bury_depth = zmq_client.bury_depth() as u32;
                             let tx_status = match num_confirmations {
                                 0 => TxStatus::Mempool,
-                                n if n < bury_depth => TxStatus::Mined {
-                                    blockhash: tx_data.blockhash.expect("must be present if confirmed"),
+                                n if n < bury_depth as u64 => TxStatus::Mined {
+                                    blockhash: tx_data.block_hash.expect("must be present if confirmed"),
                                     height: block_height,
                                 },
                                 _ => TxStatus::Buried {
-                                    blockhash: tx_data.blockhash.expect("must be present if confirmed"),
+                                    blockhash: tx_data.block_hash.expect("must be present if confirmed"),
                                     height: block_height,
                                 },
                             };
@@ -297,16 +297,12 @@ impl Drop for TxDriver {
 
 #[cfg(test)]
 mod e2e_tests {
-    use std::{
-        collections::{BTreeMap, VecDeque},
-        path::PathBuf,
-        sync::Arc,
-    };
+    use std::{collections::VecDeque, path::PathBuf, sync::Arc};
 
     use algebra::predicate;
-    use bitcoin::Block;
+    use bitcoin::{Amount, Block};
     use bitcoind_async_client::Client as BitcoinClient;
-    use corepc_node::{client::client_sync::Auth, CookieValues};
+    use corepc_node::{client::client_sync::Auth, vtype::FundRawTransaction, CookieValues, Output};
     use futures::join;
     use serial_test::serial;
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -392,7 +388,8 @@ mod e2e_tests {
             .get_cookie_values()
             .expect("can read cookie")
             .expect("can parse cookie");
-        let rpc_client = BitcoinClient::new(bitcoind.rpc_url(), user, password, None, None)
+        let auth = bitcoind_async_client::Auth::UserPass(user, password);
+        let rpc_client = BitcoinClient::new(bitcoind.rpc_url(), auth, None, None, None)
             .expect("can set up rpc client");
         debug!("bitcoin_async_client::Client initialized");
 
@@ -421,22 +418,27 @@ mod e2e_tests {
         debug!("test funds matured");
 
         debug!("creating raw transaction");
-        let mut outs = BTreeMap::new();
-        outs.insert(new_address.to_string(), 1.0);
-        let raw = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
-        debug!(?raw, "created raw transaction");
+        let out = Output::new(new_address.clone(), Amount::from_btc(1.0)?);
+        // Get hex string directly - don't use into_model() as 0-input transactions
+        // can't be deserialized due to segwit marker ambiguity
+        let raw_hex = bitcoind.client.create_raw_transaction(&[], &[out])?.0;
+        debug!(%raw_hex, "created raw transaction");
 
         debug!("funding raw transaction");
-        let funded = bitcoind.client.fund_raw_transaction(&raw)?.hex;
-        debug!(%funded, "funded raw transaction");
+        // Use call() directly to pass hex string since fund_raw_transaction expects &Transaction
+        let funded_result: FundRawTransaction = bitcoind
+            .client
+            .call("fundrawtransaction", &[raw_hex.into()])?;
+        let funded = funded_result.into_model()?.tx;
+        debug!(funded=%funded.compute_txid(), "funded raw transaction");
 
         debug!("signing raw transaction");
         let signed = bitcoind
             .client
             .sign_raw_transaction_with_wallet(&funded)?
             .into_model()?
-            .raw_transaction;
-        debug!(?signed, "signed raw transaction");
+            .tx;
+        debug!(signed=%signed.compute_txid(), "signed raw transaction");
 
         info!("sending first copy to TxDriver");
         let fst = driver.drive(signed.clone(), TxStatus::is_buried);
@@ -490,22 +492,27 @@ mod e2e_tests {
         debug!("test funds matured");
 
         debug!("creating raw transaction");
-        let mut outs = BTreeMap::new();
-        outs.insert(new_address.to_string(), 1.0);
-        let raw = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
-        debug!(?raw, "created raw transaction");
+        let outs = vec![Output::new(new_address, Amount::from_btc(1.0)?)];
+        // Get hex string directly - don't use into_model() as 0-input transactions
+        // can't be deserialized due to segwit marker ambiguity
+        let raw_hex = bitcoind.client.create_raw_transaction(&[], &outs)?.0;
+        debug!(%raw_hex, "created raw transaction");
 
         debug!("funding raw transaction");
-        let funded = bitcoind.client.fund_raw_transaction(&raw)?.hex;
-        debug!(%funded, "funded raw transaction");
+        // Use call() directly to pass hex string since fund_raw_transaction expects &Transaction
+        let funded_result: FundRawTransaction = bitcoind
+            .client
+            .call("fundrawtransaction", &[raw_hex.into()])?;
+        let funded = funded_result.into_model()?.tx;
+        debug!(funded=%funded.compute_txid(), "funded raw transaction");
 
         debug!("signing raw transaction");
         let signed = bitcoind
             .client
             .sign_raw_transaction_with_wallet(&funded)?
             .into_model()?
-            .raw_transaction;
-        debug!(?signed, "signed raw transaction");
+            .tx;
+        debug!(signed=%signed.compute_txid(), "signed raw transaction");
 
         info!("driving to mempool");
         driver

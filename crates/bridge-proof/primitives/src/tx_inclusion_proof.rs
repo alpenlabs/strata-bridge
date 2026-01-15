@@ -1,14 +1,203 @@
 //! Transaction inclusion proof.
 
+use std::marker::PhantomData;
+
 use bitcoin::{block::Header, hashes::Hash, Transaction};
 use borsh::{BorshDeserialize, BorshSerialize};
-use strata_primitives::{
-    buf::Buf32,
-    hash::sha256d,
-    l1::{L1TxInclusionProof, L1TxProof, L1WtxProof, TxIdComputable, TxIdMarker, WtxIdMarker},
-};
+use strata_crypto::hash::sha256d;
+use strata_primitives::buf::Buf32;
 
 use crate::{tx::BitcoinTx, utils::witness_commitment_from_coinbase};
+
+/// A generic proof structure that can handle any kind of transaction ID (e.g.,
+/// [`Txid`](bitcoin::Txid) or [`Wtxid`](bitcoin::Wtxid)) by delegating the ID computation to the
+/// provided type `T` that implements [`TxIdComputable`].
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct L1TxInclusionProof<T> {
+    /// The 0-based position (index) of the transaction within the block's transaction list
+    /// for which this proof is generated.
+    position: u32,
+
+    /// The intermediate hashes (sometimes called "siblings") needed to reconstruct the Merkle root
+    /// when combined with the target transaction's own ID. These are the Merkle tree nodes at
+    /// each step that pair with the current hash (either on the left or the right) to produce
+    /// the next level of the tree.
+    cohashes: Vec<Buf32>,
+
+    /// A marker that preserves the association with type `T`, which implements
+    /// [`TxIdComputable`]. This ensures the proof logic depends on the correct
+    /// transaction ID computation ([`Txid`](bitcoin::Txid) vs.[`Wtxid`](bitcoin::Wtxid)) for the
+    /// lifetime of the proof.
+    _marker: PhantomData<T>,
+}
+
+impl<T> L1TxInclusionProof<T> {
+    /// Creates a new transaction inclusion proof.
+    pub const fn new(position: u32, cohashes: Vec<Buf32>) -> Self {
+        Self {
+            position,
+            cohashes,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Returns a reference to the cohashes (Merkle tree sibling hashes) in this proof.
+    ///
+    /// These are the intermediate hashes needed to reconstruct the Merkle root
+    /// when combined with the target transaction's ID.
+    pub fn cohashes(&self) -> &[Buf32] {
+        &self.cohashes
+    }
+
+    /// Returns the 0-based position of the transaction within the block.
+    pub const fn position(&self) -> u32 {
+        self.position
+    }
+}
+
+/// A trait for computing some kind of transaction ID (e.g., [`Txid`](bitcoin::Txid) or
+/// [`Wtxid`](bitcoin::Wtxid)) from a [`Transaction`].
+///
+/// This trait is designed to be implemented by "marker" types that define how a transaction ID
+/// should be computed. For example, [`TxIdMarker`] invokes [`Transaction::compute_txid`], and
+/// [`WtxIdMarker`] invokes [`Transaction::compute_wtxid`]. This approach avoids duplicating
+/// inclusion-proof or serialization logic across multiple ID computations.
+pub trait TxIdComputable {
+    /// Computes the transaction ID for the given transaction.
+    ///
+    /// The `idx` parameter allows marker types to handle special cases such as the coinbase
+    /// transaction (which has a zero [`Wtxid`](bitcoin::Wtxid)) by looking up the transaction
+    /// index.
+    fn compute_id(tx: &Transaction, idx: usize) -> Buf32;
+}
+
+/// Marker type for computing the [`Txid`](bitcoin::Txid).
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct TxIdMarker;
+
+/// Marker type for computing the [`Wtxid`](bitcoin::Wtxid).
+#[derive(Clone, Debug, PartialEq, Eq, BorshSerialize, BorshDeserialize)]
+pub struct WtxIdMarker;
+
+impl TxIdComputable for TxIdMarker {
+    fn compute_id(tx: &Transaction, _idx: usize) -> Buf32 {
+        tx.compute_txid().into()
+    }
+}
+
+impl TxIdComputable for WtxIdMarker {
+    fn compute_id(tx: &Transaction, idx: usize) -> Buf32 {
+        // Coinbase transaction wtxid is hash with zeroes
+        if idx == 0 {
+            return Buf32::zero();
+        }
+        tx.compute_wtxid().into()
+    }
+}
+
+impl<T: TxIdComputable> L1TxInclusionProof<T> {
+    /// Generates the proof for a transaction at the specified index in the list of
+    /// transactions, using `T` to compute the transaction IDs.
+    pub fn generate(transactions: &[Transaction], idx: u32) -> Self {
+        let txids = transactions
+            .iter()
+            .enumerate()
+            .map(|(idx, tx)| T::compute_id(tx, idx))
+            .collect::<Vec<_>>();
+        let (cohashes, _txroot) = get_cohashes(&txids, idx);
+        L1TxInclusionProof::new(idx, cohashes)
+    }
+
+    /// Computes the merkle root for the given `transaction` using the proof's cohashes.
+    pub fn compute_root(&self, transaction: &Transaction) -> Buf32 {
+        // `cur_hash` represents the intermediate hash at each step. After all cohashes are
+        // processed `cur_hash` becomes the root hash
+        let mut cur_hash = T::compute_id(transaction, self.position as usize).0;
+
+        let mut pos = self.position();
+        for cohash in self.cohashes() {
+            let mut buf = [0u8; 64];
+            if pos & 1 == 0 {
+                buf[0..32].copy_from_slice(&cur_hash);
+                buf[32..64].copy_from_slice(cohash.as_ref());
+            } else {
+                buf[0..32].copy_from_slice(cohash.as_ref());
+                buf[32..64].copy_from_slice(&cur_hash);
+            }
+            cur_hash = sha256d(&buf).0;
+            pos >>= 1;
+        }
+        Buf32::from(cur_hash)
+    }
+
+    /// Verifies the inclusion proof of the given `transaction` against the provided merkle `root`.
+    pub fn verify(&self, transaction: &Transaction, root: Buf32) -> bool {
+        self.compute_root(transaction) == root
+    }
+}
+
+/// Computes the Merkle cohashes needed for a transaction inclusion proof.
+///
+/// Given a list of transaction IDs and an index, this function computes the
+/// Merkle tree hashes needed to prove that the transaction at `index` is
+/// included in the tree.
+///
+/// Returns a tuple of (cohashes, root) where:
+/// - cohashes: The sibling hashes needed for the proof path
+/// - root: The Merkle root of the tree
+pub fn get_cohashes<T>(ids: &[T], index: u32) -> (Vec<Buf32>, Buf32)
+where
+    T: Into<Buf32> + Clone,
+{
+    assert!(
+        (index as usize) < ids.len(),
+        "The transaction index should be within the txids length"
+    );
+    let mut curr_level: Vec<Buf32> = ids.iter().cloned().map(Into::into).collect();
+
+    let mut curr_index = index;
+    let mut cohashes = vec![];
+    while curr_level.len() > 1 {
+        let mut next_level = vec![];
+        let mut i = 0;
+        while i < curr_level.len() {
+            let left = curr_level[i];
+            let right = if i + 1 < curr_level.len() {
+                curr_level[i + 1]
+            } else {
+                curr_level[i] // duplicate last element if odd
+            };
+
+            // Store the cohash (sibling of our path)
+            if i == curr_index as usize {
+                cohashes.push(right);
+            } else if i + 1 == curr_index as usize {
+                cohashes.push(left);
+            }
+
+            // Compute parent hash
+            let mut combined = [0u8; 64];
+            combined[..32].copy_from_slice(left.as_ref());
+            combined[32..].copy_from_slice(right.as_ref());
+            let parent = sha256d(&combined);
+            next_level.push(parent);
+
+            i += 2;
+        }
+
+        curr_index /= 2;
+        curr_level = next_level;
+    }
+
+    let root = curr_level[0];
+    (cohashes, root)
+}
+
+/// Convenience type alias for the [`Txid`](bitcoin::Txid)-based proof.
+pub type L1TxProof = L1TxInclusionProof<TxIdMarker>;
+
+/// Convenience type alias for the [`Wtxid`](bitcoin::Wtxid)-based proof.
+pub type L1WtxProof = L1TxInclusionProof<WtxIdMarker>;
 
 /// A transaction along with its [L1TxInclusionProof], parameterized by a `Marker` type
 /// (either [`TxIdMarker`] or [`WtxIdMarker`]).
@@ -175,8 +364,38 @@ impl L1TxWithProofBundle {
 #[cfg(test)]
 mod tests {
     use bitcoin::Block;
+    use strata_primitives::Buf32;
 
-    use super::L1TxWithProofBundle;
+    use super::*;
+
+    #[test]
+    fn test_get_cohashes_from_wtxids_idx_2() {
+        let input = vec![
+            Buf32::from([1; 32]),
+            Buf32::from([2; 32]),
+            Buf32::from([3; 32]),
+            Buf32::from([4; 32]),
+            Buf32::from([5; 32]),
+        ];
+
+        let (cohashes, _root) = get_cohashes(&input, 2);
+        assert_eq!(cohashes.len(), 3);
+    }
+
+    #[test]
+    fn test_get_cohashes_from_wtxids_idx_5() {
+        let input = vec![
+            Buf32::from([1; 32]),
+            Buf32::from([2; 32]),
+            Buf32::from([3; 32]),
+            Buf32::from([4; 32]),
+            Buf32::from([5; 32]),
+            Buf32::from([6; 32]),
+        ];
+
+        let (cohashes, _root) = get_cohashes(&input, 5);
+        assert_eq!(cohashes.len(), 3);
+    }
 
     #[test]
     fn test_segwit_tx() {

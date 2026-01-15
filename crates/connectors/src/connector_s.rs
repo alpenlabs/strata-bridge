@@ -233,7 +233,7 @@ mod tests {
         transaction, Amount, BlockHash, OutPoint, Psbt, TapLeafHash, TapSighashType, Transaction,
         TxIn, TxOut,
     };
-    use bitcoind_async_client::types::SignRawTransactionWithWallet;
+    use bitcoind_async_client::corepc_types::v29::SignRawTransactionWithWallet;
     use corepc_node::{serde_json::json, Conf, Node};
     use secp256k1::{Message, SECP256K1};
     use strata_bridge_common::logging::{self, LoggerConfig};
@@ -341,11 +341,12 @@ mod tests {
                 "signrawtransactionwithwallet",
                 &[json!(consensus::encode::serialize_hex(&&funding_tx))],
             )
-            .expect("must be able to sign transaction");
+            .expect("must be able to sign transaction")
+            .into_model()
+            .expect("must be able to deserialize signed funding tx");
 
         assert!(signed_funding_tx.complete);
-        let signed_funding_tx =
-            consensus::encode::deserialize_hex(&signed_funding_tx.hex).expect("must deserialize");
+        let signed_funding_tx = signed_funding_tx.tx;
 
         // Broadcast the funding transaction
         let funding_txid = btc_client

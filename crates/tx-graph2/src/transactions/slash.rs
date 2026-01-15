@@ -7,9 +7,8 @@ use bitcoin::{
     Amount, OutPoint, Psbt, ScriptBuf, Transaction, TxIn, TxOut, Txid,
 };
 use secp256k1::schnorr;
-use strata_asm_txs_bridge_v1::constants::{BRIDGE_V1_SUBPROTOCOL_ID, SLASH_TX_TYPE};
-use strata_codec::Codec;
-use strata_l1_txfmt::{MagicBytes, ParseConfig, TagData};
+use strata_asm_txs_bridge_v1::slash::SlashTxHeaderAux;
+use strata_l1_txfmt::{MagicBytes, ParseConfig};
 use strata_primitives::bitcoin_bosd::Descriptor;
 
 use crate::{
@@ -40,10 +39,7 @@ impl SlashData {
     /// Computes the OP_RETURN leaf script that pushes
     /// the SPS-50 header of the slash transaction.
     pub fn header_leaf_script(&self) -> ScriptBuf {
-        let mut aux_data = Vec::new();
-        self.operator_idx.encode(&mut aux_data).unwrap();
-
-        let tag_data = TagData::new(BRIDGE_V1_SUBPROTOCOL_ID, SLASH_TX_TYPE, aux_data).unwrap();
+        let tag_data = SlashTxHeaderAux::new(self.operator_idx).build_tag_data();
         ParseConfig::new(self.magic_bytes)
             .encode_script_buf(&tag_data.as_ref())
             .unwrap()

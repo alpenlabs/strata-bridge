@@ -1,7 +1,3 @@
-#![expect(unreachable_pub)] // remove once the testing macros/functions are used
-#![expect(unused_imports)] // remove once the testing macros/functions are used
-#![expect(unused_variables)] // remove once the testing macros/functions are used
-#![expect(dead_code)] // remove once the testing macros/functions are used
 //! Testing utilities specific to the Deposit State Machine.
 //!
 //! This module provides helpers and `Arbitrary` implementations for testing
@@ -11,7 +7,6 @@ use std::collections::BTreeMap;
 
 use bitcoin::{Amount, Network, OutPoint};
 use bitcoin_bosd::Descriptor;
-use musig2::secp256k1::schnorr::Signature;
 use proptest::prelude::*;
 use secp256k1::{SECP256K1, SecretKey};
 use strata_bridge_primitives::{
@@ -32,11 +27,11 @@ use crate::testing::fixtures::{test_payout_tx, test_takeback_tx};
 // ===== Test Constants =====
 
 /// Block height used as the initial state in tests.
-pub const INITIAL_BLOCK_HEIGHT: u64 = 100;
+pub(super) const INITIAL_BLOCK_HEIGHT: u64 = 100;
 /// Block height used to represent a later block in tests.
-pub const LATER_BLOCK_HEIGHT: u64 = 150;
+pub(super) const LATER_BLOCK_HEIGHT: u64 = 150;
 /// Operator index used as the assignee in tests.
-pub const TEST_ASSIGNEE: OperatorIdx = 0;
+pub(super) const TEST_ASSIGNEE: OperatorIdx = 0;
 // TODO: (@Rajil1213) once rust-bitcoin@0.33.x lands this isn't necessary anymore. This is
 // due to a bug in rust-bitcoin (see <https://github.com/rust-bitcoin/rust-bitcoin/issues/4148>).
 const BIP34_MIN_BLOCK_HEIGHT: u64 = 17;
@@ -48,7 +43,7 @@ const TEST_COOPERATIVE_PAYOUT_TIMELOCK: u64 = 1008;
 // ===== Configuration Helpers =====
 
 /// Creates a test configuration for DepositSM.
-pub fn test_cfg() -> DepositCfg {
+pub(super) fn test_cfg() -> DepositCfg {
     DepositCfg {
         deposit_idx: 0,
         deposit_outpoint: OutPoint::default(),
@@ -59,7 +54,7 @@ pub fn test_cfg() -> DepositCfg {
 }
 
 /// Creates a minimal test operator table with 3 operators.
-pub fn test_operator_table() -> OperatorTable {
+pub(super) fn test_operator_table() -> OperatorTable {
     let sk1 = EvenSecretKey::from(SecretKey::from_slice(&[1u8; 32]).unwrap());
     let sk2 = EvenSecretKey::from(SecretKey::from_slice(&[2u8; 32]).unwrap());
     let sk3 = EvenSecretKey::from(SecretKey::from_slice(&[3u8; 32]).unwrap());
@@ -89,7 +84,7 @@ pub fn test_operator_table() -> OperatorTable {
 // ===== State Machine Helpers =====
 
 /// Creates a DepositSM from a given state.
-pub fn create_sm(state: DepositState) -> DepositSM {
+pub(super) fn create_sm(state: DepositState) -> DepositSM {
     DepositSM {
         cfg: test_cfg(),
         state,
@@ -97,7 +92,7 @@ pub fn create_sm(state: DepositState) -> DepositSM {
 }
 
 /// Gets the state from a DepositSM.
-pub const fn get_state(sm: &DepositSM) -> &DepositState {
+pub(super) const fn get_state(sm: &DepositSM) -> &DepositState {
     sm.state()
 }
 
@@ -108,13 +103,22 @@ impl Arbitrary for DepositState {
     type Strategy = BoxedStrategy<Self>;
 
     fn arbitrary_with(_args: Self::Parameters) -> Self::Strategy {
-        let operator_idx = 0u32..3u32;
         let outpoint = Just(OutPoint::default());
-        let block_height = (BIP34_MIN_BLOCK_HEIGHT as u32)..1000u32;
+        let block_height = BIP34_MIN_BLOCK_HEIGHT..1000u64;
 
         prop_oneof![
-            Just(DepositState::Created),
-            Just(DepositState::GraphGenerated),
+            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
+                DepositState::Created {
+                    deposit_request_outpoint: outpoint,
+                    block_height: height,
+                }
+            }),
+            (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
+                DepositState::GraphGenerated {
+                    deposit_request_outpoint: outpoint,
+                    block_height: height,
+                }
+            }),
             (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
                 DepositState::DepositNoncesCollected {
                     block_height: height,
@@ -144,7 +148,7 @@ impl Arbitrary for DepositState {
                 DepositState::Assigned {
                     block_height: height,
                     assignee: TEST_ASSIGNEE,
-                    deadline: height as u64 + TEST_DEADLINE_OFFSET,
+                    deadline: height + TEST_DEADLINE_OFFSET,
                     recipient_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
                         .expect("Failed to generate a random descriptor"),
                 }
@@ -154,8 +158,8 @@ impl Arbitrary for DepositState {
                     block_height: height,
                     assignee: TEST_ASSIGNEE,
                     fulfillment_txid: generate_txid(),
-                    fulfillment_block_height: height as u64,
-                    cooperative_payment_deadline: height as u64 + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
+                    fulfillment_height: height,
+                    cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                 }
             }),
             block_height.clone().prop_map(|height| {
@@ -164,7 +168,7 @@ impl Arbitrary for DepositState {
                     assignee: TEST_ASSIGNEE,
                     operator_desc: Descriptor::new_p2tr(&generate_xonly_pubkey().serialize())
                         .expect("Failed to generate a random descriptor"),
-                    cooperative_payment_deadline: height as u64 + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
+                    cooperative_payment_deadline: height + TEST_COOPERATIVE_PAYOUT_TIMELOCK,
                     payout_nonces: BTreeMap::new(),
                     payout_aggregated_nonce: generate_agg_nonce(),
                     payout_partial_signatures: BTreeMap::new(),
@@ -177,7 +181,9 @@ impl Arbitrary for DepositState {
                     payout_aggregated_signature: generate_signature(),
                 }
             }),
-            Just(DepositState::CooperativePathFailed),
+            block_height.prop_map(|height| DepositState::CooperativePathFailed {
+                block_height: height
+            }),
             Just(DepositState::Spent),
             Just(DepositState::Aborted),
         ]
@@ -196,6 +202,9 @@ impl Arbitrary for DepositEvent {
 
         prop_oneof![
             Just(DepositEvent::DepositRequest),
+            Just(DepositEvent::UserTakeBack {
+                tx: test_takeback_tx(OutPoint::default())
+            }),
             Just(DepositEvent::NonceReceived),
             Just(DepositEvent::PartialReceived),
             outpoint.prop_map(|outpoint| {
@@ -214,7 +223,7 @@ impl Arbitrary for DepositEvent {
             (outpoint, block_height.clone()).prop_map(|(outpoint, height)| {
                 DepositEvent::FulfillmentConfirmed {
                     fulfillment_transaction: generate_spending_tx(outpoint, &[]),
-                    fulfillment_block_height: height,
+                    fulfillment_height: height,
                 }
             }),
             operator_idx.clone().prop_map(|idx| {
@@ -229,14 +238,36 @@ impl Arbitrary for DepositEvent {
                     operator_idx: idx,
                 }
             }),
-            Just(DepositEvent::PayoutConfirmed),
-            Just(DepositEvent::NewBlock),
+            Just(DepositEvent::PayoutConfirmed {
+                tx: test_payout_tx(OutPoint::default())
+            }),
+            (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
+                block_height: height
+            }),
         ]
         .boxed()
     }
 }
 
 /// Strategy for generating only terminal states.
-pub fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
+pub(super) fn arb_terminal_state() -> impl Strategy<Value = DepositState> {
     prop_oneof![Just(DepositState::Spent), Just(DepositState::Aborted),]
+}
+
+/// Strategy for generating only events which have been handled in STFs
+// TODO: (@Rajil1213) remove this after all STFs have been implemented.
+pub(super) fn arb_handled_events() -> impl Strategy<Value = DepositEvent> {
+    let outpoint = OutPoint::default();
+
+    prop_oneof![
+        Just(DepositEvent::UserTakeBack {
+            tx: test_takeback_tx(outpoint)
+        }),
+        Just(DepositEvent::PayoutConfirmed {
+            tx: test_payout_tx(outpoint)
+        }),
+        (BIP34_MIN_BLOCK_HEIGHT..1000u64).prop_map(|height| DepositEvent::NewBlock {
+            block_height: height
+        }),
+    ]
 }

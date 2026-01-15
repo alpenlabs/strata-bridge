@@ -1,7 +1,7 @@
 //! Module to generate transactions for testing.
 
 use bitcoin::{consensus, Address, Amount, OutPoint, Transaction, TxOut};
-use bitcoind_async_client::types::{ListUnspent, SignRawTransactionWithWallet};
+use bitcoind_async_client::corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet};
 use corepc_node::{serde_json, Client};
 use strata_bridge_primitives::scripts::prelude::{create_tx, create_tx_ins, create_tx_outs};
 
@@ -25,9 +25,11 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
         .expect("must be able to mine blocks");
 
     let utxos = btc_client
-        .call::<Vec<ListUnspent>>("listunspent", &[])
-        .expect("must be able to get utxos");
-    let utxo = utxos.first().expect("must have at least one utxo");
+        .call::<ListUnspent>("listunspent", &[])
+        .expect("must be able to get utxos")
+        .into_model()
+        .expect("must be able to deserialize utxos");
+    let utxo = utxos.0.first().expect("must have at least one utxo");
 
     let mut tx = create_tx(
         create_tx_ins([OutPoint {
@@ -42,6 +44,8 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
 
     let change_amount = utxo
         .amount
+        .to_unsigned()
+        .expect("amount must be valid")
         .checked_sub(tx.output.iter().map(|output| output.value).sum::<Amount>() + FEES);
 
     tx.output.push(TxOut {
@@ -56,13 +60,13 @@ pub fn get_connector_txs<const NUM_LEAVES: usize>(
                 &tx,
             ))],
         )
-        .expect("must be able to fund tx");
+        .expect("must be able to fund tx")
+        .into_model()
+        .expect("must be able to deserialize signed tx")
+        .tx;
 
     let send_to_connector = btc_client
-        .send_raw_transaction(
-            &consensus::encode::deserialize_hex(&signed_tx.hex)
-                .expect("must be able to deserialize raw tx"),
-        )
+        .send_raw_transaction(&signed_tx)
         .expect("must be able to send tx");
 
     btc_client
@@ -117,11 +121,16 @@ pub fn get_mock_deposit(
         .expect("must be able to mine blocks");
 
     let utxos = btc_client
-        .call::<Vec<ListUnspent>>("listunspent", &[])
-        .expect("must be able to get utxos");
+        .call::<ListUnspent>("listunspent", &[])
+        .expect("must be able to get utxos")
+        .into_model()
+        .expect("must be able to deserialize utxos");
     let utxo = utxos
+        .0
         .iter()
-        .find(|utxo| utxo.amount >= deposit_amount + FEES)
+        .find(|utxo| {
+            utxo.amount.to_unsigned().expect("amount must be valid") >= deposit_amount + FEES
+        })
         .expect("must have at least one valid utxo");
 
     let mut tx = create_tx(
@@ -132,7 +141,11 @@ pub fn get_mock_deposit(
         create_tx_outs(vec![(bridge_address.script_pubkey(), deposit_amount)]),
     );
 
-    let change_amount = utxo.amount.checked_sub(deposit_amount + FEES);
+    let change_amount = utxo
+        .amount
+        .to_unsigned()
+        .expect("amount must be valid")
+        .checked_sub(deposit_amount + FEES);
 
     tx.output.push(TxOut {
         script_pubkey: src.script_pubkey(),
@@ -146,10 +159,11 @@ pub fn get_mock_deposit(
                 &tx,
             ))],
         )
-        .expect("must be able to fund tx");
+        .expect("must be able to fund tx")
+        .into_model()
+        .expect("must be able to deserialize signed tx");
 
-    let signed_deposit_tx: Transaction = consensus::encode::deserialize_hex(&signed_tx.hex)
-        .expect("must be able to deserialize raw tx");
+    let signed_deposit_tx = signed_tx.tx;
 
     btc_client
         .send_raw_transaction(&signed_deposit_tx)

@@ -2,4 +2,5 @@
 
 pub mod connectors;
 pub mod game_graph;
+pub mod musig_functor;
 pub mod transactions;

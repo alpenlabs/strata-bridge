@@ -22,6 +22,7 @@ use musig2::{
     AggNonce, PartialSignature, PubNonce,
 };
 use secp256k1::schnorr;
+use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_bridge_primitives::{
     build_context::TxBuildContext,
     constants::NUM_ASSERT_DATA_TX,
@@ -48,7 +49,6 @@ use strata_bridge_tx_graph::{
         },
     },
 };
-use strata_bridge_types::{DepositEntry, DepositState};
 use strata_p2p_types::{P2POperatorPubKey, WotsPublicKeys};
 use strata_params::RollupParams;
 use strata_primitives::buf::Buf32;
@@ -160,8 +160,8 @@ pub enum ContractEvent {
 
     /// Signifies that this withdrawal has been assigned.
     Assignment {
-        /// The deposit entry that contains a valid assignment.
-        deposit_entry: DepositEntry,
+        /// The assignment entry.
+        entry: AssignmentEntry,
 
         /// The stake transaction that needs to be settled before the withdrawal fulfillment and
         /// claim transactions can be settled.
@@ -1462,7 +1462,7 @@ impl ContractSM {
                 .map(|x| x.into_iter().collect()),
 
             ContractEvent::Assignment {
-                deposit_entry,
+                entry: deposit_entry,
                 stake_tx,
                 l1_start_height,
             } => self
@@ -2456,62 +2456,43 @@ impl ContractSM {
     /// Processes an assignment from the strata state commitment.
     pub fn process_assignment(
         &mut self,
-        assignment: &DepositEntry,
+        assignment: &AssignmentEntry,
         stake_tx: StakeTxKind,
         height: BitcoinBlockHeight,
     ) -> Result<Option<OperatorDuty>, TransitionErr> {
         let deposit_txid = self.deposit_txid();
         info!(%deposit_txid, ?assignment, current_state=%self.state().state, "processing assignment");
 
-        if assignment.idx() != self.cfg.deposit_idx {
+        if assignment.deposit_idx() != self.cfg.deposit_idx {
             return Err(TransitionErr(format!(
                 "unexpected assignment ({}) delivered to CSM ({})",
-                assignment.idx(),
+                assignment.deposit_idx(),
                 self.cfg.deposit_idx
             )));
         }
 
-        match assignment.deposit_state() {
-            DepositState::Dispatched(dispatched_state) => {
-                let assignee = dispatched_state.assignee();
-                debug!(%assignee, deposit_idx=%self.cfg.deposit_idx, "received withdrawal assignment");
+        let assignee = assignment.current_assignee();
+        debug!(%assignee, deposit_idx=%self.cfg.deposit_idx, "received withdrawal assignment");
 
-                let assignee_key = match self.cfg.operator_table.idx_to_p2p_key(&assignee) {
-                    Some(op_key) => op_key.clone(),
-                    None => {
-                        return Err(TransitionErr(format!(
-                            "could not convert operator index {assignee} to operator key"
-                        )));
-                    }
-                };
-                let recipient = dispatched_state
-                    .cmd()
-                    .withdraw_outputs()
-                    .first()
-                    .map(|out| out.destination()).ok_or_else(|| {
-                        TransitionErr(format!(
-                            "assignment does not contain a recipient for deposit txid {deposit_txid}",
-                        ))
-                    })?;
+        let assignee_key = match self.cfg.operator_table.idx_to_p2p_key(&assignee) {
+            Some(op_key) => op_key.clone(),
+            None => {
+                return Err(TransitionErr(format!(
+                    "could not convert operator index {assignee} to operator key"
+                )));
+            }
+        };
+        let withdrawal_metadata = WithdrawalMetadata {
+            tag: self.cfg().peg_out_graph_params.tag,
+            operator_idx: assignee,
+            deposit_idx: self.cfg.deposit_idx,
+            deposit_txid,
+        };
 
-                let withdrawal_request_txid = assignment
-                    .withdrawal_request_txid()
-                    .ok_or_else(|| {
-                        TransitionErr(format!(
-                            "assignment does not contain a withdrawal request txid for deposit txid {deposit_txid}",
-                        ))
-                    })?;
+        let recipient = assignment.withdrawal_command().destination();
+        let deadline = assignment.fulfillment_deadline();
 
-                let withdrawal_metadata = WithdrawalMetadata {
-                    tag: self.cfg().peg_out_graph_params.tag,
-                    operator_idx: assignee,
-                    deposit_idx: self.cfg.deposit_idx,
-                    deposit_txid,
-                };
-
-                let deadline = dispatched_state.fulfillment_deadline();
-
-                match &mut self.state.state {
+        match &mut self.state.state {
                     // new assignment
                     ContractState::Deposited {
                         peg_out_graphs,
@@ -2546,7 +2527,7 @@ impl ContractSM {
                             deadline,
                             active_graph,
                             recipient: recipient.clone(),
-                            withdrawal_request_txid,
+                            withdrawal_request_txid: Buf32::zero(), // FIXME: @prajwolrg. We don't expose withdrawal txid in assignment
                             l1_start_height: height,
                         };
 
@@ -2604,18 +2585,6 @@ impl ContractSM {
                         Ok(None)
                     }
                 }
-            }
-            _ => {
-                warn!(
-                    ?assignment,
-                    "received a non-dispatched deposit entry as an assignment"
-                );
-
-                Err(TransitionErr(format!(
-                    "received a non-dispatched deposit entry as an assignment {assignment:?}",
-                )))
-            }
-        }
     }
 
     fn process_fulfillment_confirmation(
@@ -3644,7 +3613,6 @@ mod prop_tests {
                 &drt_data,
                 &operator_table.tx_build_context(Network::Regtest),
                 &peg_out_graph_params,
-                &rollup_params,
             ).expect("consistent parameterization");
 
             ContractCfg {

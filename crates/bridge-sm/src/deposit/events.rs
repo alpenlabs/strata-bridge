@@ -16,6 +16,12 @@ use crate::signals::GraphToDeposit;
 pub enum DepositEvent {
     /// TODO: (@MdTeach)
     DepositRequest,
+    /// Event signifying that the output of the deposit request was spent by the user instead of the
+    /// bridge covenant.
+    UserTakeBack {
+        /// The transaction that spends the deposit request.
+        tx: Transaction,
+    },
     /// TODO: (@MdTeach)
     GraphMessage(GraphToDeposit),
     /// TODO: (@MdTeach)
@@ -42,7 +48,7 @@ pub enum DepositEvent {
         /// The fulfillment transaction, confirmed on-chain, in which the user was fronted.
         fulfillment_transaction: Transaction,
         /// The block height at which the fulfillment transaction was confirmed.
-        fulfillment_block_height: BitcoinBlockHeight,
+        fulfillment_height: BitcoinBlockHeight,
     },
     /// This event notifies that the output descriptor of the operator for the cooperative payout
     /// has been received.
@@ -68,15 +74,27 @@ pub enum DepositEvent {
         operator_idx: OperatorIdx,
     },
     /// TODO: (@Rajil1213)
-    PayoutConfirmed,
-    /// TODO: (@Rajil1213)
-    NewBlock,
+    PayoutConfirmed {
+        /// The transaction that confirms the payout.
+        tx: Transaction,
+    },
+    /// Event signalling that a new block has been observed on chain.
+    ///
+    /// This is required to deal with timelocks in various states and to track the last observed
+    /// block.
+    NewBlock {
+        /// The new block.
+        block_height: BitcoinBlockHeight,
+    },
 }
 
 impl std::fmt::Display for DepositEvent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let event_str = match self {
             DepositEvent::DepositRequest => "DepositRequest",
+            DepositEvent::UserTakeBack { tx } => {
+                return write!(f, "UserTakeBack via {}", tx.compute_txid());
+            }
             DepositEvent::GraphMessage(graph_msg) => match graph_msg {
                 GraphToDeposit::GraphAvailable { operator_idx } => {
                     return write!(f, "GraphAvailable for operator_idx: {}", operator_idx);
@@ -90,8 +108,12 @@ impl std::fmt::Display for DepositEvent {
             DepositEvent::PayoutDescriptorReceived { .. } => "PayoutDescriptorReceived",
             DepositEvent::PayoutNonceReceived { .. } => "PayoutNonceReceived",
             DepositEvent::PayoutPartialReceived { .. } => "PayoutPartialReceived",
-            DepositEvent::PayoutConfirmed => "PayoutConfirmed",
-            DepositEvent::NewBlock => "NewBlock",
+            DepositEvent::PayoutConfirmed { tx } => {
+                return write!(f, "PayoutConfirmed via {}", tx.compute_txid());
+            }
+            DepositEvent::NewBlock { block_height } => {
+                return write!(f, "NewBlock at height {}", block_height);
+            }
         };
 
         write!(f, "{}", event_str)

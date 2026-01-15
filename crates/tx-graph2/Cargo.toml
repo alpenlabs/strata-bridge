@@ -9,17 +9,21 @@ workspace = true
 [dependencies]
 strata-asm-txs-bridge-v1.workspace = true
 strata-bridge-primitives.workspace = true
-strata-codec.workspace = true
+strata-crypto.workspace = true
 strata-l1-txfmt.workspace = true
 strata-primitives.workspace = true
 
+algebra.workspace = true
 bitcoin = { workspace = true, features = ["rand-std"] }
+futures.workspace = true
 secp256k1 = { workspace = true, features = ["global-context", "rand-std"] }
+serde.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
 strata-bridge-common.workspace = true
 
+tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
 bitcoind-async-client.workspace = true
 corepc-node.workspace = true

@@ -153,7 +153,7 @@ mod tests {
             payout_timelock = 1_008
 
             [sidesystem]
-            magic_bytes = [65, 76, 80, 78]
+            magic_bytes = "ALPN"
             block_time = 1_000
             da_tag = "alpen-bridge-da"
             checkpoint_tag = "alpen-bridge-checkpoint"

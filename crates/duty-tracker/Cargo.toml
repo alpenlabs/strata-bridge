@@ -9,6 +9,7 @@ workspace = true
 [dependencies]
 algebra.workspace = true
 alpen-bridge-params.workspace = true
+strata-asm-proto-bridge-v1.workspace = true
 strata-bridge-connectors.workspace = true
 strata-bridge-db.workspace = true
 strata-bridge-p2p-service.workspace = true
@@ -18,11 +19,8 @@ strata-bridge-proof-protocol.workspace = true
 strata-bridge-proof-snark.workspace = true
 strata-bridge-stake-chain.workspace = true
 strata-bridge-tx-graph.workspace = true
-strata-bridge-types.workspace = true
 strata-checkpoint-types.workspace = true
-strata-ol-chainstate-types.workspace = true
 strata-params.workspace = true
-
 
 strata-p2p.workspace = true
 strata-p2p-types = { workspace = true, features = ["proptest"] }
@@ -39,7 +37,6 @@ bitcoin.workspace = true
 bitcoin-bosd.workspace = true
 bitcoind-async-client.workspace = true
 bitvm.workspace = true
-borsh.workspace = true
 btc-tracker.workspace = true
 futures.workspace = true
 musig2.workspace = true

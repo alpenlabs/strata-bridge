@@ -45,7 +45,6 @@ fn magic_tagged_data<'script>(tag: &[u8], script: &'script Script) -> Option<&'s
 
 pub(crate) fn deposit_request_info(
     tx: &Transaction,
-    sidesystem_params: &RollupParams,
     pegout_graph_params: &PegOutGraphParams,
     build_context: &impl BuildContext,
     stake_index: u32,
@@ -55,7 +54,8 @@ pub(crate) fn deposit_request_info(
         return None;
     }
 
-    let ee_address_size = sidesystem_params.max_address_length as usize;
+    // TODO: @prajwolrg: remove the hardcoded ee_address_size
+    let ee_address_size = 20;
     let tag = pegout_graph_params.tag.as_bytes();
 
     let (recovery_x_only_pk, el_addr) = magic_tagged_data(tag, &tx.output.get(1)?.script_pubkey)

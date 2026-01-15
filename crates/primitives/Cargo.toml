@@ -8,6 +8,7 @@ workspace = true
 
 [dependencies]
 alpen-bridge-params.workspace = true
+strata-crypto.workspace = true
 strata-primitives.workspace = true
 
 algebra.workspace = true

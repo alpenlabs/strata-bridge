@@ -289,7 +289,7 @@ mod tests {
     use std::{collections::HashSet, str::FromStr};
 
     use bitcoin::{consensus, Network};
-    use bitcoind_async_client::types::{ListUnspent, SignRawTransactionWithWallet};
+    use bitcoind_async_client::corepc_types::v29::{ListUnspent, SignRawTransactionWithWallet};
     use corepc_node::{serde_json::json, Conf, Node};
     use strata_bridge_common::logging::{self, LoggerConfig};
     use strata_bridge_test_utils::prelude::{find_funding_utxo, generate_keypair, sign_cpfp_child};
@@ -323,10 +323,13 @@ mod tests {
         let connector_cpfp = ConnectorCpfp::new(pubkey.into(), network);
 
         let unspent = btc_client
-            .call::<Vec<ListUnspent>>("listunspent", &[])
-            .expect("must be able to list unspent");
+            .call::<ListUnspent>("listunspent", &[])
+            .expect("must be able to list unspent")
+            .into_model()
+            .expect("must be able to deserialize utxos");
 
-        let unspent = unspent.first().expect("must have at least one utxo");
+        let unspent = unspent.0.first().expect("must have at least one utxo");
+
         let parent_input_utxo = OutPoint {
             txid: unspent.txid,
             vout: unspent.vout,
@@ -340,7 +343,11 @@ mod tests {
             (connector_cpfp_out, parent_prevout_amount),
             (
                 wallet_addr.script_pubkey(),
-                unspent.amount - parent_prevout_amount,
+                unspent
+                    .amount
+                    .to_unsigned()
+                    .expect("must be valid unsigned amount")
+                    - parent_prevout_amount,
             ),
         ]);
 
@@ -352,13 +359,20 @@ mod tests {
                 "signrawtransactionwithwallet",
                 &[json!(consensus::encode::serialize_hex(&unsigned_parent_tx))],
             )
-            .expect("must be able to sign parent tx");
-        let signed_parent_tx =
-            consensus::encode::deserialize_hex::<Transaction>(&signed_parent_tx.hex)
-                .expect("must be able to deserialize signed parent tx");
+            .expect("must be able to sign parent tx")
+            .into_model()
+            .expect("must be able to deserialize signed parent tx");
+        let signed_parent_tx = signed_parent_tx.tx;
 
-        let details =
-            CpfpInput::new(&signed_parent_tx, unspent.amount, 0).expect("values must be valid");
+        let details = CpfpInput::new(
+            &signed_parent_tx,
+            unspent
+                .amount
+                .to_unsigned()
+                .expect("must be valid unsigned amount"),
+            0,
+        )
+        .expect("values must be valid");
 
         let cpfp = Cpfp::new(details, connector_cpfp.clone());
 
