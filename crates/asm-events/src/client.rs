@@ -73,13 +73,12 @@ impl AsmEventFeed<Detached> {
 
     /// Attaches the ASM feed to a btc-tracker block subscription and starts workers.
     ///
-    /// Call this once before subscribing to ASM-derived event streams. Consumes the feed and
-    /// returns the attached version.
+    /// This spawns two background tasks:
+    /// - A block forwarder that forwards buried block notifications without blocking
+    /// - An assignments fetcher that queries ASM RPC and fans out results to subscribers
     ///
-    /// Note: this does not validate ASM RPC connectivity. The feed will retry and surface
-    /// failures via logs; if a fail-fast check is desired, add an explicit probe at bootstrap.
-    /// The block forwarder stays lightweight so block intake never stalls on ASM RPC latency,
-    /// while the fetcher handles timeouts/retries and fanout.
+    /// Note: this does not validate ASM RPC connectivity. The fetcher will retry failed
+    /// requests and log failures.
     pub fn attach_block_stream(
         self,
         block_sub: Subscription<BlockEvent>,
