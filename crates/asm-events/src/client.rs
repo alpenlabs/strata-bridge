@@ -15,21 +15,24 @@
 
 use std::{marker::PhantomData, sync::Arc};
 
-use algebra::retry::{retry_with, Strategy};
+use algebra::retry::{Strategy, retry_with};
 use bitcoin::BlockHash;
-use btc_tracker::event::BlockStatus;
+use btc_tracker::{
+    event::{BlockEvent, BlockStatus},
+    subscription::Subscription,
+};
 use futures::StreamExt;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_asm_rpc::traits::AssignmentsApiClient;
 use tokio::{
-    sync::{mpsc, watch, Mutex},
+    sync::{Mutex, mpsc, watch},
     task::{self, JoinHandle},
     time,
 };
 use tracing::{debug, error, info, warn};
 
-use crate::{config::AsmRpcConfig, event::AssignmentsState, subscription::Subscription};
+use crate::{config::AsmRpcConfig, event::AssignmentsState};
 
 /// Marker type indicating the feed is not attached to a block stream yet.
 #[derive(Debug)]
@@ -78,7 +81,7 @@ impl AsmEventFeed<Detached> {
     /// while the fetcher handles timeouts/retries and fanout.
     pub fn attach_block_stream(
         self,
-        block_sub: btc_tracker::subscription::Subscription<btc_tracker::event::BlockEvent>,
+        block_sub: Subscription<BlockEvent>,
     ) -> AsmEventFeed<Attached> {
         let (request_sender, request_receiver) = watch::channel(None);
         let subscribers_worker = self.subscribers.clone();
@@ -139,7 +142,7 @@ impl std::error::Error for FetchError {
 
 /// Forwards buried block refs to the assignments fetcher without blocking on RPC latency.
 async fn run_block_ref_forwarder(
-    mut block_sub: btc_tracker::subscription::Subscription<btc_tracker::event::BlockEvent>,
+    mut block_sub: Subscription<BlockEvent>,
     request_sender: watch::Sender<Option<BlockHash>>,
 ) {
     while let Some(block_event) = block_sub.next().await {
