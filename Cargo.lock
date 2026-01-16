@@ -9659,6 +9659,7 @@ dependencies = [
  "serde",
  "strata-asm-proto-bridge-v1",
  "strata-asm-rpc",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
 ]
