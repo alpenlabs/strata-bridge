@@ -1,10 +1,11 @@
 import flexitest
 
-from constants import BRIDGE_NETWORK_SIZE
 from envs.base_test import StrataTestBase
+from rpc.types import RpcDepositStatusComplete
+from utils.bridge import get_bridge_nodes_and_rpcs
+from utils.deposit import wait_until_deposit_status, wait_until_drt_recognized
 from utils.dev_cli import DevCli
-from utils.network import wait_until_p2p_connected
-from utils.utils import read_operator_key, wait_until
+from utils.utils import read_operator_key, wait_until_bridge_ready
 
 
 @flexitest.register
@@ -17,63 +18,43 @@ class BridgeDepositTest(StrataTestBase):
         ctx.set_env("network")
 
     def main(self, ctx: flexitest.RunContext):
-        num_operators = BRIDGE_NETWORK_SIZE
-        bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]
-        bridge_rpcs = [bridge_node.create_rpc() for bridge_node in bridge_nodes]
-
-        # Verify operator connectivity
-        wait_until_p2p_connected(bridge_rpcs)
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
 
         # Test deposit
         bitcoind_service = ctx.get_service("bitcoin")
         bitcoind_props = bitcoind_service.props
 
+        num_operators = len(bridge_nodes)
         musig2_keys = [read_operator_key(i).MUSIG2_KEY for i in range(num_operators)]
 
         dev_cli = DevCli(bitcoind_props, musig2_keys)
-        result = dev_cli.send_deposit_request()
-        self.logger.debug(f"Deposit request result: {result}")
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
 
         bridge_rpc = bridge_rpcs[0]
-        id = self.wait_until_first_drt_recognized(bridge_rpc)
+        deposit_id = wait_until_drt_recognized(bridge_rpc, drt_txid)
 
-        self.wait_until_deposit_complete(bridge_rpc, id)
+        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
+
+        # Reuse environment to check if deposit goes through even if the operator nodes crash midway
+        self.logger.info("Sending another DRT to test resilience against operator crashes")
+        drt_txid = dev_cli.send_deposit_request()
+        self.logger.info(f"Broadcasted DRT: {drt_txid}")
+
+        wait_until_drt_recognized(bridge_rpc, drt_txid)
+
+        self.logger.info("Crashing all operator nodes")
+        for i in range(num_operators):
+            self.logger.info(f"Stopping operator node {i}")
+            bridge_nodes[i].stop()
+
+        self.logger.info("Restarting nodes")
+        for i in range(num_operators):
+            self.logger.info(f"Restarting operator node {i}")
+            bridge_nodes[i].start()
+            wait_until_bridge_ready(bridge_rpcs[i])
+
+        self.logger.info("Waiting for deposit to complete after operator nodes restart")
+        wait_until_deposit_status(bridge_rpc, deposit_id, RpcDepositStatusComplete)
 
         return True
-
-    def wait_until_first_drt_recognized(self, bridge_rpc, timeout=300):
-        result = {"deposit_id": None}
-
-        def check_drt_recognized():
-            depositRequests = bridge_rpc.stratabridge_depositRequests()
-            self.logger.info(f"Current deposit requests: {depositRequests}")
-            if len(depositRequests) >= 1:
-                result["deposit_id"] = depositRequests[0]
-                return True
-            return False
-
-        wait_until(
-            check_drt_recognized,
-            timeout=timeout,
-            step=10,
-            error_msg=f"Timeout after {timeout} seconds waiting for DRT to be recognized",
-        )
-
-        return result["deposit_id"]
-
-    def wait_until_deposit_complete(self, bridge_rpc, deposit_id, timeout=300):
-        result = {"deposit_info": None}
-
-        def check_deposit_complete():
-            result["deposit_info"] = bridge_rpc.stratabridge_depositInfo(deposit_id)
-            self.logger.info(f"Deposit info for {deposit_id}: {result['deposit_info']}")
-            return result["deposit_info"].get("status", {}).get("status") == "complete"
-
-        wait_until(
-            check_deposit_complete,
-            timeout=timeout,
-            step=10,
-            error_msg=f"Timeout after {timeout} seconds waiting for deposit to complete",
-        )
-
-        return result["deposit_info"]
