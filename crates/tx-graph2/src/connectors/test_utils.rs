@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 use bitcoin::{
     absolute, consensus,
     sighash::{Prevouts, SighashCache},
-    transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxOut, Txid,
+    transaction, Address, Amount, BlockHash, OutPoint, Psbt, Transaction, TxIn, TxOut, Txid,
 };
 use bitcoind_async_client::corepc_types::v29::SignRawTransactionWithWallet;
 use corepc_node::{
@@ -206,10 +206,27 @@ impl BitcoinNode {
         }
     }
 
+    /// Returns a transaction input that spends a fresh coinbase UTXO.
+    ///
+    /// # Panics
+    ///
+    /// This method panics if there are no more coinbases.
+    /// In this case, you have to mine more blocks.
+    ///
+    /// # See
+    ///
+    /// [`BitcoinNode::next_coinbase_outpoint()`].
+    pub(crate) fn next_coinbase_txin(&mut self) -> TxIn {
+        TxIn {
+            previous_output: self.next_coinbase_outpoint(),
+            ..Default::default()
+        }
+    }
+
     /// Returns the transaction output of any coinbase transaction.
     ///
     /// This node sends coinbase funds always to the wallet address,
-    /// so the coinbase output is the same regardless of block height.
+    /// so the coinbase output is the same regardless of block height,
     /// regardless of block height.
     pub(crate) fn coinbase_tx_out(&self) -> TxOut {
         TxOut {
