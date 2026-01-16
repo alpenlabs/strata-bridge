@@ -42,7 +42,7 @@ def generate_config_toml(
         nag_interval=Duration(secs=30, nanos=0),
         min_withdrawal_fulfillment_window=144,
         stake_funding_pool_size=32,
-        shutdown_timeout=Duration(secs=30, nanos=0),
+        shutdown_timeout=Duration(secs=5, nanos=0),  # quick shutdown
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
