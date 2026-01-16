@@ -47,6 +47,10 @@ jobs:
         working-directory: functional-tests
         run: uv run ruff format --check
 
+      - name: Check types
+        working-directory: functional-tests
+        run: uv run ty check
+
       - name: Lint
         working-directory: functional-tests
         run: uv run ruff check
