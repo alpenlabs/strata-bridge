@@ -5,8 +5,8 @@
 
 use bitcoin::{
     Amount, Block, BlockHash, CompactTarget, Network, OutPoint, ScriptBuf, Sequence, Transaction,
-    TxIn, TxMerkleNode, Witness, block, blockdata, hashes::Hash, relative, script::Builder,
-    transaction,
+    TxIn, TxMerkleNode, Witness, XOnlyPublicKey, block, blockdata, hashes::Hash, relative,
+    script::Builder, transaction,
 };
 use secp256k1::{Keypair, SECP256K1};
 use strata_bridge_test_utils::bitcoin::generate_spending_tx;
@@ -33,26 +33,17 @@ pub fn test_payout_tx(outpoint: OutPoint) -> Transaction {
 
 /// Creates a test deposit transaction with deterministic values.
 ///
-/// This generates a `DepositTx` with fixed keypairs and test parameters:
-/// - Network: Regtest
-/// - Magic bytes: "TEST" (0x54455354)
-///
 /// # Arguments
 /// * `amount` - The amount for the deposit transaction
 /// * `timelock` - The relative locktime for the deposit request connector
-pub fn generate_test_deposit_txn(amount: Amount, timelock: relative::LockTime) -> DepositTx {
-    // Generate deterministic keypairs for testing
-    let n_of_n_keypair = Keypair::from_seckey_slice(SECP256K1, &[1u8; 32])
-        .expect("valid key");
-    let depositor_keypair = Keypair::from_seckey_slice(SECP256K1, &[2u8; 32])
-        .expect("valid key");
-
-    let n_of_n_pubkey = n_of_n_keypair.x_only_public_key().0;
-    let depositor_pubkey = depositor_keypair.x_only_public_key().0;
-
-    // Test values
-    let network = Network::Regtest;
-
+/// * `n_of_n_pubkey` - The n_of_n public key to use.
+/// * `depositor_pubkey` - The depositor's public key to use.
+pub fn generate_test_deposit_txn(
+    amount: Amount,
+    timelock: relative::LockTime,
+    n_of_n_pubkey: XOnlyPublicKey,
+    depositor_pubkey: XOnlyPublicKey,
+) -> DepositTx {
     // Create DepositData
     let data = DepositData {
         deposit_idx: 0,
@@ -61,14 +52,14 @@ pub fn generate_test_deposit_txn(amount: Amount, timelock: relative::LockTime) -
     };
 
     // Create connectors with matching network, internal_key, and value
-    let deposit_connector = NOfNConnector::new(network, n_of_n_pubkey, amount);
+    let deposit_connector = NOfNConnector::new(Network::Regtest, n_of_n_pubkey, amount);
 
     let deposit_request_connector = DepositRequestConnector::new(
-        network,
-        n_of_n_pubkey, // Must match deposit_connector
+        Network::Regtest,
+        n_of_n_pubkey,
         depositor_pubkey,
         timelock,
-        amount, // Must match deposit_connector
+        amount,
     );
 
     DepositTx::new(data, deposit_connector, deposit_request_connector)
