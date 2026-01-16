@@ -21,7 +21,7 @@ use btc_tracker::event::BlockStatus;
 use futures::StreamExt;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
-use strata_bridge_asm_rpc::traits::AssignmentsApiClient;
+use strata_asm_rpc::traits::AssignmentsApiClient;
 use tokio::{
     sync::{mpsc, watch, Mutex},
     task::{self, JoinHandle},

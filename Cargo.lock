@@ -9615,6 +9615,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata-asm-rpc"
+version = "0.1.0"
+dependencies = [
+ "bitcoin",
+ "jsonrpsee",
+ "strata-asm-proto-bridge-v1",
+]
+
+[[package]]
 name = "strata-asm-txs-bridge-v1"
 version = "0.1.0"
 source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
@@ -9649,18 +9658,9 @@ dependencies = [
  "jsonrpsee",
  "serde",
  "strata-asm-proto-bridge-v1",
- "strata-bridge-asm-rpc",
+ "strata-asm-rpc",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "strata-bridge-asm-rpc"
-version = "0.1.0"
-dependencies = [
- "bitcoin",
- "jsonrpsee",
- "strata-asm-proto-bridge-v1",
 ]
 
 [[package]]
