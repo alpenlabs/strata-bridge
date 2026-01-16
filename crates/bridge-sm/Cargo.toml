@@ -15,6 +15,7 @@ thiserror.workspace = true
 
 [dev-dependencies]
 strata-bridge-test-utils.workspace = true
+musig2.workspace = true
 
 proptest.workspace = true
 secp256k1.workspace = true
