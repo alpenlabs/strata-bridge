@@ -1,8 +1,7 @@
-import logging
-
 import flexitest
 
 from rpc.client import JsonrpcClient
+from utils.utils import wait_until
 
 
 def inject_service_create_rpc(svc: flexitest.service.ProcService, rpc_url: str, name: str):
@@ -15,9 +14,8 @@ def inject_service_create_rpc(svc: flexitest.service.ProcService, rpc_url: str, 
         """
         Hook to check that the process is still running before every call.
         """
-        if not svc.check_status():
-            logging.warning(f"service '{name}' seems to have crashed as of call to {method}")
-            raise RuntimeError(f"process '{name}' crashed")
+        # TODO: (@Rajil1213) make `timeout` and `step` configurable
+        wait_until(svc.check_status, timeout=30, step=1, error_msg=f"service '{name}' has stopped")
 
     def _create_rpc() -> JsonrpcClient:
         vrpc = JsonrpcClient(rpc_url)
