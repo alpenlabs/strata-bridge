@@ -1,7 +1,7 @@
 import flexitest
 
-from constants import BRIDGE_NETWORK_SIZE
 from envs.base_test import StrataTestBase
+from utils.bridge import get_bridge_nodes_and_rpcs
 from utils.network import wait_until_p2p_connected
 from utils.utils import wait_until_bridge_ready
 
@@ -17,14 +17,7 @@ class BridgeNetworkTest(StrataTestBase):
         ctx.set_env("network")
 
     def main(self, ctx: flexitest.RunContext):
-        num_operators = BRIDGE_NETWORK_SIZE
-        bridge_nodes = [ctx.get_service(f"bridge_node_{idx}") for idx in range(num_operators)]
-        bridge_rpcs = [bridge_node.create_rpc() for bridge_node in bridge_nodes]
-
-        # Verify operator connectivity
-        self.logger.info("Verifying P2P connectivity among bridge nodes")
-        wait_until_p2p_connected(bridge_rpcs)
-        self.logger.info("All bridge nodes are connected via P2P")
+        bridge_nodes, bridge_rpcs = get_bridge_nodes_and_rpcs(ctx)
 
         # Stop all bridge nodes
         for idx, bridge_node in enumerate(bridge_nodes):
