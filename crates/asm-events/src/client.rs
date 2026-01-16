@@ -25,6 +25,7 @@ use futures::StreamExt;
 use jsonrpsee::http_client::{HttpClient, HttpClientBuilder};
 use strata_asm_proto_bridge_v1::AssignmentEntry;
 use strata_asm_rpc::traits::AssignmentsApiClient;
+use thiserror::Error;
 use tokio::{
     sync::{Mutex, mpsc, watch},
     task::{self, JoinHandle},
@@ -116,28 +117,13 @@ impl AsmEventFeed<Attached> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 enum FetchError {
-    Rpc(jsonrpsee::core::ClientError),
+    #[error("RPC error: {0}")]
+    Rpc(#[from] jsonrpsee::core::ClientError),
+
+    #[error("Request timed out")]
     Timeout,
-}
-
-impl std::fmt::Display for FetchError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            FetchError::Rpc(err) => write!(f, "RPC error: {}", err),
-            FetchError::Timeout => write!(f, "Request timed out"),
-        }
-    }
-}
-
-impl std::error::Error for FetchError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            FetchError::Rpc(err) => Some(err),
-            FetchError::Timeout => None,
-        }
-    }
 }
 
 /// Forwards buried block refs to the assignments fetcher without blocking on RPC latency.
