@@ -470,6 +470,16 @@ impl DepositSM {
                 linked_graphs,
             } => match graph_msg {
                 GraphToDeposit::GraphAvailable { operator_idx } => {
+                    // Check for duplicate graph submission
+                    if linked_graphs.contains(&operator_idx) {
+                        return Err(DSMError::Duplicate {
+                            state: Box::new(self.state().clone()),
+                            event: Box::new(DepositEvent::GraphMessage(
+                                GraphToDeposit::GraphAvailable { operator_idx },
+                            )),
+                        });
+                    }
+
                     linked_graphs.insert(operator_idx);
 
                     if linked_graphs.len() == operator_table_cardinality {
@@ -894,16 +904,14 @@ mod tests {
     use std::str::FromStr;
 
     use bitcoin::{Amount, OutPoint, relative};
-    use musig2::KeyAggContext;
     use proptest::prelude::*;
-    use secp256k1::Message;
     use strata_bridge_test_utils::prelude::generate_spending_tx;
 
     use super::*;
     use crate::{
         deposit::testing::*,
         prop_deterministic, prop_no_silent_acceptance, prop_terminal_states_reject,
-        testing::{fixtures::*, signer::TestMusigSigner, transition::*},
+        testing::{fixtures::*, transition::*},
     };
 
     // ===== Unit Tests for process_drt_takeback =====
@@ -1133,33 +1141,79 @@ mod tests {
         );
     }
 
-    // ===== Process Partials Tests =====
+    // ===== Process Graph Available Tests =====
 
-    fn get_signing_info(
-        deposit_tx: &DepositTx,
-        operator_signers: &[TestMusigSigner],
-    ) -> (KeyAggContext, Message) {
-        let signing_info = deposit_tx.signing_info();
-        let info = signing_info
-            .first()
-            .expect("deposit transaction must have signing info");
+    #[test]
+    fn test_process_graph_available_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_table = test_operator_table();
+        let operator_count = operator_table.cardinality() as u32;
 
-        let sighash = info.sighash;
+        let initial_state = DepositState::Created {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: BTreeSet::new(),
+        };
 
-        let tweak = info
-            .tweak
-            .expect("DRT->DT key-path spend must include a taproot tweak")
-            .expect("tweak must be present for deposit transaction");
+        let sm = create_sm(initial_state);
+        let mut seq = EventSequence::new(sm, get_state);
 
-        let tap_witness = TaprootWitness::Tweaked { tweak };
+        for operator_idx in 0..operator_count {
+            seq.process(DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable {
+                operator_idx,
+            }));
+        }
 
-        let btc_keys: Vec<_> = operator_signers.iter().map(|s| s.pubkey()).collect();
+        seq.assert_no_errors();
 
-        let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
-            .expect("must be able to create key aggregation context");
+        // Should transition to GraphGenerated
+        assert!(matches!(seq.state(), DepositState::GraphGenerated { .. }));
 
-        (key_agg_ctx, sighash)
+        // No duties should be emitted
+        assert!(
+            seq.all_duties().is_empty(),
+            "No duties should be emitted on graph completion"
+        );
     }
+
+    #[test]
+    fn test_duplicate_process_graph_available_sequence() {
+        let deposit_tx = default_deposit_tx();
+        let operator_table = test_operator_table();
+        let operator_count = operator_table.cardinality() as u32;
+
+        let initial_state = DepositState::Created {
+            deposit_transaction: deposit_tx.clone(),
+            drt_block_height: INITIAL_BLOCK_HEIGHT,
+            output_index: 0,
+            block_height: INITIAL_BLOCK_HEIGHT,
+            linked_graphs: BTreeSet::new(),
+        };
+
+        let sm = create_sm(initial_state.clone());
+        let mut seq = EventSequence::new(sm, get_state);
+
+        // Process GraphAvailable messages, all operators except the last one
+        for operator_idx in 0..(operator_count - 1) {
+            let event = DepositEvent::GraphMessage(GraphToDeposit::GraphAvailable { operator_idx });
+            seq.process(event.clone());
+
+            // Process the same event again to simulate duplicate
+            test_invalid_transition::<DepositSM, _, _, _, _, _, _>(
+                create_sm,
+                InvalidTransition {
+                    from_state: seq.state().clone(),
+                    event,
+                    expected_error: |e| matches!(e, DSMError::Duplicate { .. }),
+                },
+            );
+        }
+    }
+
+    // ===== Process Nonce Received Tests =====
+
     #[test]
     fn test_process_nonce_sequence() {
         let deposit_tx = default_deposit_tx();
@@ -1263,6 +1317,7 @@ mod tests {
         }
     }
 
+    // ===== Process Partial Received Tests =====
     #[test]
     fn test_process_partial_sequence() {
         let deposit_tx = default_deposit_tx();

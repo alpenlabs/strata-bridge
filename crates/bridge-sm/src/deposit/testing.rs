@@ -4,12 +4,15 @@
 //! the DepositSM across multiple state transition functions.
 
 use bitcoin::OutPoint;
+use musig2::KeyAggContext;
 use proptest::prelude::*;
-use secp256k1::{SECP256K1, SecretKey};
+use secp256k1::{Message, SECP256K1, SecretKey};
 use strata_bridge_p2p_types::P2POperatorPubKey;
 use strata_bridge_primitives::{
-    operator_table::OperatorTable, secp::EvenSecretKey, types::OperatorIdx,
+    key_agg::create_agg_ctx, operator_table::OperatorTable, scripts::taproot::TaprootWitness,
+    secp::EvenSecretKey, types::OperatorIdx,
 };
+use strata_bridge_tx_graph2::transactions::{PresignedTx, prelude::DepositTx};
 
 use super::{
     events::DepositEvent,
@@ -71,6 +74,9 @@ pub(super) fn test_operator_table() -> OperatorTable {
         .expect("Failed to create test operator table")
 }
 
+// ==== Signer Helpers =====
+
+/// Creates test musig signers for the operators.
 pub(super) fn test_operator_signers() -> Vec<TestMusigSigner> {
     let sk1 = EvenSecretKey::from(SecretKey::from_slice(&[1u8; 32]).unwrap());
     let sk2 = EvenSecretKey::from(SecretKey::from_slice(&[2u8; 32]).unwrap());
@@ -81,6 +87,33 @@ pub(super) fn test_operator_signers() -> Vec<TestMusigSigner> {
         TestMusigSigner::new(1, *sk2),
         TestMusigSigner::new(2, *sk3),
     ]
+}
+
+/// Retrieves the key aggregation context and message for signing a deposit transaction.
+pub(super) fn get_signing_info(
+    deposit_tx: &DepositTx,
+    operator_signers: &[TestMusigSigner],
+) -> (KeyAggContext, Message) {
+    let signing_info = deposit_tx.signing_info();
+    let info = signing_info
+        .first()
+        .expect("deposit transaction must have signing info");
+
+    let sighash = info.sighash;
+
+    let tweak = info
+        .tweak
+        .expect("DRT->DT key-path spend must include a taproot tweak")
+        .expect("tweak must be present for deposit transaction");
+
+    let tap_witness = TaprootWitness::Tweaked { tweak };
+
+    let btc_keys: Vec<_> = operator_signers.iter().map(|s| s.pubkey()).collect();
+
+    let key_agg_ctx = create_agg_ctx(btc_keys, &tap_witness)
+        .expect("must be able to create key aggregation context");
+
+    (key_agg_ctx, sighash)
 }
 
 // ===== State Machine Helpers =====
