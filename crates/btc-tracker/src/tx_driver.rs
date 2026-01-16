@@ -359,6 +359,10 @@ mod e2e_tests {
             format!("-zmqpubrawblock={raw_block_socket}"),
             format!("-zmqpubrawtx={raw_tx_socket}"),
             format!("-zmqpubsequence={sequence_socket}"),
+            // NOTE: (@Rajil1213) without this, the node will respond with status code 500
+            // when rebroadcasting or querying for mined transactions, causing idempotence tests to
+            // fail or become flaky.
+            "-txindex=1".to_string(),
         ];
         bitcoin_conf.args.extend(args.iter().map(String::as_str));
         let bitcoind = corepc_node::Node::with_conf("bitcoind", &bitcoin_conf)?;

@@ -11,6 +11,7 @@ use strata_bridge_connectors::prelude::{
     ConnectorNOfN, ConnectorP,
 };
 use strata_bridge_db::public::PublicDb;
+use strata_bridge_p2p_types::WotsPublicKeys;
 use strata_bridge_primitives::{constants::NUM_ASSERT_DATA_TX, wots::Assertions};
 use strata_bridge_proof_snark::bridge_vk;
 use strata_bridge_stake_chain::prelude::PAYOUT_VOUT as STAKE_TO_PAYOUT_VOUT;
@@ -22,7 +23,6 @@ use strata_bridge_tx_graph::transactions::{
         PreAssertData, PreAssertTx,
     },
 };
-use strata_p2p_types::WotsPublicKeys;
 use tracing::{info, warn};
 
 use crate::{

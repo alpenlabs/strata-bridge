@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use bitcoin::Txid;
+use bitcoin::{Network, Txid};
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
@@ -23,6 +23,24 @@ pub(crate) enum Commands {
     Challenge(ChallengeArgs),
 
     Disprove(DisproveArgs),
+
+    DeriveKeys(DeriveKeysArgs),
+}
+
+#[derive(Parser, Debug, Clone)]
+#[command(
+    about = "Derive operator keys and addresses from a master xpriv seed",
+    version
+)]
+pub(crate) struct DeriveKeysArgs {
+    #[arg(help = "32-byte hex-encoded seed (64 hex characters)")]
+    pub(crate) seed: String,
+
+    #[arg(
+        help = "network to derive addresses for",
+        default_value_t = Network::Regtest
+    )]
+    pub(crate) network: Network,
 }
 
 #[derive(Parser, Debug, Clone)]

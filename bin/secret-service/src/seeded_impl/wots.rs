@@ -4,39 +4,30 @@ use bitcoin::{bip32::Xpriv, hashes::Hash, Txid};
 use bitvm::signatures::{Wots, Wots16 as wots_hash, Wots32 as wots256};
 use hkdf::Hkdf;
 use make_buf::make_buf;
-use musig2::secp256k1::SECP256K1;
 use secret_service_proto::v2::traits::{Server, WotsSigner};
 use sha2::Sha256;
+use strata_bridge_key_deriv::{WotsIkm, WotsIkm128, WotsIkm256};
 use wots::{
     key_width, wots_public_key, wots_sign_128_bitvm, wots_sign_256_bitvm, PARAMS_128,
     PARAMS_128_TOTAL_LEN, PARAMS_256, PARAMS_256_TOTAL_LEN, WINTERNITZ_DIGIT_WIDTH,
 };
 
-use super::paths::{WOTS_IKM_128_PATH, WOTS_IKM_256_PATH};
-
 /// A Winternitz One-Time Signature (WOTS) key generator seeded with some initial key material.
 #[derive(Debug)]
 pub struct SeededWotsSigner {
     /// Initial key material for 128-bit WOTS keys.
-    ikm_128: [u8; 32],
+    ikm_128: WotsIkm128,
     /// Initial key material for 256-bit WOTS keys.
-    ikm_256: [u8; 32],
+    ikm_256: WotsIkm256,
 }
 
 impl SeededWotsSigner {
     /// Creates a new WOTS signer from an operator's base private key (m/20000').
     pub fn new(base: &Xpriv) -> Self {
+        let wots_ikm = WotsIkm::derive(base).expect("valid wots ikm");
         Self {
-            ikm_128: base
-                .derive_priv(SECP256K1, &WOTS_IKM_128_PATH)
-                .unwrap()
-                .private_key
-                .secret_bytes(),
-            ikm_256: base
-                .derive_priv(SECP256K1, &WOTS_IKM_256_PATH)
-                .unwrap()
-                .private_key
-                .secret_bytes(),
+            ikm_128: wots_ikm.ikm_128,
+            ikm_256: wots_ikm.ikm_256,
         }
     }
 }
@@ -49,7 +40,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         prestake_vout: u32,
         index: u32,
     ) -> [u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)] {
-        let hk = Hkdf::<Sha256>::new(None, &self.ikm_128);
+        let hk = Hkdf::<Sha256>::new(None, &*self.ikm_128);
         let mut okm = [0u8; 20 * key_width(128, WINTERNITZ_DIGIT_WIDTH)];
         let info = make_buf! {
             (prestake_txid.as_raw_hash().as_byte_array(), 32),
@@ -67,7 +58,7 @@ impl WotsSigner<Server> for SeededWotsSigner {
         vout: u32,
         index: u32,
     ) -> [u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)] {
-        let hk = Hkdf::<Sha256>::new(None, &self.ikm_256);
+        let hk = Hkdf::<Sha256>::new(None, &*self.ikm_256);
         let mut okm = [0u8; 20 * key_width(256, WINTERNITZ_DIGIT_WIDTH)];
         let info = make_buf! {
             (txid.as_raw_hash().as_byte_array(), 32),

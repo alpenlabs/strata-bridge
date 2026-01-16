@@ -55,7 +55,7 @@ class DevCli:
                 error_msg += f"Stderr: {e.stderr}\n"
             raise RuntimeError(error_msg) from e
 
-    def send_deposit_request(self):
+    def send_deposit_request(self) -> str:
         rpc_port = self.bitcoind_props["rpc_port"]  # fail fast if missing
         wallet = self.bitcoind_props.get("walletname", "testwallet")
 
@@ -74,4 +74,6 @@ class DevCli:
         ]
 
         res = self._run_command(args)
-        return res
+        # HACK: (@Rajil1213) parse raw stdout to extract txid
+        txid = res.splitlines()[-1].split("=")[-1].strip()
+        return txid

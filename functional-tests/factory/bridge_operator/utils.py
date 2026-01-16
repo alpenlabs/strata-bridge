@@ -34,6 +34,7 @@ def generate_config_toml(
     tls_dir: str,
 ):
     mtls_dir = Path(tls_dir)
+    total_peers = len(other_p2p_addrs) + 1  # +1 for self
 
     config = BridgeOperatorConfig(
         datadir=datadir,
@@ -41,7 +42,7 @@ def generate_config_toml(
         nag_interval=Duration(secs=30, nanos=0),
         min_withdrawal_fulfillment_window=144,
         stake_funding_pool_size=32,
-        shutdown_timeout=Duration(secs=30, nanos=0),
+        shutdown_timeout=Duration(secs=5, nanos=0),  # quick shutdown
         secret_service_client=SecretServiceClientConfig(
             server_addr=f"127.0.0.1:{s2_props.get('s2_port')}",
             server_hostname="secret-service",
@@ -66,6 +67,13 @@ def generate_config_toml(
             dial_timeout=Duration(secs=0, nanos=250_000_000),
             general_timeout=Duration(secs=0, nanos=250_000_000),
             connection_check_interval=Duration(secs=0, nanos=500_000_000),
+            # Configure gossipsub mesh for small network
+            # Each operator can only see n-1 peers, so mesh_n_low must be <= n-1
+            gossipsub_mesh_n=total_peers - 1,
+            gossipsub_mesh_n_low=1,
+            gossipsub_mesh_n_high=total_peers,
+            # Use permissive scoring for test networks (disables penalties for localhost testing)
+            gossipsub_scoring_preset="permissive",
         ),
         rpc=RpcConfig(
             rpc_addr=f"127.0.0.1:{rpc_port}", refresh_interval=Duration(secs=10, nanos=0)

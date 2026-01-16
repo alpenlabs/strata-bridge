@@ -1,31 +1,24 @@
 //! In-memory persistence for operator's secret data.
 
-use bitcoin::{
-    bip32::Xpriv,
-    key::{Keypair, TapTweak},
-    TapNodeHash, XOnlyPublicKey,
-};
+use bitcoin::{bip32::Xpriv, key::TapTweak, TapNodeHash, XOnlyPublicKey};
 use musig2::secp256k1::{schnorr::Signature, Message, SECP256K1};
 use secret_service_proto::v2::traits::{Origin, SchnorrSigner, Server};
-use strata_bridge_primitives::secp::EvenSecretKey;
-
-use super::paths::{GENERAL_WALLET_KEY_PATH, STAKECHAIN_WALLET_KEY_PATH};
+use strata_bridge_key_deriv::{GeneralWalletKey, StakechainWalletKey, WalletKeys};
 
 /// General wallet signer in-memory implementation.
 #[derive(Debug)]
 pub struct GeneralWalletSigner {
-    /// [`Keypair`] for signing messages.
-    kp: Keypair,
+    /// Keypair for signing messages.
+    kp: GeneralWalletKey,
 }
 
 impl GeneralWalletSigner {
     /// Create a new operator with the given base xpriv.
     pub fn new(base: &Xpriv) -> Self {
-        let xp = base
-            .derive_priv(SECP256K1, &GENERAL_WALLET_KEY_PATH)
-            .expect("good child key");
-        let kp = Keypair::from_secret_key(SECP256K1, &EvenSecretKey::from(xp.private_key));
-        Self { kp }
+        let wallet_keys = WalletKeys::derive(base).expect("valid wallet keys");
+        Self {
+            kp: wallet_keys.general,
+        }
     }
 }
 
@@ -54,18 +47,17 @@ impl SchnorrSigner<Server> for GeneralWalletSigner {
 /// Stakechain wallet signer in-memory implementation.
 #[derive(Debug)]
 pub struct StakechainWalletSigner {
-    /// [`Keypair`] for signing messages.
-    kp: Keypair,
+    /// Keypair for signing messages.
+    kp: StakechainWalletKey,
 }
 
 impl StakechainWalletSigner {
     /// Create a new operator with the given base xpriv.
     pub fn new(base: &Xpriv) -> Self {
-        let xp = base
-            .derive_priv(SECP256K1, &STAKECHAIN_WALLET_KEY_PATH)
-            .expect("good child key");
-        let kp = Keypair::from_secret_key(SECP256K1, &EvenSecretKey::from(xp.private_key));
-        Self { kp }
+        let wallet_keys = WalletKeys::derive(base).expect("valid wallet keys");
+        Self {
+            kp: wallet_keys.stakechain,
+        }
     }
 }
 

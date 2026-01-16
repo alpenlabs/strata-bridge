@@ -5,6 +5,7 @@ use duty_tracker::executors::config::StakeTxRetryConfig;
 use libp2p::Multiaddr;
 use serde::{Deserialize, Serialize};
 use strata_bridge_db::persistent::config::DbConfig;
+use strata_bridge_p2p_service::GossipsubScoringPreset;
 
 /// Configuration values that dictate the behavior of the bridge node.
 ///
@@ -138,6 +139,32 @@ pub(crate) struct P2PConfig {
     /// Default is
     /// [`DEFAULT_CONNECTION_CHECK_INTERVAL`](strata_p2p::swarm::DEFAULT_CONNECTION_CHECK_INTERVAL).
     pub connection_check_interval: Option<Duration>,
+
+    /// Target number of peers in the gossipsub mesh.
+    ///
+    /// Default is 6 (libp2p gossipsub default).
+    pub gossipsub_mesh_n: Option<usize>,
+
+    /// Minimum number of peers in the gossipsub mesh before grafting more.
+    ///
+    /// Default is 5 (libp2p gossipsub default).
+    pub gossipsub_mesh_n_low: Option<usize>,
+
+    /// Maximum number of peers in the gossipsub mesh before pruning.
+    ///
+    /// Default is 12 (libp2p gossipsub default).
+    pub gossipsub_mesh_n_high: Option<usize>,
+
+    /// Gossipsub peer scoring preset.
+    ///
+    /// If not specified, defaults to `default` which uses libp2p's standard
+    /// scoring parameters.
+    ///
+    /// Set to `permissive` for test networks.
+    pub gossipsub_scoring_preset: Option<GossipsubScoringPreset>,
+
+    /// Initial delay for the gossipsub heartbeat.
+    pub gossipsub_heartbeat_initial_delay: Option<Duration>,
 }
 
 /// RPC server configuration.
@@ -196,6 +223,7 @@ mod tests {
             dial_timeout = { secs = 0, nanos = 250_000_000 }
             general_timeout = { secs = 0, nanos = 250_000_000 }
             connection_check_interval = { secs = 0, nanos = 500_000_000 }
+            gossipsub_scoring_preset = "permissive"
 
             [operator_wallet]
             stake_funding_pool_size = 32

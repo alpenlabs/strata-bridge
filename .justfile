@@ -137,7 +137,7 @@ lint-fix-func-tests: ensure-uv activate-uv
 # Lints the functional tests
 [group('code-quality')]
 lint-check-func-tests: ensure-uv activate-uv
-    cd {{functional_tests_dir}} && uv run ruff check
+    cd {{functional_tests_dir}} && uv run ruff check && uv run ty check
 
 # Check if cargo-audit is installed
 [group('prerequisites')]
@@ -375,6 +375,11 @@ disprove:
         --params bin/dev-cli/params.toml \
         --vk-path strata-bridge-groth16-vk.hex \
         --bridge-node-url http://localhost:15678/rpc
+
+# Derive operator keys from a seed for functional tests
+[group('bridge')]
+derive-keys seed:
+    cargo r --bin dev-cli -- derive-keys {{seed}}
 
 [doc("\
 Performs the following experiment:
