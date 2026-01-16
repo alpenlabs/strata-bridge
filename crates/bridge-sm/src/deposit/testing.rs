@@ -15,7 +15,10 @@ use super::{
     events::DepositEvent,
     state::{DepositCfg, DepositSM, DepositState},
 };
-use crate::testing::fixtures::{test_payout_tx, test_takeback_tx};
+use crate::testing::{
+    fixtures::{test_payout_tx, test_takeback_tx},
+    signer::TestMusigSigner,
+};
 
 // ===== Test Constants =====
 
@@ -66,6 +69,18 @@ pub(super) fn test_operator_table() -> OperatorTable {
 
     OperatorTable::new(operators, |entry| entry.0 == 0)
         .expect("Failed to create test operator table")
+}
+
+pub(super) fn test_operator_signers() -> Vec<TestMusigSigner> {
+    let sk1 = EvenSecretKey::from(SecretKey::from_slice(&[1u8; 32]).unwrap());
+    let sk2 = EvenSecretKey::from(SecretKey::from_slice(&[2u8; 32]).unwrap());
+    let sk3 = EvenSecretKey::from(SecretKey::from_slice(&[3u8; 32]).unwrap());
+
+    vec![
+        TestMusigSigner::new(0, *sk1),
+        TestMusigSigner::new(1, *sk2),
+        TestMusigSigner::new(2, *sk3),
+    ]
 }
 
 // ===== State Machine Helpers =====
