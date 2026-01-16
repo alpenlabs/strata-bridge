@@ -137,7 +137,7 @@ lint-fix-func-tests: ensure-uv activate-uv
 # Lints the functional tests
 [group('code-quality')]
 lint-check-func-tests: ensure-uv activate-uv
-    cd {{functional_tests_dir}} && uv run ruff check
+    cd {{functional_tests_dir}} && uv run ruff check && uv run ty check
 
 # Check if cargo-audit is installed
 [group('prerequisites')]
