@@ -804,13 +804,18 @@ impl ContractManagerCtx {
     ) -> Result<Vec<OperatorDuty>, ContractManagerErr> {
         let mut duties = Vec::new();
         for entry in assignments {
-            let sm = self
+            let Some(sm) = self
                 .state
                 .active_contracts
                 .iter_mut()
                 .find(|(_, state)| state.deposit_idx() == entry.deposit_idx())
                 .map(|(_, state)| state)
-                .expect("assignment must be valid");
+            else {
+                // NOTE: This is expected for nodes that joined later and don't have all historical
+                // contracts. It's safe to skip assignments for unknown deposits.
+                warn!(deposit_idx = %entry.deposit_idx(), "assignment received for unknown deposit, skipping");
+                continue;
+            };
 
             let pov_op_p2p_key = self.cfg.operator_table.pov_p2p_key();
 
