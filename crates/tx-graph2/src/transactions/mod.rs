@@ -14,6 +14,7 @@ pub mod deposit;
 pub mod not_presigned;
 pub mod prelude;
 pub mod slash;
+pub mod stake;
 pub mod uncontested_payout;
 pub mod withdrawal_fulfillment;
 
