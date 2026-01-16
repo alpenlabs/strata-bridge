@@ -929,7 +929,7 @@ dependencies = [
  "strata-p2p",
  "strata-p2p-types",
  "strata-params",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "strata-tasks",
  "tikv-jemallocator",
  "tokio",
@@ -3403,7 +3403,7 @@ dependencies = [
  "strata-p2p-types",
  "strata-p2p-wire",
  "strata-params",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "strata-tasks",
  "thiserror 2.0.17",
  "tokio",
@@ -7300,7 +7300,7 @@ dependencies = [
  "serde_json",
  "strata-bridge-proof-primitives",
  "strata-params",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
 ]
 
 [[package]]
@@ -9528,20 +9528,20 @@ checksum = "9091b6114800a5f2141aee1d1b9d6ca3592ac062dc5decb3764ec5895a47b4eb"
 [[package]]
 name = "strata-asm-bridge-msgs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "borsh",
  "serde",
  "strata-asm-common",
  "strata-asm-txs-bridge-v1",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
 ]
 
 [[package]]
 name = "strata-asm-common"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -9559,7 +9559,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-logs"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "borsh",
  "strata-asm-common",
@@ -9568,13 +9568,13 @@ dependencies = [
  "strata-codec-utils",
  "strata-msg-fmt",
  "strata-predicate",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
 ]
 
 [[package]]
 name = "strata-asm-manifest-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "borsh",
  "serde",
@@ -9594,7 +9594,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-proto-bridge-v1"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -9610,7 +9610,7 @@ dependencies = [
  "strata-btc-types",
  "strata-codec",
  "strata-crypto",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "thiserror 2.0.17",
 ]
 
@@ -9626,7 +9626,7 @@ dependencies = [
 [[package]]
 name = "strata-asm-txs-bridge-v1"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -9634,14 +9634,14 @@ dependencies = [
  "strata-bridge-types",
  "strata-codec",
  "strata-l1-txfmt",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "thiserror 2.0.17",
 ]
 
 [[package]]
 name = "strata-asm-types"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "strata-btc-types",
  "strata-btc-verification",
@@ -9779,7 +9779,7 @@ dependencies = [
  "strata-bridge-types",
  "strata-crypto",
  "strata-p2p-types",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "thiserror 2.0.17",
 ]
 
@@ -9793,7 +9793,7 @@ dependencies = [
  "borsh",
  "strata-bridge-test-utils",
  "strata-crypto",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
 ]
 
 [[package]]
@@ -9808,7 +9808,7 @@ dependencies = [
  "strata-bridge-common",
  "strata-bridge-proof-primitives",
  "strata-params",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "thiserror 2.0.17",
  "tracing",
  "zkaleido 0.1.0 (git+https://github.com/alpenlabs/zkaleido?tag=v0.1.0-alpha-rc11)",
@@ -9845,7 +9845,7 @@ dependencies = [
  "jsonrpsee",
  "serde",
  "strata-bridge-primitives",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
 ]
 
 [[package]]
@@ -9944,24 +9944,24 @@ dependencies = [
  "strata-bridge-primitives",
  "strata-bridge-test-utils",
  "strata-l1-txfmt",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
  "tokio",
 ]
 
 [[package]]
 name = "strata-bridge-types"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "borsh",
  "serde",
- "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize)",
+ "strata-primitives 0.3.0-alpha.1 (git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69)",
 ]
 
 [[package]]
 name = "strata-btc-types"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -9983,7 +9983,7 @@ dependencies = [
 [[package]]
 name = "strata-btc-verification"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -9998,7 +9998,7 @@ dependencies = [
 [[package]]
 name = "strata-checkpoint-types"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "borsh",
@@ -10029,7 +10029,7 @@ dependencies = [
 [[package]]
 name = "strata-codec-utils"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "borsh",
  "ssz",
@@ -10040,7 +10040,7 @@ dependencies = [
 [[package]]
 name = "strata-crypto"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -10058,7 +10058,7 @@ dependencies = [
 [[package]]
 name = "strata-identifiers"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
@@ -10168,7 +10168,7 @@ dependencies = [
 [[package]]
 name = "strata-params"
 version = "0.1.0"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "bitcoin",
  "borsh",
@@ -10202,7 +10202,7 @@ dependencies = [
 [[package]]
 name = "strata-primitives"
 version = "0.3.0-alpha.1"
-source = "git+https://github.com/alpenlabs/alpen.git?branch=refactor%2Fderive-serde-serialize#fa88369eeb24f27364c5aad18ee2178a8a48a7d9"
+source = "git+https://github.com/alpenlabs/alpen.git?rev=21cf498e6af1018bae0a2985d4375d1bd5056c69#21cf498e6af1018bae0a2985d4375d1bd5056c69"
 dependencies = [
  "arbitrary",
  "bitcoin",
